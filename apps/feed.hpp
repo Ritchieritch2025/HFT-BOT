@@ -25,7 +25,14 @@
 
 namespace kalshi::feed {
 
-using EventHandler = std::function<void(wire::MarketEvent&)>;
+// Steady-clock stamps for the full-chain latency probe: when the raw market
+// data arrived and when this event was parsed out of it.
+struct EventTiming {
+  std::uint64_t received_steady_ns = 0;
+  std::uint64_t parsed_steady_ns = 0;
+};
+
+using EventHandler = std::function<void(wire::MarketEvent&, const EventTiming&)>;
 
 // For running against public endpoints without account credentials (market
 // data GETs ignore the key). Order paths need real credentials.
@@ -52,6 +59,8 @@ inline int run_synthetic(int count, int interval_ms, const EventHandler& on_even
   daemon::logf("feed: synthetic tape, %d events @ %dms", count, interval_ms);
   std::uint64_t seq = 0;
   for (int i = 0; i < count && !daemon::g_stop.load(std::memory_order_relaxed); ++i) {
+    EventTiming timing;
+    timing.received_steady_ns = daemon::steady_now_ns();
     wire::MarketEvent ev;
     ev.kind = wire::kEventTicker;
     ev.set_ticker(i % 2 == 0 ? "TEST-MKT-A" : "TEST-MKT-B");
@@ -62,7 +71,8 @@ inline int run_synthetic(int count, int interval_ms, const EventHandler& on_even
     ev.open_interest = 5000;
     ev.ts_ns = daemon::now_ns();
     ev.seq = ++seq;
-    on_event(ev);
+    timing.parsed_steady_ns = daemon::steady_now_ns();
+    on_event(ev, timing);
     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
   }
   daemon::logf("feed: synthetic tape done (%" PRIu64 " events)", seq);
@@ -90,6 +100,7 @@ inline int run_poll(KalshiClient& client, int interval_ms,
     const auto t_next = std::chrono::steady_clock::now() +
                         std::chrono::milliseconds(interval_ms);
     auto resp = client.request(Method::Get, path);
+    const std::uint64_t received_steady_ns = daemon::steady_now_ns();
     if (!resp) {
       daemon::logf("feed: poll transport error: %s", resp.error().message.c_str());
     } else if (!resp->ok()) {
@@ -152,7 +163,8 @@ inline int run_poll(KalshiClient& client, int interval_ms,
           ev.volume = t.vol;
           ev.ts_ns = daemon::now_ns();
           ev.seq = ++seq;
-          on_event(ev);
+          EventTiming timing{received_steady_ns, daemon::steady_now_ns()};
+          on_event(ev, timing);
           ++published;
         }
         if (published > 0)

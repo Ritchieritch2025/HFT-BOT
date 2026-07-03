@@ -44,6 +44,7 @@ export KALSHI_API_KEY_ID=pipeline-test KALSHI_PRIVATE_KEY_PATH="$OUT/key.pem"
 export KALSHI_BASE_URL="http://127.0.0.1:$MOCK_PORT"
 
 # tradingd runs the tape on its hot thread, drains its ring, and exits.
+export TRADINGD_LATENCY_CSV="$OUT/full_chain_latency.csv"
 ./build/tradingd --synthetic 100 5 >"$OUT/tradingd.log" 2>&1
 sleep 0.3  # let telemetry finish its final drain writes
 
@@ -138,6 +139,12 @@ STATUS=$?
 
 # 3. The exchange-side check Kalshi would run: verify captured signatures.
 python3 tests/verify_captured.py "$OUT/capture.jsonl" "$OUT/pub.pem" "$OSSL" 25 || STATUS=1
+
+# 4. Full-chain latency breakdown (data received -> order accepted).
+if [ -s "$OUT/full_chain_latency.csv" ]; then
+  echo "--- full-chain latency (vs mock exchange) ---"
+  python3 tests/analyze_full_chain_latency.py "$OUT/full_chain_latency.csv"
+fi
 
 if [ "$STATUS" -eq 0 ]; then echo "PIPELINE PASS"; else echo "PIPELINE FAIL"; fi
 exit "$STATUS"

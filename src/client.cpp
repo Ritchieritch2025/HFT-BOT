@@ -406,9 +406,13 @@ std::expected<Response, Error> KalshiClient::send_request(
   }
 
   curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &resp.status);
-  curl_off_t total_us = 0;
+  curl_off_t total_us = 0, pre_us = 0, start_us = 0;
   curl_easy_getinfo(h, CURLINFO_TOTAL_TIME_T, &total_us);
+  curl_easy_getinfo(h, CURLINFO_PRETRANSFER_TIME_T, &pre_us);
+  curl_easy_getinfo(h, CURLINFO_STARTTRANSFER_TIME_T, &start_us);
   resp.total_time_us = static_cast<long long>(total_us);
+  resp.pretransfer_us = static_cast<long long>(pre_us);
+  resp.starttransfer_us = static_cast<long long>(start_us);
   return resp;
 }
 

@@ -29,6 +29,7 @@
 #include "daemon_util.hpp"
 #include "feed.hpp"
 #include "kalshi/client.hpp"
+#include "kalshi/full_chain_latency_probe.hpp"
 #include "kalshi/resp.hpp"
 #include "kalshi/ring.hpp"
 #include "kalshi/strategy.hpp"
@@ -56,7 +57,12 @@ struct OrderMsg {
   wire::ExecPayload intent{};
   std::uint64_t decision_steady_ns = 0;  // stamped at submit() entry
   std::uint64_t enqueue_steady_ns = 0;   // stamped just before try_push
+  latency_probe::Trace trace{};          // full-chain marks (steady clock)
 };
+
+void set_mark(latency_probe::Trace& tr, latency_probe::Event e, std::uint64_t ns) {
+  tr.t[static_cast<std::size_t>(e)] = ns;
+}
 
 struct TelemetryRecord {
   enum class Kind : std::uint8_t {
@@ -148,11 +154,13 @@ class TokenBucket {
 struct Engine {
   Ring<OrderMsg> orders;
   Ring<TelemetryRecord> telemetry;
+  Ring<latency_probe::Trace> probe{4096};  // completed traces -> CSV, cold path
   Doorbell bell;
   TokenBucket bucket;
   KalshiClient& client;
   std::uint64_t max_queue_age_ns;
   bool spin;
+  bool probe_enabled = false;  // set when TRADINGD_LATENCY_CSV names a file
 
   std::atomic<std::uint64_t> drain_deadline_steady{0};  // set at shutdown
   std::atomic<std::uint64_t> submitted{0}, expired{0}, rate_limited{0},
@@ -188,6 +196,12 @@ class InlineExecutor final : public ExecSink {
  public:
   explicit InlineExecutor(Engine& e) : e_(e) {}
 
+  // Called by the dispatch loop before the strategies see each event.
+  void begin_event(const feed::EventTiming& timing) {
+    event_timing_ = timing;
+    dispatch_start_ns_ = steady_now_ns();
+  }
+
   void submit(std::uint8_t strategy_id, wire::ExecPayload p) override {
     const std::uint64_t t_decision = steady_now_ns();
     p.magic = wire::kExecMagic;
@@ -206,6 +220,15 @@ class InlineExecutor final : public ExecSink {
     }
 
     OrderMsg m{p, t_decision, steady_now_ns()};
+    if (e_.probe_enabled) {
+      using latency_probe::Event;
+      m.trace.reset((static_cast<std::uint64_t>(strategy_id) << 56) | p.seq);
+      set_mark(m.trace, Event::DataReceived, event_timing_.received_steady_ns);
+      set_mark(m.trace, Event::DataParsed, event_timing_.parsed_steady_ns);
+      set_mark(m.trace, Event::DecisionStart, dispatch_start_ns_);
+      set_mark(m.trace, Event::DecisionDone, t_decision);
+      set_mark(m.trace, Event::RiskDone, m.enqueue_steady_ns);  // decode_exec passed
+    }
     if (!e_.orders.try_push(std::move(m))) {
       // Full ring means the submit path is catastrophically behind; these
       // intents are already dead. Drop loudly, never block market data.
@@ -221,6 +244,8 @@ class InlineExecutor final : public ExecSink {
  private:
   Engine& e_;
   std::array<std::uint64_t, wire::kStrategySlots> seq_{};
+  feed::EventTiming event_timing_{};
+  std::uint64_t dispatch_start_ns_ = 0;
 };
 
 // ------------------------------------------------------------- submit lane
@@ -243,7 +268,9 @@ void process_order(Engine& e, KalshiClient::Lane& lane, OrderMsg& m) {
     return;
   }
 
+  using latency_probe::Event;
   const std::uint64_t t_sign = steady_now_ns();
+  set_mark(m.trace, Event::SignStart, t_sign);
   auto req = e.client.sign_request(Method::Post, wire::kCreateOrderPath,
                                    wire::order_json(m.intent));
   if (!req) {
@@ -253,8 +280,27 @@ void process_order(Engine& e, KalshiClient::Lane& lane, OrderMsg& m) {
     return;
   }
   const std::uint64_t t_send = steady_now_ns();
+  set_mark(m.trace, Event::SignDone, t_send);
+  set_mark(m.trace, Event::WriteStart, t_send);
   auto resp = lane.send(*req);
   const std::uint64_t t_done = steady_now_ns();
+  if (e.probe_enabled) {
+    set_mark(m.trace, Event::ResponseDone, t_done);
+    if (resp) {
+      // curl offsets from transfer start: PRETRANSFER ~ request about to be
+      // written (WriteDone approximation on a warm keep-alive connection),
+      // STARTTRANSFER = first response byte.
+      if (resp->pretransfer_us > 0)
+        set_mark(m.trace, Event::WriteDone,
+                 t_send + static_cast<std::uint64_t>(resp->pretransfer_us) * 1000);
+      if (resp->starttransfer_us > 0)
+        set_mark(m.trace, Event::ResponseFirstByte,
+                 t_send + static_cast<std::uint64_t>(resp->starttransfer_us) * 1000);
+      if (resp->ok()) set_mark(m.trace, Event::OrderAccepted, steady_now_ns());
+    }
+    if (!e.probe.try_push(std::move(m.trace)))
+      e.telemetry_dropped.fetch_add(1, std::memory_order_relaxed);
+  }
 
   TelemetryRecord rec = make_record(TelemetryRecord::Kind::Submitted, m.intent,
                                     queue_us);
@@ -358,21 +404,38 @@ std::string telemetry_json(const TelemetryRecord& r) {
 void telemetry_worker(Engine& e, std::atomic<bool>& stop) {
   resp::RespClient redis(daemon::env_or("REDIS_HOST", "127.0.0.1"),
                          daemon::env_int("REDIS_PORT", 6379));
+  const std::string csv_path = daemon::env_or("TRADINGD_LATENCY_CSV", "");
+  std::FILE* csv = nullptr;
+  if (!csv_path.empty()) {
+    csv = std::fopen(csv_path.c_str(), "w");
+    if (csv) latency_probe::write_csv_header(csv);
+    else logf("tradingd: cannot open %s for latency CSV", csv_path.c_str());
+  }
+
   TelemetryRecord rec;
+  latency_probe::Trace trace;
   std::uint64_t pushed = 0;
   for (;;) {
+    bool worked = false;
     if (e.telemetry.try_pop(rec)) {
+      worked = true;
       if (auto r = redis.lpush(wire::kResultList, telemetry_json(rec)); !r) {
         e.telemetry_dropped.fetch_add(1, std::memory_order_relaxed);
         redis.close();  // reconnect on next record; never block trading
       } else if (++pushed % 4096 == 0 && *r > 20000) {
         (void)redis.ltrim(wire::kResultList, 0, 9999);
       }
-      continue;
     }
+    if (csv && e.probe.try_pop(trace)) {
+      worked = true;
+      latency_probe::write_csv_row(csv, trace);
+      std::fflush(csv);
+    }
+    if (worked) continue;
     if (stop.load(std::memory_order_relaxed)) break;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
+  if (csv) std::fclose(csv);
 }
 
 }  // namespace
@@ -405,6 +468,7 @@ int main(int argc, char** argv) {
   const int keepalive_s = daemon::env_int("TRADINGD_KEEPALIVE_S", 15);
 
   Engine engine(ring_cap, max_rate, client, max_age_ns, spin);
+  engine.probe_enabled = std::getenv("TRADINGD_LATENCY_CSV") != nullptr;
   InlineExecutor executor(engine);
   auto strategies = make_strategies();
   logf("tradingd: %zu strategy slots, %d lanes, ring=%zu, %s wakeup",
@@ -421,7 +485,9 @@ int main(int argc, char** argv) {
 
   // Per-slot quarantine: one bad strategy must not take down execution.
   std::array<int, wire::kStrategySlots> consecutive_throws{};
-  const feed::EventHandler dispatch = [&](wire::MarketEvent& ev) {
+  const feed::EventHandler dispatch = [&](wire::MarketEvent& ev,
+                                          const feed::EventTiming& timing) {
+    executor.begin_event(timing);
     for (size_t i = 0; i < strategies.size(); ++i) {
       if (consecutive_throws[i] >= 3) continue;  // quarantined
       try {

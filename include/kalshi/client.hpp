@@ -65,6 +65,8 @@ struct Response {
   long status = 0;              // HTTP status code
   std::string body;             // raw response payload (JSON)
   long long total_time_us = 0;  // request round-trip time measured by libcurl
+  long long pretransfer_us = 0; // curl: until the request was about to be sent
+  long long starttransfer_us = 0;  // curl: until the first response byte (TTFB)
   long long server_date_ms = 0; // server Date header (ms since epoch, 0 if
                                 // absent) — compare with local time to spot
                                 // the clock skew behind 401 streaks

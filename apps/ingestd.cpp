@@ -45,7 +45,8 @@ int main(int argc, char** argv) {
   daemon::install_signal_handlers();
   TapePublisher publish(daemon::env_or("REDIS_HOST", "127.0.0.1"),
                         daemon::env_int("REDIS_PORT", 6379));
-  const feed::EventHandler handler = [&](wire::MarketEvent& ev) { publish(ev); };
+  const feed::EventHandler handler = [&](wire::MarketEvent& ev,
+                                         const feed::EventTiming&) { publish(ev); };
 
   const std::string mode = argc > 1 ? argv[1] : "--synthetic";
   if (mode == "--synthetic") {
