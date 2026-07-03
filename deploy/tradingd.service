@@ -1,0 +1,25 @@
+# /etc/systemd/system/tradingd.service
+[Unit]
+Description=Kalshi trading engine (tradingd)
+After=network-online.target chrony.service chronyd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust to the user that owns /opt/kalshi and can read the key file.
+User=ubuntu
+WorkingDirectory=/opt/kalshi
+EnvironmentFile=/etc/kalshi/tradingd.env
+ExecStart=/opt/kalshi/build/tradingd --poll 500
+Restart=on-failure
+RestartSec=2
+# SIGTERM triggers the engine's drain-with-deadline shutdown (TRADINGD_DRAIN_MS).
+TimeoutStopSec=10
+LimitNOFILE=65536
+# Optional latency tuning: pin the engine off the OS/IRQ cores, e.g. on a
+# 4-vCPU box keep 0-1 for the system and give tradingd 2-3:
+# CPUAffinity=2 3
+# With dedicated cores you can also set TRADINGD_SPIN=1 in the env file.
+
+[Install]
+WantedBy=multi-user.target
