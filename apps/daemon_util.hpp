@@ -21,10 +21,21 @@ inline void install_signal_handlers() {
   std::signal(SIGPIPE, SIG_IGN);
 }
 
+// Wall clock: for anything the outside world sees (signature timestamps,
+// ExecPayload::ts_ns / client_order_id determinism).
 inline std::uint64_t now_ns() {
   return static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::system_clock::now().time_since_epoch())
+          .count());
+}
+
+// Monotonic clock: for every latency span and staleness gate — immune to NTP
+// steps that could spuriously expire (or immortalize) queued orders.
+inline std::uint64_t steady_now_ns() {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
           .count());
 }
 

@@ -29,16 +29,17 @@ target_compile_options(kalshi PRIVATE -Wall -Wextra)
 add_executable(kalshi_example examples/kalshi_example.cpp)
 target_link_libraries(kalshi_example PRIVATE kalshi)
 
-# Pipeline daemons: Ingestion / Processing / Execution.
-foreach(daemon ingestd stratd execd)
+# tradingd: the single-process trading engine. ingestd: cold-path tape recorder.
+foreach(daemon tradingd ingestd)
   add_executable(${daemon} apps/${daemon}.cpp)
   target_include_directories(${daemon} PRIVATE apps)
   target_link_libraries(${daemon} PRIVATE kalshi)
 endforeach()
 
 enable_testing()
-foreach(t test_signing test_integration test_resp)
+foreach(t test_signing test_integration test_resp test_ring)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
 add_test(NAME signing COMMAND test_signing)
+add_test(NAME ring COMMAND test_ring)

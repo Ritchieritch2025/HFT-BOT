@@ -21,7 +21,7 @@ CXXFLAGS := -std=c++23 -O2 -Wall -Wextra -Wpedantic \
 LDLIBS := $(CRYPTO_LIBS) -lcurl
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
-        $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/stratd $(BUILD)/execd
+        $(BUILD)/test_resp $(BUILD)/test_ring $(BUILD)/ingestd $(BUILD)/tradingd
 
 all: $(BINS)
 
@@ -53,26 +53,38 @@ $(BUILD)/test_integration: tests/test_integration.cpp $(BUILD)/client.o
 $(BUILD)/test_resp: tests/test_resp.cpp $(BUILD)/resp.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-# --- pipeline daemons: Ingestion / Processing / Execution ---
+$(BUILD)/test_ring: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_ring.cpp -o $@
 
-$(BUILD)/ingestd: apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+# --- the trading engine (hot path) and the tape recorder (cold path) ---
 
-$(BUILD)/stratd: apps/stratd.cpp $(BUILD)/resp.o $(BUILD)/strategies.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+$(BUILD)/tradingd: apps/tradingd.cpp apps/feed.hpp apps/daemon_util.hpp \
+                   include/kalshi/ring.hpp $(BUILD)/client.o $(BUILD)/resp.o \
+                   $(BUILD)/strategies.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/tradingd.cpp $(BUILD)/client.o $(BUILD)/resp.o \
+	    $(BUILD)/strategies.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/execd: apps/execd.cpp $(BUILD)/client.o $(BUILD)/resp.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+$(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-# ThreadSanitizer build of the integration test. Note: libcrypto/libcurl are
-# not TSan-instrumented, so this validates our pool/signing call sites and
-# anything crossing them — not OpenSSL's internals.
+# ThreadSanitizer builds. Note: libcrypto/libcurl are not TSan-instrumented,
+# so these validate our ring/doorbell/pool call sites — not OpenSSL internals.
+# test_ring_tsan is pure C++ and fully instrumented.
 $(BUILD)/test_integration_tsan: tests/test_integration.cpp src/client.cpp | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=thread \
 	    -Iinclude $(OPENSSL_INC) \
 	    tests/test_integration.cpp src/client.cpp -o $@ $(LDLIBS)
 
-tsan: $(BUILD)/test_integration_tsan
+$(BUILD)/test_ring_tsan: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
+	$(CXX) -std=c++23 -O1 -g -fsanitize=thread -Iinclude tests/test_ring.cpp -o $@
+
+$(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.cpp src/strategies.cpp $(BUILD)/simdjson.o | $(BUILD)
+	$(CXX) -std=c++23 -O1 -g -fsanitize=thread \
+	    -Iinclude -Iapps -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
+	    apps/tradingd.cpp src/client.cpp src/resp.cpp src/strategies.cpp \
+	    $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
+tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing

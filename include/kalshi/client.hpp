@@ -47,6 +47,20 @@ struct Error {
   std::string message;
 };
 
+// A fully composed, signed, ready-to-send request. Owns everything it needs
+// (including the body), so it can be queued and moved across threads freely.
+// Produced by KalshiClient::sign_request() — pure CPU, no pool, no I/O.
+struct SignedRequest {
+  Method method = Method::Get;
+  std::string url;             // base_url + api_prefix + path
+  std::string sig_header;      // "KALSHI-ACCESS-SIGNATURE: <base64>"
+  std::string ts_header;       // "KALSHI-ACCESS-TIMESTAMP: <ms>"
+  std::string body;            // owned copy of the JSON body
+  long long signed_ts_ms = 0;  // the ms timestamp embedded in the signature;
+                               // gate on now-signed_ts_ms to drop stale queue
+                               // entries before they 401 at the exchange
+};
+
 struct Response {
   long status = 0;              // HTTP status code
   std::string body;             // raw response payload (JSON)
@@ -110,25 +124,58 @@ class KalshiClient {
   // request() composes and signs messages itself; this is exposed for tests.
   std::expected<std::string, Error> sign(std::string_view message) const;
 
+  // Split transport API (request() == sign_request() then send_signed()).
+  //
+  // sign_request: compose + RSA-PSS sign (~100-200us CPU). const and
+  // thread-safe; touches neither the pool nor the network, so the hot
+  // decision path can call it while workers are mid-send.
+  std::expected<SignedRequest, Error> sign_request(
+      Method method, std::string_view path,
+      std::string_view json_body = {}) const;
+
+  // send_signed: lease a pooled connection and fire. Blocks for the RTT.
+  std::expected<Response, Error> send_signed(const SignedRequest& req);
+
+  // Exclusive, permanently pinned connection for one worker thread. A Lane
+  // never touches the shared pool: its easy handle owns one TCP socket
+  // carrying its own HTTP/2 session (ALPN, transparent HTTP/1.1 fallback),
+  // so parallel workers cannot contend on a socket or the pool mutex.
+  // Use each Lane from its owning thread only. Must not outlive the client.
+  class Lane {
+   public:
+    Lane(Lane&& other) noexcept
+        : client_(other.client_), handle_(other.handle_) {
+      other.handle_ = nullptr;
+    }
+    Lane& operator=(Lane&&) = delete;
+    Lane(const Lane&) = delete;
+    Lane& operator=(const Lane&) = delete;
+    ~Lane();
+
+    std::expected<Response, Error> send(const SignedRequest& req);
+    // Signed GET {api_prefix}/exchange/status: establishes/keeps the TLS
+    // session warm so a real order never pays the handshake.
+    std::expected<Response, Error> ping();
+
+   private:
+    friend class KalshiClient;
+    Lane(KalshiClient& client, CURL* handle) : client_(&client), handle_(handle) {}
+    KalshiClient* client_;
+    CURL* handle_;
+  };
+
+  Lane make_lane();  // throws std::runtime_error on handle-creation failure
+
   const Config& config() const noexcept { return cfg_; }
 
  private:
   class Lease;
 
-  // URL + auth headers, composed and signed before a connection is leased.
-  struct Prepared {
-    std::string url;
-    std::string sig_header;
-    std::string ts_header;
-  };
-
   CURL* acquire();  // nullptr when acquire_timeout_ms expires
   void release(CURL* handle) noexcept;
-  std::expected<Prepared, Error> prepare(Method method,
-                                         std::string_view path) const;
-  std::expected<Response, Error> send_request(CURL* handle, Method method,
-                                              const Prepared& prepared,
-                                              std::string_view body);
+  std::expected<Response, Error> send_request(CURL* handle,
+                                              const SignedRequest& req,
+                                              bool use_http2);
 
   Config cfg_;
   EVP_PKEY* pkey_ = nullptr;

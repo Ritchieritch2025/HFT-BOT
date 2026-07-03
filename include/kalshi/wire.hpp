@@ -1,15 +1,18 @@
 #pragma once
 //
-// Wire formats for the three-layer pipeline:
+// Wire formats for the trading engine:
 //
-//   [Ingestion] --MarketEvent--> [Processing: 30 strategies] --ExecPayload--> [Execution]
-//                (Redis PUBLISH md:events)              (Redis LPUSH exec:orders)
+//   feed --MarketEvent--> 30 strategies --ExecPayload--> in-process ring --> submit lanes
 //
-// Both payloads are fixed-size, packed, little-endian POD structs — strictly
-// minimal, no serialization step: the struct bytes ARE the wire bytes (Redis
-// bulk strings are binary-safe). Every consumer validates magic/version/size
-// before trusting a frame. Both dev (arm64 macOS) and deploy (x86-64 Linux)
-// targets are little-endian; a big-endian port would need byte-order shims.
+// ExecPayload is the uniform order intent every strategy emits. Inside
+// tradingd it crosses threads as a plain struct through Ring<> — the live
+// order path never touches Redis. The same fixed-size packed bytes double as
+// the tape/telemetry record for the cold path (Redis bulk strings are
+// binary-safe): kEventChannel feeds the optional ingestd tape recorder and
+// kResultList carries async execution telemetry. Consumers validate
+// magic/version/size before trusting any frame that crossed a process
+// boundary. Both dev (arm64 macOS) and deploy (x86-64 Linux) targets are
+// little-endian; a big-endian port would need byte-order shims.
 
 #include <cstdint>
 #include <cstdio>
@@ -19,10 +22,10 @@
 
 namespace kalshi::wire {
 
-// Redis keys/channels shared by the three layers.
-inline constexpr const char* kExecList = "exec:orders";     // strategies -> execd
-inline constexpr const char* kResultList = "exec:results";  // execd -> monitoring
-inline constexpr const char* kEventChannel = "md:events";   // ingestd -> stratd
+// Redis keys/channels — COLD PATH ONLY (telemetry + optional tape recorder).
+inline constexpr const char* kResultList = "exec:results";  // tradingd telemetry
+inline constexpr const char* kEventChannel = "md:events";   // ingestd tape recorder
+inline constexpr const char* kExecList = "exec:orders";     // legacy relay (unused)
 
 inline constexpr std::uint8_t kExecMagic = 0xEB;
 inline constexpr std::uint8_t kEventMagic = 0xED;
@@ -146,6 +149,33 @@ inline std::string client_order_id(const ExecPayload& p) {
                 static_cast<unsigned>(b >> 48),
                 static_cast<unsigned long long>(b & 0xFFFF'FFFF'FFFFULL));
   return buf;
+}
+
+// Kalshi order-creation JSON for POST /portfolio/orders. Call only on a
+// payload that passed decode_exec — the validated ticker charset is what
+// makes plain concatenation safe.
+inline std::string order_json(const ExecPayload& p) {
+  std::string j;
+  j.reserve(192);
+  j += R"({"ticker":")";
+  j += p.ticker_view();
+  j += R"(","action":")";
+  j += (p.action == kActionBuy) ? "buy" : "sell";
+  j += R"(","side":")";
+  j += (p.side == kSideYes) ? "yes" : "no";
+  j += R"(","count":)";
+  j += std::to_string(p.count);
+  j += R"(,"type":")";
+  j += (p.order_type == kTypeLimit) ? "limit" : "market";
+  j += R"(","client_order_id":")";
+  j += client_order_id(p);
+  j += '"';
+  if (p.order_type == kTypeLimit) {
+    j += (p.side == kSideYes) ? R"(,"yes_price":)" : R"(,"no_price":)";
+    j += std::to_string(p.price_cents);
+  }
+  j += '}';
+  return j;
 }
 
 }  // namespace kalshi::wire

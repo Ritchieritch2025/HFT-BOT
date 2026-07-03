@@ -1,6 +1,6 @@
 #!/bin/bash
-# End-to-end test of the Ingestion -> Processing -> Execution pipeline against
-# local stand-ins (mini_redis.py for Redis, mock_server.py for Kalshi).
+# End-to-end test of tradingd (single-process engine) against local stand-ins:
+# mini_redis.py for the cold-path telemetry, mock_server.py as the exchange.
 #
 # usage: tests/run_pipeline.sh [redis_port] [mock_port]
 set -euo pipefail
@@ -32,17 +32,9 @@ export REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT_"
 export KALSHI_API_KEY_ID=pipeline-test KALSHI_PRIVATE_KEY_PATH="$OUT/key.pem"
 export KALSHI_BASE_URL="http://127.0.0.1:$MOCK_PORT"
 
-./build/execd >"$OUT/execd.log" 2>&1 &
-EXECD=$!
-./build/stratd >"$OUT/stratd.log" 2>&1 &
-STRATD=$!
-sleep 1  # subscribe + warmup
-
-./build/ingestd --synthetic 100 5 >"$OUT/ingestd.log" 2>&1
-sleep 2  # drain the queue
-
-kill -TERM "$STRATD" "$EXECD" 2>/dev/null || true
-wait "$STRATD" "$EXECD" 2>/dev/null || true
+# tradingd runs the tape on its hot thread, drains its ring, and exits.
+./build/tradingd --synthetic 100 5 >"$OUT/tradingd.log" 2>&1
+sleep 0.3  # let telemetry finish its final drain writes
 
 # Analysis runs while mini-redis is still up (reads exec:results over RESP).
 python3 - "$OUT" "$REDIS_PORT_" <<'EOF'
@@ -87,7 +79,7 @@ def check(ok, what):
     print(("PASS: " if ok else "FAIL: ") + what)
     if not ok: fails += 1
 
-# 1. Orders that reached the (mock) exchange.
+# 1. Orders that reached the (mock) exchange — same bar as the old pipeline.
 orders = []
 for line in open(f"{out}/capture.jsonl"):
     r = json.loads(line)
@@ -103,20 +95,28 @@ check(all(cid_re.match(b["client_order_id"]) for b in bodies), "client_order_ids
 check(len({b["client_order_id"] for b in bodies}) == len(bodies), "client_order_ids unique")
 check(all(o["sig"] and o["ts"] and o["key"] == "pipeline-test" for o in orders), "auth headers present on every order")
 
-# 2. Execution results trail in Redis.
+# 2. Telemetry trail (cold path) matches what hit the exchange.
 s = socket.create_connection(("127.0.0.1", port))
 results = resp_cmd(s, "LRANGE", "exec:results", "0", "-1")
 recs = [json.loads(r) for r in results]
-submitted = [r for r in recs if r.get("outcome") == "submitted"]
-check(len(submitted) == len(orders), f"exec:results matches orders ({len(submitted)}/{len(orders)})")
+submitted = [r for r in recs if r.get("kind") == "submitted"]
+check(len(submitted) == len(orders), f"telemetry matches orders ({len(submitted)}/{len(orders)})")
 check(all(r.get("http") == 200 for r in submitted), "all submissions got HTTP 200")
+cids_wire = {b["client_order_id"] for b in bodies}
+cids_tel = {r["cid"] for r in submitted}
+check(cids_wire == cids_tel, "telemetry cids == exchange cids")
 
-qs = sorted(r["queue_us"] for r in submitted)
-es = sorted(r["exec_us"] for r in submitted)
-if qs:
-    print(f"decision->pop latency us: p50={qs[len(qs)//2]} max={qs[-1]}")
-    print(f"submit latency us:        p50={es[len(es)//2]} max={es[-1]}")
-check(bool(qs) and qs[len(qs)//2] < 50_000, "median queue latency under 50ms")
+def pct(vals, p):
+    vals = sorted(vals)
+    return vals[min(len(vals) - 1, int(p * len(vals)))] if vals else 0
+
+qs = [r["queue_us"] for r in submitted]
+sg = [r["sign_us"] for r in submitted]
+sd = [r["send_us"] for r in submitted]
+print(f"in-process handoff (decision->pop) us: p50={pct(qs,.5)} p99={pct(qs,.99)} max={max(qs, default=0)}")
+print(f"RSA-PSS sign us:                       p50={pct(sg,.5)} p99={pct(sg,.99)}")
+print(f"lane send us (loopback mock):          p50={pct(sd,.5)} p99={pct(sd,.99)}")
+check(bool(qs) and pct(qs, .5) < 500, "median in-process handoff under 500us (was 88us via Redis relay)")
 
 sys.exit(1 if fails else 0)
 EOF

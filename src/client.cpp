@@ -233,8 +233,8 @@ std::expected<std::string, Error> KalshiClient::sign(
   return b64;
 }
 
-std::expected<KalshiClient::Prepared, Error> KalshiClient::prepare(
-    Method method, std::string_view path) const {
+std::expected<SignedRequest, Error> KalshiClient::sign_request(
+    Method method, std::string_view path, std::string_view json_body) const {
   const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();
@@ -253,14 +253,17 @@ std::expected<KalshiClient::Prepared, Error> KalshiClient::prepare(
   auto signature = sign(message);
   if (!signature) return std::unexpected(std::move(signature).error());
 
-  Prepared p;
-  p.url.reserve(cfg_.base_url.size() + cfg_.api_prefix.size() + path.size());
-  p.url += cfg_.base_url;
-  p.url += cfg_.api_prefix;
-  p.url += path;
-  p.sig_header = "KALSHI-ACCESS-SIGNATURE: " + *signature;
-  p.ts_header = "KALSHI-ACCESS-TIMESTAMP: " + timestamp;
-  return p;
+  SignedRequest r;
+  r.method = method;
+  r.url.reserve(cfg_.base_url.size() + cfg_.api_prefix.size() + path.size());
+  r.url += cfg_.base_url;
+  r.url += cfg_.api_prefix;
+  r.url += path;
+  r.sig_header = "KALSHI-ACCESS-SIGNATURE: " + *signature;
+  r.ts_header = "KALSHI-ACCESS-TIMESTAMP: " + timestamp;
+  r.body = json_body;  // owned: a SignedRequest may sit in a queue
+  r.signed_ts_ms = static_cast<long long>(now_ms);
+  return r;
 }
 
 std::expected<Response, Error> KalshiClient::request(Method method,
@@ -268,20 +271,49 @@ std::expected<Response, Error> KalshiClient::request(Method method,
                                                      std::string_view json_body) {
   // Sign before taking a connection: the ~100-200us RSA-PSS operation must
   // not shrink effective pool capacity under burst.
-  auto prepared = prepare(method, path);
-  if (!prepared) return std::unexpected(std::move(prepared).error());
+  auto signed_req = sign_request(method, path, json_body);
+  if (!signed_req) return std::unexpected(std::move(signed_req).error());
+  return send_signed(*signed_req);
+}
 
+std::expected<Response, Error> KalshiClient::send_signed(
+    const SignedRequest& req) {
   Lease lease(*this);
   if (!lease.get()) {
     return transport_error(
         0, "connection pool exhausted (no free connection within " +
                std::to_string(cfg_.acquire_timeout_ms) + "ms)");
   }
-  return send_request(lease.get(), method, *prepared, json_body);
+  return send_request(lease.get(), req, cfg_.http2);
+}
+
+KalshiClient::Lane KalshiClient::make_lane() {
+  CURL* h = curl_easy_init();
+  if (!h) throw std::runtime_error("KalshiClient: curl_easy_init failed (lane)");
+  return Lane(*this, h);
+}
+
+KalshiClient::Lane::~Lane() {
+  if (handle_) curl_easy_cleanup(handle_);
+}
+
+std::expected<Response, Error> KalshiClient::Lane::send(
+    const SignedRequest& req) {
+  // Lanes always attempt HTTP/2 (2TLS = ALPN-negotiated on https, plain
+  // HTTP/1.1 on http URLs and on servers that decline h2).
+  return client_->send_request(handle_, req, /*use_http2=*/true);
+}
+
+std::expected<Response, Error> KalshiClient::Lane::ping() {
+  auto req = client_->sign_request(Method::Get, "/exchange/status");
+  if (!req) return std::unexpected(std::move(req).error());
+  return send(*req);
 }
 
 std::expected<Response, Error> KalshiClient::send_request(
-    CURL* h, Method method, const Prepared& prepared, std::string_view body) {
+    CURL* h, const SignedRequest& req, bool use_http2) {
+  const Method method = req.method;
+  const std::string_view body = req.body;
   Response resp;
   resp.body.reserve(4096);
   char errbuf[CURL_ERROR_SIZE] = {0};
@@ -291,7 +323,7 @@ std::expected<Response, Error> KalshiClient::send_request(
   HandleSanitizer sanitizer{h};
 
   curl_easy_reset(h);
-  curl_easy_setopt(h, CURLOPT_URL, prepared.url.c_str());
+  curl_easy_setopt(h, CURLOPT_URL, req.url.c_str());
   curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);  // required for multi-threaded use
   curl_easy_setopt(h, CURLOPT_TCP_NODELAY, 1L);
   curl_easy_setopt(h, CURLOPT_TCP_KEEPALIVE, 1L);
@@ -311,7 +343,7 @@ std::expected<Response, Error> KalshiClient::send_request(
   curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT_MS, cfg_.connect_timeout_ms);
   curl_easy_setopt(h, CURLOPT_TIMEOUT_MS, cfg_.request_timeout_ms);
   curl_easy_setopt(h, CURLOPT_HTTP_VERSION,
-                   cfg_.http2 ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+                   use_http2 ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
   curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, write_body);
   curl_easy_setopt(h, CURLOPT_WRITEDATA, &resp.body);
   curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, header_date);
@@ -335,7 +367,8 @@ std::expected<Response, Error> KalshiClient::send_request(
       break;
   }
   if (method != Method::Get) {
-    // POSTFIELDS is not copied; `body` outlives the synchronous perform below.
+    // POSTFIELDS is not copied by curl; req.body owns the bytes and outlives
+    // the synchronous perform below.
     curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     curl_easy_setopt(h, CURLOPT_POSTFIELDS, body.empty() ? "" : body.data());
   }
@@ -344,8 +377,8 @@ std::expected<Response, Error> KalshiClient::send_request(
   {
     const char* const lines[] = {
         key_header_.c_str(),
-        prepared.sig_header.c_str(),
-        prepared.ts_header.c_str(),
+        req.sig_header.c_str(),
+        req.ts_header.c_str(),
         "Content-Type: application/json",
         "Accept: application/json",
         // Suppress "Expect: 100-continue" on larger POSTs; it costs an RTT.
@@ -399,9 +432,9 @@ int KalshiClient::warmup() {
   int warmed = 0;
   try {
     for (CURL* h : taken) {
-      auto prepared = prepare(Method::Get, "/exchange/status");
-      if (!prepared) continue;
-      auto r = send_request(h, Method::Get, *prepared, {});
+      auto req = sign_request(Method::Get, "/exchange/status");
+      if (!req) continue;
+      auto r = send_request(h, *req, cfg_.http2);
       if (r && r->ok()) ++warmed;
     }
   } catch (...) {

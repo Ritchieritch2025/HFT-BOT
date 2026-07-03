@@ -1,136 +1,112 @@
 # kalshi-cpp — minimal C++23 Kalshi HFT stack
 
 A lean, dependency-light client for the [Kalshi Trade API v2](https://docs.kalshi.com)
-plus a three-layer trading pipeline built on it.
+plus a single-process trading engine built on it.
 
 ## Architecture
 
 ```
-┌────────────┐  MarketEvent (88B)   ┌────────────┐  ExecPayload (80B)   ┌────────────┐
-│  ingestd   │ ──PUBLISH md:events──▶│   stratd   │ ──LPUSH exec:orders──▶│   execd    │
-│ Ingestion  │                      │ Processing │                      │ Execution  │
-│ REST poll /│                      │ 30 strategy│                      │ N workers  │
-│ synthetic  │        Redis         │   slots    │        Redis         │ BRPOP →    │
-└────────────┘                      └────────────┘                      │ signed POST│
-                                                                        └─────┬──────┘
-                                                          exec:results ◀──────┤
-                                                          (telemetry)         ▼
-                                                                      api.elections.kalshi.com
+                 ┌────────────────────── tradingd (one process) ──────────────────────┐
+ Kalshi ────────▶│ hot thread: feed (REST poll | synthetic | WS later) → MarketEvent   │
+ (market data)   │   → 30 strategy slots inline (throwing slots quarantined)           │
+                 │   → ExecPayload (80B POD, passed as a function argument)            │
+                 │   → lock-free ring (~ns)                                            │
+                 │ submit lanes (default 2): each owns a DEDICATED warm HTTP/2 TLS     │
+                 │   connection — no shared socket, no pool mutex, workers can never   │
+                 │   block each other. pop → ttl/age/rate gates → sign (RSA-PSS,       │
+                 │   ~300µs) → lane.send() ────────────────────────────────────────────┼─▶ Kalshi (orders)
+                 │   idle lanes ping /exchange/status so orders never pay a handshake  │
+                 │ telemetry thread: ring → Redis exec:results (COLD path; drops if    │
+                 │   Redis is down — trading unaffected) ──────────────────────────────┼─▶ Redis (optional)
+                 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The three daemons are isolated processes glued by Redis. Data formats are
-strictly minimal: fixed-size packed structs (`include/kalshi/wire.hpp`) whose
-bytes are the wire bytes — no serialization on the hot path. When any of the
-30 strategies finds an edge it appends one uniform 80-byte `ExecPayload` onto
-the `exec:orders` Redis list; `execd` consumes, staleness-gates (`ttl_ns`),
-signs, and fires. Redis I/O uses a from-scratch RESP2 client
-(`include/kalshi/resp.hpp`) — no hiredis dependency.
+The order path never leaves the process: market data → decision → signed order
+happens in one address space, the packed `ExecPayload` crossing threads through
+a from-scratch Vyukov MPMC ring (`include/kalshi/ring.hpp`). Redis appears only
+on the cold path (async telemetry, and the optional `ingestd` market-tape
+recorder for research/replay) via a from-scratch RESP2 client — no hiredis.
 
-- **Transport** — native libcurl. A fixed pool of persistent easy handles, one
-  keep-alive TLS connection each. Thread-safe: call `request()` from any thread;
-  callers block only when all pooled connections are in flight.
-- **Auth** — OpenSSL 3.x RSA-PSS request signatures per the Kalshi API-key spec
-  (SHA-256, MGF1-SHA256, salt = digest length, base64), over
-  `timestamp_ms + METHOD + path-without-query`.
-- **JSON** — responses come back as raw bytes; parse with the vendored
-  [simdjson](https://github.com/simdjson/simdjson) amalgamation
-  (`third_party/simdjson`) or anything else. The client itself does not parse.
+### Measured (dev box, loopback mock exchange)
+- decision → worker pop (in-process handoff): **p50 7µs** (was 88µs when orders
+  relayed through a Redis list; spin mode `TRADINGD_SPIN=1` goes lower)
+- RSA-PSS sign: ~300µs/core (mandated by Kalshi's auth; parallelizes across lanes)
+- honest context: exchange RTT is 10–40ms and REST-poll staleness is ~250ms mean —
+  the next real latency win is a WebSocket feed, not micro-tuning this path.
 
 ## Layout
 
 ```
-include/kalshi/client.hpp    KalshiClient: pooled, signed REST transport
-include/kalshi/wire.hpp      ExecPayload / MarketEvent wire formats + validation
-include/kalshi/resp.hpp      from-scratch RESP2 (Redis) client
+include/kalshi/client.hpp    KalshiClient: signed transport; SignedRequest split
+                             (sign_request/send_signed) + per-worker Lane API
+include/kalshi/ring.hpp      bounded lock-free MPMC ring (Vyukov)
+include/kalshi/wire.hpp      ExecPayload / MarketEvent PODs, validation, order JSON
+include/kalshi/resp.hpp      from-scratch RESP2 (Redis) client — cold path
 include/kalshi/strategy.hpp  IStrategy + ExecSink, the 30-slot roster
 src/                         implementations (+ demo strategies)
-apps/ingestd.cpp             Ingestion daemon  (REST poll or synthetic tape)
-apps/stratd.cpp              Processing daemon (event dispatch -> 30 strategies)
-apps/execd.cpp               Execution daemon  (BRPOP -> signed order POST)
+apps/tradingd.cpp            THE ENGINE (hot thread + lanes + telemetry)
+apps/feed.hpp                feed sources: synthetic tape, live REST poll
+apps/ingestd.cpp             optional market-tape recorder (cold path)
 examples/kalshi_example.cpp  status + balance walkthrough with simdjson
-tests/test_signing.cpp       RSA-PSS roundtrip + openssl CLI cross-check
-tests/test_integration.cpp   16-thread pool hammer vs tests/mock_server.py
-tests/test_resp.cpp          RESP client + wire-format roundtrips
-tests/run_pipeline.sh        end-to-end pipeline test (mini_redis + mock exchange)
+tests/                       signing/RESP/ring/integration tests, mock exchange,
+                             mini_redis stand-in, run_pipeline.sh (e2e)
 third_party/simdjson/        simdjson 4.6.4 amalgamation
 third_party/openssl/         vendored static OpenSSL 3.5.7 (macOS arm64 build)
 ```
 
-## Running the pipeline
+## Build & test
 
 ```sh
-make                                   # builds daemons + tests
-./tests/run_pipeline.sh                # full e2e against local stand-ins
-
-# against real infra:
-export REDIS_HOST=... REDIS_PORT=6379
-export KALSHI_API_KEY_ID=... KALSHI_PRIVATE_KEY_PATH=...
-./build/execd &                        # EXEC_WORKERS=2 EXEC_POOL=4 defaults
-./build/stratd &
-./build/ingestd --poll 500             # or --synthetic for a test tape
-```
-
-The demo strategies (slots 0–1) only react to `TEST-*` tickers, so the live
-feed cannot trigger real orders until you install your own strategies in
-`src/strategies.cpp`.
-
-## Build
-
-```sh
-make            # library objects + example + tests (uses third_party/openssl)
+make            # engine + tools + tests (vendored OpenSSL on macOS; system on Linux)
 make test       # signing self-test
-make tsan       # ThreadSanitizer build of the integration test
+make tsan       # ThreadSanitizer: ring hammer + full engine
+./tests/run_pipeline.sh   # end-to-end vs local mock exchange + mini-redis
 ```
 
-CMake works too (`cmake -B build-cmake && cmake --build build-cmake`) and prefers
-the vendored OpenSSL when present; on a Linux deploy host with system OpenSSL 3.x
-and libcurl dev packages it uses those instead.
+CMake works too (`cmake -B build-cmake && cmake --build build-cmake`). Requires a
+C++23 compiler (GCC 12+/Clang 16+, enforced at compile time), libcurl, OpenSSL 3.x.
 
-## Usage
+## Running
 
-```cpp
-#include "kalshi/client.hpp"
-
-kalshi::Config cfg;
-cfg.api_key_id      = /* key id from kalshi.com account settings */;
-cfg.private_key_pem = kalshi::read_file("/path/to/private_key.pem");
-cfg.pool_size       = 4;                       // == max in-flight requests
-kalshi::KalshiClient client(std::move(cfg));
-
-client.warmup();  // establish TCP+TLS on every pooled connection up front
-
-auto r = client.request(kalshi::Method::Get, "/portfolio/balance");
-if (!r)          { /* transport/signing failure: r.error().message */ }
-else if (r->ok()) { /* parse r->body with simdjson */ }
-else              { /* HTTP error: r->status, JSON error in r->body */ }
-
-// Orders: paths are relative to /trade-api/v2; query strings are fine
-// (sent, but excluded from the signature automatically).
-client.request(kalshi::Method::Post, "/portfolio/orders",
-               R"({"ticker":"...","action":"buy","side":"yes","count":1,
-                   "type":"limit","yes_price":50,"client_order_id":"..."})");
+```sh
+export KALSHI_API_KEY_ID=...            # from kalshi.com account settings
+export KALSHI_PRIVATE_KEY_PATH=~/.kalshi/private_key.pem   # unencrypted RSA PEM
+./build/tradingd --poll 500             # live REST-poll feed
+./build/tradingd --synthetic 100 5      # scripted TEST-* tape (no real markets)
 ```
 
-Demo environment: set `cfg.base_url = "https://demo-api.kalshi.co"` (check the
-current demo host in Kalshi's docs — it has moved before).
+Knobs (env): `TRADINGD_WORKERS=2` (dedicated connections), `TRADINGD_SPIN=0`,
+`TRADINGD_RING=1024`, `TRADINGD_MAX_QUEUE_AGE_MS=2000`,
+`TRADINGD_MAX_ORDERS_PER_SEC=0` (token bucket, 0=off), `TRADINGD_KEEPALIVE_S=15`,
+`TRADINGD_DRAIN_MS=2000`, `REDIS_HOST/REDIS_PORT` (telemetry, optional),
+`KALSHI_BASE_URL` (demo/testing).
+
+Strategies live in `src/strategies.cpp` (slots 0–29). The demo strategies react
+only to `TEST-*` tickers, so a live feed cannot place real orders until you
+install your own.
 
 ## Production notes (HFT)
 
-- **Warm up before trading.** `warmup()` pays the TCP+TLS setup cost once per
-  pooled connection at startup instead of on your first order.
-- **Idle timeouts.** Kalshi's edge closes idle connections after tens of
-  seconds; libcurl transparently reconnects (with TLS session resumption), but
-  that request eats a handshake. If you need consistently warm paths during
-  quiet periods, tick a cheap `GET /exchange/status` periodically.
-- **Clock discipline.** Signatures embed a millisecond timestamp; run NTP/chrony.
-  Persistent skew shows up as 401s.
-- **No automatic retries.** A timed-out order may still have reached the
-  exchange — retry policy belongs in your trading logic (use `client_order_id`
-  idempotency), not in the transport.
-- **Pool sizing.** `pool_size` bounds concurrent in-flight requests; extra
-  callers queue on a condition variable. Size it to your real concurrency, and
-  mind Kalshi's rate-limit tier.
-- **Signing cost.** RSA-2048 PSS signing costs roughly 100–200 µs per request on
-  Apple Silicon — inherent to Kalshi's auth scheme and small next to network RTT.
-- **Market data** belongs on Kalshi's WebSocket feed, not REST polling; this
-  client covers the REST (order/portfolio) side.
+- **Warm paths.** Each lane pings `/exchange/status` when idle (default 15s,
+  staggered) so a real order never pays the 10–80ms TCP+TLS handshake — with
+  sparse orders this is the largest controllable latency item on the path.
+- **Idempotency.** `client_order_id` is derived deterministically from
+  (decision time ns, strategy id, seq). A duplicate submission of the same
+  intent maps to the same id and dedupes at the exchange. No blind transport
+  retries: a timed-out POST may still have executed.
+- **Staleness.** Orders carry `ttl_ns`; the engine additionally enforces
+  `TRADINGD_MAX_QUEUE_AGE_MS` on a monotonic clock (NTP steps can't expire or
+  immortalize queued orders).
+- **Rate limits.** Kalshi caps orders/second by tier — set
+  `TRADINGD_MAX_ORDERS_PER_SEC` to your tier; over-limit intents are dropped
+  with telemetry, not queued into staleness.
+- **Clock discipline.** Signatures embed a millisecond wall-clock timestamp;
+  run NTP/chrony. Persistent 401 streaks + a skewed `Response::server_date_ms`
+  = your clock.
+- **Linux deploy.** Pin lanes/hot thread to performance cores (macOS scheduling
+  of background threads inflated sign latency ~4x in testing). The Makefile
+  auto-selects system OpenSSL on Linux.
+- **Next milestone.** A from-scratch WSS market-data client (OpenSSL over POSIX
+  sockets, same ethos as the RESP client) — REST polling's ~250ms staleness is
+  the dominant end-to-end latency item, worth ~2,800x more than the Redis-hop
+  removal was.
