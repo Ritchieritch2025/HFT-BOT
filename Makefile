@@ -77,6 +77,9 @@ $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/
 $(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_order.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
+$(BUILD)/fill_test: apps/fill_test.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/fill_test.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
 # ThreadSanitizer builds. Note: libcrypto/libcurl are not TSan-instrumented,
 # so these validate our ring/doorbell/pool call sites — not OpenSSL internals.
 # test_ring_tsan is pure C++ and fully instrumented.
