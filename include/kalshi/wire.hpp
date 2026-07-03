@@ -1,0 +1,151 @@
+#pragma once
+//
+// Wire formats for the three-layer pipeline:
+//
+//   [Ingestion] --MarketEvent--> [Processing: 30 strategies] --ExecPayload--> [Execution]
+//                (Redis PUBLISH md:events)              (Redis LPUSH exec:orders)
+//
+// Both payloads are fixed-size, packed, little-endian POD structs — strictly
+// minimal, no serialization step: the struct bytes ARE the wire bytes (Redis
+// bulk strings are binary-safe). Every consumer validates magic/version/size
+// before trusting a frame. Both dev (arm64 macOS) and deploy (x86-64 Linux)
+// targets are little-endian; a big-endian port would need byte-order shims.
+
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <string_view>
+
+namespace kalshi::wire {
+
+// Redis keys/channels shared by the three layers.
+inline constexpr const char* kExecList = "exec:orders";     // strategies -> execd
+inline constexpr const char* kResultList = "exec:results";  // execd -> monitoring
+inline constexpr const char* kEventChannel = "md:events";   // ingestd -> stratd
+
+inline constexpr std::uint8_t kExecMagic = 0xEB;
+inline constexpr std::uint8_t kEventMagic = 0xED;
+inline constexpr std::uint8_t kWireVersion = 1;
+
+inline constexpr int kStrategySlots = 30;  // fixed strategy count, ids 0..29
+
+enum : std::uint8_t { kActionBuy = 1, kActionSell = 2 };
+enum : std::uint8_t { kSideYes = 1, kSideNo = 2 };
+enum : std::uint8_t { kTypeLimit = 1, kTypeMarket = 2 };
+enum : std::uint8_t { kEventTicker = 1, kEventTrade = 2 };
+
+#pragma pack(push, 1)
+
+// One order instruction. Exactly 80 bytes.
+struct ExecPayload {
+  std::uint8_t magic = kExecMagic;
+  std::uint8_t version = kWireVersion;
+  std::uint8_t strategy_id = 0;  // 0..29
+  std::uint8_t action = 0;       // kActionBuy/kActionSell
+  std::uint8_t side = 0;         // kSideYes/kSideNo
+  std::uint8_t order_type = 0;   // kTypeLimit/kTypeMarket
+  std::int32_t count = 0;        // contracts, > 0
+  std::int32_t price_cents = 0;  // 1..99 for limit orders (price of `side`)
+  std::uint64_t seq = 0;         // per-strategy monotonic; part of client_order_id
+  std::uint64_t ts_ns = 0;       // decision time, epoch nanoseconds
+  std::uint64_t ttl_ns = 0;      // execd drops the order if now-ts_ns > ttl_ns; 0 = never
+  char ticker[42] = {};          // NUL-padded market ticker
+
+  void set_ticker(std::string_view t) {
+    std::memset(ticker, 0, sizeof(ticker));
+    std::memcpy(ticker, t.data(), t.size() < sizeof(ticker) ? t.size() : sizeof(ticker) - 1);
+  }
+  std::string_view ticker_view() const {
+    return {ticker, ::strnlen(ticker, sizeof(ticker))};
+  }
+};
+static_assert(sizeof(ExecPayload) == 80);
+
+// One normalized market-data update. Exactly 88 bytes.
+struct MarketEvent {
+  std::uint8_t magic = kEventMagic;
+  std::uint8_t version = kWireVersion;
+  std::uint8_t kind = kEventTicker;
+  std::uint8_t pad_ = 0;
+  std::int32_t yes_bid = -1;      // cents, -1 = absent
+  std::int32_t yes_ask = -1;      // cents, -1 = absent
+  std::int32_t last_price = -1;   // cents, -1 = absent
+  std::int64_t volume = -1;
+  std::int64_t open_interest = -1;
+  std::uint64_t ts_ns = 0;        // ingest time, epoch nanoseconds
+  std::uint64_t seq = 0;          // ingest sequence number
+  char ticker[40] = {};
+
+  void set_ticker(std::string_view t) {
+    std::memset(ticker, 0, sizeof(ticker));
+    std::memcpy(ticker, t.data(), t.size() < sizeof(ticker) ? t.size() : sizeof(ticker) - 1);
+  }
+  std::string_view ticker_view() const {
+    return {ticker, ::strnlen(ticker, sizeof(ticker))};
+  }
+};
+static_assert(sizeof(MarketEvent) == 88);
+
+#pragma pack(pop)
+
+inline std::string_view as_bytes(const ExecPayload& p) {
+  return {reinterpret_cast<const char*>(&p), sizeof(p)};
+}
+inline std::string_view as_bytes(const MarketEvent& e) {
+  return {reinterpret_cast<const char*>(&e), sizeof(e)};
+}
+
+// Frame validation. Returns nullptr (with a reason) rather than throwing:
+// malformed frames on a shared queue must never take the consumer down.
+inline const ExecPayload* decode_exec(std::string_view bytes, const char** why = nullptr) {
+  const auto fail = [&](const char* r) {
+    if (why) *why = r;
+    return nullptr;
+  };
+  if (bytes.size() != sizeof(ExecPayload)) return fail("bad size");
+  const auto* p = reinterpret_cast<const ExecPayload*>(bytes.data());
+  if (p->magic != kExecMagic || p->version != kWireVersion) return fail("bad magic/version");
+  if (p->strategy_id >= kStrategySlots) return fail("bad strategy_id");
+  if (p->action != kActionBuy && p->action != kActionSell) return fail("bad action");
+  if (p->side != kSideYes && p->side != kSideNo) return fail("bad side");
+  if (p->order_type != kTypeLimit && p->order_type != kTypeMarket) return fail("bad type");
+  if (p->count <= 0) return fail("bad count");
+  if (p->order_type == kTypeLimit && (p->price_cents < 1 || p->price_cents > 99))
+    return fail("bad price");
+  const std::string_view t = p->ticker_view();
+  if (t.empty()) return fail("empty ticker");
+  for (char c : t) {
+    const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+    if (!ok) return fail("bad ticker char");
+  }
+  return p;
+}
+
+inline const MarketEvent* decode_event(std::string_view bytes) {
+  if (bytes.size() != sizeof(MarketEvent)) return nullptr;
+  const auto* e = reinterpret_cast<const MarketEvent*>(bytes.data());
+  if (e->magic != kEventMagic || e->version != kWireVersion) return nullptr;
+  return e;
+}
+
+// Deterministic UUID-format client_order_id from the payload identity, so a
+// re-queued duplicate maps to the same id and Kalshi's idempotency rejects it.
+inline std::string client_order_id(const ExecPayload& p) {
+  // 128 bits: ts_ns (64) | strategy_id (8) | seq low bits (56), rendered in
+  // UUID 8-4-4-4-12 form.
+  const std::uint64_t a = p.ts_ns;
+  const std::uint64_t b = (static_cast<std::uint64_t>(p.strategy_id) << 56) |
+                          (p.seq & 0x00FF'FFFF'FFFF'FFFFULL);
+  char buf[37];
+  std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
+                static_cast<std::uint32_t>(a >> 32),
+                static_cast<unsigned>((a >> 16) & 0xFFFF),
+                static_cast<unsigned>(a & 0xFFFF),
+                static_cast<unsigned>(b >> 48),
+                static_cast<unsigned long long>(b & 0xFFFF'FFFF'FFFFULL));
+  return buf;
+}
+
+}  // namespace kalshi::wire
