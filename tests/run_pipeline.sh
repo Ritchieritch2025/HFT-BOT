@@ -22,11 +22,22 @@ cleanup() { kill "${PIDS[@]}" 2>/dev/null || true; }
 PIDS=()
 trap cleanup EXIT
 
+# Stale stand-ins from an interrupted run would serve old state.
+pkill -f "mini_redis.py $REDIS_PORT_" 2>/dev/null || true
+pkill -f "mock_server.py $MOCK_PORT" 2>/dev/null || true
+sleep 0.3
+
 python3 tests/mini_redis.py "$REDIS_PORT_" >"$OUT/redis.log" 2>&1 &
 PIDS+=($!)
 python3 tests/mock_server.py "$MOCK_PORT" "$OUT/capture.jsonl" >"$OUT/mock.log" 2>&1 &
 PIDS+=($!)
 sleep 0.7
+python3 - "$REDIS_PORT_" <<'EOF'
+import socket, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=5)
+s.sendall(b"*1\r\n$8\r\nFLUSHALL\r\n")
+s.recv(64)
+EOF
 
 export REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT_"
 export KALSHI_API_KEY_ID=pipeline-test KALSHI_PRIVATE_KEY_PATH="$OUT/key.pem"
@@ -53,8 +64,8 @@ def resp_cmd(sock, *args):
         buf += sock.recv(65536)
         try:
             return parse(buf)[0]
-        except IndexError:
-            continue
+        except (IndexError, ValueError):
+            continue  # partial frame; keep reading
 
 def parse(buf):
     line, rest = buf.split(b"\r\n", 1)
@@ -79,18 +90,21 @@ def check(ok, what):
     print(("PASS: " if ok else "FAIL: ") + what)
     if not ok: fails += 1
 
-# 1. Orders that reached the (mock) exchange — same bar as the old pipeline.
+# 1. Orders that reached the (mock) exchange — V2 endpoint and body shape.
 orders = []
 for line in open(f"{out}/capture.jsonl"):
     r = json.loads(line)
-    if r["method"] == "POST" and r["path"].endswith("/portfolio/orders"):
+    if r["method"] == "POST" and r["path"].endswith("/portfolio/events/orders"):
         orders.append(r)
 check(len(orders) >= 5, f"orders reached the exchange ({len(orders)})")
 
 cid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 bodies = [json.loads(o["body"]) for o in orders]
 check(all(b["ticker"].startswith("TEST-MKT-") for b in bodies), "all orders target TEST tickers")
-check(all(b["type"] == "limit" and 1 <= b["yes_price"] <= 99 for b in bodies), "all orders are sane limit orders")
+check(all(b["side"] == "bid" and b["count"] == "1" and
+          0.01 <= float(b["price"]) <= 0.99 and
+          b["time_in_force"] == "good_till_canceled" for b in bodies),
+      "all orders are sane V2 limit orders")
 check(all(cid_re.match(b["client_order_id"]) for b in bodies), "client_order_ids are UUID-shaped")
 check(len({b["client_order_id"] for b in bodies}) == len(bodies), "client_order_ids unique")
 check(all(o["sig"] and o["ts"] and o["key"] == "pipeline-test" for o in orders), "auth headers present on every order")

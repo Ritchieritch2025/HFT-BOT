@@ -174,33 +174,36 @@ int main(int argc, char** argv) {
       if (!wire::decode_exec(wire::as_bytes(p), &why)) {
         result(false, "compose order payload", why);
       } else {
-        auto placed = client.request(Method::Post, "/portfolio/orders",
-                                     wire::order_json(p));
+        // post_only: by construction this bid can rest or be rejected, never fill.
+        auto placed = client.request(Method::Post, wire::kCreateOrderPath,
+                                     wire::order_json(p, /*post_only=*/true));
         if (!placed) {
-          result(false, "POST /portfolio/orders", placed.error().message);
+          result(false, "POST /portfolio/events/orders", placed.error().message);
         } else if (placed->status != 201 && placed->status != 200) {
-          result(false, "POST /portfolio/orders",
+          result(false, "POST /portfolio/events/orders",
                  "HTTP " + std::to_string(placed->status) + ": " + placed->body);
         } else {
           std::string order_id;
-          std::string order_status;
           try {
             simdjson::padded_string j(placed->body);
             auto doc = parser.iterate(j);
-            order_id = std::string(std::string_view(doc["order"]["order_id"].get_string()));
-            order_status = std::string(std::string_view(doc["order"]["status"].get_string()));
+            std::string_view id;
+            if (doc["order_id"].get(id) == simdjson::SUCCESS) {
+              order_id = std::string(id);
+            } else if (doc["order"]["order_id"].get(id) == simdjson::SUCCESS) {
+              order_id = std::string(id);
+            }
           } catch (...) {}
-          result(!order_id.empty(), "order placed (1 YES @ 1c on " + order_ticker + ")",
-                 "id=" + order_id + " status=" + order_status + " in " +
+          result(!order_id.empty(),
+                 "order placed (post-only 1c YES bid on " + order_ticker + ")",
+                 "id=" + order_id + " in " +
                      std::to_string(placed->total_time_us / 1000) + "ms");
-          if (!order_id.empty() && order_status != "executed") {
-            auto cancel = client.request(Method::Delete,
-                                         "/portfolio/orders/" + order_id);
+          if (!order_id.empty()) {
+            auto cancel = client.request(
+                Method::Delete, std::string(wire::kCreateOrderPath) + "/" + order_id);
             result(cancel && cancel->ok(), "order canceled",
                    cancel ? "HTTP " + std::to_string(cancel->status)
                           : cancel.error().message);
-          } else if (order_status == "executed") {
-            std::printf("note: order filled immediately (cost <= 1c) — no cancel needed\n");
           }
         }
       }

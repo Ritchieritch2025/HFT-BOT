@@ -244,7 +244,7 @@ void process_order(Engine& e, KalshiClient::Lane& lane, OrderMsg& m) {
   }
 
   const std::uint64_t t_sign = steady_now_ns();
-  auto req = e.client.sign_request(Method::Post, "/portfolio/orders",
+  auto req = e.client.sign_request(Method::Post, wire::kCreateOrderPath,
                                    wire::order_json(m.intent));
   if (!req) {
     logf("tradingd: sign failed: %s", req.error().message.c_str());

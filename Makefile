@@ -22,7 +22,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/test_ring $(BUILD)/ingestd $(BUILD)/tradingd \
-        $(BUILD)/preflight $(BUILD)/bench_rtt
+        $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order
 
 all: $(BINS)
 
@@ -73,6 +73,9 @@ $(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/simdjson.o
 
 $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_rtt.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
+$(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/bench_order.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 # ThreadSanitizer builds. Note: libcrypto/libcurl are not TSan-instrumented,
 # so these validate our ring/doorbell/pool call sites — not OpenSSL internals.

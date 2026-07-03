@@ -151,30 +151,46 @@ inline std::string client_order_id(const ExecPayload& p) {
   return buf;
 }
 
-// Kalshi order-creation JSON for POST /portfolio/orders. Call only on a
-// payload that passed decode_exec — the validated ticker charset is what
-// makes plain concatenation safe.
-inline std::string order_json(const ExecPayload& p) {
+// Kalshi V2 order creation (the only creation endpoint since the 2026
+// fixed-point migration removed POST /portfolio/orders).
+inline constexpr const char* kCreateOrderPath = "/portfolio/events/orders";
+
+// V2 order body. The V2 book is YES-normalized: buy-YES / sell-NO rest as
+// bids, sell-YES / buy-NO as asks at the complementary price. Prices are
+// fixed-point dollar strings; counts are fixed-point strings. Market orders
+// map to marketable-limit IOC at the price extreme. Call only on a payload
+// that passed decode_exec — the validated ticker charset is what makes
+// plain concatenation safe.
+inline std::string order_json(const ExecPayload& p, bool post_only = false) {
+  const bool is_bid = (p.action == kActionBuy) == (p.side == kSideYes);
+  int yes_cents;
+  if (p.order_type == kTypeMarket) {
+    yes_cents = is_bid ? 99 : 1;  // marketable-limit IOC
+  } else {
+    yes_cents = (p.side == kSideYes) ? p.price_cents : 100 - p.price_cents;
+  }
+  char price[16];
+  std::snprintf(price, sizeof(price), "%d.%02d00", yes_cents / 100, yes_cents % 100);
+
   std::string j;
-  j.reserve(192);
+  j.reserve(288);
   j += R"({"ticker":")";
   j += p.ticker_view();
-  j += R"(","action":")";
-  j += (p.action == kActionBuy) ? "buy" : "sell";
   j += R"(","side":")";
-  j += (p.side == kSideYes) ? "yes" : "no";
-  j += R"(","count":)";
+  j += is_bid ? "bid" : "ask";
+  j += R"(","count":")";
   j += std::to_string(p.count);
-  j += R"(,"type":")";
-  j += (p.order_type == kTypeLimit) ? "limit" : "market";
-  j += R"(","client_order_id":")";
+  j += R"(","price":")";
+  j += price;
+  j += R"(","time_in_force":")";
+  j += (p.order_type == kTypeMarket) ? "immediate_or_cancel" : "good_till_canceled";
+  // taker_at_cross: a self-cross cancels the incoming order, never a resting
+  // quote — protects queue position of anything already working.
+  j += R"(","self_trade_prevention_type":"taker_at_cross")";
+  if (post_only) j += R"(,"post_only":true)";
+  j += R"(,"client_order_id":")";
   j += client_order_id(p);
-  j += '"';
-  if (p.order_type == kTypeLimit) {
-    j += (p.side == kSideYes) ? R"(,"yes_price":)" : R"(,"no_price":)";
-    j += std::to_string(p.price_cents);
-  }
-  j += '}';
+  j += R"("})";
   return j;
 }
 
