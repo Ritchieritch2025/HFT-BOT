@@ -53,11 +53,14 @@ std::optional<trading::NormalizedEvent> KalshiRawDecoder::decode(
   try {
     simdjson::padded_string json(rec.raw);
     simdjson::ondemand::parser parser;
-    auto doc = parser.iterate(json);
+    simdjson::ondemand::document doc;
+    if (parser.iterate(json).get(doc) != simdjson::SUCCESS) return std::nullopt;
+    simdjson::ondemand::object root;  // non-object top level is UB to index
+    if (doc.get_object().get(root) != simdjson::SUCCESS) return std::nullopt;
     std::string_view type;
-    if (doc["type"].get(type) != simdjson::SUCCESS) return std::nullopt;
+    if (root["type"].get(type) != simdjson::SUCCESS) return std::nullopt;
     simdjson::ondemand::object msg;
-    if (doc["msg"].get(msg) != simdjson::SUCCESS) return std::nullopt;
+    if (root["msg"].get(msg) != simdjson::SUCCESS) return std::nullopt;
 
     if (type == "orderbook_snapshot") {
       BookSnapshot snap;

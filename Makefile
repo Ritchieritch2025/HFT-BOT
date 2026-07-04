@@ -30,7 +30,8 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
-        $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke $(PURE_TESTS)
+        $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
+        $(BUILD)/bench_ws_decode $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -146,6 +147,21 @@ $(BUILD)/test_readability: tests/test_readability.cpp include/trading/format.hpp
 
 $(BUILD)/bench_orderbook: apps/bench_orderbook.cpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) apps/bench_orderbook.cpp -o $@
+
+$(BUILD)/bench_ws_decode: apps/bench_ws_decode.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+# Decoder/reader fuzzer under ASan+UBSan (OUR JSON parsing surface). simdjson is
+# excluded from instrumentation via the ignore-list — it does deliberate
+# low-level ops (SIMDJSON_ASSUME etc.) that UBSan flags but are safe by design.
+$(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
+	$(CXX) -std=c++23 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+	    -fsanitize-ignorelist=tests/sanitizer_ignore.txt \
+	    -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
+	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp $(BUILD)/simdjson.o -o $@
+
+fuzz: $(BUILD)/fuzz_decode
+	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(BUILD)/fuzz_decode
 
 $(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@

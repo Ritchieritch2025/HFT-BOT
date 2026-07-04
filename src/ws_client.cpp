@@ -125,12 +125,16 @@ void KalshiWsClient::on_text(const std::string& text) {
   simdjson::ondemand::parser parser;
   simdjson::ondemand::document doc;
   if (parser.iterate(json).get(doc) != simdjson::SUCCESS) return;
+  // Confirm the frame is a JSON object before indexing fields — ondemand lookup
+  // on a non-object top level (array/scalar/null) is UB. WS bytes are untrusted.
+  simdjson::ondemand::object root;
+  if (doc.get_object().get(root) != simdjson::SUCCESS) return;
 
   std::string_view type;
-  if (doc["type"].get(type) != simdjson::SUCCESS) return;
+  if (root["type"].get(type) != simdjson::SUCCESS) return;
   std::uint64_t sid = 0, seq = 0;
-  const bool has_sid = doc["sid"].get(sid) == simdjson::SUCCESS;
-  const bool has_seq = doc["seq"].get(seq) == simdjson::SUCCESS;
+  const bool has_sid = root["sid"].get(sid) == simdjson::SUCCESS;
+  const bool has_seq = root["seq"].get(seq) == simdjson::SUCCESS;
 
   // Build the record once (lightweight envelope fields; the heavy decode is
   // isolated below). Record EVERY message on the connection (Phase 4) — one
@@ -138,7 +142,7 @@ void KalshiWsClient::on_text(const std::string& text) {
   std::string_view env_ticker;
   {
     simdjson::ondemand::object m0;
-    if (doc["msg"].get(m0) == simdjson::SUCCESS) (void)m0["market_ticker"].get(env_ticker);
+    if (root["msg"].get(m0) == simdjson::SUCCESS) (void)m0["market_ticker"].get(env_ticker);
   }
   trading::RawRecord rec;
   rec.source = trading::SourceId::Kalshi;
@@ -156,7 +160,7 @@ void KalshiWsClient::on_text(const std::string& text) {
     ++errors_;
     std::int64_t code = 0;
     simdjson::ondemand::object msg;
-    if (doc["msg"].get(msg) == simdjson::SUCCESS) (void)msg["code"].get(code);
+    if (root["msg"].get(msg) == simdjson::SUCCESS) (void)msg["code"].get(code);
     if (code == 25) ++overflow_events_;  // buffer overflow: data lost (I7, Phase 3)
     return;
   }

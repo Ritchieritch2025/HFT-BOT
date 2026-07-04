@@ -213,47 +213,57 @@ RawLogReader::~RawLogReader() {
 
 std::optional<RawRecord> RawLogReader::next() {
   if (!f_) return std::nullopt;
-  buf_.clear();
-  int c;
-  while ((c = std::fgetc(f_)) != EOF) {
-    if (c == '\n') break;
-    buf_ += static_cast<char>(c);
-  }
-  if (buf_.empty()) return std::nullopt;
-  if (c == EOF) {
-    // No terminating newline: truncated final line — skip, don't fail.
-    ++skipped_;
-    return std::nullopt;
-  }
-
-  try {
-    simdjson::padded_string json(buf_);
-    simdjson::ondemand::parser parser;
-    auto doc = parser.iterate(json);
-    RawRecord r;
-    std::int64_t i64;
-    std::uint64_t u64;
-    std::string_view sv;
-    if (doc["recv_mono_ns"].get(i64) == simdjson::SUCCESS) r.recv_mono_ns = i64;
-    if (doc["recv_wall_ns"].get(i64) == simdjson::SUCCESS) r.recv_wall_ns = i64;
-    if (doc["source_event_time_ms"].get(i64) == simdjson::SUCCESS) r.source_event_time_ms = i64;
-    if (doc["source"].get(sv) == simdjson::SUCCESS) r.source = source_from_wire(sv);
-    if (doc["channel"].get(sv) == simdjson::SUCCESS) r.channel = std::string(sv);
-    if (doc["source_ticker"].get(sv) == simdjson::SUCCESS) r.source_ticker = std::string(sv);
-    if (doc["source_sequence"].get(u64) == simdjson::SUCCESS) r.source_sequence = u64;
-    if (doc["sid"].get(u64) == simdjson::SUCCESS) r.source_stream_id = u64;  // absent = legacy
-    if (doc["stream_epoch"].get(u64) == simdjson::SUCCESS)
-      r.stream_epoch = static_cast<std::uint32_t>(u64);
-    if (doc["marker"].get(sv) == simdjson::SUCCESS) r.marker = std::string(sv);
-    if (doc["raw"].get(sv) == simdjson::SUCCESS) {
-      r.raw = std::string(sv);  // simdjson returns the unescaped bytes
-    } else if (doc["raw_b64"].get(sv) == simdjson::SUCCESS) {
-      r.raw = base64_decode(sv);
+  // Loop (not recursion) so a run of corrupt lines can't overflow the stack.
+  for (;;) {
+    buf_.clear();
+    int c;
+    while ((c = std::fgetc(f_)) != EOF) {
+      if (c == '\n') break;
+      buf_ += static_cast<char>(c);
     }
-    return r;
-  } catch (const simdjson::simdjson_error&) {
-    ++skipped_;
-    return next();  // skip a corrupt line, keep going
+    if (buf_.empty()) {
+      if (c == EOF) return std::nullopt;  // clean end of file
+      continue;                            // blank line — skip
+    }
+    if (c == EOF) {
+      ++skipped_;                          // truncated final line — skip, not fatal
+      return std::nullopt;
+    }
+
+    try {
+      simdjson::padded_string json(buf_);
+      simdjson::ondemand::parser parser;
+      simdjson::ondemand::document doc;
+      if (parser.iterate(json).get(doc) != simdjson::SUCCESS) { ++skipped_; continue; }
+      // MUST confirm the top-level value is an object before field access —
+      // ondemand field lookup on a non-object (array/scalar/null) is UB.
+      simdjson::ondemand::object o;
+      if (doc.get_object().get(o) != simdjson::SUCCESS) { ++skipped_; continue; }
+
+      RawRecord r;
+      std::int64_t i64;
+      std::uint64_t u64;
+      std::string_view sv;
+      if (o["recv_mono_ns"].get(i64) == simdjson::SUCCESS) r.recv_mono_ns = i64;
+      if (o["recv_wall_ns"].get(i64) == simdjson::SUCCESS) r.recv_wall_ns = i64;
+      if (o["source_event_time_ms"].get(i64) == simdjson::SUCCESS) r.source_event_time_ms = i64;
+      if (o["source"].get(sv) == simdjson::SUCCESS) r.source = source_from_wire(sv);
+      if (o["channel"].get(sv) == simdjson::SUCCESS) r.channel = std::string(sv);
+      if (o["source_ticker"].get(sv) == simdjson::SUCCESS) r.source_ticker = std::string(sv);
+      if (o["source_sequence"].get(u64) == simdjson::SUCCESS) r.source_sequence = u64;
+      if (o["sid"].get(u64) == simdjson::SUCCESS) r.source_stream_id = u64;  // absent = legacy
+      if (o["stream_epoch"].get(u64) == simdjson::SUCCESS)
+        r.stream_epoch = static_cast<std::uint32_t>(u64);
+      if (o["marker"].get(sv) == simdjson::SUCCESS) r.marker = std::string(sv);
+      if (o["raw"].get(sv) == simdjson::SUCCESS) {
+        r.raw = std::string(sv);  // simdjson returns the unescaped bytes
+      } else if (o["raw_b64"].get(sv) == simdjson::SUCCESS) {
+        r.raw = base64_decode(sv);
+      }
+      return r;
+    } catch (const simdjson::simdjson_error&) {
+      ++skipped_;  // corrupt line — keep going
+    }
   }
 }
 

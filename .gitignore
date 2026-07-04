@@ -1,3 +1,6 @@
 build/
 *.dSYM/
 work/
+# test-generated data artifacts (raw logs, replays, rotation shards, fuzz corpus)
+*.ndjson
+*.ndjson.*
