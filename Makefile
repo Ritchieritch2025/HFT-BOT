@@ -22,12 +22,12 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 
 # Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
-              $(BUILD)/test_env_safety $(BUILD)/test_bus
+              $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
-        $(BUILD)/test_rest_api $(PURE_TESTS)
+        $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -44,6 +44,12 @@ $(BUILD)/env.o: src/env.cpp include/kalshi/env.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/rest_api.o: src/rest_api.cpp include/kalshi/rest_api.hpp include/kalshi/client.hpp include/kalshi/env.hpp include/trading/bus.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/storage.o: src/storage.cpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/gateway.o: src/gateway.cpp include/kalshi/gateway.hpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
@@ -82,6 +88,15 @@ $(BUILD)/test_bus: tests/test_bus.cpp include/trading/bus.hpp include/trading/te
 
 $(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp include/trading/bus.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_orderbook.cpp -o $@
+
+$(BUILD)/bench_orderbook: apps/bench_orderbook.cpp include/kalshi/orderbook.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) apps/bench_orderbook.cpp -o $@
+
+$(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
 # --- the trading engine (hot path) and the tape recorder (cold path) ---
 
@@ -128,7 +143,8 @@ tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_t
 # ASan+UBSan builds of the pure integer-heavy tests (fixedpoint parsers +
 # orderbook delta math are where overflow/off-by-one hide). Pure C++ so fully
 # instrumented. SAN_TESTS grows as phases land.
-SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp
+SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp \
+            tests/test_orderbook.cpp
 SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -Iinclude
 
