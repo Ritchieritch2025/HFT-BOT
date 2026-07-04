@@ -169,6 +169,14 @@ void KalshiExecutionEngine::write_would_be(const trading::OrderIntent& oi) {
 }
 
 trading::ExecDecision KalshiExecutionEngine::submit(const trading::OrderIntent& oi) {
+  // Belt-and-braces: never act on an entity whose book is not tradeable.
+  if (books_ && !books_->tradeable(oi.entity_id)) {
+    ++stale_book_rejected_;
+    std::fprintf(stderr,
+                 "[exec] REJECTED order for entity %llu: book invalid/stale/missing\n",
+                 static_cast<unsigned long long>(oi.entity_id.v));
+    return trading::ExecDecision::Rejected;
+  }
   switch (rt_.mode) {
     case Mode::DataCollect:
       // The pipeline should never produce intents here; reject loudly.

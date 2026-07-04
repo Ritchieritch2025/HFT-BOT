@@ -9,6 +9,7 @@
 // execution engines are added on top (see gateway.cpp / P7).
 
 #include "kalshi/env.hpp"
+#include "kalshi/orderbook.hpp"
 #include "trading/bus.hpp"
 #include "trading/storage.hpp"
 
@@ -41,18 +42,26 @@ class KalshiExecutionEngine : public trading::ExecutionEngine {
 
   trading::ExecDecision submit(const trading::OrderIntent&) override;
 
+  // Optional belt-and-braces: reject intents for a market whose book is
+  // missing/invalid/stale, on top of model discipline. Read-only check; never
+  // touches transmission.
+  void set_book_manager(const OrderBookManager* books) { books_ = books; }
+
   std::uint64_t rejected() const { return rejected_; }
   std::uint64_t logged() const { return logged_; }
   std::uint64_t transmitted() const { return transmitted_; }  // always 0 this pass
+  std::uint64_t stale_book_rejected() const { return stale_book_rejected_; }
 
  private:
   void write_would_be(const trading::OrderIntent&);
 
   Runtime rt_;
   std::string log_path_;
+  const OrderBookManager* books_ = nullptr;
   std::uint64_t rejected_ = 0;
   std::uint64_t logged_ = 0;
   std::uint64_t transmitted_ = 0;
+  std::uint64_t stale_book_rejected_ = 0;
 };
 
 }  // namespace kalshi

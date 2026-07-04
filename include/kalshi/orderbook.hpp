@@ -257,6 +257,23 @@ class OrderBookManager {
   }
   OrderBook& book_ref(EntityId e) { return books_[e]; }
 
+  // Free a market's book + sid membership (lifecycle determined/settled).
+  void forget(EntityId e) {
+    books_.erase(e);
+    auto it = sid_of_.find(e);
+    if (it != sid_of_.end()) {
+      auto s = streams_.find(it->second);
+      if (s != streams_.end()) s->second.remove_market(e);
+      sid_of_.erase(it);
+    }
+  }
+  // A book is tradeable only if present and valid (belt-and-braces for the
+  // execution gate).
+  bool tradeable(EntityId e) const {
+    const OrderBook* b = book(e);
+    return b && b->valid();
+  }
+
   std::uint64_t resync_count() const { return resyncs_; }
   std::uint64_t stale_count() const { return stale_; }
   std::uint64_t dropped_invalid_count() const { return dropped_invalid_; }

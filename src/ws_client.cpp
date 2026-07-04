@@ -163,6 +163,18 @@ void KalshiWsClient::on_text(const std::string& text) {
   auto ev = decoder_.decode(rec);
   if (!ev) return;
   if (sink_) sink_->on_event(*ev);
+
+  // Lifecycle: a determined/settled market is done — free its book state (I9).
+  if (ev->kind() == trading::Kind::Lifecycle) {
+    const auto& lc = std::get<trading::Lifecycle>(ev->payload);
+    if ((lc.state == trading::Lifecycle::State::Determined ||
+         lc.state == trading::Lifecycle::State::Settled) &&
+        books_) {
+      books_->forget(ev->entity_id);
+      ++lifecycle_deletes_;
+    }
+    return;
+  }
   if (!books_) return;
 
   // Route orderbook messages into the sid-aware manager.

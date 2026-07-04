@@ -117,6 +117,20 @@ int main() {
     check(c.last_activity_ms() >= before, "ping updates last-activity (liveness watchdog)");
   }
 
+  // --- lifecycle determined -> book freed (I9) ---
+  {
+    MockWebSocketTransport t;
+    OrderBookManager books;
+    KalshiWsClient c(t, cfg(), [](std::string_view) { return std::string("s"); });
+    c.set_book_manager(&books);
+    c.start();
+    t.inject_text(R"({"type":"orderbook_snapshot","sid":7,"seq":1,"msg":{"market_ticker":"MKT-A","yes_dollars_fp":[["0.4000","500.00"]],"no_dollars_fp":[]}})");
+    check(books.book(A) && books.book(A)->valid(), "book established");
+    t.inject_text(R"({"type":"market_lifecycle_v2","sid":7,"msg":{"market_ticker":"MKT-A","event_type":"determined"}})");
+    check(books.book(A) == nullptr && c.lifecycle_deletes() == 1,
+          "determined lifecycle frees the book");
+  }
+
   // --- reconnect: drop -> close; reopen -> epoch bump + resubscribe ---
   {
     MockWebSocketTransport t;

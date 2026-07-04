@@ -28,12 +28,18 @@
 
 namespace kalshi {
 
+// I5: the orderbook no-side pricing convention. `false` = no-leg pricing (the
+// no side carries its own price). Kalshi will flip the default and later remove
+// the flag; flipping our convention is this ONE constant + the tests that pin
+// it. Both the subscribe builder and the decoder honor it.
+inline constexpr bool kUseYesPrice = false;
+
 struct WsConfig {
   std::string url;                             // wss://.../trade-api/ws/v2 (or ws:// mock)
   std::string api_key_id;
   std::string ws_sign_path = "/trade-api/ws/v2";
   std::uint32_t epoch = 1;                     // starting stream epoch
-  bool use_yes_price = false;                  // I5: sent explicitly
+  bool use_yes_price = kUseYesPrice;           // I5: sent explicitly
 };
 
 class KalshiWsClient {
@@ -66,6 +72,7 @@ class KalshiWsClient {
   std::uint64_t reconnects() const { return reconnects_; }
   std::uint64_t errors() const { return errors_; }
   std::uint64_t overflow_events() const { return overflow_events_; }  // error 25 (I7)
+  std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_; }
   std::int64_t last_activity_ms() const { return last_activity_ms_; }
   bool ping_silent(std::int64_t now_ms, std::int64_t timeout_ms = 30000) const {
     return last_activity_ms_ != 0 && now_ms - last_activity_ms_ > timeout_ms;
@@ -91,6 +98,7 @@ class KalshiWsClient {
   bool opened_once_ = false;
   int next_id_ = 1;
   std::uint64_t messages_ = 0, reconnects_ = 0, errors_ = 0, overflow_events_ = 0;
+  std::uint64_t lifecycle_deletes_ = 0;
   std::int64_t last_activity_ms_ = 0;
 };
 

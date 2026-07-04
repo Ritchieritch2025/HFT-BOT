@@ -92,6 +92,30 @@ int main(int argc, char** argv) {
     check(eng.transmitted() == 0, "still zero transmit (never sends this pass)");
   }
 
+  // --- invalid/stale book execution gate (belt-and-braces, read-only) ---
+  {
+    OrderBookManager books;
+    const trading::EntityId e = trading::make_entity_id(trading::SourceId::Kalshi, "MKT-1");
+    // Shadow engine that would normally Log; wire the book manager.
+    KalshiExecutionEngine eng(make_rt(Env::Prod, Mode::Shadow, false));
+    eng.set_book_manager(&books);
+
+    trading::OrderIntent oi = an_order();
+    // No book yet -> not tradeable -> rejected before shadow logging.
+    check(eng.submit(oi) == trading::ExecDecision::Rejected, "no book -> rejected");
+    check(eng.stale_book_rejected() == 1, "stale-book rejection counted");
+
+    // Establish a valid book -> now the shadow path runs (Logged).
+    books.bind(1, 1, e);
+    books.on_snapshot(1, 1, e, kalshi::SnapshotView{{{4000, 500}}, {}, 1}, 1);
+    check(eng.submit(oi) == trading::ExecDecision::Logged, "valid book -> shadow logs");
+
+    // Drive the book invalid -> rejected again.
+    books.on_delta(1, 1, e, trading::Side::Yes, 4000, -1000, 2);  // negative -> invalid
+    check(eng.submit(oi) == trading::ExecDecision::Rejected, "invalid book -> rejected");
+    check(eng.stale_book_rejected() == 2, "second stale-book rejection counted");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }

@@ -22,7 +22,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 
 # Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
-              $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook \
+              $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
@@ -138,6 +138,9 @@ $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp i
 $(BUILD)/test_sid_stream: tests/test_sid_stream.cpp include/kalshi/sid_stream.hpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_sid_stream.cpp -o $@
 
+$(BUILD)/test_recovery: tests/test_recovery.cpp include/kalshi/recovery.hpp include/kalshi/orderbook.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_recovery.cpp -o $@
+
 $(BUILD)/test_readability: tests/test_readability.cpp include/trading/format.hpp include/kalshi/format.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_readability.cpp -o $@
 
@@ -202,7 +205,7 @@ tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_t
 # orderbook delta math are where overflow/off-by-one hide). Pure C++ so fully
 # instrumented. SAN_TESTS grows as phases land.
 SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp \
-            tests/test_orderbook.cpp tests/test_sid_stream.cpp
+            tests/test_orderbook.cpp tests/test_sid_stream.cpp tests/test_recovery.cpp
 SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -Iinclude
 
