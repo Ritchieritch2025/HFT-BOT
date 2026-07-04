@@ -117,6 +117,44 @@ behavior for undocumented codes (guardrail 6). Notable: 6 = already-subscribed
 (should be unreachable given I2-aware logic → assert), 18 = bad/duplicate
 command id, 25 = buffer overflow (I7).
 
+## Performance (Phase 7, benchmark-gated)
+
+Measured on the dev box via `bench_ws_decode` (full frame bytes → decode → book
+apply) vs `bench_orderbook` (apply-only):
+
+| path | ns/op | notes |
+|---|---|---|
+| WS decode + apply | ~330 | frame JSON → NormalizedEvent → OrderBook delta |
+| book apply only | ~20 | delta math on the `std::map` book |
+
+JSON decode is ~94% of the hot path; the book apply is ~6%. **Decision:** the
+flat-array book (price-grid ≤10000 slots/side) optimization targets only the 6%
+and is therefore NOT justified — the quantitative trigger in the plan is not met.
+Revisit only if a faster decoder moves the ratio. The parse surfaces
+(`KalshiRawDecoder::decode`, `RawLogReader::next`, `KalshiWsClient::on_text`) are
+fuzzed under ASan+UBSan (`make fuzz`, `tests/fuzz_decode.cpp`); all three guard
+with `get_object()` before field access (non-object top-level JSON is UB in
+simdjson ondemand).
+
+## Read-only shadow smoke (Phase 8)
+
+`apps/ws_shadow.cpp` runs the full WS engine (ixwebsocket transport + client +
+`OrderBookManager` + `WsRecorder`) in DataCollect/Shadow for a bounded session,
+then reports completeness (events, reconnects, error-25 overflows, recorder
+recorded/dropped, missed-pong disconnects) and asserts the read-only invariants:
+`KalshiExecutionEngine.transmitted() == 0`, zero Write-bucket spend (no write
+endpoint is ever called), and each subscribed book cross-checked against a fresh
+REST batch snapshot at exit (compare-only; top-of-book divergence within
+REST-staleness is expected, logged as telemetry). Fail-closed: refuses
+`KALSHI_MODE=live`, and `resolve_runtime()` env-validates the WS URL/host (a prod
+run cannot open the demo WS, and non-`wss://` is localhost-only).
+
+**Live verification deferred:** the ≥24 h production soak (zero missed-pong
+disconnects, zero cross-epoch applications, divergence within bounds) requires a
+live API key + wall-clock time and has not been run in-session. The harness is
+validated structurally against `tests/mock_ws_exchange.py`
+(handshake + snapshot + deltas + heartbeat-pong + recorder-complete + PASS).
+
 ## Connection layout (I12; Phase 2)
 
 - conn A: `orderbook_delta` only, explicit `market_tickers`, `use_yes_price:false`.

@@ -31,7 +31,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
-        $(BUILD)/bench_ws_decode $(PURE_TESTS)
+        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -70,6 +70,18 @@ $(BUILD)/ws_smoke: apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.
 	$(CXX) $(CXXFLAGS) apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
 	    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o \
 	    $(BUILD)/ixwebsocket.a $(SSL_LIBS) $(CRYPTO_LIBS) -o $@
+
+# Phase 8 read-only shadow smoke: full WS engine + recorder + read-only REST
+# cross-check. Links ixwebsocket + OpenSSL + libcurl (REST client for auth signing
+# and the batch-orderbook cross-check).
+$(BUILD)/ws_shadow: apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
+                    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o \
+                    $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/simdjson.o \
+                    $(BUILD)/ixwebsocket.a
+	$(CXX) $(CXXFLAGS) apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
+	    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/rest_api.o \
+	    $(BUILD)/client.o $(BUILD)/simdjson.o $(BUILD)/ixwebsocket.a \
+	    $(SSL_LIBS) $(CRYPTO_LIBS) -lcurl -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

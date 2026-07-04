@@ -119,6 +119,37 @@ int main() {
   set("KALSHI_BASE_URL", "https://some-new-host.kalshi.com"); set("KALSHI_HOST_UNSAFE_OVERRIDE", "1");
   check(throws(), "override refused in live mode");
 
+  // WS URL: resolved per-env by default, and cross-validated like the REST host.
+  reset_env();
+  {
+    Runtime rt = resolve_runtime();  // local_mock default
+    check(rt.ws_url.rfind("ws://127.0.0.1", 0) == 0, "default ws url is localhost ws://");
+  }
+  reset_env(); set("KALSHI_ENV", "demo");
+  {
+    Runtime rt = resolve_runtime();
+    check(rt.ws_url == "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2",
+          "demo default ws url resolved");
+  }
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  {
+    Runtime rt = resolve_runtime();
+    check(rt.ws_url == "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+          "prod default ws url resolved");
+  }
+  // Cross-validation both directions + TLS rule for the WS host.
+  reset_env(); set("KALSHI_ENV", "demo");
+  set("KALSHI_WS_URL", "wss://external-api-ws.kalshi.com/trade-api/ws/v2");
+  check(throws(), "prod ws host under demo env throws");
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_WS_URL", "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2");
+  check(throws(), "demo ws host under prod env throws");
+  reset_env(); set("KALSHI_ENV", "demo");
+  set("KALSHI_WS_URL", "ws://external-api-ws.demo.kalshi.co/trade-api/ws/v2");
+  check(throws(), "non-TLS ws url under demo throws (TLS rule)");
+  reset_env(); set("KALSHI_WS_URL", "ws://127.0.0.1:18200/trade-api/ws/v2");
+  check(!throws(), "non-TLS ws localhost accepted under local_mock");
+
   // Secret redaction.
   check(redact("KALSHI-ACCESS-KEY: abc123") == "***", "redact hides secrets");
 

@@ -18,9 +18,10 @@ find_package(Threads REQUIRED)
 
 # Core library: Kalshi transport/gateway + the source-agnostic backbone
 # (fixedpoint/timestamp/ids/bus/storage are header-only under include/trading/).
-# NOTE: the WS transport (src/ix_transport.cpp, apps/ws_smoke.cpp) links the
-# vendored ixwebsocket static lib and is built via the Makefile. src/ws_client.cpp
-# is transport-independent (IWebSocketTransport) and lives in the core lib here.
+# NOTE: the WS transport (src/ix_transport.cpp, apps/ws_smoke.cpp, apps/ws_shadow.cpp)
+# links the vendored ixwebsocket static lib and is built via the Makefile.
+# src/ws_client.cpp is transport-independent (IWebSocketTransport) and lives in the
+# core lib here.
 add_library(kalshi STATIC
   src/client.cpp
   src/resp.cpp
@@ -48,6 +49,14 @@ foreach(daemon tradingd ingestd)
 endforeach()
 add_executable(bench_orderbook apps/bench_orderbook.cpp)
 target_link_libraries(bench_orderbook PRIVATE kalshi)
+
+# WS-path decode benchmark + JSON/NDJSON fuzzer (transport-independent — no
+# ixwebsocket, so CMake builds them; the ixwebsocket-linked ws_smoke/ws_shadow
+# stay Makefile-only per the note above).
+add_executable(bench_ws_decode apps/bench_ws_decode.cpp)
+target_link_libraries(bench_ws_decode PRIVATE kalshi)
+add_executable(fuzz_decode tests/fuzz_decode.cpp)
+target_link_libraries(fuzz_decode PRIVATE kalshi)
 
 enable_testing()
 # Tests that need scratch/mock args are registered but driven by the shell

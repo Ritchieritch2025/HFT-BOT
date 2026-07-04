@@ -65,6 +65,53 @@ std::string default_base_url(Env env) {
   return "http://127.0.0.1:18099";
 }
 
+// WS endpoints (docs/kalshi_ws_protocol.md). The WS host is a SEPARATE host from
+// REST (external-api-ws.* vs api.elections/external-api.*), so it needs its own
+// allowlist — a prod collector must never open the demo WS and vice-versa.
+std::string default_ws_url(Env env) {
+  switch (env) {
+    case Env::LocalMock:
+      return "ws://127.0.0.1:" + getenv_or("KALSHI_MOCK_WS_PORT", "18200") +
+             "/trade-api/ws/v2";
+    case Env::Demo:
+      return "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2";
+    case Env::Prod:
+      return "wss://external-api-ws.kalshi.com/trade-api/ws/v2";
+  }
+  return "ws://127.0.0.1:18200/trade-api/ws/v2";
+}
+
+// Same fail-closed shape as validate_base_url, for the WS URL. TLS rule (plain
+// ws:// only for localmock localhost) is never bypassable.
+void validate_ws_url(Env env, Mode mode, const std::string& url) {
+  const UrlParts u = parse_url(url);
+  if (!u.ok)
+    throw SafetyViolation("KALSHI_WS_URL is not a valid scheme://host URL: " + url);
+
+  const bool is_localhost = host_in(u.host, {"localhost", "127.0.0.1"});
+  if (u.scheme != "wss") {
+    if (!(env == Env::LocalMock && is_localhost))
+      throw SafetyViolation("non-TLS WS URL '" + url + "' allowed only for local_mock localhost");
+  }
+
+  if (truthy("KALSHI_HOST_UNSAFE_OVERRIDE")) {
+    if (mode == Mode::Live)
+      throw SafetyViolation("KALSHI_HOST_UNSAFE_OVERRIDE is refused in live mode");
+    return;  // allowlist skipped, TLS already checked
+  }
+
+  bool ok = false;
+  switch (env) {
+    case Env::LocalMock: ok = is_localhost; break;
+    case Env::Demo:      ok = host_in(u.host, {"external-api-ws.demo.kalshi.co"}); break;
+    case Env::Prod:      ok = host_in(u.host, {"external-api-ws.kalshi.com"}); break;
+  }
+  if (!ok)
+    throw SafetyViolation("WS host '" + u.host + "' is not permitted for env=" +
+                          to_string(env) +
+                          " (set KALSHI_HOST_UNSAFE_OVERRIDE=1 to bypass — refused in live)");
+}
+
 // Validate base_url against env. Throws SafetyViolation on mismatch. The TLS
 // rule (non-https only for localmock localhost) is enforced even under the
 // unsafe host override.
@@ -158,9 +205,11 @@ Runtime resolve_runtime() {
   rt.rest_base_url = override_url ? std::string(override_url) : default_base_url(rt.env);
   validate_base_url(rt.env, rt.mode, rt.rest_base_url);
 
-  // --- ws (resolved for the next pass; unused now) ---
+  // --- ws (used by the Phase 8 shadow-smoke harness) ---
   rt.ws_sign_path = getenv_or("KALSHI_WS_SIGN_PATH", "/trade-api/ws/v2");
-  rt.ws_url = getenv_or("KALSHI_WS_URL", "");  // empty => resolved by the WS pass
+  const char* ws_override = std::getenv("KALSHI_WS_URL");
+  rt.ws_url = ws_override ? std::string(ws_override) : default_ws_url(rt.env);
+  validate_ws_url(rt.env, rt.mode, rt.ws_url);
 
   return rt;
 }
