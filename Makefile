@@ -20,9 +20,14 @@ CXXFLAGS := -std=c++23 -O2 -Wall -Wextra -Wpedantic \
             -Iinclude -Iapps -I$(SIMDJSON_DIR) $(OPENSSL_INC)
 LDLIBS := $(CRYPTO_LIBS) -lcurl
 
+# Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
+PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
+              $(BUILD)/test_env_safety $(BUILD)/test_bus
+
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
-        $(BUILD)/test_resp $(BUILD)/test_ring $(BUILD)/ingestd $(BUILD)/tradingd \
-        $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order
+        $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
+        $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
+        $(BUILD)/test_rest_api $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -33,6 +38,12 @@ $(BUILD)/client.o: src/client.cpp include/kalshi/client.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/resp.o: src/resp.cpp include/kalshi/resp.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/env.o: src/env.cpp include/kalshi/env.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/rest_api.o: src/rest_api.cpp include/kalshi/rest_api.hpp include/kalshi/client.hpp include/kalshi/env.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
@@ -56,6 +67,21 @@ $(BUILD)/test_resp: tests/test_resp.cpp $(BUILD)/resp.o
 
 $(BUILD)/test_ring: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_ring.cpp -o $@
+
+$(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_fixedpoint.cpp -o $@
+
+$(BUILD)/test_ids: tests/test_ids.cpp include/trading/ids.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_ids.cpp -o $@
+
+$(BUILD)/test_env_safety: tests/test_env_safety.cpp $(BUILD)/env.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/test_bus: tests/test_bus.cpp include/trading/bus.hpp include/trading/test_doubles.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_bus.cpp -o $@
+
+$(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
 # --- the trading engine (hot path) and the tape recorder (cold path) ---
 
@@ -98,6 +124,25 @@ $(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.
 	    $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan
+
+# ASan+UBSan builds of the pure integer-heavy tests (fixedpoint parsers +
+# orderbook delta math are where overflow/off-by-one hide). Pure C++ so fully
+# instrumented. SAN_TESTS grows as phases land.
+SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp
+SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -Iinclude
+
+san: | $(BUILD)
+	@set -e; for src in $(SAN_SRCS); do \
+	  bin=$(BUILD)/$$(basename $$src .cpp)_san; \
+	  echo "  ASAN/UBSAN $$src"; \
+	  $(CXX) $(SANFLAGS) $$src -o $$bin; \
+	  ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $$bin >/dev/null; \
+	done; echo "  sanitizers clean"
+
+# Build + run every pure unit test.
+check: $(PURE_TESTS)
+	@set -e; for t in $(PURE_TESTS); do echo "== $$t"; $$t | tail -1; done
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing

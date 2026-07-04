@@ -8,16 +8,11 @@ hot path. Killing or reloading it cannot affect the trading process.
 
     python3 dashboard_server.py --metrics work/metrics.ndjson --port 8765
     open http://127.0.0.1:8765
-
-The testing panel appends *synthetic* demo events (marked "synthetic":true) to
-the same file for UI validation. Use it only when no live telemetry is being
-written, or the demo events will mingle with real ones.
 """
 import argparse
 import json
 import os
 import sys
-import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -93,91 +88,6 @@ def stream_new_lines(path, start_pos):
             time.sleep(0.15)
 
 
-# -------------------------------------------------------------- test events
-
-# Small server-side state so toggles/injections behave sensibly across clicks.
-_test_lock = threading.Lock()
-_test_state = {"provider_online": True, "seq": 0, "gaps": 0}
-
-
-def build_test_event(kind):
-    now = int(time.time() * 1000)
-    with _test_lock:
-        _test_state["seq"] += 1
-        seq = _test_state["seq"]
-        if kind == "feed":
-            return {
-                "type": "feed", "ts_ms": now, "source": "kalshi_ws",
-                "connected": True, "freshness_ms": round(2 + (seq % 9) * 0.7, 1),
-                "age_ms": round(3 + (seq % 7) * 0.9, 1),
-                "msg_rate_hz": round(20 + (seq % 15), 1),
-                "gaps": _test_state["gaps"], "reconnects": 0, "valid": True,
-                "synthetic": True,
-            }
-        if kind == "strategy":
-            return {
-                "type": "strategy", "ts_ms": now, "name": "spread_joiner",
-                "enabled": True, "triggers": seq, "ticker": "DEMO-MKT",
-                "edge_signal_cents": round(0.5 + (seq % 5) * 0.3, 1),
-                "edge_ack_cents": round(0.1 + (seq % 3) * 0.2, 1),
-                "shadow_pnl_cents": round((seq % 20) - 5.0, 1),
-                "reason": "spread_wide", "synthetic": True,
-            }
-        if kind == "order":
-            return {
-                "type": "order", "ts_ms": now, "strategy": "stale_quote",
-                "ticker": "DEMO-MKT", "side": "buy_yes", "price": 42 + (seq % 10),
-                "size": 1, "mode": "shadow", "status": "would_send",
-                "http_status": 0, "sign_us": 380 + (seq % 200),
-                "submit_to_ack_ms": 0, "signal_to_ack_ms": 0,
-                "reason": "shadow", "synthetic": True,
-            }
-        if kind == "provider_toggle":
-            _test_state["provider_online"] = not _test_state["provider_online"]
-            up = _test_state["provider_online"]
-            return {
-                "type": "feed", "ts_ms": now, "source": "external_provider",
-                "connected": up, "freshness_ms": 5.0 if up else 0.0,
-                "age_ms": 5.0 if up else 99999.0,
-                "msg_rate_hz": 12.0 if up else 0.0, "gaps": _test_state["gaps"],
-                "reconnects": 0, "valid": up, "synthetic": True,
-            }
-        if kind == "seq_gap":
-            _test_state["gaps"] += 1
-            return {
-                "type": "feed", "ts_ms": now, "source": "kalshi_ws",
-                "connected": True, "freshness_ms": 6.0, "age_ms": 6.0,
-                "msg_rate_hz": 22.0, "gaps": _test_state["gaps"],
-                "reconnects": 0, "valid": False, "synthetic": True,
-            }
-        if kind == "http_429":
-            return {
-                "type": "order", "ts_ms": now, "strategy": "stale_quote",
-                "ticker": "DEMO-MKT", "side": "buy_yes", "price": 50, "size": 1,
-                "mode": "bench", "status": "rejected", "http_status": 429,
-                "sign_us": 410, "submit_to_ack_ms": 3.1, "signal_to_ack_ms": 3.6,
-                "reason": "rate_limited", "synthetic": True,
-            }
-        if kind == "config_reload":
-            return {
-                "type": "system", "ts_ms": now, "mode": "shadow",
-                "component": "config", "status": "ok",
-                "message": "config reloaded (display)", "synthetic": True,
-            }
-    return None
-
-
-def append_event(path, evt):
-    line = json.dumps(evt, separators=(",", ":")) + "\n"
-    d = os.path.dirname(path)
-    if d and not os.path.isdir(d):
-        os.makedirs(d, exist_ok=True)
-    # O_APPEND: single small write is atomic, so this never corrupts a line
-    # even if the trading telemetry thread is appending concurrently.
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line)
-
-
 # ------------------------------------------------------------------ handler
 
 
@@ -209,37 +119,6 @@ def make_handler(metrics_path, backfill_default):
                 self._send(200, json.dumps({"ok": True}), "application/json")
             elif path == "/stream":
                 self.handle_stream()
-            else:
-                self._send(404, "not found")
-
-        def do_POST(self):
-            path = self.path.split("?", 1)[0]
-            length = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(length) if length else b""
-            if path == "/view/clear":
-                # The browser clears its own tables; server keeps the file.
-                self._send(200, json.dumps({"ok": True}), "application/json")
-            elif path == "/test/event":
-                try:
-                    body = json.loads(raw or b"{}")
-                    kind = body.get("kind", "")
-                except ValueError:
-                    self._send(400, json.dumps({"ok": False, "error": "bad json"}),
-                               "application/json")
-                    return
-                evt = build_test_event(kind)
-                if evt is None:
-                    self._send(400, json.dumps({"ok": False, "error": "unknown kind"}),
-                               "application/json")
-                    return
-                try:
-                    append_event(metrics_path, evt)
-                except OSError as e:
-                    self._send(500, json.dumps({"ok": False, "error": str(e)}),
-                               "application/json")
-                    return
-                self._send(200, json.dumps({"ok": True, "event": evt}),
-                           "application/json")
             else:
                 self._send(404, "not found")
 
@@ -429,23 +308,7 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
     </div>
   </section>
 
-  <!-- 6. Testing Panel -->
-  <section class="wide">
-    <h2>Testing Panel <span class="sub">appends synthetic events only · never sends real orders</span></h2>
-    <div class="panel-controls">
-      <button data-kind="feed">+ demo feed event</button>
-      <button data-kind="strategy">+ demo strategy event</button>
-      <button data-kind="order">+ demo order event</button>
-      <button data-kind="provider_toggle" class="warn">toggle provider online/offline</button>
-      <button data-kind="seq_gap" class="warn">inject sequence gap</button>
-      <button data-kind="http_429" class="warn">inject 429</button>
-      <button data-kind="config_reload">reload config display</button>
-      <button id="btn-clear" class="danger">clear view (browser only)</button>
-    </div>
-    <div class="notice" id="panel-note">Synthetic events are written to the metrics file with <code>"synthetic":true</code>.</div>
-  </section>
-
-  <!-- 7. Log Data -->
+  <!-- 6. Log Data -->
   <section class="wide">
     <h2>Event Log <span class="sub">latest 200 shown · <span id="log-total">0</span> retained</span></h2>
     <div class="controls-row">
@@ -678,8 +541,7 @@ function renderLog(){
   const typeBadge={system:'blue',feed:'green',order:'yellow',strategy:'gray',risk:'red'};
   tb.innerHTML=items.map((o,i)=>{
     const cls=typeBadge[o.type]||'gray';
-    return '<tr class="logline" data-i="'+i+'"><td>'+tstr(o.ts_ms)+'</td><td>'+badge(o.type,cls)+
-      (o.synthetic?' <span class="badge b-gray">syn</span>':'')+'</td>'+
+    return '<tr class="logline" data-i="'+i+'"><td>'+tstr(o.ts_ms)+'</td><td>'+badge(o.type,cls)+'</td>'+
       '<td class="raw">'+esc(logSummary(o))+'</td></tr>';
   }).join('');
   // stash for expansion
@@ -728,27 +590,6 @@ function connect(){
 }
 connect();
 
-// ---- testing panel ----
-async function postJSON(url, body){
-  try{ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); return await r.json(); }
-  catch(e){ return {ok:false,error:String(e)}; }
-}
-document.querySelectorAll('.panel-controls button[data-kind]').forEach(b=>{
-  b.addEventListener('click', async()=>{
-    b.disabled=true;
-    const res=await postJSON('/test/event',{kind:b.dataset.kind});
-    $('panel-note').textContent = res.ok?('appended synthetic '+b.dataset.kind+' event @ '+new Date().toLocaleTimeString()):('error: '+(res.error||'failed'));
-    setTimeout(()=>b.disabled=false,120);
-  });
-});
-$('btn-clear').addEventListener('click', async()=>{
-  await postJSON('/view/clear',{});
-  state.feeds.clear(); state.strategies.clear(); state.orders=[]; state.log=[];
-  state.risk={rejects:{stale_signal:0,duplicate:0,risk_check:0,other:0},fields:{}};
-  state.system={}; state.start_ts=null; state.last_ts=0;
-  for(const k in dirty) dirty[k]=1;
-  $('panel-note').textContent='dashboard view cleared (metrics file untouched) @ '+new Date().toLocaleTimeString();
-});
 </script>
 </body>
 </html>

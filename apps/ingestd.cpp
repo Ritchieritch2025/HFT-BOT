@@ -4,8 +4,7 @@
 // replay/backtest tooling can subscribe or record. Live trading runs inside
 // tradingd, which consumes the same feed sources in-process.
 //
-//   ingestd --synthetic [count] [interval_ms]   scripted TEST-* tape
-//   ingestd --poll [interval_ms]                live Kalshi REST polling
+//   ingestd --poll [interval_ms]   live Kalshi REST polling
 //
 // Env: REDIS_HOST/REDIS_PORT, KALSHI_BASE_URL, INGEST_MARKET_LIMIT,
 //      KALSHI_API_KEY_ID/KALSHI_PRIVATE_KEY_PATH (optional for --poll;
@@ -48,12 +47,7 @@ int main(int argc, char** argv) {
   const feed::EventHandler handler = [&](wire::MarketEvent& ev,
                                          const feed::EventTiming&) { publish(ev); };
 
-  const std::string mode = argc > 1 ? argv[1] : "--synthetic";
-  if (mode == "--synthetic") {
-    const int count = argc > 2 ? std::atoi(argv[2]) : 100;
-    const int interval = argc > 3 ? std::atoi(argv[3]) : 10;
-    return feed::run_synthetic(count, interval, handler);
-  }
+  const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "--poll") {
     const int interval = argc > 2 ? std::atoi(argv[2]) : 1000;
     Config cfg;
@@ -71,7 +65,6 @@ int main(int argc, char** argv) {
     KalshiClient client(std::move(cfg));
     return feed::run_poll(client, interval, handler);
   }
-  std::fprintf(stderr,
-               "usage: ingestd --synthetic [count] [interval_ms] | --poll [interval_ms]\n");
+  std::fprintf(stderr, "usage: ingestd --poll [interval_ms]\n");
   return 2;
 }

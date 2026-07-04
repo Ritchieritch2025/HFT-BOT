@@ -95,6 +95,30 @@ int main(int argc, char** argv) {
   std::printf("HTTP %ld in %.1fms (sign %.1fms): %s\n", placed->status,
               static_cast<double>(t2 - t1) / 1e6,
               static_cast<double>(t1 - t0) / 1e6, placed->body.c_str());
+
+  // Event logging: mirror this order into the dashboard's NDJSON if asked
+  // (KALSHI_NDJSON=work/metrics.ndjson) so the live console shows it.
+  const char* ndjson = std::getenv("KALSHI_NDJSON");
+  if (ndjson) {
+    const long now_ms = static_cast<long>(daemon::now_ns() / 1'000'000ULL);
+    const bool ok = placed->status == 201 || placed->status == 200;
+    const double submit_ms = static_cast<double>(t2 - t1) / 1e6;
+    FILE* f = std::fopen(ndjson, "a");
+    if (f) {
+      std::fprintf(f,
+        "{\"type\":\"system\",\"ts_ms\":%ld,\"mode\":\"live\",\"component\":\"fill_test\","
+        "\"status\":\"ok\",\"message\":\"live order test\",\"env\":\"prod\"}\n", now_ms);
+      std::fprintf(f,
+        "{\"type\":\"order\",\"ts_ms\":%ld,\"strategy\":\"fill_test\",\"ticker\":\"%s\","
+        "\"side\":\"buy_yes\",\"price\":%d,\"size\":1,\"mode\":\"live\",\"status\":\"%s\","
+        "\"http_status\":%ld,\"sign_us\":%.0f,\"submit_to_ack_ms\":%.3f,"
+        "\"signal_to_ack_ms\":%.3f,\"reason\":\"manual_test\"}\n",
+        now_ms, ticker.c_str(), price_cents, ok ? "sent" : "rejected",
+        placed->status, static_cast<double>(t1 - t0) / 1e3, submit_ms, submit_ms);
+      std::fclose(f);
+      std::printf("logged order event to %s (dashboard)\n", ndjson);
+    }
+  }
   if (placed->status != 201 && placed->status != 200) return 1;
 
   std::string fill_count = "?";

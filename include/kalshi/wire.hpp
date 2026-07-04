@@ -2,7 +2,7 @@
 //
 // Wire formats for the trading engine:
 //
-//   feed --MarketEvent--> 30 strategies --ExecPayload--> in-process ring --> submit lanes
+//   feed --MarketEvent--> configured strategies --ExecPayload--> in-process ring --> submit lanes
 //
 // ExecPayload is the uniform order intent every strategy emits. Inside
 // tradingd it crosses threads as a plain struct through Ring<> — the live
@@ -25,13 +25,12 @@ namespace kalshi::wire {
 // Redis keys/channels — COLD PATH ONLY (telemetry + optional tape recorder).
 inline constexpr const char* kResultList = "exec:results";  // tradingd telemetry
 inline constexpr const char* kEventChannel = "md:events";   // ingestd tape recorder
-inline constexpr const char* kExecList = "exec:orders";     // legacy relay (unused)
 
 inline constexpr std::uint8_t kExecMagic = 0xEB;
 inline constexpr std::uint8_t kEventMagic = 0xED;
 inline constexpr std::uint8_t kWireVersion = 1;
 
-inline constexpr int kStrategySlots = 30;  // fixed strategy count, ids 0..29
+inline constexpr int kStrategySlots = 30;  // bounded strategy id space, ids 0..29
 
 enum : std::uint8_t { kActionBuy = 1, kActionSell = 2 };
 enum : std::uint8_t { kSideYes = 1, kSideNo = 2 };
@@ -52,7 +51,7 @@ struct ExecPayload {
   std::int32_t price_cents = 0;  // 1..99 for limit orders (price of `side`)
   std::uint64_t seq = 0;         // per-strategy monotonic; part of client_order_id
   std::uint64_t ts_ns = 0;       // decision time, epoch nanoseconds
-  std::uint64_t ttl_ns = 0;      // execd drops the order if now-ts_ns > ttl_ns; 0 = never
+  std::uint64_t ttl_ns = 0;      // tradingd drops if now-ts_ns > ttl_ns; 0 = never
   char ticker[42] = {};          // NUL-padded market ticker
 
   void set_ticker(std::string_view t) {

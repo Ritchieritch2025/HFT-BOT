@@ -7,8 +7,8 @@ plus a single-process trading engine built on it.
 
 ```
                  ┌────────────────────── tradingd (one process) ──────────────────────┐
- Kalshi ────────▶│ hot thread: feed (REST poll | synthetic | WS later) → MarketEvent   │
- (market data)   │   → 30 strategy slots inline (throwing slots quarantined)           │
+ Kalshi ────────▶│ hot thread: feed (REST poll | WS later) → MarketEvent               │
+ (market data)   │   → configured strategies inline (throwing slots quarantined)       │
                  │   → ExecPayload (80B POD, passed as a function argument)            │
                  │   → lock-free ring (~ns)                                            │
                  │ submit lanes (default 2): each owns a DEDICATED warm HTTP/2 TLS     │
@@ -42,14 +42,14 @@ include/kalshi/client.hpp    KalshiClient: signed transport; SignedRequest split
 include/kalshi/ring.hpp      bounded lock-free MPMC ring (Vyukov)
 include/kalshi/wire.hpp      ExecPayload / MarketEvent PODs, validation, order JSON
 include/kalshi/resp.hpp      from-scratch RESP2 (Redis) client — cold path
-include/kalshi/strategy.hpp  IStrategy + ExecSink, the 30-slot roster
-src/                         implementations (+ demo strategies)
+include/kalshi/strategy.hpp  IStrategy + ExecSink
+src/                         implementations
 apps/tradingd.cpp            THE ENGINE (hot thread + lanes + telemetry)
-apps/feed.hpp                feed sources: synthetic tape, live REST poll
+apps/feed.hpp                feed sources: live REST poll
 apps/ingestd.cpp             optional market-tape recorder (cold path)
 examples/kalshi_example.cpp  status + balance walkthrough with simdjson
 tests/                       signing/RESP/ring/integration tests, mock exchange,
-                             mini_redis stand-in, run_pipeline.sh (e2e)
+                             mini_redis stand-in
 third_party/simdjson/        simdjson 4.6.4 amalgamation
 third_party/openssl/         vendored static OpenSSL 3.5.7 (macOS arm64 build)
 ```
@@ -60,7 +60,6 @@ third_party/openssl/         vendored static OpenSSL 3.5.7 (macOS arm64 build)
 make            # engine + tools + tests (vendored OpenSSL on macOS; system on Linux)
 make test       # signing self-test
 make tsan       # ThreadSanitizer: ring hammer + full engine
-./tests/run_pipeline.sh   # end-to-end vs local mock exchange + mini-redis
 ```
 
 CMake works too (`cmake -B build-cmake && cmake --build build-cmake`). Requires a
@@ -72,7 +71,6 @@ C++23 compiler (GCC 12+/Clang 16+, enforced at compile time), libcurl, OpenSSL 3
 export KALSHI_API_KEY_ID=...            # from kalshi.com account settings
 export KALSHI_PRIVATE_KEY_PATH=~/.kalshi/private_key.pem   # unencrypted RSA PEM
 ./build/tradingd --poll 500             # live REST-poll feed
-./build/tradingd --synthetic 100 5      # scripted TEST-* tape (no real markets)
 ```
 
 Knobs (env): `TRADINGD_WORKERS=2` (dedicated connections), `TRADINGD_SPIN=0`,
@@ -81,9 +79,8 @@ Knobs (env): `TRADINGD_WORKERS=2` (dedicated connections), `TRADINGD_SPIN=0`,
 `TRADINGD_DRAIN_MS=2000`, `REDIS_HOST/REDIS_PORT` (telemetry, optional),
 `KALSHI_BASE_URL` (demo/testing).
 
-Strategies live in `src/strategies.cpp` (slots 0–29). The demo strategies react
-only to `TEST-*` tickers, so a live feed cannot place real orders until you
-install your own.
+Strategies live in `src/strategies.cpp`. The default roster is empty; install
+real strategy code before expecting the engine to emit orders.
 
 ## Production notes (HFT)
 

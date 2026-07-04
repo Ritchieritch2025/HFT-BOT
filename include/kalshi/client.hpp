@@ -70,6 +70,9 @@ struct Response {
   long long server_date_ms = 0; // server Date header (ms since epoch, 0 if
                                 // absent) — compare with local time to spot
                                 // the clock skew behind 401 streaks
+  long retry_after_ms = -1;     // Retry-After header in ms (delta-seconds or
+                                // HTTP-date form); -1 if absent/unparseable
+  std::string retry_after_raw;  // the raw Retry-After value, for logging
 
   [[nodiscard]] bool ok() const noexcept { return status >= 200 && status < 300; }
 };

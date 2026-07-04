@@ -2,7 +2,7 @@
 
 A read-only operational console for observing the Kalshi PoC during REST +
 WebSocket benchmark/shadow testing. Not a trading UI, not a charting app —
-tables, status badges, and a small testing panel only.
+tables and status badges only.
 
 ## Run
 
@@ -44,8 +44,7 @@ It writes `system` events (started / heartbeat every 2s / stopped) and one
 `order` event per submission (real strategy, ticker, side, price, size, http
 status, sign µs, submit→ack ms, signal→ack ms). Feed / strategy / risk event
 types are supported by the schema and the dashboard renders them today; the
-engine will emit them once the WebSocket feed and risk layer land. Until then,
-use the **Testing Panel** to exercise those tables with synthetic events.
+engine will emit them once the WebSocket feed and risk layer land.
 
 ## Endpoints
 
@@ -53,13 +52,9 @@ use the **Testing Panel** to exercise those tables with synthetic events.
 |---|---|---|
 | GET | `/` | the dashboard (single HTML page) |
 | GET | `/stream?backfill=N` | SSE: N history lines then live tail |
-| POST | `/test/event` | append one **synthetic** demo event (`{"kind":"feed"\|"strategy"\|"order"\|"provider_toggle"\|"seq_gap"\|"http_429"\|"config_reload"}`) |
-| POST | `/view/clear` | tells the browser to clear its tables — the metrics file is untouched |
 | GET | `/healthz` | `{"ok":true}` |
 
-Test events are written with `"synthetic":true` so they are distinguishable
-from real telemetry. **There is no live-order action anywhere in the dashboard
-or server** — the testing panel only appends demo lines to the NDJSON file.
+There is no live-order action anywhere in the dashboard or server.
 
 ## Sections
 
@@ -73,8 +68,7 @@ or server** — the testing panel only appends demo lines to the NDJSON file.
    signal/ack ¢, shadow pnl ¢, reason.
 5. **Risk Status** — rate limits, exposure, rejection counters (stale /
    duplicate / risk-check), kill switch.
-6. **Testing Panel** — synthetic event injectors + clear-view.
-7. **Event Log** — latest 200, filter by type, substring find, click a row to
+6. **Event Log** — latest 200, filter by type, substring find, click a row to
    expand raw JSON.
 
 ## Performance notes
@@ -92,5 +86,5 @@ or server** — the testing panel only appends demo lines to the NDJSON file.
 One JSON object per line. Types: `system`, `feed`, `strategy`, `order`,
 `risk`. Renderers are field-tolerant — present fields are shown, missing ones
 render as `—` — so the minimal example events and richer future events both
-work. See the type examples in the project brief or the Testing Panel output.
+work.
 ```

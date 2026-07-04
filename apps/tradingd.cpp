@@ -1,7 +1,7 @@
 // tradingd — the single-process trading engine.
 //
-// Hot thread:      feed (synthetic | REST poll | WS later) → MarketEvent →
-//                  30 strategies inline → InlineExecutor stamps/validates the
+// Hot thread:      feed (REST poll | WS later) → MarketEvent →
+//                  configured strategies inline → InlineExecutor stamps/validates the
 //                  80-byte ExecPayload and pushes it onto a lock-free ring
 //                  (~100ns). No Redis, no process hop, no blocking on I/O.
 // Submit workers:  each owns a dedicated KalshiClient::Lane — an exclusive
@@ -14,7 +14,7 @@
 //                  second ring; one thread drains it to Redis exec:results
 //                  (drops if Redis is down — trading is never affected).
 //
-// Usage: tradingd --synthetic [count] [interval_ms] | --poll [interval_ms]
+// Usage: tradingd --poll [interval_ms]
 // Env:   KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH   (required)
 //        KALSHI_BASE_URL                              (default production)
 //        REDIS_HOST/REDIS_PORT                        (telemetry, optional)
@@ -555,7 +555,7 @@ int main(int argc, char** argv) {
   engine.probe_enabled = std::getenv("TRADINGD_LATENCY_CSV") != nullptr;
   InlineExecutor executor(engine);
   auto strategies = make_strategies();
-  logf("tradingd: %zu strategy slots, %d lanes, ring=%zu, %s wakeup",
+  logf("tradingd: %zu configured strategies, %d lanes, ring=%zu, %s wakeup",
        strategies.size(), n_workers, ring_cap, spin ? "spin" : "park");
 
   std::vector<std::thread> workers;
@@ -593,21 +593,16 @@ int main(int argc, char** argv) {
     }
   };
 
-  const std::string mode = argc > 1 ? argv[1] : "--synthetic";
+  const std::string mode = argc > 1 ? argv[1] : "";
   int rc = 0;
-  if (mode == "--synthetic") {
-    const int count = argc > 2 ? std::atoi(argv[2]) : 100;
-    const int interval = argc > 3 ? std::atoi(argv[3]) : 10;
-    rc = feed::run_synthetic(count, interval, dispatch);
-  } else if (mode == "--poll") {
+  if (mode == "--poll") {
     const int interval = argc > 2 ? std::atoi(argv[2]) : 1000;
     Config feed_cfg = client.config();  // same creds/base_url
     feed_cfg.pool_size = 1;  // dedicated market-data connection
     KalshiClient feed_client(std::move(feed_cfg));
     rc = feed::run_poll(feed_client, interval, dispatch);
   } else {
-    std::fprintf(stderr,
-                 "usage: tradingd --synthetic [count] [interval_ms] | --poll [interval_ms]\n");
+    std::fprintf(stderr, "usage: tradingd --poll [interval_ms]\n");
     rc = 2;
   }
 

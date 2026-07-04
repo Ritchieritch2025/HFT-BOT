@@ -1,9 +1,9 @@
 #pragma once
 //
-// Processing layer: a fixed set of 30 strategy slots (wire::kStrategySlots).
-// stratd feeds every MarketEvent to every strategy on one dispatch thread;
-// strategies emit ExecPayloads through ExecSink, which stamps identity fields
-// and LPUSHes them onto the Redis execution list for execd.
+// Processing layer. tradingd feeds every MarketEvent to each configured
+// strategy on one dispatch thread; strategies emit ExecPayloads through
+// ExecSink, which stamps identity fields and hands them to the in-process
+// submit ring.
 
 #include "kalshi/wire.hpp"
 
@@ -31,9 +31,7 @@ class IStrategy {
   virtual void on_event(const wire::MarketEvent& event, ExecSink& sink) = 0;
 };
 
-// The fixed 30-slot roster: demo strategies in the first slots, idle
-// placeholders (safe no-ops) in the rest. Replace slots with real strategies
-// as they are written.
+// Configured strategy roster. Empty until real strategies are installed.
 std::vector<std::unique_ptr<IStrategy>> make_strategies();
 
 }  // namespace kalshi

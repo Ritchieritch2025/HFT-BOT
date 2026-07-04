@@ -1,6 +1,6 @@
 #pragma once
-// Shared plumbing for the three pipeline daemons (ingestd / stratd / execd):
-// stop signal, wall-clock helpers, env config, timestamped stderr logging.
+// Shared daemon plumbing: stop signal, wall-clock helpers, env config, and
+// timestamped stderr logging.
 
 #include <atomic>
 #include <chrono>

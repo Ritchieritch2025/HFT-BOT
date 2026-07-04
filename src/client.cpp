@@ -7,7 +7,9 @@
 #include <openssl/rsa.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -32,22 +34,42 @@ size_t write_body(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept
   return n;
 }
 
-// Captures the server's Date header (ms since epoch) so callers can detect
-// local clock skew — the usual cause of otherwise-opaque 401 streaks.
-size_t header_date(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
+// Captures the server's Date header (for clock-skew detection) and the
+// Retry-After header (for 429/backoff, delta-seconds or HTTP-date form).
+size_t header_capture(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
   const size_t n = size * nmemb;
+  auto* resp = static_cast<Response*>(userdata);
+
+  auto trimmed = [&](const char* start, size_t vlen, char* buf, size_t buf_sz) -> bool {
+    while (vlen > 0 && (*start == ' ' || *start == '\t')) { ++start; --vlen; }
+    while (vlen > 0 && (start[vlen - 1] == '\r' || start[vlen - 1] == '\n')) --vlen;
+    if (vlen == 0 || vlen >= buf_sz) return false;
+    std::memcpy(buf, start, vlen);
+    buf[vlen] = '\0';
+    return true;
+  };
+
+  char buf[96];
   if (n > 6 && strncasecmp(ptr, "date:", 5) == 0) {
-    char buf[80];
-    size_t len = n - 5;
-    const char* v = ptr + 5;
-    while (len > 0 && (*v == ' ' || *v == '\t')) { ++v; --len; }
-    while (len > 0 && (v[len - 1] == '\r' || v[len - 1] == '\n')) --len;
-    if (len < sizeof(buf)) {
-      std::memcpy(buf, v, len);
-      buf[len] = '\0';
+    if (trimmed(ptr + 5, n - 5, buf, sizeof(buf))) {
       const time_t t = curl_getdate(buf, nullptr);
       if (t != static_cast<time_t>(-1))
-        *static_cast<long long*>(userdata) = static_cast<long long>(t) * 1000;
+        resp->server_date_ms = static_cast<long long>(t) * 1000;
+    }
+  } else if (n > 13 && strncasecmp(ptr, "retry-after:", 12) == 0) {
+    if (trimmed(ptr + 12, n - 12, buf, sizeof(buf))) {
+      resp->retry_after_raw = buf;
+      char* end = nullptr;
+      const long secs = std::strtol(buf, &end, 10);
+      if (end != buf && *end == '\0' && secs >= 0) {
+        resp->retry_after_ms = secs * 1000;  // delta-seconds form
+      } else {
+        const time_t t = curl_getdate(buf, nullptr);  // HTTP-date form
+        if (t != static_cast<time_t>(-1)) {
+          const long long ms = (static_cast<long long>(t) - static_cast<long long>(std::time(nullptr))) * 1000;
+          resp->retry_after_ms = ms > 0 ? static_cast<long>(ms) : 0;
+        }
+      }
     }
   }
   return n;
@@ -346,8 +368,8 @@ std::expected<Response, Error> KalshiClient::send_request(
                    use_http2 ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
   curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, write_body);
   curl_easy_setopt(h, CURLOPT_WRITEDATA, &resp.body);
-  curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, header_date);
-  curl_easy_setopt(h, CURLOPT_HEADERDATA, &resp.server_date_ms);
+  curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, header_capture);
+  curl_easy_setopt(h, CURLOPT_HEADERDATA, &resp);
   curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf);
   curl_easy_setopt(h, CURLOPT_USERAGENT, "kalshi-cpp/0.1");
   if (cfg_.verbose) curl_easy_setopt(h, CURLOPT_VERBOSE, 1L);

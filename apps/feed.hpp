@@ -14,13 +14,13 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 
+#include <chrono>
 #include <cinttypes>
 #include <cmath>
 #include <cstdlib>
 #include <functional>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <unordered_map>
 
 namespace kalshi::feed {
@@ -51,32 +51,6 @@ inline std::string throwaway_key_pem() {
   BIO_free(bio);
   EVP_PKEY_free(key);
   return pem;
-}
-
-// Scripted TEST-* tape: spread narrows, the ask walks down through the demo
-// strategies' trigger levels, then widens again.
-inline int run_synthetic(int count, int interval_ms, const EventHandler& on_event) {
-  daemon::logf("feed: synthetic tape, %d events @ %dms", count, interval_ms);
-  std::uint64_t seq = 0;
-  for (int i = 0; i < count && !daemon::g_stop.load(std::memory_order_relaxed); ++i) {
-    EventTiming timing;
-    timing.received_steady_ns = daemon::steady_now_ns();
-    wire::MarketEvent ev;
-    ev.kind = wire::kEventTicker;
-    ev.set_ticker(i % 2 == 0 ? "TEST-MKT-A" : "TEST-MKT-B");
-    ev.yes_bid = 30 + (i % 7);
-    ev.yes_ask = 60 - (i % 20);  // dips to 41 -> trips ThresholdBuyer(<=45)
-    ev.last_price = (ev.yes_bid + ev.yes_ask) / 2;
-    ev.volume = 1000 + i;
-    ev.open_interest = 5000;
-    ev.ts_ns = daemon::now_ns();
-    ev.seq = ++seq;
-    timing.parsed_steady_ns = daemon::steady_now_ns();
-    on_event(ev, timing);
-    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
-  }
-  daemon::logf("feed: synthetic tape done (%" PRIu64 " events)", seq);
-  return 0;
 }
 
 // Live REST polling of GET /markets (public data): emits an event whenever a
