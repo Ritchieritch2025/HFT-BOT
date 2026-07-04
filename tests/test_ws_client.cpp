@@ -1,0 +1,137 @@
+// KalshiWsClient logic tests via MockWebSocketTransport (no sockets, no network):
+// auth-header construction, command builders, envelope routing into the
+// sid-aware OrderBookManager, control-seq handling, gap -> resync, error 25,
+// heartbeat liveness, and reconnect epoch bump + resubscribe.
+
+#include "kalshi/orderbook.hpp"
+#include "kalshi/ws_client.hpp"
+#include "kalshi/ws_transport.hpp"
+
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace kalshi;
+using trading::EntityId;
+
+namespace {
+int g_failures = 0;
+void check(bool ok, const std::string& what) {
+  std::cout << (ok ? "PASS: " : "FAIL: ") << what << "\n";
+  if (!ok) ++g_failures;
+}
+bool has(const std::string& hay, const std::string& needle) {
+  return hay.find(needle) != std::string::npos;
+}
+struct RecResync : ResyncHandler {
+  int calls = 0;
+  void request_resync(std::uint64_t, const std::vector<EntityId>&) override { ++calls; }
+};
+WsConfig cfg() {
+  WsConfig c;
+  c.url = "ws://127.0.0.1:0/trade-api/ws/v2";
+  c.api_key_id = "key-1";
+  return c;
+}
+}  // namespace
+
+int main() {
+  const EntityId A = trading::make_entity_id(trading::SourceId::Kalshi, "MKT-A");
+
+  // --- auth headers: signer receives ts+"GET"+sign_path; 3 headers ---
+  {
+    std::string signed_msg;
+    MockWebSocketTransport t;
+    KalshiWsClient c(t, cfg(), [&](std::string_view m) -> std::optional<std::string> {
+      signed_msg = std::string(m);
+      return std::string("BASE64SIG");
+    });
+    auto h = c.build_auth_headers(1700000000000LL);
+    check(has(signed_msg, "1700000000000") && has(signed_msg, "GET") &&
+              has(signed_msg, "/trade-api/ws/v2"),
+          "signed message = timestamp + GET + ws_sign_path");
+    check(h.size() == 3, "three auth headers");
+    bool key = false, sig = false, ts = false;
+    for (auto& [k, v] : h) {
+      if (k == "KALSHI-ACCESS-KEY" && v == "key-1") key = true;
+      if (k == "KALSHI-ACCESS-SIGNATURE" && v == "BASE64SIG") sig = true;
+      if (k == "KALSHI-ACCESS-TIMESTAMP" && v == "1700000000000") ts = true;
+    }
+    check(key && sig && ts, "auth headers carry key/signature/timestamp");
+  }
+
+  // --- command builders ---
+  {
+    MockWebSocketTransport t;
+    KalshiWsClient c(t, cfg(), [](std::string_view) { return std::string("s"); });
+    const std::string sub = c.build_subscribe(1, {"MKT-A", "MKT-B"});
+    check(has(sub, R"("cmd":"subscribe")") && has(sub, R"("channels":["orderbook_delta"])") &&
+              has(sub, R"("market_tickers":["MKT-A","MKT-B"])") &&
+              has(sub, R"("use_yes_price":false)"),
+          "subscribe cmd: orderbook_delta + tickers + explicit use_yes_price:false");
+    check(has(c.build_unsubscribe(2, {7}), R"("cmd":"unsubscribe")") &&
+              has(c.build_unsubscribe(2, {7}), R"("sids":[7])"),
+          "unsubscribe cmd carries sids");
+    check(has(c.build_get_snapshot(3, {7}, {"MKT-A"}), R"("action":"get_snapshot")") &&
+              has(c.build_get_snapshot(3, {7}, {"MKT-A"}), R"("market_tickers":["MKT-A"])"),
+          "get_snapshot cmd: action + tickers");
+  }
+
+  // --- routing: open -> subscribe sent; snapshot/deltas applied; control seq;
+  //     gap -> resync; error 25; heartbeat liveness ---
+  {
+    MockWebSocketTransport t;
+    RecResync rz;
+    OrderBookManager books(&rz);
+    KalshiWsClient c(t, cfg(), [](std::string_view) { return std::string("s"); });
+    c.set_book_manager(&books);
+    c.want_orderbook({"MKT-A"});
+    c.start();
+    check(t.is_open() && !t.sent().empty() && has(t.last_sent(), R"("cmd":"subscribe")"),
+          "on open -> subscribe command sent");
+
+    t.inject_text(R"({"id":1,"type":"subscribed","msg":{"channel":"orderbook_delta","sid":7}})");
+    t.inject_text(R"({"type":"orderbook_snapshot","sid":7,"seq":1,"msg":{"market_ticker":"MKT-A","yes_dollars_fp":[["0.4000","500.00"]],"no_dollars_fp":[["0.5500","100.00"]]}})");
+    check(books.book(A) && books.book(A)->valid() && books.book(A)->best_yes_bid() == 4000,
+          "snapshot applied: book valid, best yes bid 0.4000");
+
+    t.inject_text(R"({"type":"orderbook_delta","sid":7,"seq":2,"msg":{"market_ticker":"MKT-A","price_dollars":"0.4000","delta_fp":"100.00","side":"yes"}})");
+    check(books.book(A)->yes_size_at(4000) == trading::CountFp{60000}, "delta seq2 applied (500+100 contracts)");
+
+    // control seq (ok) consumes seq 3; next delta seq 4 must not read as a gap.
+    t.inject_text(R"({"id":9,"type":"ok","sid":7,"seq":3,"msg":{}})");
+    t.inject_text(R"({"type":"orderbook_delta","sid":7,"seq":4,"msg":{"market_ticker":"MKT-A","price_dollars":"0.4000","delta_fp":"100.00","side":"yes"}})");
+    check(rz.calls == 0 && books.book(A)->valid(), "control seq did not cause a false gap");
+
+    // true gap (expected 5, got 20)
+    t.inject_text(R"({"type":"orderbook_delta","sid":7,"seq":20,"msg":{"market_ticker":"MKT-A","price_dollars":"0.4000","delta_fp":"1.00","side":"yes"}})");
+    check(rz.calls == 1 && !books.book(A)->valid(), "gap -> book invalid + resync requested");
+
+    // error 25 (buffer overflow, I7)
+    t.inject_text(R"({"id":0,"type":"error","msg":{"code":25,"msg":"overflow"}})");
+    check(c.overflow_events() == 1, "error 25 counted as overflow event");
+
+    // heartbeat liveness
+    const std::int64_t before = c.last_activity_ms();
+    t.inject_ping("heartbeat");
+    check(c.last_activity_ms() >= before, "ping updates last-activity (liveness watchdog)");
+  }
+
+  // --- reconnect: drop -> close; reopen -> epoch bump + resubscribe ---
+  {
+    MockWebSocketTransport t;
+    KalshiWsClient c(t, cfg(), [](std::string_view) { return std::string("s"); });
+    c.want_orderbook({"MKT-A"});
+    c.start();
+    check(c.epoch() == 1 && c.reconnects() == 0, "first open: epoch 1, no reconnects");
+    t.drop();                 // unexpected disconnect
+    t.clear_sent();
+    t.start();                // transport reconnects
+    check(c.epoch() == 2 && c.reconnects() == 1, "reconnect: epoch bumped to 2");
+    check(!t.sent().empty() && has(t.last_sent(), R"("cmd":"subscribe")"),
+          "resubscribe sent after reconnect");
+  }
+
+  std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
+  return g_failures == 0 ? 0 : 1;
+}

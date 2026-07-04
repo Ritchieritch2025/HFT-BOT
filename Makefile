@@ -29,7 +29,8 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
-        $(BUILD)/test_shadow $(BUILD)/test_decode $(PURE_TESTS)
+        $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
+        $(BUILD)/ws_smoke $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -53,6 +54,21 @@ $(BUILD)/storage.o: src/storage.cpp include/trading/storage.hpp include/trading/
 
 $(BUILD)/gateway.o: src/gateway.cpp include/kalshi/gateway.hpp include/kalshi/env.hpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/ws_client.o: src/ws_client.cpp include/kalshi/ws_client.hpp include/kalshi/ws_transport.hpp include/kalshi/orderbook.hpp include/kalshi/sid_stream.hpp include/kalshi/gateway.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/ix_transport.o: src/ix_transport.cpp include/kalshi/ix_transport.hpp include/kalshi/ws_transport.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(IXWS_INC) -DIXWEBSOCKET_USE_TLS -DIXWEBSOCKET_USE_OPEN_SSL -c $< -o $@
+
+# WS integration smoke: real ixwebsocket transport + client. Links the vendored
+# ixwebsocket static lib + OpenSSL (libssl + libcrypto).
+$(BUILD)/ws_smoke: apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
+                   $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o \
+                   $(BUILD)/simdjson.o $(BUILD)/ixwebsocket.a
+	$(CXX) $(CXXFLAGS) apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
+	    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o \
+	    $(BUILD)/ixwebsocket.a $(SSL_LIBS) $(CRYPTO_LIBS) -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -132,6 +148,9 @@ $(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gatewa
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_decode: tests/test_decode.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/test_ws_client: tests/test_ws_client.cpp $(BUILD)/ws_client.o $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_shadow: tests/test_shadow.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o

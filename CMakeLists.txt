@@ -18,6 +18,9 @@ find_package(Threads REQUIRED)
 
 # Core library: Kalshi transport/gateway + the source-agnostic backbone
 # (fixedpoint/timestamp/ids/bus/storage are header-only under include/trading/).
+# NOTE: the WS transport (src/ix_transport.cpp, apps/ws_smoke.cpp) links the
+# vendored ixwebsocket static lib and is built via the Makefile. src/ws_client.cpp
+# is transport-independent (IWebSocketTransport) and lives in the core lib here.
 add_library(kalshi STATIC
   src/client.cpp
   src/resp.cpp
@@ -26,6 +29,7 @@ add_library(kalshi STATIC
   src/rest_api.cpp
   src/storage.cpp
   src/gateway.cpp
+  src/ws_client.cpp
   third_party/simdjson/simdjson.cpp
 )
 target_include_directories(kalshi PUBLIC include third_party/simdjson)
@@ -50,7 +54,8 @@ enable_testing()
 # runners (run_rest_api.sh); the pure/self-contained ones run directly.
 foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
           test_ids test_env_safety test_bus test_orderbook test_sid_stream
-          test_storage test_decode test_shadow test_readability test_rest_api)
+          test_storage test_decode test_ws_client test_shadow test_readability
+          test_rest_api)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
