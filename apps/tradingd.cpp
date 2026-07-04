@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
+#include <cstring>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -71,6 +72,10 @@ struct TelemetryRecord {
   };
   Kind kind = Kind::Submitted;
   std::uint8_t strategy_id = 0;
+  std::uint8_t side = 0;      // wire::kSideYes/kSideNo
+  std::uint8_t action = 0;    // wire::kActionBuy/kActionSell
+  std::int32_t price_cents = 0;
+  std::int32_t count = 0;
   std::uint16_t http_status = 0;
   std::uint32_t sign_us = 0, queue_us = 0, send_us = 0;
   std::uint64_t seq = 0, ts_ns = 0;
@@ -183,6 +188,10 @@ TelemetryRecord make_record(TelemetryRecord::Kind kind,
   TelemetryRecord r;
   r.kind = kind;
   r.strategy_id = p.strategy_id;
+  r.side = p.side;
+  r.action = p.action;
+  r.price_cents = p.price_cents;
+  r.count = p.count;
   r.seq = p.seq;
   r.ts_ns = p.ts_ns;
   r.queue_us = queue_us;
@@ -372,6 +381,53 @@ void submit_worker(Engine& e, int wid, int keepalive_s) {
 
 // --------------------------------------------------------------- telemetry
 
+// NDJSON line for the ops dashboard (dashboard_server.py). Cold path only.
+std::string ndjson_order(const TelemetryRecord& r, const char* mode) {
+  wire::ExecPayload id{};
+  id.strategy_id = r.strategy_id;
+  id.seq = r.seq;
+  id.ts_ns = r.ts_ns;
+  const char* status = "sent";
+  const char* reason = "";
+  switch (r.kind) {
+    case TelemetryRecord::Kind::Submitted:
+      status = (r.http_status >= 400) ? "rejected" : "sent"; break;
+    case TelemetryRecord::Kind::Expired: status = "dropped"; reason = "expired"; break;
+    case TelemetryRecord::Kind::RateLimited: status = "dropped"; reason = "rate_limited"; break;
+    case TelemetryRecord::Kind::TransportError: status = "error"; reason = "transport_error"; break;
+    case TelemetryRecord::Kind::SignError: status = "error"; reason = "sign_error"; break;
+    case TelemetryRecord::Kind::DroppedFull: status = "dropped"; reason = "queue_full"; break;
+    case TelemetryRecord::Kind::RejectedInvalid: status = "rejected"; reason = "invalid"; break;
+  }
+  const char* side =
+      (r.action == wire::kActionBuy)
+          ? (r.side == wire::kSideYes ? "buy_yes" : "buy_no")
+          : (r.side == wire::kSideYes ? "sell_yes" : "sell_no");
+  char buf[512];
+  std::snprintf(
+      buf, sizeof(buf),
+      "{\"type\":\"order\",\"ts_ms\":%llu,\"strategy\":\"slot_%u\",\"ticker\":\"%.*s\","
+      "\"side\":\"%s\",\"price\":%d,\"size\":%d,\"mode\":\"%s\",\"status\":\"%s\","
+      "\"http_status\":%u,\"sign_us\":%u,\"submit_to_ack_ms\":%.3f,"
+      "\"signal_to_ack_ms\":%.3f,\"reason\":\"%s\"}",
+      static_cast<unsigned long long>(r.ts_ns / 1'000'000ULL), r.strategy_id,
+      static_cast<int>(::strnlen(r.ticker, sizeof(r.ticker))), r.ticker, side,
+      r.price_cents, r.count, mode, status, r.http_status, r.sign_us,
+      r.send_us / 1000.0, (r.queue_us + r.sign_us + r.send_us) / 1000.0, reason);
+  return buf;
+}
+
+std::string ndjson_system(const char* mode, const char* status, const char* msg,
+                          const char* env) {
+  char buf[320];
+  std::snprintf(buf, sizeof(buf),
+                "{\"type\":\"system\",\"ts_ms\":%llu,\"mode\":\"%s\",\"component\":"
+                "\"tradingd\",\"status\":\"%s\",\"message\":\"%s\",\"env\":\"%s\"}",
+                static_cast<unsigned long long>(daemon::now_ns() / 1'000'000ULL),
+                mode, status, msg, env);
+  return buf;
+}
+
 std::string telemetry_json(const TelemetryRecord& r) {
   wire::ExecPayload id{};
   id.strategy_id = r.strategy_id;
@@ -401,7 +457,8 @@ std::string telemetry_json(const TelemetryRecord& r) {
   return j;
 }
 
-void telemetry_worker(Engine& e, std::atomic<bool>& stop) {
+void telemetry_worker(Engine& e, std::atomic<bool>& stop, const char* mode,
+                      const char* env) {
   resp::RespClient redis(daemon::env_or("REDIS_HOST", "127.0.0.1"),
                          daemon::env_int("REDIS_PORT", 6379));
   const std::string csv_path = daemon::env_or("TRADINGD_LATENCY_CSV", "");
@@ -411,6 +468,20 @@ void telemetry_worker(Engine& e, std::atomic<bool>& stop) {
     if (csv) latency_probe::write_csv_header(csv);
     else logf("tradingd: cannot open %s for latency CSV", csv_path.c_str());
   }
+
+  // NDJSON sink for the ops dashboard (append-only; the dashboard tails it).
+  const std::string ndjson_path = daemon::env_or("TRADINGD_NDJSON", "");
+  std::FILE* nd = nullptr;
+  if (!ndjson_path.empty()) {
+    nd = std::fopen(ndjson_path.c_str(), "a");
+    if (nd) {
+      std::fprintf(nd, "%s\n", ndjson_system(mode, "started", "engine up", env).c_str());
+      std::fflush(nd);
+    } else {
+      logf("tradingd: cannot open %s for NDJSON", ndjson_path.c_str());
+    }
+  }
+  std::uint64_t last_heartbeat_ns = daemon::now_ns();
 
   TelemetryRecord rec;
   latency_probe::Trace trace;
@@ -425,15 +496,28 @@ void telemetry_worker(Engine& e, std::atomic<bool>& stop) {
       } else if (++pushed % 4096 == 0 && *r > 20000) {
         (void)redis.ltrim(wire::kResultList, 0, 9999);
       }
+      if (nd) {
+        std::fprintf(nd, "%s\n", ndjson_order(rec, mode).c_str());
+        std::fflush(nd);
+      }
     }
     if (csv && e.probe.try_pop(trace)) {
       worked = true;
       latency_probe::write_csv_row(csv, trace);
       std::fflush(csv);
     }
+    if (nd && daemon::now_ns() - last_heartbeat_ns > 2'000'000'000ULL) {
+      std::fprintf(nd, "%s\n", ndjson_system(mode, "ok", "heartbeat", env).c_str());
+      std::fflush(nd);
+      last_heartbeat_ns = daemon::now_ns();
+    }
     if (worked) continue;
     if (stop.load(std::memory_order_relaxed)) break;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  if (nd) {
+    std::fprintf(nd, "%s\n", ndjson_system(mode, "stopped", "engine down", env).c_str());
+    std::fclose(nd);
   }
   if (csv) std::fclose(csv);
 }
@@ -479,9 +563,13 @@ int main(int argc, char** argv) {
   for (int w = 0; w < n_workers; ++w)
     workers.emplace_back(submit_worker, std::ref(engine), w, keepalive_s);
 
+  // Mode label for telemetry/dashboard; env is prod unless base_url says demo.
+  static const std::string mode_s = daemon::env_or("TRADINGD_MODE", "live");
+  static const std::string env_s =
+      client.config().base_url.find("demo") != std::string::npos ? "demo" : "prod";
   std::atomic<bool> telemetry_stop{false};
   std::thread telemetry(telemetry_worker, std::ref(engine),
-                        std::ref(telemetry_stop));
+                        std::ref(telemetry_stop), mode_s.c_str(), env_s.c_str());
 
   // Per-slot quarantine: one bad strategy must not take down execution.
   std::array<int, wire::kStrategySlots> consecutive_throws{};
