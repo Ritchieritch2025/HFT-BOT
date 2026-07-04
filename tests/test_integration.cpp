@@ -46,10 +46,12 @@ int main(int argc, char** argv) {
       if (i % 2 == 0) {
         r = client.request(kalshi::Method::Get, "/markets?limit=5&t=" + std::to_string(tid));
       } else {
+        // V2 order shape against the mock (mock echoes {"ok":true} regardless).
         const std::string body =
-            R"({"action":"buy","count":1,"side":"yes","ticker":"TEST-)" +
-            std::to_string(tid) + "-" + std::to_string(i) + R"("})";
-        r = client.request(kalshi::Method::Post, "/portfolio/orders", body);
+            R"({"ticker":"TEST-)" + std::to_string(tid) + "-" + std::to_string(i) +
+            R"(","side":"bid","count":"1.00","price":"0.5000",)"
+            R"("time_in_force":"good_till_canceled"})";
+        r = client.request(kalshi::Method::Post, "/portfolio/events/orders", body);
       }
       if (!r) {
         ++transport_err;

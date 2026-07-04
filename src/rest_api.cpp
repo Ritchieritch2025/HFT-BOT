@@ -335,6 +335,39 @@ std::expected<std::string, ApiError> RestApi::positions(std::string_view cursor)
   return r->body;
 }
 
+// --- KalshiDataSource ---
+
+int KalshiDataSource::poll_once() {
+  int n = 0;
+  for (const std::string& t : tickers_) {
+    auto ob = api_.orderbook(t);
+    if (!ob) continue;  // transient/typed error; skip this tick
+    trading::NormalizedEvent ev;
+    ev.source = trading::SourceId::Kalshi;
+    ev.entity_id = reg_.register_entity(trading::SourceId::Kalshi, t);
+    ev.trace_id = trading::next_trace_id();
+    const auto ts = trading::stamp_receive();
+    ev.local_receive_mono_ns = ts.local_receive_mono_ns;
+    ev.local_receive_wall_ns = ts.local_receive_wall_ns;
+    ev.publish_time_ns = ts.local_receive_mono_ns;
+    trading::BookSnapshot snap;
+    snap.yes = std::move(ob->yes);
+    snap.no = std::move(ob->no);
+    ev.payload = std::move(snap);
+    if (sink_) sink_->on_event(ev);
+    ++emitted_;
+    ++n;
+  }
+  return n;
+}
+
+void KalshiDataSource::start() {
+  while (!stop_) {
+    poll_once();
+    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms_));
+  }
+}
+
 std::string RestApi::build_order_json(const OrderSpec& spec) {
   // V2 book is YES-normalized: buy-YES / sell-NO rest as bids; sell-YES /
   // buy-NO as asks at the complementary price.

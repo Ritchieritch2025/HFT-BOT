@@ -143,4 +143,34 @@ class RestApi {
   TokenBucket bucket_;
 };
 
+// Kalshi as one trading::DataSource. This pass sources REST orderbook snapshots
+// (WS later) and emits source-agnostic BookSnapshot NormalizedEvents. All
+// Kalshi-specific decoding stays here; nothing Kalshi-shaped enters the bus.
+// Read-only: no order paths are linked or called.
+class KalshiDataSource : public trading::DataSource {
+ public:
+  KalshiDataSource(RestApi& api, std::vector<std::string> tickers,
+                   trading::EntityRegistry& reg, int interval_ms = 1000)
+      : api_(api), tickers_(std::move(tickers)), reg_(reg), interval_ms_(interval_ms) {}
+
+  trading::SourceId id() const override { return trading::SourceId::Kalshi; }
+  void set_sink(trading::MarketDataSink* sink) override { sink_ = sink; }
+  void start() override;  // poll loop until stop()
+  void stop() override { stop_ = true; }
+
+  // One poll pass: fetch each ticker's orderbook, emit a BookSnapshot event.
+  // Returns the number of events emitted. Testable without a poll loop.
+  int poll_once();
+  std::uint64_t emitted() const { return emitted_; }
+
+ private:
+  RestApi& api_;
+  std::vector<std::string> tickers_;
+  trading::EntityRegistry& reg_;
+  int interval_ms_;
+  trading::MarketDataSink* sink_ = nullptr;
+  bool stop_ = false;
+  std::uint64_t emitted_ = 0;
+};
+
 }  // namespace kalshi

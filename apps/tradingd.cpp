@@ -29,6 +29,7 @@
 #include "daemon_util.hpp"
 #include "feed.hpp"
 #include "kalshi/client.hpp"
+#include "kalshi/env.hpp"
 #include "kalshi/full_chain_latency_probe.hpp"
 #include "kalshi/resp.hpp"
 #include "kalshi/ring.hpp"
@@ -68,7 +69,7 @@ void set_mark(latency_probe::Trace& tr, latency_probe::Event e, std::uint64_t ns
 struct TelemetryRecord {
   enum class Kind : std::uint8_t {
     Submitted, Expired, RateLimited, TransportError, SignError,
-    DroppedFull, RejectedInvalid,
+    DroppedFull, RejectedInvalid, Shadow,
   };
   Kind kind = Kind::Submitted;
   std::uint8_t strategy_id = 0;
@@ -91,6 +92,7 @@ const char* kind_name(TelemetryRecord::Kind k) {
     case TelemetryRecord::Kind::SignError: return "sign_error";
     case TelemetryRecord::Kind::DroppedFull: return "dropped_full";
     case TelemetryRecord::Kind::RejectedInvalid: return "rejected_invalid";
+    case TelemetryRecord::Kind::Shadow: return "shadow";
   }
   return "unknown";
 }
@@ -165,12 +167,13 @@ struct Engine {
   KalshiClient& client;
   std::uint64_t max_queue_age_ns;
   bool spin;
-  bool probe_enabled = false;  // set when TRADINGD_LATENCY_CSV names a file
+  bool probe_enabled = false;   // set when TRADINGD_LATENCY_CSV names a file
+  bool orders_enabled = false;  // gate: false => shadow (log, never transmit)
 
   std::atomic<std::uint64_t> drain_deadline_steady{0};  // set at shutdown
   std::atomic<std::uint64_t> submitted{0}, expired{0}, rate_limited{0},
       transport_err{0}, sign_err{0}, dropped_full{0}, rejected{0},
-      telemetry_dropped{0}, shutdown_dropped{0};
+      telemetry_dropped{0}, shutdown_dropped{0}, shadow{0};
 
   Engine(std::size_t ring_cap, double orders_per_sec, KalshiClient& c,
          std::uint64_t max_age_ns, bool spin_mode)
@@ -274,6 +277,14 @@ void process_order(Engine& e, KalshiClient::Lane& lane, OrderMsg& m) {
   if (!e.bucket.try_take()) {
     e.rate_limited.fetch_add(1, std::memory_order_relaxed);
     e.emit(make_record(TelemetryRecord::Kind::RateLimited, m.intent, queue_us));
+    return;
+  }
+  // Hard safety gate: unless live is explicitly enabled, NEVER transmit — log
+  // the would-be order as shadow. (No strategies produce intents this pass, so
+  // this path is dormant; the gate is here so it can never regress.)
+  if (!e.orders_enabled) {
+    e.shadow.fetch_add(1, std::memory_order_relaxed);
+    e.emit(make_record(TelemetryRecord::Kind::Shadow, m.intent, queue_us));
     return;
   }
 
@@ -398,6 +409,7 @@ std::string ndjson_order(const TelemetryRecord& r, const char* mode) {
     case TelemetryRecord::Kind::SignError: status = "error"; reason = "sign_error"; break;
     case TelemetryRecord::Kind::DroppedFull: status = "dropped"; reason = "queue_full"; break;
     case TelemetryRecord::Kind::RejectedInvalid: status = "rejected"; reason = "invalid"; break;
+    case TelemetryRecord::Kind::Shadow: status = "shadow"; reason = "shadow"; break;
   }
   const char* side =
       (r.action == wire::kActionBuy)
@@ -534,10 +546,20 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  // Environment + base_url resolved and cross-validated by the safety layer.
+  kalshi::Runtime rt;
+  try {
+    rt = kalshi::resolve_runtime();
+  } catch (const kalshi::SafetyViolation& e) {
+    logf("tradingd: config refused: %s", e.what());
+    return 2;
+  }
+  logf("tradingd: %s", kalshi::describe(rt).c_str());
+
   Config cfg;
   cfg.api_key_id = key_id;
   cfg.private_key_pem = read_file(key_path);
-  cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+  cfg.base_url = rt.rest_base_url;
   cfg.pool_size = 1;  // order traffic runs on dedicated lanes, not the pool
   KalshiClient client(std::move(cfg));
 
@@ -553,20 +575,21 @@ int main(int argc, char** argv) {
 
   Engine engine(ring_cap, max_rate, client, max_age_ns, spin);
   engine.probe_enabled = std::getenv("TRADINGD_LATENCY_CSV") != nullptr;
+  engine.orders_enabled = kalshi::can_place_orders(rt);  // fail closed: shadow unless live
   InlineExecutor executor(engine);
   auto strategies = make_strategies();
-  logf("tradingd: %zu configured strategies, %d lanes, ring=%zu, %s wakeup",
-       strategies.size(), n_workers, ring_cap, spin ? "spin" : "park");
+  logf("tradingd: %zu configured strategies, %d lanes, ring=%zu, %s wakeup, orders %s",
+       strategies.size(), n_workers, ring_cap, spin ? "spin" : "park",
+       engine.orders_enabled ? "ENABLED" : "shadow (never transmit)");
 
   std::vector<std::thread> workers;
   workers.reserve(static_cast<size_t>(n_workers));
   for (int w = 0; w < n_workers; ++w)
     workers.emplace_back(submit_worker, std::ref(engine), w, keepalive_s);
 
-  // Mode label for telemetry/dashboard; env is prod unless base_url says demo.
-  static const std::string mode_s = daemon::env_or("TRADINGD_MODE", "live");
-  static const std::string env_s =
-      client.config().base_url.find("demo") != std::string::npos ? "demo" : "prod";
+  // Mode/env labels for telemetry/dashboard come from the resolved Runtime.
+  static const std::string mode_s = kalshi::to_string(rt.mode);
+  static const std::string env_s = kalshi::to_string(rt.env);
   std::atomic<bool> telemetry_stop{false};
   std::thread telemetry(telemetry_worker, std::ref(engine),
                         std::ref(telemetry_stop), mode_s.c_str(), env_s.c_str());
@@ -620,11 +643,11 @@ int main(int argc, char** argv) {
   telemetry_stop.store(true);
   telemetry.join();
 
-  logf("tradingd: stopped. submitted=%" PRIu64 " expired=%" PRIu64
+  logf("tradingd: stopped. submitted=%" PRIu64 " shadow=%" PRIu64 " expired=%" PRIu64
        " rate_limited=%" PRIu64 " transport_err=%" PRIu64 " sign_err=%" PRIu64
        " rejected=%" PRIu64 " dropped_full=%" PRIu64 " undrained=%" PRIu64
        " telemetry_dropped=%" PRIu64,
-       engine.submitted.load(), engine.expired.load(),
+       engine.submitted.load(), engine.shadow.load(), engine.expired.load(),
        engine.rate_limited.load(), engine.transport_err.load(),
        engine.sign_err.load(), engine.rejected.load(),
        engine.dropped_full.load(), engine.shutdown_dropped.load(),

@@ -22,12 +22,14 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 
 # Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
-              $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook
+              $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook \
+              $(BUILD)/test_readability
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
-        $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage $(PURE_TESTS)
+        $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
+        $(BUILD)/test_shadow $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -49,7 +51,7 @@ $(BUILD)/rest_api.o: src/rest_api.cpp include/kalshi/rest_api.hpp include/kalshi
 $(BUILD)/storage.o: src/storage.cpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD)/gateway.o: src/gateway.cpp include/kalshi/gateway.hpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
+$(BUILD)/gateway.o: src/gateway.cpp include/kalshi/gateway.hpp include/kalshi/env.hpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
@@ -92,34 +94,40 @@ $(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/cli
 $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_orderbook.cpp -o $@
 
+$(BUILD)/test_readability: tests/test_readability.cpp include/trading/format.hpp include/kalshi/format.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_readability.cpp -o $@
+
 $(BUILD)/bench_orderbook: apps/bench_orderbook.cpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) apps/bench_orderbook.cpp -o $@
 
-$(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/simdjson.o
+$(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/test_shadow: tests/test_shadow.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 # --- the trading engine (hot path) and the tape recorder (cold path) ---
 
 $(BUILD)/tradingd: apps/tradingd.cpp apps/feed.hpp apps/daemon_util.hpp \
                    include/kalshi/ring.hpp $(BUILD)/client.o $(BUILD)/resp.o \
-                   $(BUILD)/strategies.o $(BUILD)/simdjson.o
+                   $(BUILD)/strategies.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/tradingd.cpp $(BUILD)/client.o $(BUILD)/resp.o \
-	    $(BUILD)/strategies.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+	    $(BUILD)/strategies.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_rtt.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/bench_order.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/bench_order.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/fill_test: apps/fill_test.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/fill_test.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/fill_test: apps/fill_test.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/fill_test.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 # ThreadSanitizer builds. Note: libcrypto/libcurl are not TSan-instrumented,
 # so these validate our ring/doorbell/pool call sites — not OpenSSL internals.
@@ -132,10 +140,10 @@ $(BUILD)/test_integration_tsan: tests/test_integration.cpp src/client.cpp | $(BU
 $(BUILD)/test_ring_tsan: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=thread -Iinclude tests/test_ring.cpp -o $@
 
-$(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.cpp src/strategies.cpp $(BUILD)/simdjson.o | $(BUILD)
+$(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.cpp src/strategies.cpp src/env.cpp $(BUILD)/simdjson.o | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=thread \
 	    -Iinclude -Iapps -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
-	    apps/tradingd.cpp src/client.cpp src/resp.cpp src/strategies.cpp \
+	    apps/tradingd.cpp src/client.cpp src/resp.cpp src/strategies.cpp src/env.cpp \
 	    $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan

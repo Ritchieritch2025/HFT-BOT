@@ -95,6 +95,19 @@ class OrderBook {
   bool valid() const { return valid_; }
   std::uint64_t last_seq() const { return last_seq_; }
 
+  // Human-readable one-line state. Invalid books never print stale numbers.
+  std::string dump_state() const {
+    if (!valid_) return "OrderBook{INVALID (needs resync)}";
+    std::string s = "OrderBook{seq=" + std::to_string(last_seq_) +
+                    " yes_levels=" + std::to_string(yes_.size()) +
+                    " no_levels=" + std::to_string(no_.size());
+    if (auto b = best_yes_bid()) s += " yes_bid=" + trading::format_price_e4(*b);
+    if (auto a = implied_yes_ask()) s += " impl_yes_ask=" + trading::format_price_e4(*a);
+    if (crossed()) s += " CROSSED";
+    s += "}";
+    return s;
+  }
+
   // Best resting YES bid (highest yes price). nullopt if invalid or empty.
   std::optional<PriceE4> best_yes_bid() const {
     if (!valid_ || yes_.empty()) return std::nullopt;

@@ -9,6 +9,7 @@
 
 #include "daemon_util.hpp"
 #include "kalshi/client.hpp"
+#include "kalshi/env.hpp"
 #include "kalshi/wire.hpp"
 #include "simdjson.h"
 
@@ -39,16 +40,23 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  // Environment + base_url resolved and cross-validated by the safety layer.
+  // fill_test transmits a REAL order -> require live mode explicitly.
+  kalshi::Runtime rt;
+  try {
+    rt = kalshi::resolve_runtime();
+    kalshi::require_orders_allowed(rt);
+  } catch (const kalshi::SafetyViolation& e) {
+    std::fprintf(stderr, "fill_test refused: %s\n", e.what());
+    return 2;
+  }
+  (void)prod_ok;  // superseded by env safety
+
   Config cfg;
   cfg.api_key_id = key_id;
   cfg.private_key_pem = read_file(key_path);
-  cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+  cfg.base_url = rt.rest_base_url;
   cfg.pool_size = 1;
-  if (cfg.base_url.find("demo") == std::string::npos && !prod_ok) {
-    std::fprintf(stderr, "target is production — pass --prod-ok to spend up to %dc\n",
-                 price_cents);
-    return 2;
-  }
   KalshiClient client(std::move(cfg));
   simdjson::ondemand::parser parser;
   auto lane = client.make_lane();

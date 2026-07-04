@@ -15,6 +15,7 @@
 
 #include "daemon_util.hpp"
 #include "kalshi/client.hpp"
+#include "kalshi/env.hpp"
 #include "kalshi/wire.hpp"
 #include "simdjson.h"
 
@@ -58,10 +59,20 @@ int main(int argc, char** argv) {
     else if (std::strcmp(argv[i], "--prod-ok") == 0) prod_ok = true;
   }
 
+  // Environment + base_url resolved and cross-validated by the safety layer.
+  kalshi::Runtime rt;
+  try {
+    rt = kalshi::resolve_runtime();
+  } catch (const kalshi::SafetyViolation& e) {
+    std::fprintf(stderr, "config: %s\n", e.what());
+    return 2;
+  }
+  (void)prod_ok;  // superseded by env safety
+
   // 1. Key parses and the client constructs.
   Config cfg;
   cfg.api_key_id = key_id;
-  cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+  cfg.base_url = rt.rest_base_url;
   cfg.pool_size = 2;
   try {
     cfg.private_key_pem = read_file(key_path);
@@ -70,8 +81,8 @@ int main(int argc, char** argv) {
     result(false, "read private key file", e.what());
     return 1;
   }
-  std::printf("target: %s\n", cfg.base_url.c_str());
-  const bool is_demo = cfg.base_url.find("demo") != std::string::npos;
+  std::printf("target: %s (env=%s mode=%s)\n", cfg.base_url.c_str(),
+              kalshi::to_string(rt.env), kalshi::to_string(rt.mode));
 
   KalshiClient* client_ptr = nullptr;
   try {
@@ -155,10 +166,10 @@ int main(int argc, char** argv) {
 
   // 6. Optional: real order round trip (place @1c, then cancel).
   if (!order_ticker.empty()) {
-    if (!is_demo && !prod_ok) {
+    if (!kalshi::can_place_orders(rt)) {
       result(false, "order check refused",
-             "target is production; use the demo env or pass --prod-ok "
-             "(max exposure: 1 contract at 1c)");
+             "orders require live mode (KALSHI_MODE=live + KALSHI_ALLOW_LIVE=1 on a "
+             "demo/prod env); read-only checks above still ran");
     } else {
       wire::ExecPayload p;  // the same struct + JSON path tradingd uses
       p.action = wire::kActionBuy;

@@ -16,10 +16,16 @@ find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 
+# Core library: Kalshi transport/gateway + the source-agnostic backbone
+# (fixedpoint/timestamp/ids/bus/storage are header-only under include/trading/).
 add_library(kalshi STATIC
   src/client.cpp
   src/resp.cpp
   src/strategies.cpp
+  src/env.cpp
+  src/rest_api.cpp
+  src/storage.cpp
+  src/gateway.cpp
   third_party/simdjson/simdjson.cpp
 )
 target_include_directories(kalshi PUBLIC include third_party/simdjson)
@@ -30,16 +36,26 @@ add_executable(kalshi_example examples/kalshi_example.cpp)
 target_link_libraries(kalshi_example PRIVATE kalshi)
 
 # tradingd: the single-process trading engine. ingestd: cold-path tape recorder.
+# bench_orderbook: pure microbenchmark.
 foreach(daemon tradingd ingestd)
   add_executable(${daemon} apps/${daemon}.cpp)
   target_include_directories(${daemon} PRIVATE apps)
   target_link_libraries(${daemon} PRIVATE kalshi)
 endforeach()
+add_executable(bench_orderbook apps/bench_orderbook.cpp)
+target_link_libraries(bench_orderbook PRIVATE kalshi)
 
 enable_testing()
-foreach(t test_signing test_integration test_resp test_ring)
+# Tests that need scratch/mock args are registered but driven by the shell
+# runners (run_rest_api.sh); the pure/self-contained ones run directly.
+foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
+          test_ids test_env_safety test_bus test_orderbook test_storage
+          test_shadow test_readability test_rest_api)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
-add_test(NAME signing COMMAND test_signing)
-add_test(NAME ring COMMAND test_ring)
+foreach(t signing ring fixedpoint ids env_safety bus orderbook readability)
+  add_test(NAME ${t} COMMAND test_${t})
+endforeach()
+add_test(NAME storage COMMAND test_storage ${CMAKE_CURRENT_BINARY_DIR})
+add_test(NAME shadow COMMAND test_shadow ${CMAKE_CURRENT_BINARY_DIR})

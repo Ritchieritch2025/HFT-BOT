@@ -13,6 +13,7 @@
 
 #include "daemon_util.hpp"
 #include "kalshi/client.hpp"
+#include "kalshi/env.hpp"
 #include "kalshi/wire.hpp"
 #include "simdjson.h"
 
@@ -55,9 +56,8 @@ std::string pick_ticker(KalshiClient& client, simdjson::ondemand::parser& parser
 int main(int argc, char** argv) {
   int n = 5;
   std::string ticker;
-  bool prod_ok = false;
   for (int i = 1; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--prod-ok") == 0) prod_ok = true;
+    if (std::strcmp(argv[i], "--prod-ok") == 0) continue;  // superseded by env safety
     else if (std::atoi(argv[i]) > 0 && ticker.empty() && std::string(argv[i]).find_first_not_of("0123456789") == std::string::npos)
       n = std::atoi(argv[i]);
     else ticker = argv[i];
@@ -69,18 +69,23 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH\n");
     return 2;
   }
+
+  // Environment + base_url resolved and cross-validated by the safety layer.
+  kalshi::Runtime rt;
+  try {
+    rt = kalshi::resolve_runtime();
+    // bench_order transmits real (post-only) orders -> require live explicitly.
+    kalshi::require_orders_allowed(rt);
+  } catch (const kalshi::SafetyViolation& e) {
+    std::fprintf(stderr, "bench_order refused: %s\n", e.what());
+    return 2;
+  }
+
   Config cfg;
   cfg.api_key_id = key_id;
   cfg.private_key_pem = read_file(key_path);
-  cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+  cfg.base_url = rt.rest_base_url;
   cfg.pool_size = 1;
-  const bool is_demo = cfg.base_url.find("demo") != std::string::npos;
-  if (!is_demo && !prod_ok) {
-    std::fprintf(stderr, "target %s is production — pass --prod-ok "
-                         "(orders are post-only 1c bids, canceled immediately)\n",
-                 cfg.base_url.c_str());
-    return 2;
-  }
   KalshiClient client(std::move(cfg));
   simdjson::ondemand::parser parser;
 

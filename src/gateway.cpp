@@ -3,6 +3,8 @@
 #include "simdjson.h"
 #include "trading/fixedpoint.hpp"
 
+#include <cstdio>
+
 namespace kalshi {
 
 namespace {
@@ -93,6 +95,56 @@ std::optional<trading::NormalizedEvent> KalshiRawDecoder::decode(
   } catch (const simdjson::simdjson_error&) {
     return std::nullopt;
   }
+}
+
+// --- KalshiExecutionEngine ---
+
+void KalshiExecutionEngine::write_would_be(const trading::OrderIntent& oi) {
+  if (log_path_.empty()) return;
+  std::FILE* f = std::fopen(log_path_.c_str(), "ab");
+  if (!f) return;
+  std::fprintf(
+      f,
+      "{\"ts_ns\":%lld,\"mode\":\"%s\",\"env\":\"%s\",\"decision\":\"logged\","
+      "\"entity_id\":%llu,\"trace_id\":%llu,\"side\":\"%s\",\"price\":%d,"
+      "\"size\":%lld,\"tif\":\"%s\",\"post_only\":%s}\n",
+      static_cast<long long>(trading::wall_ns()), to_string(rt_.mode), to_string(rt_.env),
+      static_cast<unsigned long long>(oi.entity_id.v),
+      static_cast<unsigned long long>(oi.trace_id.v), trading::to_string(oi.side),
+      oi.limit_price, static_cast<long long>(oi.size),
+      oi.tif == trading::OrderIntent::TimeInForce::IOC ? "ioc" : "gtc",
+      oi.post_only ? "true" : "false");
+  std::fclose(f);
+}
+
+trading::ExecDecision KalshiExecutionEngine::submit(const trading::OrderIntent& oi) {
+  switch (rt_.mode) {
+    case Mode::DataCollect:
+      // The pipeline should never produce intents here; reject loudly.
+      ++rejected_;
+      std::fprintf(stderr,
+                   "[exec] REJECTED order in data_collect mode (misconfiguration): "
+                   "entity=%llu trace=%llu\n",
+                   static_cast<unsigned long long>(oi.entity_id.v),
+                   static_cast<unsigned long long>(oi.trace_id.v));
+      return trading::ExecDecision::Rejected;
+
+    case Mode::Shadow:
+      // Never transmit — log the would-be order.
+      write_would_be(oi);
+      ++logged_;
+      return trading::ExecDecision::Logged;
+
+    case Mode::Live:
+      // Throws unless live is explicitly enabled...
+      require_orders_allowed(rt_);
+      // ...and even then, real transmission is not wired in this pass. Fail
+      // closed rather than silently claim a send.
+      throw SafetyViolation(
+          "live order transmission is not implemented in the foundations pass "
+          "(fail closed)");
+  }
+  return trading::ExecDecision::Rejected;
 }
 
 }  // namespace kalshi

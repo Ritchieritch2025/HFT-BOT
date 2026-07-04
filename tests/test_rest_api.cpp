@@ -171,6 +171,33 @@ int main(int argc, char** argv) {
           "buy-NO at 0.30 -> yes-price 0.70");
   }
 
+  // 10. KalshiDataSource: REST orderbook -> source-agnostic BookSnapshot event
+  {
+    struct Sink : trading::EventSink {
+      int snapshots = 0;
+      trading::SourceId src = trading::SourceId::Unknown;
+      trading::PriceE4 best_yes = 0;
+      bool trace_ok = true;
+      void on_event(const trading::NormalizedEvent& e) override {
+        if (e.trace_id.v == 0) trace_ok = false;
+        src = e.source;
+        if (e.kind() == trading::Kind::BookSnapshot) {
+          ++snapshots;
+          const auto& bs = std::get<trading::BookSnapshot>(e.payload);
+          for (const auto& l : bs.yes) best_yes = std::max(best_yes, l.price);
+        }
+      }
+    } sink;
+    trading::EntityRegistry reg;
+    KalshiDataSource ds(api, {"SOME-MKT"}, reg);
+    ds.set_sink(&sink);
+    const int n = ds.poll_once();
+    check(n == 1 && sink.snapshots == 1, "KalshiDataSource emits a BookSnapshot");
+    check(sink.src == trading::SourceId::Kalshi, "event source is Kalshi");
+    check(sink.trace_ok, "event carries a trace_id");
+    check(sink.best_yes == 4200, "best yes level decoded to PriceE4 (0.4200)");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }
