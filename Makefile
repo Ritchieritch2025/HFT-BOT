@@ -61,6 +61,31 @@ $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/ka
 $(BUILD)/simdjson.o: $(SIMDJSON_DIR)/simdjson.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -w -c $< -o $@
 
+# --- vendored ixwebsocket: OpenSSL TLS, permessage-deflate OFF at build ---
+# (no IXWEBSOCKET_USE_ZLIB; AppleSSL/MbedTLS backends excluded). C++17, warnings
+# silenced (third-party). Needs libssl in addition to libcrypto.
+IXWS_DIR := third_party/ixwebsocket/ixwebsocket
+IXWS_INC := -Ithird_party/ixwebsocket
+IXWS_SRCS := $(filter-out $(IXWS_DIR)/IXSocketAppleSSL.cpp $(IXWS_DIR)/IXSocketMbedTLS.cpp,\
+                          $(wildcard $(IXWS_DIR)/*.cpp))
+IXWS_OBJS := $(patsubst $(IXWS_DIR)/%.cpp,$(BUILD)/ixws/%.o,$(IXWS_SRCS))
+IXWS_FLAGS := -std=c++17 -O2 -w $(IXWS_INC) $(OPENSSL_INC) \
+              -DIXWEBSOCKET_USE_TLS -DIXWEBSOCKET_USE_OPEN_SSL
+ifeq ($(UNAME_S),Linux)
+  SSL_LIBS := -lssl
+else
+  SSL_LIBS := $(OPENSSL_DIR)/lib/libssl.a
+endif
+
+$(BUILD)/ixws:
+	mkdir -p $(BUILD)/ixws
+
+$(BUILD)/ixws/%.o: $(IXWS_DIR)/%.cpp | $(BUILD)/ixws
+	$(CXX) $(IXWS_FLAGS) -c $< -o $@
+
+$(BUILD)/ixwebsocket.a: $(IXWS_OBJS)
+	ar rcs $@ $^
+
 $(BUILD)/kalshi_example: examples/kalshi_example.cpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 

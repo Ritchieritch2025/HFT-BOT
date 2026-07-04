@@ -1,0 +1,3 @@
+ixwebsocket v11.4.6 (github.com/machinezone/IXWebSocket)
+Vendored 2026-07-04. Built OpenSSL-only, permessage-deflate OFF at build (no IXWEBSOCKET_USE_ZLIB).
+Excluded backends: IXSocketAppleSSL.cpp, IXSocketMbedTLS.cpp.
