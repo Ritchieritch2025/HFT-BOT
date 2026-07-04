@@ -368,6 +368,73 @@ void KalshiDataSource::start() {
   }
 }
 
+std::expected<std::vector<OrderbookSnapshot>, ApiError> RestApi::batch_orderbook(
+    const std::vector<std::string>& tickers) {
+  if (tickers.empty() || tickers.size() > 100)
+    return std::unexpected(ApiError{ApiError::Kind::Http, 0, 0, "", "batch size must be 1..100"});
+  std::string path = "/markets/orderbooks";
+  for (std::size_t i = 0; i < tickers.size(); ++i)
+    path += (i == 0 ? "?tickers=" : "&tickers=") + escape(tickers[i]);  // form-explode
+
+  auto r = get_with_retry(path);
+  if (!r) return std::unexpected(r.error());
+  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+
+  std::vector<OrderbookSnapshot> out;
+  try {
+    simdjson::padded_string json(r->body);
+    simdjson::ondemand::parser parser;
+    auto doc = parser.iterate(json);
+    simdjson::ondemand::array arr;
+    if (doc["orderbooks"].get(arr) == simdjson::SUCCESS) {
+      for (auto item : arr) {
+        simdjson::ondemand::object obj;
+        if (item.get(obj) != simdjson::SUCCESS) continue;
+        OrderbookSnapshot ob;
+        std::string_view tk;
+        if (obj["market_ticker"].get(tk) == simdjson::SUCCESS) ob.ticker = std::string(tk);
+        simdjson::ondemand::object book;
+        bool cents = false;
+        if (obj["orderbook_fp"].get(book) == simdjson::SUCCESS) cents = false;
+        else if (obj["orderbook"].get(book) == simdjson::SUCCESS) cents = true;
+        else { out.push_back(std::move(ob)); continue; }
+        simdjson::ondemand::value yes, no;
+        if (book[cents ? "yes" : "yes_dollars"].get(yes) == simdjson::SUCCESS)
+          decode_levels(yes, ob.yes, cents);
+        if (book[cents ? "no" : "no_dollars"].get(no) == simdjson::SUCCESS)
+          decode_levels(no, ob.no, cents);
+        out.push_back(std::move(ob));
+      }
+    }
+  } catch (const simdjson::simdjson_error& e) {
+    return std::unexpected(ApiError{ApiError::Kind::Http, r->status, 0, "", e.what()});
+  }
+  return out;
+}
+
+RateLimits RestApi::api_limits() {
+  RateLimits lim;  // conservative fallback
+  auto r = get_with_retry("/account/api_limits");
+  if (!r || !r->ok()) return lim;  // fail safe: keep conservative defaults
+  try {
+    simdjson::padded_string json(r->body);
+    simdjson::ondemand::parser parser;
+    auto doc = parser.iterate(json);
+    std::int64_t v;
+    if (doc["reads_per_second"].get(v) == simdjson::SUCCESS) {
+      lim.reads_per_sec = static_cast<int>(v);
+      lim.from_server = true;
+    }
+    if (doc["writes_per_second"].get(v) == simdjson::SUCCESS) {
+      lim.writes_per_sec = static_cast<int>(v);
+      lim.from_server = true;
+    }
+  } catch (const simdjson::simdjson_error&) {
+    return RateLimits{};  // any parse trouble -> conservative
+  }
+  return lim;
+}
+
 std::string RestApi::build_order_json(const OrderSpec& spec) {
   // V2 book is YES-normalized: buy-YES / sell-NO rest as bids; sell-YES /
   // buy-NO as asks at the complementary price.

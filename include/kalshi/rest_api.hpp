@@ -87,6 +87,14 @@ struct OrderSpec {
   std::string client_order_id;   // optional; caller-supplied for idempotency
 };
 
+// Account rate-limit tier (I11). `from_server` distinguishes a real pull from
+// the conservative fallback.
+struct RateLimits {
+  int reads_per_sec = 8;
+  int writes_per_sec = 8;
+  bool from_server = false;
+};
+
 struct RetryPolicy {
   int max_attempts = 4;
   long base_ms = 200;      // exponential base
@@ -123,6 +131,18 @@ class RestApi {
   std::expected<OrderbookSnapshot, ApiError> orderbook(std::string_view ticker, int depth = 0);
   std::expected<std::string, ApiError> fills(std::string_view cursor = {});     // raw JSON (auth-gated)
   std::expected<std::string, ApiError> positions(std::string_view cursor = {}); // raw JSON (auth-gated)
+
+  // Batch orderbooks: GET /markets/orderbooks?tickers=A&tickers=B (form-explode,
+  // 1..100). REST snapshots carry NO seq -> bootstrap / display / cross-check
+  // ONLY, never fed to a WS-live book (docs/kalshi_ws_protocol.md I4). The
+  // per-request token cost is an open item to measure in demo (I11).
+  std::expected<std::vector<OrderbookSnapshot>, ApiError> batch_orderbook(
+      const std::vector<std::string>& tickers);
+
+  // Startup self-configuration of the rate limiter (I11). Reads the account's
+  // token limits; falls back to conservative defaults on any failure so the
+  // collector never runs unthrottled.
+  RateLimits api_limits();
 
   // Typed V2 order construction. Pure string building; no network, no send.
   static std::string build_order_json(const OrderSpec& spec);

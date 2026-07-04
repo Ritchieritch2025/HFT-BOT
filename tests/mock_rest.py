@@ -70,6 +70,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/trade-api/v2/exchange/status":
             return self._send(200, {"exchange_active": True, "trading_active": True})
 
+        if path == "/trade-api/v2/account/api_limits":
+            return self._send(200, {"reads_per_second": 20, "writes_per_second": 10})
+
+        if path == "/trade-api/v2/markets/orderbooks":
+            tickers = qs.get("tickers", [])
+            obs = []
+            for t in tickers:
+                obs.append({"market_ticker": t, "orderbook_fp": {
+                    "yes_dollars": [["0.4200", "100.00"]],
+                    "no_dollars": [["0.5500", "20.00"]]}})
+            return self._send(200, {"orderbooks": obs})
+
         if path == "/trade-api/v2/markets":
             series = (qs.get("series_ticker", [""])[0])
             cursor = (qs.get("cursor", [""])[0])

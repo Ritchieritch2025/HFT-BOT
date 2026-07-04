@@ -198,6 +198,24 @@ int main(int argc, char** argv) {
     check(sink.best_yes == 4200, "best yes level decoded to PriceE4 (0.4200)");
   }
 
+  // 11. batch orderbook (form-explode) — REST bootstrap/cross-check
+  {
+    auto obs = api.batch_orderbook({"MKT-A", "MKT-B"});
+    check(obs.has_value() && obs->size() == 2, "batch_orderbook returns 2 books");
+    check(obs && (*obs)[0].ticker == "MKT-A" && (*obs)[0].yes.size() == 1 &&
+              (*obs)[0].yes[0].price == 4200,
+          "batch book decoded to PriceE4");
+    auto too_many = std::vector<std::string>(101, "X");
+    check(!api.batch_orderbook(too_many).has_value(), "batch size >100 rejected");
+  }
+
+  // 12. rate-limit self-config from /account/api_limits
+  {
+    RateLimits lim = api.api_limits();
+    check(lim.from_server && lim.reads_per_sec == 20 && lim.writes_per_sec == 10,
+          "api_limits pulled from server (20 reads/s, 10 writes/s)");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }
