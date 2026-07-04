@@ -264,6 +264,11 @@ void ReplaySource::start() {
   std::optional<RawRecord> rec;
   while (!stopped_ && (rec = reader.next()).has_value()) {
     ++records_;
+    if (rec->marker) {  // annotation, not decodable data
+      ++markers_;
+      if (marker_fn_) marker_fn_(*rec);
+      continue;
+    }
     if (auto ev = decoder_.decode(*rec)) {
       if (sink_) sink_->on_event(*ev);
       ++emitted_;

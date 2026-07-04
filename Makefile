@@ -30,7 +30,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
-        $(BUILD)/test_recorder $(BUILD)/ws_smoke $(PURE_TESTS)
+        $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -151,6 +151,9 @@ $(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gatewa
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_decode: tests/test_decode.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/test_replay: tests/test_replay.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_ws_client: tests/test_ws_client.cpp $(BUILD)/ws_client.o $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o

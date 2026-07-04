@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -105,19 +106,26 @@ class ReplaySource : public DataSource {
 
   SourceId id() const override { return id_; }
   void set_sink(MarketDataSink* sink) override { sink_ = sink; }
+  // Marker records ("gap"/"loss"/"epoch_change"/checksum) are surfaced here so
+  // the replay can mirror live blind spots (e.g. invalidate on a gap) — a
+  // marker is not decodable into a NormalizedEvent.
+  void on_marker(std::function<void(const RawRecord&)> fn) { marker_fn_ = std::move(fn); }
   void start() override;  // reads all records, decodes, pushes to the sink
   void stop() override { stopped_ = true; }
 
   std::uint64_t emitted() const { return emitted_; }
   std::uint64_t records() const { return records_; }
+  std::uint64_t markers() const { return markers_; }
 
  private:
   std::string path_;
   RawDecoder& decoder_;
   SourceId id_;
   MarketDataSink* sink_ = nullptr;
+  std::function<void(const RawRecord&)> marker_fn_;
   std::uint64_t emitted_ = 0;
   std::uint64_t records_ = 0;
+  std::uint64_t markers_ = 0;
   bool stopped_ = false;
 };
 

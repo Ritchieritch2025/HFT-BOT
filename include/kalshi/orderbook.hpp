@@ -98,6 +98,19 @@ class OrderBook {
   bool valid() const { return valid_; }
   std::uint64_t last_seq() const { return last_seq_; }
 
+  // Deterministic content checksum (sorted levels + seq + validity). Written as
+  // marker records during live capture and recomputed on replay to prove the
+  // replayed book matches the live book bit-for-bit.
+  std::uint64_t checksum() const {
+    std::uint64_t h = 1469598103934665603ULL;
+    const auto mix = [&](std::uint64_t x) { h ^= x; h *= 1099511628211ULL; };
+    mix(valid_ ? 1 : 0);
+    mix(last_seq_);
+    for (const auto& [p, s] : yes_) { mix(1); mix(static_cast<std::uint64_t>(p)); mix(static_cast<std::uint64_t>(s)); }
+    for (const auto& [p, s] : no_) { mix(2); mix(static_cast<std::uint64_t>(p)); mix(static_cast<std::uint64_t>(s)); }
+    return h;
+  }
+
   // Force the book invalid (e.g. a sid-level gap invalidates every member
   // market, I3). Only load_snapshot recovers it.
   void invalidate() { valid_ = false; }
