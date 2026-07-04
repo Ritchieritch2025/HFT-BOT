@@ -1,5 +1,6 @@
 #include "kalshi/ws_client.hpp"
 
+#include "kalshi/ws_recorder.hpp"
 #include "simdjson.h"
 #include "trading/timestamp.hpp"
 
@@ -103,6 +104,7 @@ void KalshiWsClient::on_open() {
   if (opened_once_) {
     ++epoch_;         // reconnect: new stream epoch (I8), drop old-sid state
     ++reconnects_;
+    if (recorder_) recorder_->mark("epoch_change", epoch_);
   }
   opened_once_ = true;
   resubscribe();
@@ -130,6 +132,26 @@ void KalshiWsClient::on_text(const std::string& text) {
   const bool has_sid = doc["sid"].get(sid) == simdjson::SUCCESS;
   const bool has_seq = doc["seq"].get(seq) == simdjson::SUCCESS;
 
+  // Build the record once (lightweight envelope fields; the heavy decode is
+  // isolated below). Record EVERY message on the connection (Phase 4) — one
+  // owned copy handed to the recorder's ring.
+  std::string_view env_ticker;
+  {
+    simdjson::ondemand::object m0;
+    if (doc["msg"].get(m0) == simdjson::SUCCESS) (void)m0["market_ticker"].get(env_ticker);
+  }
+  trading::RawRecord rec;
+  rec.source = trading::SourceId::Kalshi;
+  rec.channel = std::string(type);
+  rec.source_ticker = std::string(env_ticker);
+  rec.source_stream_id = has_sid ? std::optional<std::uint64_t>(sid) : std::nullopt;
+  rec.stream_epoch = epoch_;
+  if (has_seq) rec.source_sequence = seq;
+  rec.recv_mono_ns = trading::mono_ns();
+  rec.recv_wall_ns = trading::wall_ns();
+  rec.raw = text;
+  if (recorder_) recorder_->record(trading::RawRecord(rec));  // owned copy -> ring
+
   if (type == "error") {
     ++errors_;
     std::int64_t code = 0;
@@ -146,20 +168,7 @@ void KalshiWsClient::on_text(const std::string& text) {
   }
   if (type == "subscribed") return;  // ack only
 
-  // Market-data messages: decode via the Kalshi decoder into a NormalizedEvent.
-  std::string_view ticker;
-  simdjson::ondemand::object msg;
-  if (doc["msg"].get(msg) == simdjson::SUCCESS) (void)msg["market_ticker"].get(ticker);
-
-  trading::RawRecord rec;
-  rec.source = trading::SourceId::Kalshi;
-  rec.source_ticker = std::string(ticker);
-  rec.channel = std::string(type);
-  rec.source_stream_id = has_sid ? std::optional<std::uint64_t>(sid) : std::nullopt;
-  rec.stream_epoch = epoch_;
-  if (has_seq) rec.source_sequence = seq;
-  rec.raw = text;  // full envelope, byte-exact
-
+  // Market-data messages: decode via the Kalshi decoder (fresh parse of rec.raw).
   auto ev = decoder_.decode(rec);
   if (!ev) return;
   if (sink_) sink_->on_event(*ev);
@@ -184,7 +193,11 @@ void KalshiWsClient::on_text(const std::string& text) {
     books_->on_snapshot(sid, epoch_, ev->entity_id, SnapshotView{bs.yes, bs.no, seq}, seq);
   } else if (ev->kind() == trading::Kind::BookDelta) {
     const auto& d = std::get<trading::BookDelta>(ev->payload);
-    books_->on_delta(sid, epoch_, ev->entity_id, d.side, d.price, d.delta, seq);
+    if (books_->on_delta(sid, epoch_, ev->entity_id, d.side, d.price, d.delta, seq) ==
+            ApplyResult::NeedResync &&
+        recorder_) {
+      recorder_->mark("gap", epoch_, sid);  // stream gap -> marker in the raw log
+    }
   }
 }
 

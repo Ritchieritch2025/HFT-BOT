@@ -28,6 +28,8 @@
 
 namespace kalshi {
 
+class WsRecorder;  // include/kalshi/ws_recorder.hpp
+
 // I5: the orderbook no-side pricing convention. `false` = no-leg pricing (the
 // no side carries its own price). Kalshi will flip the default and later remove
 // the flag; flipping our convention is this ONE constant + the tests that pin
@@ -52,6 +54,7 @@ class KalshiWsClient {
 
   void set_sink(trading::MarketDataSink* s) { sink_ = s; }
   void set_book_manager(OrderBookManager* m) { books_ = m; }
+  void set_recorder(WsRecorder* r) { recorder_ = r; }  // durable raw log (Phase 4)
 
   // Register orderbook_delta subscriptions; sent on open and every resubscribe.
   void want_orderbook(std::vector<std::string> tickers) { want_ = std::move(tickers); }
@@ -92,6 +95,7 @@ class KalshiWsClient {
   KalshiRawDecoder decoder_;
   trading::MarketDataSink* sink_ = nullptr;
   OrderBookManager* books_ = nullptr;
+  WsRecorder* recorder_ = nullptr;
   std::vector<std::string> want_;
 
   std::uint32_t epoch_;

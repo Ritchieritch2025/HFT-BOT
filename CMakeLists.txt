@@ -54,7 +54,7 @@ enable_testing()
 # runners (run_rest_api.sh); the pure/self-contained ones run directly.
 foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
           test_ids test_env_safety test_bus test_orderbook test_sid_stream
-          test_recovery test_storage test_decode test_ws_client test_shadow
+          test_recovery test_storage test_recorder test_decode test_ws_client test_shadow
           test_readability test_rest_api)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)

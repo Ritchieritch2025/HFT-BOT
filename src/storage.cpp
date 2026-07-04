@@ -178,6 +178,10 @@ void RawLogWriter::write(const RawRecord& rec) {
     line += ",\"stream_epoch\":";
     line += std::to_string(rec.stream_epoch);
   }
+  if (rec.marker) {
+    line += ",\"marker\":";
+    json_escape(*rec.marker, line);
+  }
   if (is_valid_utf8(rec.raw)) {
     line += ",\"raw\":";
     json_escape(rec.raw, line);
@@ -240,6 +244,7 @@ std::optional<RawRecord> RawLogReader::next() {
     if (doc["sid"].get(u64) == simdjson::SUCCESS) r.source_stream_id = u64;  // absent = legacy
     if (doc["stream_epoch"].get(u64) == simdjson::SUCCESS)
       r.stream_epoch = static_cast<std::uint32_t>(u64);
+    if (doc["marker"].get(sv) == simdjson::SUCCESS) r.marker = std::string(sv);
     if (doc["raw"].get(sv) == simdjson::SUCCESS) {
       r.raw = std::string(sv);  // simdjson returns the unescaped bytes
     } else if (doc["raw_b64"].get(sv) == simdjson::SUCCESS) {

@@ -30,7 +30,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
-        $(BUILD)/ws_smoke $(PURE_TESTS)
+        $(BUILD)/test_recorder $(BUILD)/ws_smoke $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -156,6 +156,14 @@ $(BUILD)/test_decode: tests/test_decode.cpp $(BUILD)/gateway.o $(BUILD)/storage.
 $(BUILD)/test_ws_client: tests/test_ws_client.cpp $(BUILD)/ws_client.o $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
+$(BUILD)/test_recorder: tests/test_recorder.cpp include/kalshi/ws_recorder.hpp $(BUILD)/storage.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) tests/test_recorder.cpp $(BUILD)/storage.o $(BUILD)/simdjson.o -o $@
+
+# TSan build of the 2-thread recorder (producer + writer thread; pure C++).
+$(BUILD)/test_recorder_tsan: tests/test_recorder.cpp include/kalshi/ws_recorder.hpp src/storage.cpp $(BUILD)/simdjson.o | $(BUILD)
+	$(CXX) -std=c++23 -O1 -g -fsanitize=thread -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
+	    tests/test_recorder.cpp src/storage.cpp $(BUILD)/simdjson.o -o $@
+
 $(BUILD)/test_shadow: tests/test_shadow.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
@@ -199,7 +207,7 @@ $(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.
 	    apps/tradingd.cpp src/client.cpp src/resp.cpp src/strategies.cpp src/env.cpp \
 	    $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan
+tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan $(BUILD)/test_recorder_tsan
 
 # ASan+UBSan builds of the pure integer-heavy tests (fixedpoint parsers +
 # orderbook delta math are where overflow/off-by-one hide). Pure C++ so fully

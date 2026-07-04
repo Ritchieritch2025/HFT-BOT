@@ -33,7 +33,11 @@ struct RawRecord {
   std::optional<std::uint64_t> source_sequence;    // per-sid seq (orderbook only)
   std::optional<std::uint64_t> source_stream_id;   // sid
   std::uint32_t stream_epoch = 0;                   // (re)connection epoch
-  std::string raw;            // byte-exact original payload
+  // Marker records carry NO payload — they annotate the stream: "gap",
+  // "resync_begin"/"resync_end", "loss", "epoch_change". Reader/replay surface
+  // them so replayed state honestly mirrors live blind spots.
+  std::optional<std::string> marker;
+  std::string raw;            // byte-exact original payload (empty for markers)
 };
 
 SourceId source_from_wire(std::string_view);  // inverse of trading::to_string
