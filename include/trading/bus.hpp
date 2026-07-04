@@ -104,7 +104,10 @@ struct NormalizedEvent {
   std::int64_t local_receive_mono_ns = 0;
   std::int64_t local_receive_wall_ns = 0;
   std::int64_t publish_time_ns = 0;
-  std::optional<std::uint64_t> source_sequence;  // sid/stream-scoped
+  std::optional<std::uint64_t> source_sequence;   // per-sid seq (orderbook only)
+  std::optional<std::uint64_t> source_stream_id;  // sid: the subscription stream
+  std::uint32_t stream_epoch = 0;                 // bumps every (re)connection;
+                                                  // consumers drop epoch mismatches
   RawPayloadView raw_payload;
   NormalizedFields payload;
 

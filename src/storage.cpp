@@ -170,6 +170,14 @@ void RawLogWriter::write(const RawRecord& rec) {
     line += ",\"source_sequence\":";
     line += std::to_string(*rec.source_sequence);
   }
+  if (rec.source_stream_id) {
+    line += ",\"sid\":";
+    line += std::to_string(*rec.source_stream_id);
+  }
+  if (rec.stream_epoch != 0) {
+    line += ",\"stream_epoch\":";
+    line += std::to_string(rec.stream_epoch);
+  }
   if (is_valid_utf8(rec.raw)) {
     line += ",\"raw\":";
     json_escape(rec.raw, line);
@@ -229,6 +237,9 @@ std::optional<RawRecord> RawLogReader::next() {
     if (doc["channel"].get(sv) == simdjson::SUCCESS) r.channel = std::string(sv);
     if (doc["source_ticker"].get(sv) == simdjson::SUCCESS) r.source_ticker = std::string(sv);
     if (doc["source_sequence"].get(u64) == simdjson::SUCCESS) r.source_sequence = u64;
+    if (doc["sid"].get(u64) == simdjson::SUCCESS) r.source_stream_id = u64;  // absent = legacy
+    if (doc["stream_epoch"].get(u64) == simdjson::SUCCESS)
+      r.stream_epoch = static_cast<std::uint32_t>(u64);
     if (doc["raw"].get(sv) == simdjson::SUCCESS) {
       r.raw = std::string(sv);  // simdjson returns the unescaped bytes
     } else if (doc["raw_b64"].get(sv) == simdjson::SUCCESS) {
@@ -279,6 +290,14 @@ void NormalizedWriter::write(const NormalizedEvent& e) {
   if (e.source_sequence) {
     line += ",\"seq\":";
     line += std::to_string(*e.source_sequence);
+  }
+  if (e.source_stream_id) {
+    line += ",\"sid\":";
+    line += std::to_string(*e.source_stream_id);
+  }
+  if (e.stream_epoch != 0) {
+    line += ",\"stream_epoch\":";
+    line += std::to_string(e.stream_epoch);
   }
   line += "}\n";
   std::fwrite(line.data(), 1, line.size(), f_);

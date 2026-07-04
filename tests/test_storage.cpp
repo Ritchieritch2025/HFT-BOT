@@ -77,6 +77,35 @@ int main(int argc, char** argv) {
     check(!r.next().has_value(), "single record then EOF");
   }
 
+  // --- sid + stream_epoch round-trip; legacy line (absent) still reads ---
+  {
+    const std::string path = dir + "/sid.ndjson";
+    std::remove(path.c_str());
+    {
+      RawLogWriter w(path);
+      RawRecord r = mk(SourceId::Kalshi, "MKT", 5, R"({"seq":5})");
+      r.source_stream_id = 42;
+      r.stream_epoch = 3;
+      w.write(r);
+    }
+    // Append a legacy line with no sid/stream_epoch fields.
+    if (std::FILE* f = std::fopen(path.c_str(), "ab")) {
+      const char legacy[] =
+          "{\"recv_mono_ns\":1,\"recv_wall_ns\":2,\"source\":\"Kalshi\","
+          "\"source_ticker\":\"OLD\",\"source_sequence\":9,\"raw\":\"{}\"}\n";
+      std::fwrite(legacy, 1, sizeof(legacy) - 1, f);
+      std::fclose(f);
+    }
+    RawLogReader r(path);
+    auto a = r.next();
+    check(a && a->source_stream_id == 42 && a->stream_epoch == 3,
+          "sid + stream_epoch round-trip");
+    auto b = r.next();
+    check(b && !b->source_stream_id.has_value() && b->stream_epoch == 0 &&
+              b->source_sequence == 9,
+          "legacy line (no sid/epoch) still reads: sid absent, epoch 0");
+  }
+
   // --- binary (non-UTF-8) raw via base64 ---
   {
     const std::string path = dir + "/raw_bin.ndjson";

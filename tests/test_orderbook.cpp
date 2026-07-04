@@ -57,16 +57,9 @@ int main() {
     check(b.last_seq() == 13, "seq advanced to 13");
   }
 
-  // --- seq gap -> NeedResync, no mutation ---
-  {
-    OrderBook b;
-    b.load_snapshot(snap(10));
-    check(b.apply_delta(Side::Yes, 4200, 100, 13) == ApplyResult::NeedResync,
-          "gap (expected 11, got 13) -> NeedResync");
-    check(is(b.yes_size_at(4200), trading::CountFp{300}), "no mutation on gap");
-    check(b.last_seq() == 10, "seq unchanged on gap");
-    check(b.valid(), "still valid after gap (recoverable)");
-  }
+  // Note: per-market seq-gap detection now lives in SidStream (seq is per-sid,
+  // not per-market) — see tests/test_sid_stream.cpp. OrderBook::apply_delta no
+  // longer gates on seq; it only guards local invariants.
 
   // --- negative -> Invalid, no clamp, post-invalid contract ---
   {
@@ -94,27 +87,32 @@ int main() {
     check(b.crossed(), "crossed: yes bid 0.46 >= implied ask 0.45");
   }
 
-  // --- manager resync recovery via stub handler ---
+  // --- manager: gap -> non-blocking resync request (no REST reseed) ---
   {
     struct Stub : ResyncHandler {
-      int resubs = 0;
-      SnapshotView fresh;
-      void request_resubscribe(EntityId) override { ++resubs; }
-      std::optional<SnapshotView> fetch_validation(EntityId) override { return fresh; }
+      int calls = 0;
+      std::uint64_t last_sid = 0;
+      std::vector<EntityId> last_markets;
+      void request_resync(std::uint64_t sid, const std::vector<EntityId>& m) override {
+        ++calls; last_sid = sid; last_markets = m;
+      }
     } stub;
-    stub.fresh = snap(100);
 
     OrderBookManager mgr(&stub);
     const EntityId e = trading::make_entity_id(trading::SourceId::Kalshi, "MKT-1");
-    mgr.on_snapshot(e, snap(10));
-    check(mgr.on_delta(e, Side::Yes, 4200, 100, 11) == ApplyResult::Ok, "manager applies Ok delta");
-    // Induce a gap:
-    const ApplyResult r = mgr.on_delta(e, Side::Yes, 4200, 100, 99);
-    check(r == ApplyResult::NeedResync, "manager reports NeedResync on gap");
-    check(stub.resubs == 1, "manager requested resubscribe");
-    check(mgr.resync_count() == 1, "manager counted the resync");
+    mgr.bind(/*sid*/ 7, /*epoch*/ 1, e);
+    mgr.on_snapshot(7, 1, e, snap(10), 10);
+    check(mgr.on_delta(7, 1, e, Side::Yes, 4200, 100, 11) == ApplyResult::Ok,
+          "manager applies contiguous delta");
+    // Induce a gap (expected 12, got 99):
+    const ApplyResult r = mgr.on_delta(7, 1, e, Side::Yes, 4200, 100, 99);
+    check(r == ApplyResult::NeedResync, "manager reports NeedResync on sid gap");
+    check(stub.calls == 1 && stub.last_sid == 7, "non-blocking resync requested for the sid");
+    check(!mgr.book(e)->valid(), "book invalidated on gap (no REST reseed)");
+    // Recovery is an in-stream snapshot with the next contiguous seq (100).
+    mgr.on_snapshot(7, 1, e, snap(100), 100);
     check(mgr.book(e)->valid() && mgr.book(e)->last_seq() == 100,
-          "manager reloaded fresh snapshot (seq 100) on resync");
+          "in-stream snapshot re-validates the market");
   }
 
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");

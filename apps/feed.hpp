@@ -9,6 +9,7 @@
 #include "kalshi/client.hpp"
 #include "kalshi/wire.hpp"
 #include "simdjson.h"
+#include "trading/fixedpoint.hpp"
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -85,41 +86,31 @@ inline int run_poll(KalshiClient& client, int interval_ms,
         auto doc = parser.iterate(json);
         int published = 0;
         // Kalshi's 2026 schema serves prices as dollar strings
-        // ("yes_bid_dollars": "0.4200") with deci-cent resolution; the old
-        // integer-cent fields are gone. Parse new-style first, fall back to
-        // legacy ints, and treat anything missing as absent (-1) — a field
-        // gap must never abort the batch. Sub-cent prices round to cents in
-        // MarketEvent (signal resolution; orders stay whole-cent).
-        auto price_cents = [](auto& obj, const char* dollars,
-                              const char* legacy) -> std::int32_t {
+        // ("yes_bid_dollars": "0.4200"); the legacy integer-cent fields were
+        // removed on 2026-03-12, so there is no fallback. Parse via
+        // trading::fixedpoint (integer, NO floating point) and round to cents
+        // for the legacy MarketEvent; missing = absent (-1) and never aborts
+        // the batch.
+        auto price_cents = [](auto& obj, const char* dollars) -> std::int32_t {
           std::string_view s;
-          if (obj[dollars].get(s) == simdjson::SUCCESS && !s.empty()) {
-            const double d = std::strtod(std::string(s).c_str(), nullptr);
-            return static_cast<std::int32_t>(std::llround(d * 100.0));
-          }
-          std::int64_t v = 0;
-          if (obj[legacy].get(v) == simdjson::SUCCESS)
-            return static_cast<std::int32_t>(v);
+          if (obj[dollars].get(s) == simdjson::SUCCESS && !s.empty())
+            if (auto e4 = trading::parse_price_e4(s)) return trading::e4_to_cents(*e4);
           return -1;
         };
-        auto count_fp = [](auto& obj, const char* fp,
-                           const char* legacy) -> std::int64_t {
+        auto whole_contracts = [](auto& obj, const char* fp) -> std::int64_t {
           std::string_view s;
           if (obj[fp].get(s) == simdjson::SUCCESS && !s.empty())
-            return static_cast<std::int64_t>(
-                std::strtod(std::string(s).c_str(), nullptr));
-          std::int64_t v = 0;
-          if (obj[legacy].get(v) == simdjson::SUCCESS) return v;
+            if (auto c = trading::parse_count_fp(s)) return *c / 100;  // fp -> whole
           return -1;
         };
         for (auto m : doc["markets"].get_array()) {
           std::string_view ticker;
           if (m["ticker"].get(ticker) != simdjson::SUCCESS) continue;
           Top t{};
-          t.bid = price_cents(m, "yes_bid_dollars", "yes_bid");
-          t.ask = price_cents(m, "yes_ask_dollars", "yes_ask");
-          t.last = price_cents(m, "last_price_dollars", "last_price");
-          t.vol = count_fp(m, "volume_fp", "volume");
+          t.bid = price_cents(m, "yes_bid_dollars");
+          t.ask = price_cents(m, "yes_ask_dollars");
+          t.last = price_cents(m, "last_price_dollars");
+          t.vol = whole_contracts(m, "volume_fp");
 
           auto [it, inserted] = book.try_emplace(std::string(ticker), t);
           if (!inserted && it->second.bid == t.bid && it->second.ask == t.ask &&

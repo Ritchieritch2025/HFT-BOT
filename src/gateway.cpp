@@ -46,6 +46,8 @@ std::optional<trading::NormalizedEvent> KalshiRawDecoder::decode(
   ev.local_receive_mono_ns = rec.recv_mono_ns;
   ev.local_receive_wall_ns = rec.recv_wall_ns;
   ev.source_sequence = rec.source_sequence;
+  ev.source_stream_id = rec.source_stream_id;
+  ev.stream_epoch = rec.stream_epoch;
   ev.raw_payload = RawPayloadView{rec.raw};  // valid until the sink returns
 
   try {

@@ -30,7 +30,9 @@ struct RawRecord {
   SourceId source = SourceId::Unknown;
   std::string channel;
   std::string source_ticker;  // raw records do NOT depend on EntityId/registry
-  std::optional<std::uint64_t> source_sequence;
+  std::optional<std::uint64_t> source_sequence;    // per-sid seq (orderbook only)
+  std::optional<std::uint64_t> source_stream_id;   // sid
+  std::uint32_t stream_epoch = 0;                   // (re)connection epoch
   std::string raw;            // byte-exact original payload
 };
 

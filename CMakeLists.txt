@@ -49,12 +49,12 @@ enable_testing()
 # Tests that need scratch/mock args are registered but driven by the shell
 # runners (run_rest_api.sh); the pure/self-contained ones run directly.
 foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
-          test_ids test_env_safety test_bus test_orderbook test_storage
-          test_shadow test_readability test_rest_api)
+          test_ids test_env_safety test_bus test_orderbook test_sid_stream
+          test_storage test_shadow test_readability test_rest_api)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
-foreach(t signing ring fixedpoint ids env_safety bus orderbook readability)
+foreach(t signing ring fixedpoint ids env_safety bus orderbook sid_stream readability)
   add_test(NAME ${t} COMMAND test_${t})
 endforeach()
 add_test(NAME storage COMMAND test_storage ${CMAKE_CURRENT_BINARY_DIR})
