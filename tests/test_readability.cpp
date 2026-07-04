@@ -45,7 +45,7 @@ int main() {
     ev.entity_id = make_entity_id(SourceId::Kalshi, "MKT");
     ev.trace_id = TraceId{42};
     ev.source_sequence = 7;
-    ev.payload = BookDelta{Side::No, 4200, -300};
+    ev.payload = BookDelta{.side = Side::No, .price = 4200, .delta = -300};
     const std::string s = str(ev);
     check(has(s, "Kalshi") && has(s, "BookDelta") && has(s, "T#42") && has(s, "seq=7"),
           "NormalizedEvent << carries src/kind/trace/seq");

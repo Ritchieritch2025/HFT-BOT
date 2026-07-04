@@ -29,7 +29,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
-        $(BUILD)/test_shadow $(PURE_TESTS)
+        $(BUILD)/test_shadow $(BUILD)/test_decode $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -104,6 +104,9 @@ $(BUILD)/bench_orderbook: apps/bench_orderbook.cpp include/kalshi/orderbook.hpp 
 	$(CXX) $(CXXFLAGS) apps/bench_orderbook.cpp -o $@
 
 $(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/test_decode: tests/test_decode.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_shadow: tests/test_shadow.cpp $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/simdjson.o

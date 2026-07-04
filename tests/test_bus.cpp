@@ -42,7 +42,7 @@ int main() {
     NormalizedEvent ev;
     ev.payload = BookSnapshot{};
     check(ev.kind() == Kind::BookSnapshot, "kind() == BookSnapshot");
-    ev.payload = BookDelta{Side::No, 4200, -300};
+    ev.payload = BookDelta{.side = Side::No, .price = 4200, .delta = -300};
     check(ev.kind() == Kind::BookDelta, "kind() == BookDelta");
     ev.payload = Ticker{};
     check(ev.kind() == Kind::Ticker, "kind() == Ticker");
@@ -58,7 +58,7 @@ int main() {
     ev.trace_id = next_trace_id();
     ev.source = SourceId::Kalshi;
     ev.entity_id = e1;
-    ev.payload = BookDelta{Side::Yes, 5000, 100};
+    ev.payload = BookDelta{.side = Side::Yes, .price = 5000, .delta = 100};
     const auto ts = stamp_receive();
     ev.local_receive_mono_ns = ts.local_receive_mono_ns;
 

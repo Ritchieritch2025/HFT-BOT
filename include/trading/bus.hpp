@@ -56,6 +56,9 @@ struct BookDelta {
   Side side = Side::Yes;
   PriceE4 price = 0;
   CountFp delta = 0;  // signed change to the resting size at `price`
+  // Passthrough only: present on deltas caused by YOUR OWN order (rare on a
+  // market-data feed, so no allocation on the common path). Not interpreted.
+  std::optional<std::string> client_order_id;
 };
 struct Ticker {
   std::optional<PriceE4> last_price;
@@ -65,14 +68,35 @@ struct Ticker {
   std::optional<CountFp> open_interest;
 };
 struct Trade {
-  PriceE4 price = 0;
+  PriceE4 price = 0;             // yes-price in probability space
   CountFp size = 0;
-  Side taker_side = Side::Yes;
+  Side taker_side = Side::Yes;   // taker outcome side
+  std::string trade_id;          // dedupe key (trades carry no seq)
 };
+// Market/event lifecycle. Generic states plus an Unknown escape hatch carrying
+// the raw type string — the venue's event_type set is OPEN (types added AND
+// removed within 2026), so unknown types must round-trip + count, never crash.
 struct Lifecycle {
-  enum class State : std::uint8_t { Unknown, Open, Paused, Closed, Settled };
+  enum class State : std::uint8_t {
+    Unknown, Created, Open, Paused, Closed, Determined, Settled
+  };
   State state = State::Unknown;
+  std::string unknown_type;                 // raw type when state == Unknown
+  std::optional<PriceE4> settlement_value;  // when Determined/Settled
 };
+
+inline const char* to_string(Lifecycle::State s) {
+  switch (s) {
+    case Lifecycle::State::Unknown: return "Unknown";
+    case Lifecycle::State::Created: return "Created";
+    case Lifecycle::State::Open: return "Open";
+    case Lifecycle::State::Paused: return "Paused";
+    case Lifecycle::State::Closed: return "Closed";
+    case Lifecycle::State::Determined: return "Determined";
+    case Lifecycle::State::Settled: return "Settled";
+  }
+  return "Unknown";
+}
 
 using NormalizedFields =
     std::variant<BookSnapshot, BookDelta, Ticker, Trade, Lifecycle>;

@@ -69,17 +69,23 @@ std::optional<trading::NormalizedEvent> KalshiRawDecoder::decode(
     }
     if (type == "orderbook_delta") {
       BookDelta d;
-      std::string_view ps, ds, side;
+      std::string_view ps, ds, side, coid;
       if (msg["price_dollars"].get(ps) != simdjson::SUCCESS) return std::nullopt;
       if (msg["delta_fp"].get(ds) != simdjson::SUCCESS) return std::nullopt;
-      auto price = parse_price_e4(ps);
+      auto price = parse_price_e4(ps);   // excess precision -> nullopt -> reject
       auto delta = parse_delta_fp(ds);
       if (!price || !delta) return std::nullopt;
       d.price = *price;
       d.delta = *delta;
       d.side = (msg["side"].get(side) == simdjson::SUCCESS && side == "no")
                    ? Side::No : Side::Yes;
-      ev.payload = d;
+      // client_order_id passthrough (present only on your own order's delta).
+      if (msg["client_order_id"].get(coid) == simdjson::SUCCESS && !coid.empty())
+        d.client_order_id = std::string(coid);
+      // ts_ms preferred as the source event time.
+      std::int64_t ts_ms;
+      if (msg["ts_ms"].get(ts_ms) == simdjson::SUCCESS) ev.source_event_time_ms = ts_ms;
+      ev.payload = std::move(d);
       return ev;
     }
     if (type == "ticker") {
@@ -90,10 +96,53 @@ std::optional<trading::NormalizedEvent> KalshiRawDecoder::decode(
       if (msg["yes_ask_dollars"].get(s) == simdjson::SUCCESS) t.yes_ask = parse_price_e4(s);
       if (msg["volume_fp"].get(s) == simdjson::SUCCESS) t.volume = parse_count_fp(s);
       if (msg["open_interest_fp"].get(s) == simdjson::SUCCESS) t.open_interest = parse_count_fp(s);
+      std::int64_t ts_ms;  // ts_ms only; ts/time are deprecated (I9)
+      if (msg["ts_ms"].get(ts_ms) == simdjson::SUCCESS) ev.source_event_time_ms = ts_ms;
       ev.payload = t;
       return ev;
     }
-    return std::nullopt;  // unmodeled type
+    if (type == "trade") {
+      Trade tr;
+      std::string_view s;
+      // Yes-price in probability space (fallback to 1 - no_price if absent).
+      if (msg["yes_price_dollars"].get(s) == simdjson::SUCCESS) {
+        if (auto p = parse_price_e4(s)) tr.price = *p;
+      } else if (msg["no_price_dollars"].get(s) == simdjson::SUCCESS) {
+        if (auto p = parse_price_e4(s)) tr.price = static_cast<PriceE4>(kPriceMax - *p);
+      }
+      if (msg["count_fp"].get(s) == simdjson::SUCCESS)
+        if (auto c = parse_count_fp(s)) tr.size = *c;
+      // Prefer taker_outcome_side; fallback to deprecated taker_side.
+      if (msg["taker_outcome_side"].get(s) == simdjson::SUCCESS ||
+          msg["taker_side"].get(s) == simdjson::SUCCESS)
+        tr.taker_side = (s == "no") ? Side::No : Side::Yes;
+      if (msg["trade_id"].get(s) == simdjson::SUCCESS) tr.trade_id = std::string(s);
+      std::int64_t ts_ms;
+      if (msg["ts_ms"].get(ts_ms) == simdjson::SUCCESS) ev.source_event_time_ms = ts_ms;
+      ev.payload = std::move(tr);
+      return ev;
+    }
+    if (type == "market_lifecycle_v2" || type == "event_lifecycle") {
+      Lifecycle lc;
+      std::string_view et;
+      if (msg["event_type"].get(et) == simdjson::SUCCESS) {
+        if (et == "created") lc.state = Lifecycle::State::Created;
+        else if (et == "open" || et == "active") lc.state = Lifecycle::State::Open;
+        else if (et == "paused") lc.state = Lifecycle::State::Paused;
+        else if (et == "closed") lc.state = Lifecycle::State::Closed;
+        else if (et == "determined") lc.state = Lifecycle::State::Determined;
+        else if (et == "settled") lc.state = Lifecycle::State::Settled;
+        else { lc.state = Lifecycle::State::Unknown; lc.unknown_type = std::string(et); }
+      } else {
+        lc.state = Lifecycle::State::Unknown;  // type absent -> still round-trips
+      }
+      std::string_view sv;
+      if (msg["settlement_value"].get(sv) == simdjson::SUCCESS)
+        lc.settlement_value = parse_price_e4(sv);
+      ev.payload = std::move(lc);
+      return ev;
+    }
+    return std::nullopt;  // unmodeled type (round-trips via the raw log)
   } catch (const simdjson::simdjson_error&) {
     return std::nullopt;
   }
