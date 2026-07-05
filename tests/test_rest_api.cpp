@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   policy.base_ms = 40;
   policy.max_attempts = 4;
   policy.retry_after_cap_ms = 120;
-  RestApi api(client, rt, policy, /*rate*/ 1000.0, /*burst*/ 1000.0);
+  RestApi api(client, rt, policy);  // read/write buckets start at conservative basic tier
 
   // 1. exchange status
   {

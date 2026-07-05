@@ -15,6 +15,7 @@
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/limits.hpp"
+#include "kalshi/token_bucket.hpp"
 #include "trading/bus.hpp"
 #include "trading/fixedpoint.hpp"
 
@@ -95,28 +96,25 @@ struct RetryPolicy {
   long retry_after_cap_ms = 10000;  // clamp a hostile Retry-After
 };
 
-// Proactive rate limiter so data collection never relies on reactive 429s
-// (throttled collection => gappy logs). Token bucket, refilled continuously.
-class TokenBucket {
- public:
-  TokenBucket(double rate_per_sec, double burst)
-      : rate_(rate_per_sec), capacity_(burst), tokens_(burst),
-        last_ns_(trading::mono_ns()) {}
-  void acquire();  // blocks until a token is available (no-op if rate_ <= 0)
-
- private:
-  const double rate_;
-  const double capacity_;
-  double tokens_;
-  std::int64_t last_ns_;
-  std::mutex m_;
-};
-
 class RestApi {
  public:
-  RestApi(KalshiClient& client, Runtime rt, RetryPolicy policy = {},
-          double rate_per_sec = 8.0, double burst = 8.0)
-      : c_(client), rt_(std::move(rt)), policy_(policy), bucket_(rate_per_sec, burst) {}
+  // Read/Write token buckets start at a conservative basic tier; call
+  // configure_limits() after account_limits() to adopt the real server values
+  // (T3/F7 — no local burst derivation). The executor (T5) will own this wiring;
+  // for now the read bucket proactively throttles get_with_retry.
+  explicit RestApi(KalshiClient& client, Runtime rt, RetryPolicy policy = {})
+      : c_(client), rt_(std::move(rt)), policy_(policy),
+        read_bucket_(conservative_limits().read.refill_rate,
+                     conservative_limits().read.bucket_capacity),
+        write_bucket_(conservative_limits().write.refill_rate,
+                      conservative_limits().write.bucket_capacity) {}
+
+  // Adopt server-provided rate/capacity for both buckets (F7: capacity is the
+  // server's bucket_capacity, used directly).
+  void configure_limits(const AccountLimits& lim) {
+    read_bucket_.configure(lim.read.refill_rate, lim.read.bucket_capacity);
+    write_bucket_.configure(lim.write.refill_rate, lim.write.bucket_capacity);
+  }
 
   std::expected<ExchangeStatus, ApiError> exchange_status();
   std::expected<MarketsPage, ApiError> markets(const MarketsQuery& q);
@@ -158,7 +156,8 @@ class RestApi {
   KalshiClient& c_;
   Runtime rt_;
   RetryPolicy policy_;
-  TokenBucket bucket_;
+  TokenBucketI64 read_bucket_;
+  TokenBucketI64 write_bucket_;
 };
 
 // Kalshi as one trading::DataSource. This pass sources REST orderbook snapshots

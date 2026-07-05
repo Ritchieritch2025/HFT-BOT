@@ -23,7 +23,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 # Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
-              $(BUILD)/test_readability $(BUILD)/test_sid_stream
+              $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -138,6 +138,9 @@ $(BUILD)/test_resp: tests/test_resp.cpp $(BUILD)/resp.o
 $(BUILD)/test_ring: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_ring.cpp -o $@
 
+$(BUILD)/test_token_bucket: tests/test_token_bucket.cpp include/kalshi/token_bucket.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_token_bucket.cpp -o $@
+
 $(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_fixedpoint.cpp -o $@
 
@@ -248,19 +251,23 @@ $(BUILD)/test_integration_tsan: tests/test_integration.cpp src/client.cpp | $(BU
 $(BUILD)/test_ring_tsan: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=thread -Iinclude tests/test_ring.cpp -o $@
 
+$(BUILD)/test_token_bucket_tsan: tests/test_token_bucket.cpp include/kalshi/token_bucket.hpp | $(BUILD)
+	$(CXX) -std=c++23 -O1 -g -fsanitize=thread -Iinclude tests/test_token_bucket.cpp -o $@
+
 $(BUILD)/tradingd_tsan: apps/tradingd.cpp apps/feed.hpp src/client.cpp src/resp.cpp src/strategies.cpp src/env.cpp $(BUILD)/simdjson.o | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=thread \
 	    -Iinclude -Iapps -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
 	    apps/tradingd.cpp src/client.cpp src/resp.cpp src/strategies.cpp src/env.cpp \
 	    $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan $(BUILD)/test_recorder_tsan
+tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_tsan $(BUILD)/test_recorder_tsan $(BUILD)/test_token_bucket_tsan
 
 # ASan+UBSan builds of the pure integer-heavy tests (fixedpoint parsers +
 # orderbook delta math are where overflow/off-by-one hide). Pure C++ so fully
 # instrumented. SAN_TESTS grows as phases land.
 SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp \
-            tests/test_orderbook.cpp tests/test_sid_stream.cpp tests/test_recovery.cpp
+            tests/test_orderbook.cpp tests/test_sid_stream.cpp tests/test_recovery.cpp \
+            tests/test_token_bucket.cpp
 SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -Iinclude
 

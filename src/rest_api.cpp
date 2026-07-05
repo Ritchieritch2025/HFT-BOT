@@ -5,8 +5,8 @@
 #include "simdjson.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
+#include <limits>
 #include <thread>
 
 namespace kalshi {
@@ -111,23 +111,17 @@ std::string escape(std::string_view s) {  // ticker path-segment safety
 
 }  // namespace
 
-void TokenBucket::acquire() {
-  if (rate_ <= 0) return;
-  std::lock_guard lk(m_);
-  const std::int64_t now = trading::mono_ns();
-  tokens_ = std::min(capacity_,
-                     tokens_ + rate_ * static_cast<double>(now - last_ns_) * 1e-9);
-  last_ns_ = now;
-  if (tokens_ < 1.0) {
-    const double need = 1.0 - tokens_;
-    const auto wait_ms = static_cast<long>(std::ceil(need / rate_ * 1000.0));
-    std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
-    tokens_ = 0.0;
-    last_ns_ = trading::mono_ns();
-  } else {
-    tokens_ -= 1.0;
-  }
+namespace {
+// Proactively throttle on a bucket: reserve `cost` and, if the grant carries a
+// wait, sleep it before returning (reserve-before-send, hard rule 3). Deadline
+// is unbounded here — collection must not skip work, only pace it.
+void throttle(TokenBucketI64& bucket, int cost) {
+  const Reservation r = bucket.reserve_or_wait(cost, trading::mono_ns(),
+                                               std::numeric_limits<std::int64_t>::max());
+  if (r.granted && r.wait_ns > 0)
+    std::this_thread::sleep_for(std::chrono::nanoseconds(r.wait_ns));
 }
+}  // namespace
 
 ApiError RestApi::parse_error_body(const Response& resp) {
   ApiError e;
@@ -163,7 +157,7 @@ ApiError RestApi::map_error(const std::expected<Response, Error>& r) {
 std::expected<Response, ApiError> RestApi::get_with_retry(const std::string& path) {
   ApiError last;
   for (int attempt = 0; attempt < policy_.max_attempts; ++attempt) {
-    bucket_.acquire();
+    throttle(read_bucket_, 1);  // 1 read token/GET; per-endpoint cost lands in T5
     auto r = c_.request(Method::Get, path);
 
     if (!r) {  // transport failure
