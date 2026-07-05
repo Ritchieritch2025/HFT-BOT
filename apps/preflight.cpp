@@ -1,7 +1,11 @@
 // Preflight: validate credentials, market-data logic, and order execution
 // end-to-end before letting strategies trade.
 //
-//   ./build/preflight                      read-only checks (safe anywhere)
+//   ./build/preflight                      read-only checks (safe anywhere):
+//                                            status, clock skew, balance/auth,
+//                                            markets, /account/limits, and
+//                                            /account/endpoint_costs
+//   ./build/preflight --orderbook T1,T2    + top-5 levels + spread per ticker
 //   ./build/preflight --order TICKER       + place 1 contract YES @ 1c and
 //                                            immediately cancel it
 //
@@ -16,13 +20,17 @@
 #include "daemon_util.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
+#include "kalshi/limits.hpp"
+#include "kalshi/rest_api.hpp"
 #include "kalshi/wire.hpp"
+#include "trading/fixedpoint.hpp"
 #include "simdjson.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 using namespace kalshi;
 
@@ -40,6 +48,61 @@ long long now_ms() {
   return static_cast<long long>(daemon::now_ns() / 1'000'000ULL);
 }
 
+std::vector<std::string> split_csv(const std::string& s) {
+  std::vector<std::string> out;
+  std::size_t start = 0;
+  while (start <= s.size()) {
+    std::size_t comma = s.find(',', start);
+    std::string tok = s.substr(start, comma == std::string::npos ? std::string::npos
+                                                                  : comma - start);
+    if (!tok.empty()) out.push_back(tok);
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return out;
+}
+
+// Read-only orderbook detail: top `n` levels each side (highest price first),
+// per-side depth, and the YES-normalized spread. Empty/unparseable book = FAIL.
+// The book is V2 YES-normalized: yes/no are resting bids in probability space;
+// best YES bid = highest yes level, implied YES ask = 1 - highest no level.
+void check_orderbook(kalshi::RestApi& api, const std::string& ticker, int n = 5) {
+  auto ob = api.orderbook(ticker, /*depth=*/n);
+  if (!ob) {
+    result(false, "GET orderbook " + ticker, ob.error().message);
+    return;
+  }
+  const auto& yes = ob->yes;
+  const auto& no = ob->no;
+  if (yes.empty() && no.empty()) {
+    result(false, "orderbook " + ticker, "empty book (no yes/no levels)");
+    return;
+  }
+  auto print_side = [n](const char* label, const std::vector<trading::Level>& lv) {
+    std::printf("    %-3s (%zu levels):", label, lv.size());
+    // Levels are ascending price; show highest-first up to n.
+    int shown = 0;
+    for (auto it = lv.rbegin(); it != lv.rend() && shown < n; ++it, ++shown) {
+      std::printf(" %s@%s", trading::format_price_e4(it->price).c_str(),
+                  trading::format_count_fp(it->size).c_str());
+    }
+    std::printf("\n");
+  };
+  print_side("YES", yes);
+  print_side("NO", no);
+  std::string spread_detail = "yes_depth=" + std::to_string(yes.size()) +
+                              " no_depth=" + std::to_string(no.size());
+  if (!yes.empty() && !no.empty()) {
+    const trading::PriceE4 best_yes_bid = yes.back().price;
+    const trading::PriceE4 implied_yes_ask = trading::kPriceMax - no.back().price;
+    const trading::PriceE4 spread = implied_yes_ask - best_yes_bid;
+    spread_detail += " spread=" + trading::format_price_e4(spread) +
+                     " (bid " + trading::format_price_e4(best_yes_bid) +
+                     " / ask " + trading::format_price_e4(implied_yes_ask) + ")";
+  }
+  result(true, "orderbook " + ticker + " parsed", spread_detail);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -53,9 +116,11 @@ int main(int argc, char** argv) {
     return 2;
   }
   std::string order_ticker;
+  std::string orderbook_tickers;
   bool prod_ok = false;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--order") == 0 && i + 1 < argc) order_ticker = argv[++i];
+    else if (std::strcmp(argv[i], "--orderbook") == 0 && i + 1 < argc) orderbook_tickers = argv[++i];
     else if (std::strcmp(argv[i], "--prod-ok") == 0) prod_ok = true;
   }
 
@@ -162,6 +227,44 @@ int main(int argc, char** argv) {
     result(false, "GET /markets",
            markets ? "HTTP " + std::to_string(markets->status)
                    : markets.error().message);
+  }
+
+  // 5b. Account rate-limit + endpoint-cost metadata (auth-gated, read-only).
+  //     Routed through the typed RestApi/RequestExecutor. from_server==false
+  //     means the fetch/parse fell back conservatively -> treat as FAIL here,
+  //     since preflight is explicitly probing that the live schema still parses.
+  kalshi::RestApi api(client, rt);
+  {
+    auto lim = api.account_limits();
+    if (!lim) {
+      result(false, "GET /account/limits", lim.error().message);
+    } else if (!lim->from_server) {
+      result(false, "GET /account/limits", "server fetch/parse failed (fell back to conservative tier)");
+    } else {
+      result(true, "GET /account/limits",
+             "tier=" + lim->usage_tier +
+                 " read(refill=" + std::to_string(lim->read.refill_rate) +
+                 " cap=" + std::to_string(lim->read.bucket_capacity) + ")" +
+                 " write(refill=" + std::to_string(lim->write.refill_rate) +
+                 " cap=" + std::to_string(lim->write.bucket_capacity) + ")");
+    }
+  }
+  {
+    auto costs = api.endpoint_costs();
+    if (!costs) {
+      result(false, "GET /account/endpoint_costs", costs.error().message);
+    } else if (!costs->from_server) {
+      result(false, "GET /account/endpoint_costs", "server fetch/parse failed (fell back to defaults)");
+    } else {
+      result(true, "GET /account/endpoint_costs",
+             "default_cost=" + std::to_string(costs->default_cost) + " overrides=" +
+                 std::to_string(costs->overrides.size()));
+    }
+  }
+
+  // 5c. Optional: full orderbook detail (top levels + spread) for given tickers.
+  if (!orderbook_tickers.empty()) {
+    for (const auto& t : split_csv(orderbook_tickers)) check_orderbook(api, t);
   }
 
   // 6. Optional: real order round trip (place @1c, then cancel).

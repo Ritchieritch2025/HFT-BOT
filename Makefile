@@ -24,7 +24,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
-              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction
+              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -211,6 +211,9 @@ $(BUILD)/test_request_spec: tests/test_request_spec.cpp $(BUILD)/request_spec.o 
 $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp include/kalshi/sid_stream.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_orderbook.cpp -o $@
 
+$(BUILD)/test_strategies: tests/test_strategies.cpp $(BUILD)/strategies.o include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_strategies.cpp $(BUILD)/strategies.o -o $@
+
 $(BUILD)/test_sid_stream: tests/test_sid_stream.cpp include/kalshi/sid_stream.hpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_sid_stream.cpp -o $@
 
@@ -275,8 +278,8 @@ $(BUILD)/tradingd: apps/tradingd.cpp apps/feed.hpp apps/daemon_util.hpp \
 $(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_rtt.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)

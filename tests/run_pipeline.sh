@@ -79,7 +79,9 @@ run_suite "make_check" make check
 
 # 2. signing + ops-console backend (Python)
 run_suite "test_signing" ./build/test_signing
+run_suite "test_strategies" ./build/test_strategies
 run_suite "test_console" python3 tests/test_console.py
+run_suite "test_verify_ws_capture" python3 tests/test_verify_ws_capture.py
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \

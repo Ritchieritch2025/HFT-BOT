@@ -69,14 +69,14 @@ foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
           test_recovery test_storage test_recorder test_decode test_replay test_ws_client test_shadow
           test_readability test_rest_api test_account_limits test_endpoint_costs
           test_request_spec test_token_bucket test_backoff test_secret_redaction
-          test_request_executor test_batch_cost)
+          test_request_executor test_batch_cost test_strategies)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
 # Fixture-driven (no network) — safe to run directly under CTest.
 foreach(t signing ring fixedpoint ids env_safety bus orderbook sid_stream readability
           account_limits endpoint_costs request_spec token_bucket backoff secret_redaction
-          batch_cost)
+          batch_cost strategies)
   add_test(NAME ${t} COMMAND test_${t})
 endforeach()
 add_test(NAME storage COMMAND test_storage ${CMAKE_CURRENT_BINARY_DIR})

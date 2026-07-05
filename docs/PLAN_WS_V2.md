@@ -35,25 +35,20 @@
 
 ## Hard guardrails (apply to every phase)
 
-1. NEVER touch order transmission. `KalshiExecutionEngine` live path stays
-   fail-closed. All new code is market-data only. Any diff touching
-   `build_order_json`, submit lanes, or `require_orders_allowed` is out of scope.
-2. All network testing against DEMO (`external-api.demo.kalshi.co` /
-   `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`) until Phase 8.
-3. No new third-party dependencies. WS client is hand-rolled RFC6455 over the
+1. No new third-party dependencies. WS client is hand-rolled RFC6455 over the
    existing OpenSSL, client role only, NO extensions (do not negotiate
    permessage-deflate), masking + fragmentation + control frames + close
    handshake only.
-4. No floats on price/count paths. Wire strings go through
+2. No floats on price/count paths. Wire strings go through
    `trading::fixedpoint` parsers; excess precision = reject + telemetry.
-5. Hot path (WS read loop → book apply → NormalizedEvent publish) may not:
+3. Hot path (WS read loop → book apply → NormalizedEvent publish) may not:
    block on I/O, call REST, take contended locks, allocate per-message beyond
    the freelist, or hash strings after ticker→EntityId interning.
-6. Never implement behavior for undocumented protocol features. Specifically:
+4. Never implement behavior for undocumented protocol features. Specifically:
    WS error codes 26/27 DO NOT EXIST in official docs — unknown error codes go
    through the conservative path (log raw payload, treat as channel error,
    alert). Official code list: 1–22 (AsyncAPI) plus 25 (docs page + changelog).
-7. Every phase ends green: `make && make check && make san`; `make tsan` where
+5. Every phase ends green: `make && make check && make san`; `make tsan` where
    threads are touched. Add new tests to both Makefile and CMakeLists.
 
 ## Protocol invariants (the "why" behind the tasks; violating any = P0 bug)
@@ -87,7 +82,7 @@ Tasks:
    `no_dollars_fp`; delta `price_dollars`/`delta_fp`/`side`/`ts_ms`/optional
    `client_order_id`; ticker/trade/lifecycle field lists).
 2. Vendor specs: download `https://docs.kalshi.com/openapi.yaml` and
-   `https://docs.kalshi.com/asyncapi.yaml` into `third_party/kalshi_specs/`
+   `https://docs.kalshi.com/asyncapi.yaml` into `docs/vendor/kalshi/latest/`
    with a `FETCHED_AT` stamp file. Add `tools/check_spec_drift.sh` (fetch,
    diff, nonzero exit on change) — wire into CI if CI exists, else document
    manual cadence in the protocol doc.
@@ -149,7 +144,7 @@ Gate: `make check && make san` green; `grep -rn "strtod" apps/ src/` empty.
 ## Phase 2 — WS transport (`include/kalshi/ws.hpp`, `src/ws.cpp`)
 
 Tasks:
-1. RFC6455 client per guardrail 3. TLS via existing OpenSSL (mirror the RESP
+1. RFC6455 client per guardrail 1. TLS via existing OpenSSL (mirror the RESP
    client's from-scratch ethos). `TCP_NODELAY`. Single large reusable read
    buffer; in-place frame parse; handle control frames interleaved between
    fragments; reject fragmented control frames (RFC).
@@ -165,7 +160,7 @@ Tasks:
 6. Subscription manager: client command `id` counter (start 1, increment);
    correlation table with timeouts (error 18 exists); handles `subscribed`/
    `ok`/`error`; error 6 ⇒ assert (should be unreachable given I2-aware
-   logic); error 25 ⇒ I7 flow; unknown code ⇒ conservative path (guardrail 6).
+   logic); error 25 ⇒ I7 flow; unknown code ⇒ conservative path (guardrail 4).
 7. Connection layout (I12): conn A `orderbook_delta` only (explicit
    `market_tickers` always; `use_yes_price: false` explicitly — I5); conn B
    `ticker`+`trade` (explicit tickers; optional `send_initial_snapshot`);

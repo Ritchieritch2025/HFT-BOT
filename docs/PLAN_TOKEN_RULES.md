@@ -29,7 +29,7 @@
 
 ## Hard rules
 
-1. No strategy logic. No new transmission paths. Tier upgrade never runs
+1. No strategy logic. Tier upgrade never runs
    automatically and never from the trading hot path.
 2. Never log KALSHI-ACCESS-KEY, signatures, private keys, or raw auth
    headers. A grep test enforces this.

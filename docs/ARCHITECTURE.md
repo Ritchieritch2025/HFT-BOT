@@ -57,6 +57,13 @@ writes fixed-size structs/counters to bounded rings (drop+count on overflow); th
 telemetry thread formats and writes. No file/JSON/network work inside feed,
 strategy, or submit-critical code.
 
+Strategy roster (`src/strategies.cpp` `make_strategies()`): empty by default, so
+normal `tradingd` startup generates no orders. `STRATEGIES` selects strategies by
+name at startup (env read once, never in `on_event`). `once_probe` is a one-shot
+latency-probe strategy (slot 29): on the first `MarketEvent` matching
+`PROBE_TICKER` it emits a single 1c YES bid, then stays silent — used to exercise
+the full feed→strategy→ring→submit→ack chain under `TRADINGD_LATENCY_CSV`.
+
 ## Data flows
 
 - **REST poll feed**: `feed::run_poll` -> `RestApi.orderbook` (via executor) ->
@@ -85,6 +92,8 @@ strategy, or submit-critical code.
 | `KALSHI_API_KEY_ID` / `KALSHI_PRIVATE_KEY_PATH` | signed tools | credentials |
 | `KALSHI_WS_TICKERS` | ws_shadow | markets to subscribe |
 | `KALSHI_SHADOW_SECONDS` / `_CAPTURE` / `_XCHECK` | ws_shadow | soak length / capture path / REST cross-check |
+| `STRATEGIES` | tradingd | comma-separated roster (unset = empty = no orders); unknown name / missing required param fails closed |
+| `PROBE_TICKER` / `PROBE_PRICE_CENTS` / `PROBE_COUNT` | once_probe | market to probe (required) / limit price (default 1) / contracts (default 1) |
 | `TRADINGD_WORKERS` / `_RING` / `_SPIN` | tradingd | lanes / ring size / busy-poll |
 | `TRADINGD_MAX_QUEUE_AGE_MS` / `_MAX_ORDERS_PER_SEC` | tradingd | ttl gate / order-rate cap (folds into the Write bucket in P7) |
 | `TRADINGD_KEEPALIVE_S` / `_DRAIN_MS` | tradingd | lane keepalive / shutdown drain |
