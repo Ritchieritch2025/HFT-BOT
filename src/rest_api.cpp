@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <thread>
 
 namespace kalshi {
@@ -412,27 +413,53 @@ std::expected<std::vector<OrderbookSnapshot>, ApiError> RestApi::batch_orderbook
   return out;
 }
 
-RateLimits RestApi::api_limits() {
-  RateLimits lim;  // conservative fallback
-  auto r = get_with_retry("/account/api_limits");
-  if (!r || !r->ok()) return lim;  // fail safe: keep conservative defaults
-  try {
-    simdjson::padded_string json(r->body);
-    simdjson::ondemand::parser parser;
-    auto doc = parser.iterate(json);
-    std::int64_t v;
-    if (doc["reads_per_second"].get(v) == simdjson::SUCCESS) {
-      lim.reads_per_sec = static_cast<int>(v);
-      lim.from_server = true;
-    }
-    if (doc["writes_per_second"].get(v) == simdjson::SUCCESS) {
-      lim.writes_per_sec = static_cast<int>(v);
-      lim.from_server = true;
-    }
-  } catch (const simdjson::simdjson_error&) {
-    return RateLimits{};  // any parse trouble -> conservative
+std::expected<AccountLimits, ApiError> RestApi::account_limits() {
+  const bool live = rt_.mode == Mode::Live;
+  auto fail = [&](ApiError e) -> std::expected<AccountLimits, ApiError> {
+    if (live) return std::unexpected(e);  // live fails closed
+    std::fprintf(stderr, "[limits] account_limits fell back to conservative basic tier: %s\n",
+                 e.message.c_str());
+    return conservative_limits();  // off-live: conservative fallback, never errors
+  };
+
+  auto r = get_with_retry("/account/limits");
+  if (!r) return fail(r.error());
+  if (!r->ok()) return fail(parse_error_body(*r));
+
+  auto parsed = parse_account_limits(r->body);
+  if (!parsed)
+    return fail(ApiError{ApiError::Kind::Http, r->status, 0, "", "malformed /account/limits body"});
+
+  // Fail-closed invariant checks (T1.2): live throws, off-live warns + fallback.
+  if (auto err = limits_invariant_error(*parsed)) {
+    if (live)
+      return std::unexpected(ApiError{ApiError::Kind::Http, r->status, 0, "",
+                                      "account limits failed invariant: " + *err});
+    std::fprintf(stderr, "[limits] invariant violation (%s); using conservative basic tier\n",
+                 err->c_str());
+    return conservative_limits();
   }
-  return lim;
+
+  // Tier-table safeguard (F4): warn-only, keep server values (authoritative).
+  for (const auto& w : tier_table_warnings(*parsed))
+    std::fprintf(stderr, "[limits] %s: %s\n", kEvLimitsTableMismatch, w.c_str());
+
+  return *parsed;
+}
+
+std::expected<EndpointCostTable, ApiError> RestApi::endpoint_costs() {
+  const bool live = rt_.mode == Mode::Live;
+  auto fail = [&](ApiError e) -> std::expected<EndpointCostTable, ApiError> {
+    if (live) return std::unexpected(e);
+    std::fprintf(stderr, "[limits] endpoint_costs fell back to all-default costs: %s\n",
+                 e.message.c_str());
+    return EndpointCostTable{};  // default_cost=10, from_server=false
+  };
+
+  auto r = get_with_retry("/account/endpoint_costs");
+  if (!r) return fail(r.error());
+  if (!r->ok()) return fail(parse_error_body(*r));
+  return parse_endpoint_costs(r->body);  // tolerant parser; never throws
 }
 
 std::string RestApi::build_order_json(const OrderSpec& spec) {

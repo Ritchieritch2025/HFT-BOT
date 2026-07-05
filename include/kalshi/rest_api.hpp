@@ -14,6 +14,7 @@
 
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
+#include "kalshi/limits.hpp"
 #include "trading/bus.hpp"
 #include "trading/fixedpoint.hpp"
 
@@ -87,14 +88,6 @@ struct OrderSpec {
   std::string client_order_id;   // optional; caller-supplied for idempotency
 };
 
-// Account rate-limit tier (I11). `from_server` distinguishes a real pull from
-// the conservative fallback.
-struct RateLimits {
-  int reads_per_sec = 8;
-  int writes_per_sec = 8;
-  bool from_server = false;
-};
-
 struct RetryPolicy {
   int max_attempts = 4;
   long base_ms = 200;      // exponential base
@@ -139,10 +132,15 @@ class RestApi {
   std::expected<std::vector<OrderbookSnapshot>, ApiError> batch_orderbook(
       const std::vector<std::string>& tickers);
 
-  // Startup self-configuration of the rate limiter (I11). Reads the account's
-  // token limits; falls back to conservative defaults on any failure so the
-  // collector never runs unthrottled.
-  RateLimits api_limits();
+  // Startup self-configuration (PLAN_TOKEN_RULES T1, F3/F5). Fetches the nested
+  // /account/limits and /account/endpoint_costs. Mode policy (T1.5):
+  //   - live: any fetch/parse failure OR a failed fail-closed invariant returns
+  //     an ApiError so the caller fails closed;
+  //   - data_collect/shadow: failures fall back conservatively (basic tier /
+  //     default costs, from_server=false) with a stderr warning — never errors.
+  // On a real pull the tier-table safeguard (F4) logs mismatches (warn-only).
+  std::expected<AccountLimits, ApiError> account_limits();
+  std::expected<EndpointCostTable, ApiError> endpoint_costs();
 
   // Typed V2 order construction. Pure string building; no network, no send.
   static std::string build_order_json(const OrderSpec& spec);

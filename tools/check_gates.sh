@@ -32,4 +32,9 @@ gate() {  # gate <name> <grep-args...>
 gate 'no find("demo") host sniffing' -e 'find("demo")' -e "find('demo')"
 gate 'no base_url substring host checks' -E 'base_url\.(find|substr|rfind)\("(demo|prod|elections|external)'
 
+# T1 — the pre-v3.23.0 account endpoint paths are banned anywhere in live source
+# (acceptance criteria). Renamed to /account/limits and /account/endpoint_costs.
+gate 'no /account/api_limits path' -e '/account/api_limits'
+gate 'no /account/non-default-endpoint-costs path' -e '/account/non-default-endpoint-costs'
+
 exit $fail

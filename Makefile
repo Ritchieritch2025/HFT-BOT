@@ -31,7 +31,8 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
-        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(PURE_TESTS)
+        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode \
+        $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -47,7 +48,10 @@ $(BUILD)/resp.o: src/resp.cpp include/kalshi/resp.hpp | $(BUILD)
 $(BUILD)/env.o: src/env.cpp include/kalshi/env.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD)/rest_api.o: src/rest_api.cpp include/kalshi/rest_api.hpp include/kalshi/client.hpp include/kalshi/env.hpp include/trading/bus.hpp | $(BUILD)
+$(BUILD)/rest_api.o: src/rest_api.cpp include/kalshi/rest_api.hpp include/kalshi/client.hpp include/kalshi/env.hpp include/kalshi/limits.hpp include/trading/bus.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/limits.o: src/limits.cpp include/kalshi/limits.hpp include/kalshi/client.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/storage.o: src/storage.cpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
@@ -76,11 +80,11 @@ $(BUILD)/ws_smoke: apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.
 # and the batch-orderbook cross-check).
 $(BUILD)/ws_shadow: apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
                     $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o \
-                    $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/simdjson.o \
+                    $(BUILD)/rest_api.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/simdjson.o \
                     $(BUILD)/ixwebsocket.a
 	$(CXX) $(CXXFLAGS) apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
 	    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/rest_api.o \
-	    $(BUILD)/client.o $(BUILD)/simdjson.o $(BUILD)/ixwebsocket.a \
+	    $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/simdjson.o $(BUILD)/ixwebsocket.a \
 	    $(SSL_LIBS) $(CRYPTO_LIBS) -lcurl -o $@
 
 $(BUILD)/strategies.o: src/strategies.cpp include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
@@ -142,8 +146,14 @@ $(BUILD)/test_env_safety: tests/test_env_safety.cpp $(BUILD)/env.o
 $(BUILD)/test_bus: tests/test_bus.cpp include/trading/bus.hpp include/trading/test_doubles.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_bus.cpp -o $@
 
-$(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+$(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/limits.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+# Limits/cost parsers are fixture-driven (no network): link only limits.o + simdjson.o.
+$(BUILD)/test_account_limits: tests/test_account_limits.cpp $(BUILD)/limits.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
+$(BUILD)/test_endpoint_costs: tests/test_endpoint_costs.cpp $(BUILD)/limits.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp include/kalshi/sid_stream.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_orderbook.cpp -o $@
@@ -166,11 +176,11 @@ $(BUILD)/bench_ws_decode: apps/bench_ws_decode.cpp $(BUILD)/gateway.o $(BUILD)/s
 # Decoder/reader fuzzer under ASan+UBSan (OUR JSON parsing surface). simdjson is
 # excluded from instrumentation via the ignore-list — it does deliberate
 # low-level ops (SIMDJSON_ASSUME etc.) that UBSan flags but are safe by design.
-$(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
+$(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 	    -fsanitize-ignorelist=tests/sanitizer_ignore.txt \
 	    -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
-	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp $(BUILD)/simdjson.o -o $@
+	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp $(BUILD)/simdjson.o -o $@
 
 fuzz: $(BUILD)/fuzz_decode
 	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(BUILD)/fuzz_decode
@@ -260,9 +270,12 @@ san: | $(BUILD)
 gate:
 	@./tools/check_gates.sh
 
-# Build + run every pure unit test.
-check: gate $(PURE_TESTS)
-	@set -e; for t in $(PURE_TESTS); do echo "== $$t"; $$t | tail -1; done
+# Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
+OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs
+
+# Build + run every pure + offline (fixture-driven) unit test, after the gates.
+check: gate $(PURE_TESTS) $(OFFLINE_TESTS)
+	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t | tail -1; done
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing

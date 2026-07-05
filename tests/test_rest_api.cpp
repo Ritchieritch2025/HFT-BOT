@@ -209,11 +209,24 @@ int main(int argc, char** argv) {
     check(!api.batch_orderbook(too_many).has_value(), "batch size >100 rejected");
   }
 
-  // 12. rate-limit self-config from /account/api_limits
+  // 12. account limits + endpoint costs self-config (nested v3.23.0 schema).
   {
-    RateLimits lim = api.api_limits();
-    check(lim.from_server && lim.reads_per_sec == 20 && lim.writes_per_sec == 10,
-          "api_limits pulled from server (20 reads/s, 10 writes/s)");
+    auto lim = api.account_limits();
+    check(lim && lim->from_server && lim->usage_tier == "advanced" &&
+              lim->read.refill_rate == 300 && lim->read.bucket_capacity == 300 &&
+              lim->write.refill_rate == 300 && lim->grants.size() == 2,
+          "account_limits: nested advanced tier + 2 grants pulled from server");
+    check(lim && lim->grants[0].source == "volume" && !lim->grants[0].expires_ts &&
+              lim->grants[1].expires_ts.has_value(),
+          "account_limits: permanent + expiring grant variants parsed");
+
+    auto costs = api.endpoint_costs();
+    check(costs && costs->from_server && costs->default_cost == 10,
+          "endpoint_costs: default_cost 10 from server");
+    check(costs && costs->cost_for(Method::Post, "/trade-api/v2/portfolio/orders") == 10 &&
+              costs->cost_for(Method::Delete, "/trade-api/v2/portfolio/orders/abc-123") == 2 &&
+              costs->cost_for(Method::Get, "/trade-api/v2/exchange/status") == 10,
+          "endpoint_costs: exact + template match + default fallback");
   }
 
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");

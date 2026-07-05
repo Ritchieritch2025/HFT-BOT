@@ -7,6 +7,7 @@
 // usage: fuzz_decode [iters] [scratch_dir]
 
 #include "kalshi/gateway.hpp"
+#include "kalshi/limits.hpp"
 #include "trading/storage.hpp"
 
 #include <cstdio>
@@ -40,6 +41,13 @@ std::string hostile() {
     R"({)",
     R"(null)",
     R"({"type":"orderbook_delta"})",
+    // Account-limits / endpoint-cost shapes (T1 parsers): missing required
+    // fields, wrong types, absurd numbers, malformed grants/costs.
+    R"({"usage_tier":"basic","read":{"refill_rate":-1},"write":{},"grants":[]})",
+    R"({"usage_tier":123,"read":{"refill_rate":"x","bucket_capacity":null},"write":{"refill_rate":9999999999999},"grants":"nope"})",
+    R"({"read":{"refill_rate":1,"bucket_capacity":1},"write":{"refill_rate":1,"bucket_capacity":1},"grants":[{"exchange_instance":42}]})",
+    R"({"default_cost":"free","endpoint_costs":[{"method":9,"path":null,"cost":"lots"},{}]})",
+    R"({"default_cost":10,"endpoint_costs":"not-an-array"})",
   };
   const std::size_t n = sizeof(templates) / sizeof(templates[0]);
   return templates[next() % n];
@@ -55,8 +63,17 @@ int main(int argc, char** argv) {
     trading::RawRecord r;
     r.source = trading::SourceId::Kalshi;
     r.source_ticker = "MKT";
-    r.raw = (next() & 1) ? random_bytes(300) : hostile();
+    const std::string raw = (next() & 1) ? random_bytes(300) : hostile();
+    r.raw = raw;
     (void)dec.decode(r);  // must not crash / no UB (ASan/UBSan enforce)
+
+    // T1 metadata parsers over the same untrusted bytes.
+    if (auto lim = kalshi::parse_account_limits(raw)) {
+      (void)kalshi::limits_invariant_error(*lim);
+      (void)kalshi::tier_table_warnings(*lim);
+    }
+    auto costs = kalshi::parse_endpoint_costs(raw);
+    (void)costs.cost_for(kalshi::Method::Post, "/trade-api/v2/portfolio/orders");
   }
 
   // Fuzz the NDJSON reader with garbage + truncated lines.

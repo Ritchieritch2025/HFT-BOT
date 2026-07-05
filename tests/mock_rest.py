@@ -70,8 +70,25 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/trade-api/v2/exchange/status":
             return self._send(200, {"exchange_active": True, "trading_active": True})
 
-        if path == "/trade-api/v2/account/api_limits":
-            return self._send(200, {"reads_per_second": 20, "writes_per_second": 10})
+        if path == "/trade-api/v2/account/limits":
+            # Nested v3.23.0 schema: usage_tier + read/write BucketLimit + grants.
+            return self._send(200, {
+                "usage_tier": "advanced",
+                "read": {"refill_rate": 300, "bucket_capacity": 300},
+                "write": {"refill_rate": 300, "bucket_capacity": 300},
+                "grants": [
+                    {"exchange_instance": "event_contract", "level": "advanced",
+                     "source": "volume"},  # permanent (no expires_ts)
+                    {"exchange_instance": "margined", "level": "advanced",
+                     "source": "manual", "expires_ts": 1893456000},  # expiring
+                ]})
+
+        if path == "/trade-api/v2/account/endpoint_costs":
+            return self._send(200, {"default_cost": 10, "endpoint_costs": [
+                {"method": "POST", "path": "/trade-api/v2/portfolio/orders", "cost": 10},
+                {"method": "DELETE", "path": "/trade-api/v2/portfolio/orders/{order_id}", "cost": 2},
+                {"method": "GET", "path": "/trade-api/v2/markets", "cost": 1},
+            ]})
 
         if path == "/trade-api/v2/markets/orderbooks":
             tickers = qs.get("tickers", [])
