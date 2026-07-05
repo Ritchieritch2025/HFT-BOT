@@ -32,6 +32,8 @@ struct RetryPolicy;  // defined in rest_api.hpp
 struct SendOpts {
   std::int64_t deadline_ns = -1;   // <0 => now + kDefaultReserveBudgetMs
   std::uint64_t trace_id = 0;      // correlation id for telemetry
+  int cost_override = -1;          // >=0 => reserve exactly this many tokens (batch
+                                   // total, T6) instead of the per-endpoint cost
 };
 
 // Retry/backoff knobs (kept here so the executor does not depend on rest_api.hpp).

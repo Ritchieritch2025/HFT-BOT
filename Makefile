@@ -34,7 +34,8 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
         $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
-        $(BUILD)/test_request_spec $(BUILD)/test_request_executor $(PURE_TESTS)
+        $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
+        $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -157,6 +158,13 @@ $(BUILD)/test_secret_redaction: tests/test_secret_redaction.cpp include/kalshi/r
 	$(CXX) $(CXXFLAGS) tests/test_secret_redaction.cpp -o $@
 
 $(BUILD)/test_request_executor: tests/test_request_executor.cpp $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/test_batch_cost: tests/test_batch_cost.cpp include/kalshi/request_spec.hpp $(BUILD)/limits.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) tests/test_batch_cost.cpp $(BUILD)/limits.o $(BUILD)/simdjson.o -o $@
+
+# Read-only demo probe (T6/F8): batch-orderbook throughput to first throttle.
+$(BUILD)/probe_batch_cost: apps/probe_batch_cost.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
@@ -303,7 +311,7 @@ gate:
 
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
-                 $(BUILD)/test_request_spec
+                 $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 check: gate $(PURE_TESTS) $(OFFLINE_TESTS)

@@ -83,4 +83,12 @@ BucketKind classify(Method method, std::string_view normalized_path,
 RequestSpec make_request_spec(Method method, std::string_view raw_path,
                               const EndpointCostTable& costs);
 
+// Total token cost of a batch (F8): batch endpoints bill PER ITEM. e.g. 25
+// creates x 10 = 250; 25 cancels x 2 = 50. Batch reads are billed per item as a
+// local ASSUMPTION (F8, undocumented — probe in demo). The whole batch must fit
+// the bucket at once (no partial send). Non-positive inputs => 0.
+inline int batch_total_cost(int items, int per_item_cost) {
+  return (items > 0 && per_item_cost > 0) ? items * per_item_cost : 0;
+}
+
 }  // namespace kalshi

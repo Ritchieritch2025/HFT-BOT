@@ -76,6 +76,9 @@ std::expected<Response, ApiError> RequestExecutor::send(Method method, std::stri
   const RequestSpec spec = make_request_spec(method, path, costs_);
   const std::string cpath = client_path(path);
   TokenBucketI64& bucket = spec.bucket == BucketKind::Write ? write_bucket_ : read_bucket_;
+  // Batch requests (T6) reserve their FULL per-item total up front; the bucket
+  // either covers the whole batch or the request is refused (no partial send).
+  const int cost = opts.cost_override >= 0 ? opts.cost_override : spec.cost_tokens;
 
   RequestTelemetry tel;
   tel.ts_wall_ns = trading::wall_ns();
@@ -83,7 +86,7 @@ std::expected<Response, ApiError> RequestExecutor::send(Method method, std::stri
   tel.normalized_path = spec.normalized_path;
   tel.bucket = to_string(spec.bucket);
   tel.mutation = to_string(spec.mutation);
-  tel.cost_tokens = spec.cost_tokens;
+  tel.cost_tokens = cost;
   tel.endpoint_cost_source = costs_.from_server ? "server" : "default";
   tel.usage_tier = usage_tier_;
   tel.trace_id = opts.trace_id;
@@ -93,7 +96,7 @@ std::expected<Response, ApiError> RequestExecutor::send(Method method, std::stri
   const std::int64_t deadline =
       opts.deadline_ns >= 0 ? opts.deadline_ns
                             : now + static_cast<std::int64_t>(policy_.reserve_budget_ms) * 1'000'000;
-  const Reservation res = bucket.reserve_or_wait(spec.cost_tokens, now, deadline);
+  const Reservation res = bucket.reserve_or_wait(cost, now, deadline);
   tel.tokens_before_milli = res.before_milli;
   tel.tokens_after_milli = res.after_milli;
   tel.wait_ns = res.wait_ns;

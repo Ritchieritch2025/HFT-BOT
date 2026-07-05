@@ -263,7 +263,15 @@ std::expected<std::vector<OrderbookSnapshot>, ApiError> RestApi::batch_orderbook
   for (std::size_t i = 0; i < tickers.size(); ++i)
     path += (i == 0 ? "?tickers=" : "&tickers=") + escape(tickers[i]);  // form-explode
 
-  auto r = get_with_retry(path);
+  // F8 ASSUMPTION: a batch orderbook read is billed PER TICKER (undocumented —
+  // measure with tools/probe_batch_cost.sh). Reserve n x single-orderbook cost as
+  // one total; if the read bucket can't cover the whole batch it is refused, never
+  // partially sent.
+  const int per_item = exec_.cost_table().cost_for(Method::Get,
+                                                   "/trade-api/v2/markets/_/orderbook");
+  SendOpts opts;
+  opts.cost_override = batch_total_cost(static_cast<int>(tickers.size()), per_item);
+  auto r = exec_.send(Method::Get, path, {}, opts);
   if (!r) return std::unexpected(r.error());
   if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
 

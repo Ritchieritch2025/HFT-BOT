@@ -123,6 +123,19 @@ int main(int argc, char** argv) {
     check(after == before, "refused send emitted NO HTTP (reserve-before-send)");
   }
 
+  // 6. no-partial-send (T6): a batch whose TOTAL cost the bucket can't cover by
+  //    the deadline is refused whole — zero HTTP. (Read bucket already drained.)
+  {
+    const long before = server_count(client);
+    SendOpts opts;
+    opts.cost_override = 250;  // e.g. a 25-item batch at 10 tokens/item
+    opts.deadline_ns = trading::mono_ns();
+    auto r = exec.send(Method::Get, "/markets/orderbooks?tickers=A&tickers=B", "", opts);
+    const long after = server_count(client);
+    check(!r.has_value(), "batch total unaffordable by deadline => whole batch refused");
+    check(after == before, "no-partial-send: refused batch emitted NO HTTP");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }
