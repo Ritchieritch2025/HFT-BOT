@@ -11,7 +11,7 @@
 // demo environment (https://demo-api.kalshi.co) for risk-free validation.
 //
 // Env: KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH  (required)
-//      KALSHI_BASE_URL   (default https://api.elections.kalshi.com)
+//      KALSHI_BASE_URL   (default https://external-api.kalshi.com)
 
 #include "daemon_util.hpp"
 #include "kalshi/client.hpp"

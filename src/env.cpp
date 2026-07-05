@@ -58,9 +58,10 @@ std::string default_base_url(Env env) {
     case Env::Demo:
       return "https://external-api.demo.kalshi.co";
     case Env::Prod:
-      // Session-verified canonical prod host. external-api.kalshi.com is a
-      // documented alternate, allowed by the allowlist but not the default.
-      return "https://api.elections.kalshi.com";
+      // Canonical prod host per Kalshi api_environments (PLAN_TOKEN_RULES F1).
+      // api.elections.kalshi.com is a compatibility host, kept in the allowlist
+      // (same signature scheme) but no longer the default.
+      return "https://external-api.kalshi.com";
   }
   return "http://127.0.0.1:18099";
 }
@@ -148,7 +149,8 @@ void validate_base_url(Env env, Mode mode, const std::string& url) {
       ok = host_in(u.host, {"external-api.demo.kalshi.co"});
       break;
     case Env::Prod:
-      ok = host_in(u.host, {"api.elections.kalshi.com", "external-api.kalshi.com"});
+      // Canonical first; api.elections.kalshi.com kept as a compatibility host.
+      ok = host_in(u.host, {"external-api.kalshi.com", "api.elections.kalshi.com"});
       break;
   }
   if (!ok)

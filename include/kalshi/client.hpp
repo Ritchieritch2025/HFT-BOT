@@ -81,7 +81,7 @@ struct Config {
   std::string api_key_id;       // Kalshi API key id (UUID), sent as KALSHI-ACCESS-KEY
   std::string private_key_pem;  // RSA private key, PEM text (PKCS#1 or PKCS#8)
 
-  std::string base_url = "https://api.elections.kalshi.com";
+  std::string base_url = "https://external-api.kalshi.com";
   std::string api_prefix = "/trade-api/v2";
 
   int pool_size = 4;                // persistent connections == max in-flight requests

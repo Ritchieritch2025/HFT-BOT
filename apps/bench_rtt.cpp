@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
   Config cfg;
   cfg.base_url = argc > 2 ? argv[2]
                           : daemon::env_or("KALSHI_BASE_URL",
-                                           "https://api.elections.kalshi.com");
+                                           "https://external-api.kalshi.com");
   cfg.api_key_id = daemon::env_or("KALSHI_API_KEY_ID", "");
   const std::string key_path = daemon::env_or("KALSHI_PRIVATE_KEY_PATH", "");
   if (!cfg.api_key_id.empty() && !key_path.empty()) {

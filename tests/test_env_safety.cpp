@@ -55,6 +55,15 @@ int main() {
   check(throws(), "prod without KALSHI_ALLOW_PROD throws");
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   check(!throws(), "prod + allow resolves");
+  {
+    // Prod DEFAULT host is the canonical external-api.kalshi.com (F1); the
+    // api.elections.kalshi.com compatibility host stays accepted (below).
+    Runtime rt = resolve_runtime();
+    check(rt.rest_base_url == "https://external-api.kalshi.com", "prod default host is external-api");
+  }
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+  check(!throws(), "api.elections compatibility host still accepted under prod");
 
   // Live requires explicit allow + non-local env.
   reset_env(); set("KALSHI_MODE", "live");

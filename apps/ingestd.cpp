@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     } else {
       cfg.private_key_pem = read_file(key_path);
     }
-    cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
+    cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://external-api.kalshi.com");
     cfg.pool_size = 1;
     KalshiClient client(std::move(cfg));
     return feed::run_poll(client, interval, handler);

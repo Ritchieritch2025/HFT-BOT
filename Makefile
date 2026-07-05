@@ -256,8 +256,12 @@ san: | $(BUILD)
 	  ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $$bin >/dev/null; \
 	done; echo "  sanitizers clean"
 
+# Grep-based safety gates (forbidden patterns in live source). See tools/check_gates.sh.
+gate:
+	@./tools/check_gates.sh
+
 # Build + run every pure unit test.
-check: $(PURE_TESTS)
+check: gate $(PURE_TESTS)
 	@set -e; for t in $(PURE_TESTS); do echo "== $$t"; $$t | tail -1; done
 
 test: $(BUILD)/test_signing
@@ -266,4 +270,4 @@ test: $(BUILD)/test_signing
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all tsan test clean
+.PHONY: all tsan test clean gate check
