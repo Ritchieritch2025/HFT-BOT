@@ -7,7 +7,7 @@ plus a single-process trading engine built on it.
 
 ```
                  ┌────────────────────── tradingd (one process) ──────────────────────┐
- Kalshi ────────▶│ hot thread: feed (REST poll | WS later) → MarketEvent               │
+ Kalshi ────────▶│ hot thread: feed (REST poll now | WS engine ready) → MarketEvent    │
  (market data)   │   → configured strategies inline (throwing slots quarantined)       │
                  │   → ExecPayload (80B POD, passed as a function argument)            │
                  │   → lock-free ring (~ns)                                            │
@@ -32,7 +32,8 @@ recorder for research/replay) via a from-scratch RESP2 client — no hiredis.
   relayed through a Redis list; spin mode `TRADINGD_SPIN=1` goes lower)
 - RSA-PSS sign: ~300µs/core (mandated by Kalshi's auth; parallelizes across lanes)
 - honest context: exchange RTT is 10–40ms and REST-poll staleness is ~250ms mean —
-  the next real latency win is a WebSocket feed, not micro-tuning this path.
+  the next real latency win is the WebSocket feed (engine built + shadow-tested;
+  wiring it in as tradingd's feed is PLAN_PROD_V1 P6), not micro-tuning this path.
 
 ## Layout
 
@@ -103,7 +104,16 @@ real strategy code before expecting the engine to emit orders.
 - **Linux deploy.** Pin lanes/hot thread to performance cores (macOS scheduling
   of background threads inflated sign latency ~4x in testing). The Makefile
   auto-selects system OpenSSL on Linux.
-- **Next milestone.** A from-scratch WSS market-data client (OpenSSL over POSIX
-  sockets, same ethos as the RESP client) — REST polling's ~250ms staleness is
-  the dominant end-to-end latency item, worth ~2,800x more than the Redis-hop
-  removal was.
+- **WS market-data engine (done, shadow-tested).** A complete Kalshi WS v2 client
+  behind an `IWebSocketTransport` seam (vendored ixwebsocket + OpenSSL, library-
+  first), with per-sid sequencing, recovery ladder, durable recorder, and a
+  read-only shadow harness (`ws_shadow`). See `docs/PLAN_WS_V2.md` +
+  `docs/kalshi_ws_protocol.md`. It is NOT yet tradingd's live feed — that swap
+  (replacing ~250ms REST-poll staleness) is PLAN_PROD_V1 P6.
+- **Token rate-limit system (T0–T6 done).** Integer token buckets, single
+  `RequestExecutor` (reserve-before-send), server-derived limits/costs. See
+  `docs/PLAN_TOKEN_RULES.md`.
+- **Roadmap.** `docs/PLAN_PROD_V1.md` sequences production readiness (P0–P10):
+  hygiene → tool registry → ops console → CI → spec-drift/rulebook → demo
+  verification → WS feed → risk+kill-switch → transmission unification → strategy
+  framework → canary rollout.

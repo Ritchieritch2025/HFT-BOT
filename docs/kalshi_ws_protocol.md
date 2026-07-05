@@ -105,7 +105,7 @@ raw log). Known types include: `created`, `open`, `paused`, `closed`,
 | I8 | sid values die with the connection. Every enqueued message carries a `stream_epoch`; consumers drop epoch mismatches. Post-reconnect, `list_subscriptions` self-check. |
 | I9 | Only orderbook messages carry seq. `ticker`/`trade`/`lifecycle` have none — dedupe/order by `ts_ms` (ticker), `trade_id` (trade); lifecycle unordered + unfiltered. |
 | I10 | WS auth per "Connection & auth" above. |
-| I11 | Rate limits token-based (default 10/request), separate Read/Write buckets, **no Retry-After on 429**. Pull tier via `GET /account/api_limits` and costs via `GET /account/non-default-endpoint-costs` at startup. Batch-orderbook token cost is UNDOCUMENTED — measure in demo, budget worst-case. |
+| I11 | Rate limits token-based (default 10/request), separate Read/Write buckets, **no Retry-After on 429**. Pull tier via `GET /account/limits` (nested v3.23.0 schema) and costs via `GET /account/endpoint_costs` at startup. Batch-orderbook token cost measured (2026-07-05) as FLAT per call (~default_cost), not per-item. |
 | I12 | WS connections per user tier-limited (default 200); multi-connection sharding is officially supported. |
 
 ## Error codes

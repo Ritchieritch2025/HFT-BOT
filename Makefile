@@ -42,6 +42,12 @@ all: $(BINS)
 $(BUILD):
 	mkdir -p $(BUILD)
 
+# Scratch dir for test output (raw logs, replays, rotation shards) — keeps the
+# repo root clean. Tests that take a dir arg write here; the rest ignore it.
+SCRATCH := $(BUILD)/scratch
+$(SCRATCH): | $(BUILD)
+	mkdir -p $(SCRATCH)
+
 $(BUILD)/client.o: src/client.cpp include/kalshi/client.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -229,8 +235,11 @@ $(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/
 	    -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
 	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o -o $@
 
-fuzz: $(BUILD)/fuzz_decode
-	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(BUILD)/fuzz_decode
+# fuzz_decode takes [iters] [dir] positionally — pass BOTH, else a lone dir is
+# parsed as atoi(dir)=0 iterations (silently fuzzing nothing) and the reader
+# sweep litters the repo root.
+fuzz: $(BUILD)/fuzz_decode | $(SCRATCH)
+	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(BUILD)/fuzz_decode 200000 $(SCRATCH)
 
 $(BUILD)/test_storage: tests/test_storage.cpp $(BUILD)/storage.o $(BUILD)/gateway.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@
@@ -263,8 +272,8 @@ $(BUILD)/tradingd: apps/tradingd.cpp apps/feed.hpp apps/daemon_util.hpp \
 	$(CXX) $(CXXFLAGS) apps/tradingd.cpp $(BUILD)/client.o $(BUILD)/resp.o \
 	    $(BUILD)/strategies.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
@@ -326,8 +335,10 @@ OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
                  $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
-check: gate $(PURE_TESTS) $(OFFLINE_TESTS)
-	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t | tail -1; done
+# Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest
+# ignore it — so no test litters the repo root.
+check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
+	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing

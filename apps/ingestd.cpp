@@ -12,6 +12,7 @@
 
 #include "daemon_util.hpp"
 #include "feed.hpp"
+#include "kalshi/env.hpp"
 #include "kalshi/resp.hpp"
 #include "kalshi/wire.hpp"
 
@@ -50,6 +51,15 @@ int main(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "--poll") {
     const int interval = argc > 2 ? std::atoi(argv[2]) : 1000;
+    // Every binary that dials Kalshi validates env/host through resolve_runtime()
+    // (fail closed on an unsafe/ambiguous config), even a read-only recorder.
+    kalshi::Runtime rt;
+    try {
+      rt = kalshi::resolve_runtime();
+    } catch (const kalshi::SafetyViolation& e) {
+      logf("ingestd refused: %s", e.what());
+      return 2;
+    }
     Config cfg;
     cfg.api_key_id = daemon::env_or("KALSHI_API_KEY_ID", "");
     const std::string key_path = daemon::env_or("KALSHI_PRIVATE_KEY_PATH", "");
@@ -60,7 +70,7 @@ int main(int argc, char** argv) {
     } else {
       cfg.private_key_pem = read_file(key_path);
     }
-    cfg.base_url = daemon::env_or("KALSHI_BASE_URL", "https://external-api.kalshi.com");
+    cfg.base_url = rt.rest_base_url;  // validated against KALSHI_ENV by resolve_runtime()
     cfg.pool_size = 1;
     KalshiClient client(std::move(cfg));
     return feed::run_poll(client, interval, handler);
