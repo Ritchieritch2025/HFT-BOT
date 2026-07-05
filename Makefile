@@ -346,4 +346,10 @@ test: $(BUILD)/test_signing
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all tsan test clean gate check
+# Ops console (localhost, read-only wrt trading). Add --allow-network to enable
+# network_read tools; live_order tools are always refused.
+dashboard: | $(BUILD)
+	python3 dashboard_server.py --metrics work/metrics.ndjson \
+	    --results work/test_results.ndjson --port 8765
+
+.PHONY: all tsan test clean gate check dashboard

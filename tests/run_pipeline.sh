@@ -77,8 +77,9 @@ run_suite "check_registry" python3 tools/check_registry.py --require-built
 # 1. gates + pure/offline unit tests (make check runs them all through one target)
 run_suite "make_check" make check
 
-# 2. signing
+# 2. signing + ops-console backend (Python)
 run_suite "test_signing" ./build/test_signing
+run_suite "test_console" python3 tests/test_console.py
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \

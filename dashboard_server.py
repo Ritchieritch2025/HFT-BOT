@@ -16,6 +16,12 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Shared tool registry + safety policy (single source of truth with the console
+# backend). The POST /api/run handler enforces may_run() SERVER-SIDE — the UI
+# affordance is not the security boundary (guardrail 2).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+import run_tests  # noqa: E402
+
 # ------------------------------------------------------------------ file tail
 
 
@@ -91,7 +97,7 @@ def stream_new_lines(path, start_pos):
 # ------------------------------------------------------------------ handler
 
 
-def make_handler(metrics_path, backfill_default):
+def make_handler(metrics_path, backfill_default, allow_network=False):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -111,6 +117,9 @@ def make_handler(metrics_path, backfill_default):
             self.end_headers()
             self.wfile.write(body)
 
+        def _json(self, code, obj):
+            self._send(code, json.dumps(obj), "application/json")
+
         def do_GET(self):
             path = self.path.split("?", 1)[0]
             if path == "/":
@@ -119,8 +128,53 @@ def make_handler(metrics_path, backfill_default):
                 self._send(200, json.dumps({"ok": True}), "application/json")
             elif path == "/stream":
                 self.handle_stream()
+            elif path == "/api/tools":
+                # Never expose a run affordance the server won't honor: annotate
+                # each tool with whether THIS server instance would run it.
+                out = []
+                for t in run_tests.load_registry():
+                    ok, reason = run_tests.may_run(t, allow_network)
+                    e = dict(t); e["runnable"] = ok; e["run_reason"] = reason
+                    out.append(e)
+                self._json(200, {"allow_network": allow_network, "tools": out})
+            elif path == "/api/results":
+                latest = {}
+                if os.path.exists(run_tests.LATEST):
+                    try:
+                        latest = json.load(open(run_tests.LATEST))
+                    except Exception:
+                        latest = {}
+                self._json(200, latest)
             else:
                 self._send(404, "not found")
+
+        def do_POST(self):
+            path = self.path.split("?", 1)[0]
+            if path != "/api/run":
+                self._send(404, "not found")
+                return
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            except Exception:
+                self._json(400, {"error": "bad JSON body"})
+                return
+            name = body.get("name", "")
+            by_name = {t["name"]: t for t in run_tests.load_registry()}
+            tool = by_name.get(name)
+            if not tool:
+                self._json(404, {"error": "unknown tool '%s'" % name})
+                return
+            # SERVER-SIDE safety enforcement (guardrail 2): live_order is always
+            # refused; network_read needs the server's --allow-network flag.
+            ok, reason = run_tests.may_run(tool, allow_network)
+            if not ok:
+                self._json(403, {"error": "refused", "name": name, "reason": reason})
+                return
+            rec = run_tests.run_tool(tool, allow_network)
+            if rec["status"] != "refused":
+                run_tests.record(rec)
+            self._json(200, rec)
 
         def handle_stream(self):
             qs = {}
@@ -214,6 +268,11 @@ tbody tr:hover{background:var(--panel2)}
 .b-yellow{color:#d29922;background:var(--yellowbg);border-color:#493f13}
 .b-red{color:#f85149;background:var(--redbg);border-color:#5c1e1f}
 .b-gray{color:#8b949e;background:var(--graybg);border-color:#30363d}
+.b-blue{color:#58a6ff;background:#0d2a4a;border-color:#1b3a5c}
+.tabbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+.tabbtn:hover{background:#30363d}
+.tabbtn.active{background:#1f6feb;color:#fff;border-color:#1f6feb}
+.tabbtn:disabled{opacity:.5;cursor:not-allowed}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;margin-right:5px}
 .d-green{background:var(--green)}.d-yellow{background:var(--yellow)}.d-red{background:var(--red)}.d-gray{background:var(--gray)}
 .panel-controls{display:flex;flex-wrap:wrap;gap:7px;padding:9px 11px}
@@ -252,7 +311,14 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
   </div>
 </header>
 
-<main>
+<nav id="tabnav" style="display:flex;gap:6px;align-items:center;padding:6px 12px;border-bottom:1px solid #2a2a3a">
+  <button data-tab="live" class="tabbtn active">Live</button>
+  <button data-tab="tests" class="tabbtn">Tests</button>
+  <button data-tab="tools" class="tabbtn">Tools</button>
+  <span id="tab-note" style="margin-left:auto;color:#888;font-size:12px"></span>
+</nav>
+
+<main id="tab-live" class="tabview">
   <!-- 1. System Status -->
   <section>
     <h2>System Status <span class="sub" id="sys-heartbeat">heartbeat —</span></h2>
@@ -334,6 +400,18 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
     </div>
   </section>
 </main>
+
+<section id="tab-tests" class="tabview" hidden style="padding:12px">
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+    <button id="run-all" class="tabbtn">▶ Run all (pure/offline)</button>
+    <span id="tests-summary" style="color:#888;font-size:12px"></span>
+  </div>
+  <div id="tests-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px"></div>
+</section>
+
+<section id="tab-tools" class="tabview" hidden style="padding:12px">
+  <div id="tools-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px"></div>
+</section>
 
 <script>
 "use strict";
@@ -590,6 +668,68 @@ function connect(){
 }
 connect();
 
+// ---- Tests / Tools tabs (P2) ----
+function showTab(name){
+  document.querySelectorAll('.tabview').forEach(v=>v.hidden = (v.id!=='tab-'+name));
+  document.querySelectorAll('.tabbtn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  if(name==='tests') loadTests();
+  if(name==='tools') loadTools();
+}
+document.querySelectorAll('.tabbtn[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+
+function stbadge(s){ const c = s==='pass'?'green':(s==='fail'?'red':'gray'); return badge(s||'—', c); }
+async function loadTests(){
+  let m={}; try{ m = await (await fetch('/api/results')).json(); }catch(_){}
+  const g=$('tests-grid'); const names=Object.keys(m).sort();
+  let np=0,nf=0;
+  g.innerHTML = names.length? names.map(n=>{
+    const r=m[n]; if(r.status==='pass')np++; else if(r.status==='fail')nf++;
+    return '<div style="border:1px solid #2a2a3a;border-radius:6px;padding:8px">'
+      +'<div style="display:flex;justify-content:space-between"><b>'+esc(n)+'</b>'+stbadge(r.status)+'</div>'
+      +'<div style="color:#888;font-size:12px;margin-top:4px">+'+num(r.passed)+' / -'+num(r.failed)
+      +' · '+num(r.duration_ms)+'ms</div></div>';
+  }).join('') : '<div class="muted">no results yet — click “Run all”.</div>';
+  $('tests-summary').textContent = names.length? (np+' pass, '+nf+' fail'):'';
+}
+async function runTool(name){
+  try{
+    const res = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    return await res.json();
+  }catch(e){ return {status:'error',reason:String(e)}; }
+}
+$('run-all').onclick = async ()=>{
+  $('run-all').disabled=true; $('tests-summary').textContent='running…';
+  const tj = await (await fetch('/api/tools')).json();
+  const runnable = tj.tools.filter(t=>(t.kind==='test'||t.kind==='check') && t.runnable && t.name!=='run_pipeline' && t.name!=='run_tests');
+  for(const t of runnable){ await runTool(t.name); await loadTests(); }
+  $('run-all').disabled=false;
+};
+async function loadTools(){
+  const tj = await (await fetch('/api/tools')).json();
+  $('tab-note').textContent = tj.allow_network? 'network_read ENABLED':'network_read blocked (start with --allow-network)';
+  const order={test:0,check:1,bench:2,probe:3,daemon:4,example:5};
+  const tools=[...tj.tools].sort((a,b)=>(order[a.kind]-order[b.kind])||a.name.localeCompare(b.name));
+  $('tools-cards').innerHTML = tools.map(t=>{
+    const sc = t.safety==='pure'?'green':t.safety==='offline'?'blue':t.safety==='network_read'?'yellow':'red';
+    const btn = t.runnable
+      ? '<button class="tabbtn" onclick="runOne(this,\''+esc(t.name)+'\')">Run</button>'
+      : '<button class="tabbtn" disabled title="'+esc(t.run_reason)+'">'+(t.safety==='live_order'?'✋ forbidden':'locked')+'</button>';
+    return '<div style="border:1px solid #2a2a3a;border-radius:6px;padding:8px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<b>'+esc(t.name)+'</b>'+badge(t.safety, sc)+'</div>'
+      +'<div style="color:#888;font-size:12px;margin:4px 0">'+esc(t.description||'')+'</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +'<code style="color:#6cf;font-size:11px">'+esc(t.cmd)+'</code>'+btn+'</div>'
+      +'<div class="run-out" style="color:#888;font-size:11px;margin-top:4px"></div></div>';
+  }).join('');
+}
+async function runOne(btn,name){
+  btn.disabled=true; const out=btn.closest('div').parentElement.querySelector('.run-out'); out.textContent='running…';
+  const r=await runTool(name);
+  out.innerHTML = stbadge(r.status)+' '+(r.reason? esc(r.reason):('+'+num(r.passed)+'/-'+num(r.failed)+' '+num(r.duration_ms)+'ms'));
+  btn.disabled=false;
+}
+
 </script>
 </body>
 </html>
@@ -608,10 +748,15 @@ def main():
                     help="bind address (default 127.0.0.1 — localhost only)")
     ap.add_argument("--backfill", type=int, default=1000,
                     help="history lines sent on connect (default 1000)")
+    ap.add_argument("--results", default="work/test_results.ndjson",
+                    help="test-results NDJSON (default work/test_results.ndjson)")
+    ap.add_argument("--allow-network", action="store_true",
+                    help="permit network_read tools to run from the console "
+                         "(live_order is ALWAYS refused regardless)")
     args = ap.parse_args()
 
     metrics_path = os.path.abspath(args.metrics)
-    handler = make_handler(metrics_path, args.backfill)
+    handler = make_handler(metrics_path, args.backfill, args.allow_network)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
     httpd.daemon_threads = True
 
@@ -620,6 +765,8 @@ def main():
           "" if os.path.exists(metrics_path) else "  (not present yet — will appear when written)"))
     print("  serving : http://%s:%d" % (args.host, args.port))
     print("  bind    : %s (localhost only)" % args.host)
+    print("  network : %s" % ("ALLOWED (network_read runnable)" if args.allow_network
+                              else "blocked (network_read tools disabled)"))
     print("Read-only console. Ctrl-C to stop; trading is unaffected.")
     try:
         httpd.serve_forever()
