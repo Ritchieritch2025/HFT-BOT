@@ -8,6 +8,7 @@
 
 #include "kalshi/gateway.hpp"
 #include "kalshi/limits.hpp"
+#include "kalshi/request_spec.hpp"
 #include "trading/storage.hpp"
 
 #include <cstdio>
@@ -74,6 +75,11 @@ int main(int argc, char** argv) {
     }
     auto costs = kalshi::parse_endpoint_costs(raw);
     (void)costs.cost_for(kalshi::Method::Post, "/trade-api/v2/portfolio/orders");
+
+    // T2 path parsing over untrusted bytes-as-path.
+    (void)kalshi::normalize_endpoint_path(raw);
+    (void)kalshi::strip_wire_prefix(raw);
+    (void)kalshi::make_request_spec(kalshi::Method::Post, raw, costs);
   }
 
   // Fuzz the NDJSON reader with garbage + truncated lines.

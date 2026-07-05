@@ -29,6 +29,7 @@ add_library(kalshi STATIC
   src/env.cpp
   src/rest_api.cpp
   src/limits.cpp
+  src/request_spec.cpp
   src/storage.cpp
   src/gateway.cpp
   src/ws_client.cpp
@@ -65,13 +66,14 @@ enable_testing()
 foreach(t test_signing test_integration test_resp test_ring test_fixedpoint
           test_ids test_env_safety test_bus test_orderbook test_sid_stream
           test_recovery test_storage test_recorder test_decode test_replay test_ws_client test_shadow
-          test_readability test_rest_api test_account_limits test_endpoint_costs)
+          test_readability test_rest_api test_account_limits test_endpoint_costs
+          test_request_spec)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE kalshi)
 endforeach()
 # Fixture-driven (no network) — safe to run directly under CTest.
 foreach(t signing ring fixedpoint ids env_safety bus orderbook sid_stream readability
-          account_limits endpoint_costs)
+          account_limits endpoint_costs request_spec)
   add_test(NAME ${t} COMMAND test_${t})
 endforeach()
 add_test(NAME storage COMMAND test_storage ${CMAKE_CURRENT_BINARY_DIR})
