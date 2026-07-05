@@ -37,4 +37,9 @@ gate 'no base_url substring host checks' -E 'base_url\.(find|substr|rfind)\("(de
 gate 'no /account/api_limits path' -e '/account/api_limits'
 gate 'no /account/non-default-endpoint-costs path' -e '/account/non-default-endpoint-costs'
 
+# T5 — no auth secret (private key / signature) may be handed to a logging call.
+# Auth headers reach stderr only through the redacting curl debug function.
+gate 'no auth secret in log calls' -nE \
+  '(fprintf|printf|fputs|puts|std::cout|std::cerr)[^;]*(private_key_pem|sig_header|ACCESS-SIGNATURE|access_signature)'
+
 exit $fail

@@ -67,6 +67,22 @@ class Handler(BaseHTTPRequestHandler):
         path = u.path
         qs = parse_qs(u.query)
 
+        # Debug: report how many non-debug requests the server has served. Used by
+        # test_request_executor to prove a locally-refused reservation emits no HTTP.
+        if path == "/trade-api/v2/debug/requests":
+            with lock:
+                return self._send(200, {"count": counters.get("served", 0)})
+        bump("served")  # count every real (non-debug) request that reaches the server
+
+        # Debug: a 200 with a non-JSON body (malformed response handling).
+        if path == "/trade-api/v2/debug/malformed":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            body = b"not json {{{"
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
+
         if path == "/trade-api/v2/exchange/status":
             return self._send(200, {"exchange_active": True, "trading_active": True})
 

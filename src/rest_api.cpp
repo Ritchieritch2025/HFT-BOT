@@ -1,38 +1,13 @@
 #include "kalshi/rest_api.hpp"
 
-#include <curl/curl.h>
-
 #include "simdjson.h"
 
 #include <algorithm>
 #include <cstdio>
-#include <limits>
-#include <thread>
 
 namespace kalshi {
 
 namespace {
-
-// Transient libcurl failures worth retrying (connection/timeout/reset). A
-// deliberate allowlist — most CURLcodes are permanent misconfigurations.
-bool transient_curl(int code) {
-  switch (code) {
-    case CURLE_COULDNT_CONNECT:
-    case CURLE_COULDNT_RESOLVE_HOST:
-    case CURLE_OPERATION_TIMEDOUT:
-    case CURLE_SEND_ERROR:
-    case CURLE_RECV_ERROR:
-    case CURLE_GOT_NOTHING:
-    case CURLE_PARTIAL_FILE:
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool transient_http(long status) {
-  return status == 502 || status == 503 || status == 504;
-}
 
 // Decode a Kalshi dollar-string OR integer-cents number into PriceE4. Field is
 // tried by (dollars_key) first, then (cents_key). Absent => nullopt.
@@ -111,96 +86,10 @@ std::string escape(std::string_view s) {  // ticker path-segment safety
 
 }  // namespace
 
-namespace {
-// Proactively throttle on a bucket: reserve `cost` and, if the grant carries a
-// wait, sleep it before returning (reserve-before-send, hard rule 3). Deadline
-// is unbounded here — collection must not skip work, only pace it.
-void throttle(TokenBucketI64& bucket, int cost) {
-  const Reservation r = bucket.reserve_or_wait(cost, trading::mono_ns(),
-                                               std::numeric_limits<std::int64_t>::max());
-  if (r.granted && r.wait_ns > 0)
-    std::this_thread::sleep_for(std::chrono::nanoseconds(r.wait_ns));
-}
-}  // namespace
-
-ApiError RestApi::parse_error_body(const Response& resp) {
-  ApiError e;
-  e.kind = ApiError::Kind::Http;
-  e.http_status = resp.status;
-  e.message = "HTTP " + std::to_string(resp.status);
-  try {
-    simdjson::padded_string json(resp.body);
-    simdjson::ondemand::parser parser;
-    auto doc = parser.iterate(json);
-    simdjson::ondemand::object err;
-    if (doc["error"].get(err) == simdjson::SUCCESS) {
-      e.kind = ApiError::Kind::Kalshi;
-      std::string_view code, msg;
-      if (err["code"].get(code) == simdjson::SUCCESS) e.kalshi_code = std::string(code);
-      if (err["message"].get(msg) == simdjson::SUCCESS) e.message = std::string(msg);
-    }
-  } catch (const simdjson::simdjson_error&) {
-    // Non-JSON body: keep the HTTP-status message.
-  }
-  return e;
-}
-
-ApiError RestApi::map_error(const std::expected<Response, Error>& r) {
-  ApiError e;
-  const Error& err = r.error();
-  e.kind = ApiError::Kind::Transport;
-  e.transport_code = err.code;
-  e.message = err.message;
-  return e;
-}
-
-std::expected<Response, ApiError> RestApi::get_with_retry(const std::string& path) {
-  ApiError last;
-  for (int attempt = 0; attempt < policy_.max_attempts; ++attempt) {
-    throttle(read_bucket_, 1);  // 1 read token/GET; per-endpoint cost lands in T5
-    auto r = c_.request(Method::Get, path);
-
-    if (!r) {  // transport failure (ambiguous outcome)
-      last = map_error(r);
-      // GET is idempotent -> decide_retry allows retry on a transient transport code.
-      const RetryDecision d = decide_retry(Method::Get, MutationKind::None, 0,
-                                           /*transport_error=*/true, attempt, policy_.max_attempts);
-      if (d.retry && transient_curl(r.error().code)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_.delay_ms(attempt)));
-        continue;
-      }
-      return std::unexpected(last);
-    }
-
-    const long status = r->status;
-    if (status == 429 || transient_http(status)) {
-      last = parse_error_body(*r);
-      const RetryDecision d = decide_retry(Method::Get, MutationKind::None, status,
-                                           /*transport_error=*/false, attempt, policy_.max_attempts);
-      if (status == 429 && d.accounting_drift)
-        std::fprintf(stderr, "[rest] %s: unexpected 429 on GET %s (bucket said ok) — refresh costs\n",
-                     kEvTokenAccountingDrift, path.c_str());
-      // F9: Retry-After (if the server ever sends one) is TELEMETRY ONLY — the
-      // computed backoff governs the wait; we never stall on the header value.
-      if (r->retry_after_ms >= 0)
-        std::fprintf(stderr, "[rest] Retry-After=%ldms observed (telemetry only, not honored)\n",
-                     r->retry_after_ms);
-      if (d.retry) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_.delay_ms(attempt)));
-        continue;
-      }
-      return std::unexpected(last);
-    }
-
-    return *r;  // any other status (incl. 4xx we don't retry) returns as Response
-  }
-  return std::unexpected(last);
-}
-
 std::expected<ExchangeStatus, ApiError> RestApi::exchange_status() {
   auto r = get_with_retry("/exchange/status");
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
   ExchangeStatus s;
   try {
     simdjson::padded_string json(r->body);
@@ -223,7 +112,7 @@ std::expected<MarketsPage, ApiError> RestApi::markets(const MarketsQuery& q) {
 
   auto r = get_with_retry(path);
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
 
   MarketsPage page;
   try {
@@ -258,7 +147,7 @@ std::expected<MarketsPage, ApiError> RestApi::markets(const MarketsQuery& q) {
 std::expected<MarketSummary, ApiError> RestApi::market(std::string_view ticker) {
   auto r = get_with_retry("/markets/" + escape(ticker));
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
   MarketSummary ms;
   try {
     simdjson::padded_string json(r->body);
@@ -286,7 +175,7 @@ std::expected<OrderbookSnapshot, ApiError> RestApi::orderbook(std::string_view t
   if (depth > 0) path += "?depth=" + std::to_string(depth);
   auto r = get_with_retry(path);
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
 
   OrderbookSnapshot ob;
   ob.ticker = std::string(ticker);
@@ -320,7 +209,7 @@ std::expected<std::string, ApiError> RestApi::fills(std::string_view cursor) {
   if (!cursor.empty()) path += "?cursor=" + escape(cursor);
   auto r = get_with_retry(path);
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
   return r->body;
 }
 
@@ -329,7 +218,7 @@ std::expected<std::string, ApiError> RestApi::positions(std::string_view cursor)
   if (!cursor.empty()) path += "?cursor=" + escape(cursor);
   auto r = get_with_retry(path);
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
   return r->body;
 }
 
@@ -376,7 +265,7 @@ std::expected<std::vector<OrderbookSnapshot>, ApiError> RestApi::batch_orderbook
 
   auto r = get_with_retry(path);
   if (!r) return std::unexpected(r.error());
-  if (!r->ok()) return std::unexpected(parse_error_body(*r));
+  if (!r->ok()) return std::unexpected(parse_kalshi_error(*r));
 
   std::vector<OrderbookSnapshot> out;
   try {
@@ -421,7 +310,7 @@ std::expected<AccountLimits, ApiError> RestApi::account_limits() {
 
   auto r = get_with_retry("/account/limits");
   if (!r) return fail(r.error());
-  if (!r->ok()) return fail(parse_error_body(*r));
+  if (!r->ok()) return fail(parse_kalshi_error(*r));
 
   auto parsed = parse_account_limits(r->body);
   if (!parsed)
@@ -455,7 +344,7 @@ std::expected<EndpointCostTable, ApiError> RestApi::endpoint_costs() {
 
   auto r = get_with_retry("/account/endpoint_costs");
   if (!r) return fail(r.error());
-  if (!r->ok()) return fail(parse_error_body(*r));
+  if (!r->ok()) return fail(parse_kalshi_error(*r));
   return parse_endpoint_costs(r->body);  // tolerant parser; never throws
 }
 

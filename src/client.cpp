@@ -1,5 +1,7 @@
 #include "kalshi/client.hpp"
 
+#include "kalshi/redact.hpp"
+
 #include <curl/curl.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -144,6 +146,18 @@ EVP_PKEY* load_rsa_private_key(const std::string& pem) {
     throw std::runtime_error("KalshiClient: private key is not an RSA key");
   }
   return key;
+}
+
+// CURLOPT_DEBUGFUNCTION that redacts auth-header VALUES before they reach stderr
+// (hard rule 2: never log KALSHI-ACCESS-KEY/SIGNATURE/TIMESTAMP). Only header/
+// text lines are surfaced; request/response bodies and TLS data are dropped, so
+// order payloads never leak either.
+int curl_debug_redacting(CURL*, curl_infotype type, char* data, size_t size, void*) noexcept {
+  if (type != CURLINFO_TEXT && type != CURLINFO_HEADER_OUT && type != CURLINFO_HEADER_IN)
+    return 0;  // never surface request/response bodies or TLS data
+  const std::string s = redact_auth_headers(std::string_view(data, size));
+  std::fwrite(s.data(), 1, s.size(), stderr);
+  return 0;
 }
 
 }  // namespace
@@ -372,7 +386,11 @@ std::expected<Response, Error> KalshiClient::send_request(
   curl_easy_setopt(h, CURLOPT_HEADERDATA, &resp);
   curl_easy_setopt(h, CURLOPT_ERRORBUFFER, errbuf);
   curl_easy_setopt(h, CURLOPT_USERAGENT, "kalshi-cpp/0.1");
-  if (cfg_.verbose) curl_easy_setopt(h, CURLOPT_VERBOSE, 1L);
+  if (cfg_.verbose) {
+    // Redacting debug function so verbose never dumps raw auth headers.
+    curl_easy_setopt(h, CURLOPT_DEBUGFUNCTION, curl_debug_redacting);
+    curl_easy_setopt(h, CURLOPT_VERBOSE, 1L);
+  }
 
   switch (method) {
     case Method::Get:

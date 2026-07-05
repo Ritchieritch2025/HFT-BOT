@@ -31,6 +31,17 @@ inline constexpr std::string_view kWirePrefix = "/trade-api/v2";
 enum class BucketKind : std::uint8_t { Read, Write };
 const char* to_string(BucketKind);
 
+// Wire method name (for signing-consistent telemetry / logs).
+inline const char* method_name(Method m) {
+  switch (m) {
+    case Method::Get: return "GET";
+    case Method::Post: return "POST";
+    case Method::Put: return "PUT";
+    case Method::Delete: return "DELETE";
+  }
+  return "GET";
+}
+
 // What an order-ish request mutates — drives idempotency + the T4 retry matrix.
 enum class MutationKind : std::uint8_t {
   None,         // a read

@@ -24,7 +24,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
-              $(BUILD)/test_backoff
+              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -34,7 +34,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
         $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
-        $(BUILD)/test_request_spec $(PURE_TESTS)
+        $(BUILD)/test_request_spec $(BUILD)/test_request_executor $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -57,6 +57,12 @@ $(BUILD)/limits.o: src/limits.cpp include/kalshi/limits.hpp include/kalshi/clien
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/request_spec.o: src/request_spec.cpp include/kalshi/request_spec.hpp include/kalshi/limits.hpp include/kalshi/client.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/request_executor.o: src/request_executor.cpp include/kalshi/request_executor.hpp \
+    include/kalshi/api_error.hpp include/kalshi/telemetry.hpp include/kalshi/token_bucket.hpp \
+    include/kalshi/backoff.hpp include/kalshi/request_spec.hpp include/kalshi/limits.hpp \
+    include/kalshi/client.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/storage.o: src/storage.cpp include/trading/storage.hpp include/trading/bus.hpp | $(BUILD)
@@ -85,10 +91,12 @@ $(BUILD)/ws_smoke: apps/ws_smoke.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.
 # and the batch-orderbook cross-check).
 $(BUILD)/ws_shadow: apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
                     $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o \
-                    $(BUILD)/rest_api.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/simdjson.o \
+                    $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o \
+                    $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/simdjson.o \
                     $(BUILD)/ixwebsocket.a
 	$(CXX) $(CXXFLAGS) apps/ws_shadow.cpp $(BUILD)/ix_transport.o $(BUILD)/ws_client.o \
 	    $(BUILD)/gateway.o $(BUILD)/storage.o $(BUILD)/env.o $(BUILD)/rest_api.o \
+	    $(BUILD)/request_executor.o $(BUILD)/request_spec.o \
 	    $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/simdjson.o $(BUILD)/ixwebsocket.a \
 	    $(SSL_LIBS) $(CRYPTO_LIBS) -lcurl -o $@
 
@@ -145,6 +153,12 @@ $(BUILD)/test_token_bucket: tests/test_token_bucket.cpp include/kalshi/token_buc
 $(BUILD)/test_backoff: tests/test_backoff.cpp include/kalshi/backoff.hpp include/kalshi/request_spec.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_backoff.cpp -o $@
 
+$(BUILD)/test_secret_redaction: tests/test_secret_redaction.cpp include/kalshi/redact.hpp include/kalshi/telemetry.hpp include/kalshi/env.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_secret_redaction.cpp -o $@
+
+$(BUILD)/test_request_executor: tests/test_request_executor.cpp $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
 $(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_fixedpoint.cpp -o $@
 
@@ -157,7 +171,7 @@ $(BUILD)/test_env_safety: tests/test_env_safety.cpp $(BUILD)/env.o
 $(BUILD)/test_bus: tests/test_bus.cpp include/trading/bus.hpp include/trading/test_doubles.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_bus.cpp -o $@
 
-$(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/limits.o $(BUILD)/simdjson.o
+$(BUILD)/test_rest_api: tests/test_rest_api.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/limits.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
 # Limits/cost parsers are fixture-driven (no network): link only limits.o + simdjson.o.
@@ -271,7 +285,7 @@ tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_t
 # instrumented. SAN_TESTS grows as phases land.
 SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp \
             tests/test_orderbook.cpp tests/test_sid_stream.cpp tests/test_recovery.cpp \
-            tests/test_token_bucket.cpp tests/test_backoff.cpp
+            tests/test_token_bucket.cpp tests/test_backoff.cpp tests/test_secret_redaction.cpp
 SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -Iinclude
 

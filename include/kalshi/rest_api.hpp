@@ -12,11 +12,12 @@
 // boundary; Kalshi's dollar-strings / integer-cents both funnel through
 // trading::fixedpoint.
 
-#include "kalshi/backoff.hpp"
+#include "kalshi/api_error.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/limits.hpp"
-#include "kalshi/token_bucket.hpp"
+#include "kalshi/request_executor.hpp"
+#include "kalshi/telemetry.hpp"
 #include "trading/bus.hpp"
 #include "trading/fixedpoint.hpp"
 
@@ -33,15 +34,6 @@ namespace kalshi {
 using trading::CountFp;
 using trading::Level;
 using trading::PriceE4;
-
-struct ApiError {
-  enum class Kind : std::uint8_t { Transport, Http, Kalshi };
-  Kind kind = Kind::Transport;
-  long http_status = 0;       // HTTP status for Http/Kalshi kinds
-  int transport_code = 0;     // CURLcode for Transport kind
-  std::string kalshi_code;    // e.g. "authentication_error" from the error body
-  std::string message;
-};
 
 // --- typed responses (field-tolerant; absent optionals stay nullopt) ---
 
@@ -99,25 +91,20 @@ struct RetryPolicy {
 
 class RestApi {
  public:
-  // Read/Write token buckets start at a conservative basic tier; call
-  // configure_limits() after account_limits() to adopt the real server values
-  // (T3/F7 — no local burst derivation). The executor (T5) will own this wiring;
-  // for now the read bucket proactively throttles get_with_retry.
-  explicit RestApi(KalshiClient& client, Runtime rt, RetryPolicy policy = {})
-      : c_(client), rt_(std::move(rt)), policy_(policy),
-        read_bucket_(conservative_limits().read.refill_rate,
-                     conservative_limits().read.bucket_capacity),
-        write_bucket_(conservative_limits().write.refill_rate,
-                      conservative_limits().write.bucket_capacity),
-        backoff_(static_cast<std::uint64_t>(trading::mono_ns()) | 1ULL,
-                 policy.base_ms, policy.max_backoff_ms) {}
+  // Every call routes through the shared RequestExecutor (T5): reserve -> sign ->
+  // send -> retry -> telemetry. Buckets start at a conservative basic tier;
+  // configure_limits()/set_cost_table() adopt server values after the T1 fetch.
+  explicit RestApi(KalshiClient& client, Runtime rt, RetryPolicy policy = {},
+                   TelemetrySink* telemetry = nullptr)
+      : rt_(std::move(rt)),
+        exec_(client, rt_,
+              ExecPolicy{policy.max_attempts, policy.base_ms, policy.max_backoff_ms, 30000},
+              telemetry) {}
 
-  // Adopt server-provided rate/capacity for both buckets (F7: capacity is the
-  // server's bucket_capacity, used directly).
-  void configure_limits(const AccountLimits& lim) {
-    read_bucket_.configure(lim.read.refill_rate, lim.read.bucket_capacity);
-    write_bucket_.configure(lim.write.refill_rate, lim.write.bucket_capacity);
-  }
+  // Adopt server-provided rate/capacity (F7: capacity used directly) + costs.
+  void configure_limits(const AccountLimits& lim) { exec_.configure_limits(lim); }
+  void set_cost_table(const EndpointCostTable& costs) { exec_.set_cost_table(costs); }
+  RequestExecutor& executor() { return exec_; }
 
   std::expected<ExchangeStatus, ApiError> exchange_status();
   std::expected<MarketsPage, ApiError> markets(const MarketsQuery& q);
@@ -149,19 +136,13 @@ class RestApi {
   const Runtime& runtime() const { return rt_; }
 
  private:
-  // GET with rate limit + retry (429/transient). Returns the final Response or
-  // a Transport ApiError.
-  std::expected<Response, ApiError> get_with_retry(const std::string& path);
-  // Map a client call result to a typed ApiError when not ok.
-  static ApiError map_error(const std::expected<Response, Error>& r);
-  static ApiError parse_error_body(const Response& resp);
+  // GET through the executor (reserve -> sign -> send -> retry -> telemetry).
+  std::expected<Response, ApiError> get_with_retry(const std::string& path) {
+    return exec_.send(Method::Get, path);
+  }
 
-  KalshiClient& c_;
   Runtime rt_;
-  RetryPolicy policy_;
-  TokenBucketI64 read_bucket_;
-  TokenBucketI64 write_bucket_;
-  Backoff backoff_;
+  RequestExecutor exec_;
 };
 
 // Kalshi as one trading::DataSource. This pass sources REST orderbook snapshots
