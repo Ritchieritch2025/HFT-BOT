@@ -12,6 +12,7 @@
 // boundary; Kalshi's dollar-strings / integer-cents both funnel through
 // trading::fixedpoint.
 
+#include "kalshi/backoff.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/limits.hpp"
@@ -107,7 +108,9 @@ class RestApi {
         read_bucket_(conservative_limits().read.refill_rate,
                      conservative_limits().read.bucket_capacity),
         write_bucket_(conservative_limits().write.refill_rate,
-                      conservative_limits().write.bucket_capacity) {}
+                      conservative_limits().write.bucket_capacity),
+        backoff_(static_cast<std::uint64_t>(trading::mono_ns()) | 1ULL,
+                 policy.base_ms, policy.max_backoff_ms) {}
 
   // Adopt server-provided rate/capacity for both buckets (F7: capacity is the
   // server's bucket_capacity, used directly).
@@ -158,6 +161,7 @@ class RestApi {
   RetryPolicy policy_;
   TokenBucketI64 read_bucket_;
   TokenBucketI64 write_bucket_;
+  Backoff backoff_;
 };
 
 // Kalshi as one trading::DataSource. This pass sources REST orderbook snapshots

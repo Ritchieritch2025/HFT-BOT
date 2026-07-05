@@ -160,12 +160,13 @@ std::expected<Response, ApiError> RestApi::get_with_retry(const std::string& pat
     throttle(read_bucket_, 1);  // 1 read token/GET; per-endpoint cost lands in T5
     auto r = c_.request(Method::Get, path);
 
-    if (!r) {  // transport failure
+    if (!r) {  // transport failure (ambiguous outcome)
       last = map_error(r);
-      if (transient_curl(r.error().code) && attempt + 1 < policy_.max_attempts) {
-        long backoff = std::min(policy_.max_backoff_ms,
-                                policy_.base_ms * (1L << attempt));
-        std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
+      // GET is idempotent -> decide_retry allows retry on a transient transport code.
+      const RetryDecision d = decide_retry(Method::Get, MutationKind::None, 0,
+                                           /*transport_error=*/true, attempt, policy_.max_attempts);
+      if (d.retry && transient_curl(r.error().code)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_.delay_ms(attempt)));
         continue;
       }
       return std::unexpected(last);
@@ -174,16 +175,18 @@ std::expected<Response, ApiError> RestApi::get_with_retry(const std::string& pat
     const long status = r->status;
     if (status == 429 || transient_http(status)) {
       last = parse_error_body(*r);
-      if (attempt + 1 < policy_.max_attempts) {
-        long wait;
-        if (status == 429 && r->retry_after_ms >= 0) {
-          // Honor Retry-After but clamp — a hostile "Retry-After: 86400" must
-          // not stall the collector.
-          wait = std::min<long>(r->retry_after_ms, policy_.retry_after_cap_ms);
-        } else {
-          wait = std::min(policy_.max_backoff_ms, policy_.base_ms * (1L << attempt));
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+      const RetryDecision d = decide_retry(Method::Get, MutationKind::None, status,
+                                           /*transport_error=*/false, attempt, policy_.max_attempts);
+      if (status == 429 && d.accounting_drift)
+        std::fprintf(stderr, "[rest] %s: unexpected 429 on GET %s (bucket said ok) — refresh costs\n",
+                     kEvTokenAccountingDrift, path.c_str());
+      // F9: Retry-After (if the server ever sends one) is TELEMETRY ONLY — the
+      // computed backoff governs the wait; we never stall on the header value.
+      if (r->retry_after_ms >= 0)
+        std::fprintf(stderr, "[rest] Retry-After=%ldms observed (telemetry only, not honored)\n",
+                     r->retry_after_ms);
+      if (d.retry) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_.delay_ms(attempt)));
         continue;
       }
       return std::unexpected(last);

@@ -23,7 +23,8 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 # Pure-C++ unit tests (no curl/OpenSSL) — fast to build, sanitizer-clean.
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
-              $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket
+              $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
+              $(BUILD)/test_backoff
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -140,6 +141,9 @@ $(BUILD)/test_ring: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 
 $(BUILD)/test_token_bucket: tests/test_token_bucket.cpp include/kalshi/token_bucket.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_token_bucket.cpp -o $@
+
+$(BUILD)/test_backoff: tests/test_backoff.cpp include/kalshi/backoff.hpp include/kalshi/request_spec.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_backoff.cpp -o $@
 
 $(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_fixedpoint.cpp -o $@
@@ -267,7 +271,7 @@ tsan: $(BUILD)/test_integration_tsan $(BUILD)/test_ring_tsan $(BUILD)/tradingd_t
 # instrumented. SAN_TESTS grows as phases land.
 SAN_SRCS := tests/test_fixedpoint.cpp tests/test_ids.cpp tests/test_bus.cpp \
             tests/test_orderbook.cpp tests/test_sid_stream.cpp tests/test_recovery.cpp \
-            tests/test_token_bucket.cpp
+            tests/test_token_bucket.cpp tests/test_backoff.cpp
 SANFLAGS := -std=c++23 -O1 -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -Iinclude
 

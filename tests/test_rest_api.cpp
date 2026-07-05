@@ -101,22 +101,21 @@ int main(int argc, char** argv) {
     check(el >= 60, "429/none backed off (>=60ms for two backoffs)");
   }
 
-  // 4. 429 with huge Retry-After -> clamped to cap (not 3600s)
+  // 4. 429 with huge Retry-After -> IGNORED (F9: telemetry-only), backoff used.
   {
     auto t0 = std::chrono::steady_clock::now();
     MarketsQuery q; q.series_ticker = "RETRY_DELTA";
     auto r = api.markets(q);
     long el = ms_since(t0);
-    check(r.has_value(), "429/delta succeeds");
-    check(el <= 2000, "429/delta Retry-After clamped (did not stall ~3600s)");
-    check(el >= 60, "429/delta honored the (clamped) wait");
+    check(r.has_value(), "429/delta succeeds via backoff");
+    check(el <= 2000, "429/delta did NOT honor Retry-After:3600 (no stall) — telemetry only");
   }
 
-  // 5. 429 with garbage Retry-After -> treated as absent, backoff
+  // 5. 429 with garbage Retry-After -> irrelevant now (Retry-After never honored).
   {
     MarketsQuery q; q.series_ticker = "RETRY_GARBAGE";
     auto r = api.markets(q);
-    check(r.has_value(), "429/garbage succeeds (garbage treated as absent)");
+    check(r.has_value(), "429/garbage succeeds (Retry-After ignored regardless)");
   }
 
   // 6. Kalshi error body -> structured ApiError
