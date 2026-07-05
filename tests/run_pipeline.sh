@@ -71,6 +71,9 @@ run_suite_with_mock() {
 
 echo "== run_pipeline (port base $PORT_BASE) =="
 
+# 0. tool registry, existence-checked (needs a full `make` beforehand)
+run_suite "check_registry" python3 tools/check_registry.py --require-built
+
 # 1. gates + pure/offline unit tests (make check runs them all through one target)
 run_suite "make_check" make check
 

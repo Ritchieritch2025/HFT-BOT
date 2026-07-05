@@ -42,4 +42,13 @@ gate 'no /account/non-default-endpoint-costs path' -e '/account/non-default-endp
 gate 'no auth secret in log calls' -nE \
   '(fprintf|printf|fputs|puts|std::cout|std::cerr)[^;]*(private_key_pem|sig_header|ACCESS-SIGNATURE|access_signature)'
 
+# P1 — tool registry (tools.json) schema + Makefile coverage. Existence of every
+# built binary is checked separately in run_pipeline.sh (--require-built) after a
+# full make; here we validate structure + coverage, which needs no binaries.
+if command -v python3 >/dev/null 2>&1; then
+  if python3 tools/check_registry.py; then :; else fail=1; fi
+else
+  echo "gate SKIP: tool registry (python3 not found)"
+fi
+
 exit $fail
