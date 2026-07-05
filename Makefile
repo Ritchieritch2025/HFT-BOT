@@ -167,6 +167,18 @@ $(BUILD)/test_batch_cost: tests/test_batch_cost.cpp include/kalshi/request_spec.
 $(BUILD)/probe_batch_cost: apps/probe_batch_cost.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
+# Read-only account tier inspector.
+$(BUILD)/account_info: apps/account_info.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+# One-shot API usage-tier upgrade (30 Write tokens; the only write it performs).
+$(BUILD)/account_upgrade: apps/account_upgrade.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+# Read-only rate-limit probe: raw calls (no local bucket) to observe server 429s.
+$(BUILD)/rate_probe: apps/rate_probe.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
 $(BUILD)/test_fixedpoint: tests/test_fixedpoint.cpp include/trading/fixedpoint.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_fixedpoint.cpp -o $@
 

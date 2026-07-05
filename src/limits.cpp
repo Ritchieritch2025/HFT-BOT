@@ -58,15 +58,24 @@ std::vector<std::string_view> split_segments(std::string_view path) {
   return segs;
 }
 
+// A single-segment wildcard in a Kalshi cost-table path: ":order_id" or the
+// OpenAPI "{ticker}" form both stand for exactly one path segment.
+bool seg_is_param(std::string_view s) {
+  return (!s.empty() && s.front() == ':') ||
+         (s.size() >= 2 && s.front() == '{' && s.back() == '}');
+}
+
 bool template_match(std::string_view tmpl, std::string_view path) {
   const auto ts = split_segments(tmpl);
   const auto ps = split_segments(path);
-  if (ts.size() != ps.size()) return false;
   for (std::size_t k = 0; k < ts.size(); ++k) {
-    const bool wild = ts[k].size() >= 2 && ts[k].front() == '{' && ts[k].back() == '}';
-    if (!wild && ts[k] != ps[k]) return false;
+    // "*endpoint" is a glob: it matches all REMAINING path segments (>= 1).
+    if (!ts[k].empty() && ts[k].front() == '*') return ps.size() > k;
+    if (k >= ps.size()) return false;         // template longer than path
+    if (seg_is_param(ts[k])) continue;        // ":id" / "{id}" => any one segment
+    if (ts[k] != ps[k]) return false;         // literal must match exactly
   }
-  return true;
+  return ts.size() == ps.size();              // no leftover path segments
 }
 
 }  // namespace

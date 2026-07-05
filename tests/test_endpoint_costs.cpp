@@ -61,6 +61,35 @@ int main() {
     check(t.cost_for(Method::Get, "/x") == 5, "custom default applied");
   }
 
+  // Kalshi's REAL cost-table path syntax uses ":param" and "*glob", not "{seg}"
+  // (verified live 2026-07-05). The matcher must handle all three.
+  {
+    const char* real = R"({"default_cost":10,"endpoint_costs":[
+      {"method":"DELETE","path":"/trade-api/v2/portfolio/events/orders/:order_id","cost":2},
+      {"method":"DELETE","path":"/trade-api/v2/portfolio/events/orders/batched","cost":2},
+      {"method":"GET","path":"/trade-api/v2/portfolio/orders/:order_id","cost":2},
+      {"method":"GET","path":"/trade-api/v2/cfbenchmarks/*endpoint","cost":50}
+    ]})";
+    auto t = parse_endpoint_costs(real);
+    // ":order_id" matches exactly one concrete segment.
+    check(t.cost_for(Method::Delete, "/trade-api/v2/portfolio/events/orders/ABC-123") == 2,
+          ":order_id param matches a real order id (cancel = 2, not default 10)");
+    check(t.cost_for(Method::Get, "/trade-api/v2/portfolio/orders/xyz") == 2,
+          ":order_id matches on GET order lookup");
+    // The literal "batched" segment must NOT be swallowed by the :order_id entry.
+    check(t.cost_for(Method::Delete, "/trade-api/v2/portfolio/events/orders/batched") == 2,
+          "flat batched cancel = 2 (literal beats param, both are 2 here)");
+    // "*endpoint" glob matches one OR MORE trailing segments.
+    check(t.cost_for(Method::Get, "/trade-api/v2/cfbenchmarks/a") == 50 &&
+              t.cost_for(Method::Get, "/trade-api/v2/cfbenchmarks/a/b/c") == 50,
+          "*glob matches the remaining path");
+    // Wrong segment count / no trailing segment => no match => default.
+    check(t.cost_for(Method::Delete, "/trade-api/v2/portfolio/events/orders") == 10,
+          ":order_id template does not match a shorter path");
+    check(t.cost_for(Method::Get, "/trade-api/v2/cfbenchmarks") == 10,
+          "*glob needs >=1 trailing segment");
+  }
+
   // A malformed entry (missing cost) is skipped; the rest still parse.
   {
     auto t = parse_endpoint_costs(R"({"default_cost":10,"endpoint_costs":[{"method":"POST","path":"/p"},{"method":"GET","path":"/q","cost":3}]})");
