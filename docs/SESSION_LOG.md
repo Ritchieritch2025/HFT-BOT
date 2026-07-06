@@ -6,6 +6,47 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 — W2.3 DONE (merge iterator, TDD red-first, mutation-proven)
+
+- commits: 73f4df8 (W2.3: tools/gold_merge.py + tests/test_gold_merge.py +
+  4 merge defect fixtures + registry wiring + 3 BACKLOG notes)
+- decisions (rationale in tools/gold_merge.py docstring, E2):
+  - type_priority: TRADE=0, ALL other kinds=1. §2.2 mandates TRADE <
+    BOOK_DELTA at equal ts_us; extended to snapshot/L1 (conservative: a
+    trade is never credited with same-µs state that may postdate it);
+    non-trade kinds deliberately share one priority — distinct priorities
+    would reorder same-µs events INSIDE one source, breaking file order
+  - source_file_order = (source_index, position); a "source" is any
+    file-ordered event list; equal-key ties exhaust the lower-indexed
+    source's run first (deterministic)
+  - fail-closed precondition (S2): each source non-decreasing in (ts_us,
+    type_priority) or GoldMergeError "Merge Order Violation" — W2.1's
+    reported-not-fixed ts regressions therefore fail the merge; the
+    disposition policy is W2.5/W2.6's (BACKLOG)
+  - stream_seq is 0-BASED dense (documented choice, STREAM_SEQ_BASE)
+  - book_seq minted (last+1) exactly on FSM APPLIED/INVALIDATED —
+    invalidation IS a state mutation — identical by construction to W2.2
+    book_version and enforced by an FSM-oracle replay test; book_seq 0 =
+    "no book state ever emitted"; trades carry the market's current
+    book_seq (pre-trade book at equal µs)
+  - v3_violations/v6_violations read ONLY emitted records — W2.5 reuse
+- context capsule: 24 tests green (105 whole scaffold); acceptance
+  demonstrated: structural V6 on synthetic streams (every TRADE:
+  ts(mint) <= ts(trade) AND merge-pos(mint) < merge-pos(trade), asserted
+  by module checker AND independent in-test re-derivation AND FSM-oracle
+  replay). Anti-fake-green: priority-inversion mutant => 6 red; book_seq
+  mint+2 gap mutant => 13 red; no-mint-on-invalidation (duplicate) mutant
+  => 5 red; restored green each time; v3/v6 checkers proven red on
+  doctored records. run_pipeline PIPELINE PASS incl. new test_gold_merge
+  suite; make check ALL PASS; registry 85 tools ok. gold_merge.py is 197
+  physical lines incl. docstring (<= ~300).
+- blocked / handoff: next fresh session runs the independent audit of
+  W2.3, then W2.4 (gold writer/reader). W2.6 composition notes filed in
+  BACKLOG: per-(channel, market) source slicing (warehouse load() orders
+  by market, ts), ts-regression disposition policy, per-record
+  fsm.state() recompute perf, HEARTBEAT row-mapping (merge side proven).
+  GoldRecord layout untouched (frozen).
+
 ## 2026-07-06 16:30 UTC — W2.2 DONE (book FSM, TDD red-first, mutation-proven)
 
 - commits: c5a2e9a (W2.2: tools/gold_fsm.py + tests/test_gold_fsm.py + 6 FSM
