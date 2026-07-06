@@ -6,6 +6,40 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 UTC — W2.1 DONE (typed loaders, TDD red-first, full-day real demo)
+
+- commits: 05b203d (W2.1: tools/gold_load.py + tests/test_gold_load.py +
+  golden/defect fixtures + registry wiring)
+- decisions:
+  - empty-side L1 encodings pinned from measured staging data: no bid =>
+    (0, qty 0), no ask => (10000, qty 0); trade yes+no price == 10000 exactly
+    -> gates in tools/gold_load.py (rationale in module docstring)
+  - float detection without a `float` token (grep gate applies to the loader
+    itself): type-name check + _FloatToken str-subclass sentinel for JSON
+    numeric tokens — a float is never constructed from input, only rejected
+  - string numbers parse as DOLLARS (integer digit accumulation -> E4);
+    ints pass through as already-E4 (staging is typed) — both proven
+    byte-exact round-trip on real golden rows (V1)
+  - ts monotonicity/same-µs clusters tracked PER MARKET (load() orders by
+    market_ticker, ts_utc — a global tracker false-counts every market
+    boundary); report-only, never reordered
+- context capsule: golden rows sampled from real 2026-07-06 staging OUTSIDE
+  08:18–08:36 UTC (G5, padded; window noted in
+  tests/fixtures/gold_golden_rows/README.md). Full-day demo through the
+  gates: trades 1,180,038 rows -> 4,710 quarantined (4,676 duplicate
+  trade_ids + nulls + 1 out-of-range + 4 bad pairs), 100% inside the splice
+  window with ZERO date logic; l1 5.71M rows -> 12 quarantined; full 103k
+  clean. Operator outputs at work/gold/loader_report_20260706_w21_demo.json
+  (+ quarantine/, malformed_record_sample). Anti-fake-green: dedupe and
+  float-grep gates each demonstrated red by mutation, restored green.
+  44 tests; run_pipeline PIPELINE PASS incl. new test_gold_load suite;
+  registry 83 tools ok. Staging-dup observation filed in docs/BACKLOG.md
+  (possible W5 rider — ingest.py is W5-only).
+- blocked / handoff: next fresh session runs the independent audit of W2.1,
+  then W2.2 (book FSM, pure, zero I/O) per PLAN_GOLD_DATA_CONTRACT.
+  GoldRecord layout untouched (frozen). Loader code lines: 303 effective
+  (412 physical incl. docstrings) — within the ~300 size discipline.
+
 ## 2026-07-06 15:44 UTC — W1 DONE (implement -> audit FAIL -> red-first fix -> re-audit PASS)
 
 - commits: 7a69329 (W1: GoldRecord 512B layout contract, C++/Python parity,
