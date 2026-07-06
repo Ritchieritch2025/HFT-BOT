@@ -6,6 +6,29 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 15:44 UTC — W1 DONE (implement -> audit FAIL -> red-first fix -> re-audit PASS)
+
+- commits: 7a69329 (W1: GoldRecord 512B layout contract, C++/Python parity,
+  gitignore fixture negation G2, TDD red-first), 17adaee (audit F1 fix:
+  FNV-1a-64 offset basis had dropped its final digit; 3 known-vector parity
+  tests added to BOTH languages, red-first)
+- decisions:
+  - FNV constants written in hex in both languages so they are character-
+    identical -> include/trading/gold_record.hpp + tools/gold_dtype.py
+  - numpy endian-test semantics ('<' canonicalizes to '=' on LE) -> corrected
+    equivalent-strength assertion in tests/test_gold_dtype.py
+- context capsule: independent audit (subagent, separate context) FAILED W1
+  first pass on a real cross-language defect: C++ FNV basis constant
+  1469598103934665603 (true: 14695981039346656037 = 0xCBF29CE484222325) —
+  every hash diverged from Python, zero tests existed on either side. The
+  anti-fake-green protocol caught exactly what it was designed to catch.
+  Re-audit verified: vectors 0xcbf29ce484222325 (''), 0xaf63dc4c8601ec8c
+  ('a'), 0x2b7e2a9e8505c3a4 (uuid) green both sides, make check ALL PASS,
+  registry 82 tools. GoldRecord layout freeze now in effect for W2+.
+- blocked / handoff: next session executes W2.1 (typed loaders) per
+  PLAN_GOLD_DATA_CONTRACT @ 07c682d with R's blanket approval already given
+  (2026-07-06 "全部批准"); golden-row fixtures must avoid the 08:18-08:35 UTC
+  corrupted window (G5); one W per fresh session.
 ## 2026-07-06 15:24 UTC — R adjudication merged (07c682d); WP-00 executed and green
 
 - commits: 07c682d (gold plan: R decisions G1-G8 merged; R-side patches for
