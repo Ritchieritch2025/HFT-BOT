@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 15:24 UTC — R adjudication merged (07c682d); WP-00 executed and green
+
+- commits: 07c682d (gold plan: R decisions G1-G8 merged; R-side patches for
+  G3/G6/G7/G1/G2/G5/G8 + audit-side V5 support-size and never-prune list),
+  WP-00 commit (BACKLOG, pytest.ini, tests/conftest.py, tests/run_pytest.sh,
+  make test, tools.json run_pytest entry)
+- decisions:
+  - 342a114 commit-hygiene violation acknowledged: git add -A swept in
+    operator plan edits + pipeline-churned config CSVs -> explicit-path adds
+    from now on; churn issue -> docs/BACKLOG.md for R
+  - pytest scaffold policy -> pytest.ini + tests/conftest.py (legacy suites
+    canonical under make check until WP-04 migrates; empty collection = green
+    via exit-5 mapping in tests/run_pytest.sh)
+- context capsule: WP-00 DoD all green (make test 0-tests exit 0; registry 80
+  tools; make check unbroken). Gold plan on disk now carries all 8 R
+  decisions; FNV-1a-64 chosen for trade_id_hash; GoldRecord arithmetic
+  512B via _reserved[5]. W1 remains BLOCKED on explicit operator approval.
+- blocked / handoff: awaiting R approval to start W1. Nothing else in flight.
 ## 2026-07-06 14:09 UTC — Gold contract plan audited: APPROVED, 8 findings (3 MUST)
 
 - commits: (this commit) docs/plan_audits/2026-07-06_gold_data_contract.md
