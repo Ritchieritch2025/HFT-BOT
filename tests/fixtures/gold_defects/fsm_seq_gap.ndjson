@@ -1,0 +1,6 @@
+{"ts_utc": 1783305770000000, "market_ticker": "KXFSM-GAP", "msg_type": "snapshot", "yes_levels": [[4000, 50000]], "no_levels": [[5500, 30000]], "seq": 100}
+{"ts_utc": 1783305771000000, "market_ticker": "KXFSM-GAP", "msg_type": "delta", "side": "yes", "price_e4": 4000, "delta_e4": 10000, "seq": 101}
+{"ts_utc": 1783305772000000, "market_ticker": "KXFSM-GAP", "msg_type": "delta", "side": "yes", "price_e4": 4000, "delta_e4": 10000, "seq": 103}
+{"ts_utc": 1783305773000000, "market_ticker": "KXFSM-GAP", "msg_type": "delta", "side": "yes", "price_e4": 4000, "delta_e4": 10000, "seq": 104}
+{"ts_utc": 1783305774000000, "market_ticker": "KXFSM-GAP", "msg_type": "snapshot", "yes_levels": [[4100, 20000]], "no_levels": [[5600, 10000]], "seq": 200}
+{"ts_utc": 1783305775000000, "market_ticker": "KXFSM-GAP", "msg_type": "delta", "side": "yes", "price_e4": 4100, "delta_e4": 5000, "seq": 201}

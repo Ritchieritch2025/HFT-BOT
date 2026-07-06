@@ -1,0 +1,5 @@
+{"ts_utc": 1783305780000000, "market_ticker": "KXFSM-NOSNAP", "msg_type": "snapshot", "yes_levels": [[4200, 30000]], "no_levels": [[5400, 20000]]}
+{"ts_utc": 1783305781000000, "market_ticker": "KXFSM-NOSNAP", "msg_type": "delta", "side": "yes", "price_e4": 4200, "delta_e4": -40000}
+{"ts_utc": 1783305782000000, "market_ticker": "KXFSM-NOSNAP", "msg_type": "delta", "side": "yes", "price_e4": 4200, "delta_e4": 30000}
+{"ts_utc": 1783305783000000, "market_ticker": "KXFSM-NOSNAP", "msg_type": "delta", "side": "no", "price_e4": 5400, "delta_e4": 20000}
+{"ts_utc": 1783305784000000, "market_ticker": "KXFSM-NOSNAP", "msg_type": "delta", "side": "yes", "price_e4": 4300, "delta_e4": 10000}

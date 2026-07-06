@@ -1,0 +1,5 @@
+{"ts_utc": 1783305740000000, "market_ticker": "KXFSM-STALE", "msg_type": "snapshot", "yes_levels": [[4500, 100000], [4400, 60000]], "no_levels": [[5300, 70000]]}
+{"ts_utc": 1783305741000000, "market_ticker": "KXFSM-STALE", "msg_type": "delta", "side": "yes", "price_e4": 4400, "delta_e4": -80000}
+{"ts_utc": 1783305742000000, "market_ticker": "KXFSM-STALE", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": 100000}
+{"ts_utc": 1783305743000000, "market_ticker": "KXFSM-STALE", "msg_type": "delta", "side": "yes", "price_e4": 4400, "delta_e4": 60000}
+{"ts_utc": 1783305744000000, "market_ticker": "KXFSM-STALE", "msg_type": "delta", "side": "no", "price_e4": 5300, "delta_e4": 70000}
