@@ -6,6 +6,48 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 — W2.4 DONE (gold writer/reader, TDD red-first, mutation/tamper-proven)
+
+- commits: 7aebacb (W2.4: tools/gold_io.py + tests/test_gold_io.py + 2 io
+  defect fixtures + registry wiring + 4 BACKLOG notes)
+- decisions (rationale in tools/gold_io.py docstring, E2):
+  - market_id: dense 0-BASED per-day ints (MARKET_ID_BASE, matching the
+    stream_seq convention), minted in first-appearance order over the
+    merged stream; DAY-SCOPED per §2.1 — same-day 1:1 market_id<->ticker
+    enforced at write time AND re-checked at reader open (defense in
+    depth); any violation = loud "BUILD FAILURE" GoldIOError
+  - the reader is constructed per (root, date) so every access carries a
+    date; cross_day() is the ONLY cross-day helper and requires a
+    keyword-only market_ticker string — no market_id form exists, so
+    market_id-only cross-day joins are structurally impossible (test
+    demonstrates the same ticker minting DIFFERENT ids on two days)
+  - manifest written LAST; carries md5 of the gold .bin AND every sidecar,
+    record/trade/market counts, markets_missing_dim (missing-dim markets
+    are kept with empty fields, never dropped — V10 spirit), builder
+    version, source-day ids, V5/V7 "pending" verdict placeholders
+  - reader refuses on: missing manifest, manifest not listing required
+    files, missing listed file, any md5 mismatch, record-count/file-size
+    disagreement (truncation with doctored md5s still refused, D2),
+    sidecar bijection violation
+  - taker_side encoding: yes=1 no=2 0=none; trade payload zero unless
+    TRADE; trade_id_hash = fnv1a64(full UUID); reconcile_trade_hashes()
+    (V8 shape) cross-checks every trade + flags missing/orphan sidecar
+    rows; nlevels > uint16 = loud build failure (W2.2 BACKLOG resolved)
+- acceptance demonstrated: suite RED first (ImportError: gold_io), then 27
+  tests green; V11 runtime half = 10,020 records, mmap random access ==
+  streamed parse on 1,000 sampled + all-rows equality; 4 mutants each
+  turned their fixture red (dup-ticker check dropped, dup-id check
+  dropped, reader md5 verify disabled, hash reconciliation disabled) and
+  full green after restore; full pytest 132 passed; make check ALL PASS;
+  run_pipeline.sh == PIPELINE PASS == (test_gold_io wired); check_registry
+  ok (86 tools)
+- rollback: revert 7aebacb + delete work/gold/ (derived, rebuildable)
+- next: W2.5 validator harness (gold_validate.py: V2,V3,V4,V6,V9,V10 +
+  quarantine; one seeded-defect gold file per check — the io writer can
+  now produce them)
+
+---
+
 ## 2026-07-06 — W2.3 DONE (merge iterator, TDD red-first, mutation-proven)
 
 - commits: 73f4df8 (W2.3: tools/gold_merge.py + tests/test_gold_merge.py +
