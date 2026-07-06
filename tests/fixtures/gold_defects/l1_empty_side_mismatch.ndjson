@@ -1,0 +1,3 @@
+{"ts_utc": 1783307646046000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "yes_bid_e4": 1700, "yes_bid_qty_e4": 1250000, "yes_ask_e4": 2000, "yes_ask_qty_e4": 750000, "is_snapshot": true}
+{"ts_utc": 1783307647000000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "yes_bid_e4": 0, "yes_bid_qty_e4": 990000, "yes_ask_e4": 2000, "yes_ask_qty_e4": 750000, "is_snapshot": false}
+{"ts_utc": 1783307648000000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "yes_bid_e4": 1700, "yes_bid_qty_e4": 1250000, "yes_ask_e4": 10000, "yes_ask_qty_e4": 550000, "is_snapshot": false}

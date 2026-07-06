@@ -1,0 +1,148 @@
+{
+ "meta": {
+  "source": "tools/warehouse.py load(), staging 2026-07-06",
+  "sampling_window": "2026-07-06 outside 08:18-08:36 UTC (G5; padded from 08:35)",
+  "excluded_us": [
+   1783325880000000,
+   1783326960000000
+  ]
+ },
+ "rows": [
+  {
+   "input": {
+    "ts_utc": 1783307646046000,
+    "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5",
+    "yes_bid_e4": "0.1700",
+    "yes_bid_qty_e4": "125.00",
+    "yes_ask_e4": "0.2000",
+    "yes_ask_qty_e4": "75.00",
+    "is_snapshot": true
+   },
+   "expect_e4": {
+    "yes_bid_e4": 1700,
+    "yes_bid_qty_e4": 1250000,
+    "yes_ask_e4": 2000,
+    "yes_ask_qty_e4": 750000
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783307646080000,
+    "market_ticker": "KXMLBTOTAL-26JUL052130BOSLAA-14",
+    "yes_bid_e4": "0.2300",
+    "yes_bid_qty_e4": "90.00",
+    "yes_ask_e4": "0.2500",
+    "yes_ask_qty_e4": "81.48",
+    "is_snapshot": true
+   },
+   "expect_e4": {
+    "yes_bid_e4": 2300,
+    "yes_bid_qty_e4": 900000,
+    "yes_ask_e4": 2500,
+    "yes_ask_qty_e4": 814800
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315157190000,
+    "market_ticker": "KXMLB-26-LAD",
+    "yes_bid_e4": "0.3090",
+    "yes_bid_qty_e4": "106.97",
+    "yes_ask_e4": "0.3290",
+    "yes_ask_qty_e4": "332.62",
+    "is_snapshot": false
+   },
+   "expect_e4": {
+    "yes_bid_e4": 3090,
+    "yes_bid_qty_e4": 1069700,
+    "yes_ask_e4": 3290,
+    "yes_ask_qty_e4": 3326200
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315158298000,
+    "market_ticker": "KXMLB-26-LAD",
+    "yes_bid_e4": "0.3090",
+    "yes_bid_qty_e4": "106.97",
+    "yes_ask_e4": "0.3260",
+    "yes_ask_qty_e4": "32.00",
+    "is_snapshot": false
+   },
+   "expect_e4": {
+    "yes_bid_e4": 3090,
+    "yes_bid_qty_e4": 1069700,
+    "yes_ask_e4": 3260,
+    "yes_ask_qty_e4": 320000
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783307737337000,
+    "market_ticker": "KXWCGOAL-26JUL05MEXENG-MEXEALVAR11-1",
+    "yes_bid_e4": "0.0000",
+    "yes_bid_qty_e4": "0.00",
+    "yes_ask_e4": "1.0000",
+    "yes_ask_qty_e4": "0.00",
+    "is_snapshot": true
+   },
+   "expect_e4": {
+    "yes_bid_e4": 0,
+    "yes_bid_qty_e4": 0,
+    "yes_ask_e4": 10000,
+    "yes_ask_qty_e4": 0
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315155648000,
+    "market_ticker": "KXBTC-26JUL0602-B70450",
+    "yes_bid_e4": "0.0000",
+    "yes_bid_qty_e4": "0.00",
+    "yes_ask_e4": "0.0100",
+    "yes_ask_qty_e4": "44843.00",
+    "is_snapshot": true
+   },
+   "expect_e4": {
+    "yes_bid_e4": 0,
+    "yes_bid_qty_e4": 0,
+    "yes_ask_e4": 100,
+    "yes_ask_qty_e4": 448430000
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783307737337000,
+    "market_ticker": "KXWCGOAL-26JUL05MEXENG-MEXEALVAR11-1",
+    "yes_bid_e4": "0.0000",
+    "yes_bid_qty_e4": "0.00",
+    "yes_ask_e4": "1.0000",
+    "yes_ask_qty_e4": "0.00",
+    "is_snapshot": true
+   },
+   "expect_e4": {
+    "yes_bid_e4": 0,
+    "yes_bid_qty_e4": 0,
+    "yes_ask_e4": 10000,
+    "yes_ask_qty_e4": 0
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783328331346000,
+    "market_ticker": "KXHYPE15M-26JUL060500-00",
+    "yes_bid_e4": "0.9930",
+    "yes_bid_qty_e4": "2.00",
+    "yes_ask_e4": "0.9950",
+    "yes_ask_qty_e4": "2.00",
+    "is_snapshot": false
+   },
+   "expect_e4": {
+    "yes_bid_e4": 9930,
+    "yes_bid_qty_e4": 20000,
+    "yes_ask_e4": 9950,
+    "yes_ask_qty_e4": 20000
+   }
+  }
+ ]
+}

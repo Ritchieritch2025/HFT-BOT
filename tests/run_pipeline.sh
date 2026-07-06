@@ -87,6 +87,7 @@ run_suite "test_verify_ws_capture" python3 tests/test_verify_ws_capture.py
 run_suite "test_verify_feed_metrics" python3 tests/test_verify_feed_metrics.py
 run_suite "test_gold_layout" ./build/test_gold_layout
 run_suite "test_gold_dtype" ./tests/run_pytest.sh tests/test_gold_dtype.py
+run_suite "test_gold_load" ./tests/run_pytest.sh tests/test_gold_load.py
 run_suite "test_ingest" python3 tests/test_ingest.py
 run_suite "test_export_day" python3 tests/test_export_day.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
