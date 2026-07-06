@@ -6,6 +6,39 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 16:30 UTC — W2.2 DONE (book FSM, TDD red-first, mutation-proven)
+
+- commits: c5a2e9a (W2.2: tools/gold_fsm.py + tests/test_gold_fsm.py + 6 FSM
+  defect fixtures + registry wiring + 2 BACKLOG notes)
+- decisions (rationale in tools/gold_fsm.py docstring, E2):
+  - invalidation CLEARS levels (hpp keeps them but refuses accessors —
+    clearing gives identical observable zeros with a stronger
+    no-resurrection bound); state() serves zeroed arrays + F_BOOK_VALID=0
+  - every invalidation (Sequence Gap OR negative delta) counts as
+    "Resync Required" — mirrors orderbook.hpp, which requests a resync on
+    corruption exactly as on a gap
+  - while invalid, deltas are refused BEFORE gap detection: a gap check is
+    meaningless without a baseline; only a snapshot resets state + seq
+  - coverage vs validity split: covered-but-invalid keeps F_BOOK_COVERED
+    (subscription fact) while dropping F_BOOK_VALID (state fact); L1-only
+    markets serve slot-0 top-of-book with F_BOOK_VALID=1, F_BOOK_COVERED=0,
+    empty-side sentinels (bid 0 / ask 10000) zero their side
+  - F_FROM_SNAPSHOT set by snapshot (and L1 is_snapshot rows), cleared by
+    the first applied delta; heartbeats/trades create no book entry at all
+- context capsule: 30 tests green (81 whole scaffold); acceptance
+  demonstrated: negative-delta => INVALID no-clamp, invalid-until-snapshot,
+  revalidation from later snapshot, permanent invalid without one, V9
+  heartbeat neutrality, crossed flagged-not-repaired, yes-space transform
+  (ask = 10000 - no_price), DEPTH-tail rest aggregation, both seq modes
+  (seq_unavailable stated pre-W5). Anti-fake-green: clamp mutant => 9 red,
+  latch-neuter mutant => 11 red, restored green both times. run_pipeline
+  PIPELINE PASS incl. new test_gold_fsm suite; make check ALL PASS;
+  registry 84 tools ok. FSM is 250 physical lines incl. docstring (≤~300).
+- blocked / handoff: next fresh session runs the independent audit of W2.2,
+  then W2.3 (merge iterator, pure logic on synthetic lists). HEARTBEAT
+  row-mapping and uint16 nlevels write-gate filed in docs/BACKLOG.md for
+  W2.3/W2.6 and W2.4. GoldRecord layout untouched (frozen).
+
 ## 2026-07-06 UTC — W2.1 DONE (typed loaders, TDD red-first, full-day real demo)
 
 - commits: 05b203d (W2.1: tools/gold_load.py + tests/test_gold_load.py +
