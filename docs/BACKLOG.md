@@ -33,3 +33,23 @@ noticed-during, observation, suggested owner.
   (59 tests) but their canonical runner is `make check`/run_pipeline.sh; they
   are conftest-ignored in the pytest scaffold until WP-04 migrates them
   deliberately. Owner: WP-04.
+- 2026-07-06 · noticed during W2.3 · the merge's fail-closed precondition
+  (each source non-decreasing in (ts_us, type_priority)) has two W2.6
+  composition consequences: (a) warehouse load() returns full/l1 rows
+  ordered by (market_ticker, ts_utc), so a whole channel list is NOT
+  ts-sorted — W2.6 must pass per-(channel, market) slices as merge sources
+  (k = channels x markets), which also preserves per-market file order;
+  (b) W2.1-reported within-market ts regressions (report-only at load
+  time) will raise GoldMergeError ("Merge Order Violation") at merge time
+  — whether the disposition is quarantine-the-rows or quarantine-the-day
+  is a W2.5/W2.6 policy decision, not W2.3's. Owner: W2.6 (+W2.5 policy).
+- 2026-07-06 · noticed during W2.3 · MergedRecord carries a full BookState
+  computed by fsm.state() per emitted record (sorts both sides each call).
+  Correct and fine at synthetic/pure scale; a full production day may want
+  incremental state maintenance or emit-on-demand in the W2.6 builder.
+  Owner: W2.6 (perf only, no semantics change).
+- 2026-07-06 · noticed during W2.3 · partial resolution of the W2.2
+  HEARTBEAT note: the merge handles HEARTBEAT events generically
+  (stream_seq assigned, book_seq never advanced, state untouched — V9),
+  so the merge side is proven; which warehouse rows are MAPPED to
+  HEARTBEAT events (vs L1_TICKER) remains the open half. Owner: W2.6.
