@@ -1,0 +1,26 @@
+{
+  "struct": "GoldRecord",
+  "size": 512,
+  "endian": "little",
+  "depth": 16,
+  "fields": {
+    "ts_us": {"offset": 0, "size": 8},
+    "stream_seq": {"offset": 8, "size": 8},
+    "market_id": {"offset": 16, "size": 4},
+    "event_type": {"offset": 20, "size": 2},
+    "flags": {"offset": 22, "size": 2},
+    "book_seq": {"offset": 24, "size": 8},
+    "trade_yes_price_e4": {"offset": 32, "size": 4},
+    "taker_side": {"offset": 36, "size": 1},
+    "trade_qty_e4": {"offset": 40, "size": 8},
+    "trade_id_hash": {"offset": 48, "size": 8},
+    "bid_px_e4": {"offset": 56, "size": 64},
+    "ask_px_e4": {"offset": 120, "size": 64},
+    "bid_qty_e4": {"offset": 184, "size": 128},
+    "ask_qty_e4": {"offset": 312, "size": 128},
+    "bid_rest_qty_e4": {"offset": 440, "size": 8},
+    "ask_rest_qty_e4": {"offset": 448, "size": 8},
+    "bid_nlevels": {"offset": 456, "size": 2},
+    "ask_nlevels": {"offset": 458, "size": 2}
+  }
+}

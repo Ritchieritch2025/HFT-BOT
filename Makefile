@@ -25,7 +25,7 @@ PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
               $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies \
-              $(BUILD)/test_market_filter
+              $(BUILD)/test_market_filter $(BUILD)/test_gold_layout
 
 BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -214,6 +214,9 @@ $(BUILD)/test_strategies: tests/test_strategies.cpp $(BUILD)/strategies.o includ
 
 $(BUILD)/test_market_filter: tests/test_market_filter.cpp include/trading/market_filter.hpp include/trading/fixedpoint.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_market_filter.cpp -o $@
+
+$(BUILD)/test_gold_layout: tests/test_gold_layout.cpp include/trading/gold_record.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_gold_layout.cpp -o $@
 
 $(BUILD)/test_sid_stream: tests/test_sid_stream.cpp include/kalshi/sid_stream.hpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_sid_stream.cpp -o $@

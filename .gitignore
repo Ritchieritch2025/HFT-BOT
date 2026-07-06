@@ -18,3 +18,7 @@ warehouse/
 .env
 .env.*
 .attic/
+# test fixtures are ALWAYS tracked — the global data-format ignores above must
+# never swallow them (audit G2 / R decision 4, 2026-07-06); a suite assertion
+# (test_all_fixture_files_are_git_tracked) enforces this
+!tests/fixtures/**
