@@ -1,0 +1,46 @@
+{
+  "generated_at_ms": 1783253050871,
+  "schema_version": 1,
+  "sources": [
+    {
+      "bytes": 43566,
+      "fetched_at_ms": 1783253051520,
+      "file": "llms.txt",
+      "name": "llms",
+      "sha256": "3825049ed7b8b5a1a3149a4c86e372fc54ae4b0f022d060fc4ace93728c8d464",
+      "url": "https://docs.kalshi.com/llms.txt"
+    },
+    {
+      "bytes": 303388,
+      "fetched_at_ms": 1783253051702,
+      "file": "openapi.yaml",
+      "name": "openapi",
+      "sha256": "557683c9375b6ab29a68a6cd0640ac18ee0236a529557207b1fa2f34955b4cbe",
+      "url": "https://docs.kalshi.com/openapi.yaml"
+    },
+    {
+      "bytes": 132796,
+      "fetched_at_ms": 1783253052093,
+      "file": "asyncapi.yaml",
+      "name": "asyncapi",
+      "sha256": "00858d5a892eb7066a8da247660622721e8ee80bfdd89b1b9a24278c15d7d421",
+      "url": "https://docs.kalshi.com/asyncapi.yaml"
+    },
+    {
+      "bytes": 1663505,
+      "fetched_at_ms": 1783253052306,
+      "file": "changelog.html",
+      "name": "changelog",
+      "sha256": "0ca0ad6c7293f3c96f4fbbbd83be7209cff92a645c8bd1255bec05eae5b87a52",
+      "url": "https://docs.kalshi.com/changelog"
+    },
+    {
+      "bytes": 21718,
+      "fetched_at_ms": 1783253052645,
+      "file": "changelog_rss.xml",
+      "name": "changelog_rss",
+      "sha256": "36b156403b4e59ff0e4fc747424cdb6ddf0a0a4cbdd85c6fb461f3e81f075601",
+      "url": "https://docs.kalshi.com/changelog/rss.xml"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ritcardo.kalshi-pipeline</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ritcardo/HFT BOT/tools/pipeline_supervisor.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ritcardo/HFT BOT</string>
+
+    <!-- Keep the 24/7 firehose alive across crashes and reboots. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Thermal: run the whole pipeline tree at background QoS (efficiency
+         cores on Apple Silicon) + lower CPU priority. Data collection is not
+         latency-sensitive; the recorder ring absorbs scheduling jitter. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityBackgroundIO</key>
+    <true/>
+
+    <!-- launchd has a minimal PATH; add the usual tool locations so python3
+         (and duckdb) resolve. Credentials are sourced by the supervisor from
+         ~/.kalshi/env.sh, NOT set here. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ritcardo/HFT BOT/work/live/supervisor.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ritcardo/HFT BOT/work/live/supervisor.err.log</string>
+</dict>
+</plist>

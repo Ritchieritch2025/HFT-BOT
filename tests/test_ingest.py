@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Acceptance proofs for tools/ingest.py (change-only staging ingester).
+
+Demonstrates, with synthetic fixtures and no network:
+  1. CHANGE-ONLY: a market repeating identical ticks 100x then changing once
+     writes exactly 1 initial row + 1 change row.
+  2. HEARTBEAT: a market with zero changes across 3 hours gets exactly 3
+     is_snapshot=true heartbeat rows (hour starts), book state carried.
+  3. RESTART: kill mid-file (partial line), restart with a fresh Ingester —
+     row counts reconcile against the raw log, no gaps, no duplicates.
+  4. CLASS POLICY: Class B categories get NO orderbooks_l1 rows; trades are
+     recorded for every market regardless of class.
+
+stdlib + duckdb only.
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import ingest  # noqa: E402
+
+HOUR_US = 3_600_000_000
+T0 = 1_783_300_000_000_000  # 2026-07-06-ish, mid-hour, epoch micros
+
+FAILS = []
+
+
+def check(name, ok, detail=""):
+    print("%s: %s%s" % ("PASS" if ok else "FAIL", name,
+                        (" - " + str(detail)) if detail and not ok else ""))
+    if not ok:
+        FAILS.append(name)
+
+
+def tick(mt, ts_us, bid, ask, bid_q=100, ask_q=100):
+    msg = {"market_ticker": mt, "ts_ms": ts_us // 1000,
+           "yes_bid_dollars": "%.4f" % bid, "yes_ask_dollars": "%.4f" % ask,
+           "yes_bid_size_fp": "%d.00" % bid_q, "yes_ask_size_fp": "%d.00" % ask_q,
+           "price_dollars": "%.4f" % ((bid + ask) / 2), "volume_fp": "10.00",
+           "open_interest_fp": "5.00"}
+    return json.dumps({"recv_wall_ns": ts_us * 1000,
+                       "raw": json.dumps({"type": "ticker", "msg": msg})})
+
+
+def trade(mt, ts_us, tid):
+    msg = {"market_ticker": mt, "ts_ms": ts_us // 1000, "trade_id": tid,
+           "yes_price_dollars": "0.5000", "no_price_dollars": "0.5000",
+           "count_fp": "1.00", "taker_side": "yes"}
+    return json.dumps({"recv_wall_ns": ts_us * 1000,
+                       "raw": json.dumps({"type": "trade", "msg": msg})})
+
+
+def make_warehouse(tmp):
+    """Fixture classification dim: KXBTC=Crypto (Class A), KXACME=Companies (Class B)."""
+    import duckdb
+    wh = os.path.join(tmp, "warehouse")
+    out = os.path.join(wh, "catalog", "series_classified")
+    os.makedirs(out)
+    nd = os.path.join(tmp, "cls.ndjson")
+    with open(nd, "w") as f:
+        for st, cat, sub, grp, kl in [
+                ("KXBTC", "Crypto", "BTC", "BTC", "A"),
+                ("KXACME", "Companies", "_none", "ACME", "B")]:
+            f.write(json.dumps({"series_ticker": st, "category": cat,
+                                "subcategory": sub, "group": grp,
+                                "record_class": kl}) + "\n")
+    duckdb.connect().execute(
+        "COPY (SELECT * FROM read_json_auto('%s', format='newline_delimited')) "
+        "TO '%s' (FORMAT PARQUET)" % (nd, os.path.join(out, "part-00000.parquet")))
+    return wh
+
+
+def new_ingester(tmp, wh, db="staging.duckdb"):
+    import duckdb
+    return ingest.Ingester(duckdb.connect(os.path.join(tmp, db)), wh)
+
+
+def q(ing, sql):
+    return ing.con.execute(sql).fetchall()
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="test_ingest_")
+    try:
+        wh = make_warehouse(tmp)
+        mt_a = "KXBTC-25DEC31-B50"      # Class A, the quiet/heartbeat market
+        mt_b = "KXBTC-25DEC31-B60"      # Class A, the clock-advancing market
+        mt_c = "KXACME-25DEC31-YES"     # Class B
+
+        # ---- 1. change-only: 100 identical ticks + 1 change -------------------
+        lines = [tick(mt_a, T0 + i * 1_000_000, 0.40, 0.42) for i in range(100)]
+        lines.append(tick(mt_a, T0 + 101 * 1_000_000, 0.41, 0.42))  # the change
+        cap1 = os.path.join(tmp, "cap1.ndjson")
+        open(cap1, "w").write("\n".join(lines) + "\n")
+        ing = new_ingester(tmp, wh)
+        ing.process_file(cap1)
+        rows = q(ing, "SELECT is_snapshot FROM orderbooks_l1 WHERE market_ticker='%s' "
+                      "ORDER BY ts_utc" % mt_a)
+        check("change-only writes exactly 2 rows (1 snapshot + 1 change)",
+              len(rows) == 2 and rows[0][0] is True and rows[1][0] is False,
+              "got %s" % rows)
+
+        # ---- 2. heartbeat: 3 quiet hours -> exactly 3 snapshot rows -----------
+        # mt_b ticks advance the data clock through 3 hour boundaries; mt_a is silent.
+        h1 = ((T0 // HOUR_US) + 1) * HOUR_US
+        lines2 = []
+        for k in range(3):
+            lines2.append(tick(mt_b, h1 + k * HOUR_US + 60_000_000, 0.10 + k / 100, 0.12))
+        cap2 = os.path.join(tmp, "cap2.ndjson")
+        open(cap2, "w").write("\n".join(lines2) + "\n")
+        ing.process_file(cap2)
+        hb = q(ing, "SELECT ts_utc, yes_bid_e4, price_e4 FROM orderbooks_l1 "
+                    "WHERE market_ticker='%s' AND is_snapshot AND ts_utc > %d "
+                    "ORDER BY ts_utc" % (mt_a, T0 + 102 * 1_000_000))
+        check("3 quiet hours -> exactly 3 heartbeat rows", len(hb) == 3, hb)
+        check("heartbeats land on hour starts",
+              all(ts % HOUR_US == 0 for ts, _, _ in hb), hb)
+        check("heartbeats carry last book state (bid=0.41 -> 4100 E4)",
+              all(bid == 4100 for _, bid, _ in hb), hb)
+        check("scheduled heartbeats have NULL price (book fields only)",
+              all(p is None for _, _, p in hb), hb)
+        total_a = q(ing, "SELECT count(*) FROM orderbooks_l1 WHERE market_ticker='%s'"
+                    % mt_a)[0][0]
+        check("quiet market total rows = 2 + 3 heartbeats", total_a == 5, total_a)
+
+        # ---- 3. restart mid-file: no gaps, no duplicates ----------------------
+        full = "\n".join(lines + lines2) + "\n"
+        cap3 = os.path.join(tmp, "cap3.ndjson")
+        cut = len(full) // 2
+        cut = full.rfind("\n", 0, cut) + 40          # mid-line: a partial tail
+        open(cap3, "w").write(full[:cut])
+        ing2 = new_ingester(tmp, wh, "restart.duckdb")
+        ing2.process_file(cap3)
+        ing2.con.close()                              # "kill" the ingester
+        open(cap3, "a").write(full[cut:])             # capture keeps appending
+        ing3 = new_ingester(tmp, wh, "restart.duckdb")  # restart: state rebuilds
+        ing3.process_file(cap3)
+        ref = q(ing, "SELECT count(*) FROM orderbooks_l1")[0][0]
+        got = q(ing3, "SELECT count(*) FROM orderbooks_l1")[0][0]
+        dup = q(ing3, "SELECT count(*) FROM (SELECT DISTINCT * FROM orderbooks_l1)")[0][0]
+        check("restart row count reconciles with single-pass reference",
+              got == ref, "got=%d ref=%d" % (got, ref))
+        check("restart produces no duplicate rows", dup == got,
+              "distinct=%d total=%d" % (dup, got))
+
+        # ---- 4. class policy + trades-for-all ---------------------------------
+        cap4 = os.path.join(tmp, "cap4.ndjson")
+        open(cap4, "w").write("\n".join(
+            [tick(mt_c, T0, 0.50, 0.52), trade(mt_c, T0 + 1_000_000, "t1"),
+             trade(mt_a, T0 + 2_000_000, "t2")]) + "\n")
+        ing.process_file(cap4)
+        b_l1 = q(ing, "SELECT count(*) FROM orderbooks_l1 WHERE market_ticker='%s'"
+                 % mt_c)[0][0]
+        check("Class B market gets NO orderbooks_l1 rows", b_l1 == 0, b_l1)
+        n_tr = q(ing, "SELECT count(*) FROM trades")[0][0]
+        check("trades recorded for BOTH classes", n_tr == 2, n_tr)
+        stats = q(ing, "SELECT sum(ticks_seen) FROM ingest_stats")[0][0]
+        check("ingest_stats counted raw ticks", stats and stats >= 107, stats)
+
+        # ---- 5. corrupt timestamps are dropped, never staged, never crash -----
+        cap5 = os.path.join(tmp, "cap5.ndjson")
+        bad_msg = {"market_ticker": mt_a, "ts_ms": 178332621142632600880,
+                   "ts": 178332623231, "yes_bid_dollars": "0.50",
+                   "yes_ask_dollars": "0.52"}
+        open(cap5, "w").write(json.dumps(
+            {"recv_wall_ns": 17833262114263260088000,
+             "raw": json.dumps({"type": "ticker", "msg": bad_msg})}) + "\n")
+        before = q(ing, "SELECT count(*) FROM orderbooks_l1")[0][0]
+        ing.process_file(cap5)
+        after = q(ing, "SELECT count(*) FROM orderbooks_l1")[0][0]
+        check("corrupt-timestamp frame dropped (no crash, no row)",
+              after == before and ing.bad_ts == 1,
+              "rows %d->%d bad_ts=%d" % (before, after, ing.bad_ts))
+        check("normalize_ts_us: s/ms/ns accepted, absurd/garbage rejected",
+              ingest.normalize_ts_us(1783325907) == 1783325907_000_000 and
+              ingest.normalize_ts_us(1783325907199) == 1783325907199_000 and
+              ingest.normalize_ts_us(1783325907199000999) == 1783325907199000 and
+              ingest.normalize_ts_us(178332623231) is None and
+              ingest.normalize_ts_us("garbage") is None)
+
+        # ---- 6. orderbook snapshot levels (real Kalshi field names) -----------
+        snap_msg = {"market_ticker": mt_a, "ts_ms": T0 // 1000,
+                    "yes_dollars_fp": [["0.0100", "310.00"], ["0.7100", "2.50"]],
+                    "no_dollars_fp": [["0.2000", "10.00"]]}
+        cap6 = os.path.join(tmp, "cap6.ndjson")
+        open(cap6, "w").write(json.dumps(
+            {"recv_wall_ns": T0 * 1000,
+             "raw": json.dumps({"type": "orderbook_snapshot", "msg": snap_msg})}) + "\n")
+        ing.process_file(cap6)
+        yl, nl = q(ing, "SELECT yes_levels, no_levels FROM orderbooks_full "
+                        "WHERE msg_type='snapshot'")[0]
+        check("snapshot levels parsed from yes/no_dollars_fp into E4 pairs",
+              json.loads(yl) == [[100, 3100000], [7100, 25000]] and
+              json.loads(nl) == [[2000, 100000]], (yl, nl))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    if FAILS:
+        print("FAILURES: %s" % ", ".join(FAILS))
+        print("TEST FAIL")
+        return 1
+    print("ALL PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

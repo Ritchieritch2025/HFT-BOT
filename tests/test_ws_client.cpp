@@ -69,6 +69,10 @@ int main() {
               has(sub, R"("market_tickers":["MKT-A","MKT-B"])") &&
               has(sub, R"("use_yes_price":false)"),
           "subscribe cmd: orderbook_delta + tickers + explicit use_yes_price:false");
+    c.want_channels({"orderbook_delta", "trade", "ticker"});
+    const std::string sub2 = c.build_subscribe(4, {"MKT-A"});
+    check(has(sub2, R"("channels":["orderbook_delta","trade","ticker"])"),
+          "subscribe cmd can include orderbook_delta + trade + ticker channels");
     check(has(c.build_unsubscribe(2, {7}), R"("cmd":"unsubscribe")") &&
               has(c.build_unsubscribe(2, {7}), R"("sids":[7])"),
           "unsubscribe cmd carries sids");

@@ -5,13 +5,15 @@ file by invariant id (e.g. "I3") rather than URLs. Verified against Kalshi
 OpenAPI/AsyncAPI + docs on 2026-07-04. When the spec-drift check
 (`tools/check_spec_drift.sh`, Phase 0 task 2) fires, reconcile here first.
 
-Vendored specs: `third_party/kalshi_specs/openapi.yaml`,
-`third_party/kalshi_specs/asyncapi.yaml` (+ `FETCHED_AT`).
+Vendored specs: `docs/vendor/kalshi/latest/openapi.yaml`,
+`docs/vendor/kalshi/latest/asyncapi.yaml` plus
+`docs/vendor/kalshi/latest/manifest.json`. Reviewed baselines live under
+`docs/vendor/kalshi/baseline/`.
 
 ## Connection & auth (I10)
 
 - Prod: `wss://external-api-ws.kalshi.com/trade-api/ws/v2`
-- Demo: `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`
+- (The Kalshi demo WS environment is no longer supported; prod is the only real WS endpoint.)
 - Auth headers on the HTTP upgrade (same scheme as REST, reuse `client.cpp`
   RSA-PSS signing): `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP` (ms),
   `KALSHI-ACCESS-SIGNATURE`. **Signed string = `timestamp + "GET" +
@@ -147,7 +149,7 @@ endpoint is ever called), and each subscribed book cross-checked against a fresh
 REST batch snapshot at exit (compare-only; top-of-book divergence within
 REST-staleness is expected, logged as telemetry). Fail-closed: refuses
 `KALSHI_MODE=live`, and `resolve_runtime()` env-validates the WS URL/host (a prod
-run cannot open the demo WS, and non-`wss://` is localhost-only).
+run must use the prod WS host, and non-`wss://` is localhost-only).
 
 **Live verification deferred:** the ≥24 h production soak (zero missed-pong
 disconnects, zero cross-epoch applications, divergence within bounds) requires a
@@ -168,7 +170,7 @@ read-loop saturation / p99 budget breach) — leave a seam, don't build it.
 
 1. Batch-orderbooks token cost (per request vs per ticker) — Phase 5 script.
 2. Whether `get_snapshot` seq-stamps with the next sid seq or re-baselines —
-   confirm in demo before finalizing SidStream accounting (changelog: does not
+   confirm against prod before finalizing SidStream accounting (changelog: does not
    disturb the delta stream; verify the observed seq value). Current code treats
    the snapshot's seq as a normal sequenced observation.
 3. `use_yes_price` default-flip date — watch changelog; drift check must catch it.

@@ -116,7 +116,7 @@ class RestApi {
   // Batch orderbooks: GET /markets/orderbooks?tickers=A&tickers=B (form-explode,
   // 1..100). REST snapshots carry NO seq -> bootstrap / display / cross-check
   // ONLY, never fed to a WS-live book (docs/kalshi_ws_protocol.md I4). The
-  // per-request token cost is an open item to measure in demo (I11).
+  // per-request token cost is an open item to measure in prod (I11).
   std::expected<std::vector<OrderbookSnapshot>, ApiError> batch_orderbook(
       const std::vector<std::string>& tickers);
 

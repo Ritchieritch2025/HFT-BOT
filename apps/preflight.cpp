@@ -10,9 +10,10 @@
 //                                            immediately cancel it
 //
 // The order check uses the exact code path tradingd uses (ExecPayload →
-// wire::order_json → sign_request → send). It refuses to run against
-// production unless --prod-ok is also given; point KALSHI_BASE_URL at the
-// demo environment (https://demo-api.kalshi.co) for risk-free validation.
+// wire::order_json → sign_request → send). The order leg only runs in live
+// mode (KALSHI_MODE=live + KALSHI_ALLOW_LIVE=1) against prod and places a REAL
+// order, so it is off by default and the console never passes --order.
+// (Kalshi's demo exchange is unavailable, so there is no risk-free env.)
 //
 // Env: KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH  (required)
 //      KALSHI_BASE_URL   (default https://external-api.kalshi.com)
@@ -195,7 +196,7 @@ int main(int argc, char** argv) {
            "HTTP " + std::to_string(balance->status) + ": " + balance->body +
                (balance->status == 401
                     ? "  [check: key id matches the .pem, key created for this "
-                      "environment (prod keys don't work on demo), clock skew]"
+                      "environment, clock skew]"
                     : ""));
   }
 
@@ -271,8 +272,8 @@ int main(int argc, char** argv) {
   if (!order_ticker.empty()) {
     if (!kalshi::can_place_orders(rt)) {
       result(false, "order check refused",
-             "orders require live mode (KALSHI_MODE=live + KALSHI_ALLOW_LIVE=1 on a "
-             "demo/prod env); read-only checks above still ran");
+             "orders require live mode (KALSHI_MODE=live + KALSHI_ALLOW_LIVE=1 on "
+             "prod); read-only checks above still ran");
     } else {
       wire::ExecPayload p;  // the same struct + JSON path tradingd uses
       p.action = wire::kActionBuy;
@@ -323,8 +324,8 @@ int main(int argc, char** argv) {
       }
     }
   } else {
-    std::printf("(order execution not tested — rerun with --order TICKER "
-                "against the demo env for a free place+cancel round trip)\n");
+    std::printf("(order execution not tested — rerun with --order TICKER in "
+                "live mode to place+cancel a REAL order on prod)\n");
   }
 
   std::printf("%s\n", g_failures == 0 ? "PREFLIGHT PASS" : "PREFLIGHT FAIL");

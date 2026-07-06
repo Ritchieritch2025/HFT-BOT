@@ -2,7 +2,7 @@
 // /account/endpoint_costs (PLAN_TOKEN_RULES T1) and prints the tier, per-bucket
 // refill_rate/bucket_capacity, and grants. Never places an order.
 //
-// Env: KALSHI_ENV (demo|prod), KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH,
+// Env: KALSHI_ENV (prod|prod), KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH,
 //      optional KALSHI_BASE_URL.
 
 #include "daemon_util.hpp"

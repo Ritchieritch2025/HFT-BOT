@@ -10,13 +10,13 @@ namespace kalshi {
 
 namespace {
 
-// Append a JSON array of quoted tickers: ["A","B"].
-void append_ticker_array(std::string& j, const std::vector<std::string>& tickers) {
+// Append a JSON array of quoted Kalshi-safe strings: ["A","B"].
+void append_string_array(std::string& j, const std::vector<std::string>& values) {
   j += '[';
-  for (std::size_t i = 0; i < tickers.size(); ++i) {
+  for (std::size_t i = 0; i < values.size(); ++i) {
     if (i) j += ',';
     j += '"';
-    j += tickers[i];  // Kalshi tickers are [A-Za-z0-9._-]; safe to inline
+    j += values[i];  // Kalshi channel/ticker names are [A-Za-z0-9._-]; safe to inline
     j += '"';
   }
   j += ']';
@@ -43,8 +43,15 @@ WsHeaders KalshiWsClient::build_auth_headers(std::int64_t now_ms) const {
 std::string KalshiWsClient::build_subscribe(int id, const std::vector<std::string>& tickers) const {
   std::string j = R"({"id":)";
   j += std::to_string(id);
-  j += R"(,"cmd":"subscribe","params":{"channels":["orderbook_delta"],"market_tickers":)";
-  append_ticker_array(j, tickers);
+  j += R"(,"cmd":"subscribe","params":{"channels":)";
+  append_string_array(j, channels_);
+  // Firehose: with no tickers we omit market_tickers entirely, so ticker/trade
+  // channels stream EVERY market exchange-wide (Kalshi treats an absent filter
+  // as "all"). A per-ticker subscribe still sends the filter as before.
+  if (!tickers.empty()) {
+    j += R"(,"market_tickers":)";
+    append_string_array(j, tickers);
+  }
   j += R"(,"use_yes_price":)";
   j += cfg_.use_yes_price ? "true" : "false";  // I5: always explicit
   j += "}}";
@@ -73,7 +80,7 @@ std::string KalshiWsClient::build_get_snapshot(int id, const std::vector<std::ui
     j += std::to_string(sids[i]);
   }
   j += R"(],"action":"get_snapshot","market_tickers":)";
-  append_ticker_array(j, tickers);
+  append_string_array(j, tickers);
   j += "}}";
   return j;
 }
@@ -96,7 +103,12 @@ void KalshiWsClient::on_message(const WsMessage& m) {
     case WsMessage::Type::Ping:
     case WsMessage::Type::Pong:
       break;  // transport auto-pongs (heartbeat echo); we only note liveness
-    case WsMessage::Type::Error: ++errors_; break;
+    case WsMessage::Type::Error:
+      ++errors_;
+      // Surface the transport error reason (no secrets in it) so a failing
+      // handshake/subscribe is diagnosable instead of a silent error counter.
+      std::fprintf(stderr, "[ws] transport error: %.200s\n", m.data.c_str());
+      break;
   }
 }
 
@@ -116,7 +128,7 @@ void KalshiWsClient::on_close() {
 }
 
 void KalshiWsClient::resubscribe() {
-  if (want_.empty()) return;
+  if (want_.empty() && !firehose_) return;  // firehose subscribes with no filter
   t_.send_text(build_subscribe(next_id(), want_));
 }
 

@@ -5,3 +5,16 @@ work/
 # test-generated data artifacts (raw logs, replays, rotation shards, fuzz corpus)
 *.ndjson
 *.ndjson.*
+# warehouse data + raw capture layers (never commit market data or DB files)
+raw/
+warehouse/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv.gz
+# credentials must never live in the repo (real creds belong in ~/.kalshi/env.sh)
+*.pem
+*key*.json
+.env
+.env.*
+.attic/

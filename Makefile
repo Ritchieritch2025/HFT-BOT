@@ -24,9 +24,10 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
-              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies
+              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies \
+              $(BUILD)/test_market_filter
 
-BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
+BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
@@ -139,9 +140,6 @@ $(BUILD)/ixws/%.o: $(IXWS_DIR)/%.cpp | $(BUILD)/ixws
 $(BUILD)/ixwebsocket.a: $(IXWS_OBJS)
 	ar rcs $@ $^
 
-$(BUILD)/kalshi_example: examples/kalshi_example.cpp $(BUILD)/client.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
-
 $(BUILD)/test_signing: tests/test_signing.cpp $(BUILD)/client.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
@@ -213,6 +211,9 @@ $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp i
 
 $(BUILD)/test_strategies: tests/test_strategies.cpp $(BUILD)/strategies.o include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_strategies.cpp $(BUILD)/strategies.o -o $@
+
+$(BUILD)/test_market_filter: tests/test_market_filter.cpp include/trading/market_filter.hpp include/trading/fixedpoint.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_market_filter.cpp -o $@
 
 $(BUILD)/test_sid_stream: tests/test_sid_stream.cpp include/kalshi/sid_stream.hpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_sid_stream.cpp -o $@
@@ -336,12 +337,14 @@ gate:
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
                  $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
+PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 # Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest
 # ignore it — so no test litters the repo root.
 check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
 	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
+	@set -e; for t in $(PY_WAREHOUSE_TESTS); do echo "== $$t"; python3 $$t | tail -1; done
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing

@@ -80,8 +80,14 @@ run_suite "make_check" make check
 # 2. signing + ops-console backend (Python)
 run_suite "test_signing" ./build/test_signing
 run_suite "test_strategies" ./build/test_strategies
+run_suite "test_market_filter" ./build/test_market_filter
 run_suite "test_console" python3 tests/test_console.py
+run_suite "test_feed_readiness" python3 tests/test_feed_readiness.py
 run_suite "test_verify_ws_capture" python3 tests/test_verify_ws_capture.py
+run_suite "test_verify_feed_metrics" python3 tests/test_verify_feed_metrics.py
+run_suite "test_ingest" python3 tests/test_ingest.py
+run_suite "test_export_day" python3 tests/test_export_day.py
+run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \
@@ -91,6 +97,7 @@ run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \
 run_suite "rest_api"          bash tests/run_rest_api.sh "$((PORT_BASE+10))"
 run_suite "request_executor"  bash tests/run_request_executor.sh "$((PORT_BASE+11))"
 run_suite "ws_smoke"          bash tests/run_ws_smoke.sh
+run_suite "ws_shadow_mock"    bash tests/run_ws_shadow_mock.sh
 
 # 5. simdjson-linked offline unit tests (scratch dir keeps the root clean)
 run_suite "test_storage"   ./build/test_storage   "$SCRATCH"

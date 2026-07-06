@@ -76,12 +76,20 @@ the full feed→strategy→ring→submit→ack chain under `TRADINGD_LATENCY_CSV
   request telemetry NDJSON; the dashboard only tails files.
 - **Replay/backtest**: `ReplaySource(capture.ndjson)` -> `KalshiRawDecoder` ->
   same `OrderBookManager` -> strategies (P9).
+- **Cold research warehouse** (three layers, docs/warehouse_schema.md): hourly
+  raw firehose logs `work/raw/date=<D>/firehose_<HH>.ndjson` -> `tools/ingest.py`
+  (change-only + hourly heartbeats + class policy, checkpointed) ->
+  `work/warehouse/staging.duckdb` (today, queryable live) -> `tools/export_day.py`
+  at UTC midnight -> final zstd-15 Parquet / csv.gz partitions under
+  `work/warehouse/facts/` + `manifest.csv`. Single analysis entry point:
+  `tools/warehouse.py::load()`. Raw NDJSON is the truth source until archived;
+  archive files are write-once and final.
 
 ## Environment variables
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `KALSHI_ENV` | all | `local_mock` (default) / `demo` / `prod` |
+| `KALSHI_ENV` | all | `local_mock` (default) / `prod` (`demo` is rejected fail-closed) |
 | `KALSHI_MODE` | tradingd | `data_collect` (default) / `shadow` / `live` |
 | `KALSHI_ALLOW_PROD` | env | required truthy for `prod` (fail-closed) |
 | `KALSHI_ALLOW_LIVE` | env | required truthy for `live` (+ non-local env) |
@@ -114,6 +122,20 @@ the full feed→strategy→ring→submit→ack chain under `TRADINGD_LATENCY_CSV
   trace_id, side, price, size, tif, post_only`. Never transmitted.
 - **Test results** (`run_pipeline.sh`): `type=test_suite, ts_ms, suite, status,
   passed, failed, duration_ms, log`. The ops console's data source.
+- **Greed-compatible warehouse** (cold path): public Parquet tables
+  `orderbooks_l1`, `orderbooks_full`, `trades`, `markets`, `events`,
+  `market_settlements`, and `rfq_events` use the column order pinned in
+  `docs/vendor/greed/schema_snapshot.json`. Internal warehouse metadata is JSON
+  under `work/warehouse/_meta/warehouse_*.json`, never public table columns.
+
+## Cold research dependency rule
+
+DuckDB is the only new dependency and is allowed only for offline research
+warehouse tooling. It is forbidden in `tradingd`, `ws_client`,
+`OrderBookManager`, strategy, execution, risk, and any live-order code. If
+DuckDB is missing, warehouse tools/tests fail with
+`DuckDB is required for the offline research warehouse.` There is no SQLite
+fallback for the Greed-compatible warehouse target.
 
 ## Build + check
 

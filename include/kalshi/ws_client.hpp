@@ -58,6 +58,12 @@ class KalshiWsClient {
 
   // Register orderbook_delta subscriptions; sent on open and every resubscribe.
   void want_orderbook(std::vector<std::string> tickers) { want_ = std::move(tickers); }
+  // Firehose mode: subscribe to the configured channels with NO market filter,
+  // streaming every market exchange-wide (use with ticker/trade channels).
+  void set_firehose(bool on) { firehose_ = on; }
+  void want_channels(std::vector<std::string> channels) {
+    if (!channels.empty()) channels_ = std::move(channels);
+  }
 
   void start();  // set url + auth headers, connect
   void stop();
@@ -97,6 +103,8 @@ class KalshiWsClient {
   OrderBookManager* books_ = nullptr;
   WsRecorder* recorder_ = nullptr;
   std::vector<std::string> want_;
+  bool firehose_ = false;
+  std::vector<std::string> channels_{"orderbook_delta"};
 
   std::uint32_t epoch_;
   bool opened_once_ = false;

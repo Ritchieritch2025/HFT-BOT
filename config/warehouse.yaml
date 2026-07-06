@@ -1,0 +1,16 @@
+# Warehouse layout + pipeline knobs (flat key: value — parsed by
+# tools/warehouse_common.py, stdlib only; comments and blank lines ignored).
+#
+# ARCHIVE_ROOT may later point at an external drive. The exporter verifies the
+# path is mounted/writable before exporting; if not, staging data is retained
+# and the export retries on the next cycle. Never exports into a dead path.
+
+raw_root: work/raw                      # LAYER 1: hourly firehose NDJSON logs
+staging_db: work/warehouse/staging.duckdb   # LAYER 2: live DuckDB (today + 1 prior day)
+warehouse_root: work/warehouse          # catalog/, dim/, manifest.csv live here
+archive_root: work/warehouse/facts      # LAYER 3: final partitioned files (ARCHIVE_ROOT)
+
+raw_retention_days: 3                   # prune raw logs older than this
+staging_retain_days: 2                  # today + 1 prior day
+heartbeat_active_hours: 24              # market counts as active-session if seen within this window
+ingest_loop_seconds: 60                 # ingester tail cycle

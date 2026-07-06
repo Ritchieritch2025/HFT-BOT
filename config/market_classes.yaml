@@ -1,0 +1,33 @@
+# Kalshi market recording policy — two classes. Category names MUST match the
+# live Kalshi taxonomy EXACTLY (verified against /series). Generated/validated by
+# tools/build_classification.py, which warns on any live category missing here.
+#
+# Class A: orderbooks_l1 recorded (change-only + hourly heartbeats) for ALL
+#          markets in the category. Plus trades + settlements.
+# Class B: NO L1. Trades + settlements only.
+# (trades + settlements are recorded for EVERY market regardless of class.)
+
+class_a_full_l1:
+  - Crypto                 # sub-penny prices — highest-value L1
+  - Financials
+  - Economics
+  - Climate and Weather    # NOTE: real name is "Climate and Weather", not "Weather"
+  - Commodities
+  - Sports                 # books recorded (per operator priority)
+  - Politics               # books recorded (per operator priority)
+
+class_b_trades_only:
+  - Companies
+  - Education
+  - Elections
+  - Entertainment
+  - Exotics
+  - Health
+  - Mentions
+  - Science and Technology
+  - Social
+  - Transportation
+  - World
+
+# Any live category not listed above is treated as Class B and logged as a
+# warning (catches new Kalshi categories).

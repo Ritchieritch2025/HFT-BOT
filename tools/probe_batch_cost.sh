@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Empirical batch-orderbook token-cost probe (PLAN_TOKEN_RULES T6 / F8).
-# READ-ONLY (no orders). Requires a real demo key. Record findings in
+# READ-ONLY (no orders). Requires a real prod key. Record findings in
 # docs/KALSHI_RULEBOOK.md (T9).
 #
-# Usage: KALSHI_ENV=demo KALSHI_API_KEY_ID=... KALSHI_PRIVATE_KEY_PATH=...
+# Usage: KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 KALSHI_API_KEY_ID=... KALSHI_PRIVATE_KEY_PATH=...
 #        tools/probe_batch_cost.sh [seconds] [ticker ...]
 set -euo pipefail
 cd "$(dirname "$0")/.."

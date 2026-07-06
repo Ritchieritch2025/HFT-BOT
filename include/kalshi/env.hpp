@@ -5,8 +5,8 @@
 //   - prod and live each require an explicit KALSHI_ALLOW_* env var or resolution
 //     throws;
 //   - KALSHI_BASE_URL is cross-validated against KALSHI_ENV by a host allowlist
-//     (both directions) so a "prod" collector can never silently read demo data,
-//     and non-TLS is permitted only for the local mock;
+//     (both directions) so a "prod" collector can never silently read another
+//     host's data, and non-TLS is permitted only for the local mock;
 //   - order transmission anywhere must pass require_orders_allowed(), which throws
 //     unless live is explicitly enabled (Shadow never passes — it logs, never sends).
 //
@@ -18,13 +18,15 @@
 
 namespace kalshi {
 
-enum class Env : std::uint8_t { LocalMock, Demo, Prod };
+// Only two real targets: the offline local mock (tests/dev) and prod. Kalshi's
+// demo exchange is unavailable, so it is not a supported env — KALSHI_ENV=demo
+// is rejected fail-closed in resolve_runtime().
+enum class Env : std::uint8_t { LocalMock, Prod };
 enum class Mode : std::uint8_t { DataCollect, Shadow, Live };
 
 inline const char* to_string(Env e) {
   switch (e) {
     case Env::LocalMock: return "local_mock";
-    case Env::Demo: return "demo";
     case Env::Prod: return "prod";
   }
   return "local_mock";
@@ -52,7 +54,7 @@ struct Runtime {
   std::string ws_url;          // resolved for the next (WS) pass; unused now
   std::string ws_sign_path = "/trade-api/ws/v2";
   bool read_only = true;       // mode != Live
-  bool orders_enabled = false; // Live && allow_live && env in {Demo,Prod}
+  bool orders_enabled = false; // Live && allow_live && env == Prod
   bool shadow = false;         // mode == Shadow
 };
 

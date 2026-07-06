@@ -108,6 +108,8 @@ def handle(conn):
                     send_text(conn, '{"type":"orderbook_snapshot","sid":7,"seq":1,"msg":{"market_ticker":"MKT-A","yes_dollars_fp":[["0.4000","500.00"]],"no_dollars_fp":[["0.5500","100.00"]]}}')
                     send_text(conn, '{"type":"orderbook_delta","sid":7,"seq":2,"msg":{"market_ticker":"MKT-A","price_dollars":"0.4200","delta_fp":"300.00","side":"yes"}}')
                     send_text(conn, '{"type":"orderbook_delta","sid":7,"seq":3,"msg":{"market_ticker":"MKT-A","price_dollars":"0.5500","delta_fp":"-100.00","side":"no"}}')
+                    send_text(conn, '{"type":"ticker","sid":7,"seq":4,"msg":{"market_ticker":"MKT-A","price_dollars":"0.4300","yes_bid_dollars":"0.4200","yes_ask_dollars":"0.4500","volume_fp":"123.00","open_interest_fp":"456.00","ts_ms":1700000000000}}')
+                    send_text(conn, '{"type":"trade","sid":7,"seq":5,"msg":{"trade_id":"t-mock-1","market_ticker":"MKT-A","yes_price_dollars":"0.4300","count_fp":"2.00","taker_outcome_side":"yes","ts_ms":1700000000001}}')
                     print("SENT_BOOK", flush=True)
                     # heartbeat: server pings with "heartbeat" payload
                     send_frame(conn, 0x9, b"heartbeat")
