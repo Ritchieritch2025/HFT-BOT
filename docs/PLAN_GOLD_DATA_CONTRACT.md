@@ -61,7 +61,10 @@ struct GoldRecord {
   // ordering / identity (32 B)
   uint64_t ts_us;                // capture epoch µs — the only clock
   uint64_t stream_seq;           // global monotonic merge order (total-order tie-break)
-  uint32_t market_id;            // dense per-day id -> sidecar dim (ticker, category, close_time)
+  uint32_t market_id;            // dense per-day id -> sidecar dim (ticker, category, close_time).
+                                 // DAY-SCOPED: meaningful only within one date partition.
+                                 // Cross-day joins on market_id alone are FORBIDDEN;
+                                 // cross-day access requires (date, market_id) or market_ticker.
   uint16_t event_type;
   uint16_t flags;
   // join key (8 B)
@@ -110,9 +113,19 @@ flag. Invalid books ⇒ arrays zeroed + `F_BOOK_VALID=0` (never stale data).
    lookups, trades reference only already-emitted `book_seq`.
 5. Channel races (trade prints outside as-of touch) are flagged
    `F_TRADE_RACED` and counted — published metric, never repaired (D2).
+   **Policy: day one is REPORT-ONLY.** No hardcoded blocking threshold
+   (0.1% or otherwise). Race rate is reported by category, subcategory,
+   market, market class (A/B), and liquidity tier. After operator approval,
+   category-specific thresholds MAY become blocking. A high race rate marks
+   the affected slice `unsafe_for_microstructure` in the manifest (fill
+   simulation / queue studies must refuse it) — it does NOT quarantine the
+   day for other research uses (spread/vol calibration remains valid).
 
 Output: `work/gold/date=<D>/gold_<D>.bin` + sidecars
-(`markets_<D>.csv` dim incl. close_time; `trade_ids_<D>.csv` stream_seq→UUID).
+(`markets_<D>.csv` dim with a `date` column + ticker/category/close_time +
+liquidity tier; `trade_ids_<D>.csv` stream_seq→UUID) + `manifest_<D>.json`
+(record count, gold file md5, **md5 of every sidecar**, builder version,
+source-day identifiers, and the day-level safety verdicts from V5/V7).
 Derived data: rebuildable from the warehouse, safe to delete, excluded from
 raw-retention rules.
 
@@ -124,9 +137,9 @@ raw-retention rules.
 | V2 | Manifest reconciliation | parsed row counts == archive manifest counts; md5 match |
 | V3 | Total order | `stream_seq` dense; `(ts_us, stream_seq)` non-decreasing; per-market `book_seq` strictly increasing, gap-free |
 | V4 | Book integrity | zero negative levels emitted; negative delta ⇒ invalid-until-snapshot (count reported); crossed books flagged not repaired |
-| V5 | L1 cross-check | covered markets: reconstructed top-of-book equals L1 change rows within measured channel-race window δ (start 500 ms, tighten to empirical p99); ≥99% agreement. 1 µs equality across independent WS channels is physically meaningless — δ is measured and published |
+| V5 | L1 cross-check | covered markets: reconstructed top-of-book equals L1 change rows within measured channel-race window δ. δ is REPORTED AS A DISTRIBUTION — p50/p90/p99/max delta_ms + mismatch counts, broken down by market_id, market_ticker, category, subcategory, and liquidity tier. **Widening δ to absorb mismatches is forbidden**: markets whose mismatch rate stays high at the global p99 δ go on a surfaced bad-markets list, not into a looser window. 1 µs equality across independent WS channels is physically meaningless — δ is measured, published, per-slice |
 | V6 | No look-ahead | every TRADE: `ts(book_seq) ≤ ts_us(trade)` AND merge-position(book) < merge-position(trade), asserted structurally on the emitted stream |
-| V7 | Economic consistency | ≥X% trades print at as-of best (taker=yes ⇒ ask, taker=no ⇒ bid); X calibrated day one, then regression-locked; race rate reported per category |
+| V7 | Economic consistency | trades printing at as-of best (taker=yes ⇒ ask, taker=no ⇒ bid) measured and REPORTED per category, subcategory, market, market class, and liquidity tier. **Day one: report-only — no blocking threshold.** Category-specific thresholds activate only after operator approval of the day-one report; until then V7 may mark slices `unsafe_for_microstructure` but cannot fail the build |
 | V8 | Trade dedupe | trade_id unique; zero xxh64 collisions vs sidecar |
 | V9 | Heartbeat neutrality | hourly heartbeats advance no book_seq, diff no state |
 | V10 | Coverage honesty | traded-but-uncovered market count reported; all such records `F_BOOK_COVERED=0`; no silent inner-join shrinkage |
@@ -137,112 +150,186 @@ raw-retention rules.
 | V15 | Depth-set stability | full-depth market set matches the declared subscription list; shrinkage is an error not a warning |
 | V16 | Class-policy safety net | new/unlisted Kalshi category ⇒ Class B default + surfaced warning (matches build_classification behavior) |
 
-## 3. Workstreams (execute in order; each = one commit; tests in the same change)
+## 3. Workstreams (execute in order; one W = one commit; a W does not start
+## until the previous one is green)
+
+**Anti-fake-green rule (binding on every W):** every validator check and every
+FSM/merge behavior ships with at least one seeded-defect fixture that makes it
+FAIL (in `tests/fixtures/gold_defects/`, run in CI as must-fail assertions).
+A check that has never been red is unproven (D2).
+**Size discipline:** one component per W, ≤ ~300 new lines excluding tests,
+pure functions before I/O, no forward references.
+**Global forbidden writes (every W, no exceptions unless its own Allowed
+writes says otherwise):** `tools/ingest.py`, `tools/export_day.py`,
+`tools/pipeline_supervisor.sh`, `apps/ws_shadow.cpp`, `config/*`,
+`work/raw/*`, `work/warehouse/*` (read-only via load()), `dashboard_server.py`,
+anything live_order-classed.
 
 ### W1 — Contract in code
-- `include/trading/gold_record.hpp` + `tests/test_gold_layout.cpp` (offset/size
-  static_asserts + layout JSON dump target).
-- `tools/gold_dtype.py` (numpy mirror) + `tests/test_gold_dtype.py`.
-- Add both to Makefile check + `tests/run_pipeline.sh`; register in
-  `tools.json` (safety class: research/read-only); `check_registry` passes.
-- **Done when:** V11 green via `make check`.
+Purpose:          land the GoldRecord layout contract (C++/Python parity). Nothing else.
+Allowed reads:    this plan; include/trading/*; Makefile; tools.json; tests/run_pipeline.sh
+Allowed writes:   include/trading/gold_record.hpp; tests/test_gold_layout.cpp;
+                  tools/gold_dtype.py; tests/test_gold_dtype.py;
+                  Makefile / tools.json / tests/run_pipeline.sh (append-only entries)
+Forbidden writes: everything else. NO benchmarks, NO validator logic, NO real-day builds.
+Acceptance:       make check green incl. layout test; C++ layout JSON == numpy dtype
+                  offsets; sizeof==512 + little-endian asserts; check_registry passes.
+Rollback:         revert commit (additive files + appended lines only).
+Exit evidence:    commit hash; make check tail; committed layout JSON path.
 
-### W2 — Builder + core validator (SIX atomic sub-steps; one commit each;
-### a sub-step does not start until the previous one is green)
+### W2.1 — Typed loaders
+Purpose:          l1/full/trades → typed events; E4 integer-only parse; trade sort + dedupe.
+Allowed reads:    warehouse via tools/warehouse.py load() (read-only); real 2026-07-06 rows.
+Allowed writes:   tools/gold_load.py; tests/test_gold_load.py;
+                  tests/fixtures/gold_golden_rows/*; tests/fixtures/gold_defects/*
+Forbidden writes: warehouse.py itself; any data under work/.
+Acceptance:       byte-exact E4 round-trip on golden rows (V1); float-parse grep gate;
+                  duplicate-trade defect fixture FAILS (V8 red).
+Rollback:         revert commit.
+Exit evidence:    commit hash; pytest output showing green suite + must-fail proof.
 
-**Anti-fake-green rule (binding on every sub-step):** every validator check
-and every FSM/merge behavior ships with at least one **seeded-defect fixture
-that makes it FAIL**. A check that has never been red is unproven (D2). The
-red fixtures live in `tests/fixtures/gold_defects/` and run in CI as
-"must-fail" assertions.
+### W2.2 — Book FSM
+Purpose:          pure book state machine (snapshot/delta/invalid/heartbeat), zero I/O.
+Allowed reads:    include/kalshi/orderbook.hpp (semantics reference); this plan §2.2.
+Allowed writes:   tools/gold_fsm.py; tests/test_gold_fsm.py; gold_defects fixtures.
+Forbidden writes: everything else; no network, no files read at runtime.
+Acceptance:       negative-delta ⇒ INVALID (no clamp); invalid-until-snapshot; heartbeat
+                  neutrality (V9); crossed flag; yes-space transform (10000−no_price).
+                  Red fixtures: clamp bug, stale-state-after-invalid — both FAIL.
+Rollback:         revert commit.
+Exit evidence:    commit hash; pytest green + red-fixture proof.
 
-Size discipline: each sub-step is one component, ≤ ~300 new lines excluding
-tests, pure functions before I/O, no forward references to later sub-steps.
+### W2.3 — Merge iterator
+Purpose:          total order (ts_us, TRADE<BOOK_DELTA, file_order); stream_seq/book_seq
+                  minting; trade→book_seq assignment. Pure logic on synthetic lists.
+Allowed reads:    this plan §2.2.
+Allowed writes:   tools/gold_merge.py; tests/test_gold_merge.py; gold_defects fixtures.
+Forbidden writes: everything else.
+Acceptance:       structural V6 on synthetic streams. Red fixtures: same-µs
+                  delta-before-trade bug, book_seq gap — both FAIL.
+Rollback:         revert commit.
+Exit evidence:    commit hash; pytest green + red-fixture proof.
 
-- **W2.1 Typed loaders** — `tools/gold_load.py`: one loader per source
-  (l1 / full / trades) → typed event tuples. E4 integer digit-accumulation
-  parse only; trades sort + trade_id dedupe here. Tests: golden rows from the
-  real 2026-07-06 files, byte-exact re-render (V1), duplicate-trade fixture
-  (V8 red test), float-parse grep gate.
-  *Done:* loaders round-trip real rows; defect fixtures fail.
-- **W2.2 Book FSM** — pure module, zero I/O: snapshot/delta/invalid/heartbeat
-  per §2.2 step 2. Synthetic tests: negative-delta ⇒ INVALID (not clamp),
-  invalid-until-snapshot, heartbeat neutrality (V9), crossed-book flag,
-  yes-space ask transform (10000 − no_price). Red fixtures: clamp bug,
-  stale-state-after-invalid bug.
-  *Done:* FSM tests green AND red fixtures fail.
-- **W2.3 Merge iterator** — pure ordering logic over synthetic event lists:
-  total order `(ts_us, TRADE<BOOK_DELTA, file_order)`, stream_seq/book_seq
-  minting, trade→book_seq assignment. Structural V6 on synthetic streams.
-  Red fixtures: same-µs delta-before-trade bug, book_seq gap bug.
-  *Done:* merge tests green AND red fixtures fail.
-- **W2.4 Gold writer/reader** — records → `.bin` + sidecars; numpy mmap
-  read-back equals input record-for-record (runtime half of V11).
-  *Done:* write→mmap→compare on 10k synthetic records.
-- **W2.5 Validator harness** — `tools/gold_validate.py` running V2, V3, V4,
-  V6, V9, V10 as independent checks over a built file + quarantine-on-fail.
-  Each check gets its own seeded-defect gold file that must turn it red.
-  *Done:* all checks green on synthetic good file; each red on its defect file.
-- **W2.6 First real build** — `python3 tools/gold_build.py --date 2026-07-06`
-  (thin composition of W2.1–W2.5, no new logic). Validation report committed.
-  *Done:* real day builds + validates; report in `work/gold/`.
+### W2.4 — Gold writer/reader
+Purpose:          records → .bin + sidecars + manifest; mmap reader; market_id stability.
+Allowed reads:    outputs of W2.1–W2.3 modules.
+Allowed writes:   tools/gold_io.py; tests/test_gold_io.py; gold_defects fixtures;
+                  work/gold/* (derived data only).
+Forbidden writes: everything else.
+Acceptance:       write→mmap→compare on 10k synthetic records (V11 runtime half);
+                  same-day 1:1 market_id↔ticker asserted (violation = build failure);
+                  sidecar has date column; manifest has sidecar md5s; reader refuses
+                  market_id-only cross-day access. Red fixtures: duplicate-ticker-two-ids,
+                  one-id-two-tickers, sidecar-md5 mismatch — all three FAIL.
+Rollback:         revert commit; delete work/gold/ (derived, rebuildable).
+Exit evidence:    commit hash; pytest green + 3 red-fixture proofs.
 
-### W3 — Cross-source checks (three sub-steps, same discipline)
-- **W3.1** V5 L1 agreement: measure δ on 2026-07-06, write into report.
-  Red fixture: shifted-book file must break agreement.
-- **W3.2** V7 economic consistency: calibrate X on 2026-07-06, lock as
-  regression threshold. Red fixture: inverted taker_side must fail.
-- **W3.3** V13 golden frames: extract 1 snapshot + 50 deltas + 50 trades from
-  `work/raw/` into `tests/fixtures/kalshi_golden/`; assert field semantics.
-- **Done when:** report prints δ, X, race rates per category; thresholds
-  committed; every red fixture verified failing.
+### W2.5 — Validator harness
+Purpose:          gold_validate.py running V2,V3,V4,V6,V9,V10 independently + quarantine.
+Allowed reads:    gold files from W2.4.
+Allowed writes:   tools/gold_validate.py; tests/test_gold_validate.py;
+                  gold_defects/* (one seeded-defect gold file PER CHECK); work/gold/*.
+Forbidden writes: everything else.
+Acceptance:       all checks green on synthetic good file; EACH check red on its own
+                  defect file; failed day → quarantine dir + nonzero exit.
+Rollback:         revert commit.
+Exit evidence:    commit hash; per-check green/red matrix printed.
+
+### W2.6 — First real build
+Purpose:          gold_build.py = thin composition of W2.1–W2.5. NO new logic.
+Allowed reads:    warehouse (read-only).
+Allowed writes:   tools/gold_build.py; work/gold/date=2026-07-06/*; validation report.
+Forbidden writes: everything else; zero new business logic (composition only).
+Acceptance:       `python3 tools/gold_build.py --date 2026-07-06` builds + validates.
+Rollback:         revert commit; delete work/gold/.
+Exit evidence:    commit hash; report path; validator summary printed.
+
+### W-BENCH — volume benchmark (opt-in; NEVER in make check / CI / W1)
+Purpose:          catch memory blowups before multi-week datasets exist.
+Allowed reads:    none required (synthetic generation).
+Allowed writes:   tools/gold_bench.py; work/gold/bench_report_*.
+Forbidden writes: everything else; no CI wiring, no Makefile default targets.
+Acceptance:       BENCH_LARGE=1 run on 10M + 20M synthetic events reports rows/sec,
+                  GB/sec, peak RSS, file size, mmap/lazy vs full-load. Never gates builds.
+Rollback:         revert commit.
+Exit evidence:    commit hash; bench report path (when run).
+
+### W3.1 — δ distribution (V5)
+Purpose:          measure L1↔book agreement window δ as a distribution, not a scalar.
+Allowed reads:    gold file + L1 (read-only).
+Allowed writes:   validator/report modules; tests; gold_defects fixture; work/gold/*.
+Forbidden writes: everything else.
+Acceptance:       report has p50/p90/p99/max delta_ms + mismatch counts by market_id,
+                  ticker, category, subcategory, liquidity tier; bad-markets list
+                  surfaced (widening δ to absorb mismatches FORBIDDEN).
+                  Red fixture: shifted-book file breaks agreement.
+Rollback:         revert commit.
+Exit evidence:    commit hash; report path with δ table.
+
+### W3.2 — Race/consistency report (V7, REPORT-ONLY)
+Purpose:          day-one economic-consistency measurement. No blocking thresholds.
+Allowed reads:    gold file (read-only).
+Allowed writes:   report modules; tests; gold_defects fixture; work/gold/*.
+Forbidden writes: everything else; NO threshold enforcement code paths.
+Acceptance:       race rate per category/subcategory/market/class/tier; proposed
+                  thresholds listed FOR OPERATOR APPROVAL only;
+                  unsafe_for_microstructure marking works. Red fixture: inverted
+                  taker_side fails the measurement (not a threshold).
+Rollback:         revert commit.
+Exit evidence:    commit hash; report path; proposed-threshold table.
+
+### W3.3 — Golden frames (V13)
+Purpose:          pin Kalshi field semantics against real captured frames.
+Allowed reads:    work/raw/ (read-only sampling).
+Allowed writes:   tests/fixtures/kalshi_golden/* (1 snapshot + 50 deltas + 50 trades);
+                  tests/test_kalshi_golden.py.
+Forbidden writes: everything else.
+Acceptance:       per-sid seq scoping, trade_id dedupe key, fixed-point strings all
+                  asserted on real frames; V12 spec-drift gate wired as precondition.
+Rollback:         revert commit.
+Exit evidence:    commit hash; pytest green.
 
 ### W4 — Coverage auditor
-- `tools/coverage_audit.py` (read-only, daily, invoked by the supervisor's
-  post-export hook alongside mm_scan):
-  - S1 universe reconciliation: catalog active markets vs observed L1/trades;
-    active-but-unseen > N hours ⇒ alert line in report + nonzero warn status.
-  - S2 liquidity tiers (High/Mid/Low by volume × trade count from our own
-    warehouse, Q4); **requirement: High+Mid ⇒ 100% L1**; Class B violators
-    listed as promotion candidates in `work/mm/promotion_candidates_<D>.csv`.
-    Auto-editing `market_classes.yaml` is FORBIDDEN in this plan — operator
-    applies promotions as a reviewed change.
-  - S3 sports completeness: every catalog sports subcategory present in L1;
-    root-cause lines for the 2 missed markets pattern (late listing lag).
-  - S4 depth-target list: High tier + Mid-tier Sports + mm_scan top-N, written
-    to `work/mm/depth_target_<D>.csv` — this is the input to the future
-    depth-expansion plan, not a subscription change.
-- Tests: `tests/test_coverage_audit.py` with fixture catalogs (incl. a fake
-  new category → V16).
-- Wire V12+V14+V15+V16 into `lifecycle_check` as a new non-blocking research
-  stage (blocking for gold builds only).
-- **Done when:** auditor runs clean on live warehouse; report file exists;
-  `tests/run_pipeline.sh` green.
+Purpose:          daily scope proof: S1 universe reconciliation, S2 liquidity tiers
+                  (High+Mid ⇒ 100% L1), S3 sports completeness, S4 depth-target list.
+Allowed reads:    catalog + staging/archive (read-only).
+Allowed writes:   tools/coverage_audit.py; tests/test_coverage_audit.py;
+                  work/mm/promotion_candidates_*.csv; work/mm/depth_target_*.csv;
+                  tools/lifecycle_check.py (append one non-blocking research stage);
+                  tools.json (append).
+Forbidden writes: config/market_classes.yaml (auto-editing FORBIDDEN — promotions are
+                  operator-reviewed changes); pipeline_supervisor.sh (hook wiring goes
+                  to next_actions.md as an operator-gated line item, P4).
+Acceptance:       clean run on live warehouse; V14/V15/V16 implemented; fixture
+                  catalogs incl. fake-new-category test (V16).
+Rollback:         revert commit.
+Exit evidence:    commit hash; audit report path; promotion-candidates CSV path.
 
-### W5 — Exporter seq column (the one production-adjacent change)
-- Add per-sid WS `seq` (and sid) columns to `orderbooks_full` in ingest +
-  export; additive, nullable for historical rows.
-- **D4 obligation:** ingest-side test in the same change.
-  **P4 continuity:** ingest.py --loop change is backward-compatible (old rows
-  unaffected); deploy = restart ingester only (checkpointed offsets make the
-  restart gap/dup-free — cite the checkpoint test); ws_shadow capture process
-  is NOT touched. Update `docs/warehouse_schema.md` in the same commit (E5).
-- Gold builder prefers real seq when present; falls back to file order for
-  pre-change days (recorded in the validation report).
-- **Done when:** new column flows raw→staging→export on a test capture;
-  pipeline tests green; schema doc updated.
+### W5 — Exporter seq column (the ONE production-adjacent change)
+Purpose:          per-sid WS seq (+sid) into orderbooks_full, raw→staging→export;
+                  gold builder prefers real seq, falls back to file order for
+                  pre-change days (recorded in the validation report).
+Allowed reads:    ingest/export source; test captures.
+Allowed writes:   tools/ingest.py; tools/export_day.py; their tests (same commit);
+                  docs/warehouse_schema.md (same commit, E5).
+Forbidden writes: apps/ws_shadow.cpp and ALL capture-side code; supervisor.
+Acceptance:       additive nullable column flows end-to-end on a test capture;
+                  ingest-side test same commit (D4); pipeline tests green;
+                  continuity statement: ingester restart only, checkpointed offsets
+                  make it gap/dup-free (P4).
+Rollback:         revert commit + restart ingester (checkpoint-safe).
+Exit evidence:    commit hash; schema doc diff; pipeline test tail.
 
-### W6 — Depth-expansion design + bounded probe (NO rollout)
-- From spec (asyncapi/openapi) extract subscription limits: max markets per
-  subscribe, per-connection caps, rate implications (C3). Where the spec is
-  silent, run ONE bounded read-only probe: a separate shadow WS process (never
-  the production firehose) subscribing `orderbook_delta` for the top ~50
-  markets from `depth_target`, 15 minutes, measuring msg rate + bytes/market
-  by tier. Requires operator go-ahead to run (network); refuses live mode.
-- Deliverable: `docs/PLAN_DEPTH_EXPANSION.md` draft with measured sizing,
-  connection topology, rollout-with-continuity story, and D4 test list —
-  for operator approval as its own plan.
-- **Done when:** the draft plan exists with real numbers in it.
+### W6 — Depth-expansion design + probe (operator-gated)
+Purpose:          measured sizing for orderbook_delta expansion; design doc only.
+Allowed reads:    docs/vendor/kalshi/latest/* (spec limits); depth_target list.
+Allowed writes:   docs/PLAN_DEPTH_EXPANSION.md; probe tool (separate shadow process).
+Forbidden writes: production firehose/supervisor/config — NO rollout in this W.
+Acceptance:       spec-derived limits documented; IF operator approves the bounded
+                  probe (15 min, ~50 markets, read-only, refuses live): measured msg
+                  rate + bytes/market by tier in the draft plan.
+Rollback:         revert commit (docs + standalone tool only).
+Exit evidence:    commit hash; draft plan path with real numbers or probe-pending mark.
 
 ## 4. Acceptance (demonstrated, not described)
 
@@ -252,6 +339,8 @@ python3 tools/gold_build.py --date 2026-07-06            # builds + validates
 python3 tools/gold_validate.py --date 2026-07-06 --report # V1-V13 pass, δ/X printed
 python3 tools/coverage_audit.py --date 2026-07-06        # S1-S4 report, V14-V16
 python3 tools/check_registry.py                          # registry complete
+# opt-in only, never in CI:
+# BENCH_LARGE=1 python3 tools/gold_bench.py              # W-BENCH volume numbers
 ```
 
 ## 5. Rollback

@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 14:09 UTC — Gold contract plan audited: APPROVED, 8 findings (3 MUST)
+
+- commits: (this commit) docs/plan_audits/2026-07-06_gold_data_contract.md
+- decisions:
+  - Audit verdict + findings -> docs/plan_audits/2026-07-06_gold_data_contract.md
+  - MUST-fix before W1: (G1) W1 blocked on WP-00 pytest scaffold; (G2)
+    .gitignore negation for tests/fixtures/** + git-tracked assertion, else
+    all gold fixtures are silently swallowed by global *.ndjson/*.csv.gz
+    ignores; (G3) GoldRecord sizeof arithmetic is 488 not 512 — fix is
+    _reserved[5] (40B) to land exactly on 512
+- context capsule: offsets verified field-by-field (identity 0-32 incl
+  book_seq, trade 32-56, arrays 56-440, tail 440-488). V5 day-one support is
+  only 4 full-depth markets in a ~4h window — report must print support size.
+  trade_id_hash algo is an OPEN QUESTION for R (xxhash=new dep; FNV-1a-64
+  recommended, V8 collision check makes weakness detectable). V12 needs a
+  7-day staleness bound. work/gold needs local retention (keep N days).
+- blocked / handoff: R adjudicates G6 (hash algo) + confirms G3 fix; then
+  WP-00 -> W1. Queue pointer unchanged (EXECUTION_PLAN WP-00 first).
 ## 2026-07-06 12:57 UTC — v1.0 verbatim recovered; EXECUTION_PLAN upgraded to v1.2 (all GAPs resolved)
 
 - commits: (this commit) v1.0 verbatim preservation + v1.2 merge + Cowork
