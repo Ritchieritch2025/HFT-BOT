@@ -53,3 +53,23 @@ noticed-during, observation, suggested owner.
   (stream_seq assigned, book_seq never advanced, state untouched — V9),
   so the merge side is proven; which warehouse rows are MAPPED to
   HEARTBEAT events (vs L1_TICKER) remains the open half. Owner: W2.6.
+- 2026-07-06 · noticed during W2.4 · RESOLUTION of the W2.2 nlevels note:
+  the W2.4 writer now gates uint16 overflow — bid/ask_nlevels > 65535 is a
+  loud BUILD FAILURE (GoldIOError), never a silent truncation or a bare
+  numpy OverflowError (test_nlevels_overflow_is_loud_build_failure).
+- 2026-07-06 · noticed during W2.4 · G8 retention (GOLD_RETENTION_DAYS,
+  keep newest 14 derived work/gold/date=<D>/ partitions) has no pruning
+  helper yet — gold_io only writes/reads single partitions. Enforcement
+  belongs with the W2.6 gold_build composition (or ops), and must prune
+  ONLY derived date partitions, never raw/archive/manifests elsewhere.
+  Owner: W2.6.
+- 2026-07-06 · noticed during W2.4 · records_to_array serializes with a
+  per-row Python loop (10k records ≈ 0.1s in-suite; a full production day
+  ~650k events extrapolates to seconds). Fine for correctness-first;
+  W-BENCH should measure and W2.6 may vectorize (no semantics change).
+  Owner: W-BENCH/W2.6.
+- 2026-07-06 · noticed during W2.4 · manifest safety_verdicts are written
+  as V5/V7 "pending" placeholders. W3.1/W3.2 will rewrite the manifest to
+  fill them; note the manifest is the (unhashed) root of trust, so any
+  verdict update must NOT touch the gold/sidecar md5s it certifies.
+  Owner: W3.1/W3.2.
