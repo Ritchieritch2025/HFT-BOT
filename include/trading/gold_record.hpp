@@ -83,10 +83,12 @@ static_assert(sizeof(GoldRecord::_reserved) == 40, "reserved tail is 40 B");
 // in tools/gold_dtype.py. Weak alone — V8 reconciles every hash against the
 // sidecar UUIDs each build, so collisions are detected, not assumed away.
 inline constexpr std::uint64_t fnv1a64(const char* s, std::size_t n) {
-  std::uint64_t h = 1469598103934665603ull;         // FNV offset basis
+  // Constants in hex to stay visibly identical to tools/gold_dtype.py
+  // (audit F1: a decimal transcription once dropped the final digit).
+  std::uint64_t h = 0xCBF29CE484222325ull;          // FNV offset basis
   for (std::size_t i = 0; i < n; ++i) {
     h ^= static_cast<std::uint8_t>(s[i]);
-    h *= 1099511628211ull;                          // FNV prime
+    h *= 0x100000001B3ull;                          // FNV prime
   }
   return h;
 }

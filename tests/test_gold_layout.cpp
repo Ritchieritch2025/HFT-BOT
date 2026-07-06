@@ -91,6 +91,18 @@ int main(int argc, char** argv) {
   std::memcpy(&b0, &probe, 1);
   check("platform is little-endian", b0 == 0x02);
 
+  // FNV-1a-64 cross-language parity vectors (audit F1: the C++ constant once
+  // dropped a digit and no test existed; these vectors are asserted
+  // identically in tests/test_gold_dtype.py — first two are the published
+  // FNV-1a-64 test vectors, third is a UUID-shaped trade_id).
+  check("fnv1a64(\"\") == 0xcbf29ce484222325",
+        trading::fnv1a64("", 0) == 0xcbf29ce484222325ull);
+  check("fnv1a64(\"a\") == 0xaf63dc4c8601ec8c",
+        trading::fnv1a64("a", 1) == 0xaf63dc4c8601ec8cull);
+  const char* uuid = "a0be3c5a-8563-725e-5d8e-26026dda3934";
+  check("fnv1a64(uuid) == 0x2b7e2a9e8505c3a4",
+        trading::fnv1a64(uuid, std::strlen(uuid)) == 0x2b7e2a9e8505c3a4ull);
+
   std::ifstream f(kCanonical, std::ios::binary);
   check("committed layout JSON exists (tests/fixtures/gold_layout.json)",
         f.good());

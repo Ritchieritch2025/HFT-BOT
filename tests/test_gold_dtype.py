@@ -78,6 +78,17 @@ def test_record_roundtrip_through_bytes():
     assert back["trade_qty_e4"][0] == 51_190_000
 
 
+def test_fnv1a64_known_vectors():
+    """Cross-language parity (audit F1): identical vectors are asserted in
+    tests/test_gold_layout.cpp; first two are the published FNV-1a-64 test
+    vectors, third is a UUID-shaped trade_id."""
+    from tools.gold_dtype import fnv1a64
+    assert fnv1a64("") == 0xCBF29CE484222325
+    assert fnv1a64("a") == 0xAF63DC4C8601EC8C
+    assert fnv1a64("a0be3c5a-8563-725e-5d8e-26026dda3934") == 0x2B7E2A9E8505C3A4
+    assert fnv1a64(b"a") == fnv1a64("a")  # bytes/str parity
+
+
 def test_all_fixture_files_are_git_tracked():
     """Audit G2: the repo's global ignore patterns (*.ndjson, *.parquet,
     *.csv.gz) must never silently swallow a fixture."""
