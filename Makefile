@@ -346,8 +346,11 @@ check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
 	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
 	@set -e; for t in $(PY_WAREHOUSE_TESTS); do echo "== $$t"; python3 $$t | tail -1; done
 
-test: $(BUILD)/test_signing
-	$(BUILD)/test_signing
+# pytest contract suites (EXECUTION_PLAN WP-00). Empty scaffold is green;
+# legacy suites remain under `make check` (see tests/conftest.py). The old
+# `make test` (ran test_signing only) is covered by `make check`.
+test:
+	./tests/run_pytest.sh
 
 clean:
 	rm -rf $(BUILD)
