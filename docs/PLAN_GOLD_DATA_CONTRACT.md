@@ -58,7 +58,7 @@ enum Flags : uint16_t {
 };
 
 struct GoldRecord {
-  // ordering / identity (32 B)
+  // ordering / identity (24 B)
   uint64_t ts_us;                // capture epoch µs — the only clock
   uint64_t stream_seq;           // global monotonic merge order (total-order tie-break)
   uint32_t market_id;            // dense per-day id -> sidecar dim (ticker, category, close_time).
@@ -75,8 +75,10 @@ struct GoldRecord {
   uint8_t  taker_side;           // 0=none 1=yes 2=no
   uint8_t  _pad[3];
   int64_t  trade_qty_e4;
-  uint64_t trade_id_hash;        // xxh64(trade_id); full UUID in sidecar keyed by stream_seq
-  // book state as-of this record, yes-space, best-first (432 B)
+  uint64_t trade_id_hash;        // FNV-1a-64(trade_id) — G6 adjudicated: stdlib-free, 5 lines
+                                 // in both languages; V8 collision-reconciles every build;
+                                 // full UUID always preserved in sidecar keyed by stream_seq
+  // book state as-of this record, yes-space, best-first (416 B)
   int32_t  bid_px_e4[kDepth];    // from yes_levels (Yes bids)
   int32_t  ask_px_e4[kDepth];    // = 10000 - no_price, from no_levels (No bids)
   int64_t  bid_qty_e4[kDepth];
@@ -84,9 +86,10 @@ struct GoldRecord {
   int64_t  bid_rest_qty_e4, ask_rest_qty_e4;  // tail beyond kDepth — aggregated, never dropped silently
   uint16_t bid_nlevels, ask_nlevels;
   uint8_t  _pad2[12];
-  uint64_t _reserved[2];
+  uint64_t _reserved[5];         // pad to 512 (40 B; G3 fix: 472+40=512, 8-aligned)
 };
 static_assert(sizeof(GoldRecord) == 512);
+// Section arithmetic (audited 2026-07-06, G3): 24+8+24+416+40 = 512.
 ```
 
 Python mirror: a numpy structured dtype with identical offsets. Layout parity
@@ -100,11 +103,55 @@ flag. Invalid books ⇒ arrays zeroed + `F_BOOK_VALID=0` (never stale data).
 
 ### 2.2 Synchronization (build-time, single cursor)
 
-1. Normalize each source to typed events. Trades: stable-sort `(ts_us,
-   trade_id)`, dedupe on `trade_id`.
-2. Per-market book FSM mirroring `include/kalshi/orderbook.hpp` semantics:
-   snapshot ⇒ load+valid; delta driving any level negative ⇒ INVALID (no
-   clamp), stays invalid until next snapshot; heartbeats never mutate.
+1. Normalize each source to typed events THROUGH the dynamic validation
+   gates below. Trades: stable-sort `(ts_us, trade_id)`, dedupe on
+   `trade_id`. The gates run identically on ANY date and any replayed or
+   future stream. Historically known-bad windows (e.g. the 2026-07-06
+   08:18–08:35 UTC splice incident) remain documented audit facts, but
+   **the calendar is never the validation mechanism** — malformed input is
+   detected by inspecting the record, not by date arithmetic. ALL data on
+   ALL dates is processed; nothing is date-filtered.
+
+   **Loader validation gates (W2.1; every gate detected AND reported):**
+   malformed JSON / corrupt NDJSON line; invalid or missing market_ticker /
+   event_ticker / series_ticker; timestamp outside plausible range;
+   non-monotonic or suspicious timestamp clusters (reported, never "fixed");
+   price/qty accounting columns arriving as float dtype; price outside the
+   valid E4 range; negative or impossible quantities; malformed orderbook
+   level arrays; duplicate trade_id; inconsistent taker_side values;
+   missing required source fields; rows failing schema expectations.
+
+   **Loader outputs (operator-facing):** malformed_record_count;
+   malformed_record_sample CSV; rejected_record_reason counts; per-source
+   validation summary; quarantine file for rejected rows (original bytes
+   preserved — quarantine is "stored elsewhere", never "deleted"); loader
+   report for operator inspection.
+
+   **No silent repair (binding):** allowed actions — reject row, quarantine
+   row, mark record invalid, emit report, continue processing valid rows
+   when safe. FORBIDDEN — silently coercing float→E4; clamping invalid
+   prices; fabricating missing book state; inner-joining away uncovered
+   markets; hiding malformed rows from reports.
+2. Per-market book FSM mirroring `include/kalshi/orderbook.hpp` semantics,
+   robust to stream defects on any date: snapshot ⇒ load+valid; valid delta
+   mutates; delta driving any level negative ⇒ INVALID (no clamp); missing
+   or impossible delta ⇒ INVALID; crossed book ⇒ F_CROSSED flagged, never
+   repaired; heartbeats never mutate book state or book_seq. Sequence gap
+   (when seq exists) ⇒ INVALID + **Resync Required** marker. An invalid
+   book stays invalid until a LATER SNAPSHOT in the replay revalidates it;
+   if no later snapshot exists, every subsequent record for that market
+   stays F_BOOK_VALID=0.
+   **"Self-healing" means exactly deterministic replay recovery from the
+   next valid snapshot. It does NOT mean silent repair, does NOT mean
+   production re-subscription, does NOT change ws_shadow/firehose. Any
+   real-time subscription-resync mechanism belongs to a separate future
+   capture/execution plan.**
+
+   **Sequence-gap modes (W2.2 must NOT depend on W5):**
+   - Pre-W5 (no seq/sid columns exist): no true gap detection; file order
+     governs; every report states `seq_unavailable`.
+   - Post-W5: per-sid/per-market gap detection; gap ⇒ invalid-until-snapshot
+     as above.
 3. Global k-way merge on `(ts_us, type_priority, source_file_order)` with
    **TRADE < BOOK_DELTA at equal ts_us** (the same-µs delta is usually the
    decrement caused by the trade; the trade must see the pre-trade book).
@@ -127,7 +174,12 @@ liquidity tier; `trade_ids_<D>.csv` stream_seq→UUID) + `manifest_<D>.json`
 (record count, gold file md5, **md5 of every sidecar**, builder version,
 source-day identifiers, and the day-level safety verdicts from V5/V7).
 Derived data: rebuildable from the warehouse, safe to delete, excluded from
-raw-retention rules.
+raw-retention rules. Local retention (G8): keep the most recent 14 days of
+`work/gold/` (`GOLD_RETENTION_DAYS`, operator-tunable); older partitions are
+deleted and rebuilt on demand via `gold_build --date`. GOLD_RETENTION_DAYS
+applies ONLY to derived `work/gold/date=<D>/` partitions — it NEVER prunes
+raw capture, archive facts, manifests, catalog dims, classification dims,
+registry files, or operator reports (R decision 2026-07-06).
 
 ### 2.3 Validator — build fails or the day is quarantined unless ALL pass
 
@@ -136,19 +188,20 @@ raw-retention rules.
 | V1 | Lossless E4 round-trip | every price/qty string re-renders byte-exact from the parsed integer; zero float parses in loader code (grep-gated) |
 | V2 | Manifest reconciliation | parsed row counts == archive manifest counts; md5 match |
 | V3 | Total order | `stream_seq` dense; `(ts_us, stream_seq)` non-decreasing; per-market `book_seq` strictly increasing, gap-free |
-| V4 | Book integrity | zero negative levels emitted; negative delta ⇒ invalid-until-snapshot (count reported); crossed books flagged not repaired |
-| V5 | L1 cross-check | covered markets: reconstructed top-of-book equals L1 change rows within measured channel-race window δ. δ is REPORTED AS A DISTRIBUTION — p50/p90/p99/max delta_ms + mismatch counts, broken down by market_id, market_ticker, category, subcategory, and liquidity tier. **Widening δ to absorb mismatches is forbidden**: markets whose mismatch rate stays high at the global p99 δ go on a surfaced bad-markets list, not into a looser window. 1 µs equality across independent WS channels is physically meaningless — δ is measured, published, per-slice |
+| V4 | Book integrity | zero negative levels emitted; negative/missing/impossible delta ⇒ invalid-until-snapshot (count reported); seq gap (when seq exists) ⇒ invalid + Resync Required; revalidation from a later snapshot PROVEN; crossed books flagged not repaired |
+| V5 | L1 cross-check | covered markets: reconstructed top-of-book equals L1 change rows within measured channel-race window δ. δ is REPORTED AS A DISTRIBUTION — p50/p90/p99/max delta_ms + mismatch counts, broken down by market_id, market_ticker, category, subcategory, and liquidity tier. **Widening δ to absorb mismatches is forbidden**: markets whose mismatch rate stays high at the global p99 δ go on a surfaced bad-markets list, not into a looser window. 1 µs equality across independent WS channels is physically meaningless — δ is measured, published, per-slice. Report MUST print support size: n_markets, capture_hours, n_l1_rows, n_full_depth_rows, n_matched_pairs; day-one δ is labeled a BASELINE SAMPLE, not global truth (R decision 2026-07-06) |
 | V6 | No look-ahead | every TRADE: `ts(book_seq) ≤ ts_us(trade)` AND merge-position(book) < merge-position(trade), asserted structurally on the emitted stream |
 | V7 | Economic consistency | trades printing at as-of best (taker=yes ⇒ ask, taker=no ⇒ bid) measured and REPORTED per category, subcategory, market, market class, and liquidity tier. **Day one: report-only — no blocking threshold.** Category-specific thresholds activate only after operator approval of the day-one report; until then V7 may mark slices `unsafe_for_microstructure` but cannot fail the build |
-| V8 | Trade dedupe | trade_id unique; zero xxh64 collisions vs sidecar |
+| V8 | Trade dedupe | trade_id unique; zero FNV-1a-64 collisions vs sidecar (reconciled every build) |
 | V9 | Heartbeat neutrality | hourly heartbeats advance no book_seq, diff no state |
 | V10 | Coverage honesty | traded-but-uncovered market count reported; all such records `F_BOOK_COVERED=0`; no silent inner-join shrinkage |
 | V11 | Layout parity | C++ static_asserts (size 512 + offsets) and Python dtype match the dumped layout JSON; mmap random access == streamed parse on 1,000 sampled records |
-| V12 | Spec-drift gate | `kalshi_spec_sync` green (last saved result) before any gold build; drift in ticker/trade/orderbook_delta schemas blocks the day |
+| V12 | Spec-drift gate | `kalshi_spec_sync` green AND its saved result ≤ 7 days old (staler ⇒ gate fails, rerun sync first) before any gold build; drift in ticker/trade/orderbook_delta schemas blocks the day |
 | V13 | Golden-frame semantics | field semantics verified against real frames sampled from `work/raw/`: per-sid seq scoping, trade_id dedupe key, taker_side lift direction (empirical via V7), fixed-point strings |
 | V14 | Liquidity coverage | 100% of High+Mid tier markets have L1 coverage; violations listed with category + class |
 | V15 | Depth-set stability | full-depth market set matches the declared subscription list; shrinkage is an error not a warning |
 | V16 | Class-policy safety net | new/unlisted Kalshi category ⇒ Class B default + surfaced warning (matches build_classification behavior) |
+| V17 | Input integrity gates | all twelve W2.1 gate classes detect, quarantine, and report on any date; quarantine file + loader report produced; zero silent repairs (each gate has a seeded-defect fixture proving it turns red) |
 
 ## 3. Workstreams (execute in order; one W = one commit; a W does not start
 ## until the previous one is green)
@@ -164,38 +217,77 @@ writes says otherwise):** `tools/ingest.py`, `tools/export_day.py`,
 `tools/pipeline_supervisor.sh`, `apps/ws_shadow.cpp`, `config/*`,
 `work/raw/*`, `work/warehouse/*` (read-only via load()), `dashboard_server.py`,
 anything live_order-classed.
+**GoldRecord layout freeze (after W1):** no workstream may add, remove, or
+move struct fields. All new metadata goes to sidecars, manifests, reports,
+or preview CSVs — NEVER into the struct. Anything that would touch the 512-B
+layout, static_asserts, offset JSON, numpy dtype parity, endianness or
+alignment assumptions ⇒ STOP and obtain operator approval (C++/Python parity
+break risk).
+**Required seeded-defect fixtures (minimum set, all must-fail in CI):**
+malformed JSON line; float-dtype price column; out-of-range price; negative
+quantity; duplicate trade_id; bad timestamp; malformed level array; negative
+book delta; crossed book; sequence gap (seq available); missing snapshot
+after invalidation; silent-clamp bug; stale-state-after-invalid bug.
+**Operator-facing report vocabulary (use verbatim in reports):** Malformed
+Records · Rejected Rows · Quarantined Input Rows · Invalid Book State ·
+Resync Required · Sequence Gap · Unsafe for Microstructure Backtest.
 
 ### W1 — Contract in code
 Purpose:          land the GoldRecord layout contract (C++/Python parity). Nothing else.
+Blocked by:       EXECUTION_PLAN WP-00 (pytest scaffold + make test) — G1. The A1
+                  single-test-infrastructure rule binds the gold suite.
 Allowed reads:    this plan; include/trading/*; Makefile; tools.json; tests/run_pipeline.sh
 Allowed writes:   include/trading/gold_record.hpp; tests/test_gold_layout.cpp;
                   tools/gold_dtype.py; tests/test_gold_dtype.py;
-                  Makefile / tools.json / tests/run_pipeline.sh (append-only entries)
+                  Makefile / tools.json / tests/run_pipeline.sh (append-only entries);
+                  .gitignore (append `!tests/fixtures/**` negation — G2: global
+                  *.ndjson/*.csv.gz ignores would silently swallow all fixtures)
 Forbidden writes: everything else. NO benchmarks, NO validator logic, NO real-day builds.
 Acceptance:       make check green incl. layout test; C++ layout JSON == numpy dtype
                   offsets; sizeof==512 + little-endian asserts; check_registry passes.
+                  Suite asserts every fixture file referenced by tests is git-tracked
+                  (fresh-clone safety, G2).
 Rollback:         revert commit (additive files + appended lines only).
 Exit evidence:    commit hash; make check tail; committed layout JSON path.
 
 ### W2.1 — Typed loaders
-Purpose:          l1/full/trades → typed events; E4 integer-only parse; trade sort + dedupe.
+Purpose:          l1/full/trades → typed events THROUGH the §2.2 dynamic validation
+                  gates; E4 integer-only parse; trade sort + dedupe; quarantine +
+                  loader report. Works on ANY date — no hard-coded bad-window logic.
 Allowed reads:    warehouse via tools/warehouse.py load() (read-only); real 2026-07-06 rows.
 Allowed writes:   tools/gold_load.py; tests/test_gold_load.py;
-                  tests/fixtures/gold_golden_rows/*; tests/fixtures/gold_defects/*
-Forbidden writes: warehouse.py itself; any data under work/.
-Acceptance:       byte-exact E4 round-trip on golden rows (V1); float-parse grep gate;
-                  duplicate-trade defect fixture FAILS (V8 red).
+                  tests/fixtures/gold_golden_rows/*; tests/fixtures/gold_defects/*;
+                  work/gold/quarantine/*; work/gold/loader_report_*;
+                  malformed_record_sample CSVs
+Forbidden writes: warehouse.py itself; any data under work/ EXCEPT work/gold/**;
+                  GoldRecord layout (frozen after W1 — STOP + operator approval).
+Acceptance:       byte-exact E4 round-trip on golden rows (V1); dtype anti-float test
+                  passes; dynamic validation report produced; malformed rows
+                  quarantined WITH reasons; all W2.1 seeded-defect fixtures (malformed
+                  JSON, float dtype, out-of-range price, negative qty, duplicate
+                  trade_id, bad timestamp, malformed level array) FAIL when injected;
+                  no production capture files modified.
 Rollback:         revert commit.
 Exit evidence:    commit hash; pytest output showing green suite + must-fail proof.
 
 ### W2.2 — Book FSM
-Purpose:          pure book state machine (snapshot/delta/invalid/heartbeat), zero I/O.
+Purpose:          pure book state machine (snapshot/delta/invalid/crossed/seq-gap/
+                  heartbeat) with deterministic replay recovery, zero I/O. Recovery =
+                  revalidate from next valid snapshot; never silent repair, never
+                  production resync.
 Allowed reads:    include/kalshi/orderbook.hpp (semantics reference); this plan §2.2.
 Allowed writes:   tools/gold_fsm.py; tests/test_gold_fsm.py; gold_defects fixtures.
-Forbidden writes: everything else; no network, no files read at runtime.
-Acceptance:       negative-delta ⇒ INVALID (no clamp); invalid-until-snapshot; heartbeat
-                  neutrality (V9); crossed flag; yes-space transform (10000−no_price).
-                  Red fixtures: clamp bug, stale-state-after-invalid — both FAIL.
+Forbidden writes: everything else; no network, no files read at runtime; GoldRecord
+                  layout (frozen after W1 — STOP + operator approval);
+                  ingest/export/ws/live-order/strategy code.
+Acceptance:       snapshot/delta/heartbeat/invalid/crossed/seq-gap cases all handled;
+                  invalid-until-snapshot PROVEN; revalidation from a later snapshot
+                  PROVEN; no-later-snapshot ⇒ permanent F_BOOK_VALID=0 PROVEN; both
+                  seq modes work (pre-W5 `seq_unavailable`, post-W5 gap detection)
+                  with no dependency on W5; yes-space transform (10000−no_price).
+                  Red fixtures: clamp bug, stale-state-after-invalid, negative delta,
+                  crossed book, seq gap, missing-snapshot-after-invalidation — ALL
+                  FAIL when injected. No production capture behavior changed.
 Rollback:         revert commit.
 Exit evidence:    commit hash; pytest green + red-fixture proof.
 
@@ -262,6 +354,8 @@ Forbidden writes: everything else.
 Acceptance:       report has p50/p90/p99/max delta_ms + mismatch counts by market_id,
                   ticker, category, subcategory, liquidity tier; bad-markets list
                   surfaced (widening δ to absorb mismatches FORBIDDEN).
+                  Report MUST print support size (n markets, capture hours) — day one
+                  is 4 full-depth markets × ~4h and MUST NOT be read as global truth (G4).
                   Red fixture: shifted-book file breaks agreement.
 Rollback:         revert commit.
 Exit evidence:    commit hash; report path with δ table.
@@ -280,7 +374,10 @@ Exit evidence:    commit hash; report path; proposed-threshold table.
 
 ### W3.3 — Golden frames (V13)
 Purpose:          pin Kalshi field semantics against real captured frames.
-Allowed reads:    work/raw/ (read-only sampling).
+Allowed reads:    work/raw/ (read-only sampling). Sampled frames MUST pass the §2.2
+                  dynamic validation gates before becoming fixtures — validation is
+                  the gate, NOT the calendar; no date-based exclusion anywhere.
+                  (Known-bad windows stay documented audit facts only.)
 Allowed writes:   tests/fixtures/kalshi_golden/* (1 snapshot + 50 deltas + 50 trades);
                   tests/test_kalshi_golden.py.
 Forbidden writes: everything else.
