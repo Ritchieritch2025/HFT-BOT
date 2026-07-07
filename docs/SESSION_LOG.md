@@ -6,6 +6,37 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 17:35 UTC — Independent audit of AF-1..4 remediation: 1 real DEFECT found + fixed (AF-3 was incomplete)
+
+- commit: 89a6b98 AF-3 residual — per-partition staging dedup for aggregate queries
+- WHY: the brief's EXIT required an independent audit of the AF-1..4 remediation
+  before DONE. It ran (fresh context) and CAUGHT A REAL DEFECT in my AF-3 fix
+  (902db78): I only scoped the GLOB, which fixed pinned category+subcategory
+  queries but left the identical undercount on AGGREGATE queries — category=None
+  (exactly what `event_measure_split --category all` and every all-category
+  backtest tape use) and subcategory=None still applied a scalar global max to
+  all staging rows. Repro: category=None → 4, expected 6. My schema doc + §6
+  self-audit had WRONGLY claimed it closed (a D2/Q10 "green lies" miss — the
+  auditor flagged exactly this).
+- FIX (proper this time): _archive_files returns a per-(sani_cat,sani_sub) max-
+  date map; load() anti-joins staging against it (keep row iff its own partition
+  unarchived OR ts past that partition's cutoff), matching staging (cat,sub) to
+  the sanitized archive dir names via a SQL replica of warehouse_common.sanitize
+  (sanitize is not invertible; verified real dirs are sanitized, e.g.
+  "Aussie Rules"→"Aussie_Rules", "_none"→"none"). Red-first category=None case.
+- audit's other findings: AF-1/AF-2/AF-4 confirmed SOUND; all red-first tests
+  genuine; AF-2 money math clean (HUGEINT notional is load-bearing vs int64
+  overflow, no float); AF-1 V-EP15 conceptually closes the interior-gap hole but
+  the interior_gap red fixture is a PROMISSORY NOTE (must be built RED when W-E3
+  lands — not satisfied yet, only specified).
+- verification: full warehouse-consumer suite (gold/ingest/export/coverage/
+  event/warehouse_status, 199 pytest + 3 self-running) GREEN — no regression on
+  the shared read path. make check GREEN; run_pipeline PIPELINE PASS.
+- blocked / handoff: AF-1..AF-4 brief now genuinely DONE (all 4 confirmed +
+  remediated, remediation independently audited, the one found defect fixed).
+  W-E3 (event_validate.py) MUST implement V-EP15 + build the interior_gap red
+  fixture RED (the outstanding promissory note). SINGLE-OWNER RULE still in force.
+
 ## 2026-07-07 17:05 UTC — AF-1..AF-4 money-integrity brief: all 4 CONFIRMED + red-first remediated
 
 - commits (one per item, revertable independently):
