@@ -6,6 +6,75 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 02:57 UTC — W3.2 DONE — V7 race/consistency report (REPORT-ONLY) measured on the real day, manifest verdict filled
+
+- commits: this commit (tools/gold_v7_race.py + tests/test_gold_v7_race.py
+  + committed v7_inverted_taker seeded-defect fixture + A1 registry appends
+  (tools.json test+check entries, run_pipeline.sh line) + BACKLOG notes;
+  nothing else touched — work/gold data and config/*.csv churn not
+  committed). NOTE: implementation/tests/fixture/registry were written by
+  the prior (interrupted) W3.2 session and left uncommitted; this session
+  verified everything red/green from scratch, re-ran the real day live,
+  and performed the exit ritual.
+- TDD: RED proven (ModuleNotFoundError collection error with the
+  implementation absent), then 16 passed; full ./tests/run_pytest.sh 190
+  passed; check_registry ok (94 tools); make check tail ALL PASS.
+- decisions (rationale in tools/gold_v7_race.py docstring, E2):
+  - measurement: per TRADE record, print at the as-of touch? taker=yes ⇒
+    trade_yes_price_e4 == ask_px_e4[0], taker=no ⇒ == bid_px_e4[0]; the
+    as-of book is the state ON the trade record (§2.2 item 4 guarantees
+    pre-trade). Vectorized numpy bincounts over 1.9M trades (~60 s day).
+  - two populations NEVER pooled: covered_book (F_BOOK_COVERED, real
+    full-depth as-of) vs l1_asof (uncovered; L1 state in slot 0).
+  - honesty split (D2): invalid as-of book (incl. book_seq 0) /
+    empty reference side / unknown taker_side = UNMEASURABLE buckets
+    (book_invalid / side_empty / bad_taker_side), never races.
+  - REPORT-ONLY binding (§2.2 point 5): NO threshold-enforcement path —
+    module can only `return 0`; grep-proven by test (no `return [1-9]`,
+    no sys.exit except sys.exit(main())). Proposals = nearest-rank p95 of
+    per-market rates per population per category (+_global), pool =
+    markets with ≥ 20 measurable trades (MIN_MEASURABLE, mirrors V5
+    min-support). Slices above proposal ⇒ unsafe_for_microstructure=true
+    in report + manifest — marked, never failed.
+  - market class A/B from config/market_classes.yaml categories with
+    PATH-SANITIZATION normalization ("Climate_and_Weather" sidecar vs
+    "Climate and Weather" yaml — test-pinned); unknown category ⇒ B (V16).
+  - subcategory not in the markets sidecar (BACKLOG W3.1 note) — fetched
+    read-only from warehouse trades rows with a lock-retry loop; source
+    recorded in the report (subcategory_source).
+  - manifest: update_manifest_v7 per the V5 pattern — certified md5s AND
+    V5 verdict asserted byte-identical, atomic replace, reader re-opened
+    (W2.4 BACKLOG note now FULLY resolved).
+- REAL day 2026-07-06 result (exit 0; work/gold/date=2026-07-06/
+  v7_race_report_2026-07-06.json, 62 MB; verdict in manifest):
+  support n_records=10,222,410, n_trade_records=1,909,088,
+  n_markets_traded=127,994. covered_book: 3 markets / 744 trades / 134
+  races = 0.180 (all Sports/Baseball/High/A). l1_asof: 1,540,431
+  measurable / 394,096 races = 0.2558; unmeasurable 367,913 (book_invalid
+  367,557 — dominated by Exotics/class-B traded-no-L1, measurable 0 by
+  V10-honest construction; side_empty 356). By category (l1_asof):
+  Sports 0.1435, Crypto 0.4051, Climate 0.3362, Financials 0.1545;
+  Soccer subcat 0.031 vs BTC subcat 0.442 (15-min crypto ladders are the
+  race hotspot). Proposed thresholds (FOR OPERATOR APPROVAL — not
+  enforced): l1_asof _global 0.5714 (pool 3,012 mkts), Sports 0.5,
+  Crypto 0.6207, Financials 0.4, Climate 0.5607, Commodities/Politics
+  0.6667, Economics 0.7826; covered_book _global 0.2046 (pool 3).
+  147 slices marked Unsafe for Microstructure Backtest (143 markets +
+  3 subcats GDP/HYPE/Local + 1 more) — nothing failed, exit 0.
+  Interpretation caveat (BACKLOG): ms-granular capture ts ⇒ l1_asof rates
+  upper-bound true races (channel-alignment noise included); day-one
+  baseline sample, not global truth (G4).
+- red-proof (anti-fake-green): committed fixture tests/fixtures/
+  gold_defects/v7_inverted_taker/ = 25 prints exactly at the correct
+  touch with every taker_side FLIPPED — correct-sided twin measures
+  race_rate 0.0, the fixture measures 1.0 (measurement catches the
+  inversion); CLI on the defect day still exits 0 (NOT a threshold
+  failure — report-only proven on the defect itself).
+- blocked / handoff: next is W4 (coverage auditor) per the workstream
+  order; W3.2 day-one thresholds await operator approval before any
+  category threshold may become blocking (a separate, operator-gated
+  change — no enforcement code exists yet by design).
+
 ## 2026-07-07 02:30 UTC — W3.1 DONE — δ distribution (V5) measured on the real day, manifest verdict filled
 
 - commits: this commit (tools/gold_v5_delta.py + tests/test_gold_v5_delta.py

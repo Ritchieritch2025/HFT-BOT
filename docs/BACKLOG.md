@@ -191,3 +191,33 @@ noticed-during, observation, suggested owner.
   lock", succeeded on outer retry). Callers currently need their own
   retry-or-be-patient loop; consider a longer/backoff window in load().
   warehouse.py is forbidden-writes for gold WPs. Owner: warehouse rider.
+- 2026-07-07 · noticed during W3.2 · RESOLUTION of the W2.4
+  manifest-placeholder note (V7 half): gold_v7_race.update_manifest_v7
+  fills safety_verdicts.V7 + safety_verdicts.unsafe_for_microstructure in
+  place with the same guarantees as the V5 helper (certified md5s AND the
+  V5 verdict asserted byte-identical, atomic tmp+os.replace, GoldDayReader
+  re-opened to prove certification). Both verdicts are now filled on the
+  real 2026-07-06 day; the "pending" placeholder path only applies to
+  freshly built days. The report file is NOT added to manifest["files"].
+- 2026-07-07 · noticed during W3.2 · the warehouse trades dim carries BOTH
+  "Interest_Rates" and "Interest_rates" as subcategory spellings (both
+  appear in the real V7 by-subcategory breakdown with different rates:
+  0.481 on 79 vs 0.026 on 39 measurable). Any per-subcategory consumer
+  splits this population in two. Classification-dim hygiene (case-fold or
+  canonicalize at ingest/classification time). Owner: warehouse /
+  classification rider (forbidden-writes for gold WPs).
+- 2026-07-07 · noticed during W3.2 · v7_race_report_2026-07-06.json is
+  62 MB (full per-market detail for 127,994 traded markets — D2: nothing
+  hidden). It lives inside the derived day partition (G8 retention prunes
+  it) and the printed table caps at top-30 + marked; consumers should
+  stream/slice the JSON. If day sizes grow, a compact per-market CSV
+  sidecar could accompany the JSON. Owner: W-BENCH / ops rider.
+- 2026-07-07 · noticed during W3.2 · interpretation caveat for the day-one
+  race numbers (same physics as the W3.1 δ≈0 finding): capture timestamps
+  are ms-granular and trade-vs-L1 frames of one exchange event can land in
+  either order inside the same ms, so l1_asof "races" (25.6% global;
+  40-60% on 15-min crypto ladders) measure capture-channel alignment PLUS
+  true races, upper-bounding the latter. covered_book (true full-depth
+  as-of) is only 3 markets / 744 trades / 0.5 h — 18.0% raced. All
+  proposed thresholds are day-one baseline samples (G4), not global truth;
+  operator approval decides what activates.
