@@ -6,6 +6,69 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 12:36 UTC — STEP 0 DONE + independent audit PASS — WS reconnect re-signs auth (401-lockout fix)
+
+- commits:
+  - 6d56aae STEP 0: re-sign WS auth headers before every reconnect (fix 401
+    lockout) — src/ws_client.cpp + include/kalshi/ws_client.hpp +
+    include/kalshi/ws_transport.hpp (mock inject_error) + tests/test_ws_client.cpp
+  - d29c7e2 BACKLOG: audit residual (reconnect re-sign can be up to 30s stale
+    at the backoff cap)
+  - (quality_log entry appended to work/quality_log.ndjson — git-IGNORED, so it
+    is NOT in a commit; it lives on-disk as the ops record. wp=STEP0-ws-resign,
+    window 2026-07-07T06:00-09:00Z.)
+- decisions (each in the named file):
+  - Fix = client re-signs fresh handshake headers before every connection
+    attempt via KalshiWsClient::refresh_auth(), called on transport Close AND
+    on handshake Error → src/ws_client.cpp (start/on_close/on_message Error).
+    Rationale: a 401 handshake rejection emits Error with NO Open/Close
+    (ixwebsocket IXWebSocket.cpp:362), so re-signing only on Close would miss
+    the 401-loop path entirely. ixwebsocket re-reads _extraHeaders each
+    connect() on its own background thread; the synchronous re-sign runs to
+    completion on that same thread before the next attempt.
+  - Injectable Clock (KalshiWsClient::set_clock) added so the red-first test
+    proves a strictly NEWER timestamp deterministically (no sleeps) →
+    include/kalshi/ws_client.hpp + tests/test_ws_client.cpp.
+  - Residual (max-backoff staleness, undocumented Kalshi auth window) is NOT
+    fixed this session; logged with two follow-ups → docs/BACKLOG.md.
+- context capsule (brief your replacement):
+  - ROOT CAUSE (proven): headers signed once at startup; ixwebsocket
+    auto-reconnect replays the stored KALSHI-ACCESS-SIGNATURE/TIMESTAMP → stale
+    → Kalshi 401s every reconnect until the hourly process restart re-signs.
+    Clock exonerated: sntp 46ms + REST auth passing during the 06:00-09:00 UTC
+    outage. (facts: clock_skew_ms_vs_exchange=1138, preflight ±2000ms — that is
+    LOCAL skew, NOT the server-side signature-timestamp window, which is
+    UNDOCUMENTED anywhere in the vendor snapshot.)
+  - VERIFICATION: red-first test_ws_client (+24 checks). With the two
+    refresh_auth() calls removed, exactly 3 assertions FAIL (newer-ts-on-close,
+    signature-re-signed, newer-ts-on-401); restored → ALL PASS. make check
+    GREEN; run_pipeline.sh PIPELINE PASS (ws_shadow_mock pass, test_ws_client
+    +24); production apps ws_shadow + ws_smoke build clean (no warnings).
+  - INDEPENDENT AUDIT (fresh-context agent, adversarial): VERDICT PASS, 2
+    MINOR, none blocking. Confirmed CLEAN: fix correctness (traced ixwebsocket
+    threading + _extraHeaders re-read), thread-safety (header access is
+    effectively single-threaded; watchdog in ws_shadow only counts silence,
+    never reconnects), S4 (Error log prints only ixwebsocket's reason string,
+    no key/sig material), fail-closed nullopt-signer path, red-first proof
+    (empirically reproduced). MINOR-1 = max-backoff staleness (→ BACKLOG,
+    d29c7e2). MINOR-2 = the "recovers/resubscribes" test assertion is not
+    fix-dependent (the mock opens unconditionally) — the 3 timestamp
+    assertions are the load-bearing proof; left as-is (still a valid
+    resubscribe-path regression guard).
+  - P4 capture continuity: the already-open data path (on_open/on_text/
+    resubscribe/record/decode) is byte-for-byte unchanged; re-signing is added
+    only on start/close/error, so the fix strictly CLOSES the capture gap and
+    cannot introduce one.
+- blocked / handoff: STEP 0 complete. Next fresh session starts **STEP 1 — AWS
+  FULL MIGRATION** (docs/MASTER_SEQUENCE.md): first draft
+  docs/PLAN_AWS_MIGRATION.md (seven-field Ws, §6 self-audit), then execute
+  W-A0..W-A5 with the operator-approved riders. NOTE the STEP 0 fix is not yet
+  deployed to the running Mac pipeline — it is committed on branch
+  plan-live-validation-p0-p3 but the live ws_shadow is still the old binary;
+  rebuild+redeploy of the pipeline binary (or the EC2 cutover in STEP 1) is
+  what actually ends the 401-lockout exposure in production. Standing gates
+  unchanged (fees OQ-1; 2026-07-13 seven-clean-days; live behind S1).
+
 ## 2026-07-07 11:53 UTC — MASTER SEQUENCE adopted as top-level queue (reorder, docs-only)
 
 - commits: (this commit) docs/MASTER_SEQUENCE.md (new, operator sequence
