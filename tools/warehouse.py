@@ -89,10 +89,18 @@ def _archive_files(archive_root, table, category, subcategory, s_us, e_us):
             continue
         files.append(f)
         dates.append(m.group(1))
-    # staging must skip every day that exists in the archive AT ALL (any partition),
-    # not just the ones this filter matched — otherwise overlap double-counts.
+    # staging must skip every day archived FOR THE QUERIED category/subcategory
+    # (not a GLOBAL max across all categories — AF-3): with a global max, a
+    # category that archived through an earlier day than another would have its
+    # not-yet-archived staging rows on the later day silently dropped. Scope the
+    # date set to the same category/subcategory this query filters on; when a
+    # filter is absent (`*`) the scope is correctly all partitions.
     all_dates = {re.search(r"date=(\d{4}-\d{2}-\d{2})", f).group(1)
-                 for f in _glob.glob(os.path.join(archive_root, table, "*", "*", "date=*", "*"))
+                 for f in _glob.glob(os.path.join(
+                     archive_root, table,
+                     "category=%s" % (wc.sanitize(category) if category else "*"),
+                     "subcategory=%s" % (wc.sanitize(subcategory) if subcategory else "*"),
+                     "date=*", "*"))
                  if re.search(r"date=(\d{4}-\d{2}-\d{2})", f)}
     max_date = max(all_dates) if all_dates else None
     return files, max_date

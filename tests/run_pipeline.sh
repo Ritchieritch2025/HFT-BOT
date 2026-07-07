@@ -107,6 +107,7 @@ run_suite "test_gate_metrics" ./tests/run_pytest.sh tests/test_gate_metrics.py
 run_suite "test_ingest" python3 tests/test_ingest.py
 run_suite "test_export_day" python3 tests/test_export_day.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
+run_suite "test_warehouse_nonuniform_archive" ./tests/run_pytest.sh tests/test_warehouse_nonuniform_archive.py
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \
