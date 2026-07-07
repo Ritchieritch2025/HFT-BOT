@@ -411,3 +411,16 @@ noticed-during, observation, suggested owner.
   (background worker / separate process against staging, single-writer DuckDB
   respected), or at minimum respawn ws_shadow BEFORE the export runs. Owner:
   a capture-continuity W (fold into AWS migration STEP 1, or its own plan).
+- 2026-07-07 · W-E0 independent audit (deferred, non-blocking) · (a) event_
+  measure_split.collect() — the warehouse SQL path (ts_utc//US_PER_DAY GROUP BY,
+  any_value, column list, archive/staging double-count guard) is validated only
+  on real data, not unit-tested; the pure event_spans core is. A fixture-backed
+  test driving collect() against a tiny synthetic warehouse (load() accepts a
+  warehouse= arg) would close it. Fold into W-E1 (same load() path, gets tested).
+  (b) PRE-EXISTING shared-loader property: tools/warehouse.load() gates staging
+  reads on the GLOBAL max archived date across all categories; if categories were
+  ever archived non-uniformly (one lagging), the lagging category's newest day
+  could be excluded from staging while absent from its own archive → silent
+  undercount. Not occurring now (uniform archive to 2026-07-06), but it bounds
+  the trust of any load()-based figure (gate_calc/coverage_audit too). Owner:
+  warehouse-loader hardening pass.

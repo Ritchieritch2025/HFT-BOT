@@ -6,6 +6,55 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 13:53 UTC — Event-packaging plan committed + slotted; W-E0 DONE + audit PASS
+
+- commits:
+  - a96024a PLAN_EVENT_PACKAGING (per-event data marts; was untracked on disk —
+    committed verbatim per full-text-preservation rule)
+  - a3.. MASTER_SEQUENCE amendment: slot PLAN_EVENT_PACKAGING before STEP 5
+  - d3791d5 W-E0: config/event_packaging.yaml + tools/event_measure_split.py +
+    test + fixture + tools.json/run_pipeline registration
+  - a74ed93 W-E0 audit remediation (real per-event category in CSV; gap-day test)
+  - (BACKLOG appended: deferred W-E0 audit items)
+- decisions:
+  - Per-event packaging is a DERIVED layer on the warehouse, NOT a re-capture:
+    every row already carries event_ticker/market_ticker/ts_utc; raw+archive stay
+    day/hour-partitioned (D1). Design lives in docs/PLAN_EVENT_PACKAGING.md
+    (three-axis market|event|series selector; per-event CSV bundles with
+    completeness manifests; windows from observed activity + lifecycle Fork A/B,
+    NEVER the unreliable scheduled close_time).
+  - IMPORTANT provenance note: docs/PLAN_EVENT_PACKAGING.md already existed on
+    disk (untracked, ~30KB) when this session went to write it — NOT authored by
+    this session. It was read in full, judged guardrail-aligned + matching the
+    operator requirement, operator-confirmed, then committed verbatim. My
+    independent design converged on the same architecture (validation).
+  - Category→packaging-unit policy lives ONLY in config/event_packaging.yaml (E2).
+- context capsule:
+  - W-E0 headline (real data, Sports, warehouse day 2026-07-06 + staging 07-07):
+    42.8% of events (1353/3159) cross a UTC-midnight boundary and account for
+    77.6% of TRADE ROWS / ticks (count(*), NOT contract volume — the trades
+    `count` field is not summed). Example: KXMLBGAME-26JUL062210COLLAD had 1,348
+    trade rows on day-06 vs 70,152 on day-07 → a `--date 2026-07-06` backtest
+    sees ~1.9% of that game. Report tool: tools/event_measure_split.py →
+    work/event_packs/split_report_<date>.csv (derived, gitignored).
+  - Independent audit of W-E0: VERDICT PASS. Confirmed clean: day-index boundary
+    math (µs, US_PER_DAY exact), event_spans multi-day/gap-day aggregation,
+    load() archive/staging double-count guard (max_arch_date filter — verified
+    no overlap, uniform archive to 2026-07-06), guardrails (read-only, P4, E3
+    registry valid at 109 tools, no float-narrowing). Two MINORs fixed in
+    a74ed93 (CSV real per-event category; gap-day test). Two deferred to BACKLOG:
+    collect() SQL path not unit-tested (fold into W-E1); pre-existing load()
+    global-max-archive-date guard could undercount if categories archive
+    non-uniformly.
+  - NEXT W = W-E1 (event index builder, tools/event_index.py): implements
+    PLAN_EVENT_PACKAGING §3.2 window inference A–F + writes work/event_packs/
+    index.parquet; consumes config/event_packaging.yaml. Read-only derived,
+    executable now. §3.2/§3.4 in the plan are the spec.
+- blocked / handoff: none blocking. Master-sequence order: STEP 1 (AWS migration)
+  is still the top-level next STEP; PLAN_EVENT_PACKAGING (W-E1→E7, W-LC gated) is
+  slotted before STEP 5 and its W-E1 is runnable whenever the operator wants to
+  continue it. STEP 0 remains deployed/live.
+
 ## 2026-07-07 13:19 UTC — STEP 0 DEPLOYED to Mac pipeline (Option A) + capture-continuity measured
 
 - commits: (this commit) docs/BACKLOG.md (capture-continuity finding) + this
