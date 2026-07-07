@@ -6,6 +6,58 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 04:55 UTC — WP-08 DONE (audit pending) — daily quality check: the morning ritual as one command
+
+- commits: (this commit) tools/daily_check.py + tests/test_daily_check.py
+  (20 tests, TDD red→green: 20 collection/exec failures with the tool absent
+  pasted, then 20 passed) + registry (tools.json `daily_check` kind=check
+  safety=offline autorun=false pass_token "DAILY GREEN"; `test_daily_check`)
+  + run_pipeline.sh suite line + BACKLOG + this entry.
+- decisions (each lives in the named file):
+  - freshness is CONSUMED via `python3 tools/freshness.py --json` subprocess,
+    never reimplemented; test seam = `--freshness-json <file>` injecting the
+    producer's exact JSON (rationale: test_freshness already proves the
+    producer against a real Ingester-built staging; A1 one-infrastructure)
+    → tools/daily_check.py docstring + tests/test_daily_check.py docstring.
+  - hard failures (exit 1): freshness STALE/unreadable, manifest file missing,
+    zero manifest rows for the completed day, md5 spot-check mismatch or
+    manifest-listed file missing (write-once archive, D1/S2 fail-closed),
+    gold day under <root>/quarantine/date=<D>[.N] OR validation verdict !=
+    GREEN while the day sits in the green tree → tools/daily_check.py.
+  - warnings (loud, exit stays 0): trades/orderbooks_l1 category row-count
+    fall > --drop-pct (default 50%) vs prior-day manifest rows, gold built
+    without a validation report, nonzero cumulative ws counters, unparseable
+    quality_log lines → tools/daily_check.py.
+  - quality_log finding extends the plan's <GREEN|WARNINGS:n> with RED:n —
+    logging GREEN beside exit 1 would be the D2 green-lie; documented in the
+    module docstring + pinned by test_quality_log_finding_red_on_hard_failure.
+  - manifest history is deduped by (date, file_path), last row wins — a
+    --force re-export's appended rows never double-count → read_manifest().
+  - evidence records the measured staging lag every day (WP-03 BACKLOG note:
+    a week of lag distribution before retuning the 600s threshold) →
+    tools/daily_check.py + pinned in test_quality_log_append_is_schema_conformant.
+- context capsule: REAL run 2026-07-07 ~04:49 UTC for window 2026-07-06:
+  DAILY GREEN exit 0 — freshness FRESH (staging_lag 63.0s, capture 0.0s);
+  manifest 223 rows (orderbooks_l1 8,210,082 / trades 1,913,798 /
+  orderbooks_full 103,252), md5 spot 5/5; gold verdict GREEN (V2-V10 PASS),
+  note: 2 row-level loader forensic files inside the day dir (known,
+  quality_log'd W2.6); seq gaps: ws tail 400 lines, markers=0, all counters
+  0, honestly "cumulative/not per-day"; 24h quality_log showed the 5 W2.6/
+  WP-01 entries. Drop detection self-skipped (manifest holds ONLY 2026-07-06
+  — first archived day); it arms itself after tonight's day-07 export. Two
+  daily-check lines exist for the window (04:48 pre-lag-evidence, 04:49
+  final) — append-only log, reruns are normal. Suites: pytest 265 passed +
+  1 xfail; make check ALL PASS; check_registry ok (103 tools). Known
+  pre-existing run_pipeline red (test_console lifecycle stage list, W4
+  drift) is in BACKLOG, untouched (rule 1). Env override for the log path:
+  DAILY_CHECK_QUALITY_LOG; tests never touch the real log.
+- blocked / handoff: WP-08 needs its independent audit session (read-only,
+  vs this diff). H-2 is live for R: run `python3 tools/daily_check.py` each
+  morning and read it. Two BACKLOG riders added: per-day seq-gap
+  instrumentation (ws_shadow untimestamped counters) and the gold
+  not-built/unvalidated severity policy (R decision). Remaining WPs: WP-09
+  (gate calculator; fees need WP-05 yaml — present) after WP-08's audit.
+
 ## 2026-07-07 04:37 UTC — WP-06 DONE (audit pending) — research notebook: K/z² + intervals, both spaces
 
 - commits: (this commit) tools/mm_research.py + tests/test_research_metrics.py

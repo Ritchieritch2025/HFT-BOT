@@ -97,6 +97,7 @@ run_suite "test_gold_v5_delta" ./tests/run_pytest.sh tests/test_gold_v5_delta.py
 run_suite "test_gold_v7_race" ./tests/run_pytest.sh tests/test_gold_v7_race.py
 run_suite "test_coverage_audit" ./tests/run_pytest.sh tests/test_coverage_audit.py
 run_suite "test_freshness" ./tests/run_pytest.sh tests/test_freshness.py
+run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
 run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
 run_suite "test_research_metrics" ./tests/run_pytest.sh tests/test_research_metrics.py
 run_suite "test_ingest" python3 tests/test_ingest.py

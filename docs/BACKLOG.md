@@ -319,3 +319,19 @@ noticed-during, observation, suggested owner.
   markets); the full 2026-07-06 day is 127,997 traded / 44,569 L1 / 4
   full-depth. §0 is a snapshot, not a contract — the coverage audit is now
   the daily source for these numbers. Owner: documentation note only.
+- 2026-07-07 · noticed during WP-08 · sequence-gap accounting is honestly
+  "not instrumented" per day: work/live/ws_shadow.log stats lines carry
+  cumulative counters (reconnects/errors/overflow/drop) with NO timestamps,
+  and the richer feed-status JSON (apps/ws_shadow.cpp write_feed_status:
+  ts_ms + gaps/resyncs + reconnects) goes to the metrics stream, not a
+  daily-scannable file. daily_check tails the log and says so; if per-day
+  gap attribution is wanted, teach ws_shadow to emit a timestamped counter
+  line (e.g. at UTC rollover) or land feed-status snapshots somewhere
+  date-addressable, then extend daily_check + tests (D4). Owner: R /
+  ws_shadow rider.
+- 2026-07-07 · noticed during WP-08 · policy gap for R: daily_check treats a
+  NOT-BUILT gold day as report-only (gold is derived + rebuildable; archive
+  checks own the loss alarm), and a built-but-unvalidated day as a WARNING.
+  If the expectation becomes "every completed day has a GREEN gold build by
+  morning", those should be promoted to hard failures — one-line change in
+  tools/daily_check.py check_gold + test flip. Owner: R decision.
