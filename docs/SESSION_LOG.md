@@ -6,6 +6,39 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 18:55 UTC — W-E1 real-dim wiring DONE: index builds on the LIVE warehouse + audit-fixed (2 defects)
+
+- commits: b5b6228 --from-warehouse builder; 32a8ae4 audit remediation (NULL identity, empty build)
+- decisions (in files):
+  - event_index --from-warehouse (tools/event_index.py build_index_from_warehouse
+    + _observed_by_market + _dim_markets): builds the index natively from the REAL
+    warehouse + dim/latest, not a synthetic catalog dir. Observed activity
+    aggregated in SQL over trades∪L1 (never materializes ticks); category/series/
+    group from observed rows; open/close/status/mve join from dim by (event,ticker);
+    lifecycle Fork-B. Reuses the tested infer_index_row core.
+  - PROVEN ON LIVE DATA: 225,936 units (32,336 cross-midnight; 182,360 Q7-excluded
+    MVE). Most units are catalog_incomplete + observed_merged because dim/latest
+    holds only CURRENT markets (settled events dropped) — correct fail-closed.
+- INDEPENDENT AUDIT: 2 CONFIRMED defects, both FIXED (32a8ae4):
+  - NULL event/market identity → bogus unit + None-vs-str sort crash → filtered
+    fail-closed. Empty build → executemany([]) crash → guarded (empty parquet).
+  - Audit CLEAN: row-count not money-double-count, padding property, market-unit
+    isolation, SQL escaping.
+- KNOWN LIMITS (BACKLOGged, not defects):
+  - dim/latest lacks settled markets → join catalog/settlements for accurate
+    settled-game windows (W-E1.1 / STEP 5 settlements-first).
+  - research reads (event_pack/export/validate → wh.load) can hit the LIVE ingest
+    daemon's staging write lock (DuckDB single-writer, D6); load()'s 12s attach
+    retry can be too short during a long ingest window. The real end-to-end export
+    (index→pack→validate→CSV) is proven on synthetic (W-E7 tests) but was blocked
+    on live data by this lock at the time; the real INDEX build succeeded.
+- verification: make check GREEN; run_pipeline PIPELINE PASS; 12 event_index tests.
+- STATUS: event-packaging W-E0/E1(+real-dim)/E2/E3/E7 all DONE + audited. The
+  operator can select any market/event/series → clean complete separated CSVs,
+  and the index now builds on real production data. Remaining: settlements-join
+  (accurate settled windows), staging-lock hardening for research reads, W-E4
+  (backtest wiring), W-E5/W-LC. SINGLE-OWNER RULE in force.
+
 ## 2026-07-07 18:30 UTC — W-E7 DONE: operator-facing per-event CSV export (the deliverable) + audit PASS
 
 - commits: b18d260 W-E7 event_export.py + tests; 3bd016a audit hardening (dest path sanitize)
