@@ -117,6 +117,8 @@ def main(argv):
 
     print("category=%s  window_start=%s  events=%d" %
           (args.category, start, len(spans)))
+    print("NOTE: 'ticks' = trade ROWS (count(*)), NOT contract volume "
+          "(count_e4 is not summed here) — AF-4.")
     print("cross-midnight events: %d / %d (%.1f%%)  |  their ticks: %d / %d (%.1f%%)" % (
         len(crossed), len(spans),
         100.0 * len(crossed) / max(1, len(spans)),

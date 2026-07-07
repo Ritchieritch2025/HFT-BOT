@@ -319,7 +319,7 @@ work/event_exports/
   <series_ticker>/
     <event_ticker>/
       _manifest.json              # completeness proof (required)
-      _event_summary.csv          # one row: title, window, markets, counts
+      _event_summary.csv          # one row: title, window, markets, n_trades/n_l1 ROW counts (label "not contract volume"; add integer contracts_e4=SUM(count_e4) for volume — AF-4)
       orderbooks_l1.csv             # ALL markets in event, sorted ts_utc
       trades.csv
       markets/                    # optional per-market split
@@ -336,8 +336,24 @@ work/event_exports/
 
 - Leading columns always: `event_ticker`, `series_ticker`, `market_ticker`,
   `category`, `subcategory`, `group`, `ts_utc`, `time_utc` (human ISO).
-- L1: E4 ints **and** dollar-decimal strings (`yes_bid`, `yes_ask`) for readability.
-- Trades: `trade_id`, prices, `count`, `taker_side`.
+- **MONEY-INTEGRITY (D5, audit AF-1/AF-2/AF-3 — BLOCKS W-E2/W-E7):** every
+  price/size/quantity column is carried as its **authoritative E4 fixed-point
+  integer** (`yes_bid_e4`, `yes_ask_e4`, `yes_bid_qty_e4`, `yes_ask_qty_e4`;
+  trades `yes_price_e4`, `no_price_e4`, `count_e4`) — always present, byte-exact
+  vs the warehouse. A dollar-decimal string MAY be added **only** as a labeled
+  readability duplicate, derived by INTEGER arithmetic to exactly 4 dp
+  (`f"{e4//10000}.{abs(e4)%10000:04d}"` or `Decimal(e4)/10000`) — **never float
+  division, never rounded to 2 dp** (sub-penny is real: `0.0090` must not become
+  `0.01`). Do NOT reuse `export_day.py STRATEGY_COLS` (it floats `e4/10000.0` and
+  drops the `_e4` columns). W-E2/W-E7 acceptance asserts the E4 integer columns
+  are present and byte-exact.
+- L1: `yes_bid_e4, yes_ask_e4, yes_bid_qty_e4, yes_ask_qty_e4` (+ optional
+  4dp-integer dollar/qty strings for readability).
+- Trades: `trade_id, yes_price_e4, no_price_e4, count_e4, taker_side`
+  (`count_e4` = contract quantity, E4 — NOT a row count; + optional readability
+  strings).
+- **Naming (AF-3):** `count_e4` is contract quantity; row cardinality is
+  `row_count`/`n_trades` — never overload "count" for both.
 - **No mixing events in one file** except explicit `--series --combined` flag
   (default OFF). Default = one folder per event.
 
@@ -434,9 +450,19 @@ Allowed writes:   `tools/event_pack.py`; `tests/test_event_pack.py`;
                   `tests/fixtures/event_pack/` (tiny synthetic archives);
                   `work/event_packs/data/**`, `manifests/**`.
 Forbidden writes: archive_root (read-only); staging writes.
+Money-integrity:  carries E4 integer columns byte-exact (§3.6 AF-1/AF-2/AF-3) —
+                  NO float price/size, NO 2dp rounding, dollar strings (if any)
+                  are 4dp integer-derived. Do NOT reuse export_day.STRATEGY_COLS.
+Stale-window (AF-5): pack ONLY `sealed` units, and RE-INFER the window at pack
+                  time (never trust a stale index `win_end`) — an `active`/
+                  `partial` unit whose `t_last` advanced after index build would
+                  otherwise clip late trades.
 Acceptance:       synthetic two-day archive → one event pack; row counts match
                   direct SQL filter; manifest md5 matches files; rebuild is
-                  bit-identical (idempotent).
+                  bit-identical (idempotent); E4 integer columns present + byte-
+                  exact vs warehouse (anti-float assert); a unit with trades
+                  AFTER the stored index `win_end` is refused-or-refreshed, never
+                  silently clipped (AF-5 regression case).
 Rollback:         revert commit; delete derived packs.
 Exit evidence:    commit hash; pytest green; one manifest path.
 
