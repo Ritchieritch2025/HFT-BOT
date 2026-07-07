@@ -6,6 +6,59 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 17:05 UTC — AF-1..AF-4 money-integrity brief: all 4 CONFIRMED + red-first remediated
+
+- commits (one per item, revertable independently):
+  - 4284597 AF-1 plan V-EP15 (interior-gap completeness) + brief verbatim
+  - 902db78 AF-3 warehouse.load() per-category staging exclusion + red-first test
+  - 3207bd5 AF-2 contract/notional-weighted split headline + reorder test
+  - 240af42 AF-4 collect() SQL-path end-to-end test (+ warehouse= passthrough)
+  - (BACKLOG: AF-2 L1-quote-window deferral)
+- DISPOSITIONS (all re-derived from file:line; brief was a LEAD, verbatim in
+  docs/plan_audits/event_packaging_af1-4_brief_2026-07-07.md):
+  - AF-1 CONFIRMED — PLAN §6 V-EP1/2/10/12 are day-granular / pack↔warehouse
+    self-consistency; none joins the capture-gap record → an interior sub-day
+    outage passes while the mid-game (settlement-convergence, highest vol) is
+    missing → a green pack feeds a Q2 bound on holed data. Fix = SPEC ONLY
+    (event_validate is W-E3, unbuilt): V-EP15 interior-gap check vs quality_log
+    data_loss/STALE spans → completeness=`degraded` (never pass), gaps in
+    manifest; `interior_gap` red-fixture row; degraded state defined. → PLAN §6.
+  - AF-2 CONFIRMED — collect() summed count(*) only. Added Σcount_e4 (contracts)
+    + Σ HUGEINT(price_e4)·count_e4 (notional_e8), integer throughout (D5, no
+    float on money). NEW WEIGHTED HEADLINE (Sports 7d): cross-midnight =
+    40.7% events / 76.3% trade-rows / **82.1% contracts** / 78.2% notional —
+    the row metric UNDERSTATED the $ split. → tools/event_measure_split.py.
+  - AF-3 CONFIRMED — _archive_files computed max_arch_date from a GLOBAL `*/*`
+    glob; a category archived through a later day than another silently dropped
+    the lagging category's not-yet-archived staging rows (undercount on EVERY
+    backtest tape → Q2). Scoped the date-set glob to the queried category/
+    subcategory. → tools/warehouse.py + schema §Access (E5).
+  - AF-4 CONFIRMED — tests exercised event_spans (pure) only; collect()'s SQL
+    (ts_utc//US_PER_DAY, sum, HUGEINT) was unverified. Added a fixture-warehouse
+    end-to-end test + warehouse= passthrough. → tests + tool.
+  - REFUTED: none (all four held).
+- red-first (anti-fake-green D2): AF-3 Crypto=2 RED before / 4 after; AF-2
+  reorder FAILS with weights zeroed; AF-4 FAILS with a corrupted // divisor.
+  All GREEN after fix. AF-1 is spec-only (no code path to redden yet — V-EP15
+  redness is W-E3's obligation, pinned as the interior_gap fixture).
+- GUARDRAILS §6 self-audit of this remediation: (1) phase 1.5, no gate skip ✓
+  (2) no live orders ✓ (3) no strategy math; notional is an integer weight ✓
+  (4) doesn't compute a Q2 bound — it CLEANS the data feeding it ✓ (5) WS-capture
+  warehouse ✓ (6) every fix ships a red-first test ✓ (7) capture/ingest/export
+  untouched; only a load() READ-path fix + read-only tools, all existing
+  warehouse/gold/ingest/export tests green ✓ (8) each item its own commit,
+  ≤300 LOC, AF-1 reverts cleanly ✓ (9) schema §Access + PLAN §6 updated (E5) ✓
+  (10) explicitly de-lies: V-EP15, honest weighted labels, no-undercount,
+  tested number ✓.
+- context capsule: make check GREEN; run_pipeline PIPELINE PASS (registry 114
+  tools). event_measure_split CSV columns changed: total_trade_rows +
+  total_contracts_e4 + total_notional_e8 (was total_ticks). collect() + main
+  gained warehouse=/--warehouse.
+- blocked / handoff: brief's EXIT calls for an INDEPENDENT audit of THIS
+  remediation vs §6 before DONE — not yet run (next step). Then resume the plan
+  at W-E3 (event_validate.py must IMPLEMENT V-EP15 + the interior_gap red
+  fixture). SINGLE-OWNER RULE still in force.
+
 ## 2026-07-07 16:45 UTC — W-E2 DONE: event pack materializer (money-integrity enforced) + audit PASS-after-fix
 
 - commits:

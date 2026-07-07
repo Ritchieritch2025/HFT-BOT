@@ -424,3 +424,11 @@ noticed-during, observation, suggested owner.
   undercount. Not occurring now (uniform archive to 2026-07-06), but it bounds
   the trust of any load()-based figure (gate_calc/coverage_audit too). Owner:
   warehouse-loader hardening pass.
+- 2026-07-07 · AF-2 deferral · event_measure_split measures the split on TRADES
+  only; MM maker edge lives on the L1 QUOTE window, which is wider than the
+  trade window (quotes stand before/after prints). So the trades-based
+  cross-midnight fraction (40.7% events / 76.3% rows / 82.1% contracts /
+  78.2% notional, Sports 7d) likely UNDERSTATES the true cross-midnight fraction
+  for market-making. An L1-quote-window split is a separate measure — fold into
+  the W-E1 index (which already carries per-event L1 observed bounds). Owner:
+  W-E1 enhancement / pricing-model calibration input.
