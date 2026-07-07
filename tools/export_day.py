@@ -275,6 +275,27 @@ def main(argv):
     con = duckdb.connect()
     con.execute("ATTACH '%s' AS stg" % staging.replace("'", "''"))
 
+    # Shrink guard (2026-07-07 audit): a --force re-export replaces write-once
+    # archive files from whatever staging still holds. If staging has FEWER
+    # rows for the day than the manifest already certifies (e.g. an operator
+    # lowered staging_retain_days and the day was already pruned), proceeding
+    # would silently shrink the archive. Refuse instead.
+    if args.force and not args.snapshot:
+        manifest_rows = read_manifest(os.path.join(warehouse_root, "manifest.csv"))
+        for table, _ in TABLES:
+            certified = sum(int(r["row_count"]) for r in manifest_rows
+                            if r["date"] == date and r["table"] == table)
+            staged = con.execute(
+                "SELECT count(*) FROM stg.%s WHERE ts_utc >= %d AND ts_utc < %d"
+                % (table, day_lo, day_hi)).fetchone()[0]
+            if staged < certified:
+                print("REFUSING --force: staging holds %d %s rows for %s but the "
+                      "archive already certifies %d — re-export would SHRINK the "
+                      "write-once archive (staging pruned?)"
+                      % (staged, table, date, certified), file=sys.stderr)
+                con.close()
+                return 3
+
     print("exporting %s -> %s" % (date, archive_root))
     tables = [(t, "csv") for t, _ in TABLES] if args.csv else TABLES
     new_rows = []

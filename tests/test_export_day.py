@@ -60,6 +60,15 @@ def trade(mt, ts_us, tid):
                        "raw": json.dumps({"type": "trade", "msg": msg})})
 
 
+def _write_late_capture(tmp, yd):
+    """Trades for yesterday that arrive in staging AFTER the midnight export."""
+    path = os.path.join(tmp, "late.ndjson")
+    with open(path, "w") as f:
+        f.write(trade("KXMLB-25JUL05-BOS", us(yd, 18), "late1") + "\n")
+        f.write(trade("KXMLB-25JUL05-BOS", us(yd, 19), "late2") + "\n")
+    return path
+
+
 def main():
     import duckdb
     tmp = tempfile.mkdtemp(prefix="test_export_")
@@ -197,6 +206,55 @@ def main():
         n_ffill = warehouse.load("orderbooks_l1", category="Crypto",
                                  ffill=True).count("*").fetchone()[0]
         check("ffill=True LOCF query runs", n_ffill >= 2, n_ffill)
+
+        # ---- 6. second-pass sweep semantics (2026-07-07 export/ingest race) ---
+        # late rows land in staging AFTER the midnight export; a --force
+        # re-export must pick them up (archive grows, never shrinks)
+        # release warehouse.load()'s cached read-only attach — DuckDB's
+        # single-writer rule blocks the subprocess writer while any process
+        # holds the file, even read-only
+        def _release_warehouse_con():
+            if warehouse._CON is not None:
+                warehouse._CON.close()
+            warehouse._CON = None
+            warehouse._ATTACHED.clear()
+
+        _release_warehouse_con()
+        late_cap = _write_late_capture(tmp, yd)
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ingest.py"),
+                        "--warehouse", wh, "--staging", staging, late_cap],
+                       env=env, capture_output=True, text=True, check=True)
+        n_late = int(subprocess.run(
+            [sys.executable, "-c",
+             "import duckdb;print(duckdb.connect('%s',read_only=True).execute("
+             "'SELECT count(*) FROM trades WHERE ts_utc >= %d AND ts_utc < %d'"
+             ").fetchone()[0])" % (staging, yd_lo, yd_hi)],
+            capture_output=True, text=True, check=True).stdout.strip())
+        r4 = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+                             "--date", yd.isoformat(), "--force", "--no-prune"],
+                            env=env, capture_output=True, text=True)
+        check("sweep force re-export passes", r4.returncode == 0, r4.stdout + r4.stderr)
+        n_after = warehouse.load("trades", start=yd.isoformat(),
+                                 end=yd.isoformat()).count("*").fetchone()[0]
+        check("late-ingested rows reached the archive (sweep semantics)",
+              n_after == n_late and n_after > stg_tr_yd,
+              "archived=%d staged=%d before=%d" % (n_after, n_late, stg_tr_yd))
+        # shrink guard: delete yesterday from staging, then --force must REFUSE
+        _release_warehouse_con()
+        subprocess.run(
+            [sys.executable, "-c",
+             "import duckdb;c=duckdb.connect('%s');c.execute("
+             "'DELETE FROM trades WHERE ts_utc >= %d AND ts_utc < %d');c.close()"
+             % (staging, yd_lo, yd_hi)],
+            capture_output=True, text=True, check=True)
+        r5 = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+                             "--date", yd.isoformat(), "--force", "--no-prune"],
+                            env=env, capture_output=True, text=True)
+        check("shrink guard refuses --force when staging < certified archive",
+              r5.returncode == 3 and "SHRINK" in r5.stderr, r5.stdout + r5.stderr)
+        n_intact = warehouse.load("trades", start=yd.isoformat(),
+                                  end=yd.isoformat()).count("*").fetchone()[0]
+        check("archive intact after refused shrink", n_intact == n_after, n_intact)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         for k in ("WAREHOUSE_ROOT", "STAGING_DB", "ARCHIVE_ROOT", "RAW_ROOT"):
