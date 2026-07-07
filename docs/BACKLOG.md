@@ -142,6 +142,23 @@ noticed-during, observation, suggested owner.
   line, never invented), but Q6 expiry-awareness work will need a
   settled-market dim retention/backfill story. Owner: R decision /
   catalog rider.
+- 2026-07-07 · noticed during W3.3 · protocol doc drift: real trade frames
+  DO carry `sid`+`seq` (monotonic on their own sid), but
+  docs/kalshi_ws_protocol.md invariant I9 states ticker/trade/lifecycle
+  have no seq. Also the doc's open question #2 (whether in-stream
+  `get_snapshot` seq-stamps with the next sid seq or re-baselines) is now
+  answered empirically: a snapshot at seq 2025 mid-delta-stream, i.e. it
+  stamps the next sid seq. Both pinned by tests/test_kalshi_golden.py;
+  the doc update itself is out of W3.3's allowed writes. Owner: protocol
+  doc rider (with SidStream owner review — does gap logic assume trades
+  are unsequenced?).
+- 2026-07-07 · noticed during W3.3 · orderbook_delta `ts` is an ISO-8601
+  Zulu string with VARIABLE-length fractional seconds (trailing zeros
+  trimmed, e.g. ".52251Z"); Python's `datetime.fromisoformat` rejects it
+  on 3.9. Any consumer parsing delta `ts` that way will crash on ~random
+  frames; trade `ts` is epoch-seconds int (different encoding, same field
+  name). Audit ingest/dashboard parsers for fromisoformat use on WS ts.
+  Owner: R decision / ingest rider.
 - 2026-07-07 · noticed during W2.6 · G8 retention pruning (keep newest 14
   work/gold/date=<D> partitions) and the quarantine-dir pruning policy are
   deliberately NOT implemented in gold_build (composition-only per the plan;

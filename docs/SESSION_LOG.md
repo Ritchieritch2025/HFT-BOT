@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 01:46 UTC — W3.3 DONE — golden Kalshi frames (V13) pinned on real captures
+
+- commits: this commit (tests/test_kalshi_golden.py + 101 real verbatim
+  frames under tests/fixtures/kalshi_golden/ + 3 doctored red-proof
+  fixtures under tests/fixtures/gold_defects/golden_* + A1 registry
+  appends; nothing else touched).
+- fixtures (real, verbatim RawRecord lines; §2.2-style gates applied at
+  sampling, 0 gate-skips in the sampled regions — provenance table in
+  tests/fixtures/kalshi_golden/README.md):
+  - 1 orderbook_snapshot + 50 orderbook_delta from work/live_capture.ndjson
+    (2026-07-06 watchlist capture, 03:14–03:44 UTC) — fallback per the WP:
+    the 24/7 firehose subscribes ticker+trade only (verified: 0 orderbook
+    frames in a 200k-line sample).
+  - 50 trades from work/raw/date=2026-07-06/firehose_12.ndjson
+    (12:00–12:01 UTC, 36 markets), outside the 08:18–08:35 splice window
+    by construction of the source file, with validation as the actual gate.
+- REAL semantics discovered and pinned (tests + README):
+  - trade frames DO carry sid+seq (doc I9 drift → BACKLOG);
+  - snapshots share the sid seq counter; in-stream get_snapshot stamps the
+    NEXT sid seq (protocol doc open question #2 answered, seq 2025 observed);
+  - delta `ts` = ISO-8601 Zulu string with variable-length fraction
+    (".52251Z" breaks fromisoformat) vs trade `ts` = epoch-seconds int;
+    snapshot msg has NO ts fields (→ BACKLOG parser-audit note);
+  - all prices/qty string fixed-point, byte-exact E4 round-trip via
+    gold_load parse_e4/render_e4 on all 101 frames; yes+no price == $1
+    on every trade; taker_side strictly yes/no (taker_outcome_side/
+    taker_book_side also present).
+- V12 wiring: module-level pytest.skip (loud operator message) when saved
+  work/kalshi_spec_alignment.json is missing/red/>7d — logic mirrors
+  gold_build.spec_gate (not imported: avoids the duckdb/warehouse stack);
+  gate proven able to go red on synthetic missing/red/stale files.
+- red/green: suite first run 15 failed (fixtures absent, TDD) → extraction
+  → 16 passed; doctored dup-trade_id / seq-regression / float-price
+  fixtures caught via the SAME checkers the real-frame tests use.
+- acceptance demonstrated: ./tests/run_pytest.sh full = 160 passed
+  (fixture git-tracking assertion included); tools/check_registry.py ok
+  (90 tools). make check NOT run (background gold rebuild running, per WP).
+- next: independent audit session for W3.3; protocol-doc drift rider
+  (BACKLOG) needs an owner.
+
 ## 2026-07-07 01:30 UTC — W2.6 DONE (first real build GREEN) + archive taker_side narrowing found (day is trade-less, rebuild needed)
 
 - commits: this commit (W2.6: tools/gold_build.py thin composition +
