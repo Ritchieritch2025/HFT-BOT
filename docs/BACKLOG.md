@@ -4,6 +4,21 @@ Per EXECUTION_PLAN operating protocol rule 1: anything noticed outside the
 current WP's scope lands here as a note, never as code. Each entry: date,
 noticed-during, observation, suggested owner.
 
+- 2026-07-07 · WP-06 interpretation for R to CONFIRM · the plan's wiggle
+  fixture (mids [10,12,10,12] → K=12, z=2, wiggle=(12−4)/2=4) is satisfied by
+  two readings; tools/mm_research.py adopted **K = Σ(Δmid)² (realized
+  quadratic variation), z = net displacement (last−first), wiggle = (K−z²)/2**
+  — the mean-reversion-harvest bound, consistent units in both price and
+  log-odds space. The rejected reading ("K = max mid excursion in cents, z =
+  # direction reversals") also matches the fixture numerically but mixes
+  cents with a squared count. Full rationale in the module docstring. If R
+  intended the other reading, only wiggle_metrics() changes; tests pin the
+  fixture either way. Owner: R.
+- 2026-07-07 · noticed during WP-06 · staging L1 carries rows where
+  yes_bid_e4=0 or yes_ask_e4=10000 (one-sided books) and a few crossed
+  states; mm_research and mm_calibrate both filter them identically
+  (bid>0, ask<100c, ask>bid) — if a third research tool appears, hoist the
+  validity predicate into warehouse_common. Owner: next research-tool change.
 - 2026-07-07 · noticed during WP-05 discovery · `src/env.cpp:165` +
   `tools/exchange_check.sh` claim "Kalshi's demo exchange is unavailable" —
   live probe shows demo is UP (HTTP 200, trading_active). The fail-closed

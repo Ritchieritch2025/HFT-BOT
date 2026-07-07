@@ -6,6 +6,45 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 04:37 UTC — WP-06 DONE (audit pending) — research notebook: K/z² + intervals, both spaces
+
+- commits: (this commit) tools/mm_research.py + tests/test_research_metrics.py
+  (9 tests, TDD red→green: ModuleNotFoundError collection red pasted, then
+  green) + A1 wiring (tools.json test+tool entries, run_pipeline.sh line) +
+  BACKLOG notes. Page/CSV under work/mm/ (gitignored by design, DoD says
+  analytics/viz files only).
+- decisions (files): **wiggle interpretation** — the plan fixture (mids
+  [10,12,10,12] → K=12, z=2, wiggle=4) is degenerate between two readings;
+  adopted K = Σ(Δmid)² (realized quadratic variation), z = net displacement,
+  wiggle = (K−z²)/2 (mean-reversion-harvest bound), reversal_rate =
+  sign-flips/(n_moves−1), space-invariant. Rationale + rejected reading in
+  tools/mm_research.py docstring; R-confirm note in docs/BACKLOG.md.
+  Heartbeat = is_snapshot AND price_e4 NULL (first-obs snapshots kept);
+  intervals nearest-rank (gold convention); book-validity filter identical
+  to mm_calibrate (bid>0, ask<100c, ask>bid). Fee guard READS
+  config/kalshi_facts.yaml at call time; gate_mode with verified!=true
+  raises FeeNotVerifiedError (currently false ⇒ refuses — live-tested in
+  the suite against the real yaml AND mutated temp yamls).
+- real run (2026-07-06 archived + 2026-07-07 staging PARTIAL): 14,649,242
+  L1 rows → 675,800 heartbeats excluded → 11,423,208 valid → 40,550
+  market-days. A2 divergence is real and large: price-space top-10 is
+  Crypto-heavy (KXSOLE 26JUL0717 B78-B84 bracket, KXSHIBAD); log-odds
+  top-10 promotes Commodities strikes (KXNATGASMON-26JUL3117-T2.499 px#6→
+  lo#1, KXCOPPERW-26JUL1017 family px#21..47→lo#2..9) and demotes mid-range
+  SOL brackets (B82 px#9→lo#47, Δ−38; SHIBAD px#2→lo#19). Exactly the
+  vol∝p(1−p) overweighting A2 predicted. Page:
+  work/mm/research_2026-07-07.html (68 KB, tables + inline SVG, stdlib-only,
+  light/dark) + research_metrics_2026-07-07.csv (all 40,550 rows).
+- battery: pytest 245 passed + 1 xfailed; make check tail ALL PASS;
+  run_pipeline.sh PIPELINE PASS; check_registry ok (101 tools).
+- pipeline continuity (P4): read-only throughout — load() only, ATTACH
+  READ_ONLY with lock retry; no capture/ingest/export file touched.
+- blocked / handoff: WP-06 independent audit pending per protocol. WP-07
+  (fee swap re-run) stays BLOCKED on R ratifying fees provenance (OQ-1);
+  when kalshi_facts.yaml flips verified:true, test_fee_placeholder_guard's
+  reality assertion will flag for the WP-07 revisit by design. Rankings are
+  gross wiggle — no fees/fills/simulation anywhere (WP-06 scope).
+
 ## 2026-07-07 — W5 DONE — ws_sid/ws_seq into orderbooks_full (the one production-adjacent change)
 
 - commits: (this commit) tools/ingest.py + tests/test_ingest.py +
