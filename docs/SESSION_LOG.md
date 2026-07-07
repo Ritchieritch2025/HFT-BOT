@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-06 — W2.5 DONE (validator harness, TDD red-first, per-check red matrix)
+
+- commits: this commit (W2.5: tools/gold_validate.py + tests/
+  test_gold_validate.py + 6 seeded-defect gold day fixtures + registry
+  wiring + 3 BACKLOG notes)
+- decisions (rationale in tools/gold_validate.py docstring, E2):
+  - checks: V2, V3, V4, V6, V9, V10 run INDEPENDENTLY over a written day,
+    PLUS the V8-shape gold_io.reconcile_trade_hashes wired into every run
+    (W2.4 finding: must not stay dormant). A crash inside one check is
+    caught as that check's failure — never masks the others.
+  - all record access via RawDay, an md5-BLIND reader, so a V2 md5/
+    manifest failure cannot stop V3-V10; V2 verifies explicitly (every
+    manifest md5, record/trade/market counts vs parsed rows) AND surfaces
+    the strict GoldDayReader's open-time refusals as reported violations
+  - V3/V6 REUSE gold_merge.v3_violations/v6_violations verbatim on shims
+    from .bin rows ("minted" inferred as book_seq exceeding the market's
+    previous value — sound, not circular; V9 owns heartbeats explicitly)
+  - quarantine = MOVE the whole partition to work/gold/quarantine/
+    date=<D>[.N] (collision suffixed, nothing deleted/overwritten, P6) +
+    validation_report_<D>.json written inside; CLI exits nonzero. Moving
+    beats a marker file: the green tree cannot resolve the day by path
+    (S2), partition stays byte-intact for forensics
+  - six committed defect fixture days (v2_count_mismatch, v3_stream_seq_
+    gap, v4_negative_level, v6_trade_lookahead, v9_heartbeat_diff,
+    v10_coverage_lie), built via the W2.4 writer + targeted tampering
+    with manifest md5s made self-consistent (so the CHECK fails, not the
+    md5 gate; v2's manifest defect IS its check); deterministic
+    regeneration: python3 tests/test_gold_validate.py
+- acceptance demonstrated: suite RED first (ModuleNotFoundError:
+  tools.gold_validate), then 12 tests green; per-check matrix printed —
+  good day all-PASS GREEN; each defect day FAILs exactly its own check
+  (all six others PASS) => QUARANTINE; V8 uuid-tamper day red with V2
+  green (md5 gate not the catch); CLI demo: good day exit 0 in place,
+  defect day exit 1 + partition moved under quarantine/ with report;
+  full pytest 144 passed; make check ALL PASS; run_pipeline.sh
+  == PIPELINE PASS == (test_gold_validate wired); check_registry ok (88)
+- rollback: revert commit + delete work/gold/ (derived, rebuildable)
+- next: W2.6 first real build (gold_build.py = thin composition of
+  W2.1-W2.5, no new logic, --date 2026-07-06)
+
 ## 2026-07-06 — W2.4 DONE (gold writer/reader, TDD red-first, mutation/tamper-proven)
 
 - commits: 7aebacb (W2.4: tools/gold_io.py + tests/test_gold_io.py + 2 io

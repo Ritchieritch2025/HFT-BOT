@@ -73,3 +73,21 @@ noticed-during, observation, suggested owner.
   fill them; note the manifest is the (unhashed) root of trust, so any
   verdict update must NOT touch the gold/sidecar md5s it certifies.
   Owner: W3.1/W3.2.
+- 2026-07-06 · noticed during W2.5 · validator hot loops (bin_shims,
+  check_v9) walk records one-by-one in Python. Fine at fixture scale
+  (11-record days validate in ms); a full production day (~650k records)
+  extrapolates to seconds per check. Correctness-first stands; W-BENCH
+  should measure and W2.6 may vectorize (no semantics change). Owner:
+  W-BENCH/W2.6.
+- 2026-07-06 · noticed during W2.5 · partial resolution of the W2.3
+  "Merge Order Violation disposition" note: W2.5 validates WRITTEN days
+  (post-merge), so a source that failed the merge never reaches the
+  validator. The remaining half — what gold_build does when a loader
+  reports ts regressions (skip source? build with report? refuse day?) —
+  is composition policy. Owner: W2.6.
+- 2026-07-06 · noticed during W2.5 · quarantined partitions live under
+  work/gold/quarantine/date=<D>[.N] and are NOT covered by the G8
+  GOLD_RETENTION_DAYS wording (which prunes date partitions). W2.6's
+  pruning helper must decide: quarantine dirs are derived too, but they
+  are forensic evidence for a failed build — suggest pruning them only
+  after the day rebuilds green. Owner: W2.6.

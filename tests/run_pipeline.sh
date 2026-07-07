@@ -91,6 +91,7 @@ run_suite "test_gold_load" ./tests/run_pytest.sh tests/test_gold_load.py
 run_suite "test_gold_fsm" ./tests/run_pytest.sh tests/test_gold_fsm.py
 run_suite "test_gold_merge" ./tests/run_pytest.sh tests/test_gold_merge.py
 run_suite "test_gold_io" ./tests/run_pytest.sh tests/test_gold_io.py
+run_suite "test_gold_validate" ./tests/run_pytest.sh tests/test_gold_validate.py
 run_suite "test_ingest" python3 tests/test_ingest.py
 run_suite "test_export_day" python3 tests/test_export_day.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
