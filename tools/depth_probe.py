@@ -248,9 +248,18 @@ def run_probe(args) -> int:
     ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     capture = args.capture or os.path.join(PROBE_DIR, "depth_probe_%s.ndjson" % ts)
     norm = os.path.normpath(capture)
-    if norm.startswith(os.path.normpath("work/raw") + os.sep):
-        return refuse("capture path '%s' is inside work/raw/ — the production "
-                      "capture tree is off-limits (double-writer lesson)" % capture)
+    # W6-audit F1 fix: compare REAL absolute paths (symlinks resolved), case-
+    # folded (APFS is case-insensitive) — the old relative-string prefix check
+    # was bypassable with an absolute path, and a capture placed under
+    # work/raw/ would be tailed into the warehouse by the ingester's glob.
+    # casefold explicitly: os.path.normcase is a no-op on posix/macOS, but APFS
+    # is case-insensitive, so work/RAW hits the same inode as work/raw.
+    real_cap = os.path.realpath(os.path.abspath(norm)).casefold()
+    real_raw = os.path.realpath(os.path.join(ROOT, "work", "raw")).casefold()
+    if real_cap == real_raw or real_cap.startswith(real_raw + os.sep):
+        return refuse("capture path '%s' resolves inside work/raw/ — the "
+                      "production capture tree is off-limits (double-writer "
+                      "lesson)" % capture)
     metrics = norm + ".metrics.ndjson"
 
     env = dict(os.environ)

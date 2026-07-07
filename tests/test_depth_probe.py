@@ -160,6 +160,29 @@ def test_refuses_capture_path_under_work_raw(tmp_path):
     assert "REFUSED" in p.stderr and "work/raw" in p.stderr
 
 
+def test_refuses_capture_path_under_work_raw_absolute_and_case(tmp_path):
+    """W6-audit F1: the guard must hold for ABSOLUTE paths, case variants
+    (APFS is case-insensitive), and symlinks — not just the relative spelling."""
+    import os
+    csv_path = tmp_path / "depth_target_2099-01-01.csv"
+    csv_path.write_text("rank,market_ticker,liquidity_tier\n1,AAA,High\n")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for cap in [
+        os.path.join(root, "work", "raw", "date=2099-01-01", "sneaky.ndjson"),
+        os.path.join(root, "work", "RAW", "date=2099-01-01", "sneaky.ndjson"),
+    ]:
+        p = _run(["--operator-approved", "--dry-run", "--csv", str(csv_path),
+                  "--capture", cap])
+        assert p.returncode == 2, "guard bypassed for %s" % cap
+        assert "REFUSED" in p.stderr and "work/raw" in p.stderr
+    # symlink escape: tmp symlink pointing into work/raw
+    link = tmp_path / "innocent"
+    os.symlink(os.path.join(root, "work", "raw"), link)
+    p = _run(["--operator-approved", "--dry-run", "--csv", str(csv_path),
+              "--capture", str(link / "date=2099-01-01" / "sneaky.ndjson")])
+    assert p.returncode == 2, "guard bypassed via symlink"
+
+
 def test_dry_run_opens_no_socket_and_warns_on_stale_list(tmp_path):
     csv_path = tmp_path / "depth_target_2000-01-01.csv"  # stale by construction
     csv_path.write_text(
