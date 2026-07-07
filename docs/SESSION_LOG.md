@@ -6,6 +6,38 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 15:30 UTC — W-E1 DONE: event index builder + fixture tests green
+
+- commits:
+  - 37523e2 W-E1: `tools/event_index.py` — §3.2 A–G window inference, §3.4 parquet
+    schema; fixture catalog + 9 pytest cases; tools.json + run_pipeline registration
+- decisions:
+  - W-E1 reads synthetic catalog dir CSVs only (markets/observed/lifecycle); does
+    NOT extend warehouse.py (W-E3 owns `load(event=...)`). Derived output:
+    `work/event_packs/index.parquet`.
+  - Seal-state "recent ticks" gate tightened: `active` requires
+    `now - seal_after <= t_last <= now` (future observed ticks no longer force
+    active). Lives in `tools/event_index.py::_seal_state`.
+  - Dim contract confirmed for later wiring: `dim/latest/markets.csv` uses
+    `ticker` (not `market_ticker`), `open_time`/`close_time` as
+    `YYYY-MM-DD HH:MM:SS` UTC, `mve_collection_ticker` for Q7.
+- context capsule:
+  - `infer_index_row()` implements §3.2 B–G; `build_index()` does A (event vs
+    market unit from `config/event_packaging.yaml`). Window end priority:
+    determined → settled → last_seen → scheduled_close; `observed_merged` when
+    only ticks. Divergence flag: >2h between t_last/sched_close or
+    sched_start/t_first.
+  - Fixture run (`--now 2026-07-07 01:00:00`): 8 units — active 2, excluded 2
+    (Exotics + KXMVE), partial 2, sealed 1 (KX-LC all settled), scheduled 1.
+    Cross-midnight: KX-SPORT-EV1 only.
+  - `make check` green; `./tests/run_pytest.sh tests/test_event_index.py` 9/9.
+  - AF-1–AF-4 from W-E0 money-integrity audit still open (fix plan spec before
+    W-E3; not remediated this session).
+- blocked / handoff:
+  - Next W = **W-E2** (pack materializer) per PLAN_EVENT_PACKAGING.
+  - W-E1 not yet wired to real `dim/latest` — catalog-dir CLI is the Fork B
+    interface until a dim-export helper lands (optional W-E1.1 or W-E2 prereq).
+
 ## 2026-07-07 13:53 UTC — Event-packaging plan committed + slotted; W-E0 DONE + audit PASS
 
 - commits:
