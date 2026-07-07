@@ -6,6 +6,42 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 13:19 UTC — STEP 0 DEPLOYED to Mac pipeline (Option A) + capture-continuity measured
+
+- commits: (this commit) docs/BACKLOG.md (capture-continuity finding) + this
+  entry. No code change — deployment + measurement only.
+- what happened:
+  - The fixed ws_shadow binary is LIVE in production. The 13:00:01 UTC hourly
+    respawn (PID 58944) loaded the on-disk build/ws_shadow that already carried
+    the STEP 0 fix (built 12:27 UTC during verification), so the 401-lockout
+    exposure has been CLOSED since 13:00:01 UTC. A clean rebuild from committed
+    HEAD (3bdb092) is now staged on disk (13:18 UTC) and auto-loads at the next
+    hourly boundary (14:00 UTC). build/ws_shadow.prev is a backup (note: it is
+    ALSO a fix-containing binary; the true pre-fix rollback is
+    `git checkout 72665c5 -- src include && make build/ws_shadow`).
+  - Deploy method = Option A (no manual kill): the launchd supervisor
+    (com.ritcardo.kalshi-pipeline) respawns ws_shadow each UTC hour, so the
+    rebuilt binary deploys on the natural boundary with a ~0.5s handoff and no
+    mid-hour shard-collision hazard.
+  - Current session verified healthy: events climbing, capture shard
+    firehose_13.ndjson.1 growing ~1MB/3s, reconnects=0 errors=0 epoch=1.
+- MEASURED capture continuity (work/raw/date=2026-07-07 first/last recv_wall_ns
+  per hour) — answers the operator's discontinuity concern with data:
+  - Pure hourly restart handoff = ~0.5s (00->01 0.46s, 04->05 0.94s,
+    12->13 0.54s). NOT a strategy problem.
+  - The 401 bug WAS the damage: hours 06-11 each captured ~30s then went dark
+    for the rest of the hour (2900-3800s holes). STEP 0 converts a mid-hour
+    disconnect from "dead till next hour" into a seconds-scale reconnect blip.
+  - Residual continuity holes = SYNCHRONOUS export in the capture loop: ~8min
+    gap at 02:00 UTC (second-pass --force sweep) + ~78s at 00:00 UTC (daily
+    export). Logged to docs/BACKLOG.md with fix direction (decouple Layer-3
+    export from Layer-1 capture). This is the real remaining 硬伤 for live
+    sports capture; STEP 1 (AWS migration) is a natural place to fix it.
+- blocked / handoff: STEP 0 fully done + deployed. HEAD-built binary loads at
+  14:00 UTC (verify: new PID != 58944 started ~14:00, log healthy). Next W is
+  STEP 1 — AWS FULL MIGRATION (draft docs/PLAN_AWS_MIGRATION.md). Consider
+  folding the export/capture decoupling (BACKLOG) into it.
+
 ## 2026-07-07 12:36 UTC — STEP 0 DONE + independent audit PASS — WS reconnect re-signs auth (401-lockout fix)
 
 - commits:

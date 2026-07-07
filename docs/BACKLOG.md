@@ -398,3 +398,16 @@ noticed-during, observation, suggested owner.
   "on 401 surface server-date skew"); (2) if it proves < 30s, sign closer to
   connect (lower maxWait, or a pre-connect header hook / client-driven
   reconnect ladder that re-signs per attempt). Owner: next WS-hardening pass.
+- 2026-07-07 · measured during STEP 0 deploy · CAPTURE CONTINUITY: the hourly
+  ws_shadow restart itself is a NON-issue — measured handoff gap is ~0.5s
+  across clean UTC boundaries (00->01 0.46s, 04->05 0.94s, 12->13 0.54s). The
+  real continuity holes are (a) the 401 lockout — ~30s captured then dark for
+  the rest of the hour on affected hours 06-11 (2900-3800s gaps), now FIXED by
+  STEP 0; and (b) SYNCHRONOUS export pausing capture: export_day.py runs inside
+  the supervisor's capture loop so ws_shadow does not respawn until it finishes
+  — measured ~497s (~8min) gap at 02:00 UTC (second-pass --force sweep) and
+  ~78s at 00:00 UTC (daily export). For live sports capture (b) is the residual
+  硬伤. Fix direction: decouple Layer-3 export from the Layer-1 capture loop
+  (background worker / separate process against staging, single-writer DuckDB
+  respected), or at minimum respawn ws_shadow BEFORE the export runs. Owner:
+  a capture-continuity W (fold into AWS migration STEP 1, or its own plan).
