@@ -471,6 +471,17 @@ int main(int argc, char** argv) {
   // --- run the bounded session ----------------------------------------------
   std::uint64_t missed_pong_disconnects = 0;
   bool was_silent = false;
+  // W-C1 force-reconnect watchdog. A silently-wedged socket delivers no
+  // Close/Error, so ixwebsocket never reconnects and capture stays dead until
+  // the hourly respawn (the top-of-hour gap, 2026-07-07 diagnosis). If inbound
+  // has been silent past kForceReconnectSilenceMs, we tear the transport down
+  // and reopen it ourselves. The firehose streams EVERY market, so this much
+  // total silence is a dead socket, not a quiet market. Bounded backoff so a
+  // slow reconnect (or a genuine overnight lull) is not hammered; each attempt
+  // is logged + surfaced to metrics (D2). Tunable; recovery target << 1 min.
+  constexpr std::int64_t kForceReconnectSilenceMs = 20'000;  // 20s silence => wedged
+  constexpr std::int64_t kForceReconnectBackoffMs = 15'000;  // min gap between forced attempts
+  std::int64_t last_force_reconnect_ms = 0;
   const auto t_end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
   int tick = 0;
   std::uint64_t last_messages = 0;
@@ -486,6 +497,23 @@ int main(int argc, char** argv) {
     if (silent && !was_silent) ++missed_pong_disconnects;
     was_silent = silent;
 
+    // W-C1: on sustained silence, FORCE recovery instead of waiting for the
+    // hourly respawn (ixwebsocket will not — the socket is wedged, not closed).
+    if (client.ping_silent(now_ms, kForceReconnectSilenceMs) &&
+        now_ms - last_force_reconnect_ms > kForceReconnectBackoffMs) {
+      const std::int64_t dead_ms = now_ms - client.last_activity_ms();
+      client.force_reconnect();  // stop()+re-sign+start(); fail-closed (S2)
+      last_force_reconnect_ms = now_ms;
+      std::fprintf(stderr,
+                   "[ws_shadow] WATCHDOG forced reconnect after %lldms inbound "
+                   "silence (forced=%llu reconnects=%llu epoch=%u)\n",
+                   (long long)dead_ms,
+                   (unsigned long long)client.forced_reconnects(),
+                   (unsigned long long)client.reconnects(), client.epoch());
+      write_system_event(metrics, rt, "ws_shadow", "watchdog_reconnect",
+                         "forced reconnect on sustained inbound silence");
+    }
+
     if (metrics && tick % 4 == 0) {  // ~every 1s
       const std::int64_t last = client.last_activity_ms();
       const std::int64_t freshness = last ? now_ms - last : -1;
@@ -500,10 +528,11 @@ int main(int argc, char** argv) {
 
     if (++tick % 40 == 0) {  // ~every 10s
       std::fprintf(stderr,
-                   "[ws_shadow] events=%llu deltas=%llu reconnects=%llu errors=%llu "
+                   "[ws_shadow] events=%llu deltas=%llu reconnects=%llu forced=%llu errors=%llu "
                    "overflow=%llu epoch=%u rec=%llu drop=%llu\n",
                    (unsigned long long)sink.events.load(), (unsigned long long)sink.deltas.load(),
-                   (unsigned long long)client.reconnects(), (unsigned long long)client.errors(),
+                   (unsigned long long)client.reconnects(), (unsigned long long)client.forced_reconnects(),
+                   (unsigned long long)client.errors(),
                    (unsigned long long)client.overflow_events(), client.epoch(),
                    (unsigned long long)recorder.recorded(), (unsigned long long)recorder.dropped());
     }

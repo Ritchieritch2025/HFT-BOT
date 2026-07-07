@@ -98,6 +98,24 @@ void KalshiWsClient::start() {
 
 void KalshiWsClient::stop() { t_.stop(); }
 
+void KalshiWsClient::force_reconnect() {
+  // The ping-silence watchdog (apps/ws_shadow.cpp) calls this after N s of zero
+  // inbound frames — a half-open socket ixwebsocket never notices (ping disabled
+  // in ix_transport.cpp => no library heartbeat => no Close/Error => its
+  // auto-reconnect never fires; capture stays dead until the hourly respawn,
+  // the 2026-07-07 diagnosis). Drop the wedged connection and reopen it. stop()
+  // delivers a Close on the mock (and may on the real transport) which itself
+  // re-signs; refresh_auth() here guarantees a CURRENT signature even when the
+  // wedged transport delivered no Close at all, so the reopen never replays a
+  // stale (401-bound) signature. start() then reopens -> on_open bumps the
+  // epoch, counts a reconnect, and resubscribes. Only ever invoked on proven
+  // silence, so the healthy stream path is untouched (P4).
+  ++forced_reconnects_;
+  t_.stop();
+  refresh_auth();
+  t_.start();
+}
+
 void KalshiWsClient::refresh_auth() {
   // ixwebsocket owns the reconnect loop and replays whatever headers are set on
   // the transport; a signature signed once at startup goes stale within minutes

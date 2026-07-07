@@ -77,6 +77,13 @@ class KalshiWsClient {
 
   void start();  // set url + auth headers, connect
   void stop();
+  // Watchdog-driven recovery (W-C1). A silently-wedged (half-open) socket
+  // delivers no Close/Error, so ixwebsocket's auto-reconnect never fires (its
+  // own ping is disabled, ix_transport.cpp) and capture stays dead until the
+  // hourly respawn (the 2026-07-07 top-of-hour capture gap). Tear the transport
+  // down and bring it back up ourselves; start() re-signs fresh auth headers.
+  // Fail-closed (S2): uncertain liveness restarts, never silently continues.
+  void force_reconnect();
 
   // --- exposed for tests (pure builders / auth) ---
   WsHeaders build_auth_headers(std::int64_t now_ms) const;
@@ -89,6 +96,7 @@ class KalshiWsClient {
   std::uint32_t epoch() const { return epoch_; }
   std::uint64_t messages() const { return messages_; }
   std::uint64_t reconnects() const { return reconnects_; }
+  std::uint64_t forced_reconnects() const { return forced_reconnects_; }  // W-C1 watchdog
   std::uint64_t errors() const { return errors_; }
   std::uint64_t overflow_events() const { return overflow_events_; }  // error 25 (I7)
   std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_; }
@@ -125,6 +133,7 @@ class KalshiWsClient {
   bool opened_once_ = false;
   int next_id_ = 1;
   std::uint64_t messages_ = 0, reconnects_ = 0, errors_ = 0, overflow_events_ = 0;
+  std::uint64_t forced_reconnects_ = 0;  // watchdog-forced reconnects (W-C1)
   std::uint64_t lifecycle_deletes_ = 0;
   std::int64_t last_activity_ms_ = 0;
 };
