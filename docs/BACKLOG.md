@@ -163,3 +163,31 @@ noticed-during, observation, suggested owner.
   work/gold/date=<D> partitions) and the quarantine-dir pruning policy are
   deliberately NOT implemented in gold_build (composition-only per the plan;
   only one gold day exists). Owner: ops / R decision (follow-up rider).
+- 2026-07-07 · noticed during W3.1 · PARTIAL RESOLUTION of the W2.4
+  manifest-placeholder note: gold_v5_delta.update_manifest_v5 fills
+  safety_verdicts.V5 in place — certified md5s (manifest["files"]) asserted
+  byte-identical before an atomic tmp+os.replace write, then GoldDayReader
+  is re-opened to prove the certification chain still verifies; the V5
+  report file is deliberately NOT added to manifest["files"]. V7 half
+  remains for W3.2 (same helper pattern applies).
+- 2026-07-07 · noticed during W3.1 · the markets_<D>.csv sidecar dim has no
+  subcategory column (category/close_time/liquidity_tier only), so the V5
+  report fetches subcategory from warehouse L1 rows at report time — V7
+  (W3.2) will need the same lookup for its per-subcategory breakdown, and
+  any offline consumer of the sidecar alone cannot slice by subcategory.
+  Adding the column is a gold_io MARKETS_COLS change (sidecar format, not
+  the frozen 512-B struct) + rebuild. Owner: R decision / gold_io rider.
+- 2026-07-07 · noticed during W3.1 · V5 needs the warehouse at report time
+  because the gold .bin cannot carry the L1 channel's view of covered
+  markets (FSM state at an L1_TICKER record is the full-depth book; event
+  payloads are not serialized — layout frozen). Fine while gold days and
+  their warehouse days coexist; if gold partitions ever outlive warehouse
+  access, V5 becomes unmeasurable retroactively. Option: persist covered
+  markets' L1 views as a (new, manifest-unlisted or listed-at-build)
+  sidecar at build time. Owner: R decision.
+- 2026-07-07 · noticed during W3.1 · warehouse.load()'s staging ATTACH
+  retry (8 x 1.5 s = 12 s) was exhausted once during the real V5 run — the
+  ingest daemon's lock window can exceed it (run failed with "Conflicting
+  lock", succeeded on outer retry). Callers currently need their own
+  retry-or-be-patient loop; consider a longer/backoff window in load().
+  warehouse.py is forbidden-writes for gold WPs. Owner: warehouse rider.

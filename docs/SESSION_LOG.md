@@ -6,6 +6,69 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 02:30 UTC — W3.1 DONE — δ distribution (V5) measured on the real day, manifest verdict filled
+
+- commits: this commit (tools/gold_v5_delta.py + tests/test_gold_v5_delta.py
+  + committed v5_shifted_book seeded-defect fixture + A1 registry appends +
+  BACKLOG notes; nothing else touched — work/gold data not committed).
+- TDD: suite written first, RED proven (ModuleNotFoundError collection
+  error), then implementation → 14 passed; full ./tests/run_pytest.sh 174
+  passed; check_registry ok (92 tools); make check tail ALL PASS.
+- decisions (rationale in tools/gold_v5_delta.py docstring, E2):
+  - δ per L1 change row = |Δts| to the NEAREST valid covered book record
+    (BOOK_SNAPSHOT/BOOK_DELTA, F_BOOK_VALID) whose top (bid_px_e4[0]/
+    ask_px_e4[0], empty sides normalized to L1's 0/10000 sentinels) equals
+    the L1 view, inside a FIXED ±5 s scan window. SCAN_BOUND_US is a code
+    constant, deliberately NOT a CLI flag (§2.3 V5: widening δ to absorb
+    mismatches is FORBIDDEN — test-asserted that no bound/window CLI knob
+    exists).
+  - honesty split (D2): "never_agree" (book records in-window, none agrees)
+    is a real mismatch; "uncheckable" (no book record in-window at all) is
+    reported separately and NEVER counted as a mismatch — covered capture
+    ran 0.5 h, L1 rows ran all day.
+  - bad-markets rule: mismatch_rate_at_global_p99 > 0.05 (5x the ~1%
+    beyond-p99 by construction) AND n_checkable >= 20 (below that a market
+    cannot be condemned; its mismatches still count). Percentiles are
+    nearest-rank on µs ints; ms only at the render edge.
+  - L1 views come from the warehouse at report time (gold .bin cannot carry
+    them: for covered markets the FSM state at an L1_TICKER record is the
+    full-depth book; payloads are not serialized) — routed through the
+    W2.1 load_l1 gates; scheduler heartbeats excluded and counted (72).
+  - manifest verdict update: safety_verdicts.V5 replaced in place, certified
+    md5s asserted byte-identical, atomic tmp+os.replace, GoldDayReader
+    re-opened to prove certification (BACKLOG W2.4 note partially resolved;
+    V7 half stays for W3.2). Report file NOT added to manifest["files"].
+- REAL day 2026-07-06 result (exit 0, work/gold/date=2026-07-06/
+  v5_delta_report_2026-07-06.json; verdict in the manifest):
+  *** BASELINE SAMPLE (support: 4 markets) *** — NOT global truth (G4).
+  support: n_markets=4, capture_hours=0.5, n_l1_rows=1767,
+  n_full_depth_rows=103252, n_matched_pairs=1731.
+  global delta_ms p50=0.000 p90=0.000 p99=0.000 max=245.411;
+  mismatches: never_agree=0, beyond_global_p99=1, uncheckable=36;
+  bad markets: none (the WCGOAL market has rate@p99=1.0 but only 1
+  checkable row — min-support rule correctly refuses to flag on n=1).
+  Per market: KXMLBTOTAL…-14 709/709 matched δ=0; KXMLBSPREAD…-BOS5
+  628/628 δ=0; KXMLBTOTAL…-16 393/393 δ=0; KXWCGOAL… 1 matched δ=245.4 ms,
+  20 uncheckable (its book has only 2 snapshots, L1 spread over the day).
+  Cross-check: warehouse L1 fetch for the 4 tickers = 1767 rows, exactly
+  the gold day's covered L1_TICKER count (0 rejected).
+  Why δ≈0: capture timestamps are ms-granular (L1 ts 100% and book ts
+  99.995% end in 000 µs) and ticker+delta frames for the same book event
+  land in the same capture ms — day-one δ measures same-clock capture
+  alignment, not cross-channel latency; do not read it as physics.
+- red-proof (anti-fake-green): committed fixture tests/fixtures/
+  gold_defects/v5_shifted_book/ = book tops price-shifted +100 E4 vs its
+  committed l1_views CSV ⇒ 25/25 checkable rows never_agree, market
+  flagged on bad_markets, δ pool EMPTY (delta_ms=None — no fake δ), and a
+  100x scan bound STILL cannot absorb it (test-asserted); CLI on it exits
+  1 with "BAD MARKETS SURFACED".
+- blocked / handoff: W3.2 (V7 race/consistency report) is next in the gold
+  plan; it needs the same warehouse subcategory lookup (sidecar has no
+  subcategory column — BACKLOG note filed) and the same manifest-verdict
+  helper pattern. warehouse.load() staging-ATTACH retry (12 s) was
+  exhausted once during the real run (ingest lock burst) — outer retry
+  succeeded; BACKLOG note filed.
+
 ## 2026-07-07 01:46 UTC — W3.3 DONE — golden Kalshi frames (V13) pinned on real captures
 
 - commits: this commit (tests/test_kalshi_golden.py + 101 real verbatim
