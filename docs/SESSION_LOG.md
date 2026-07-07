@@ -6,6 +6,37 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — W6 DONE (probe-pending) — depth-expansion design doc + operator-gated probe
+
+- commits: (this commit) docs/PLAN_DEPTH_EXPANSION.md + tools/depth_probe.py
+  + tests/test_depth_probe.py (8 tests green) + tools.json appends
+  (`depth_probe` kind=probe safety=network_read autorun=false needs
+  creds+prod_env; `test_depth_probe`) + BACKLOG notes + this entry.
+  NO production changes; apps/* untouched (read-only interface study only).
+- decisions (each lives in the named file):
+  - spec-derived limits table with evidence tags → PLAN_DEPTH_EXPANSION §1;
+    the two binding limits (per-subscription market cap = asyncapi error 26,
+    per-account connection cap) are NOT numerically documented — the probe
+    empirically tests 50-markets-one-subscribe and 2-concurrent-connections
+    as free side effects.
+  - sizing = measured day-06 L1 rates per tier (read-only warehouse SQL,
+    math shown) × full-depth multiplier calibrated on the 4-market watchlist
+    sample (30–97×, n=3 in-game MLB — honest error bars); 50/200/500-market
+    arithmetic in §3; expected 52/176/343 msg/s, conservative peak
+    565/1,584/2,958 msg/s, 2.4–52.5 GB/day capture.
+  - rollout options A (second depth instance) / B (extend firehose conn) /
+    C (sharded multi-conn) enumerated with trade-offs, NONE chosen → §4,
+    R decides in a separate operator-approved rollout plan.
+  - probe protocol → §5: 900 s, top-50 of newest depth_target CSV, separate
+    process + separate capture path work/probe/ (never work/raw, never
+    work/metrics.ndjson — double-writer lesson), metrics redirected, zero
+    REST tokens, refuses without --operator-approved (refusal demonstrated,
+    exit 2), refuses live mode, refuses work/raw capture paths.
+- blocked / handoff: **PROBE-PENDING** — measured msg-rate/bytes-by-tier
+  table awaits the operator running `python3 tools/depth_probe.py
+  --operator-approved` (15 min, watch freshness.py) and pasting the printed
+  table into PLAN_DEPTH_EXPANSION §2/§3.
+
 ## 2026-07-07 05:15 UTC — WP-09 DONE (audit pending) — gate calculator: the three H-4 numbers by tested code
 
 - commits: (this commit) tools/gate_calc.py + tests/test_gate_metrics.py

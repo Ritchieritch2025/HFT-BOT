@@ -360,3 +360,27 @@ noticed-during, observation, suggested owner.
   exactly one leg settled YES — would turn the upper bound into a measured
   arb rate; needs the settlements table + a day of settled brackets. Owner:
   R / gate-meeting interpretation, optional WP-09 rider.
+- 2026-07-07 · noticed during W6 · the full-depth multiplier (orderbook_delta
+  msgs per L1 ticker update) rests on n=3 markets, all in-game MLB during
+  in-game peak (30–97×, PLAN_DEPTH_EXPANSION §2.2) — plausibly the top of
+  the distribution; crypto 15-min / tennis / Fed multipliers are unknown.
+  The operator-gated depth probe replaces this with a 50-market measurement.
+  Owner: R (approve + run the probe, §5 runbook).
+- 2026-07-07 · noticed during W6 · two exchange-side WS limits that bound any
+  depth rollout are undocumented in the vendor snapshot: the per-subscription
+  market cap (asyncapi error 26 exists, no number) and the per-account
+  concurrent-connection cap (no mention at all). The probe empirically tests
+  50-in-one-subscribe and 2 concurrent connections; anything larger needs its
+  own discovery. Consider asking Kalshi support for the numbers. Owner: R.
+- 2026-07-07 · noticed during W6 · at N≥200 depth markets the conservative
+  capture projection is 27–52.5 GB/day against raw_retention_days=3 — the
+  already-noted gzip-on-rotate work item becomes a rollout PREREQUISITE, and
+  ingest has never been load-tested at ~1.6–3k rows/s bursts (the probe
+  capture doubles as a replay fixture for exactly that test). Owner: the
+  future depth-rollout plan.
+- 2026-07-07 · noticed during W6 · depth_target_*.csv is a daily artifact
+  whose top ranks are dominated by short-lived markets (15-min BTC, same-day
+  matches) — any depth subscription set goes stale within hours, so a rollout
+  needs a rotation story (restart at day boundary vs update_subscription
+  add/delete_markets, PLAN_DEPTH_EXPANSION §4 cross-cutting note); the probe
+  tool warns when the list is not dated today. Owner: R at rollout decision.
