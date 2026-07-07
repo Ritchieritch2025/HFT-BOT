@@ -71,39 +71,60 @@ def _conn():
 
 
 def _archive_files(archive_root, table, category, subcategory, s_us, e_us):
-    """Path-targeted partition scan; returns (files, max_archived_date)."""
+    """Path-targeted partition scan. Returns (files, part_max) where part_max
+    maps (sanitized_category, sanitized_subcategory) -> max archived date str.
+
+    part_max is PER PARTITION, not a global max (AF-3): staging dedup must drop a
+    staging row only when that row's OWN partition archived through its day. A
+    global max would impose the busiest partition's archival frontier on a
+    laggard, silently dropping the laggard's not-yet-archived staging rows on the
+    boundary day (undercount on every aggregate/all-category backtest tape)."""
     pat = os.path.join(
         archive_root, table,
         "category=%s" % (wc.sanitize(category) if category else "*"),
         "subcategory=%s" % (wc.sanitize(subcategory) if subcategory else "*"),
         "date=*", "*.%s" % _EXT[table])
-    files, dates = [], []
+    rex = re.compile(r"category=([^/]+)/subcategory=([^/]+)/date=(\d{4}-\d{2}-\d{2})")
+    files, part_max = [], {}
     for f in sorted(_glob.glob(pat)):
-        m = re.search(r"date=(\d{4}-\d{2}-\d{2})", f)
+        m = rex.search(f)
         if not m:
             continue
-        d_lo = wc.day_start_us(m.group(1))
-        if s_us is not None and d_lo + 86_400_000_000 <= s_us:
-            continue
-        if e_us is not None and d_lo >= e_us:
-            continue
-        files.append(f)
-        dates.append(m.group(1))
-    # staging must skip every day archived FOR THE QUERIED category/subcategory
-    # (not a GLOBAL max across all categories — AF-3): with a global max, a
-    # category that archived through an earlier day than another would have its
-    # not-yet-archived staging rows on the later day silently dropped. Scope the
-    # date set to the same category/subcategory this query filters on; when a
-    # filter is absent (`*`) the scope is correctly all partitions.
-    all_dates = {re.search(r"date=(\d{4}-\d{2}-\d{2})", f).group(1)
-                 for f in _glob.glob(os.path.join(
-                     archive_root, table,
-                     "category=%s" % (wc.sanitize(category) if category else "*"),
-                     "subcategory=%s" % (wc.sanitize(subcategory) if subcategory else "*"),
-                     "date=*", "*"))
-                 if re.search(r"date=(\d{4}-\d{2}-\d{2})", f)}
-    max_date = max(all_dates) if all_dates else None
-    return files, max_date
+        scat, ssub, dt = m.group(1), m.group(2), m.group(3)
+        d_lo = wc.day_start_us(dt)
+        # `files` is date-window-filtered for READING; part_max tracks the full
+        # archived frontier per partition (even outside the window) so the
+        # boundary-day dedup is correct.
+        if not (s_us is not None and d_lo + 86_400_000_000 <= s_us) and \
+           not (e_us is not None and d_lo >= e_us):
+            files.append(f)
+        cur = part_max.get((scat, ssub))
+        if cur is None or dt > cur:
+            part_max[(scat, ssub)] = dt
+    return files, part_max
+
+
+def _sani_sql(col):
+    """SQL replica of warehouse_common.sanitize(): runs of chars outside
+    [A-Za-z0-9._-] -> '_', strip leading/trailing '_', empty/NULL ->
+    '_unclassified'. Used to match a staging row's (category, subcategory) to
+    the archive's sanitized partition-dir names (sanitize is not invertible)."""
+    return ("coalesce(nullif(trim(regexp_replace(coalesce(%s, ''), "
+            "'[^A-Za-z0-9._-]+', '_', 'g'), '_'), ''), '_unclassified')" % col)
+
+
+def _staging_dedup_sql(stg, part_max):
+    """Wrap the staging SELECT so a row is kept iff its OWN partition has no
+    archive (LEFT JOIN miss) OR its ts is on/after that partition's post-archive
+    cutoff (day after its max archived date). Per-partition — AF-3 residual."""
+    vals = ", ".join(
+        "('%s','%s',%d)" % (c.replace("'", "''"), s.replace("'", "''"),
+                            wc.day_start_us(d) + 86_400_000_000)
+        for (c, s), d in sorted(part_max.items()))
+    return ("SELECT _st.* FROM (%s) _st LEFT JOIN (VALUES %s) AS _a(_c, _s, _cut) "
+            "ON %s = _a._c AND %s = _a._s "
+            "WHERE _a._cut IS NULL OR _st.ts_utc >= _a._cut"
+            % (stg, vals, _sani_sql("_st.category"), _sani_sql("_st.subcategory")))
 
 
 def load(table, category=None, subcategory=None, group=None, start=None, end=None,
@@ -119,8 +140,8 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
     con = _conn()  # persistent so the returned relation stays valid
 
     s_us, e_us = _to_us(start), _to_us(end, end=True)
-    files, max_arch_date = _archive_files(archive_root, table, category, subcategory,
-                                          s_us, e_us)
+    files, part_max = _archive_files(archive_root, table, category, subcategory,
+                                     s_us, e_us)
     parts = []
     if files:
         lst = ", ".join("'%s'" % f.replace("'", "''") for f in files)
@@ -154,8 +175,8 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
                         raise
                     _time.sleep(1.5)
         stg = "SELECT * FROM stg.%s" % table
-        if max_arch_date:  # archived days are final — never read them from staging
-            stg += " WHERE ts_utc >= %d" % (wc.day_start_us(max_arch_date) + 86_400_000_000)
+        if part_max:  # archived days are final per partition — never re-read from staging
+            stg = _staging_dedup_sql(stg, part_max)
         parts.append(stg)
     if not parts:
         raise FileNotFoundError("no staging or archive data for %s" % table)

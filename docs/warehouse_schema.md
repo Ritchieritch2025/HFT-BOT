@@ -127,12 +127,17 @@ and harmless.
 ## Access — one entry point
 `tools/warehouse.py::load(table, category, subcategory, group, start, end,
 columns, ffill)` routes archive (past days) vs staging (today / unexported
-days) transparently and never double-counts the overlap day: a day present in
-the archive **for the queried category/subcategory** is excluded from the
-staging scan. The exclusion is scoped to the query's partition, not a global
-max-archive-date — so a category that archives on a later day than another does
-not drop the lagging category's not-yet-archived staging rows (AF-3).
-`ffill=True` applies LOCF.
+days) transparently and never double-counts the overlap day. The archive/staging
+dedup is PER `(category, subcategory)` partition, not a global max-archive-date
+(AF-3): each partition carries its own max archived date, and a staging row is
+excluded only when its OWN partition archived through its day. This is correct
+for every query shape — pinned category+subcategory, category-only
+(`subcategory=None`), and all-categories (`category=None`) — so a partition that
+archives on a later day than another (naturally: a sparse partition with no rows
+on a day has no archive dir and trails) never drops the laggard's not-yet-
+archived staging rows on the boundary day. Staging rows are matched to their
+sanitized partition (mirroring the archive dir names) via the SQL replica of
+`warehouse_common.sanitize`. `ffill=True` applies LOCF.
 
 ## Dim snapshots (daily)
 `tools/dim_snapshot.py` dual-writes `dim/snapshots/date=<D>/{series,events,

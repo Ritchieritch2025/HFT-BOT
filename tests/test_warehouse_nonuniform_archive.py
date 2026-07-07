@@ -20,6 +20,7 @@ import pytest
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import warehouse as wh  # noqa: E402
+import warehouse_common as wc  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -53,8 +54,10 @@ def _build(root):
     con = duckdb.connect()
 
     def archive(cat, date, rows):
-        d = os.path.join(root, "facts", "trades", "category=%s" % cat,
-                         "subcategory=_none", "date=%s" % date)
+        # dirs are sanitized exactly as export_day writes them; row CONTENT keeps
+        # the original category/subcategory values (as staging does).
+        d = os.path.join(root, "facts", "trades", "category=%s" % wc.sanitize(cat),
+                         "subcategory=%s" % wc.sanitize("_none"), "date=%s" % date)
         os.makedirs(d, exist_ok=True)
         con.execute("CREATE OR REPLACE TABLE x (%s)" % _DDL)
         con.executemany("INSERT INTO x VALUES (%s)" % ",".join("?" * 12), rows)
@@ -94,3 +97,14 @@ def test_archived_category_staging_deduped(tmp_path):
     _build(root)
     # Sports archived through 07-07 -> its 07-07 staging row is excluded (no double count).
     assert _count(root, "Sports") == 2  # archive only; staging 07-07 deduped
+
+
+def test_all_categories_query_no_undercount(tmp_path):
+    # THE MONEY PATH: `event_measure_split --category all` -> load(category=None).
+    # A GLOBAL max-archive-date drops Crypto's 07-07 staging rows (Sports set the
+    # max); per-partition keeps them and still dedups Sports' archived day.
+    root = str(tmp_path / "wh3")
+    _build(root)
+    # archive: Sports 07-07 (2) + Crypto 07-06 (2) = 4; staging kept: Crypto 07-07 (2);
+    # staging dropped: Sports 07-07 (1, archived) -> total 6.
+    assert _count(root, None) == 6
