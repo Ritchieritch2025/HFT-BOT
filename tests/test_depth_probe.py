@@ -129,12 +129,12 @@ def test_load_depth_target_top_n(tmp_path):
 # the operator gate (subprocess; every path exits before any socket exists)
 # --------------------------------------------------------------------------
 
-def _run(args, env_extra=None):
+def _run(args, env_extra=None, cwd=ROOT):
     env = dict(os.environ)
     env.pop("KALSHI_MODE", None)
     env.update(env_extra or {})
     return subprocess.run([sys.executable, TOOL] + args, capture_output=True,
-                          text=True, env=env, cwd=ROOT, timeout=60)
+                          text=True, env=env, cwd=cwd, timeout=60)
 
 
 def test_refuses_without_operator_approved():
@@ -181,6 +181,12 @@ def test_refuses_capture_path_under_work_raw_absolute_and_case(tmp_path):
     p = _run(["--operator-approved", "--dry-run", "--csv", str(csv_path),
               "--capture", str(link / "date=2099-01-01" / "sneaky.ndjson")])
     assert p.returncode == 2, "guard bypassed via symlink"
+    # F1b: a RELATIVE work/raw path invoked from a FOREIGN cwd — the child
+    # ws_shadow runs cwd=ROOT, so this resolves into the production tree there
+    p = _run(["--operator-approved", "--dry-run", "--csv", str(csv_path),
+              "--capture", "work/raw/date=2099-01-01/sneaky.ndjson"],
+             cwd=str(tmp_path))
+    assert p.returncode == 2, "guard bypassed via relative path from foreign cwd"
 
 
 def test_dry_run_opens_no_socket_and_warns_on_stale_list(tmp_path):

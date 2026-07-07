@@ -254,7 +254,10 @@ def run_probe(args) -> int:
     # work/raw/ would be tailed into the warehouse by the ingester's glob.
     # casefold explicitly: os.path.normcase is a no-op on posix/macOS, but APFS
     # is case-insensitive, so work/RAW hits the same inode as work/raw.
-    real_cap = os.path.realpath(os.path.abspath(norm)).casefold()
+    # Anchor a relative capture on ROOT, not the invoker's cwd (F1b): the child
+    # ws_shadow runs with cwd=ROOT, so a relative KALSHI_SHADOW_CAPTURE resolves
+    # against ROOT there. os.path.join is a no-op for absolute inputs.
+    real_cap = os.path.realpath(os.path.join(ROOT, norm)).casefold()
     real_raw = os.path.realpath(os.path.join(ROOT, "work", "raw")).casefold()
     if real_cap == real_raw or real_cap.startswith(real_raw + os.sep):
         return refuse("capture path '%s' resolves inside work/raw/ — the "
