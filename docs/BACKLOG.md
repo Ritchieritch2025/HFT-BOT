@@ -253,3 +253,32 @@ noticed-during, observation, suggested owner.
   `stale_reasons` strings differ. If WP-08 ever pages differently for
   "pipeline behind" vs "cannot even read the pipeline", it should branch on
   that field, not on the exit code. Owner: WP-08.
+- 2026-07-07 · noticed during W4 coverage auditor · `gold_validate`,
+  `gold_build`, `gold_v5_delta`, `gold_v7_race` are registered kind=check/
+  tool, safety=offline WITHOUT `autorun: false`, but all require `--date` —
+  the console "Run all" set and `lifecycle_check --run-core-tests` would
+  invoke them argument-less (argparse exit 2 → recorded fail). The
+  `freshness`/`feed_readiness` entries already use `autorun: false` for
+  exactly this; the gold entries should too. Owner: next tools.json change.
+- 2026-07-07 · noticed during W4 coverage auditor · warehouse fact rows store
+  PATH-SANITIZED category values (`Climate_and_Weather`,
+  `Science_and_Technology`, `_unclassified` null sentinel) while
+  config/market_classes.yaml and the live catalog use human names
+  ("Climate and Weather"). W4's classifier is sanitize-aware
+  (coverage_audit.classify_category), but any other consumer string-joining
+  fact-row categories against the yaml/catalog will silently misclassify.
+  Consider documenting in docs/warehouse_schema.md (or normalizing at
+  ingest/export — needs its own D4-compliant change). Owner: next
+  warehouse_schema/ingest change.
+- 2026-07-07 · noticed during W4 coverage auditor · 43 traded markets on
+  2026-07-06 carry NULL/`_unclassified` category (series missing from the
+  classification dim at ingest time, e.g. KXMEDNOMJUL, KXBBCHARTTOP3,
+  KXWCPREPACK) and 2 traded series are absent from the live catalog
+  (KXMLBWINS, KXNEWOUTBREAK) — catalog/classification refresh lag. The daily
+  coverage audit lists them (S1); a catalog_sync + build_classification rerun
+  should absorb them. Owner: pipeline ops / WP-08 health.
+- 2026-07-07 · noticed during W4 coverage auditor · PLAN_GOLD_DATA_CONTRACT
+  §0 grounding facts were measured EARLY on day one (5,692 traded / 13,455 L1
+  markets); the full 2026-07-06 day is 127,997 traded / 44,569 L1 / 4
+  full-depth. §0 is a snapshot, not a contract — the coverage audit is now
+  the daily source for these numbers. Owner: documentation note only.

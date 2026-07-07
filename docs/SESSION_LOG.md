@@ -6,6 +6,36 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — W4 DONE — coverage auditor (S1-S4, V14/V15/V16) + lifecycle research stage
+
+- commits: (this commit) tools/coverage_audit.py + tests/test_coverage_audit.py
+  (27 tests, TDD red→green) + lifecycle_check.py appended non-blocking
+  "Coverage Audit (research)" stage + tools.json/run_pipeline.sh entries +
+  docs/next_actions.md + BACKLOG notes.
+- decisions (all in files):
+  - V15 declared-list semantics → `tools/coverage_audit.py`: the firehose
+    subscribes no orderbook_delta and NO declared watchlist file exists, so
+    V15 reports `declared_list_missing` (documented, never invented); the 4
+    observed full-depth markets on 2026-07-06 are legacy watchlist leftovers
+    (KXMLBSPREAD/TOTAL-26JUL052130BOSLAA-*, KXWCGOAL-26JUL05MEXENG-…).
+    Shrinkage vs a declared list = ERROR exit 1 (proven live + fixture).
+  - Sanitized-category classification → `classify_category`: warehouse fact
+    rows store wc.sanitize()d categories; classifier matches both spellings;
+    `_unclassified` = unknown-category leakage, not a "new category" (V16).
+  - Supervisor wiring + config/depth_watchlist.txt creation are
+    OPERATOR-GATED → `docs/next_actions.md` (W4 forbidden-writes, P4).
+- real audit 2026-07-06: traded=127,997 / L1=44,569 / full-depth=4;
+  V14: 22,477 of 25,600 High+Mid lack L1 — ZERO Class A violations (all
+  Class B by policy: 22,110 Exotics/MVE Q7-excluded + 367 promotion
+  candidates → work/mm/promotion_candidates_2026-07-06.csv); S3: 5,274
+  Sports traded, 2 missed (KXITFWMATCH-262799.99, KXITFMATCH-26JUL06BEASCO-
+  SCR-26-EHAA, both Low tier); S4 → work/mm/depth_target_2026-07-06.csv
+  (9,469 scoreable); V16 warns only on 43 null-category markets + 2
+  catalog-missing series (KXMLBWINS, KXNEWOUTBREAK).
+- blocked / handoff: promotion CSV is report-only — operator decides
+  per-market vs wholesale promotion after a week of reports (plan §7);
+  depth_target CSV feeds W6 (design+probe, operator-gated).
+
 ## 2026-07-07 04:05 UTC — WP-05 DONE — Discovery Mission: API ground truth report + kalshi_facts.yaml
 
 - commits: (this commit) WP-05 discovery report + config/kalshi_facts.yaml +

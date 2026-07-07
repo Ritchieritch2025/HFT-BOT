@@ -40,6 +40,11 @@ STAGES = [
     ("data_pipeline", "Data Pipeline", ["core_tests"]),
     ("strategy_shadow", "Strategy Shadow", ["data_pipeline"]),
     ("live_execution", "Live Execution Gate", ["strategy_shadow"]),
+    # W4 research stage — NON-BLOCKING by construction: no dependencies, no
+    # stage depends on it, and coverage_audit_stage() only ever returns
+    # "pass" or "skipped" (never fail/blocked/not_started), so it can never
+    # turn the lifecycle red (PLAN_GOLD_DATA_CONTRACT W4).
+    ("coverage_audit", "Coverage Audit (research)", []),
 ]
 
 
@@ -424,6 +429,56 @@ def live_execution_stage(previous):
                  blocking_reason="Live Execution is intentionally blocked: risk, kill switch, reconcile, endpoint costs, account limits, token budget, and clean shadow validation are not all complete.")
 
 
+def coverage_audit_stage():
+    """W4 daily coverage audit (research, report-only): reads the latest
+    tools/coverage_audit.py output under work/mm/. NON-BLOCKING contract:
+    returns ONLY "pass" (fresh output exists and is readable) or "skipped"
+    (no output yet, or output unreadable — surfaced in the detail, D2);
+    never "fail"/"blocked", so this stage cannot redden the lifecycle."""
+    import glob
+    label = "Coverage Audit (research)"
+    mm = os.path.join(WORK, "mm")
+    dts = sorted(glob.glob(os.path.join(mm, "depth_target_*.csv")))
+    if not dts:
+        return stage("coverage_audit", label, "skipped",
+                     "No coverage-audit output yet (research stage; run "
+                     "`python3 tools/coverage_audit.py --date <YYYY-MM-DD>`).",
+                     [check_record("coverage_audit_output", "skipped",
+                                   "work/mm/depth_target_<date>.csv not found.")])
+    latest = dts[-1]
+    m = __import__("re").search(r"depth_target_(\d{4}-\d{2}-\d{2})\.csv$", latest)
+    date = m.group(1) if m else "?"
+    promo = os.path.join(mm, "promotion_candidates_%s.csv" % date)
+    try:
+        with open(latest, newline="") as f:
+            hdr = f.readline()
+            n_dt = sum(1 for _ in f)
+        if "market_ticker" not in hdr:
+            raise ValueError("unexpected header: %r" % hdr[:80])
+        n_pc = -1
+        if os.path.isfile(promo):
+            with open(promo, newline="") as f:
+                f.readline()
+                n_pc = sum(1 for _ in f)
+    except (OSError, ValueError) as e:
+        return stage("coverage_audit", label, "skipped",
+                     "Coverage-audit output exists but is unreadable — "
+                     "surfaced, not counted as pass (%s)." % e,
+                     [check_record("coverage_audit_output", "skipped",
+                                   "unreadable: %s" % e, log=rel(latest))],
+                     evidence_log=rel(latest))
+    return stage("coverage_audit", label, "pass",
+                 "Latest coverage audit %s: %d depth-target rows, %s "
+                 "promotion candidates (report-only research)."
+                 % (date, n_dt,
+                    n_pc if n_pc >= 0 else "no"),
+                 [check_record("coverage_audit_output", "pass",
+                               "depth_target rows=%d promotion_candidates=%s"
+                               % (n_dt, n_pc if n_pc >= 0 else "missing"),
+                               log=rel(latest))],
+                 evidence_log=rel(latest))
+
+
 def enforce_dependencies(stages):
     by_id = {s["id"]: s for s in stages}
     for s in stages:
@@ -474,6 +529,8 @@ def build_status(args):
     stages.append(strategy_shadow_stage(os.path.abspath(args.metrics)))
     stages[-1]["depends_on"] = defs[stages[-1]["id"]][1]
     stages.append(live_execution_stage(stages))
+    stages[-1]["depends_on"] = defs[stages[-1]["id"]][1]
+    stages.append(coverage_audit_stage())   # W4 research stage, never red
     stages[-1]["depends_on"] = defs[stages[-1]["id"]][1]
     stages = enforce_dependencies(stages)
     status = overall_status(stages)
