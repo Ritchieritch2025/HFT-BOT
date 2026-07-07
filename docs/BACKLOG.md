@@ -221,3 +221,16 @@ noticed-during, observation, suggested owner.
   as-of) is only 3 markets / 744 trades / 0.5 h — 18.0% raced. All
   proposed thresholds are day-one baseline samples (G4), not global truth;
   operator approval decides what activates.
+- 2026-07-07 · noticed during WP-03 · quiet-period semantics of the staging
+  lag: max(ts_utc) over fact tables advances with market activity plus the
+  hourly heartbeat scheduler, so an exchange-wide dead-quiet stretch could
+  legitimately push the lag toward ~1h and trip the 600s default without any
+  pipeline fault (never observed — live lag is ~48s — the firehose covers all
+  markets). WP-08 should record the observed lag distribution for a week
+  before anyone tightens/loosens the threshold. Owner: WP-08.
+- 2026-07-07 · noticed during WP-03 · freshness distinguishes measured-stale
+  from UNMEASURABLE (missing staging / lock held through the whole retry
+  window / no raw files) — both exit 1 per fail-closed S2, but
+  `stale_reasons` strings differ. If WP-08 ever pages differently for
+  "pipeline behind" vs "cannot even read the pipeline", it should branch on
+  that field, not on the exit code. Owner: WP-08.

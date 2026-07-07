@@ -6,6 +6,44 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 03:10 UTC — WP-03 DONE — freshness monitor: staging + capture lag, one command, STALE alarm
+
+- commits: this commit (tools/freshness.py + tests/test_freshness.py +
+  A1 registry appends: tools.json `freshness` check (pass_token FRESH) +
+  `test_freshness` test entry + run_pipeline.sh suite line + BACKLOG
+  notes). Nothing else touched; config/*.csv churn left unstaged.
+- TDD: RED proven (8 failed, implementation absent — subprocess "No such
+  file tools/freshness.py"), then 8 passed; full ./tests/run_pytest.sh
+  198 passed; check_registry ok (96 tools); make check tail ALL PASS.
+- decisions (rationale in tools/freshness.py docstring, E2):
+  - TWO lags, alert if EITHER > threshold (default 600s, --threshold):
+    (a) staging lag = now − max(ts_utc) over ALL fact tables
+    (orderbooks_l1, trades, orderbooks_full — the test fixture puts the
+    newest row in `trades` so an L1-only tool is rejected); (b) capture
+    lag = now − newest *.ndjson* mtime under work/raw/date=<today>/
+    (yesterday's dir also scanned so the first seconds after UTC midnight
+    don't false-alarm; glob matches rotation shards .ndjson.N — the exact
+    file class the shard incident missed, and there is a test for it).
+    This split distinguishes "capture died" from "ingest behind" — both
+    2026-07 incidents were capture-fine/staging-stale.
+  - fail-closed (S2): missing staging, empty fact tables, no raw files,
+    or read-only connect still locked after the retry window (12×5s,
+    reader-side mirror of ingest.py connect_with_retry) ⇒ STALE exit 1
+    with an explicit "unmeasurable" reason — never green on a metric we
+    could not read. Verdict word FRESH appears only on pass (registry
+    pass_token; exit code authoritative). --json for WP-08; --now/
+    --staging/--raw-root injection for deterministic tests.
+- live demo (DoD): injected-stale tmp fixture ⇒ VERDICT STALE exit 1
+  (staging lag 93398.1s, capture lag 7207.4s, both reasons printed);
+  REAL pipeline ⇒ VERDICT FRESH exit 0, staging lag 48.3s (newest
+  ts_utc 2026-07-07T03:05:07.418Z via trades), capture lag 0.13s
+  (work/raw/date=2026-07-07/firehose_03.ndjson) — read live against the
+  running ingest daemon without disturbing it.
+- blocked / handoff: WP-08 consumes `python3 tools/freshness.py --json`
+  (fields: verdict, staging_lag_s, capture_lag_s, stale_reasons, ...);
+  two BACKLOG notes for WP-08 (quiet-period threshold observation;
+  branch on stale_reasons for behind-vs-unreadable paging).
+
 ## 2026-07-07 02:57 UTC — W3.2 DONE — V7 race/consistency report (REPORT-ONLY) measured on the real day, manifest verdict filled
 
 - commits: this commit (tools/gold_v7_race.py + tests/test_gold_v7_race.py
