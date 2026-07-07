@@ -80,6 +80,7 @@ WATCHDOG_PID=$!
 
 hour_cycle=0
 LAST_EXPORTED=""
+LAST_SWEPT=""
 while true; do
   ingest_alive || start_ingest
 
@@ -114,6 +115,25 @@ while true; do
       python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&
       python3 tools/mm_calibrate.py --date "$YESTERDAY" ) \
       >> "$LIVE/mm_research.log" 2>&1 &
+  fi
+
+  # --- second-pass export sweep (2026-07-07 incident): the midnight export can
+  # race the ingest backlog, so rows for yesterday landing in staging minutes
+  # later miss the write-once archive (day-06 lost 45.9k trades until force-
+  # re-exported by hand). Once per day, after 02:00 UTC, re-export yesterday
+  # with --force to sweep late-ingested rows before the staging prune window.
+  HOUR_NOW="$(date -u +%H)"
+  if [ "$LAST_EXPORTED" = "$YESTERDAY" ] && [ "$LAST_SWEPT" != "$YESTERDAY" ] \
+     && [ "$HOUR_NOW" -ge 2 ]; then
+    touch "$LIVE/export_pause"
+    if ingest_alive; then kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null; sleep 2; fi
+    if python3 tools/export_day.py --date "$YESTERDAY" --force --no-prune \
+         >> "$LIVE/export.log" 2>&1; then
+      LAST_SWEPT="$YESTERDAY"
+      echo "[supervisor] second-pass sweep exported $YESTERDAY"
+    fi
+    rm -f "$LIVE/export_pause"
+    ingest_alive || start_ingest
   fi
 
   # --- LAYER 1: firehose the rest of this UTC hour into the hourly raw log ----

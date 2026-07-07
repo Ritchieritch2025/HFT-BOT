@@ -181,6 +181,13 @@ def main():
                                 ).count("*").fetchone()[0]
         check("load(trades, Sports/MLB, yesterday) returns the archived slice",
               n_arch == stg_tr_yd, n_arch)
+        # regression (2026-07-07): archive csv read must not let the sniffer
+        # narrow taker_side to BOOLEAN — values must survive as 'yes'/'no'
+        sides = {r[0] for r in warehouse.load(
+            "trades", start=yd.isoformat(), end=yd.isoformat(),
+            columns=["taker_side"]).fetchall()}
+        check("archived taker_side stays 'yes'/'no' strings (no BOOLEAN sniff)",
+              sides and sides <= {"yes", "no"}, sides)
         n_today = warehouse.load("trades", start=today.isoformat(),
                                  end=today.isoformat()).count("*").fetchone()[0]
         check("load(trades, today) returns live staging data", n_today == 1, n_today)

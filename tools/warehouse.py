@@ -119,7 +119,17 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
         if _EXT[table] == "parquet":
             parts.append("SELECT * FROM read_parquet([%s], union_by_name=true)" % lst)
         else:
-            parts.append("SELECT * FROM read_csv([%s], header=true, union_by_name=true)" % lst)
+            # Explicit types for string columns: DuckDB's sniffer narrows
+            # 'yes'/'no' taker_side to BOOLEAN (caught 2026-07-07 when the
+            # archived day fed the gold build and every trade fail-closed).
+            # Never let type inference touch identity/enum columns.
+            str_cols = ("market_ticker", "series_ticker", "event_ticker",
+                        "category", "subcategory", "group", "trade_id",
+                        "taker_side")
+            types = ", ".join("'%s': 'VARCHAR'" % c for c in str_cols)
+            parts.append(
+                "SELECT * FROM read_csv([%s], header=true, union_by_name=true, "
+                "types={%s})" % (lst, types))
     if os.path.exists(staging):
         if staging not in _ATTACHED:
             # The ingest daemon holds the write lock briefly each cycle; retry
