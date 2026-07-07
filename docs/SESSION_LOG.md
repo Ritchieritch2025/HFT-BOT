@@ -6,6 +6,48 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — W5 DONE — ws_sid/ws_seq into orderbooks_full (the one production-adjacent change)
+
+- commits: (this commit) tools/ingest.py + tests/test_ingest.py +
+  tests/test_export_day.py + docs/warehouse_schema.md (E5 same commit).
+- what landed: two nullable BIGINT columns `ws_sid`/`ws_seq` on
+  orderbooks_full, populated from frame-level `sid`/`seq` (top-level in the
+  WS frame, NOT in msg — W3.3 verified) for orderbook_snapshot /
+  orderbook_delta; anything missing/non-int ⇒ NULL (`ws_int()`, D3).
+  Migration: `Ingester._migrate_full_seq()` PRAGMA-checks and ALTERs the
+  columns into a pre-W5 13-col staging table on init (nullable, instant,
+  idempotent). INSERT switched to an explicit column list (`FULL_INSERT`)
+  so it is correct on both fresh and migrated DBs.
+- export_day.py: UNCHANGED — verified its `SELECT *` picks the columns up
+  (test "archived parquet carries ws_sid/ws_seq"); load()'s
+  union_by_name/UNION ALL BY NAME proven to union a 13-col pre-W5 archive
+  with a new archive, missing cols ⇒ NULL (test 5b in test_export_day.py).
+- TDD: both suites red first (BinderException: "ws_sid" not found in
+  SELECT — exact missing feature) then green; full battery green:
+  pytest 236 passed + 1 xfailed, make check ALL PASS, run_pipeline.sh
+  PIPELINE PASS, check_registry ok (99 tools).
+- continuity (P4): capture side untouched (ws_shadow already writes raw
+  frames containing sid/seq); the ONLY production restart was the ingest
+  daemon (checkpoint byte offsets make restart gap/dup-free). Restarted
+  pid 35544, fresh [ingest] +L1/+trades lines within 90s; live staging
+  migrated to 15 columns; all 103,252 pre-W5 rows read NULL ws_seq —
+  expected, and stays NULL until a watchlist capture produces orderbook
+  frames (firehose subscribes ticker+trade only).
+- rollback: revert commit + restart ingester (checkpoint-safe). The
+  ALTER-added columns are harmless if code reverts (nullable, ignored by
+  the old 13-value positional INSERT? NO — old positional INSERT would
+  break on 15 cols; a revert must also either drop the columns or rely on
+  the reverted DDL creating a fresh staging — noted: revert commit ⇒ the
+  old INSERT is positional 13-of-15 and DuckDB rejects it, so on rollback
+  ALSO run: ALTER TABLE orderbooks_full DROP COLUMN ws_sid; DROP COLUMN
+  ws_seq; (or delete staging.duckdb — rebuildable from raw, D1).
+- gold adoption of ws_seq (W2.3 merge preferring real seq, per-sid gap
+  detection post-W5 mode) is OUT of W5 scope — future workstream; gold
+  builds on pre-W5 data keep recording `seq_unavailable`.
+- blocked / handoff: PLAN_GOLD_DATA_CONTRACT W1→W5 all landed; W6
+  (depth-expansion design + probe) is operator-gated. Independent audit of
+  W5 pending per protocol.
+
 ## 2026-07-07 — WP-04 DONE (audit pending) + WP-01 CLOSED — permanent acceptance suite
 
 - commits: (this commit) tests/test_pipeline_contract.py (12 tests, TDD

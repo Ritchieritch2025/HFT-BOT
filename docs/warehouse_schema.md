@@ -70,8 +70,27 @@ yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4, price_e4, volume_e4,
 open_interest_e4, is_snapshot`.
 **trades**: `ts_utc, market_ticker, series_ticker, event_ticker, category,
 subcategory, group, trade_id, yes_price_e4, no_price_e4, count_e4, taker_side`.
+**orderbooks_full** (watchlist runs): `ts_utc, market_ticker, series_ticker,
+event_ticker, category, subcategory, group, msg_type ('snapshot'|'delta'),
+side, price_e4, delta_e4, yes_levels, no_levels, ws_sid, ws_seq`.
 **dim** (`catalog/`): `series`, `events`, `markets`, `settlements` (raw, all
 API fields) + `series_classified` (pinned category/subcategory/group/class).
+
+### ws_sid / ws_seq (added 2026-07-07, W5 — additive, nullable)
+`orderbook_snapshot` / `orderbook_delta` WS frames carry a top-level `sid`
+(subscription id) and `seq` (per-sid monotonic sequence; snapshots share the
+sid's counter) — verified against live captures (W3.3). The ingester stores
+them as nullable BIGINTs; frames without them (and every pre-2026-07-07 row
+or archive) read back NULL — the columns are never required. On init the
+ingester ALTERs them into a pre-W5 staging table (instant, nullable, safe);
+the exporter's `SELECT *` carries them into the parquet automatically, and
+`load()` unions old (13-col) and new archives by name, missing ⇒ NULL.
+**Known ordering defect this fixes:** `orderbooks_full` had no sequence
+column, so same-µs deltas were ordered only by raw-file position. With
+`ws_seq`, per-sid gap detection and true delta ordering are possible. The
+gold builder's merge (PLAN_GOLD_DATA_CONTRACT W2.3) can adopt `ws_seq` as
+its sequence source in a future workstream — adoption is out of W5 scope;
+until then gold builds on pre-W5 data record `seq_unavailable`.
 
 ## Directory & naming (archive)
 ```
@@ -131,7 +150,8 @@ change-only (100 identical + 1 change → 2 rows) · heartbeat (3 quiet hours �
 kill/restart mid-file → counts reconcile, no dups · Class B has trades but no
 L1 · manifest rows == archive files, md5 verified · staging prune retains
 today + 1 prior day · load() slices by category/subcategory/date and routes
-archive vs staging automatically.
+archive vs staging automatically · ws_sid/ws_seq flow raw→staging→export,
+missing ⇒ NULL, pre-W5 staging migrated on init, old+new archives union.
 
 ## Reserved (documented, not built this phase)
 `facts/game_data/` + `game_kalshi_map` for sports enrichment (external game state

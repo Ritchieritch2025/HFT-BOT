@@ -32,7 +32,8 @@ CHANGE-ONLY + HEARTBEAT (orderbooks_l1, Class A markets only):
   Reconstruction: book at T = most recent row <= T (LOCF); max lookback = 1h.
 
 Trades are recorded for EVERY market regardless of class. orderbook_snapshot /
-orderbook_delta frames (watchlist runs) land in orderbooks_full as typed rows.
+orderbook_delta frames (watchlist runs) land in orderbooks_full as typed rows,
+carrying the frame-level per-sid WS sequence (ws_sid/ws_seq, nullable — W5).
 Per-day per-category tick counts land in ingest_stats (compression visibility).
 stdlib + duckdb only.
 """
@@ -65,11 +66,30 @@ CREATE TABLE IF NOT EXISTS orderbooks_full (
   ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
   category TEXT, subcategory TEXT, "group" TEXT,
   msg_type TEXT, side TEXT, price_e4 INTEGER, delta_e4 BIGINT,
-  yes_levels TEXT, no_levels TEXT);
+  yes_levels TEXT, no_levels TEXT, ws_sid BIGINT, ws_seq BIGINT);
 CREATE TABLE IF NOT EXISTS ingest_stats (
   day TEXT, category TEXT, ticks_seen BIGINT, l1_written BIGINT, trades_written BIGINT,
   PRIMARY KEY (day, category));
 """
+
+# W5 (2026-07-07): per-sid WS seq. orderbook_snapshot / orderbook_delta frames
+# carry top-level `sid` + `seq` ints (verified against live captures, W3.3) —
+# the per-subscription sequence that fixes the known ordering defect (same-µs
+# deltas were ordered only by file position). Additive + nullable: frames
+# without them (or pre-W5 rows) stay NULL, never required. The explicit column
+# list keeps the INSERT correct on both fresh and ALTER-migrated staging DBs.
+FULL_COLS = ("ts_utc", "market_ticker", "series_ticker", "event_ticker",
+             "category", "subcategory", '"group"', "msg_type", "side",
+             "price_e4", "delta_e4", "yes_levels", "no_levels",
+             "ws_sid", "ws_seq")
+FULL_INSERT = "INSERT INTO orderbooks_full (%s) VALUES (%s)" % (
+    ", ".join(FULL_COLS), ", ".join(["?"] * len(FULL_COLS)))
+
+
+def ws_int(v):
+    """Frame-level sid/seq: a real int passes through; anything else -> NULL
+    (boundary validation, D3 — additive column, never required)."""
+    return v if type(v) is int else None
 
 
 def e4(v):
@@ -152,6 +172,7 @@ class Ingester:
     def __init__(self, con, warehouse_root, active_hours=24):
         self.con = con
         self.con.execute(STAGING_DDL)
+        self._migrate_full_seq()
         self.classes = self._load_classification(warehouse_root)
         self.active_us = active_hours * HOUR_US
         # per market: book state, dim meta, last tick ts, last snapshot-hour
@@ -161,6 +182,18 @@ class Ingester:
         self.bad_ts = 0          # frames dropped for corrupt/implausible timestamps
         self.bad_ticker = 0      # frames dropped for corrupt/spliced tickers
         self._rebuild_state()
+
+    def _migrate_full_seq(self):
+        """W5 migration: a pre-existing staging DB still has the 13-column
+        orderbooks_full (CREATE TABLE IF NOT EXISTS never adds columns).
+        ALTER TABLE ADD COLUMN is nullable, instant, and idempotent-guarded —
+        existing rows read back NULL, which is the additive contract."""
+        have = {r[1] for r in self.con.execute(
+            "PRAGMA table_info('orderbooks_full')").fetchall()}
+        for col in ("ws_sid", "ws_seq"):
+            if col not in have:
+                self.con.execute(
+                    "ALTER TABLE orderbooks_full ADD COLUMN %s BIGINT" % col)
 
     def _load_classification(self, warehouse_root):
         pq = os.path.join(warehouse_root, "catalog", "series_classified", "part-00000.parquet")
@@ -310,12 +343,14 @@ class Ingester:
         elif typ == "orderbook_snapshot":
             full_rows.append((ts_us, mt, series, event, cat, sub, grp, "snapshot",
                               None, None, None,
-                              levels_e4(msg, "yes"), levels_e4(msg, "no")))
+                              levels_e4(msg, "yes"), levels_e4(msg, "no"),
+                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))))
         elif typ == "orderbook_delta":
             price = msg.get("price_dollars", msg.get("price"))
             delta = msg.get("delta_fp", msg.get("delta"))
             full_rows.append((ts_us, mt, series, event, cat, sub, grp, "delta",
-                              msg.get("side"), e4(price), e4(delta), None, None))
+                              msg.get("side"), e4(price), e4(delta), None, None,
+                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))))
 
     def _insert(self, l1_rows, tr_rows, full_rows):
         if l1_rows:
@@ -325,8 +360,7 @@ class Ingester:
             self.con.executemany(
                 "INSERT INTO trades VALUES (%s)" % ",".join(["?"] * 12), tr_rows)
         if full_rows:
-            self.con.executemany(
-                "INSERT INTO orderbooks_full VALUES (%s)" % ",".join(["?"] * 13), full_rows)
+            self.con.executemany(FULL_INSERT, full_rows)
         if self.stats:
             for (day, cat), (t, l1, tr) in self.stats.items():
                 self.con.execute("""

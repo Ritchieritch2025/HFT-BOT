@@ -60,6 +60,18 @@ def trade(mt, ts_us, tid):
                        "raw": json.dumps({"type": "trade", "msg": msg})})
 
 
+def book(mt, ts_us, typ, sid=None, seq=None, **msg_extra):
+    """orderbook_snapshot/delta capture line; sid/seq are frame-level (W5)."""
+    msg = {"market_ticker": mt, "ts_ms": ts_us // 1000}
+    msg.update(msg_extra)
+    frame = {"type": typ, "msg": msg}
+    if sid is not None:
+        frame["sid"] = sid
+    if seq is not None:
+        frame["seq"] = seq
+    return json.dumps({"recv_wall_ns": ts_us * 1000, "raw": json.dumps(frame)})
+
+
 def _write_late_capture(tmp, yd):
     """Trades for yesterday that arrive in staging AFTER the midnight export."""
     path = os.path.join(tmp, "late.ndjson")
@@ -110,6 +122,17 @@ def main():
             f.write(trade("KXMLB-25JUL05-BOS", us(yd) + 2_000_000, "y2") + "\n")
             f.write(tick("KXBTC-25DEC31-B50", us(today, 10), 0.45) + "\n")
             f.write(trade("KXMLB-25JUL06-CHC", us(today, 10), "t1") + "\n")
+            # W5: full-book frames for yesterday, with and without sid/seq
+            f.write(book("KXBTC-25DEC31-B50", us(yd) + 3_000_000,
+                         "orderbook_snapshot", sid=9, seq=101,
+                         yes_dollars_fp=[["0.4000", "10.00"]],
+                         no_dollars_fp=[]) + "\n")
+            f.write(book("KXBTC-25DEC31-B50", us(yd) + 4_000_000,
+                         "orderbook_delta", sid=9, seq=102, side="yes",
+                         price_dollars="0.4000", delta_fp="1.00") + "\n")
+            f.write(book("KXBTC-25DEC31-B50", us(yd) + 5_000_000,
+                         "orderbook_delta", side="yes",
+                         price_dollars="0.4000", delta_fp="-1.00") + "\n")
         con = duckdb.connect(staging)
         ingest.Ingester(con, wh).process_file(cap)
         day_lo, day_hi = us(yd, 0) - 43_200_000_000 * 0, None
@@ -160,6 +183,18 @@ def main():
               "file=%d staged=%d manifest=%s" % (n_tr_file, stg_tr_yd, m_tr["row_count"]))
         check("compression report written",
               os.path.exists(os.path.join(wh, "compression_report.csv")))
+        # W5: exporter's SELECT * must pick up ws_sid/ws_seq in the parquet
+        fu_file = os.path.join(archive, "orderbooks_full", "category=Crypto",
+                               "subcategory=BTC", "date=%s" % yd,
+                               "orderbooks_full__Crypto__BTC__%s.parquet" % yd)
+        check("orderbooks_full archive partition exists", os.path.exists(fu_file),
+              fu_file)
+        fu_rows = duckdb.connect().execute(
+            "SELECT msg_type, ws_sid, ws_seq FROM read_parquet('%s') "
+            "ORDER BY ts_utc" % fu_file).fetchall()
+        check("archived parquet carries ws_sid/ws_seq (SELECT * pickup)",
+              fu_rows == [("snapshot", 9, 101), ("delta", 9, 102),
+                          ("delta", None, None)], fu_rows)
 
         # ---- 3. prune: older-than-yesterday rows are gone ---------------------
         con = duckdb.connect(staging, read_only=True)
@@ -206,6 +241,32 @@ def main():
         n_ffill = warehouse.load("orderbooks_l1", category="Crypto",
                                  ffill=True).count("*").fetchone()[0]
         check("ffill=True LOCF query runs", n_ffill >= 2, n_ffill)
+
+        # ---- 5b. W5: old (pre-seq, 13-col) + new archives union via load() ----
+        # Simulate a pre-W5 archive day: a parquet WITHOUT ws_sid/ws_seq.
+        d2 = today - datetime.timedelta(days=2)
+        old_dir = os.path.join(archive, "orderbooks_full", "category=Crypto",
+                               "subcategory=BTC", "date=%s" % d2)
+        os.makedirs(old_dir)
+        old_pq = os.path.join(old_dir,
+                              "orderbooks_full__Crypto__BTC__%s.parquet" % d2)
+        duckdb.connect().execute(
+            "COPY (SELECT %d AS ts_utc, 'KXBTC-25DEC31-B50' AS market_ticker, "
+            "'KXBTC' AS series_ticker, 'KXBTC-25DEC31' AS event_ticker, "
+            "'Crypto' AS category, 'BTC' AS subcategory, 'BTC' AS \"group\", "
+            "'snapshot' AS msg_type, CAST(NULL AS VARCHAR) AS side, "
+            "CAST(NULL AS INTEGER) AS price_e4, CAST(NULL AS BIGINT) AS delta_e4, "
+            "'[]' AS yes_levels, '[]' AS no_levels) TO '%s' (FORMAT PARQUET)"
+            % (us(d2), old_pq))
+        fu = warehouse.load("orderbooks_full", start=d2.isoformat(),
+                            end=yd.isoformat(),
+                            columns=["ts_utc", "msg_type", "ws_sid", "ws_seq"]
+                            ).fetchall()
+        check("old 13-col + new archive union via load() (missing cols -> NULL)",
+              len(fu) == 4 and (fu[0][2], fu[0][3]) == (None, None) and
+              (fu[1][2], fu[1][3]) == (9, 101) and
+              (fu[2][2], fu[2][3]) == (9, 102) and
+              (fu[3][2], fu[3][3]) == (None, None), fu)
 
         # ---- 6. second-pass sweep semantics (2026-07-07 export/ingest race) ---
         # late rows land in staging AFTER the midnight export; a --force

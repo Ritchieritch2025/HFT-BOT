@@ -219,6 +219,77 @@ def main():
         check("snapshot levels parsed from yes/no_dollars_fp into E4 pairs",
               json.loads(yl) == [[100, 3100000], [7100, 25000]] and
               json.loads(nl) == [[2000, 100000]], (yl, nl))
+
+        # ---- 8. W5: frame-level sid/seq -> ws_sid/ws_seq (orderbooks_full) ----
+        # Verified live (W3.3): orderbook_snapshot/orderbook_delta frames carry
+        # top-level `sid` and `seq` ints — {type, sid, seq, msg:{...}}.
+        def book_frame(typ, ts_us, msg, sid=None, seq=None):
+            frame = {"type": typ, "msg": msg}
+            if sid is not None:
+                frame["sid"] = sid
+            if seq is not None:
+                frame["seq"] = seq
+            return json.dumps({"recv_wall_ns": ts_us * 1000,
+                               "raw": json.dumps(frame)})
+
+        t8 = T0 + 10_000_000
+        snap8 = {"market_ticker": mt_a, "ts_ms": t8 // 1000,
+                 "yes_dollars_fp": [["0.0100", "310.00"]], "no_dollars_fp": []}
+        del8a = {"market_ticker": mt_a, "ts_ms": (t8 + 1_000_000) // 1000,
+                 "side": "yes", "price_dollars": "0.0100", "delta_fp": "5.00"}
+        del8b = {"market_ticker": mt_a, "ts_ms": (t8 + 2_000_000) // 1000,
+                 "side": "no", "price_dollars": "0.2000", "delta_fp": "-1.00"}
+        cap7 = os.path.join(tmp, "cap7.ndjson")
+        open(cap7, "w").write("\n".join([
+            book_frame("orderbook_snapshot", t8, snap8, sid=7, seq=41),
+            book_frame("orderbook_delta", t8 + 1_000_000, del8a, sid=7, seq=42),
+            book_frame("orderbook_delta", t8 + 2_000_000, del8b),  # no sid/seq
+        ]) + "\n")
+        ing.process_file(cap7)
+        rows8 = q(ing, "SELECT msg_type, ws_sid, ws_seq FROM orderbooks_full "
+                       "WHERE ts_utc >= %d ORDER BY ts_utc" % t8)
+        check("snapshot/delta frames carry top-level sid/seq into ws_sid/ws_seq",
+              len(rows8) == 3 and rows8[0] == ("snapshot", 7, 41) and
+              rows8[1] == ("delta", 7, 42), rows8)
+        check("frames without sid/seq land with NULL ws_sid/ws_seq",
+              len(rows8) == 3 and rows8[2] == ("delta", None, None), rows8)
+
+        # ---- 9. W5 migration: pre-W5 13-col staging gains the columns ---------
+        import duckdb as _dd
+        OLD_FULL_DDL = """CREATE TABLE orderbooks_full (
+          ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
+          category TEXT, subcategory TEXT, "group" TEXT,
+          msg_type TEXT, side TEXT, price_e4 INTEGER, delta_e4 BIGINT,
+          yes_levels TEXT, no_levels TEXT)"""
+        old_db = os.path.join(tmp, "old.duckdb")
+        old_con = _dd.connect(old_db)
+        old_con.execute(OLD_FULL_DDL)
+        old_con.execute(
+            "INSERT INTO orderbooks_full VALUES (%d, '%s', 'KXBTC', "
+            "'KXBTC-25DEC31', 'Crypto', 'BTC', 'BTC', 'snapshot', NULL, "
+            "NULL, NULL, '[]', '[]')" % (T0, mt_a))
+        ing_m = ingest.Ingester(old_con, wh)   # re-open over the old schema
+        cols_m = {r[1] for r in old_con.execute(
+            "PRAGMA table_info('orderbooks_full')").fetchall()}
+        check("migration: re-open over pre-W5 table ALTERs ws_sid/ws_seq in",
+              {"ws_sid", "ws_seq"} <= cols_m, cols_m)
+        legacy = old_con.execute("SELECT ws_sid, ws_seq FROM orderbooks_full "
+                                 "WHERE ts_utc = %d" % T0).fetchone()
+        check("migration: legacy rows read back NULL ws_sid/ws_seq",
+              legacy == (None, None), legacy)
+        ing_m.process_file(cap7)
+        got_m = old_con.execute(
+            "SELECT count(*) FILTER (ws_seq IS NOT NULL), count(*) "
+            "FROM orderbooks_full WHERE ts_utc >= %d" % t8).fetchone()
+        check("migration: inserts work on the migrated table (explicit cols)",
+              got_m == (2, 3), got_m)
+        old_con.close()
+        con_i = _dd.connect(old_db)
+        ingest.Ingester(con_i, wh)              # idempotent second re-open
+        n_cols = len(con_i.execute("PRAGMA table_info('orderbooks_full')").fetchall())
+        check("migration is idempotent (no duplicate columns, no crash)",
+              n_cols == 15, n_cols)
+        con_i.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
