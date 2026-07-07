@@ -12,6 +12,7 @@
 //
 // Nothing here logs API keys, signatures, or any secret.
 
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
