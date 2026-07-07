@@ -67,6 +67,7 @@ def _make_warehouse(root):
     ], "2026-07-06", "parquet", "FORMAT parquet")
     _copy("orderbooks_l1", L_DDL, [
         l1("2026-07-07 00:10:00", "KX-SPORT-A", False, 4100, 4000000, 4300, 900000),
+        l1("2026-07-07 00:10:00", "KX-SPORT-A", False, 4150, 3000000, 4350, 700000),  # SAME µs (tiebreak)
         l1("2026-07-07 00:25:00", "KX-OTHER-1", True, 5000, 100, 5100, 100),  # other event
     ], "2026-07-07", "parquet", "FORMAT parquet")
 
@@ -98,8 +99,9 @@ def test_pack_reassembles_cross_midnight(tmp_path):
     _make_warehouse(wh_root)
     m = ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
     assert m["status"] == "packed"
-    # both days present, other-event market excluded -> exactly 4 trades, 3 L1.
-    assert m["row_counts"] == {"trades": 4, "orderbooks_l1": 3}
+    # both days present, other-event market excluded -> 4 trades, 4 L1 (incl. a
+    # same-µs pair on KX-SPORT-A).
+    assert m["row_counts"] == {"trades": 4, "orderbooks_l1": 4}
     tr = _read_csv(str(tmp_path / "out" / "data" / "unit=KX-SPORT-EV1" / "trades.csv"))
     assert {r["market_ticker"] for r in tr} == {"KX-SPORT-A", "KX-SPORT-B"}  # no KX-OTHER-1
     days = {r["ts_utc"][:0] or _dt.datetime.utcfromtimestamp(int(r["ts_utc"]) / 1e6).strftime("%Y-%m-%d") for r in tr}
@@ -142,6 +144,29 @@ def test_af5_refuses_when_window_would_clip(tmp_path):
     refreshed = ep.build_pack(row, wh_root, str(tmp_path / "o2"), NOW, refresh=True)
     assert refreshed["status"] == "packed" and refreshed["reinferred_window"] is True
     assert refreshed["row_counts"]["trades"] == 4
+
+
+def test_l1_same_us_deterministic_order(tmp_path):
+    # audit Defect-2: same-µs L1 rows must sort by the full-column tiebreak so the
+    # manifest md5 (idempotency proof) is reproducible.
+    wh_root = str(tmp_path / "wh")
+    _make_warehouse(wh_root)
+    ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
+    l1 = _read_csv(str(tmp_path / "out" / "data" / "unit=KX-SPORT-EV1" / "orderbooks_l1.csv"))
+    same = [r for r in l1 if r["market_ticker"] == "KX-SPORT-A"
+            and r["ts_utc"] == str(_ts("2026-07-07 00:10:00"))]
+    assert len(same) == 2
+    assert [r["yes_bid_e4"] for r in same] == ["4100", "4150"]  # ascending, deterministic
+
+
+def test_af5_refuses_at_exact_win_end(tmp_path):
+    # audit Defect-1: extract is exclusive (ts_utc < win_end); a tick AT win_end
+    # would be clipped, so the guard must refuse it (not silently pack).
+    wh_root = str(tmp_path / "wh")
+    _make_warehouse(wh_root)
+    row = _index_row(win_end_us=_ts("2026-07-07 01:00:00"))  # == last trade t4's µs
+    m = ep.build_pack(row, wh_root, str(tmp_path / "out"), NOW)
+    assert m["status"] == "refused"
 
 
 def test_non_sealed_unit_skipped(tmp_path):

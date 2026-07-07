@@ -54,8 +54,14 @@ _SRC = {
                       "yes_ask_qty_e4", "price_e4", "volume_e4",
                       "open_interest_e4", "is_snapshot"],
 }
+# Deterministic total order (idempotent rebuild = stable manifest md5). trade_id
+# is unique; L1 has no unique key, so tiebreak on every payload column (audit
+# Defect-2: record_class is constant within a market, so same-µs L1 rows would
+# otherwise reorder under DuckDB's parallel sort).
 _ORDER = {"trades": "market_ticker, ts_utc, trade_id",
-          "orderbooks_l1": "market_ticker, ts_utc, record_class"}
+          "orderbooks_l1": ("market_ticker, ts_utc, record_class, yes_bid_e4, "
+                            "yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4, price_e4, "
+                            "volume_e4, open_interest_e4, is_snapshot")}
 
 
 def _iso(ts_us):
@@ -135,11 +141,14 @@ def build_pack(row, warehouse, out_root, now_us, refresh=False):
     # AF-5: would the stored window clip real trades?
     obs_last = observed_last_ts(markets, category, win_start, warehouse)
     reinferred = False
-    if obs_last is not None and win_end is not None and obs_last > win_end:
+    # `>=` not `>`: the extract filters `ts_utc < win_end` (exclusive), so a tick
+    # AT win_end would be clipped — refuse it too (audit Defect-1).
+    if obs_last is not None and win_end is not None and obs_last >= win_end:
         if not refresh:
             return {"unit_key": uk, "status": "refused",
-                    "reason": "stale index: activity at %d > win_end %d; re-run "
-                              "event_index or pass --refresh" % (obs_last, win_end)}
+                    "reason": "stale index: activity at %d >= win_end %d "
+                              "(exclusive); re-run event_index or pass --refresh"
+                              % (obs_last, win_end)}
         # re-inferred window covers the late activity. +1µs because load()'s end
         # filter is exclusive (ts_utc < end) — must include the last tick itself.
         win_end = obs_last + 1
