@@ -442,3 +442,18 @@ noticed-during, observation, suggested owner.
   + raw-feed inter-record gaps + quality_log data_loss (PLAN §4 capture_gaps),
   and make it V-EP15's authoritative source. Owner: a gap-record-builder W
   (pairs with W-E1 §4). Until then --gaps <csv> can supply it explicitly.
+- 2026-07-07 · W-E1 real-dim wiring · event_index --from-warehouse works on the
+  live warehouse (built 225,936 units, 32,336 cross-midnight, 182,360 Q7-excluded
+  MVE), BUT dim/latest/markets.csv holds only CURRENT markets, so settled/rotated
+  events lose their catalog open/close -> catalog_incomplete=true + observed_merged
+  windows (fail-closed, flagged). For accurate windows on SETTLED games, also join
+  work/warehouse/catalog/settlements/*.parquet (has settlement_ts, latest_expiration
+  _time per settled market) — the "settlements-first" idea. Owner: W-E1.1 / STEP 5.
+- 2026-07-07 · W-E1/E2/E7 vs live ingest · research read tools (event_pack/export/
+  validate -> wh.load) fail with a DuckDB "Conflicting lock" IOException when the
+  live ingest daemon (PID) holds the staging.duckdb write lock during a long write
+  window; load()'s ATTACH retry is only 8x1.5s=12s. Affects ALL warehouse readers
+  (gate_calc/coverage_audit/mm_scan too), not just event-packaging (D6 property).
+  Fix options: lengthen/backoff the staging-attach retry; OR read archive + a
+  staging read-replica snapshot; OR run research reads when ingest is paused. Owner:
+  warehouse-loader hardening.

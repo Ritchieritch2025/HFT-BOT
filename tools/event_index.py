@@ -270,6 +270,91 @@ def _obs_for(tickers, event_ticker, ticks, lifecycle):
     return o
 
 
+def _dim_markets(dim_path):
+    """Real catalog bounds per (event_ticker, ticker) from dim/latest/markets.csv:
+    {(event, ticker): {open_us, close_us, status, mve}}."""
+    import duckdb
+    if not os.path.exists(dim_path):
+        return {}
+    rd = ("read_csv('%s', types={'ticker':'VARCHAR','event_ticker':'VARCHAR',"
+          "'open_time':'VARCHAR','close_time':'VARCHAR','status':'VARCHAR',"
+          "'mve_collection_ticker':'VARCHAR'})" % dim_path.replace("'", "''"))
+    out = {}
+    for tk, ev, ot, ct, st, mve in duckdb.sql(
+            "SELECT ticker, event_ticker, open_time, close_time, status, "
+            "mve_collection_ticker FROM %s" % rd).fetchall():
+        out[(ev, tk)] = {"open_us": parse_dt_us(ot), "close_us": parse_dt_us(ct),
+                         "status": (st or "").strip() or None,
+                         "mve": bool((mve or "").strip())}
+    return out
+
+
+def _observed_by_market(warehouse, start, end):
+    """Observed activity per (event, market) aggregated in SQL over trades ∪ L1
+    (never materializes ticks): {(event, market): {cat, sr, sub, grp, mn, mx, n}}."""
+    import warehouse as wh
+    out = {}
+    for table in ("trades", "orderbooks_l1"):
+        try:
+            rel = wh.load(table, start=start, end=end, warehouse=warehouse)
+        except FileNotFoundError:
+            continue
+        agg = rel.aggregate(
+            "event_ticker, market_ticker, any_value(category) AS cat, "
+            "any_value(series_ticker) AS sr, any_value(subcategory) AS sub, "
+            'any_value("group") AS grp, min(ts_utc) AS mn, max(ts_utc) AS mx, '
+            "count(*) AS n", "event_ticker, market_ticker")
+        for ev, mk, cat, sr, sub, grp, mn, mx, n in agg.fetchall():
+            k = (ev, mk)
+            r = out.get(k)
+            if r is None:
+                out[k] = {"cat": cat, "sr": sr, "sub": sub, "grp": grp,
+                          "mn": mn, "mx": mx, "n": n}
+            else:
+                r["mn"], r["mx"], r["n"] = min(r["mn"], mn), max(r["mx"], mx), r["n"] + n
+    return out
+
+
+def build_index_from_warehouse(warehouse, start, end, policy_for, now_us, dim_path):
+    """Build the index from the REAL warehouse + dim (not a synthetic catalog dir).
+    Units are the events/markets with OBSERVED activity in [start,end]; catalog
+    bounds (open/close/status/mve) join from the dim by (event, ticker); category/
+    series/group come from the observed rows. Lifecycle is Fork-B (None)."""
+    from collections import defaultdict
+    obs = _observed_by_market(warehouse, start, end)
+    dim = _dim_markets(dim_path)
+    by_event = defaultdict(list)
+    for (ev, mk) in obs:
+        by_event[ev].append(mk)
+
+    def mkt_dict(ev, mk):
+        o = obs[(ev, mk)]
+        d = dim.get((ev, mk), {})
+        return {"ticker": mk, "event_ticker": ev, "series_ticker": o["sr"],
+                "category": o["cat"], "subcategory": o["sub"], "group": o["grp"],
+                "open_us": d.get("open_us"), "close_us": d.get("close_us"),
+                "status": d.get("status"), "mve": d.get("mve", False)}
+
+    rows = []
+    for ev, mks in by_event.items():
+        pol = policy_for(obs[(ev, mks[0])]["cat"])
+        if pol.get("unit") == "market":
+            for mk in mks:
+                o = obs[(ev, mk)]
+                oo = {"n_ticks": o["n"], "t_first_us": o["mn"], "t_last_us": o["mx"],
+                      "t_determined_us": None, "t_settled_us": None}
+                rows.append(infer_index_row("market", mk, [mkt_dict(ev, mk)], oo, pol, now_us))
+        else:
+            oo = {"n_ticks": sum(obs[(ev, mk)]["n"] for mk in mks),
+                  "t_first_us": min(obs[(ev, mk)]["mn"] for mk in mks),
+                  "t_last_us": max(obs[(ev, mk)]["mx"] for mk in mks),
+                  "t_determined_us": None, "t_settled_us": None}
+            rows.append(infer_index_row("event", ev, [mkt_dict(ev, mk) for mk in mks],
+                                        oo, pol, now_us))
+    rows.sort(key=lambda r: (r["unit"], r["unit_key"]))
+    return rows
+
+
 def build_index(catalog_dir, policy_for, now_us):
     markets = _read_markets(os.path.join(catalog_dir, "markets.csv"))
     ticks = _read_ticks(os.path.join(catalog_dir, "observed.csv"))
@@ -315,8 +400,16 @@ def write_parquet(rows, out_path):
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--catalog-dir", required=True,
-                    help="dir with markets.csv [+ observed.csv, lifecycle.csv]")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--catalog-dir",
+                     help="synthetic dir with markets.csv [+ observed.csv, lifecycle.csv]")
+    src.add_argument("--from-warehouse", action="store_true",
+                     help="build from the REAL warehouse + dim/latest (production)")
+    ap.add_argument("--warehouse", help="warehouse root (default: config)")
+    ap.add_argument("--dim", default="work/warehouse/dim/latest/markets.csv")
+    ap.add_argument("--start", help="observed-window start (ISO/date), for --from-warehouse")
+    ap.add_argument("--end", help="observed-window end (ISO/date)")
+    ap.add_argument("--days", type=int, default=7, help="lookback days if --start omitted")
     ap.add_argument("--policy", default="config/event_packaging.yaml")
     ap.add_argument("--out", default="work/event_packs/index.parquet")
     ap.add_argument("--now", help="UTC 'YYYY-MM-DD HH:MM:SS' for deterministic seal state")
@@ -326,7 +419,12 @@ def main(argv):
     now_us = parse_dt_us(args.now) if args.now else \
         int(_cal.timegm(_dt.datetime.utcnow().timetuple()) * 1_000_000)
     policy_for = load_policy(args.policy)
-    rows = build_index(args.catalog_dir, policy_for, now_us)
+    if args.from_warehouse:
+        start = args.start or (_dt.datetime.utcnow() - _dt.timedelta(days=args.days)).strftime("%Y-%m-%d")
+        rows = build_index_from_warehouse(args.warehouse, start, args.end, policy_for,
+                                          now_us, args.dim)
+    else:
+        rows = build_index(args.catalog_dir, policy_for, now_us)
     write_parquet(rows, args.out)
 
     from collections import Counter

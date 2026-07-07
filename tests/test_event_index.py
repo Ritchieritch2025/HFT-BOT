@@ -100,3 +100,32 @@ def test_write_parquet_roundtrip():
         con.close()
     assert n == len(rows)
     assert cols == ei.COLS
+
+
+def test_build_from_warehouse_real_dim(tmp_path):
+    # W-E1 real-dim wiring: build the index from a warehouse + dim/latest, not a
+    # synthetic catalog dir. Reuses the tested infer_index_row core.
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(__file__))
+    from test_event_pack import _make_warehouse  # trades+l1: KX-SPORT-A/B + KX-OTHER-1
+    root = str(tmp_path / "wh")
+    _make_warehouse(root)
+    dim = str(tmp_path / "markets.csv")
+    with open(dim, "w") as f:
+        f.write("ticker,event_ticker,open_time,close_time,status,mve_collection_ticker\n")
+        f.write("KX-SPORT-A,KX-SPORT-EV1,2026-07-06 20:00:00,2026-07-07 03:00:00,settled,\n")
+        f.write("KX-SPORT-B,KX-SPORT-EV1,2026-07-06 20:00:00,2026-07-07 03:00:00,settled,\n")
+        f.write("KX-OTHER-1,KX-OTHER,2026-07-07 00:00:00,2026-07-07 02:00:00,settled,\n")
+    policy_for = ei.load_policy(POLICY)
+    rows = {r["unit_key"]: r for r in ei.build_index_from_warehouse(
+        root, "2026-07-06", "2026-07-07", policy_for,
+        ei.parse_dt_us("2026-07-09 00:00:00"), dim)}
+    ev = rows["KX-SPORT-EV1"]
+    assert ev["unit"] == "event"
+    assert ev["category"] == "Sports"                      # from observed rows
+    assert ev["markets"] == ["KX-SPORT-A", "KX-SPORT-B"]    # observed markets
+    assert ev["crossed_day_boundary"] is True              # trades span 07-06/07-07
+    assert ev["sched_close_us"] == ei.parse_dt_us("2026-07-07 03:00:00")  # from dim
+    assert ev["catalog_incomplete"] is False               # dim had open+close
+    assert ev["win_start_us"] <= ev["t_first_seen_us"]     # padding property
+    assert "KX-OTHER" in rows                               # separate event unit
