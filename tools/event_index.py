@@ -299,6 +299,10 @@ def _observed_by_market(warehouse, start, end):
             rel = wh.load(table, start=start, end=end, warehouse=warehouse)
         except FileNotFoundError:
             continue
+        # Exclude rows with a NULL identity (dirty data): a NULL event/market
+        # would form a bogus unit and later crash the None-vs-str sort (audit
+        # Defect-1). Fail-closed: drop + don't fabricate a unit.
+        rel = rel.filter("event_ticker IS NOT NULL AND market_ticker IS NOT NULL")
         agg = rel.aggregate(
             "event_ticker, market_ticker, any_value(category) AS cat, "
             "any_value(series_ticker) AS sr, any_value(subcategory) AS sub, "
@@ -391,9 +395,10 @@ def write_parquet(rows, out_path):
         window_source VARCHAR, crossed_day_boundary BOOLEAN, status VARCHAR,
         catalog_incomplete BOOLEAN, window_divergence BOOLEAN, pack_path VARCHAR,
         pack_built_at_us BIGINT, pack_row_l1 BIGINT, pack_row_trades BIGINT)""")
-    con.executemany(
-        "INSERT INTO idx VALUES (%s)" % ",".join("?" * len(COLS)),
-        [[r[c] for c in COLS] for r in rows])
+    if rows:  # executemany([]) raises; an empty build still emits an empty-schema parquet (Defect-2)
+        con.executemany(
+            "INSERT INTO idx VALUES (%s)" % ",".join("?" * len(COLS)),
+            [[r[c] for c in COLS] for r in rows])
     con.execute("COPY idx TO '%s' (FORMAT parquet)" % out_path.replace("'", "''"))
     con.close()
 

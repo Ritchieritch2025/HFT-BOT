@@ -129,3 +129,45 @@ def test_build_from_warehouse_real_dim(tmp_path):
     assert ev["catalog_incomplete"] is False               # dim had open+close
     assert ev["win_start_us"] <= ev["t_first_seen_us"]     # padding property
     assert "KX-OTHER" in rows                               # separate event unit
+
+
+def test_null_identity_rows_excluded(tmp_path):
+    # audit Defect-1: a NULL event/market row must be dropped (not form a bogus
+    # unit that crashes the None-vs-str sort).
+    import duckdb
+    import warehouse as wh
+    root = str(tmp_path / "wh")
+    os.makedirs(root, exist_ok=True)
+    tddl = ('ts_utc BIGINT, market_ticker VARCHAR, series_ticker VARCHAR, '
+            'event_ticker VARCHAR, category VARCHAR, subcategory VARCHAR, '
+            '"group" VARCHAR, trade_id VARCHAR, yes_price_e4 INTEGER, '
+            'no_price_e4 INTEGER, count_e4 BIGINT, taker_side VARCHAR')
+    lddl = ('ts_utc BIGINT, market_ticker VARCHAR, series_ticker VARCHAR, '
+            'event_ticker VARCHAR, category VARCHAR, subcategory VARCHAR, '
+            '"group" VARCHAR, record_class VARCHAR, yes_bid_e4 INTEGER, '
+            'yes_bid_qty_e4 BIGINT, yes_ask_e4 INTEGER, yes_ask_qty_e4 BIGINT, '
+            'price_e4 INTEGER, volume_e4 BIGINT, open_interest_e4 BIGINT, is_snapshot BOOLEAN')
+    scon = duckdb.connect(os.path.join(root, "staging.duckdb"))
+    scon.execute("CREATE TABLE trades (%s)" % tddl)
+    scon.execute("CREATE TABLE orderbooks_l1 (%s)" % lddl)
+    ts = ei.parse_dt_us("2026-07-06 12:00:00")
+    scon.executemany("INSERT INTO trades VALUES (%s)" % ",".join("?" * 12), [
+        (ts, "M1", "S", "EV-OK", "Sports", "_none", "g", "t1", 5000, 5000, 10000, "yes"),
+        (ts, None, "S", None, "Sports", "_none", "g", "t2", 5000, 5000, 10000, "yes"),  # NULL id
+    ])
+    scon.close()
+    wh._CON = None
+    wh._ATTACHED.clear()
+    rows = {r["unit_key"]: r for r in ei.build_index_from_warehouse(
+        root, "2026-07-06", "2026-07-07", ei.load_policy(POLICY), NOW, str(tmp_path / "no_dim.csv"))}
+    assert "EV-OK" in rows      # valid unit built, no crash
+    assert None not in rows     # NULL-identity row dropped
+
+
+def test_empty_build_writes_empty_parquet(tmp_path):
+    # audit Defect-2: an empty result still emits a readable empty-schema parquet.
+    import duckdb
+    out = str(tmp_path / "index.parquet")
+    ei.write_parquet([], out)
+    got = duckdb.sql("SELECT * FROM read_parquet('%s')" % out)
+    assert got.fetchall() == [] and [c for c in got.columns] == ei.COLS
