@@ -6,6 +6,51 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 20:15 UTC — 🔴 CAPTURE STILL DROPPING TODAY (post-fix) — next session #1 priority
+
+- HOW THIS SURFACED: operator asked to pull real sports games + graph them.
+  Pulling today's matches (Pegula vs Gauff, Sinner vs Struff, Vrancken vs
+  Ruggeri) exposed that CAPTURE STILL HAS GAPS on 2026-07-07, INCLUDING AFTER
+  the STEP 0 fix supposedly deployed ~13:00 UTC.
+- EVIDENCE (market-wide silent windows — the WHOLE Sports firehose goes dark,
+  every gap recovers exactly at the top of the hour = the 401/reconnect
+  signature, same as the original bug):
+  - 07-06: 12:26–13:00 (33m), 13:39–14:00 (20m)  [de Minaur vs Cobolli match]
+  - 07-07 pre-fix morning: ~05:24, 06:13, 07:02, 08:05, 09:00, 10:11–11:00 ...
+  - 07-07 POST-fix (the alarming part): 13:39–14:00 (20m), 14:48–15:00 (12m) —
+    both recover at the top of the hour.
+- SO: STEP 0 (WS re-sign on reconnect, commits 6d56aae + deploy) is NOT
+  confirmed to actually stop the gaps. The CURRENT ws_shadow (hour 20) shows
+  reconnects=0 errors=0, but earlier hours today still dropped. My mid-session
+  claim "the fix is holding" was PREMATURE — retract it.
+- HYPOTHESES to test next session (do NOT build features on top — fix this
+  first): (1) is the fixed ws_shadow binary ACTUALLY the one running each hour,
+  or did a respawn load an old binary? (2) does STEP 0 recover a mid-hour drop
+  at all, or does the socket stay dead until the :00 hourly respawn regardless?
+  (the top-of-hour recovery pattern strongly implies reconnect is NOT working
+  and only the hourly restart revives it). (3) the AF-5 residual: at max backoff
+  the re-signed timestamp can be ~30s stale (BACKLOG) — but that would not cause
+  20-min gaps; a 20-min gap means reconnect is failing outright until :00.
+  (4) is it capture (raw) or ingest-lag (staging)? These gaps were read from
+  STAGING; cross-check against raw work/raw/date=2026-07-07/firehose_*.ndjson
+  inter-record gaps + work/metrics.ndjson freshness to confirm it is CAPTURE,
+  not ingest tailing behind.
+- WHAT IS FINE (do not re-litigate): the captured VALUES are byte-exact correct
+  (0 crossed books, prices match Kalshi results). V-EP15 flags gap-overlapping
+  events `degraded` so they will NOT silently feed a backtest — the safety net
+  works. The problem is purely CAPTURE COMPLETENESS (holes), which must be fixed
+  before the data is trustworthy for the minutes that matter (settlement-
+  convergence run is highest-vol and often lands in a hole).
+- artifacts produced this session (operator-facing, not committed — under
+  work/event_exports/, gitignored): per-event trades.csv + orderbooks_l1.csv
+  (labeled, E4-exact, NO side derived = 1 − YES) for KXATPMATCH-26JUL06DECOB
+  and the 3 today matches; two claude.ai chart artifacts (single-match full-res;
+  3-today-games with red capture-gap bands).
+- NEXT SESSION #1: harden capture. Confirm STEP 0 is really running + effective;
+  find why top-of-hour gaps persist; add a durable structured capture-gap record
+  (BACKLOG) so V-EP15 reliably catches these. Everything else (W-E4/E5/W-LC,
+  settlements-join) waits. SINGLE-OWNER RULE still in force.
+
 ## 2026-07-07 18:55 UTC — W-E1 real-dim wiring DONE: index builds on the LIVE warehouse + audit-fixed (2 defects)
 
 - commits: b5b6228 --from-warehouse builder; 32a8ae4 audit remediation (NULL identity, empty build)
