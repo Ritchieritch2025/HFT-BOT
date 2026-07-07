@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 16:45 UTC — W-E2 DONE: event pack materializer (money-integrity enforced) + audit PASS-after-fix
+
+- commits:
+  - 8c59da9 W-E2: tools/event_pack.py + tests/test_event_pack.py (6) +
+    tools.json/run_pipeline registration
+  - 8acab89 W-E2 audit remediation (2 MAJOR: AF-5 boundary, L1 idempotency)
+- decisions (in files):
+  - event_pack materializes per-unit packs work/event_packs/data/unit=<key>/
+    {trades,orderbooks_l1}.csv + manifests/<key>.json from a W-E1 index row,
+    read-only via wh.load(). MONEY-INTEGRITY enforced as code+tests: E4 integer
+    columns selected VERBATIM (tools/event_pack.py _SRC), written byte-exact via
+    csv.writer — zero float surface, no dollar-string derivation (AF-1/AF-2).
+    count_e4 = contract qty; row_counts = cardinality (AF-3).
+  - AF-5 stale-window: sealed-only + pack-time observed_last_ts re-check;
+    REFUSE (fail-closed) if activity >= win_end, or --refresh re-infers
+    (win_end = obs_last + 1, exclusive-end aware). → tools/event_pack.py.
+- context capsule:
+  - Independent W-E2 audit VERDICT: money-integrity CORE CLEAN (probed duckdb
+    fetchall: INTEGER/BIGINT→int, no Decimal/float path; sub-penny e4=90 stays
+    "90"; NULL→empty; archive/staging dedup inherited via load() max_arch_date;
+    refuse/skip have no side effects). Found 2 MAJOR CONFIRMED, both FIXED in
+    8acab89:
+    * Defect-1: guard `obs_last > win_end` inclusive vs extract `ts_utc <
+      win_end` exclusive → tick AT win_end silently clipped (reachable with
+      post_pad_us:0). Fixed to `>=`.
+    * Defect-2: L1 ORDER BY lacked a unique tiebreak (record_class constant per
+      market) → same-µs rows reorder under DuckDB parallel sort → nondeterministic
+      manifest md5 (breaks §3.3 idempotency). Fixed: order by all payload cols.
+      Regression tests added (same-µs L1 determinism; exact-win_end refuse).
+  - Pack test harness builds a synthetic 2-day archive (trades csv.gz + L1
+    parquet) — reusable pattern for W-E3.
+- blocked / handoff:
+  - Next W = **W-E3** (event_validate.py V-EP* + warehouse.load(event=...)
+    integration). The AF-1..AF-5 findings doc (docs/plan_audits/) is the
+    checklist; V-EP checks should assert the money-integrity + no-clip
+    guarantees W-E2 now provides.
+  - SINGLE-OWNER RULE still in force (do not relaunch the parallel process).
+  - Fixture-only so far: W-E1 index + W-E2 packs run on synthetic catalog/
+    warehouse; real dim/latest wiring still pending (W-E1.1 or W-E3 prereq).
+
 ## 2026-07-07 16:10 UTC — Consolidation: single-owner restored; money-integrity audit recorded (AF-1..AF-5) + plan spec fixed
 
 - commits:
