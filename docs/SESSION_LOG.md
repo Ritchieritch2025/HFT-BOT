@@ -6,6 +6,52 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 04:05 UTC — WP-05 DONE — Discovery Mission: API ground truth report + kalshi_facts.yaml
+
+- commits: (this commit) WP-05 discovery report + config/kalshi_facts.yaml +
+  sandbox/discovery probe scripts/outputs + BACKLOG additions.
+- decisions (all live in files, none chat-only):
+  - Kalshi ground-truth constants → `config/kalshi_facts.yaml` (fees
+    verified=true from official schedule w/ provenance caveat, rate limits
+    VERIFIED-LIVE, endpoint existence, demo status, RTT/lag numbers).
+    Downstream code imports this; no hardcoded fees/limits ever (WP-05
+    contract). WP-07/WP-09 fee dependency is now UNBLOCKED pending R's
+    ratification of OPEN QUESTION 1.
+  - Full findings + 6 OPEN QUESTIONS + 5 CORRECTIONS →
+    `docs/DISCOVERY_REPORT_2026-07-07.md`. Out-of-scope code fixes → BACKLOG
+    (env.cpp stale demo message, request_spec F8 comment, sub-penny builder,
+    clock-skew telemetry). No production code/data touched (read-only
+    mission; A2 env gates untouched).
+- context capsule (for a fresh session):
+  - Headline live findings: (1) DEMO ENV IS UP (both hosts HTTP 200,
+    2 shards) — engine's "unavailable" premise stale, policy still correct;
+    (2) legacy POST /portfolio/orders REMOVED from spec — our wire.hpp
+    already targets V2 /portfolio/events/orders and field names match spec
+    exactly; (3) tier advanced = 300/s refill AND 600 capacity (2s burst)
+    both buckets; cancel costs 2 tokens, create 10; no quota headers exist
+    (200 or 429); GET /markets is CDN-cached ~15s (Q5 reinforcement);
+    (4) private WS subscribe VERIFIED-LIVE: fill/user_orders/
+    market_positions ack per-channel with sids, server pings 10s "heartbeat";
+    (5) official fees: taker ceil(0.07·C·P·(1−P)), maker ceil(0.0175·…)
+    ONLY on fee_type=quadratic_with_maker_fees series — KXNBA has maker fees
+    LIVE, KXBTCD is plain quadratic; rounding is now centicent-ceil +
+    per-order accumulator (fee_rounding.md), NOT cent-ceil (old PDF);
+    (6) measured: RTT warm p50 35.6ms n=20; decode+apply 281.9 ns/msg;
+    feed inter-arrival p50 10.2µs / p99 63ms on clean hour-12 capture
+    (hour-08 splice window yields garbage extremes — filter epochs).
+  - Gap-register spot checks all CONFIRMED (items 1,3,6,8,13); review deltas:
+    gold layer + day-06 archive exist now.
+  - Dead ends ruled out: kalshi.com fee PDF is Vercel-bot-gated (curl+
+    WebFetch both fail) — used archive.org snapshot 2026-02-18 sha256
+    b1a37aa7…; python has no cryptography/websockets libs — WS probe is
+    stdlib + vendored OpenSSL 3.5.7 CLI signing (sandbox/discovery/
+    ws_private_probe.py, reusable pattern for future probes).
+  - Probe budget spent: ~240 read tokens, 0 write, 1 WS connection.
+- blocked / handoff: R must adjudicate the 6 OPEN QUESTIONS (fee provenance,
+  demo strategy, sub-penny builder, order-group dead-man, skew telemetry,
+  batch-read billing probe). Sandbox scripts stay until report ACCEPTED (A6),
+  then delete. WP-07 can start once OQ-1 is ratified.
+
 ## 2026-07-07 03:10 UTC — WP-03 DONE — freshness monitor: staging + capture lag, one command, STALE alarm
 
 - commits: this commit (tools/freshness.py + tests/test_freshness.py +

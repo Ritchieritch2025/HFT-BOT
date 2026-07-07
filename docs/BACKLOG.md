@@ -4,6 +4,25 @@ Per EXECUTION_PLAN operating protocol rule 1: anything noticed outside the
 current WP's scope lands here as a note, never as code. Each entry: date,
 noticed-during, observation, suggested owner.
 
+- 2026-07-07 · noticed during WP-05 discovery · `src/env.cpp:165` +
+  `tools/exchange_check.sh` claim "Kalshi's demo exchange is unavailable" —
+  live probe shows demo is UP (HTTP 200, trading_active). The fail-closed
+  rejection stays (A2); only the stated reason is stale. Fix message/comment
+  when next touching env.cpp; demo strategy itself is DISCOVERY OPEN
+  QUESTION 2 (R decision). Owner: R / next env.cpp change.
+- 2026-07-07 · noticed during WP-05 discovery · `include/kalshi/
+  request_spec.hpp:88` comment says per-item batch billing is a "local
+  ASSUMPTION (F8, undocumented)" — Kalshi now documents per-item batch WRITE
+  billing explicitly (getting_started/rate_limits.md). Narrow the comment to
+  batch reads when next touching the file. Owner: next request_spec change.
+- 2026-07-07 · noticed during WP-05 discovery · `wire.hpp:171-172,181` order
+  builder emits integer cents + integer counts only; `deci_cent`/
+  `tapered_deci_cent` markets and fractional counts exist (sub-penny = 13.4%
+  of trades). DISCOVERY OPEN QUESTION 3: fix now vs fold into Phase-2
+  QuoteManager. Owner: R decision.
+- 2026-07-07 · noticed during WP-05 discovery · clock skew vs exchange
+  measured +1138 ms (1 s resolution; within ±2 s preflight gate). Consider
+  NTP check + adding skew to WP-08 daily health (OPEN QUESTION 5). Owner: R.
 - 2026-07-06 · noticed during gold-plan audit response · `config/
   classification_review.csv` and `config/series_tags_report.csv` are
   git-tracked but rewritten hourly by the running pipeline's catalog refresh —
