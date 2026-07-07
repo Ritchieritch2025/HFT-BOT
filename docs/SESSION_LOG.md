@@ -6,6 +6,33 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 05:56 UTC — ENTIRE EXECUTION SEQUENCE COMPLETE (gold contract W1-W6 + EXECUTION_PLAN WP-00..09)
+
+- commits: full chain fa18ff6(W1)..9343064(W6) — every WP/W landed with its own
+  commit + independent-audit PASS in a separate fresh session; 4 audit-caught
+  defects red-fixed (W1 FNV constant, WP-05 fees.verified->false, W6 F1/F1b
+  work/raw guard), 3 real production incidents fixed with regression tests
+  (taker_side BOOLEAN sniff, export/ingest race + shrink guard, ingest lock
+  crash-loop)
+- decisions:
+  - Gold data contract PLAN_GOLD_DATA_CONTRACT W1-W6 fully built; day-06 gold
+    certified GREEN (10.2M records, V2-V10 pass, V5/V7 verdicts filled)
+  - fees.verified=false (fail-closed) blocks gate-mode net-profit until R
+    ratifies OQ-1 -> config/kalshi_facts.yaml
+  - depth expansion is DESIGN + operator-gated probe only (docs/PLAN_DEPTH_
+    EXPANSION.md); probe NOT run (needs --operator-approved)
+- context capsule: 107 tools registered, full pytest 281 passed + 1 xfailed
+  (settlements-export xfail is an honest unbuilt-feature pin), make check ALL
+  PASS, pipeline 4 procs alive (ws_shadow firehose + ingest daemon retry-
+  hardened). Two NON-ENGINEERING gates remain before any trading: H-3 seven
+  clean days (earliest 2026-07-13) and OQ-1 fee ratification (browser-confirm
+  official PDF, flip fees.verified, rerun gate_calc). Gate-meeting input doc =
+  work/mm/gate_report_<date>.md (day-06: 1809 signals, lifespan p50 1.0s, net
+  REFUSED; unverified-preview median net -0.8c => naive bracket arb is
+  net-negative after fees, confirming edge needs selection+pricing).
+- blocked / handoff: sequence done. Next work is R-gated (fees ratify / clean-
+  day clock) or a NEW plan (pricing model MM_ROADMAP 1.5, or gold W2.3 ws_seq
+  adoption). Nothing auto-runnable is pending.
 ## 2026-07-07 — W6 DONE (probe-pending) — depth-expansion design doc + operator-gated probe
 
 - commits: (this commit) docs/PLAN_DEPTH_EXPANSION.md + tools/depth_probe.py
