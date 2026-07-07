@@ -25,7 +25,11 @@ fees:
   # the live API docs (fee_rounding.md, Series.fee_type description) fetched
   # 2026-07-07. verified=true is subject to R's ratification of archived-PDF
   # provenance (OPEN QUESTION 1 in the report).
-  verified: true
+  # FAIL-CLOSED (WP-05 audit, 2026-07-07): rate constants 0.07/0.0175 rest
+  # solely on a Feb-2026 archived PDF; no live source confirms them. Flipped
+  # to false per GUARDRAILS S2 — gate-mode computations must refuse until R
+  # ratifies OQ-1 (one browser check of the live fee schedule PDF).
+  verified: false
   evidence: "DOCS-ONLY: kalshi.com/docs/kalshi-fee-schedule.pdf via archive.org 2026-02-18 + docs.kalshi.com/getting_started/fee_rounding.md (live 2026-07-07)"
   formula: "trade_fee = ceil_to_centicent(rate * fee_multiplier * C * P * (1 - P))"
   params:
