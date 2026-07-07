@@ -6,7 +6,70 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
-## 2026-07-06 — W2.5 DONE (validator harness, TDD red-first, per-check red matrix)
+## 2026-07-07 01:30 UTC — W2.6 DONE (first real build GREEN) + archive taker_side narrowing found (day is trade-less, rebuild needed)
+
+- commits: this commit (W2.6: tools/gold_build.py thin composition +
+  registry entry + 6 BACKLOG notes; no module modified, no tests file —
+  composition only per plan, smoke-verified via the real build)
+- decisions (rationale in tools/gold_build.py docstring, E2):
+  - HEARTBEAT mapping (closes W2.2/W2.3 note): L1 rows with
+    is_snapshot=true AND NULL price_e4/volume_e4/open_interest_e4 = the
+    ingester's hourly scheduler heartbeats → routed through the FULL W2.1
+    L1 gates as source "orderbooks_l1_heartbeat", then re-kinded via
+    Event._replace(kind=HEARTBEAT); is_snapshot=true WITH price data
+    stays L1_TICKER. Real day: 428,204 of 8,108,826 L1 rows.
+  - Merge-order disposition (closes W2.3/W2.5 policy question): merge
+    sources are per-(channel, market) slices, each STABLE-sorted by ts_us
+    at compose time — "Merge Order Violation" is structurally unreachable
+    from loader output; same-ts intra-slice order preserves load() row
+    order (Timsort); loader ts_regressions stay report-only (0 on the
+    real day).
+  - Liquidity tier (sidecar metadata): traded markets ranked by summed
+    count_e4 desc (ties by ticker): High = top decile, Mid = next decile,
+    Low = rest incl. untraded. (This day: all Low — zero accepted trades,
+    see below.)
+  - V12 gate reads SAVED work/kalshi_spec_alignment.json (status=pass AND
+    ≤7 days old; was pass/0.73d); stale/red ⇒ exit 2 + operator
+    instruction; the build NEVER auto-runs the network sync.
+  - loader outputs written INSIDE the day partition so a validator
+    quarantine moves the forensics with the day.
+- acceptance demonstrated (real day 2026-07-06, exit 0, DAY GREEN):
+  8,212,066 records / 44,442 markets / 4 covered; .bin 4,204,577,792 B
+  (= 8,212,066×512); FSM clean (0 Invalid Book State / Sequence Gap /
+  negative-delta; 428,204 heartbeats neutral; 1 crossed book flagged);
+  validator matrix V2/V3/V4/V6/V8/V9/V10 all PASS; runtime 539.7 s,
+  ru_maxrss 6.33 GB (peak footprint 17.7 GB incl. compressor);
+  make check ALL PASS; pytest 144 passed; check_registry ok (89).
+- context capsule — CRITICAL FINDINGS (full details + evidence in
+  docs/BACKLOG.md 2026-07-07 entries):
+  1. taker_side SILENT NARROWING: warehouse.py load("trades") on ARCHIVED
+     days lets DuckDB read_csv sniff the yes/no column as BOOLEAN → comes
+     back 'true'/'false'. Archive csv.gz verified to hold 'yes'/'no' raw.
+     Consequence: the W2.1 gate quarantined ALL 1,863,197 archived trades
+     (fail-closed, correct, nothing repaired) → gold date=2026-07-06 has
+     ZERO TRADE records and all-Low tiers. The manifest's source_day
+     carries the loader summaries, so the partition self-describes this.
+     REBUILD the day (derived, deletable) after fixing load() typing
+     (explicit types on read_csv) — warehouse.py is forbidden-writes for
+     gold WPs, so the fix is an operator/rider change WITH regression
+     test. Staging (VARCHAR) was clean — that is why W2.1's demo passed.
+  2. trades EXPORT SHORTFALL: archive holds 1,863,231 day-06 rows but
+     staging at 01:00 UTC still held 1,909,095 DISTINCT day-06 trade_ids
+     → ~45.9k unique trades missing from the write-once archive (ingest
+     lag vs midnight export cut?); invisible via load(); lost at staging
+     prune unless reconciled.
+  3. close_time resolves for only 72/44,442 tickers (catalog dim = 80,000
+     open markets, settled intraday markets absent) — sidecar close_time
+     left empty, surfaced; Q6 work needs a catalog retention story.
+  - perf facts for W-BENCH: fetch 13 s; loaders 76 s; merge 137 s
+    (81,515 sources); write_day 53 s; validate_day 251 s. Real day is
+    ~12.6× the plan's ~650k/day estimate (8.2M records, 4.2 GB/day
+    uncompressed → G8 window ≈ 59 GB, fine on this disk).
+- blocked / handoff: gold date=2026-07-06 partition is GREEN but
+  trade-less — do not use for trade research; rebuild after the
+  warehouse.py taker_side fix (BACKLOG owns it). W3.1 (δ distribution)
+  is next per the plan and is meaningful on book data now; W3.2 (V7
+  race report) needs the rebuilt day with trades.
 
 - commits: this commit (W2.5: tools/gold_validate.py + tests/
   test_gold_validate.py + 6 seeded-defect gold day fixtures + registry

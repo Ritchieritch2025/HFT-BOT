@@ -91,3 +91,58 @@ noticed-during, observation, suggested owner.
   pruning helper must decide: quarantine dirs are derived too, but they
   are forensic evidence for a failed build — suggest pruning them only
   after the day rebuilds green. Owner: W2.6.
+- 2026-07-07 · noticed during W2.6 · RESOLUTION of the W2.2/W2.3 HEARTBEAT
+  mapping note: gold_build maps warehouse L1 rows with is_snapshot=true AND
+  NULL price_e4/volume_e4/open_interest_e4 (the ingester's hourly scheduler
+  heartbeats, per docs/warehouse_schema.md) to EVENT_TYPE HEARTBEAT — routed
+  through the full W2.1 L1 gates as source "orderbooks_l1_heartbeat", then
+  re-kinded; is_snapshot=true WITH price data stays L1_TICKER (real state).
+  Measured 2026-07-06: 428,204 of 8,108,826 L1 rows are scheduler heartbeats.
+  Rationale in tools/gold_build.py docstring (composition decision 1).
+- 2026-07-07 · recorded during W2.6 (W2.5-audit finding 1) · RawDay sidecar
+  CSV parse sits outside per-check isolation — a corrupt sidecar row (e.g.
+  non-integer market_id/stream_seq) raises in RawDay.__init__ before any
+  check runs ⇒ traceback exit 1 but no quarantine move and no validation
+  report. Owner: W2.5 rider.
+- 2026-07-07 · noticed during W2.6 (SILENT DATA NARROWING, D2/D3/D5 class) ·
+  warehouse.py load("trades") corrupts taker_side for ARCHIVED days: the
+  archive csv.gz files store 'yes'/'no' (verified raw:
+  trades__Climate_and_Weather__Climate_change__2026-07-06.csv.gz row 1 has
+  taker_side=no), but load()'s read_csv() auto-sniffs a yes/no-only column
+  as BOOLEAN, and the staging union casts it back to VARCHAR 'true'/'false'
+  (verified: SELECT DISTINCT taker_side via load() for 2026-07-06 returns
+  None/'false'/'true'). Staging (typed VARCHAR) is unaffected — that is why
+  the W2.1 demo at 12:09 saw clean 'yes'/'no'; the defect appeared when the
+  day was first archived at UTC midnight. Consequence: the W2.6 first real
+  build's inconsistent-taker_side gate quarantined ALL 1.86M archived trades
+  (correct fail-closed behavior; nothing repaired), so gold date=2026-07-06
+  contains zero TRADE records and its liquidity tiers default to Low — the
+  partition MUST be rebuilt (derived, safe to delete) after the fix. Fix
+  belongs in warehouse.py (explicit column types on read_csv, e.g.
+  types={'taker_side':'VARCHAR'}, or trades→parquet in the exporter) WITH a
+  regression test; warehouse.py is forbidden-writes for gold WPs. Owner:
+  R decision / warehouse rider (urgent — silently poisons any archived-day
+  trades research).
+- 2026-07-07 · noticed during W2.6 · trades EXPORT SHORTFALL for 2026-07-06:
+  the write-once archive holds 1,863,231 rows (manifest.csv sum agrees), but
+  staging at 01:00 UTC 07-07 still held 1,913,798 rows / 1,909,095 DISTINCT
+  trade_ids inside [2026-07-06 00:00, 07-07 00:00) UTC — i.e. ~45.9k unique
+  day-06 trades (~2.4%) exist in staging but not in the final archive
+  (likely ingest lag vs the midnight export cut). load() reads archived days
+  from the archive only, so these rows are invisible now and will be LOST at
+  staging prune unless reconciled. Needs an export straggler audit /
+  late-row reconciliation policy (export_day.py is W5-only for gold WPs).
+  Owner: R decision / export rider.
+- 2026-07-07 · noticed during W2.6 · close_time coverage gap: the catalog
+  dim (work/warehouse/catalog/markets, mirrored by dim/latest and
+  dim/snapshots) holds exactly 80,000 rows (pull cap) of currently-open
+  markets and does NOT retain settled markets — only 72 of the gold day's
+  44,442 tickers resolve a close_time (settled intraday sports dominate).
+  Sidecar close_time is left empty (surfaced by gold_build's coverage
+  line, never invented), but Q6 expiry-awareness work will need a
+  settled-market dim retention/backfill story. Owner: R decision /
+  catalog rider.
+- 2026-07-07 · noticed during W2.6 · G8 retention pruning (keep newest 14
+  work/gold/date=<D> partitions) and the quarantine-dir pruning policy are
+  deliberately NOT implemented in gold_build (composition-only per the plan;
+  only one gold day exists). Owner: ops / R decision (follow-up rider).
