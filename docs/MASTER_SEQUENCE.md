@@ -81,3 +81,15 @@ operator-gated per S1/S3). Queue both for post-gate execution.
 Standing gates untouched: fees OQ-1 awaits operator ratification;
 2026-07-13 seven-clean-days gate; live trading remains behind ALL
 lifecycle gates + per-session operator confirmation (S1).
+
+---
+
+## Amendments (operator-approved, dated — verbatim STEPs above unchanged)
+
+- 2026-07-07 — STEP 0 DONE + deployed to Mac (fix live since 13:00:01 UTC;
+  see SESSION_LOG). Sequence continues at STEP 1 (AWS migration).
+- 2026-07-07 — **INSERT before STEP 5:** docs/PLAN_EVENT_PACKAGING.md
+  (per-event data marts). Operator-approved 2026-07-07. Rationale: it pairs
+  with STEP 5's settlements backfill and unlocks per-event backtesting/
+  calibration. Executable now (W-E0/E1 are read-only derived research);
+  W-LC (lifecycle capture) is operator-gated. Does not reorder STEPs 1–4.
