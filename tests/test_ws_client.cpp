@@ -23,6 +23,11 @@ void check(bool ok, const std::string& what) {
 bool has(const std::string& hay, const std::string& needle) {
   return hay.find(needle) != std::string::npos;
 }
+std::string header_val(const WsHeaders& h, const std::string& key) {
+  for (const auto& [k, v] : h)
+    if (k == key) return v;
+  return {};
+}
 struct RecResync : ResyncHandler {
   int calls = 0;
   void request_resync(std::uint64_t, const std::vector<EntityId>&) override { ++calls; }
@@ -148,6 +153,49 @@ int main() {
     check(c.epoch() == 2 && c.reconnects() == 1, "reconnect: epoch bumped to 2");
     check(!t.sent().empty() && has(t.last_sent(), R"("cmd":"subscribe")"),
           "resubscribe sent after reconnect");
+  }
+
+  // --- reconnect RE-SIGNS auth: every reconnect attempt carries a fresh
+  //     signature timestamp, not the stale startup one (2026-07-07 401-lockout
+  //     capture gap: ixwebsocket replayed a since-expired signature and Kalshi
+  //     401'd every reconnect until the hourly process restart). ---
+  {
+    MockWebSocketTransport t;
+    std::int64_t fake_ms = 1'700'000'000'000LL;
+    // Signer echoes the signed message so a replayed (stale) signature is
+    // detectable, not just the timestamp header.
+    KalshiWsClient c(t, cfg(), [](std::string_view m) -> std::optional<std::string> {
+      return std::string("sig:") + std::string(m);
+    });
+    c.set_clock([&] { return fake_ms; });
+    c.want_orderbook({"MKT-A"});
+    c.start();
+    const std::string ts0 = header_val(t.headers(), "KALSHI-ACCESS-TIMESTAMP");
+    const std::string sig0 = header_val(t.headers(), "KALSHI-ACCESS-SIGNATURE");
+    check(ts0 == "1700000000000", "initial handshake signed at clock T0");
+
+    // Open -> Close (dropped after open): re-sign before the transport reconnects.
+    fake_ms += 5'000;  // 5s later
+    t.drop();
+    const std::string ts1 = header_val(t.headers(), "KALSHI-ACCESS-TIMESTAMP");
+    check(!ts0.empty() && !ts1.empty() && std::stoll(ts1) > std::stoll(ts0),
+          "on close: next reconnect handshake carries a NEWER signature timestamp");
+    check(header_val(t.headers(), "KALSHI-ACCESS-SIGNATURE") != sig0,
+          "on close: signature is actually re-signed, not replayed");
+
+    // Replay the REAL 401 handshake rejection: Error, NO open/close, then retry.
+    // Without re-signing here the stale signature repeats forever (the lockout).
+    fake_ms += 5'000;
+    t.inject_error("Expecting status 101 (Switching Protocol), got 401", 401);
+    const std::string ts2 = header_val(t.headers(), "KALSHI-ACCESS-TIMESTAMP");
+    check(!ts2.empty() && std::stoll(ts2) > std::stoll(ts1),
+          "on 401 handshake error: next attempt re-signed with a NEWER timestamp");
+
+    // Recovery: the retried (now-fresh) handshake succeeds -> resubscribe.
+    t.clear_sent();
+    t.start();
+    check(t.is_open() && !t.sent().empty() && has(t.last_sent(), R"("cmd":"subscribe")"),
+          "after re-signed reconnect the stream recovers and resubscribes");
   }
 
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");

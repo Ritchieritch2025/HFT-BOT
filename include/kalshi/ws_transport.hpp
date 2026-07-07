@@ -77,6 +77,12 @@ class MockWebSocketTransport final : public IWebSocketTransport {
     if (cb_) cb_(WsMessage{WsMessage::Type::Close, "dropped", code});
   }
   void drop() { inject_close(1006); }  // simulate an unexpected disconnect
+  // Simulate a failed connection ATTEMPT (handshake/connect error, e.g. 401):
+  // ixwebsocket reports these as Error with no Open/Close, then retries.
+  void inject_error(const std::string& reason, int code = 0) {
+    open_ = false;
+    if (cb_) cb_(WsMessage{WsMessage::Type::Error, reason, code});
+  }
 
   const std::vector<std::string>& sent() const { return sent_; }
   const std::string& last_sent() const { return sent_.back(); }

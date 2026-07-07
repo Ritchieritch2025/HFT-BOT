@@ -25,7 +25,11 @@ void append_string_array(std::string& j, const std::vector<std::string>& values)
 }  // namespace
 
 KalshiWsClient::KalshiWsClient(IWebSocketTransport& transport, WsConfig cfg, Signer signer)
-    : t_(transport), cfg_(std::move(cfg)), signer_(std::move(signer)), epoch_(cfg_.epoch) {}
+    : t_(transport),
+      cfg_(std::move(cfg)),
+      signer_(std::move(signer)),
+      now_ms_([] { return trading::wall_ns() / 1'000'000; }),
+      epoch_(cfg_.epoch) {}
 
 WsHeaders KalshiWsClient::build_auth_headers(std::int64_t now_ms) const {
   const std::string ts = std::to_string(now_ms);
@@ -88,11 +92,23 @@ std::string KalshiWsClient::build_get_snapshot(int id, const std::vector<std::ui
 void KalshiWsClient::start() {
   t_.on_message([this](const WsMessage& m) { on_message(m); });
   t_.set_url(cfg_.url);
-  t_.set_headers(build_auth_headers(trading::wall_ns() / 1'000'000));
+  refresh_auth();  // sign the first handshake
   t_.start();
 }
 
 void KalshiWsClient::stop() { t_.stop(); }
+
+void KalshiWsClient::refresh_auth() {
+  // ixwebsocket owns the reconnect loop and replays whatever headers are set on
+  // the transport; a signature signed once at startup goes stale within minutes
+  // and Kalshi 401s every reconnect until the process restarts (root cause of
+  // the 2026-07-07 06:00–09:00 UTC capture gap). Re-sign with a current
+  // timestamp before each connection attempt. Called on the transport thread
+  // from on_close (dropped after open) and from the Error branch (handshake
+  // rejected, e.g. 401) — both run to completion before ixwebsocket's next
+  // connect(), which re-reads the extra headers.
+  t_.set_headers(build_auth_headers(now_ms_()));
+}
 
 void KalshiWsClient::on_message(const WsMessage& m) {
   last_activity_ms_ = trading::wall_ns() / 1'000'000;  // any inbound frame = alive (I6)
@@ -108,6 +124,10 @@ void KalshiWsClient::on_message(const WsMessage& m) {
       // Surface the transport error reason (no secrets in it) so a failing
       // handshake/subscribe is diagnosable instead of a silent error counter.
       std::fprintf(stderr, "[ws] transport error: %.200s\n", m.data.c_str());
+      // A transport Error is a failed connection attempt (handshake/connect);
+      // ixwebsocket will retry. A 401 leaves no Open->Close, so re-sign HERE or
+      // the stale signature repeats forever (the incident's 401 lockout loop).
+      refresh_auth();
       break;
   }
 }
@@ -125,6 +145,9 @@ void KalshiWsClient::on_open() {
 void KalshiWsClient::on_close() {
   // State keyed to the dead connection's sids is abandoned; the next Open bumps
   // the epoch and resubscribes. (The transport owns backoff+jitter reconnect.)
+  // Re-sign fresh auth headers now so the transport's next reconnect handshake
+  // carries a current signature instead of the stale startup one (I10 incident).
+  refresh_auth();
 }
 
 void KalshiWsClient::resubscribe() {

@@ -10,6 +10,11 @@
 //     (per-sid seq handling, I1/I3), and emits NormalizedEvents to a sink;
 //   - on reconnect (transport Open after the first) bumps stream_epoch (I8),
 //     drops old-sid state, and resubscribes;
+//   - RE-SIGNS fresh handshake auth headers before every reconnect attempt (on
+//     transport Close and on handshake Error) — ixwebsocket replays whatever
+//     headers are set, and a signature signed once at startup goes stale and
+//     Kalshi 401s every reconnect until the process restarts (the 2026-07-07
+//     06:00–09:00 UTC capture gap);
 //   - tracks last-activity for the ping-silence watchdog (I6).
 //
 // Read-only market data. Never sends orders.
@@ -49,12 +54,17 @@ class KalshiWsClient {
   // Signs `timestamp + "GET" + ws_sign_path` with RSA-PSS -> base64. Returns
   // nullopt on failure (auth headers then omitted -> handshake will 401).
   using Signer = std::function<std::optional<std::string>(std::string_view)>;
+  // Wall-clock source in ms for auth timestamps. Defaults to the real clock;
+  // tests inject a controllable one to prove reconnects re-sign with a NEWER
+  // timestamp deterministically (no sleeps).
+  using Clock = std::function<std::int64_t()>;
 
   KalshiWsClient(IWebSocketTransport& transport, WsConfig cfg, Signer signer);
 
   void set_sink(trading::MarketDataSink* s) { sink_ = s; }
   void set_book_manager(OrderBookManager* m) { books_ = m; }
   void set_recorder(WsRecorder* r) { recorder_ = r; }  // durable raw log (Phase 4)
+  void set_clock(Clock c) { now_ms_ = std::move(c); }  // tests only
 
   // Register orderbook_delta subscriptions; sent on open and every resubscribe.
   void want_orderbook(std::vector<std::string> tickers) { want_ = std::move(tickers); }
@@ -93,11 +103,16 @@ class KalshiWsClient {
   void on_close();
   void on_text(const std::string& text);
   void resubscribe();
+  // Re-sign handshake auth headers with a CURRENT timestamp and hand them to the
+  // transport, so the next (re)connect attempt authenticates fresh instead of
+  // replaying a stale, since-rejected signature.
+  void refresh_auth();
   int next_id() { return next_id_++; }
 
   IWebSocketTransport& t_;
   WsConfig cfg_;
   Signer signer_;
+  Clock now_ms_;  // wall-clock ms for auth timestamps (real clock by default)
   KalshiRawDecoder decoder_;
   trading::MarketDataSink* sink_ = nullptr;
   OrderBookManager* books_ = nullptr;
