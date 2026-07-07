@@ -384,3 +384,17 @@ noticed-during, observation, suggested owner.
   needs a rotation story (restart at day boundary vs update_subscription
   add/delete_markets, PLAN_DEPTH_EXPANSION §4 cross-cutting note); the probe
   tool warns when the list is not dated today. Owner: R at rollout decision.
+- 2026-07-07 · noticed during STEP 0 independent audit · the reconnect re-sign
+  (ws_client.cpp refresh_auth, commit 6d56aae) signs at the moment a handshake
+  Error fires, then ixwebsocket sleeps the backoff (capped 30s,
+  ix_transport.cpp:40) BEFORE the next connect() — so on a PERSISTENT
+  handshake-failure streak the presented signature can be up to ~30s stale.
+  The common transient-drop path reconnects with backoff=0 (fresh) and is
+  fully fixed; this residual only bites if (a) failures persist to the 30s cap
+  AND (b) Kalshi's WS auth-timestamp acceptance window is < 30s — and that
+  window is UNDOCUMENTED (kalshi_facts.yaml has only local clock_skew 1138ms /
+  preflight +/-2000ms, not the server-side signature window). Two follow-ups:
+  (1) discovery — pin Kalshi's WS auth timestamp tolerance (protocol doc says
+  "on 401 surface server-date skew"); (2) if it proves < 30s, sign closer to
+  connect (lower maxWait, or a pre-connect header hook / client-driven
+  reconnect ladder that re-signs per attempt). Owner: next WS-hardening pass.
