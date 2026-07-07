@@ -6,6 +6,50 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 16:10 UTC — Consolidation: single-owner restored; money-integrity audit recorded (AF-1..AF-5) + plan spec fixed
+
+- commits:
+  - 0c6d95d money-integrity audit doc + PLAN_EVENT_PACKAGING §3.6/W-E2 fixes +
+    W-E0 label (AF-4)
+- WHY THIS ENTRY: a PARALLEL process had been executing/committing the event-
+  packaging Ws on this branch (it authored PLAN_EVENT_PACKAGING, rewrote the
+  W-E1 fixtures/test under me, and committed 37523e2/771b2de incl. this
+  session-log block). Two writers on one branch = clobber risk (hit once: a
+  Write rejected mid-edit, a commit found nothing to stage). Operator HALTED the
+  parallel process and put this session in sole charge. Branch confirmed
+  quiescent (head stayed 771b2de through the audit).
+- decisions / findings (now IN A FILE, closing the E2 gap):
+  - The parallel process referenced a "W-E0 money-integrity audit, AF-1..AF-4,
+    fix plan spec before W-E3" — but those findings were NEVER written anywhere
+    (only a one-line SESSION_LOG mention) and are unrecoverable. Superseded by a
+    fresh independent audit → docs/plan_audits/event_packaging_money_integrity_
+    2026-07-07.md (AF-1..AF-5, verbatim).
+  - AF-1/AF-2 (BLOCKER, D5): the §3.6 CSV contract would have floated money.
+    export_day.STRATEGY_COLS emits yes_price_e4/10000.0 as FLOAT and drops the
+    _e4 columns → sub-penny loss (0.0090 -> 0.01). Plan §3.6 now MANDATES E4
+    integer columns byte-exact + integer-4dp dollar strings, forbids float/2dp,
+    and forbids reusing STRATEGY_COLS. Gates W-E2/W-E7.
+  - AF-3: count_e4 (contract qty) vs row_count/n_trades disambiguated in §3.6.
+  - AF-4: W-E0 tool prints an honesty note ('ticks' = trade ROWS, not contract
+    volume); plan _event_summary relabeled. (W-E0 corrupts no money — it never
+    loads count_e4 — this is labeling only.)
+  - AF-5 (correctness): a stale index row can clip late trades at pack time.
+    W-E2 acceptance now requires pack-time window RE-INFERENCE + sealed-only
+    packing + an anti-clip regression case.
+- context capsule:
+  - Audited base state: W-E0 (d3791d5,a74ed93) + W-E1 (37523e2) both verified
+    green independently (14/14 event tests, pipeline PASS, registry 111 tools).
+    W-E1 carries NO money path (audit CLEAN). The money risk is entirely in the
+    NOT-YET-BUILT W-E2/W-E7 CSV materializers, now spec-guarded.
+  - No W-E2 code written yet.
+- blocked / handoff:
+  - Next W = **W-E2 (pack materializer)** — build to the AMENDED §3.6 money-
+    integrity contract + AF-5 pack-time-reinference acceptance. This is where
+    the BLOCKER guards get enforced by tests (anti-float assert; late-trade
+    anti-clip case).
+  - SINGLE-OWNER RULE: do not re-launch the parallel event-packaging process;
+    one writer on this branch.
+
 ## 2026-07-07 15:30 UTC — W-E1 DONE: event index builder + fixture tests green
 
 - commits:
