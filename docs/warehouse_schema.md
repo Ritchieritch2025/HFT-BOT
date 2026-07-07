@@ -162,6 +162,25 @@ today + 1 prior day · load() slices by category/subcategory/date and routes
 archive vs staging automatically · ws_sid/ws_seq flow raw→staging→export,
 missing ⇒ NULL, pre-W5 staging migrated on init, old+new archives union.
 
+## Event packs (derived layer — PLAN_EVENT_PACKAGING)
+A **derived, rebuildable** layer under `work/event_packs/`, keyed by
+`event_ticker` (or `market_ticker` for market-unit categories), so any market /
+series / single event can be selected and validated regardless of UTC-midnight
+splits. Raw + archive stay time-partitioned (D1); event packs never change them.
+- `index.parquet` (W-E1): one row per packaging unit with an inferred
+  `[win_start_us, win_end_us]` window (observed activity + lifecycle, never
+  scheduled `close_time` alone) + seal state.
+- `data/unit=<key>/{trades,orderbooks_l1}.csv` + `manifests/<key>.json` (W-E2):
+  the materialized pack. **Money-integrity: E4 integer columns carried
+  byte-exact, no float / no sub-penny loss (D5, AF-1/2).**
+- `warehouse.load(event=<key>, index_path=…)` resolves the unit's window +
+  market set from `index.parquet` and returns exactly that episode across day
+  partitions — callers pass no calendar dates (three-axis selector, §3.5).
+- `event_validate.py` (W-E3) stamps `pass | degraded | fail`. **V-EP15 (AF-1):
+  a pack whose window overlaps a capture gap is `degraded`, NEVER `pass`** —
+  day-granular / self-consistency checks (V-EP1/2/10/12) cannot see a sub-day
+  hole. A `degraded` pack must not feed a Q2 bound.
+
 ## Reserved (documented, not built this phase)
 `facts/game_data/` + `game_kalshi_map` for sports enrichment (external game state
 → Kalshi market join).

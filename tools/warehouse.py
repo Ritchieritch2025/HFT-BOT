@@ -127,12 +127,40 @@ def _staging_dedup_sql(stg, part_max):
             % (stg, vals, _sani_sql("_st.category"), _sani_sql("_st.subcategory")))
 
 
+def _resolve_event(event, index_path):
+    """Resolve an event/market unit_key from the W-E1 index → (category, markets,
+    win_start_us, win_end_us). Read-only; raises if the index or unit is absent."""
+    import duckdb
+    if not os.path.exists(index_path):
+        raise FileNotFoundError("event index not found: %s (run event_index first)" % index_path)
+    rows = duckdb.sql("SELECT category, markets, win_start_us, win_end_us "
+                      "FROM read_parquet('%s') WHERE unit_key = '%s'"
+                      % (index_path.replace("'", "''"), event.replace("'", "''"))).fetchall()
+    if not rows:
+        raise KeyError("event/unit not in index: %s" % event)
+    cat, markets, ws, we = rows[0]
+    return cat, list(markets), ws, we
+
+
 def load(table, category=None, subcategory=None, group=None, start=None, end=None,
-         columns=None, ffill=False, warehouse=None):
+         columns=None, ffill=False, warehouse=None, event=None, index_path=None):
     if table not in TABLES:
         raise ValueError("table must be one of %s" % (TABLES,))
     cfg = wc.load_config()
     warehouse = warehouse or cfg["warehouse_root"]
+    # Three-axis selector: event= resolves its window + market set from the index
+    # so callers never pass calendar dates for an episode (PLAN §3.5). Explicit
+    # start/end still override the index window if given.
+    event_markets = None
+    if event is not None:
+        idx = index_path or os.path.join(
+            warehouse if warehouse != cfg["warehouse_root"] else ".",
+            "event_packs" if warehouse != cfg["warehouse_root"] else "work/event_packs",
+            "index.parquet")
+        ecat, event_markets, ews, ewe = _resolve_event(event, idx)
+        category = category or ecat
+        start = ews if start is None else start
+        end = ewe if end is None else end
     staging = cfg["staging_db"] if warehouse == cfg["warehouse_root"] else \
         os.path.join(warehouse, "staging.duckdb")
     archive_root = cfg["archive_root"] if warehouse == cfg["warehouse_root"] else \
@@ -186,6 +214,9 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
     if category:    where.append("category = '%s'" % category.replace("'", "''"))
     if subcategory: where.append("subcategory = '%s'" % subcategory.replace("'", "''"))
     if group:       where.append('"group" = \'%s\'' % group.replace("'", "''"))
+    if event_markets is not None:  # event= restricts to the unit's market set
+        where.append("market_ticker IN (%s)"
+                     % ", ".join("'%s'" % m.replace("'", "''") for m in event_markets))
     if s_us is not None: where.append("ts_utc >= %d" % s_us)
     if e_us is not None: where.append("ts_utc < %d" % e_us)
     w = (" WHERE " + " AND ".join(where)) if where else ""
