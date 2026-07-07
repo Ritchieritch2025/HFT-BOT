@@ -76,15 +76,17 @@ def event_spans(per_event_day):
 def collect(category, start, end):
     """Aggregate trades per (event, UTC-day) via the read-only warehouse loader."""
     rel = wh.load("trades", category=category, start=start, end=end,
-                  columns=["event_ticker", "series_ticker", '"group"', "ts_utc"])
+                  columns=["event_ticker", "series_ticker", '"group"', "category", "ts_utc"])
     agg = rel.aggregate(
         "event_ticker, ts_utc // %d AS d, any_value(series_ticker) AS sr, "
-        "any_value(\"group\") AS grp, min(ts_utc) AS mn, max(ts_utc) AS mx, "
-        "count(*) AS n" % US_PER_DAY,
+        "any_value(\"group\") AS grp, any_value(category) AS cat, "
+        "min(ts_utc) AS mn, max(ts_utc) AS mx, count(*) AS n" % US_PER_DAY,
         "event_ticker, ts_utc // %d" % US_PER_DAY)
-    rows = agg.fetchall()  # (event, d, sr, grp, mn, mx, n)
-    meta = {r[0]: (r[2], r[3]) for r in rows}  # event -> (series, group)
-    spans = event_spans([(r[0], r[1], r[4], r[5], r[6]) for r in rows])
+    rows = agg.fetchall()  # (event, d, sr, grp, cat, mn, mx, n)
+    # event -> (series, group, category) — the REAL per-event category, so a
+    # multi-category (--category all) run labels each row correctly.
+    meta = {r[0]: (r[2], r[3], r[4]) for r in rows}
+    spans = event_spans([(r[0], r[1], r[5], r[6], r[7]) for r in rows])
     return spans, meta
 
 
@@ -125,7 +127,7 @@ def main(argv):
     print("\ntop %d events by ticks (X = crosses UTC midnight):" % args.top)
     print("  %-1s %-34s %-8s %7s  per-day counts" % ("", "event_ticker", "group", "ticks"))
     for event, s in top:
-        sr, grp = meta.get(event, (None, None))
+        sr, grp, cat = meta.get(event, (None, None, None))
         dc = ", ".join("%s:%d" % (day_str(d), s["day_counts"][d]) for d in sorted(s["day_counts"]))
         print("  %s %-34s %-8s %7d  %s" % (
             "X" if s["crossed_day_boundary"] else " ",
@@ -141,8 +143,8 @@ def main(argv):
                     "n_days_present", "calendar_span_days",
                     "crossed_day_boundary", "day_counts"])
         for event, s in sorted(spans.items(), key=lambda kv: kv[1]["total_ticks"], reverse=True):
-            sr, grp = meta.get(event, (None, None))
-            w.writerow([event, sr, grp, args.category, s["total_ticks"],
+            sr, grp, cat = meta.get(event, (None, None, None))
+            w.writerow([event, sr, grp, cat, s["total_ticks"],
                         us_iso(s["obs_start_us"]), us_iso(s["obs_end_us"]),
                         s["n_days_present"], s["calendar_span_days"],
                         s["crossed_day_boundary"],

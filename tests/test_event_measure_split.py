@@ -54,6 +54,15 @@ def test_three_day_span():
     assert s["total_ticks"] == 3
 
 
+def test_gap_day_span_exceeds_days_present():
+    # data on day D and D+2 only (nothing on D+1): calendar span counts the gap.
+    s = _spans()["KX-GAPDAY"]
+    assert s["crossed_day_boundary"] is True
+    assert s["n_days_present"] == 2
+    assert s["calendar_span_days"] == 3
+    assert s["calendar_span_days"] > s["n_days_present"]
+
+
 def test_day_index_boundary_exact():
     P = em.US_PER_DAY
     # last microsecond of a day and first of the next map to adjacent indices.
