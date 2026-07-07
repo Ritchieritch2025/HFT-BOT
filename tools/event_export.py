@@ -86,7 +86,12 @@ def export_one(idx_row, mfilter, warehouse, pack_root, out_root, now_us, gaps, g
     data_dir = os.path.join(pack_root, "data", "unit=%s" % unit_key.replace("/", "_"))
     res = ev.validate_pack(m, data_dir, warehouse=warehouse, gaps=gaps, gaps_available=gaps_available)
 
-    dest = os.path.join(out_root, series_ticker or "_noseries", event_ticker or unit_key)
+    # sanitize path components (defense-in-depth: never let an index ticker with
+    # a '/' or '..' escape out_root — matches build_pack's unit_key handling).
+    def _safe(s):
+        return (s or "").replace("/", "_").replace("..", "_") or "_none"
+    dest = os.path.join(out_root, _safe(series_ticker or "_noseries"),
+                        _safe(event_ticker or unit_key))
     os.makedirs(dest, exist_ok=True)
     counts = {}
     for table in ("trades", "orderbooks_l1"):
