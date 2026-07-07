@@ -567,6 +567,12 @@ Checks are **blocking** for `sealed` packs unless marked REPORT-ONLY.
 | V-EP12 | Calendar-split recovery | yes | For fixture cross-midnight event: rows on day D **and** D+1 present; sum equals V-EP1 |
 | V-EP13 | Lifecycle anchor | REPORT/Fork A | If `t_determined_us` set, `win_end >= t_determined`; else manifest notes `lifecycle_unavailable` |
 | V-EP14 | CSV export fidelity | yes | Export row counts == pack counts; single `event_ticker` per event folder; manifest `completeness=pass` |
+| V-EP15 | Interior-gap completeness (AF-1) | yes | Cross-reference `[win_start_us, win_end_us]` against the known capture-gap record (`work/quality_log.ndjson` data_loss windows + freshness/incident STALE spans + inter-record gaps in the raw feed). ANY overlap ⇒ `completeness=degraded` (NEVER `pass`), with the offending gap window(s) surfaced in `_manifest.json.gaps[]`. V-EP2's "≥1 row per spanned day" is day-granular and CANNOT see a sub-day hole (rows exist on both sides); V-EP1/V-EP10 are pack↔warehouse self-consistency and pass on holed data. This is the ONLY check that catches an interior outage (e.g. a 401/reconnect gap mid-game overlapping the settlement-convergence run — highest vol, Q6/Q8) before a green pack feeds a Q2 bound computed on holed data. |
+
+**completeness states (manifest):** `pass` (all checks green, no gap overlap) ·
+`degraded` (V-EP15 gap overlap — usable with caveats, NEVER counts as pass, gaps
+listed) · `fail` (a blocking V-EP other than V-EP15 failed). A Q2/backtest
+consumer MUST treat `degraded` as "holed — do not trust the bound."
 
 **Red fixtures** (`tests/fixtures/event_pack/defects/`):
 
@@ -578,6 +584,7 @@ Checks are **blocking** for `sealed` packs unless marked REPORT-ONLY.
 | `md5_mismatch` | corrupt manifest md5 | V-EP7 FAIL |
 | `split_incomplete` | drop day D+1 rows | V-EP12 FAIL |
 | `mve_row` | KXMVE ticker inserted | V-EP6 FAIL |
+| `interior_gap` | remove all rows in a mid-window sub-day span (both sides retain rows) while a quality_log data_loss entry covers that span | V-EP2/V-EP1/V-EP10 PASS but V-EP15 FAIL ⇒ completeness=`degraded`, gap window in manifest (AF-1) |
 
 ---
 
