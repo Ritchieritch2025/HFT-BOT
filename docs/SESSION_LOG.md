@@ -6,6 +6,35 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 18:30 UTC — W-E7 DONE: operator-facing per-event CSV export (the deliverable) + audit PASS
+
+- commits: b18d260 W-E7 event_export.py + tests; 3bd016a audit hardening (dest path sanitize)
+- decisions (in files):
+  - tools/event_export.py: three-axis selector (--event | --market | --series)
+    → clean per-event CSV folders under work/event_exports/<series>/<event>/
+    (trades.csv, orderbooks_l1.csv, _event_summary.csv, _manifest.json). COMPOSES
+    W-E2 packer + W-E3 validator — never re-derives money, so E4 fixed-point is
+    byte-exact (test: sub-penny e4=90 stays "90"). _manifest.completeness =
+    validator verdict; `pass` ONLY if event_validate passes, interior gap ⇒
+    `degraded` (V-EP15/AF-1), never a silent green CSV. --market filters to the
+    single market; no mixing events in one file.
+- INDEPENDENT AUDIT: VERDICT PASS (0 blocking). New surface only (W-E2/E3 already
+  audited). Confirmed clean: money round-trips byte-exact through csv reader/
+  writer (no float), --market filter column-correct for both tables, completeness
+  never rewritten pass, non-packed units surface skipped/refused (no crash), SQL
+  escaped. 2 LOW notes: (1) dest path separators unsanitized → FIXED (3bd016a);
+  (2) --market on an event ticker → 0-row export (operator misuse, row_counts=0
+  signals it) → left as-is.
+- verification: make check GREEN; run_pipeline PIPELINE PASS; registry 119; 4
+  W-E7 tests green.
+- STATUS — event-packaging plan: W-E0/E1/E2/E3/E7 DONE (each independently
+  audited, defects fixed). The operator can now select any market/event/series
+  and get clean, complete, separated CSVs — the original 2026-07-07 requirement
+  is MET. Remaining (optional/gated): W-E4 (wire axes into mm_backtest/gate_calc),
+  W-E5 (daily pack job), W-LC (lifecycle capture, operator-gated). Real-dim
+  wiring for the index (W-E1 runs on catalog-dir/fixtures) + a durable structured
+  capture-gap record are BACKLOGged. SINGLE-OWNER RULE in force.
+
 ## 2026-07-07 18:05 UTC — W-E3 DONE: event_validate (V-EP + V-EP15/AF-1) + load(event=); audit PASS-after-fix (5 defects)
 
 - commits:
