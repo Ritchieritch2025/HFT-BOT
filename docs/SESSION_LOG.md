@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — WP-04 DONE (audit pending) + WP-01 CLOSED — permanent acceptance suite
+
+- commits: (this commit) tests/test_pipeline_contract.py (12 tests, TDD
+  red→green: exit-4 collection red, then 5 genuine assert fails during
+  development, then green) + A1 wiring (tools.json entry pass_token
+  "passed", run_pipeline.sh line) + BACKLOG notes.
+- WP-04: new contracts — test_every_byte_accounted (checkpoint offsets =
+  100% of complete-line bytes incl. rotation shard; partial tail excluded
+  until completed, then counted exactly once), test_league_parse
+  (KXMLB→MLB, KXKBO→KBO, KXNCAABB→NCAABB known_league; longest-match
+  NCAAFB≠NCAAF; unknown sports prefix → family_prefix + needs_review=True —
+  the plan's "_unknown + warning" maps to the review flag + V16 Class-B
+  default, documented in-test), test_settlement_partitioned_by_settled_date
+  (xfail strict=False: exporter has NO settlements fact — feature not built
+  per protocol rule 1, BACKLOG filed), test_denormalized_columns_present
+  (every archived l1+trade row carries category/subcategory/group/series/
+  event, both classes), test_load_routing (late-staged row after export
+  does NOT change the archived day = past reads archive; today reads live
+  staging; no overlap double-count). Adopted per A1 by importing
+  test_ingest helpers with independent fixture values: test_change_only
+  (57+1+qty-only-change → 3 rows, full state tuple), test_heartbeat (3
+  quiet hours → 3 hour-start heartbeats, state carried, NULL price),
+  test_kill_restart_determinism (mid-line byte cut + fresh Ingester →
+  row-for-row EXCEPT ALL equality both directions, all 3 tables).
+- WP-01 CLOSED: folded tests green (test_e4_roundtrip "0.0325"→325→
+  presented 0.0325 exactly via load(); "0.5000"→5000; legacy integer-cent
+  levels_e4 *100; test_fractional_qty "5119.00"→51190000, "0.7500"→7500);
+  quality_log entry appended (work/quality_log.ndjson, wp=WP-01, window
+  2026-07-06T08:18-08:35Z, discarded-unrecoverable); live load() sample:
+  2026-07-06 trades 1,913,798 total / 398,045 sub-penny (20.8%), e.g.
+  EUCLIMATE-2030 e4=4140 → $0.4140.
+- suite state: full pytest 236 passed + 1 xfailed; make check green;
+  check_registry ok (99 tools). run_pipeline: all suites pass EXCEPT
+  test_console — PRE-EXISTING W4 stage-list drift (verified on clean HEAD
+  via stash), BACKLOG'd, out of WP-04 scope.
+- blocked / handoff: independent audit session must run before WP-04 is
+  marked DONE (anti-tautology check incl. adopted tests); test_console
+  drift fix is a one-line expected-list update for a W4 rider; settlements
+  export remains BACKLOG (R decision).
+
 ## 2026-07-07 — W4 DONE — coverage auditor (S1-S4, V14/V15/V16) + lifecycle research stage
 
 - commits: (this commit) tools/coverage_audit.py + tests/test_coverage_audit.py

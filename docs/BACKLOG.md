@@ -277,6 +277,28 @@ noticed-during, observation, suggested owner.
   (KXMLBWINS, KXNEWOUTBREAK) — catalog/classification refresh lag. The daily
   coverage audit lists them (S1); a catalog_sync + build_classification rerun
   should absorb them. Owner: pipeline ops / WP-08 health.
+- 2026-07-07 · noticed during WP-04 · PRE-EXISTING run_pipeline red (not
+  introduced by WP-04; verified identical on clean HEAD f0f68b5 via stash):
+  tests/test_console.py::test_api_init_returns_valid_json expects the
+  lifecycle stage list WITHOUT "Coverage Audit (research)", but W4 (bf09122)
+  appended that stage to tools/lifecycle_check.py without updating
+  test_console in the same change (E1/D4 drift). `make check` is unaffected
+  (test_console runs only in run_pipeline.sh); fix = add the stage to the
+  expected list in tests/test_console.py. Out of WP-04 scope (test_console is
+  not a WP-04 module; Operating Protocol rule 1). Owner: W4 rider / next
+  console change.
+- 2026-07-07 · noticed during WP-04 · settlements are NOT exported as facts:
+  `tools/export_day.py` TABLES covers orderbooks_l1/orderbooks_full/trades
+  only, while docs/warehouse_schema.md says "trades + settlements are recorded
+  for EVERY market" and "Settlements partition by settlement date; capture ts
+  kept as a column" (settlements currently exist only as a catalog/dim table
+  from dim_snapshot/catalog_sync, not as a partitioned fact). The contract is
+  pinned as an honest xfail in tests/test_pipeline_contract.py::
+  test_settlement_partitioned_by_settled_date (strict=False) — when the
+  exporter grows a settlements fact, extend that test: settlement captured on
+  day D with settled_time D-1 must land under date=<D-1> with capture ts kept
+  as a column. Building the feature was out of WP-04's test-conversion scope
+  (Operating Protocol rule 1). Owner: R decision / export rider.
 - 2026-07-07 · noticed during W4 coverage auditor · PLAN_GOLD_DATA_CONTRACT
   §0 grounding facts were measured EARLY on day one (5,692 traded / 13,455 L1
   markets); the full 2026-07-06 day is 127,997 traded / 44,569 L1 / 4
