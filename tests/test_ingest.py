@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -175,6 +176,28 @@ def main():
         check("corrupt-timestamp frame dropped (no crash, no row)",
               after == before and ing.bad_ts == 1,
               "rows %d->%d bad_ts=%d" % (before, after, ing.bad_ts))
+        # ---- 7. writer connect survives a reader-held lock (2026-07-07) -------
+        import duckdb as _duckdb
+        lockdb = os.path.join(tmp, "lock.duckdb")
+        _duckdb.connect(lockdb).close()  # create file
+        holder = _duckdb.connect(lockdb, read_only=True)  # reader holds it
+        import threading
+        release = threading.Timer(1.2, holder.close)
+        release.start()
+        t0 = time.time()
+        con_r = ingest.connect_with_retry(_duckdb, lockdb, attempts=20, sleep_s=0.2)
+        waited = time.time() - t0
+        con_r.close()
+        release.cancel()
+        check("connect_with_retry waits out a reader lock instead of crashing",
+              waited >= 0.5, "waited %.2fs" % waited)
+        try:
+            ingest.connect_with_retry(_duckdb, os.path.join(tmp, "nodir", "x.duckdb"),
+                                      attempts=2, sleep_s=0.05)
+            check("connect_with_retry raises after exhausting attempts", False)
+        except Exception:
+            check("connect_with_retry raises after exhausting attempts", True)
+
         check("normalize_ts_us: s/ms/ns accepted, absurd/garbage rejected",
               ingest.normalize_ts_us(1783325907) == 1783325907_000_000 and
               ingest.normalize_ts_us(1783325907199) == 1783325907199_000 and

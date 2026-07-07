@@ -339,6 +339,25 @@ class Ingester:
             self.stats.clear()
 
 
+def connect_with_retry(duckdb, path, attempts=30, sleep_s=5.0):
+    """Writer connect that survives reader-held locks (2026-07-07 incident:
+    a long-lived research process holding a read-only attach crashed the
+    daemon's bare connect; the watchdog then crash-looped it while staging
+    silently fell behind). Retries with patience; raises only after the
+    window is truly exhausted."""
+    last = None
+    for i in range(attempts):
+        try:
+            return duckdb.connect(path)
+        except Exception as e:  # duckdb.IOException has no stable import path
+            last = e
+            if i == 0:
+                print("[ingest] staging locked by a reader; retrying up to %ds"
+                      % int(attempts * sleep_s), file=sys.stderr)
+            time.sleep(sleep_s)
+    raise last
+
+
 def raw_files_to_scan(cfg):
     import datetime
     today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -378,7 +397,7 @@ def main(argv):
             # Hold the DuckDB write lock only inside the processing window so
             # readers (load(), dashboard, exports) get the DB between cycles.
             if ing.con is None:
-                ing.con = duckdb.connect(staging)
+                ing.con = connect_with_retry(duckdb, staging)
             n_l1 = n_tr = 0
             for path in raw_files_to_scan(cfg):
                 l1, tr, _ = ing.process_file(path)
