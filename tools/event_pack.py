@@ -194,6 +194,22 @@ def _load_index(index_path, unit_key=None):
     return [dict(zip(cols, r)) for r in rel.fetchall()]
 
 
+def update_index_win_end(index_path, updates):
+    """Rewrite index.parquet with a new win_end_us for the given unit_keys, so a
+    --refresh pack and load(event=) agree on the window (audit Defect-3). Atomic
+    (temp file + os.replace); preserves all columns incl. markets VARCHAR[]."""
+    import duckdb
+    if not updates:
+        return
+    case = " ".join("WHEN unit_key = '%s' THEN %d" % (k.replace("'", "''"), int(v))
+                    for k, v in updates.items())
+    tmp = index_path + ".tmp"
+    duckdb.sql("COPY (SELECT * REPLACE (CASE %s ELSE win_end_us END AS win_end_us) "
+               "FROM read_parquet('%s')) TO '%s' (FORMAT parquet)"
+               % (case, index_path.replace("'", "''"), tmp.replace("'", "''")))
+    os.replace(tmp, index_path)
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--index", default="work/event_packs/index.parquet")
@@ -212,14 +228,20 @@ def main(argv):
 
     rows = _load_index(args.index, args.unit)
     packed = skipped = refused = 0
+    reinferred = {}
     for row in rows:
         row["markets"] = list(row["markets"]) if row.get("markets") is not None else []
         m = build_pack(row, args.warehouse, args.out_root, now_us, refresh=args.refresh)
         st = m["status"]
         packed += st == "packed"; skipped += st == "skipped"; refused += st == "refused"
+        if m.get("reinferred_window"):
+            reinferred[m["unit_key"]] = m["win_end_us"]
         if st != "skipped":
             print("  %-8s %-30s %s" % (st, m["unit_key"][:30],
                   m.get("row_counts") or m.get("reason", "")))
+    if reinferred:  # keep the index consistent with refreshed packs (Defect-3)
+        update_index_win_end(args.index, reinferred)
+        print("  updated index win_end for %d reinferred unit(s)" % len(reinferred))
     print("packs: %d packed, %d refused, %d skipped (of %d units)"
           % (packed, refused, skipped, len(rows)))
     return 0

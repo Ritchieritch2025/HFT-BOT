@@ -176,6 +176,24 @@ def test_non_sealed_unit_skipped(tmp_path):
     assert m["status"] == "skipped"
 
 
+def test_update_index_win_end_preserves_other_columns(tmp_path):
+    # Defect-3: --refresh must write the re-inferred win_end back to the index so
+    # load(event=) and the pack agree; the rewrite must preserve markets etc.
+    import duckdb
+    idx = str(tmp_path / "index.parquet")
+    con = duckdb.connect()
+    con.execute("CREATE TABLE idx (unit_key VARCHAR, markets VARCHAR[], "
+                "win_end_us BIGINT, category VARCHAR)")
+    con.executemany("INSERT INTO idx VALUES (?,?,?,?)",
+                    [("EV1", ["A", "B"], 1000, "Sports"), ("EV2", ["C"], 2000, "Crypto")])
+    con.execute("COPY idx TO '%s' (FORMAT parquet)" % idx)
+    ep.update_index_win_end(idx, {"EV1": 5000})
+    got = {r[0]: (list(r[1]), r[2]) for r in duckdb.sql(
+        "SELECT unit_key, markets, win_end_us FROM read_parquet('%s')" % idx).fetchall()}
+    assert got["EV1"] == (["A", "B"], 5000)   # updated, markets preserved
+    assert got["EV2"] == (["C"], 2000)        # untouched
+
+
 def test_row_counts_match_direct_sql(tmp_path):
     import duckdb
     wh_root = str(tmp_path / "wh")
