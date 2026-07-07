@@ -44,18 +44,27 @@ def us_iso(ts_us):
 def event_spans(per_event_day):
     """Pure split-detection core (unit-testable, no warehouse).
 
-    Input: iterable of (event_ticker, day_idx, min_ts_us, max_ts_us, count).
-    Output: {event_ticker: {obs_start_us, obs_end_us, first_day, last_day,
+    Input: iterable of (event, day_idx, min_ts_us, max_ts_us, count[, contracts_e4
+           [, notional_e8]]). The two weight fields are optional (default 0) so
+           row-count-only callers/tests keep working (AF-2).
+    Output: {event: {obs_start_us, obs_end_us, first_day, last_day,
              n_days_present, calendar_span_days, crossed_day_boundary,
-             total_ticks, day_counts{day_idx:count}}}.
+             total_ticks (trade ROWS), total_contracts_e4 (Σcount_e4, E4),
+             total_notional_e8 (Σ price_e4·count_e4, integer), day_counts}}.
     """
-    acc = defaultdict(lambda: {"mn": None, "mx": None, "days": defaultdict(int)})
-    for event, d, mn, mx, cnt in per_event_day:
+    acc = defaultdict(lambda: {"mn": None, "mx": None, "days": defaultdict(int),
+                               "contracts": 0, "notional": 0})
+    for rec in per_event_day:
+        event, d, mn, mx, cnt = rec[:5]
+        contracts = int(rec[5]) if len(rec) > 5 and rec[5] is not None else 0
+        notional = int(rec[6]) if len(rec) > 6 and rec[6] is not None else 0
         a = acc[event]
         mn, mx, cnt, d = int(mn), int(mx), int(cnt), int(d)
         a["mn"] = mn if a["mn"] is None else min(a["mn"], mn)
         a["mx"] = mx if a["mx"] is None else max(a["mx"], mx)
         a["days"][d] += cnt
+        a["contracts"] += contracts
+        a["notional"] += notional
     out = {}
     for event, a in acc.items():
         ds = sorted(a["days"])
@@ -68,6 +77,8 @@ def event_spans(per_event_day):
             "calendar_span_days": ds[-1] - ds[0] + 1,
             "crossed_day_boundary": ds[0] != ds[-1],
             "total_ticks": sum(a["days"].values()),
+            "total_contracts_e4": a["contracts"],
+            "total_notional_e8": a["notional"],
             "day_counts": dict(a["days"]),
         }
     return out
@@ -76,17 +87,22 @@ def event_spans(per_event_day):
 def collect(category, start, end):
     """Aggregate trades per (event, UTC-day) via the read-only warehouse loader."""
     rel = wh.load("trades", category=category, start=start, end=end,
-                  columns=["event_ticker", "series_ticker", '"group"', "category", "ts_utc"])
+                  columns=["event_ticker", "series_ticker", '"group"', "category",
+                           "ts_utc", "count_e4", "yes_price_e4"])
+    # notional Σ(price_e4·count_e4) can exceed int64 over a category — sum as
+    # HUGEINT (128-bit); DuckDB returns it to Python as an arbitrary-precision int.
     agg = rel.aggregate(
         "event_ticker, ts_utc // %d AS d, any_value(series_ticker) AS sr, "
         "any_value(\"group\") AS grp, any_value(category) AS cat, "
-        "min(ts_utc) AS mn, max(ts_utc) AS mx, count(*) AS n" % US_PER_DAY,
+        "min(ts_utc) AS mn, max(ts_utc) AS mx, count(*) AS n, "
+        "sum(count_e4) AS contracts_e4, "
+        "sum(CAST(yes_price_e4 AS HUGEINT) * count_e4) AS notional_e8" % US_PER_DAY,
         "event_ticker, ts_utc // %d" % US_PER_DAY)
-    rows = agg.fetchall()  # (event, d, sr, grp, cat, mn, mx, n)
+    rows = agg.fetchall()  # (event, d, sr, grp, cat, mn, mx, n, contracts_e4, notional_e8)
     # event -> (series, group, category) — the REAL per-event category, so a
     # multi-category (--category all) run labels each row correctly.
     meta = {r[0]: (r[2], r[3], r[4]) for r in rows}
-    spans = event_spans([(r[0], r[1], r[5], r[6], r[7]) for r in rows])
+    spans = event_spans([(r[0], r[1], r[5], r[6], r[7], r[8], r[9]) for r in rows])
     return spans, meta
 
 
@@ -112,18 +128,25 @@ def main(argv):
 
     spans, meta = collect(category, start, end)
     crossed = {e: s for e, s in spans.items() if s["crossed_day_boundary"]}
-    total_ticks = sum(s["total_ticks"] for s in spans.values())
-    crossed_ticks = sum(s["total_ticks"] for s in crossed.values())
+
+    def _share(key):
+        tot = sum(s[key] for s in spans.values())
+        cr = sum(s[key] for s in crossed.values())
+        return cr, tot, 100.0 * cr / max(1, tot)
 
     print("category=%s  window_start=%s  events=%d" %
           (args.category, start, len(spans)))
-    print("NOTE: 'ticks' = trade ROWS (count(*)), NOT contract volume "
-          "(count_e4 is not summed here) — AF-4.")
-    print("cross-midnight events: %d / %d (%.1f%%)  |  their ticks: %d / %d (%.1f%%)" % (
-        len(crossed), len(spans),
-        100.0 * len(crossed) / max(1, len(spans)),
-        crossed_ticks, total_ticks,
-        100.0 * crossed_ticks / max(1, total_ticks)))
+    print("cross-midnight events: %d / %d (%.1f%%)" % (
+        len(crossed), len(spans), 100.0 * len(crossed) / max(1, len(spans))))
+    # Three weightings — row count over/under-states $ impact (AF-2). 'ticks' =
+    # trade ROWS; contracts = Σcount_e4 (÷1e4 = contracts); notional =
+    # Σ price_e4·count_e4 (÷1e8 = $), integer throughout (D5, no float on money).
+    for label, key, div in (("trade-rows ", "total_ticks", 1),
+                             ("contracts  ", "total_contracts_e4", 10000),
+                             ("notional $ ", "total_notional_e8", 100000000)):
+        cr, tot, pct = _share(key)
+        print("  cross-midnight %s: %s / %s (%.1f%%)"
+              % (label, cr // div, tot // div, pct))
 
     top = sorted(spans.items(), key=lambda kv: kv[1]["total_ticks"], reverse=True)[:args.top]
     print("\ntop %d events by ticks (X = crosses UTC midnight):" % args.top)
@@ -141,12 +164,14 @@ def main(argv):
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["event_ticker", "series_ticker", "group", "category",
-                    "total_ticks", "obs_start_utc", "obs_end_utc",
+                    "total_trade_rows", "total_contracts_e4", "total_notional_e8",
+                    "obs_start_utc", "obs_end_utc",
                     "n_days_present", "calendar_span_days",
                     "crossed_day_boundary", "day_counts"])
         for event, s in sorted(spans.items(), key=lambda kv: kv[1]["total_ticks"], reverse=True):
             sr, grp, cat = meta.get(event, (None, None, None))
             w.writerow([event, sr, grp, cat, s["total_ticks"],
+                        s["total_contracts_e4"], s["total_notional_e8"],
                         us_iso(s["obs_start_us"]), us_iso(s["obs_end_us"]),
                         s["n_days_present"], s["calendar_span_days"],
                         s["crossed_day_boundary"],
