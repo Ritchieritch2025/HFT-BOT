@@ -23,10 +23,13 @@ Key docs: `docs/GUARDRAILS.md` (constitution) · `docs/MM_ROADMAP.md` (phases) �
 merge is the Phase-2 opener) · `docs/RUNBOOK.md` (ops commands) ·
 `docs/warehouse_schema.md` (data layer contract).
 
-**Current execution queue:** `docs/EXECUTION_PLAN.md` (resume at the earliest
-unfinished WP), then `docs/PLAN_GOLD_DATA_CONTRACT.md` (W1→W5; W6 probe is
-operator-gated). Check `docs/SESSION_LOG.md` (newest entry first) for where
-the last session actually stopped.
+**Current execution queue:** `docs/MASTER_SEQUENCE.md` — the FINAL master
+ordering (STEP 0 WS signature fix → STEP 1 AWS migration → … → STEP 6 pricing
+& kill-switch plans); it supersedes all prior orderings. One W per fresh
+session, independent audit after every W, exit ritual always. The prior gold
+contract / EXECUTION_PLAN queue is complete (see SESSION_LOG 2026-07-07 05:56
+UTC). Check `docs/SESSION_LOG.md` (newest entry first) for where the last
+session actually stopped.
 
 ## Session exit ritual (mandatory — a session that skips this is not done)
 

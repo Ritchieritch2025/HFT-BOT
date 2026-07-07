@@ -6,6 +6,36 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 11:53 UTC — MASTER SEQUENCE adopted as top-level queue (reorder, docs-only)
+
+- commits: (this commit) docs/MASTER_SEQUENCE.md (new, operator sequence
+  preserved VERBATIM) + CLAUDE.md queue pointer repointed to it + this entry.
+  No code/pipeline/test changes; nothing touches a GUARDRAILS MUST.
+- decisions:
+  - The operator-authored FINAL MASTER SEQUENCE supersedes all prior
+    orderings → docs/MASTER_SEQUENCE.md (verbatim). Prior queue
+    (EXECUTION_PLAN + PLAN_GOLD_DATA_CONTRACT) is complete; the new queue is
+    STEP 0 → STEP 6.
+  - CLAUDE.md "Current execution queue" now points at MASTER_SEQUENCE.md, not
+    EXECUTION_PLAN.md.
+- context capsule: execution order for all future fresh sessions =
+  docs/MASTER_SEQUENCE.md. STEP 0 is the earliest unfinished work and is
+  URGENT: WS handshake auth headers are signed once at startup
+  (ws_client.cpp:91); ixwebsocket auto-reconnect replays the stale signature
+  ⇒ 401 loop until the hourly restart (root cause of the 2026-07-07 06:00–09:00
+  UTC capture gap; clock exonerated — sntp 46ms, REST auth passing during the
+  outage). Fix = re-sign fresh headers before EVERY connection attempt via the
+  client-layer recovery ladder, red-first MockWebSocketTransport test, plus a
+  quality_log entry, all in one commit. Standing gates unchanged: fees OQ-1
+  awaits operator ratification; 2026-07-13 seven-clean-days gate; live trading
+  behind ALL lifecycle gates + per-session operator confirmation (S1).
+  Governing rule carried forward: one W per fresh session, independent audit
+  after every W, exit ritual always.
+- blocked / handoff: next session starts STEP 0 (WS reconnect signature fix).
+  It has no plan doc of its own — it is a direct code fix (P4 note) per the
+  MASTER_SEQUENCE STEP 0 spec. STEP 1 onward each requires drafting its named
+  PLAN_*.md before executing its Ws.
+
 ## 2026-07-07 05:56 UTC — ENTIRE EXECUTION SEQUENCE COMPLETE (gold contract W1-W6 + EXECUTION_PLAN WP-00..09)
 
 - commits: full chain fa18ff6(W1)..9343064(W6) — every WP/W landed with its own
