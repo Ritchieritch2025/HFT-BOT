@@ -4,13 +4,38 @@ Deterministic, no warehouse — feeds the fixture ticks through the same
 per-(event, UTC-day) aggregation the SQL path uses, then asserts cross-midnight
 detection, calendar-span counting, and exact day-boundary math.
 """
+import calendar
 import csv
+import datetime as _dt
 import os
 import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import event_measure_split as em  # noqa: E402
+
+
+def _ts(s):
+    return int(calendar.timegm(_dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").timetuple()) * 1_000_000)
+
+
+def _make_trades_archive(root, rows_by_date):
+    """AF-4: a minimal Sports trades archive (csv.gz) so collect()'s real SQL
+    path can be exercised end-to-end."""
+    import duckdb
+    ddl = ('ts_utc BIGINT, market_ticker VARCHAR, series_ticker VARCHAR, '
+           'event_ticker VARCHAR, category VARCHAR, subcategory VARCHAR, '
+           '"group" VARCHAR, trade_id VARCHAR, yes_price_e4 INTEGER, '
+           'no_price_e4 INTEGER, count_e4 BIGINT, taker_side VARCHAR')
+    con = duckdb.connect()
+    for date, rows in rows_by_date.items():
+        d = os.path.join(root, "facts", "trades", "category=Sports",
+                         "subcategory=_none", "date=%s" % date)
+        os.makedirs(d, exist_ok=True)
+        con.execute("CREATE OR REPLACE TABLE x (%s)" % ddl)
+        con.executemany("INSERT INTO x VALUES (%s)" % ",".join("?" * 12), rows)
+        con.execute("COPY x TO '%s' (FORMAT csv, HEADER, COMPRESSION gzip)"
+                    % os.path.join(d, "part.csv.gz"))
 
 FX = os.path.join(os.path.dirname(__file__), "fixtures", "event_split_cases.csv")
 
@@ -96,6 +121,33 @@ def test_event_spans_row_only_backcompat():
     s = em.event_spans([("Z", 20640, 100, 200, 5)])["Z"]
     assert s["total_ticks"] == 5
     assert s["total_contracts_e4"] == 0 and s["total_notional_e8"] == 0
+
+
+def test_collect_sql_path_matches_handcomputed(tmp_path):
+    # AF-4: the 42.8%/77.6%-style numbers come from collect()'s DuckDB aggregate
+    # (ts_utc // US_PER_DAY, sum(count_e4), HUGEINT notional), which was never
+    # tested — only the pure event_spans was. Drive the real SQL end-to-end.
+    root = str(tmp_path / "wh")
+
+    def r(ts, mk, ev, cnt, yp):
+        return (_ts(ts), mk, "S", ev, "Sports", "_none", "g", mk + ts, yp,
+                10000 - yp, cnt, "yes")
+    _make_trades_archive(root, {
+        "2026-07-06": [r("2026-07-06 23:00:00", "G1-A", "G1", 10000, 5000)],
+        "2026-07-07": [r("2026-07-07 00:30:00", "G1-B", "G1", 20000, 6000),
+                       r("2026-07-07 12:00:00", "G2-A", "G2", 30000, 4000)],
+    })
+    spans, meta = em.collect("Sports", "2026-07-06", "2026-07-07", warehouse=root)
+    g1, g2 = spans["G1"], spans["G2"]
+    # cross-midnight detection from the SQL day-bucketing (// US_PER_DAY)
+    assert g1["crossed_day_boundary"] is True and g1["total_ticks"] == 2
+    assert g2["crossed_day_boundary"] is False and g2["total_ticks"] == 1
+    assert sorted(g1["day_counts"].keys()) == [em.day_index(_ts("2026-07-06 23:00:00")),
+                                               em.day_index(_ts("2026-07-07 00:30:00"))]
+    # weighted sums straight off the SQL path (integer, exact)
+    assert g1["total_contracts_e4"] == 30000                    # 10000 + 20000
+    assert g1["total_notional_e8"] == 5000 * 10000 + 6000 * 20000
+    assert meta["G1"][2] == "Sports"                            # any_value(category)
 
 
 def test_day_index_boundary_exact():

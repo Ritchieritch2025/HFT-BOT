@@ -84,9 +84,9 @@ def event_spans(per_event_day):
     return out
 
 
-def collect(category, start, end):
+def collect(category, start, end, warehouse=None):
     """Aggregate trades per (event, UTC-day) via the read-only warehouse loader."""
-    rel = wh.load("trades", category=category, start=start, end=end,
+    rel = wh.load("trades", category=category, start=start, end=end, warehouse=warehouse,
                   columns=["event_ticker", "series_ticker", '"group"', "category",
                            "ts_utc", "count_e4", "yes_price_e4"])
     # notional Σ(price_e4·count_e4) can exceed int64 over a category — sum as
@@ -116,6 +116,7 @@ def main(argv):
     ap.add_argument("--end", help="explicit ISO/date end")
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--out-dir", default="work/event_packs")
+    ap.add_argument("--warehouse", help="warehouse root (default: config)")
     args = ap.parse_args(argv[1:])
 
     category = None if args.category.lower() == "all" else args.category
@@ -126,7 +127,7 @@ def main(argv):
         start = (now - _dt.timedelta(days=args.days)).strftime("%Y-%m-%d")
         end = None
 
-    spans, meta = collect(category, start, end)
+    spans, meta = collect(category, start, end, warehouse=args.warehouse)
     crossed = {e: s for e, s in spans.items() if s["crossed_day_boundary"]}
 
     def _share(key):
