@@ -335,3 +335,28 @@ noticed-during, observation, suggested owner.
   If the expectation becomes "every completed day has a GREEN gold build by
   morning", those should be promoted to hard failures — one-line change in
   tools/daily_check.py check_gold + test flip. Owner: R decision.
+- 2026-07-07 · noticed during WP-09 · bracket dims are structurally dead:
+  the catalog parquets carry NO floor_strike/cap_strike columns, so
+  tools/dim_snapshot.py's event_structure derivation can never emit
+  'bracket' (numeric-strike test always fails — day-07 latest snapshot has
+  only binary/head_to_head/multi_outcome); additionally BOTH
+  dim/latest/events.csv and markets.csv sit at exactly 80,000 rows (a
+  fetch/row cap in catalog_sync, and the snapshot is today-only, so
+  prior-day settled markets are absent — only 4 of 1,964 day-06 candidate
+  events matched the markets dim at all). WP-09's gate_calc therefore runs
+  its documented fallback (event_ticker grouping + mutually_exclusive from
+  events.csv; ME-unknown excluded fail-closed — 874 events on day 06, 1,146
+  on day 07). If bracket_rank/event_structure are wanted for real, teach
+  catalog_sync to fetch strike fields + lift/paginate the 80k cap, then
+  dims become the preferred source automatically (gate_calc already checks
+  at runtime). Owner: next catalog_sync/dim_snapshot change.
+- 2026-07-07 · noticed during WP-09 · exhaustiveness is unverifiable from
+  our data: mutually_exclusive=true guarantees at most ONE bracket leg pays,
+  not at least one, so buy-all-legs "arbs" with huge gross edges (up to 94c
+  observed, mostly few-leg events priced near 0) are very likely
+  non-exhaustive event fragments, not riskless profit. The gate report
+  states signal counts are an UPPER BOUND. A settlement-based tightening —
+  join evaluated events against settlements and keep only events where
+  exactly one leg settled YES — would turn the upper bound into a measured
+  arb rate; needs the settlements table + a day of settled brackets. Owner:
+  R / gate-meeting interpretation, optional WP-09 rider.

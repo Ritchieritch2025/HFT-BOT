@@ -6,6 +6,63 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 05:15 UTC — WP-09 DONE (audit pending) — gate calculator: the three H-4 numbers by tested code
+
+- commits: (this commit) tools/gate_calc.py + tests/test_gate_metrics.py
+  (7 tests, TDD red→green: ModuleNotFoundError collection red pasted, then
+  7 passed) + A1 wiring (tools.json `test_gate_metrics` pass_token "passed"
+  + `gate_calc` kind=tool safety=pure; run_pipeline.sh suite line) + two
+  BACKLOG notes + this entry. Report under work/mm/ (not committed, by
+  the WP's allowed-writes rule).
+- decisions (each lives in the named file):
+  - signal = contiguous EPISODE of (100 − Σ L1 asks) ≥ min_edge_c over a
+    fully-quoted bracket, never per-tick; default min_edge_c = 2.0¢ (sums
+    ≤98¢ fire, the plan's 99–101¢ band silent), parameterized
+    → tools/gate_calc.py docstring + pinned in tests/test_gate_metrics.py.
+  - LOCF max quote age = 3600 s default (hourly-heartbeat cadence = the
+    warehouse's documented change-only reconstruction bound; smaller drops
+    valid state, larger trusts dead data), parameterized
+    → tools/gate_calc.py docstring.
+  - bracket universe: dims event_structure='bracket' preferred and CHECKED
+    AT RUNTIME, but it is empty today (catalog lacks floor/cap_strike; dims
+    today-only + 80k row cap) → documented fallback IS the effective path:
+    event_ticker grouping + mutually_exclusive=true from events dim;
+    ME-unknown events excluded fail-closed + counted; KXMVE prefix dropped
+    (Q7) → tools/gate_calc.py + BACKLOG (catalog_sync rider).
+  - full-quote guard: no evaluation until EVERY observed leg has a valid
+    ask (0<ask_e4<10000) within the LOCF window — partial sums never fire
+    (worst fake-signal class) → pinned by test_partial_quote_guard.
+  - fees: mm_research.trade_fee is the ONLY fee fn (no second
+    implementation); gate-mode net profit REFUSES on fees.verified=false
+    (FeeNotVerifiedError, proven both directions on the real yaml + temp
+    yamls); --preview-unverified-fees prints under a NON-GATE banner
+    → tools/gate_calc.py + tests/test_gate_metrics.py.
+- context capsule: REAL dry run 2026-07-07 ~05:05 UTC, defaults +
+  --preview-unverified-fees: 2026-07-06 [FINAL] 8,210,082 L1 rows, 5,311
+  events, 1,964 brackets evaluated (excl 1,304 single-leg / 874 ME-unknown /
+  1,169 not-ME) → 1,809 signals; 2026-07-07 [PARTIAL] 6,903,405 rows, 2,209
+  evaluated → 820 signals. Gate numbers: signal_count/day 1,314.5 (upper
+  bound — exhaustiveness unverifiable, see BACKLOG), lifespan p50 1.0 s
+  (p90 2,210.9 s, max 55,915.8 s, n=2,629, 257 censored at data end),
+  net_profit REFUSED (OQ-1). NON-GATE preview @ unratified taker 0.07: net
+  p50 −0.81¢/−0.77¢ per day — the p50 signal is net-NEGATIVE after taker
+  fees (the hand-computed test fixture shows a 4¢ gross edge losing 0.57¢);
+  positive tail exists (n(net>0) 648/291, likely non-exhaustive fragments).
+  Report: work/mm/gate_report_2026-07-07.md (cites WP-06
+  work/mm/research_2026-07-07.html, not recomputed). Implementation note:
+  staging asks arrive as pandas nullable NA — bracket_signals coerces
+  yes_ask_e4 to float64 (NaN) before the validity check (TypeError
+  otherwise, hit on the real day-07 load). Suites: pytest 272 passed +
+  1 xfail; make check tail ALL PASS; check_registry ok (105 tools).
+  Pre-existing unstaged config/*.csv churn left alone per protocol.
+- blocked / handoff: WP-09 needs its independent audit session (read-only,
+  vs this diff). The gate meeting (H-4, human) is blocked on OQ-1 fee
+  ratification (net_profit REFUSES until config/kalshi_facts.yaml
+  fees.verified flips true — then rerun `python3 tools/gate_calc.py` for
+  the real table; WP-07 fee-swap rerun also pending) and on the H-3
+  clean-day clock (earliest admission 2026-07-13). All WP register items
+  WP-00…WP-09 now built or closed; remaining: audits, WP-07, human steps.
+
 ## 2026-07-07 04:55 UTC — WP-08 DONE (audit pending) — daily quality check: the morning ritual as one command
 
 - commits: (this commit) tools/daily_check.py + tests/test_daily_check.py

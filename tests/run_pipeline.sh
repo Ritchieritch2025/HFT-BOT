@@ -100,6 +100,7 @@ run_suite "test_freshness" ./tests/run_pytest.sh tests/test_freshness.py
 run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
 run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
 run_suite "test_research_metrics" ./tests/run_pytest.sh tests/test_research_metrics.py
+run_suite "test_gate_metrics" ./tests/run_pytest.sh tests/test_gate_metrics.py
 run_suite "test_ingest" python3 tests/test_ingest.py
 run_suite "test_export_day" python3 tests/test_export_day.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
