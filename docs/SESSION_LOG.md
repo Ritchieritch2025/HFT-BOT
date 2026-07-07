@@ -6,6 +6,44 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 18:05 UTC — W-E3 DONE: event_validate (V-EP + V-EP15/AF-1) + load(event=); audit PASS-after-fix (5 defects)
+
+- commits:
+  - 4f48407 W-E3: event_validate.py (V-EP checks) + warehouse.load(event=) + schema §Event packs
+  - 5ea341a W-E3 audit remediation (5 defects; V-EP15 was inert in production)
+  - (BACKLOG: durable structured gap-record builder)
+- decisions (in files):
+  - warehouse.load(event=KEY, index_path=) resolves the unit's window + market
+    set from the W-E1 index and returns exactly that episode across day
+    partitions (three-axis selector §3.5); day-mode unchanged. → tools/warehouse.py.
+  - event_validate.py stamps pass|degraded|fail. Implemented V-EP1/3/4/6/7/10/12
+    + V-EP15 (AF-1 interior-gap: window∩capture-gap ⇒ degraded, never pass).
+    Deferred checks (V-EP5/8/9/11/13/14) emitted as explicit skip (D2).
+    → tools/event_validate.py; schema §Event packs (E5).
+  - AF-1 OBLIGATION DISCHARGED: interior_gap red fixture built + proven RED
+    (neuter V-EP15 ⇒ holed pack stamped pass; restored ⇒ degraded).
+- INDEPENDENT AUDIT of W-E3 found 5 CONFIRMED defects, all FIXED (5ea341a):
+  - D1 HIGH: V-EP15 was INERT in production — defaulted to a nonexistent
+    capture_gaps.csv; missing record ⇒ gaps=[] ⇒ pass. Fixed: source is
+    quality_log.ndjson (gaps_from_quality_log), FAIL-CLOSED when unavailable
+    (V-EP15 skip ⇒ degraded, never pass).
+  - D2 MED: deferred checks silently omitted (contradicted the D2 claim) → now
+    explicit skip.
+  - D3 MED: --refresh updated manifest window but not index.parquet → load(event=)
+    truncated; event_pack now writes re-inferred win_end back to the index
+    (atomic, preserves markets[]).
+  - D4/D5 LOW: null-window TypeError + empty-markets IN () ParserException → now
+    fail-closed. Audit CLEAN on day-mode regression, V-EP1 self-consistency,
+    money (D5, no float), SQL escaping.
+- verification: make check GREEN; run_pipeline PIPELINE PASS; registry 117
+  tools; 22 event-packaging pytest cases green.
+- blocked / handoff: event-packaging plan status — W-E0/E1/E2/E3 DONE (each
+  audited). Remaining: W-E4 (three-axis wiring into mm_backtest/gate_calc),
+  W-E7 (CSV export — the operator-facing deliverable), W-E5 (daily pack job),
+  W-LC (lifecycle capture, operator-gated). V-EP15's gap source is a coarse
+  best-effort parser (fails closed) — a durable structured gap-record builder
+  is BACKLOGged. SINGLE-OWNER RULE still in force.
+
 ## 2026-07-07 17:35 UTC — Independent audit of AF-1..4 remediation: 1 real DEFECT found + fixed (AF-3 was incomplete)
 
 - commit: 89a6b98 AF-3 residual — per-partition staging dedup for aggregate queries

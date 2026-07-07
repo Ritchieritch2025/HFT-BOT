@@ -432,3 +432,13 @@ noticed-during, observation, suggested owner.
   for market-making. An L1-quote-window split is a separate measure — fold into
   the W-E1 index (which already carries per-event L1 observed bounds). Owner:
   W-E1 enhancement / pricing-model calibration input.
+- 2026-07-07 · W-E3 audit residual · event_validate V-EP15's gap source
+  (gaps_from_quality_log) is a BEST-EFFORT free-text parser (minute-resolution,
+  same-day windows, keyword-matched). It fails CLOSED (missing/empty record ->
+  V-EP15 skip -> verdict degraded, never pass), so it cannot green-lie, but it
+  can MISS a real gap that quality_log recorded in a shape it doesn't parse
+  (=> a hole slips as pass only if the record also lacks other signals). Build a
+  DURABLE structured capture-gap record (start_us,end_us) from metrics freshness
+  + raw-feed inter-record gaps + quality_log data_loss (PLAN §4 capture_gaps),
+  and make it V-EP15's authoritative source. Owner: a gap-record-builder W
+  (pairs with W-E1 §4). Until then --gaps <csv> can supply it explicitly.
