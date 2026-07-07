@@ -231,6 +231,7 @@ class TestDashboardServerPolicy(unittest.TestCase):
             "Data Pipeline",
             "Strategy Shadow",
             "Live Execution Gate",
+            "Coverage Audit (research)",  # W4: non-blocking research stage
         ])
         for s in stages:
             self.assertIn("id", s)
