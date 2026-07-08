@@ -42,9 +42,9 @@ which decisions landed in which files, what the next session must know.
   previously existed ONLY as unit-test pattern (test_ws_client.cpp:159-186)
   + live log; forced_reconnects at ws_client.hpp:100,142; lifecycle files
   confirmed by reading tools/lifecycle_check.py:4-27.
-- blocked / handoff: **B1 ordering ruling still OPEN** (operator did not yet
-  rule; conservative default written into doc: W-D2..D5 blocked by STEP 1
-  cutover W-A4, built on EC2). Next dashboard W = W-D1 static design mock
+- blocked / handoff: B1 RULED same day (operator, follow-up): W-D2..D5 wait
+  for STEP 1 cutover, built on EC2 — recorded in plan header + W-D2.
+  Next dashboard W = W-D1 static design mock
   (STOP), now unblocked since B2/B3 renderings are specified. Wider queue
   unchanged: STEP 1 AWS + W-C3 acceptance tail + W-C2.1 wiring.
 

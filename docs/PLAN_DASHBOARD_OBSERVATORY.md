@@ -13,10 +13,10 @@ Sequencing note: MASTER_SEQUENCE puts STEP 1 (AWS) before STEPs 2–3; the
 operator initiated W-D0 early on 2026-07-07 — permissible because W-D0/D1 are
 paper-only STOPs that gate only W-D6 (amendment in MASTER_SEQUENCE STEP 2).
 
-**OPEN — B1 ordering ruling (operator):** do the collector Ws (W-D2..D5) queue
-behind STEP 1 and get built directly on EC2 (conservative default, in force
-until ruled otherwise), or may they start on the Mac now and be redeployed
-post-cutover? Until ruled: W-D2 is Blocked by STEP 1 cutover (W-A4).
+**B1 ordering — RULED by operator 2026-07-07:** the collector Ws (W-D2..D5)
+queue behind STEP 1 and are built directly on EC2 after cutover (W-A4). No
+Mac deployment of collectors. The header/W-D2 contradiction is resolved in
+favor of the header.
 
 ---
 
@@ -115,8 +115,8 @@ Purpose:          One structured, append-only time-series for every number the
                   Overview/Data tabs sparkline: WS RTT, full-chain latency,
                   per-feed msg rate, ingest lag, freshness. The observatory's
                   backbone (TREND RULE needs history, not instants).
-Blocked by:       STEP 1 cutover (W-A4) — conservative default pending the B1
-                  ruling (see header OPEN item). Built on EC2.
+Blocked by:       STEP 1 cutover (W-A4) — operator-ruled 2026-07-07 (header).
+                  Built on EC2.
 Allowed reads:    work/metrics.ndjson; work/raw (timestamps only); existing
                   latency probe outputs (full_chain_latency).
 Allowed writes:   tools/observatory_collect.py; work/observatory/latency.ndjson
