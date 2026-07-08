@@ -88,8 +88,10 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 执行 W-R：建统一报告渲染器 tools/daily_report.py——读各检测的既有
   > 结构化产物（capture_gaps.csv、coverage/loader report、
   > lifecycle_status.json、incident/taxonomy 文档），按检测类型渲染成
-  > 带数字的 PDF，落 `reports/<YYYY-MM-DD>/<检测名>_<时间戳>.pdf`
-  > （reports/ 进 .gitignore——PDF 是派生副本，结构化文件才是权威，D1）。
+  > 带数字的 PDF，落 **仓库根下的 `reports/<YYYY-MM-DD>/<检测名>_<时间戳>.pdf`**
+  > （即操作员 Mac 上的 `~/HFT BOT/reports/`；文件名用人话检测名。
+  > reports/ 进 .gitignore——PDF 是派生副本，结构化文件才是权威，D1。
+  > 迁移后 EC2 生成同结构目录，经 W-A5 的 S3 sync 每日落回 Mac 同一文件夹）。
   > 接进 supervisor 每日块（操作员已批准，同 item 1 先例）：每日体检与
   > 验收类检测跑完即出 PDF；60 秒级 watchdog 明确排除（走告警通道）。
   > 渲染失败只记日志不阻塞管线（P4）。字体用系统 CJK（中英混排必须
