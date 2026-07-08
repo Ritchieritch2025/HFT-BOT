@@ -247,6 +247,30 @@ Acceptance:       operator reviews the LIVE prototype and approves IN WRITING
 Rollback:         delete sandbox/ prototype.
 Exit evidence:    approved design doc committed; prototype screenshot set.
 
+**DESIGN SYSTEM RULES (operator feedback 2026-07-08 — bind W-D1 v2+ and all
+future tabs; dashboard_design_wD1.md must restate them as its style section):**
+- Scan, don't showcase: 11-12px monospace, tabular right-aligned numerals,
+  flat 1px-border panels, radius ≤2px, NO gradients/glow/animation (a live
+  tick dot is the only exception). Color carries meaning only: green=ok,
+  amber=warn/UNKNOWN, red=bad, dim=not-live.
+- No hero charts, no KPI tiles: headline stats = one inline status strip
+  with mini-sparklines; charts = equal-height small multiples (~120px,
+  shared time axis, min/avg/max in each header).
+- Gap/coverage displays are TIMELINES (00:00–24:00 strip per day, events at
+  true positions/durations), never proportional pills.
+- Dense tables for state (gates, catalogs): one row per item, reason text
+  dim inline. Raw tail/tape panel at the bottom of live tabs.
+- Counters render as rates (trades/min), never cumulative sparklines.
+- Axes never lie: zero-floored where negatives are impossible; no decorative
+  autoscale padding. Any rendered figure that disagrees with the underlying
+  record is marked UNVERIFIED until reconciled (D2).
+- Density acceptance: a tab's information must fit ~3× tighter than the
+  rejected v2 hero-tile layout; if a panel has more padding than content,
+  shrink it.
+- GENERALIZATION RULE: new tabs/modules are assembled from this component
+  kit and fed via the §1 artifact envelope — adding a module must require
+  zero dashboard code beyond registering its artifact + choosing components.
+
 ## W-D6 — Frontend rebuild + tab endpoints
 Purpose:          Implement §2 on the kept backend: modular frontend, shared
                   component kit, per-tab read-only JSON endpoints reading
