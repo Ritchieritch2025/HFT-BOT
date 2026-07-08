@@ -25,12 +25,19 @@ present.** One W per fresh session, independent audit after each (as the capture
   `tests/run_pipeline.sh` green **on the EC2 box** (W-A2) before cutover.
 - **D1:** raw/archive are the source of truth; S3 copies are versioned, restore is
   proven BEFORE cutover (W-A3), never destroy Mac data until EC2 is authoritative.
-- **Least-privilege IAM (makes D1 structural, not just procedural):** the EC2
-  instance role gets `PutObject`/`GetObject`/`ListBucket` on the vault prefixes but
-  **NO `DeleteObject` (and no lifecycle-expiry) on raw/archive/catalog prefixes** —
-  so a bug or compromised box on EC2 *cannot* erase the vaulted history. S3 Object
-  Versioning + (optionally) a bucket policy denying delete on those prefixes back it
-  up. Deletes, if ever needed, are an operator action with separate credentials.
+- **Credential model (operator ruling 2026-07-08): long-lived IAM-user access keys
+  in `~/.kalshi/env.sh` on the EC2 box** (NOT an instance role). Operator
+  hand-creates env.sh (600, S4); the agent never reads/prints/places it. Because the
+  key is a standing secret on a 24/7 host, the mitigations below are load-bearing,
+  not optional.
+- **Least-privilege IAM (makes D1 structural, not just procedural):** the IAM **user
+  whose keys go in env.sh** gets `PutObject`/`GetObject`/`ListBucket` on the vault
+  prefixes but **NO `DeleteObject` (and no lifecycle-expiry) on
+  raw/archive/catalog prefixes** — so a bug or a leaked key *cannot* erase the
+  vaulted history. Back it with S3 Object Versioning + a bucket policy denying delete
+  on those prefixes. Deletes, if ever needed, are a separate operator action with
+  separate credentials. Standing-secret hygiene: env.sh 600; the key is never in the
+  repo/logs/reports; plan a rotation (W-A5 records the cadence).
 
 ---
 
