@@ -151,7 +151,7 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 验收 = 拼图② 完成判据照抄进计划的 Acceptance。退出仪式 + 独立审计
   > （P9：可与其他纸面活同会话，审计合并一次）。
 
-- [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
+- [x] **4. STEP 1 plan draft (SUPERSEDED — see 4-DONE note below) — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
 
