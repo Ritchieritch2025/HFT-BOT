@@ -124,13 +124,32 @@ approved+audited; B1 ruled (collectors wait for EC2).
 
 - [ ] **3e. 升舱 W — all categories to full L1 NOW on Mac (operator-approved
   2026-07-08; every day of delay permanently discards Class-B orderbooks
-  beyond the 3-day raw window).** Paste: see DATA_COMPLETENESS_ROADMAP.md
-  拼图① / the operator's approved paste block (config flip + 3-day raw
-  backfill + D4 tests + P4 statement).
+  beyond the 3-day raw window).** Paste:
 
-- [ ] **3f. PLAN_HISTORICAL_BACKFILL.md draft — paper only (P9), can share a
-  session with other paper work.** Execution stays gated behind W-A4 (single
-  REST owner). See DATA_COMPLETENESS_ROADMAP.md 拼图②.
+  > 读 docs/GUARDRAILS.md 和 docs/DATA_COMPLETENESS_ROADMAP.md 拼图① 后，
+  > 执行升舱 W（操作员已批准 2026-07-08）：① config/market_classes.yaml
+  > 全部类别提升为 class_a_full_l1（Exotics 照存，仅保持 Q7 的 MM 候选
+  > 排除——研究过滤≠存储过滤）；② 改动附带入库测试（D4：策略变更配测试
+  > 同 change）；③ 立即用现存 raw（3 天窗口）把原 Class-B 类别的 L1 回灌
+  > 入库和归档，provenance 不变；④ 写明磁盘增量预估 + 采集连续性如何
+  > 保证（P4）；⑤ `make check` + `tests/run_pipeline.sh` 全绿；同步更新
+  > warehouse_schema.md 两类策略章节 + TECH_STACK.md（E5）。
+  > 验收 = 拼图① 完成判据：全类别当日归档 L1 行数>0 且 3 天回灌入账
+  > （loader 报告佐证）。退出仪式 + 独立审计。
+
+- [ ] **3f. PLAN_HISTORICAL_BACKFILL.md draft — paper only (P9).** Execution
+  gated behind W-A4 (single REST owner). Paste:
+
+  > 读 docs/GUARDRAILS.md、docs/MASTER_SEQUENCE.md STEP 5 和
+  > docs/DATA_COMPLETENESS_ROADMAP.md 拼图② 后，起草
+  > docs/PLAN_HISTORICAL_BACKFILL.md（纯文档，不执行任何爬取）：
+  > 七字段 W 定义——settlements 全量优先（解锁校准研究），然后开机前
+  > trades/candles 历史；endpoints 逐一对照 docs/vendor 的 Kalshi spec
+  > 验证（禁止凭记忆写 API）；read-token 预算上限；
+  > provenance=rest_backfill 列，永不与 ws_capture 混桶；断点续爬；
+  > 首次真实爬取 operator-gated；含 §6 自审计。
+  > 验收 = 拼图② 完成判据照抄进计划的 Acceptance。退出仪式 + 独立审计
+  > （P9：可与其他纸面活同会话，审计合并一次）。
 
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
@@ -142,9 +161,18 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > W-A4 zero-gap cutover（操作员 go/no-go）→ W-A5 post-cutover）+ STEP 1
   > 的三个 riders + §6 自审计。纯文档，不执行。退出仪式 + 独立审计。
 
-- [ ] **5–10. W-A0 → W-A5, one per session,** prompts live in
-  PLAN_AWS_MIGRATION.md once item 4 is done. W-A4 cutover requires you
-  present for go/no-go.
+- [x] **4-DONE note:** PLAN_AWS_MIGRATION.md is DRAFTED + independently
+  audited (8 findings applied, 2026-07-08). Item 4's prompt is obsolete.
+
+- [ ] **5–10. W-A0 → W-A5, one per session.** Generic paste (replace N):
+
+  > 读 docs/GUARDRAILS.md 和 docs/PLAN_AWS_MIGRATION.md 后，执行其中的
+  > **W-A<N>**，严格按该 W 的七字段定义（Allowed/Forbidden writes、
+  > Acceptance 原文为准）。凭证与 env.sh 由操作员手工处理（S4），需要
+  > 操作员动手/花钱/go-no-go 的节点停下来等确认。退出仪式 + 独立审计。
+
+  W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
+  并记录进计划」。W-A4 你必须在场 go/no-go。
 
 - [ ] **11–14. W-D2 → W-D3 → W-D4 → W-D5 (dashboard collectors, ON EC2 —
   B1 ruling 2026-07-07),** prompts per their seven-field definitions in

@@ -1,7 +1,7 @@
 # DATA COMPLETENESS ROADMAP — 数据完整性配齐计划
 
 Operator-requested 2026-07-08 ("要把完整性全部配齐"). This file SEQUENCES the
-four missing pieces; ordering authority remains MASTER_SEQUENCE. Each piece
+five missing pieces; ordering authority remains MASTER_SEQUENCE. Each piece
 maps to an existing plan/step — nothing here invents new scope.
 
 **目标状态：全类别 × 全深度 × 带结算真相 × 带生命周期事件 × 历史回填，
