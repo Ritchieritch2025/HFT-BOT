@@ -6,6 +6,49 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — W-A0 DONE (paper): r8g.2xlarge/64GB/us-east-2/300GB gp3 ≈ $380/mo; boot checklist ready; audit PASS
+
+- commits: f8cff37 (sizing decision + operator boot checklist) + this commit
+  (audit remediation, 6 non-blocking findings applied). Paper only — writes were
+  PLAN_AWS_MIGRATION.md "W-A0 RESULT" + playbook bookkeeping; no code/config/
+  production touched; no money spent (the money gate is the operator clicking
+  Launch).
+- decisions (all in docs/PLAN_AWS_MIGRATION.md → "W-A0 RESULT"):
+  (1) BRANCH: ≥32 GB locked (operator) — gold builds on EC2; Mac retires from
+  the production pipeline post-W-A5 but keeps the report-landing job + rollback
+  capability (NOT wipeable); W-A5 <32 GB exception paragraph declared n/a.
+  (2) REGION: us-east-2 — proven by dig: external-api(-ws).kalshi.com CNAME to
+  an us-east-2 ELB; from EC2 prefer external-api hosts (api.elections… is
+  CloudFront); PrivateLink exists as a future option.
+  (3) INSTANCE: r8g.2xlarge (8 vCPU/64 GB Graviton4) $344/mo on-demand
+  ($228 1-yr reserved — purchase deferred to W-A5), sized for STEP 4 full-depth
+  worst case (~85 GB raw/day, 3-day window ≈250 GB) where the gold build's
+  memory scaling is an honest unknown (today: ru_maxrss 6.33 GB / 17.7 GB peak
+  ON A 16 GB MAC — hw.memsize measured this session, macOS swap absorbed it).
+  64 GB kills the gamble AND avoids a future resize = capture gap. ARM chosen
+  because the dev Mac is arm64 (codebase already green on ARM); x86 fallback
+  r7i.2xlarge $386 if W-A1/A2 surprises.
+  (4) EBS: 300 GB gp3 $24/mo at launch (≥2× headroom incl. 3g conservative),
+  grow ONLINE to 500 GB before STEP 4 N≥200 (gp3 grows with no downtime).
+  (5) BUDGET LINE: ~$380/mo at launch (incl. the post-2024 ~$4/mo public-IPv4
+  charge the audit caught) → ~$260/mo if reserved.
+- context capsule: pricing = ec2.shop API us-east-2 2026-07-08 (audit re-fetched,
+  all cells verified; console quote is final truth at launch). Depth numbers =
+  PLAN_DEPTH_EXPANSION §3 brackets, PROBE-PENDING. 3e/rider(b) adds NO raw bytes
+  (capture already stores all categories; ingest was discarding Class B) — only
+  ingest/gold rows grow ~1.3–2× [ESTIMATE]. Firehose raw 21–22 GB/day measured
+  on gap days; re-baseline after first clean EC2 day (07-08 was 23 GB and still
+  accruing at audit time). Independent audit: PASS, 0 blocking, 6 non-blocking
+  ALL applied (EIP pricing outdated→fixed+budget row; round-up 85/250; bracket
+  stated; 退役 scope reworded both files; orphan-volume gotcha on the x86
+  fallback path; re-baseline note).
+- blocked / handoff: NEXT = operator follows the boot checklist (12 steps,
+  Chinese, in the plan doc) — THE money gate, ~$0.47/hr starts at step 10 —
+  then sends back the public IP + SSH confirmation. Next session = W-A0 closure
+  (3 read-only cmds: nproc/free -g/lsblk, expect 8/62-64/300) rolled into W-A1
+  start (hardening & bring-up). Do NOT create IAM/S3 yet (that's W-A3's
+  prerequisite). Interim pmset disablesleep stays ON until W-A5.
+
 ## 2026-07-08 — PLAN_AWS_MIGRATION.md authored, independently audited, 8 findings applied (paper, P9)
 
 - commits: f652046 (full 7-field draft) · 4c6ebe3 (audit remediation). Paper-only

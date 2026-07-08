@@ -68,9 +68,13 @@ Exit evidence:  the sizing line + the gold-build-location decision in this doc.
 ### W-A0 RESULT (2026-07-08, paper branch — no instance exists yet)
 
 **BRANCH DECISION (operator, 2026-07-08): ≥32 GB — gold builds run ON EC2; the
-Mac is fully retired after W-A5** (it remains the dormant rollback host only
-until then). Consequence: the W-A5 "<32 GB exception" paragraph is **n/a** —
-after cutover the Mac's sleep is fully re-enabled, no scheduled wake.
+Mac retires FROM THE PRODUCTION PIPELINE after W-A5** — no scheduled wakes, no
+builds, sleep fully re-enabled. "退役" scope, precisely: the Mac still (a) runs
+the small daily report-landing launchd job (W-A5 report flow-back — works fine
+on a sleeping Mac, runs when awake, reports arrive late never lost), and
+(b) keeps its dormant launchd + S3 restore capability as the rollback host —
+so the Mac must NOT be wiped. Consequence of the branch: the W-A5 "<32 GB
+exception" paragraph is **n/a**.
 
 **Sizing mandate (operator, this session):** size for the POST-expansion load —
 rider (b)/playbook 3e full-market L1 + 3g sports-first depth watchlist + the
@@ -80,11 +84,11 @@ future STEP 4 full depth rollout — NOT today's volume.
 
 | Input | Value | Source |
 |---|---|---|
-| Firehose raw capture | 21–22 GB/day measured on gap days (07-07/07-08 `du work/raw/date=*`); ~24–30 GB/day at true 24/7 uptime [ESTIMATE, uptime-corrected] | this session, measured |
+| Firehose raw capture | 21–22 GB/day measured on gap days (07-07/07-08 `du work/raw/date=*`); ~24–30 GB/day at true 24/7 uptime [ESTIMATE, uptime-corrected — re-baseline after the first clean EC2 day; audit note: 07-08 hit 23 GB while still accruing, so the top of this bracket may be low] | this session, measured |
 | Rider (b)/3e full-market L1 | **raw unchanged** — capture already records all categories; only ingest discards Class B today. Ingest/archive/gold input rows grow ~1.3–2× [ESTIMATE] | DATA_COMPLETENESS_ROADMAP 拼图① |
 | 3g depth watchlist N=50 | +2.4 GB/day (30× expected) … +7.9 GB/day (100× conservative); ≤565 msg/s peak | PLAN_DEPTH_EXPANSION §3 [PROBE-PENDING brackets] |
 | STEP 4 full depth N=500 | +15.7 … +52.5 GB/day; ~3,000 msg/s conservative peak | PLAN_DEPTH_EXPANSION §3 [PROBE-PENDING brackets] |
-| Design raw/day (worst case) | ~30 + 52.5 ≈ **~80 GB/day** ⇒ 3-day raw window ≈ **240 GB** | derived from rows above |
+| Design raw/day (worst case) | 30 + 52.5 = 82.5 ⇒ **~85 GB/day** (rounded UP) ⇒ 3-day raw window ≈ **250 GB** | derived from rows above |
 | Gold build memory | ru_maxrss 6.33 GB, peak footprint 17.7 GB incl. compressor, at today's 8.2 M-record day | SESSION_LOG 2026-07-07 (measured) |
 | Mac reference frame | the Mac has **16 GB RAM** (`hw.memsize`, measured this session), arm64, 10 cores — the 17.7 GB peak already exceeds physical RAM (macOS compressed memory/swap absorbs it) | this session, measured |
 | Gold build at STEP 4 scale | input rows grow ~5–12×; memory scaling law UNKNOWN (streaming vs linear) — this is the argument for 64 GB, not 32 | honest unknown; DuckDB spill is the fallback |
@@ -112,7 +116,7 @@ the console quote at launch; reserved = 1-yr no-upfront):
 | **r8g.2xlarge** (recommended) | 8 / 64 GB | **$344** | $228 | covers STEP 4 full depth without betting on the unknown gold-build memory scaling; no resize (= no capture gap) ever needed |
 | m8g.2xlarge (budget) | 8 / 32 GB | $262 | $173 | fine through 3g N=50; at STEP 4 the RAM is a measured gamble — resize to 2xlarge later costs a stop/start capture gap |
 | r8g.xlarge (floor) | 4 / 32 GB | $172 | $114 | meets the ≥32 GB branch letter but not the sizing mandate (build hours on 4 cores at 10× data; thin RAM) |
-| r7i.2xlarge (x86 fallback) | 8 / 64 GB | $386 | $256 | only if ARM-Linux surprises appear in W-A1/W-A2 (terminate + relaunch is cheap pre-cutover) |
+| r7i.2xlarge (x86 fallback) | 8 / 64 GB | $386 | $256 | only if ARM-Linux surprises appear in W-A1/W-A2 (terminate + relaunch is cheap pre-cutover; remember to first disable termination protection AND delete the orphaned 300 GB volume — delete-on-termination=No means it silently keeps billing $24/mo) |
 
 Why Graviton (aarch64): the dev Mac is arm64 Apple Silicon — the whole codebase
 (incl. simdjson NEON, E4 integer fixed-point) already builds and passes tests
@@ -128,9 +132,10 @@ purchase is an operator decision deferred to W-A5's cost section.
 - Launch: **300 GB gp3** (defaults: 3,000 IOPS / 125 MB/s — ample; avg write
   <1 MB/s). Cost **$24/mo** ($0.08/GB-mo us-east-2, AWS published rate —
   verify on the console quote).
-- Working set today+3g: raw window ~75–90 GB + staging ~5–10 GB + local archive
-  + repo/build/OS ~20 GB + rotated metrics 1.5 GB (rider (a)) ⇒ ~120 GB, so
-  300 GB is ~2.5× headroom.
+- Working set today+3g: raw window 79 GB (expected bracket) to ~114 GB (3g
+  conservative 100×) + staging ~5–10 GB + local archive + repo/build/OS ~20 GB
+  + rotated metrics 1.5 GB (rider (a)) ⇒ ~110–150 GB, so 300 GB is ≥2×
+  headroom even on the conservative bracket.
 - Before STEP 4 N≥200: grow the volume online to **500 GB** (+$16/mo; gp3
   grows with NO downtime, no capture gap; can't shrink — that's why we don't
   start at 500). Local archive retention policy (S3 is the vault) is W-A5's
@@ -142,9 +147,10 @@ purchase is an operator decision deferred to W-A5's cost section.
 |---|---|
 | r8g.2xlarge on-demand | 344 |
 | EBS 300 GB gp3 | 24 |
+| Public IPv4 (Elastic IP — since 2024-02 AWS bills ~$0.005/hr for EVERY public IPv4, attached or not) | ~4 |
 | S3 (initial vault ~54 GB raw + archive; ongoing sync) | ~3–5 |
 | Egress (reports S3→Mac; ingress is free) | <1 |
-| **Total at launch** | **~$375/mo** (→ ~$255/mo if/when 1-yr reserved, W-A5 decision) |
+| **Total at launch** | **~$380/mo** (→ ~$260/mo if/when 1-yr reserved, W-A5 decision) |
 | STEP 4 delta (EBS 500 GB, S3 growth) | +$20–30/mo |
 
 #### Operator boot checklist（照着点；从"Launch instance"起开始计费 ~$0.47/小时）
@@ -167,7 +173,9 @@ purchase is an operator decision deferred to W-A5's cost section.
 10. 右侧 Summary 核对：r8g.2xlarge / 300 GiB gp3 / us-east-2 → **Launch
     instance**。此刻开始计费。
 11. 实例页 → Elastic IPs → **Allocate** 一个并 **Associate** 到该实例
-    （固定公网 IP，挂着不额外收费）。
+    （固定公网 IP。注意：2024 年起 AWS 对所有公网 IPv4 收 ~$3.65/月，
+    挂不挂都收，已计入上面预算表；EIP 相对普通公网 IP 不多花钱，
+    但换机型/重启时 IP 不变，省去改防火墙和脚本）。
 12. 把「公网 IP + 你本机 `ssh -i 密钥.pem ubuntu@IP` 能登上」发回来。
     我下一步（W-A0 收尾）只做三条只读命令：`nproc` / `free -g` / `lsblk`，
     核对 8 / 62-64 / 300 后 W-A0 关闭，进入 W-A1。
