@@ -12,6 +12,7 @@ import csv
 import datetime as dt
 import json
 import os
+import statistics
 import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -128,15 +129,64 @@ def _proc(pattern):
 _baseline_cache = {"t": 0, "val": None}
 
 
+def _rate_window(f, sz, target, first, last, half_ms=600_000):
+    """msg_rate_hz values within ±half of `target` ms. Binary-search the byte
+    offset (records are monotonic in ts; gaps break a linear estimate), then
+    scan the window. Bounded read so a bad estimate can't run away."""
+    if not (first and last and first < target < last):
+        return []
+    lo, hi = 0, sz
+    while hi - lo > 131072:
+        mid = (lo + hi) // 2
+        f.seek(mid)
+        f.readline()
+        ts = None
+        for _ in range(400):
+            line = f.readline()
+            if not line:
+                break
+            if b'"ts_ms"' in line:
+                try:
+                    ts = json.loads(line)["ts_ms"]
+                    break
+                except ValueError:
+                    pass
+        if ts is None or ts < target:
+            lo = mid
+        else:
+            hi = mid
+    f.seek(lo)
+    f.readline()
+    rates, read = [], 0
+    for line in f:
+        read += len(line)
+        if read > 90_000_000:
+            break
+        if b'"type":"feed"' not in line:
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        d = r["ts_ms"] - target
+        if d < -half_ms:
+            continue
+        if d > half_ms:
+            break
+        rates.append(r["msg_rate_hz"])
+    return rates
+
+
 def _rate_baseline(recs_now):
-    """msg_rate_hz band at the SAME clock-time ~24h ago (baseline over bare
-    number). Cached 5 min; UNKNOWN if the window can't be found."""
+    """msg_rate_hz band at the SAME clock-time over the last N days (up to 7,
+    bounded by the metrics span). Pooling multiple days AUTO-DEGRADES past a
+    single gap day (mod 2): if yesterday was a hole, the other days still anchor
+    the median band. Cached 5 min; per-day p50s surfaced for provenance."""
     if time.time() - _baseline_cache["t"] < 300 and _baseline_cache["val"] is not None:
         return _baseline_cache["val"]
     band = {"status": "unknown"}
     try:
         sz = os.path.getsize(METRICS)
-        # file span
         with open(METRICS, "rb") as f:
             first = None
             for line in f:
@@ -151,52 +201,24 @@ def _rate_baseline(recs_now):
                         last = json.loads(line)["ts_ms"]
                     except ValueError:
                         pass
-        target = (recs_now[-1]["ts_ms"] if recs_now else last) - 86_400_000  # 24h ago
-        if first and last and first < target < last:
-            rates = []
-            with open(METRICS, "rb") as f:
-                # binary-search the byte offset of `target` (records are monotonic
-                # in ts; gaps make a linear estimate unreliable — search instead)
-                lo, hi = 0, sz
-                while hi - lo > 131072:
-                    mid = (lo + hi) // 2
-                    f.seek(mid)
-                    f.readline()
-                    ts = None
-                    for _ in range(400):
-                        line = f.readline()
-                        if not line:
-                            break
-                        if b'"ts_ms"' in line:
-                            try:
-                                ts = json.loads(line)["ts_ms"]
-                                break
-                            except ValueError:
-                                pass
-                    if ts is None or ts < target:
-                        lo = mid
-                    else:
-                        hi = mid
-                f.seek(lo)
-                f.readline()
-                for line in f:
-                    if b'"type":"feed"' not in line:
-                        continue
-                    try:
-                        r = json.loads(line)
-                    except ValueError:
-                        continue
-                    d = r["ts_ms"] - target
-                    if d < -1_200_000:
-                        continue
-                    if d > 1_200_000:  # ±20 min window
-                        break
-                    rates.append(r["msg_rate_hz"])
-            if len(rates) >= 5:
-                rates.sort()
-                band = {"status": "ok", "lo": rates[len(rates) // 10],
-                        "p50": rates[len(rates) // 2], "hi": rates[-1 - len(rates) // 10],
-                        "n": len(rates), "at": target}
+            now = recs_now[-1]["ts_ms"] if recs_now else last
+            ndays = min(7, max(1, int((last - first) / 86_400_000))) if first and last else 1
+            pooled, per_day = [], []
+            for k in range(1, ndays + 1):
+                w = _rate_window(f, sz, now - k * 86_400_000, first, last)
+                if w:
+                    ws = sorted(w)
+                    per_day.append({"day_ago": k, "p50": ws[len(ws) // 2], "n": len(ws)})
+                    pooled.extend(w)
+        if len(pooled) >= 5:
+            pooled.sort()
+            band = {"status": "ok", "lo": pooled[len(pooled) // 10],
+                    "p50": pooled[len(pooled) // 2], "hi": pooled[-1 - len(pooled) // 10],
+                    "n": len(pooled), "ndays": ndays, "days": per_day,
+                    "degraded": len([d for d in per_day if d["p50"] > 1]) < ndays,
+                    "prov": {"source": "metrics.ndjson · type=feed · msg_rate_hz",
+                             "window": "same clock-time ±10min, last %d day(s)" % ndays,
+                             "per_day": per_day}}
     except Exception:
         band = {"status": "unknown"}
     _baseline_cache.update(t=time.time(), val=band)
@@ -230,7 +252,8 @@ def build_q1():
                  "msg_rate_hz": (L or {}).get("msg_rate_hz"),
                  "connected": (L or {}).get("connected"),
                  "age_s": (round(time.time() - L["ts_ms"] / 1000, 1) if L else None),
-                 "capture": (L or {}).get("capture")},
+                 "capture": (L or {}).get("capture"),
+                 "prov": {"source": "work/metrics.ndjson · type=feed (newest)", "record": L}},
         "channels": ch,
         "baseline": _rate_baseline(recs),
         "disk": disk,
@@ -239,30 +262,49 @@ def build_q1():
 
 # ---- Q2: is the data USABLE? ----
 def build_q2():
-    # coverage matrix from the warehouse manifest (breakdown over global)
-    cov = {}
-    cats, dates = set(), set()
+    # coverage matrix from the warehouse manifest (breakdown over global), with a
+    # per-cell BASELINE (mod 1): each cell's rows vs its category's own median
+    # across days, so a low-but-normal category reads differently from a real
+    # shortfall. Manifest rows kept per cell for provenance (click -> source).
+    raw = {}
     try:
         with open(MANIFEST) as f:
             for r in csv.DictReader(f):
                 d, c = r.get("date"), r.get("category")
                 if not d or not c:
                     continue
-                dates.add(d)
-                cats.add(c)
-                cov[(d, c)] = cov.get((d, c), 0) + int(r.get("row_count") or 0)
+                e = raw.setdefault((d, c), {"rows": 0, "srcs": []})
+                rows = int(r.get("row_count") or 0)
+                e["rows"] += rows
+                e["srcs"].append({"table": r.get("table"), "subcategory": r.get("subcategory"),
+                                  "rows": rows, "file_path": r.get("file_path"),
+                                  "md5": (r.get("file_md5") or "")[:12]})
     except FileNotFoundError:
         pass
-    dates = sorted(dates)
-    cats = sorted(cats)
-    matrix = [{"category": c, "cells": [{"date": d, "rows": cov.get((d, c), 0)} for d in dates]}
-              for c in cats]
+    dates = sorted({d for d, _ in raw})
+    cats = sorted({c for _, c in raw})
+    matrix = []
+    for c in cats:
+        day_rows = [raw[(d, c)]["rows"] for d in dates if (d, c) in raw]
+        med = statistics.median(day_rows) if day_rows else 0
+        cells = []
+        for d in dates:
+            e = raw.get((d, c))
+            rows = e["rows"] if e else 0
+            cells.append({"date": d, "rows": rows, "median": med,
+                          "pct": ((rows - med) / med * 100 if med else None),
+                          "prov": {"source": "work/warehouse/manifest.csv",
+                                   "category": c, "date": d, "rows": rows,
+                                   "median_over_days": med, "files": (e["srcs"] if e else [])}})
+        matrix.append({"category": c, "cells": cells, "median": med})
     # latency distribution p50/p95/p99 (distribution over average — NO mean headline)
     recs = tail_feed(600)
     fr = sorted(max(0, r["freshness_ms"]) for r in recs if r.get("freshness_ms") is not None)
     def pct(p):
         return fr[min(len(fr) - 1, int(p / 100 * len(fr)))] if fr else None
-    lat = ({"p50": pct(50), "p95": pct(95), "p99": pct(99), "max": fr[-1], "n": len(fr)}
+    lat = ({"p50": pct(50), "p95": pct(95), "p99": pct(99), "max": fr[-1], "n": len(fr),
+            "prov": {"source": "work/metrics.ndjson · type=feed · freshness_ms",
+                     "window": "last %d feed records (tail)" % len(fr)}}
            if fr else {"status": "unknown"})
     L = recs[-1] if recs else {}
     counts = {"recorder_dropped": L.get("recorder_dropped"),

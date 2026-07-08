@@ -66,6 +66,19 @@
   .cd .day.gaps{background:#2b1416;color:var(--red);border-color:#4a1e22}
   .cd .day.noscan{background:#181d24;color:var(--dim)}
   .badge{font-weight:700}.note{padding:3px 9px;color:var(--muted);font-size:9.5px}
+  [data-prov]{cursor:pointer}[data-prov]:hover{outline:1px solid var(--line);outline-offset:-1px}
+  .provtag{color:var(--line);font-size:9px;border:1px solid var(--border);border-radius:2px;padding:0 3px;margin-left:5px;cursor:pointer}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#0b0f14;
+    border-left:1px solid var(--line);z-index:20;transform:translateX(100%);transition:transform .12s;
+    display:flex;flex-direction:column}
+  #drawer.open{transform:none}
+  #drawer .dh{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--head)}
+  #drawer .dh .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:14px}
+  #drawer .dbody{padding:11px 12px;overflow:auto;font-size:10.5px}
+  #drawer pre{white-space:pre-wrap;word-break:break-all;color:var(--text);margin:6px 0 0}
+  #drawer .src{color:var(--line)}#drawer .fp{color:var(--muted);word-break:break-all}
+  #drawer table{width:100%;border-collapse:collapse;margin-top:6px}#drawer td{border-bottom:1px solid var(--grid);padding:2px 4px}
+  #ov{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:19;display:none}#ov.open{display:block}
   .proc{display:flex;align-items:center;gap:7px;padding:3px 0}
   .proc .st{width:8px;height:8px;border-radius:50%}.proc .st.up{background:var(--green)}.proc .st.down{background:var(--red)}.proc .st.un{background:var(--amber)}
   .proc .nm{width:88px;color:var(--head)}.proc .meta{margin-left:auto;color:var(--muted);font-size:10px}
@@ -133,8 +146,10 @@
     </div>
   </div>
 
-  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · every figure traces to a work/ source · ③ gates + ④ incidents zones next</div>
+  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">click any ⌕ to trace a figure to its source record</b> · ③ gates + ④ incidents zones next</div>
 </div>
+<div id="ov"></div>
+<div id="drawer"><div class="dh"><span>PROVENANCE — source of this figure</span><span class="x" id="drawer-x">✕</span></div><div class="dbody" id="drawer-b"></div></div>
 
 <script src="/uplot/uPlot.iife.min.js"></script>
 <script>
@@ -143,6 +158,20 @@ const f=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString(undefined,{max
 const hms=t=>new Date(t).toISOString().slice(11,19);
 setInterval(()=>$("#clk").textContent=hms(Date.now())+"Z",1000);
 let LATEST=null;
+// ---- provenance drawer: click any [data-prov] to see the source record ----
+function openProv(p){
+  let h=`<div class="src">${p.source||""}</div>`;
+  if(p.window)h+=`<div class="fp">window: ${p.window}</div>`;
+  if(p.category)h+=`<div class="fp">${p.category} · ${p.date} · <b>${f(p.rows)}</b> rows · median-over-days ${f(p.median_over_days)}</div>`;
+  if(p.files&&p.files.length)h+=`<table>`+p.files.map(x=>`<tr><td>${x.table||''} / ${x.subcategory||''}</td><td style="text-align:right">${f(x.rows)}</td></tr><tr><td colspan="2" class="fp">${x.file_path||''}<br>md5 ${x.md5||''}</td></tr>`).join("")+`</table>`;
+  if(p.per_day)h+=`<table>`+p.per_day.map(d=>`<tr><td>${d.day_ago}d ago · same clock</td><td style="text-align:right">p50 ${f(d.p50)}/s · n=${d.n}</td></tr>`).join("")+`</table>`;
+  if(p.record)h+=`<div class="fp" style="margin-top:6px">raw record:</div><pre>${JSON.stringify(p.record,null,1)}</pre>`;
+  $("#drawer-b").innerHTML=h;$("#drawer").classList.add("open");$("#ov").classList.add("open");
+}
+function closeProv(){$("#drawer").classList.remove("open");$("#ov").classList.remove("open");}
+$("#drawer-x").onclick=closeProv;$("#ov").onclick=closeProv;
+document.addEventListener("click",e=>{const t=e.target.closest("[data-prov]");if(t){e.stopPropagation();try{openProv(JSON.parse(t.dataset.prov));}catch(_){}}});
+const provAttr=o=>`data-prov='${JSON.stringify(o||{}).replace(/'/g,"&#39;")}'`;
 
 function renderHeader(feedLatest,age){
   const L=feedLatest;if(!L)return;LATEST=L;
@@ -157,17 +186,19 @@ function renderQ1(q){
     return `<div class="proc"><span class="st ${cls}"></span><span class="nm">${nm}</span><span class="meta">${p.alive===true?"pid "+p.pid+" · "+p.etime:p.alive===false?"DOWN":"UNKNOWN"}</span></div>`;};
   const ageCls=fd.age_s==null?"a":fd.age_s>30?"r":fd.age_s>5?"a":"g";
   $("#q1-live").innerHTML=procRow("ws_shadow",pr.ws_shadow||{})+procRow("ingest",pr.ingest||{})+procRow("supervisor",pr.supervisor||{})
-    +`<div class="proc" style="border-top:1px solid var(--grid);margin-top:3px;padding-top:6px"><span class="nm">feed age</span><span class="meta ${ageCls}">${fd.age_s==null?"UNKNOWN":fd.age_s+"s · "+f(fd.msg_rate_hz)+"/s"}</span></div>`;
-  // baseline band
+    +`<div class="proc" style="border-top:1px solid var(--grid);margin-top:3px;padding-top:6px" ${provAttr(fd.prov)}><span class="nm">feed age</span><span class="meta ${ageCls}">${fd.age_s==null?"UNKNOWN":fd.age_s+"s · "+f(fd.msg_rate_hz)+"/s"} <span class="provtag">⌕</span></span></div>`;
+  // baseline band (multi-day median; auto-degrades past a gap day, mod 2)
   const b=q.baseline||{},cur=fd.msg_rate_hz||0;
-  if(b.status==="ok"){
+  if(b.status==="ok"&&!b.degraded){
     const hi=Math.max(b.hi,cur,1),scale=v=>Math.min(100,100*v/hi);
-    const gap=b.hi===0&&b.p50===0;
-    $("#q1-base").innerHTML=`<div class="kpi"><span class="big ${gap?'a':cur<b.lo?'r':'g'}">${f(cur)}</span><span class="u">/s now</span>
-      <span class="u" style="margin-left:auto">24h-ago ${gap?'—':f(b.lo)+'–'+f(b.hi)}</span></div>
-      <div class="band ${cur<b.lo&&!gap?'bad':''}"><span class="base" style="left:${scale(b.lo)}%;width:${Math.max(1,scale(b.hi)-scale(b.lo))}%"></span>
+    $("#q1-base").innerHTML=`<div class="kpi"><span class="big ${cur<b.lo?'r':'g'}">${f(cur)}</span><span class="u">/s now</span>
+      <span class="u" style="margin-left:auto">band ${f(b.lo)}–${f(b.hi)}</span><span class="provtag" ${provAttr(b.prov)}>⌕</span></div>
+      <div class="band ${cur<b.lo?'bad':''}"><span class="base" style="left:${scale(b.lo)}%;width:${Math.max(1,scale(b.hi)-scale(b.lo))}%"></span>
       <span class="p50" style="left:${scale(b.p50)}%"></span><span class="cur" style="left:${scale(cur)}%"></span></div>
-      <div class="note" style="padding:4px 0 0">${gap?'<span class="a">baseline window overlapped a capture gap 24h ago — uninformative</span>':'grey band = yesterday p10–p90 · line = p50 · green = now'}</div>`;
+      <div class="note" style="padding:4px 0 0">grey = last ${b.ndays}d p10–p90 @ same clock · line = p50 · green = now</div>`;
+  } else if(b.status==="ok"&&b.degraded){
+    $("#q1-base").innerHTML=`<div class="kpi"><span class="big a">${f(cur)}</span><span class="u">/s now</span><span class="provtag" ${provAttr(b.prov)}>⌕</span></div>
+      <div class="note" style="padding:4px 0 0"><span class="a">baseline DEGRADED</span> — the last ${b.ndays} comparable day(s) at this clock-time were themselves in capture gaps, so no trustworthy band. per-day p50: ${(b.days||[]).map(d=>d.day_ago+"d="+f(d.p50)).join(", ")||"none"}. Fills in as clean days accumulate.</div>`;
   } else $("#q1-base").innerHTML='<div class="a">baseline UNKNOWN (no comparable window)</div>';
   // channels
   const c=q.channels||{};
@@ -188,18 +219,26 @@ function renderQ1(q){
 }
 function renderQ2(q){
   if(!q)return;
-  // coverage heatmap
+  // coverage heatmap — coloured by DEVIATION from the category's own median
+  // (mod 1): a low-but-normal category (near its median) reads green; a real
+  // shortfall (well below median) reads red — distinguishes naturally-small
+  // from capture-missed. Click a cell for its manifest source rows.
   const cv=q.coverage||{dates:[],matrix:[]};
-  let mx=1;cv.matrix.forEach(m=>m.cells.forEach(c=>mx=Math.max(mx,c.rows)));
-  const col=r=>{if(r<=0)return"background:#181d24;color:#48535e";const a=0.12+0.88*Math.log(r+1)/Math.log(mx+1);return`background:rgba(63,185,80,${a.toFixed(2)})`;};
   const fmtCell=r=>r<=0?"·":r>=1e6?(r/1e6).toFixed(1)+"M":r>=1e3?(r/1e3).toFixed(0)+"k":r;
+  const covCol=c=>{if(c.rows<=0)return"background:#181d24;color:#48535e";const p=c.pct;
+    if(p==null)return"background:rgba(111,147,173,.28);color:#0a0d11";
+    if(p<=-50)return"background:rgba(248,81,73,.62);color:#0a0d11";
+    if(p<=-20)return"background:rgba(210,153,34,.55);color:#0a0d11";
+    if(p>=40)return"background:rgba(90,162,255,.45);color:#0a0d11";
+    return"background:rgba(63,185,80,.42);color:#0a0d11";};
   $("#q2-cov").innerHTML=`<table class="hm"><tr><th></th>${cv.dates.map(d=>`<th>${d.slice(5)}</th>`).join("")}</tr>`+
-    cv.matrix.map(m=>`<tr><td class="c">${m.category}</td>${m.cells.map(c=>`<td class="cell" style="${col(c.rows)}" title="${m.category} ${c.date}: ${f(c.rows)} rows">${fmtCell(c.rows)}</td>`).join("")}</tr>`).join("")+`</table>`;
+    cv.matrix.map(m=>`<tr><td class="c">${m.category}</td>${m.cells.map(c=>`<td class="cell" style="${covCol(c)}" ${provAttr(c.prov)} title="${m.category} ${c.date}: ${f(c.rows)} rows · ${c.pct==null?'no baseline':(c.pct>=0?'+':'')+f(c.pct)+'% vs median '+f(c.median)}">${fmtCell(c.rows)}</td>`).join("")}</tr>`).join("")+`</table>`
+    +`<div class="note" style="padding:6px 0 0">colour = vs category's own median (last ${cv.dates.length}d): <span class="r">▼ shortfall</span> · <span class="g">normal</span> · <span style="color:#5aa2ff">▲ thicker</span> · grey none · <b class="hd">click a cell → source</b></div>`;
   // latency distribution
   const L=q.latency||{};
   if(L.p50!=null){const hi=Math.max(L.max,1);const bar=(v,c)=>`<div class="b"><span class="l">${c}</span><div class="bar"><i style="width:${100*v/hi}%;background:${v===L.p99||v===L.max?'var(--amber)':'var(--line)'}"></i></div><span class="v">${f(v)} ms</span></div>`;
     $("#q2-lat").innerHTML=`<div class="dist">${bar(L.p50,"p50")}${bar(L.p95,"p95")}${bar(L.p99,"p99")}${bar(L.max,"max")}</div>
-      <div class="note" style="padding:5px 0 0">${L.n} samples · <b>p99=${f(L.p99)}ms</b> is the decision number (mean is banned)</div>`;
+      <div class="note" style="padding:5px 0 0">${L.n} samples · <b>p99=${f(L.p99)}ms</b> is the decision number (mean is banned) <span class="provtag" ${provAttr(L.prov)}>⌕ src</span></div>`;
   } else $("#q2-lat").innerHTML='<div class="a">UNKNOWN — no samples</div>';
   // clean days
   const cd=q.clean||{days:[]};
