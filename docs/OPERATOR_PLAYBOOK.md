@@ -37,8 +37,19 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 本文件勾掉第 1 条（E5）；退出仪式 + 独立审计。
   > 背景：SESSION_LOG「2026-07-08 00:55 UTC」条目 PROCESS NOTE。
 
+- [ ] **2a. OPERATOR ACTION — supervisor restart, after 2026-07-09 00:00 UTC
+  only** (ruled 2026-07-08): item 1's wiring is dormant until the running
+  supervisor (PID 4314/4323 era) restarts. Do NOT restart before 07-09
+  00:00 UTC — it would stamp a fresh gap onto 2026-07-08, the W-C3
+  measurement day. After midnight UTC: restart, then verify (i)
+  work/live/capture_alert.json appears within 60s, (ii) the restart's own
+  small gap shows up in 07-09's record — the detector logging its own
+  restart is the wiring working. Gap records manually backfilled through
+  07-08, so the 3-day retention clock is safe meanwhile.
+
 - [ ] **2. W-C3 acceptance tail — TIME-GATED: run only after 2026-07-09
-  00:00 UTC** (needs the full UTC day 2026-07-08 on disk). Paste:
+  00:00 UTC** (needs the full UTC day 2026-07-08 on disk; do 2a first,
+  order irrelevant to the 07-08 measurement). Paste:
 
   > 读 docs/GUARDRAILS.md 后执行 W-C3 验收尾巴：跑
   > `capture_gaps --date 2026-07-08`，预期整天只有 00:00:00→00:10:25 那个
