@@ -46,7 +46,12 @@ provenance 分桶（ws_capture / rest_backfill 永不混）。**
 - WHY: determined/settled 帧给每场事件打上精确的状态时间戳——事件时间轴分析
   （赛前/赛中/终局收敛）的骨架；与结算回填互补（W-LC=实时今后，回填=历史）。
 - WHAT: 新增 WS 频道订阅 = capture 端变更 ⇒ D4 测试同 change；建议与 STEP 4
-  同窗口执行（同为订阅面变更，一次审计覆盖两个变更面）。
+  同窗口执行（同为订阅面变更，一次审计覆盖两个变更面）。本拼图明确覆盖
+  三个频道：`market_lifecycle_v2`（Market & Event Lifecycle）、
+  **Multivariate Market & Event Lifecycle**（MVE 组合盘的同类事件——Q7 排除
+  做市但数据照存）、**Communications**（交易所公告/维护通知——维护暂停
+  直接影响缺口归因，quality_log 需要它做交叉引用）。
+  Multivariate Lookups 频道已被 Kalshi 废弃，明确不接。
 
 ## 拼图⑤ CF Benchmarks 指数流（operator 发现 2026-07-08）— 随拼图③同窗执行
 
@@ -83,3 +88,13 @@ W-A4 完成   ── 拼图② 执行：settlements 爬取 → 校准研究解�
 3. ③ 深度：全市场 orderbook_delta 在采集，ws_seq 连续性检查绿。
 4. ④ W-LC：determined 帧实时入库，事件包索引含状态时间戳。
 5. ⑤ CF 流：指数入库 + 结算对账测试绿（市场结算值 = 指数最后一分钟均值）。
+
+---
+
+## 附：私有频道清单（执行引擎阶段，不属于本数据线——记录在此防遗忘）
+
+`User Fills`（自己的成交回报）· `User Orders`（自己挂单状态）·
+`Market Positions`（自己持仓）· `Order Group Updates`（订单组状态）——
+四个私有频道是执行引擎与风控对账的原材料（S6：cancel-on-disconnect 验证、
+仓位上限核对全靠它们），在执行引擎/kill-switch 计划（STEP 6 之后）起草时
+必须全部纳入其 W 定义。数据完整性线不碰它们，但清单在此，无人可忘。
