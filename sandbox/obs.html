@@ -188,7 +188,7 @@
     <div id="q4-list" class="ilist"></div>
   </div>
 
-  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">click any ⌕ or incident to trace / jump to source</b></div>
+  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">times shown in Eastern (EDT/EST auto)</b> — canonical data + partition dates stay UTC (D1) · click any ⌕ or incident to trace / jump to source</div>
 </div>
 <div id="ov"></div>
 <div id="drawer"><div class="dh"><span>PROVENANCE — source of this figure</span><span class="x" id="drawer-x">✕</span></div><div class="dbody" id="drawer-b"></div></div>
@@ -197,8 +197,19 @@
 <script>
 const $=s=>document.querySelector(s);
 const f=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
-const hms=t=>new Date(t).toISOString().slice(11,19);
-setInterval(()=>$("#clk").textContent=hms(Date.now())+"Z",1000);
+// DISPLAY timezone = America/New_York (EDT/EST, DST-auto). Canonical DATA stays
+// UTC; only the display is Eastern. Partition dates (coverage / clean-days) stay
+// UTC because that's their warehouse key.
+const _ET="America/New_York";
+const _etT=new Intl.DateTimeFormat("en-US",{timeZone:_ET,hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+const _etMD=new Intl.DateTimeFormat("en-US",{timeZone:_ET,month:"2-digit",day:"2-digit"});
+const _etMDT=new Intl.DateTimeFormat("en-US",{timeZone:_ET,month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+const _etZ=new Intl.DateTimeFormat("en-US",{timeZone:_ET,timeZoneName:"short"}).formatToParts(new Date()).find(p=>p.type==="timeZoneName").value;
+const hms=t=>_etT.format(new Date(t));
+const etMD=t=>_etMD.format(new Date(t));
+const etMDT=t=>_etMDT.format(new Date(t)).replace(", "," ");
+function etMidnight(ms){const p=_etT.formatToParts(new Date(ms));const g=k=>+p.find(x=>x.type===k).value;return Math.floor(ms/1000)*1000-(g("hour")*3600+g("minute")*60+g("second"))*1000;}
+setInterval(()=>$("#clk").textContent=hms(Date.now())+" "+_etZ,1000);
 let LATEST=null;
 // ---- provenance drawer: click any [data-prov] to see the source record ----
 function openProv(p){
@@ -318,8 +329,7 @@ function renderQ4(d){
   const sp=d.span,W=sp.now_us-sp.start_us||1,fr=t=>(t-sp.start_us)/W*100;
   $("#q4-meta").textContent=`${d.counts.gap} gaps · ${d.counts.auth} auth · ${d.counts.logged} logged · 07-06→now`;
   let mk="";
-  const d0=new Date(sp.start_us/1000);d0.setUTCHours(24,0,0,0);
-  for(let t=d0.getTime();t*1000<sp.now_us;t+=86400000){const x=fr(t*1000);mk+=`<span class="day" style="left:${x}%"></span><span class="daylbl" style="left:${x}%">${new Date(t).toISOString().slice(5,10)}</span>`;}
+  for(let t=etMidnight(sp.start_us/1000)+86400000;t*1000<sp.now_us;t+=86400000){const x=fr(t*1000);mk+=`<span class="day" style="left:${x}%"></span><span class="daylbl" style="left:${x}%">${etMD(t)}</span>`;}
   d.incidents.forEach(i=>{const x=fr(i.start_us);
     if(i.kind==="gap"){const w=Math.max(.15,fr(i.end_us)-x);
       mk+=`<span class="gap mk${i.pinned?' pinned':''}" data-id="${i.id}" style="left:${x}%;width:${w}%" title="${i.summary}"></span>`;
@@ -327,9 +337,9 @@ function renderQ4(d){
       if(i.pinned)mk+=`<span class="pin" style="left:${x}%">W-C5?</span>`;
     } else mk+=`<span class="err mk" data-id="${i.id}" style="left:${x}%" title="${i.summary}"></span>`;});
   mk+=`<span class="guide"></span>`;$("#q4-tl").innerHTML=mk;
-  $("#q4-list").innerHTML=d.incidents.map(i=>{const iso=new Date(i.start_us/1000).toISOString().slice(5,19).replace("T"," ");
+  $("#q4-list").innerHTML=d.incidents.map(i=>{const iso=etMDT(i.start_us/1000);
     return `<div class="irow ${i.pinned?'pinned':''}" data-id="${i.id}"><span class="sev ${i.severity}">${i.severity.toUpperCase()}</span>
-      <span class="t">${iso}Z</span><span class="msg">${i.pinned?'<span class="pinbadge">CASE #1</span> ':''}${i.summary}${i.note?'<br><span class="mut" style="font-size:10px">'+i.note+'</span>':''}</span>
+      <span class="t">${iso} ET</span><span class="msg">${i.pinned?'<span class="pinbadge">CASE #1</span> ':''}${i.summary}${i.note?'<br><span class="mut" style="font-size:10px">'+i.note+'</span>':''}</span>
       <span class="src">${i.source}</span></div>`;}).join("");
   document.querySelectorAll(".irow").forEach(r=>r.onclick=()=>{const i=Q4INC.find(x=>x.id===r.dataset.id);if(i)jumpTo(i);});
   document.querySelectorAll("#q4-tl .mk").forEach(m=>m.onclick=()=>{const i=Q4INC.find(x=>x.id===m.dataset.id);if(i)jumpTo(i);});

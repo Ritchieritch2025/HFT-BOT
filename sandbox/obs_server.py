@@ -17,6 +17,19 @@ import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+try:
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo("America/New_York")  # display TZ; canonical data stays UTC
+except Exception:
+    _ET = None
+
+
+def _et_hms(us):
+    """microseconds-epoch -> HH:MM:SS in Eastern for DISPLAY (falls back to UTC)."""
+    if _ET is not None:
+        return dt.datetime.fromtimestamp(us / 1e6, _ET).strftime("%H:%M:%S")
+    return dt.datetime.utcfromtimestamp(us / 1e6).strftime("%H:%M:%S") + "Z"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 METRICS = os.path.join(ROOT, "work/metrics.ndjson")
@@ -351,8 +364,8 @@ def build_incidents():
                         "severity": "crit" if dur >= 600 else "warn",
                         "start_us": s, "end_us": e, "dur_s": round(dur),
                         "recover_us": e,  # gap-end = reconnect/recovery
-                        "summary": "capture gap %ds — feed dark, recovered at %sZ"
-                                   % (int(dur), dt.datetime.utcfromtimestamp(e / 1e6).strftime("%H:%M:%S")),
+                        "summary": "capture gap %ds — feed dark, recovered %s ET"
+                                   % (int(dur), _et_hms(e)),
                         "source": "capture_gaps.csv", "pinned": pinned,
                         "note": ("CASE #1 — candidate W-C5: hour-boundary non-zero-exit + 15s retry loop, "
                                  "NOT a wedge (forced=0). Blocks the 7-clean-days gate." if pinned else "")})
