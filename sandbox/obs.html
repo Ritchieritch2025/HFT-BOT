@@ -79,6 +79,26 @@
   #drawer .src{color:var(--line)}#drawer .fp{color:var(--muted);word-break:break-all}
   #drawer table{width:100%;border-collapse:collapse;margin-top:6px}#drawer td{border-bottom:1px solid var(--grid);padding:2px 4px}
   #ov{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:19;display:none}#ov.open{display:block}
+  /* ④ incident timeline */
+  .itl{position:relative;height:46px;background:#0a0f14;border:1px solid var(--border);border-radius:2px;overflow:hidden;margin-top:2px}
+  .itl .day{position:absolute;top:0;bottom:0;border-left:1px solid #131b23}
+  .itl .daylbl{position:absolute;bottom:0;font-size:8px;color:var(--muted);transform:translateX(2px)}
+  .itl .gap{position:absolute;top:6px;height:15px;background:var(--red);opacity:.82;cursor:pointer}
+  .itl .gap.pinned{background:#ff3b30;opacity:1;box-shadow:0 0 0 1px #fff}
+  .itl .rec{position:absolute;top:6px;height:15px;width:2px;background:#5aa2ff}
+  .itl .err{position:absolute;top:24px;height:15px;width:3px;background:var(--amber);cursor:pointer}
+  .itl .mk.active{outline:2px solid #fff;z-index:4}
+  .itl .guide{position:absolute;top:0;bottom:0;width:1px;background:#fff;opacity:.7;display:none;z-index:3}
+  .itl .pin{position:absolute;top:1px;font-size:8px;color:#fff;background:#ff3b30;padding:0 3px;border-radius:2px;transform:translateX(-50%);white-space:nowrap;z-index:5}
+  .tlleg{padding:5px 0 0;color:var(--muted);font-size:9.5px}
+  .ilist{max-height:210px;overflow:auto;border-top:1px solid var(--border)}
+  .irow{display:flex;gap:9px;align-items:baseline;padding:5px 9px;border-bottom:1px solid var(--grid);cursor:pointer}
+  .irow:hover{background:#10161d}.irow.active{background:#16202b;outline:1px solid var(--line);outline-offset:-1px}
+  .irow.pinned{background:#1c1310;border-left:2px solid #ff3b30}
+  .irow .sev{width:42px;font-weight:700;font-size:10px}.irow .sev.crit{color:var(--red)}.irow .sev.warn{color:var(--amber)}
+  .irow .t{color:var(--muted);width:118px;font-size:10.5px}.irow .msg{flex:1;font-size:11px}
+  .irow .src{color:var(--muted);font-size:9px}
+  .pinbadge{color:#fff;background:#ff3b30;font-size:8.5px;padding:0 4px;border-radius:2px;font-weight:700}
   .proc{display:flex;align-items:center;gap:7px;padding:3px 0}
   .proc .st{width:8px;height:8px;border-radius:50%}.proc .st.up{background:var(--green)}.proc .st.down{background:var(--red)}.proc .st.un{background:var(--amber)}
   .proc .nm{width:88px;color:var(--head)}.proc .meta{margin-left:auto;color:var(--muted);font-size:10px}
@@ -146,7 +166,29 @@
     </div>
   </div>
 
-  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">click any ⌕ to trace a figure to its source record</b> · ③ gates + ④ incidents zones next</div>
+  <!-- ================= ZONE ③ WHAT'S MISSING FOR TRADING? ================= -->
+  <div class="zone"><span class="q"><span class="n">③</span> WHAT'S MISSING FOR TRADING?</span>
+    <span class="sub">lifecycle gates — the path to a live order</span></div>
+  <div class="panel">
+    <div class="h">LIFECYCLE GATES <span class="m" id="q3-meta">lifecycle_status.json</span></div>
+    <div class="ask">Q: <b>which gate blocks the next phase, and why?</b> · <span class="act">⚠ blocked/unknown → work that gate</span></div>
+    <table class="t" id="q3-gates"></table>
+  </div>
+
+  <!-- ================= ZONE ④ INCIDENT FORENSICS ================= -->
+  <div class="zone"><span class="q"><span class="n">④</span> INCIDENT FORENSICS</span>
+    <span class="sub">what broke, when, did it recover — click an incident to pin it on the timeline</span></div>
+  <div class="panel">
+    <div class="h">TIMELINE — gap · reconnect · error on one axis <span class="m" id="q4-meta"></span></div>
+    <div class="ask">Q: <b>when did capture break &amp; did it recover?</b> · <span class="act">⚠ click a row → jump the timeline to it</span></div>
+    <div class="body" style="padding:8px 9px 6px">
+      <div id="q4-tl" class="itl"></div>
+      <div class="tlleg"><span class="r">▬ gap</span> · <span style="color:#5aa2ff">▎reconnect (recovery)</span> · <span class="a">▎auth/401 · logged</span> · <span style="color:#fff">│ selected</span></div>
+    </div>
+    <div id="q4-list" class="ilist"></div>
+  </div>
+
+  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">click any ⌕ or incident to trace / jump to source</b></div>
 </div>
 <div id="ov"></div>
 <div id="drawer"><div class="dh"><span>PROVENANCE — source of this figure</span><span class="x" id="drawer-x">✕</span></div><div class="dbody" id="drawer-b"></div></div>
@@ -255,13 +297,51 @@ function renderQ2(q){
     <div class="note" style="padding:4px 0 0">${ct.corrupt&&ct.corrupt.note?ct.corrupt.note:""}</div>`;
 }
 
+function renderQ3(gates){
+  if(!gates||!gates.stages)return;
+  const lc=s=>(s.status||"").toLowerCase();
+  const cl=s=>["blocked","fail","failed","error"].includes(lc(s))?"r":lc(s)==="unknown"?"a":lc(s)==="not_started"?"d":["pass","passed","ok"].includes(lc(s))?"g":"a";
+  $("#q3-gates").innerHTML=gates.stages.map(s=>{const p=(s.checks||[]).filter(c=>c.status==="pass").length,t=(s.checks||[]).length;
+    return `<tr><td>${s.label||s.id}${s.reason?` <span class="rsn">— ${s.reason}</span>`:t?` <span class="rsn">${p}/${t} checks</span>`:''}</td><td class="s badge ${cl(s)}">${s.status}</td></tr>`;}).join("");
+  $("#q3-meta").textContent=`overall ${gates.overall}`;
+}
+let Q4SPAN=null,Q4INC=null;
+function jumpTo(inc){
+  if(!Q4SPAN)return;const W=Q4SPAN.now_us-Q4SPAN.start_us||1,frac=(inc.start_us-Q4SPAN.start_us)/W*100;
+  const g=$("#q4-tl .guide");if(g){g.style.left=frac+"%";g.style.display="block";}
+  document.querySelectorAll("#q4-tl .mk").forEach(m=>m.classList.toggle("active",m.dataset.id===inc.id));
+  document.querySelectorAll(".irow").forEach(r=>r.classList.toggle("active",r.dataset.id===inc.id));
+  const row=document.querySelector('.irow[data-id="'+(window.CSS&&CSS.escape?CSS.escape(inc.id):inc.id)+'"]');if(row)row.scrollIntoView({block:"nearest"});
+}
+function renderQ4(d){
+  if(!d||!d.incidents)return;Q4SPAN=d.span;Q4INC=d.incidents;
+  const sp=d.span,W=sp.now_us-sp.start_us||1,fr=t=>(t-sp.start_us)/W*100;
+  $("#q4-meta").textContent=`${d.counts.gap} gaps · ${d.counts.auth} auth · ${d.counts.logged} logged · 07-06→now`;
+  let mk="";
+  const d0=new Date(sp.start_us/1000);d0.setUTCHours(24,0,0,0);
+  for(let t=d0.getTime();t*1000<sp.now_us;t+=86400000){const x=fr(t*1000);mk+=`<span class="day" style="left:${x}%"></span><span class="daylbl" style="left:${x}%">${new Date(t).toISOString().slice(5,10)}</span>`;}
+  d.incidents.forEach(i=>{const x=fr(i.start_us);
+    if(i.kind==="gap"){const w=Math.max(.15,fr(i.end_us)-x);
+      mk+=`<span class="gap mk${i.pinned?' pinned':''}" data-id="${i.id}" style="left:${x}%;width:${w}%" title="${i.summary}"></span>`;
+      if(i.recover_us)mk+=`<span class="rec" style="left:${fr(i.recover_us)}%"></span>`;
+      if(i.pinned)mk+=`<span class="pin" style="left:${x}%">W-C5?</span>`;
+    } else mk+=`<span class="err mk" data-id="${i.id}" style="left:${x}%" title="${i.summary}"></span>`;});
+  mk+=`<span class="guide"></span>`;$("#q4-tl").innerHTML=mk;
+  $("#q4-list").innerHTML=d.incidents.map(i=>{const iso=new Date(i.start_us/1000).toISOString().slice(5,19).replace("T"," ");
+    return `<div class="irow ${i.pinned?'pinned':''}" data-id="${i.id}"><span class="sev ${i.severity}">${i.severity.toUpperCase()}</span>
+      <span class="t">${iso}Z</span><span class="msg">${i.pinned?'<span class="pinbadge">CASE #1</span> ':''}${i.summary}${i.note?'<br><span class="mut" style="font-size:10px">'+i.note+'</span>':''}</span>
+      <span class="src">${i.source}</span></div>`;}).join("");
+  document.querySelectorAll(".irow").forEach(r=>r.onclick=()=>{const i=Q4INC.find(x=>x.id===r.dataset.id);if(i)jumpTo(i);});
+  document.querySelectorAll("#q4-tl .mk").forEach(m=>m.onclick=()=>{const i=Q4INC.find(x=>x.id===m.dataset.id);if(i)jumpTo(i);});
+  if(!window._pinned){const p=d.incidents.find(x=>x.pinned);if(p){jumpTo(p);window._pinned=true;}}
+}
 let ES;
 function connect(){
   ES=new EventSource("/stream");
   ES.addEventListener("snapshot",e=>{const d=JSON.parse(e.data);
-    renderHeader(d.feed&&d.feed.latest,d.feed&&d.feed.live_age_s);renderQ1(d.q1);renderQ2(d.q2);});
+    renderHeader(d.feed&&d.feed.latest,d.feed&&d.feed.live_age_s);renderQ1(d.q1);renderQ2(d.q2);renderQ3(d.gates);renderQ4(d.incidents);});
   ES.addEventListener("feed",e=>{const r=JSON.parse(e.data);renderHeader(r,(Date.now()-r.ts_ms)/1000);});
-  ES.addEventListener("aux",e=>{const d=JSON.parse(e.data);renderQ1(d.q1);renderQ2(d.q2);});
+  ES.addEventListener("aux",e=>{const d=JSON.parse(e.data);renderQ1(d.q1);renderQ2(d.q2);renderQ3(d.gates);renderQ4(d.incidents);});
   ES.onerror=()=>{$("#conn").textContent="reconnecting";$("#tick").className="tick down";};
 }
 connect();

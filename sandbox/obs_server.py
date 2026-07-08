@@ -334,6 +334,65 @@ def build_q2():
             "clean": {"streak": streak, "target": 7, "days": days7}}
 
 
+QLOG = os.path.join(ROOT, "work/quality_log.ndjson")
+
+
+# ---- Q4: incident forensics (gap / reconnect / error on one timeline) ----
+def build_incidents():
+    import re
+    inc = []
+    # gaps (capture_gaps.csv). A gap's END is a recovery/reconnect point.
+    for d in parse_gaps()["days"]:
+        for s, e in d["intervals"]:
+            dur = (e - s) / 1e6
+            iso = dt.datetime.utcfromtimestamp(s / 1e6)
+            pinned = iso.strftime("%Y-%m-%d %H:%M") == "2026-07-08 02:00"
+            inc.append({"id": "gap-%d" % s, "kind": "gap",
+                        "severity": "crit" if dur >= 600 else "warn",
+                        "start_us": s, "end_us": e, "dur_s": round(dur),
+                        "recover_us": e,  # gap-end = reconnect/recovery
+                        "summary": "capture gap %ds — feed dark, recovered at %sZ"
+                                   % (int(dur), dt.datetime.utcfromtimestamp(e / 1e6).strftime("%H:%M:%S")),
+                        "source": "capture_gaps.csv", "pinned": pinned,
+                        "note": ("CASE #1 — candidate W-C5: hour-boundary non-zero-exit + 15s retry loop, "
+                                 "NOT a wedge (forced=0). Blocks the 7-clean-days gate." if pinned else "")})
+    # logged incidents (quality_log): 401 bursts / data loss / outages
+    rex = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})")
+    try:
+        with open(QLOG) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                blob = (r.get("finding", "") + " " + r.get("action", "")).lower()
+                if r.get("finding") == "GREEN" or not any(
+                        k in blob for k in ("gap", "401", "lockout", "data_loss", "data loss", "outage", "corrupt")):
+                    continue
+                m = rex.search(r.get("window", "") or r.get("ts", ""))
+                if not m:
+                    continue
+                base = dt.datetime.strptime(m.group(1), "%Y-%m-%d").replace(
+                    hour=int(m.group(2)), minute=int(m.group(3)))
+                import calendar
+                us = int(calendar.timegm(base.timetuple()) * 1e6)
+                inc.append({"id": "ql-%d" % us, "kind": "auth" if "401" in blob else "logged",
+                            "severity": "crit" if "401" in blob or "lockout" in blob else "warn",
+                            "start_us": us, "end_us": None, "recover_us": None,
+                            "summary": (r.get("wp", "") + ": " + r.get("finding", ""))[:110],
+                            "source": "quality_log.ndjson", "pinned": False, "note": ""})
+    except FileNotFoundError:
+        pass
+    inc.sort(key=lambda x: -x["start_us"])
+    starts = [i["start_us"] for i in inc]
+    return {"incidents": inc,
+            "span": {"start_us": (min(starts) if starts else 0),
+                     "now_us": int(time.time() * 1e6)},
+            "counts": {"gap": sum(1 for i in inc if i["kind"] == "gap"),
+                       "auth": sum(1 for i in inc if i["kind"] == "auth"),
+                       "logged": sum(1 for i in inc if i["kind"] == "logged")}}
+
+
 ROUTES = {
     "/api/feed": build_feed,
     "/api/gaps": parse_gaps,
@@ -341,6 +400,7 @@ ROUTES = {
     "/api/gates": build_gates,
     "/api/q1": build_q1,
     "/api/q2": build_q2,
+    "/api/incidents": build_incidents,
 }
 
 
@@ -401,7 +461,8 @@ class H(BaseHTTPRequestHandler):
             w("retry: 3000\n\n")
             snap = {"feed": build_feed(), "gaps": parse_gaps(),
                     "alert": read_json(ALERT) or {"status": "unknown"},
-                    "gates": build_gates(), "q1": build_q1(), "q2": build_q2()}
+                    "gates": build_gates(), "q1": build_q1(), "q2": build_q2(),
+                    "incidents": build_incidents()}
             w("event: snapshot\ndata: " + json.dumps(snap) + "\n\n")
             pos = os.path.getsize(METRICS)  # tail forward from current EOF
             last_aux = last_ping = time.time()
@@ -431,7 +492,8 @@ class H(BaseHTTPRequestHandler):
                         "gaps": parse_gaps(),
                         "alert": read_json(ALERT) or {"status": "unknown"},
                         "gates": build_gates(),
-                        "q1": build_q1(), "q2": build_q2()}) + "\n\n")
+                        "q1": build_q1(), "q2": build_q2(),
+                        "incidents": build_incidents()}) + "\n\n")
                     last_aux = now
                 if now - last_ping >= 15:
                     w(": ping\n\n")

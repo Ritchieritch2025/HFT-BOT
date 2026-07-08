@@ -69,33 +69,52 @@ Four questions → four zones:
    history/peer band (yesterday-same-time, 7-day p10–p90), so "is this normal?"
    is answerable at a glance. A bare number that can't be judged is a defect.
 
-(v5 supersedes the v3 per-tab mapping below for the Overview → Q1/Q2 zones; the
-component→source table still documents each widget's real feed.)
+## Delivered build — the four zones, every panel → its real source
+Backend endpoints `/api/q1 /api/q2 /api/incidents /api/gates` (+ pushed in the
+SSE `snapshot`/`aux`). Every panel declares its question + anomaly action inline.
 
-## v3 Overview — component → real source (all live, 3s poll)
-| Component | Kind | Source (real) |
+**① HEALTHY NOW?**
+| Panel | Kind | Source (real) |
 |---|---|---|
-| Verdict + header live strip | state | `lifecycle_status.json` + `metrics.ndjson` latest feed |
-| Status strip (rate/fresh/trade-rate/recon/drop/capture) | live+state | `metrics.ndjson` feed record + derived trade-rate (Δtrades/Δt) |
-| Small multiples (msg_rate_hz, freshness_ms, trades/min) | live→chart | `metrics.ndjson` feed series; freshness zero-floored |
-| Capture-gap timeline (per-day 00:00–24:00 bands) | timeline | `capture_gaps.csv` intervals; 07-06 hatched=capture-start |
-| Capture state table | state | `capture_alert.json` + feed record (drops, msgs, trades) |
-| Lifecycle gates (one row/item) | state | `lifecycle_status.json.stages[]{status,blocking_reason,checks}` |
-| Metrics tape | raw | `metrics.ndjson` feed tail |
+| Process & feed liveness | state | `pgrep` ws_shadow/ingest/supervisor (+pid,uptime) · `metrics.ndjson` feed age |
+| Rate vs baseline | live+baseline | now `msg_rate_hz` vs **multi-day same-clock-time median band** (binary-searched in `metrics.ndjson`); **auto-degrades + flags** when comparable days were gaps |
+| Channel breakdown | live-breakdown | trade/s vs ticker/s (Δ over last 2 feed records) |
+| Disk | state | `os.statvfs(work/)` |
 
-Not-yet-live tabs (Backtest/Strategy/Execution) + the WS-RTT latency collector
-(W-D2, EC2 post-cutover) render **MODULE NOT LIVE / UNKNOWN**, never faked.
+**② DATA USABLE?**
+| Panel | Kind | Source (real) |
+|---|---|---|
+| Coverage matrix | breakdown+baseline | `warehouse/manifest.csv` day×category rows; **each cell coloured by % vs that category's own median** (naturally-small ≠ shortfall) |
+| Latency distribution | distribution | `metrics.ndjson` `freshness_ms` → p50/p95/p99/max (**mean banned**) |
+| 7-clean-days progress | state+evidence | `capture_gaps.csv` + per-day scan evidence (clean/gaps/no-scan; silence never counts, A3) |
+| Integrity counts | state | feed `recorder_dropped`/`telemetry_dropped`; corrupt = "not persisted" (honest) |
+
+**③ WHAT'S MISSING FOR TRADING?** — `lifecycle_status.json.stages[]{status,blocking_reason,checks}`, one row/gate.
+
+**④ INCIDENT FORENSICS** — `capture_gaps.csv` (gaps; a gap's end = a reconnect/recovery mark) + `quality_log.ndjson` (401/data-loss) on one timeline (07-06→now). **Click a row → the timeline guide jumps to it.** CASE #1 is PINNED: `2026-07-08 02:00:00→02:02:59` (179s), labelled `W-C5?` — candidate W-C5 (hour-boundary non-zero-exit + 15s retry loop, NOT a wedge, forced=0); it blocks the 7-clean-days gate.
+
+**Provenance (hard clause):** every figure carries a `⌕`; clicking opens a drawer
+with the source record — coverage cell → the `manifest.csv` rows (path+md5),
+feed → the raw metrics record, latency → the `freshness_ms` sample window.
+
+Not-yet-live modules (Backtest/Strategy/Execution) + WS-RTT latency (W-D2, EC2
+post-cutover) render **MODULE NOT LIVE / UNKNOWN**, never faked.
 
 ## Reconciliations (D2)
-- **freshness < 0**: raw records carry sub-ms negative freshness (record stamped
-  µs ahead of receipt = clock jitter). Floored to 0 in all health views; raw
-  value kept only in the diagnostic METRICS TAPE. Axis zero-floored.
-- **07-08 "2 gaps"**: VERIFIED against `capture_gaps.csv` — `00:00→00:10:25`
-  (midnight pre-deploy hole) + `02:00→02:02:59` (the W-C5 hour-boundary respawn
-  gap). Both real; timeline tags `·02:00=W-C5`. Not a rendering error.
+- **freshness < 0** → sub-ms clock jitter (record stamped µs ahead of receipt);
+  floored to 0 in health views + zero-floored axes; raw value kept only in the
+  METRICS TAPE.
+- **07-08 "2 gaps"** VERIFIED against `capture_gaps.csv`: `00:00→00:10:25`
+  (midnight pre-deploy) + `02:00→02:02:59` (W-C5 respawn). Both real; the second
+  is CASE #1 in zone ④.
 
-## STOP
-W-D1 acceptance = operator approves this live prototype IN WRITING (SESSION_LOG +
-a plan amendment note). No `dashboard_server.py` (W-D6) code before that. Open
-questions for approval: density feel, whether to add an explicit Live/Readiness
-split, and which of the 7 tabs to build first once W-D2..D5 exist.
+## STOP — ready for approval review
+The four zones are complete and driven entirely by real files. W-D1 acceptance =
+operator approves IN WRITING (SESSION_LOG + a plan amendment note); no
+`dashboard_server.py` (W-D6) code before that. Open questions for the operator:
+(1) density/feel OK? (2) explicit Live/Readiness split, or keep the 4-zone flow?
+(3) once W-D2..D5 collectors exist on EC2, which zone graduates to production
+first? Known limits (honest): coverage/rate baselines strengthen as clean days
+accumulate (only ~2 archived days today, both gappy); corrupt-line count needs
+the capture_gaps daily wiring active (W-C2.1, dormant until the supervisor
+restarts).

@@ -6,6 +6,18 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — W-D1 prototype COMPLETE (sandbox, P8): decision-driven Q1–Q4, ready for approval review
+
+- sandbox/obs_server.py + obs.html: all four operator-question zones live on REAL
+  data. ① healthy-now (proc liveness, rate-vs-multi-day-baseline w/ auto-degrade,
+  channel breakdown, disk) · ② data-usable (coverage matrix w/ per-cell median
+  baseline, latency p50/p95/p99 distribution, 7-clean-days evidence, integrity) ·
+  ③ gates · ④ incident forensics (capture_gaps + quality_log on one timeline;
+  click→jump; CASE #1 pinned = 07-08 02:00 gap = candidate W-C5). Provenance: click
+  any ⌕/incident → source-record drawer. uPlot vendored (third_party, pinned), SSE
+  push. Granularity + decision-IA written into docs/plan_audits/dashboard_design_wD1.md.
+  STOP: awaiting operator WRITTEN W-D1 approval before any dashboard_server.py (W-D6).
+
 ## 2026-07-08 — W-D1 dashboard prototype (sandbox, P8 free-fire): live observatory, uPlot + SSE
 
 - sandbox prototype `sandbox/obs_server.py` + `obs.html` (read-only, localhost,
