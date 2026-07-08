@@ -80,6 +80,23 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > `make check` + `tests/run_pipeline.sh` 全绿；结果对照 capture_gaps
   > 真实数据验证（修后整点无新洞）；退出仪式 + 独立审计。
 
+- [ ] **3c. W-R — PDF report pipeline (operator standing requirement,
+  2026-07-08): every daily/acceptance-class detection emits a typed PDF
+  report with numbers into a fixed Mac folder; post-migration EC2 reports
+  flow back via the W-A5 S3 sync.** Paste:
+
+  > 执行 W-R：建统一报告渲染器 tools/daily_report.py——读各检测的既有
+  > 结构化产物（capture_gaps.csv、coverage/loader report、
+  > lifecycle_status.json、incident/taxonomy 文档），按检测类型渲染成
+  > 带数字的 PDF，落 `reports/<YYYY-MM-DD>/<检测名>_<时间戳>.pdf`
+  > （reports/ 进 .gitignore——PDF 是派生副本，结构化文件才是权威，D1）。
+  > 接进 supervisor 每日块（操作员已批准，同 item 1 先例）：每日体检与
+  > 验收类检测跑完即出 PDF；60 秒级 watchdog 明确排除（走告警通道）。
+  > 渲染失败只记日志不阻塞管线（P4）。字体用系统 CJK（中英混排必须
+  > 都渲染，参照 2026-07-08 阅读清单 PDF 的踩坑）。红字测试：给定
+  > 固定 fixture 产物 ⇒ 确定性 PDF（文本层可断言）；渲染器崩溃 ⇒
+  > 管线无感。E5：RUNBOOK 加 reports 一节。退出仪式 + 独立审计。
+
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:

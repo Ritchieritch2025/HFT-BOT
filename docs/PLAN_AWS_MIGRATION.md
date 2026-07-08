@@ -8,6 +8,16 @@ session once an AWS account exists (S4: the agent never touches account creation
 or credentials). This file pre-records the **W-A4 provisions the operator locked
 2026-07-08** so they survive until then.
 
+**W-A5 provision (operator standing requirement, 2026-07-08 — PDF reports
+flow back to the Mac):** every daily/acceptance-class detection emits a typed
+PDF report with numbers (playbook item 3c, tools/daily_report.py). Post-cutover
+these are generated ON EC2 into reports/, included in the daily EC2→S3 sync
+under a reports/ prefix, and a small launchd job on the Mac runs a daily
+`aws s3 sync` of that prefix into the operator's local reports folder — EC2
+generates, S3 relays, Mac lands. Offline Mac ⇒ reports arrive late, never lost.
+PDFs are derived copies; the structured artifacts remain the authoritative
+record (D1).
+
 **Motivation (empirical, 2026-07-08).** Capture is NOT 24/7 because the Mac enters
 Deep-Idle **sleep** constantly — proven to be the dominant cause of every capture
 gap (`docs/plan_audits/capture_gap_taxonomy_2026-07-08.md`, APPENDIX: cases align
