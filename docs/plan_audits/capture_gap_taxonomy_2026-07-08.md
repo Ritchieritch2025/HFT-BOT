@@ -69,6 +69,15 @@ the healthy path (data flowing ⇒ neither stage fires). Red-first test must inj
 Ping/Pong-only frames and prove the OLD any-frame watchdog stays silent while the
 NEW data-silence watchdog fires (the exact gap the mocks missed before).
 
+**Bundled into the same W-C5 change (operator ruling 2026-07-08):** three
+atomic-only observability counters (E7, no timing) ship in the SAME code / SAME
+red-first test / SAME independent audit as the data-silence watchdog —
+(a) `seq_gaps` per-channel ws_seq continuity + skipped-record count (the iron-clad
+"connection-alive data loss" detector; its baseline comes from the W-A4
+dual-machine diff), (b) ring-depth high-water (relaxed atomic max), (c) simdjson
+extract-fail count. All three → metrics per-second row; warehouse_schema.md
+metrics fields updated (E5); dashboard Q1 renders them (⑦ panel contract).
+
 ## Autopsy TODOs for the W-C5 session
 - **Case 3 (07-07 17:29→17:51):** isolate ws_shadow.log for that window
   (471 transport errors exist across all sessions — attribute them by time) and

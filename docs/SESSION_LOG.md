@@ -6,6 +6,40 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — CAPTURE ROOT CAUSE PROVEN = Mac sleep; caffeinate mitigation; AWS-plan seed; dashboard→ET
+
+- CAPTURE IS NOT 24/7 BECAUSE THE MAC SLEEPS. Operator 62-gap scan (subscribed
+  record within 60s of gap-end) → 58 reconnect-recovery + 4 same-connection
+  data-dropout. pmset -g log then PROVED all sampled gaps align 1:1 to Deep-Idle
+  Sleep→Wake: cases 07-06 12:26/14:48 (~62s = short sleeps), 07-07 17:29→17:51
+  (22.7min sleep cascade); the ~15-min "wedge" IS the DarkWake cycle (07-08
+  05:13-09:59 = 12 back-to-back ~15-min sleeps; 50 sleep/wake transitions today).
+  Lease-TTL hypothesis DISPROVEN. Full writeup + appendix:
+  docs/plan_audits/capture_gap_taxonomy_2026-07-08.md. 07-08 was 36.7% DOWN.
+- MITIGATION (operator ruling): `caffeinate -dimsu` launched detached/user-level
+  (pid at exit; revert `kill <pid>` or when superseded) — TEMPORARY until the
+  operator's persistent `sudo pmset -c sleep 0` / AWS migration. This should stop
+  most gaps immediately.
+- SECONDARY (real but not root cause): W-C1 watchdog is ping-masked —
+  last_activity_ms_ bumped by ping/pong (ws_client.cpp:114), so ping_silent(20s)
+  never trips on a live-connection data hole; it fires at ~901s. FIX (W-C5,
+  production, its own full-discipline session per playbook 3b): data-frame-silence
+  trigger (last_data_ms_ on Text only) → resubscribe-on-live-socket then escalate
+  to force_reconnect; BUNDLED with 3 atomic observability counters (seq_gaps /
+  ring high-water / simdjson-fail) in the SAME code+red-first-test+audit. NOT done
+  this session (operator ruling).
+- AWS: seeded docs/PLAN_AWS_MIGRATION.md (full 7-field W queue stays playbook
+  item 4, gated on AWS account, S4) with the operator's W-A4 provisions: SINGLE
+  REST OWNER rule + cutover sequence (EC2 WS→verify→Mac stops REST→EC2 REST→Mac
+  unload; WS concurrency exempt per 2026-07-06 3-conn test) + dual-machine ws_seq
+  diff acceptance → first capture-completeness report = seq_gaps baseline.
+  Operator added W-A5 PDF-report-flowback (S3→Mac Desktop).
+- DASHBOARD: sandbox prototype now displays Eastern (America/New_York, DST-auto);
+  canonical data + partition dates stay UTC (D1). W-D1 design APPROVED + frozen
+  (operator, separate entry). RESEARCH_METRICS_BRIEF.md audited (no blocking).
+- NEXT: operator runs persistent pmset; W-C5 production session (watchdog +
+  counters); STEP 1 AWS. SINGLE-OWNER RULE in force.
+
 ## 2026-07-08 — RESEARCH_METRICS_BRIEF.md drafted + independently audited (paper, P9)
 
 - commit f4a72a5 (draft) + remediation (this commit). For operator research day.
