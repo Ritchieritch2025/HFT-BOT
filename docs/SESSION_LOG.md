@@ -6,6 +6,54 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 00:55 UTC — W-C2 independent audit: 3 BLOCKING false-negatives + a crash, ALL FIXED
+
+- commit: d0890f4 W-C2 audit remediation. Writeup:
+  docs/plan_audits/capture_wc2_audit_2026-07-08.md.
+- Independent fresh-context audit of e455f99 found 3 BLOCKING false-negative
+  defects (a gap detector that MISSES a real hole lets a holed tape pass as
+  complete — the dangerous direction). All real, all fixed + red-first pinned:
+  - B1 DAY-BOUNDARY/EDGE holes silently missed: find_gaps needed a consecutive
+    record PAIR, so a hole crossing midnight (last rec in date=D/, first in
+    date=D+1/) — plus head/tail-of-day silence — was seen by NEITHER day. FIX:
+    scan_date now emits LEADING (day_start->first) + TRAILING (last->min(day_end,
+    now)) edge gaps; a midnight hole = trailing gap of D + leading gap of D+1;
+    `now` cap avoids flagging an in-progress day. PROVEN ON REAL DATA: the fix
+    caught 2026-07-08 00:00:00->00:10:25 (10.4min midnight respawn-delay hole)
+    that the buggy version reported as "0 gaps".
+  - B2 zero-parseable-records recorded as CLEAN: files present + 0 records (e.g.
+    a recv_wall_ns field rename) now records a full-day gap + exits non-zero
+    (fail-closed, mirrors --live). No raw files -> B3.
+  - B3 re-scanning a raw-PRUNED day WIPED its recorded gaps (raw retention 3d,
+    pipeline_supervisor L150): write_record gained replace_day=; the build path
+    passes replace_day=False when a day has no raw files, PRESERVING its rows.
+    The record now outlives the raw. (--since N>3 previously blanked pruned days
+    on every run.)
+  - B4 (found re-scanning real data) a corrupt digit-run overflowed the int64
+    array and CRASHED the scan: _extract_recv_us now plausibility-windows
+    recv_wall_ns to 2020..2100 (D3), dropping+counting corrupt values (07-06 had
+    163; scan completes).
+- Tests 11 -> 19 (all green): midnight-cross, leading/trailing edge,
+  in-progress-day-not-flagged, unreadable fail-closed, pruned-day preserve,
+  rescan-after-prune preserve, corrupt/implausible drop. make check + run_pipeline
+  PIPELINE PASS; registry 121.
+- AUTHORITATIVE RECORD now in work/event_packs/capture_gaps.csv (boundary-aware,
+  corrupt-safe): 07-06 14 gaps, 07-07 21 (+2 midnight edges vs 19), 07-08 1 (the
+  00:00->00:10 midnight hole; nothing after -> W-C1 holding). 36 total. Every
+  backtest over 07-06/07/08 now degrades correctly on overlap.
+- PROCESS NOTE for next session: capture_gaps must run DAILY before raw is pruned
+  (retention 3d) or a day's gaps are lost forever (B3 preserves what's recorded,
+  but can't recover an unscanned pruned day). Wire `capture_gaps --date
+  <yesterday>` into the daily export block of pipeline_supervisor.sh (W-C2.1,
+  with the --live alert). NON-BLOCKING audit notes accepted: N1 partial-
+  subscription loss invisible to a market-wide detector (per-market check later);
+  N2/N3 minor.
+- STATE: W-C0/C1(+deploy W-C3 partial)/C2 all landed + independently audited +
+  remediated. Live pipeline on W-C1 (sha 3db4043), forced=0 + healthy. NEXT: W-C3
+  acceptance tail (24h zero-gap: run capture_gaps --date 2026-07-08 after the day
+  ends, expect only the pre-deploy 00:00-00:10 hole); wire daily capture_gaps +
+  --live alert into the supervisor (W-C2.1). SINGLE-OWNER RULE in force.
+
 ## 2026-07-08 00:40 UTC — W-C2 durable capture-gap record + detector (built, real-data-proven)
 
 - commit: e455f99 W-C2 (tools/capture_gaps.py + tests/test_capture_gaps.py +
