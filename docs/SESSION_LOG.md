@@ -34,7 +34,13 @@ which decisions landed in which files, what the next session must know.
   4314/4323) already parsed its while-loop, so this file edit doesn't disturb it
   AND doesn't take effect until it restarts (launchd crash-recovery or manual). I
   did NOT restart it (production action = operator's call). Record already populated
-  07-06..07-08 from this session's manual runs.
+  07-06..07-08 from this session's manual runs. OPERATOR RULING 2026-07-08: do NOT
+  restart before 2026-07-09 00:00 UTC — restarting now stamps a fresh gap onto
+  07-08, the W-C3 measurement day (expected: ONLY the known 00:00-00:10 hole).
+  Zero cost to waiting (record backfilled, retention clock safe). Post-restart
+  verify: (i) work/live/capture_alert.json appears within 60s; (ii) the restart's
+  own small gap shows in 07-09's record (the detector logging its own restart =
+  the wiring working honestly). See OPERATOR_PLAYBOOK item 2a.
 - verification: make check GREEN; run_pipeline PIPELINE PASS (capture_gaps,
   coverage_audit, pipeline_contract); bash -n OK; registry 121.
 - CONTEXT for a fresh session: a PARALLEL effort landed on this branch during this
