@@ -68,6 +68,18 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > docs/plan_audits/dashboard_design_wD1.md。这是 STOP：操作员批准设计
   > 之前不写任何生产代码。退出仪式。
 
+- [ ] **3b. W-C5 — hour-boundary capture holes (CRITICAL PATH to the
+  seven-clean-days gate: while unfixed, every day gets stamped ~3min of
+  gaps and clean days never accumulate).** Production capture code — full
+  W discipline, NOT sandbox. Paste:
+
+  > 读 docs/GUARDRAILS.md、docs/BACKLOG.md 的 W-C5 条目和 SESSION_LOG 后，
+  > 执行 W-C5：诊断并修复 ws_shadow 整点边界的非零退出/重试循环缺口
+  > （07-08 02:00 附近 ~3 分钟洞是首个已钉案例，见 incident forensics
+  > CASE #1）。要求：先诊断写明根因，再红字先行修复；P4 说明采集连续性；
+  > `make check` + `tests/run_pipeline.sh` 全绿；结果对照 capture_gaps
+  > 真实数据验证（修后整点无新洞）；退出仪式 + 独立审计。
+
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
