@@ -87,12 +87,23 @@ def find_gaps(times_us, min_gap_us):
     return gaps
 
 
-def _last_us(path):
-    """Last parsable recv_us in a file (tail freshness)."""
+def _last_us(path, window=65536):
+    """Last parsable recv_us in a file (tail freshness). Tail-seek: read only the
+    final `window` bytes so the 60s live poll is O(1), not O(file) — the current
+    firehose segment is up to ~512 MiB and a full scan every minute is ~GBs of
+    wasted reads. A truncated last line yields None (skipped); the previous good
+    record wins. Records are small (hundreds of bytes) so a 64 KiB tail holds
+    many lines. Small files are read whole."""
     last = None
-    with open(path, "r", errors="replace") as fh:
-        for line in fh:
-            u = _extract_recv_us(line)
+    with open(path, "rb") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        if size > window:
+            fh.seek(size - window)
+            fh.readline()  # discard the partial line the seek landed inside
+        else:
+            fh.seek(0)
+        for raw in fh:
+            u = _extract_recv_us(raw.decode("utf-8", "replace"))
             if u is not None:
                 last = u
     return last

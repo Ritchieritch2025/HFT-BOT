@@ -122,6 +122,13 @@ while true; do
     # Backgrounded + placed AFTER the pause is lifted and ingest is back, so it
     # extends neither the ingest pause nor the ws_shadow relaunch (P4 preserved).
     python3 tools/capture_gaps.py --date "$YESTERDAY" >> "$LIVE/capture_gaps.log" 2>&1 &
+    # next_actions.md item 1 (operator-approved same-review wiring): daily coverage
+    # audit of the freshly-archived day; a NON-ZERO exit (V15 full-depth set
+    # shrinkage) is surfaced to the supervisor log. Reads the archive (the day is
+    # already exported), not live staging, and is backgrounded — so it contends
+    # with neither the ingest write lock nor the ws_shadow relaunch (P4 preserved).
+    ( python3 tools/coverage_audit.py --date "$YESTERDAY" >> "$LIVE/coverage_audit.log" 2>&1 \
+        || echo "[supervisor] coverage_audit NONZERO for $YESTERDAY (V15 depth shrinkage; see coverage_audit.log)" ) &
     # daily research refresh on the freshly archived day (read-only, background)
     ( python3 tools/mm_scan.py --date "$YESTERDAY" &&
       python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&

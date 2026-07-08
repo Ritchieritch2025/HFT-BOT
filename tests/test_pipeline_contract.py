@@ -604,7 +604,13 @@ def test_supervisor_wires_capture_gaps_daily_and_live():
     (b) refresh the live gap alert. A regression that drops either wiring
     silently rots the gap gate / hides an in-progress outage."""
     sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
-    assert 'capture_gaps.py --date "$YESTERDAY"' in sup, \
+    # Non-comment lines only, so commenting a call out (not just deleting the
+    # text) trips the test — the substring must be on a live line.
+    live = [ln for ln in sup.splitlines() if not ln.lstrip().startswith("#")]
+    assert any('capture_gaps.py --date "$YESTERDAY"' in ln for ln in live), \
         "daily capture-gap record not wired into the supervisor export block"
-    assert "capture_gaps.py --live" in sup, \
+    assert any("capture_gaps.py --live" in ln for ln in live), \
         "live capture-gap alert not wired into the supervisor watchdog loop"
+    # next_actions.md item 1: daily coverage audit, non-zero exit surfaced.
+    assert any('coverage_audit.py --date "$YESTERDAY"' in ln for ln in live), \
+        "daily coverage audit not wired into the supervisor export block"
