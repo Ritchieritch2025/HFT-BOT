@@ -6,6 +6,43 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — PLAN_AWS_MIGRATION.md authored, independently audited, 8 findings applied (paper, P9)
+
+- commits: f652046 (full 7-field draft) · 4c6ebe3 (audit remediation). Paper-only
+  session; NO production/live code touched; execution stays gated on the operator's
+  AWS account (S4). This is MASTER_SEQUENCE STEP 1's plan, now execution-ready.
+- WHAT THE PLAN IS: relocate the whole capture+warehouse pipeline off the sleeping
+  Mac onto an always-on Linux EC2 host — the permanent fix for the sleep root cause
+  proven 2026-07-08 (see the CAPTURE ROOT CAUSE entry below). Six Ws, one per fresh
+  session, independent audit after each:
+  W-A0 provision/size · W-A1 build+systemd+firewall · W-A2 test battery green on EC2
+  · W-A3 S3 vault + PROVEN restore · W-A4 zero-gap cutover (operator go/no-go) ·
+  W-A5 detectors/cost/report-flowback + retire interim pmset.
+- CUTOVER SAFETY (P4/D1): WS runs on BOTH boxes through steps 1–4 so capture never
+  drops; Mac launchd stays installed-but-dormant = rollback host. SINGLE REST OWNER
+  rule is operator-locked (never two REST pollers; WS concurrency exempt per
+  2026-07-06 3-conn test).
+- AUDIT: independent agent verdict = NO BLOCKING DEFECTS. 8 non-blocking findings
+  applied (commit 4c6ebe3, full list in the commit body). The load-bearing ones:
+  (1) W-A5's FIRST action is a final incremental Mac→S3 sync of the W-A3→W-A4-step-1
+  residual window (captured only on Mac, else lost) with byte/md5 re-verify, BEFORE
+  the Mac is disposable; (2) EC2 seeds subscriptions from the S3-vaulted catalog, no
+  REST until step 4, so single-owner is never momentarily broken; (3) honest
+  rollback — post-step-5 is NOT instant and must backfill the unload→reload hole
+  from EC2/S3; (4) least-privilege IAM — EC2 role has NO DeleteObject on vault
+  prefixes, making D1 structural; (5) W-A0 sizing must carry rider (b)'s expanded
+  full-market L1 universe and reconcile the ≥32GB (Mac dormant) vs <32GB (gold on
+  Mac, sleep NOT fully re-enabled) branches; (6) three systemd load-bearing
+  behaviors spelled out (hourly rotation, single-instance lock, Restart=on-failure
+  NOT WatchdogSec).
+- BLOCKED / HANDOFF: execution needs the operator to answer "AWS account ready, or
+  is spinning one up move #1?" then create account + IAM + S3 bucket + hand-create
+  ~/.kalshi/env.sh on the box (all S4, operator-only) and be present for W-A4.
+  Interim mitigation still LIVE: operator ran `sudo pmset -a disablesleep 1` (do NOT
+  re-enable sleep until W-A5 post-cutover; verify `pmset -g | grep SleepDisabled`).
+- NEXT: W-C5 production session (data-silence watchdog + 3 counters) OR STEP 1 AWS
+  W-A0 once operator confirms account — operator's call.
+
 ## 2026-07-08 — CAPTURE ROOT CAUSE PROVEN = Mac sleep; caffeinate mitigation; AWS-plan seed; dashboard→ET
 
 - CAPTURE IS NOT 24/7 BECAUSE THE MAC SLEEPS. Operator 62-gap scan (subscribed
