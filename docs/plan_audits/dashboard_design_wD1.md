@@ -42,6 +42,36 @@ Restated here as the acceptance style section:
    the §1 artifact envelope; adding a module = register artifact + pick
    components, zero bespoke dashboard code.
 
+## Decision-driven information architecture (v5 — operator 2026-07-08)
+Panels are not chosen by "what data we have" but by **which operator decision
+they drive**. Every panel MUST declare, inline, (a) the question it answers and
+(b) the action an anomaly triggers. A panel that answers no question is deleted.
+Four questions → four zones:
+- **① HEALTHY NOW?** — per-feed last-msg-age, rate vs a **yesterday-same-time
+  baseline band**, disk, process liveness. (Answers: is the machine capturing
+  right now? Action: dead proc / stale feed → restart.)
+- **② DATA USABLE?** — day×category **coverage matrix heatmap**, latency
+  **p50/p95/p99 distribution** (mean forbidden as a headline), parse/drop/corrupt
+  counts, **7-clean-days progress with evidence status**. (Answers: is what we
+  captured complete + trustworthy? Action: thin cell / p99 spike / drop>0 →
+  investigate that slice.)
+- **③ WHAT'S MISSING FOR TRADING?** — the lifecycle gates table (kept).
+- **④ INCIDENT FORENSICS** — clickable incident list that jumps a timeline to
+  the event; gap / reconnect / error aligned on one axis.
+
+### Granularity — three binding principles (bind every panel)
+1. **Distribution over average** — never headline a mean. Latency, fill, queue:
+   render p50/p95/p99 (+max). The tail is the decision.
+2. **Breakdown over global** — split by the axis that localises a fault:
+   per-feed / per-category / per-channel, never one aggregate number that hides
+   which slice broke.
+3. **Baseline over bare number** — a live figure is shown against its own
+   history/peer band (yesterday-same-time, 7-day p10–p90), so "is this normal?"
+   is answerable at a glance. A bare number that can't be judged is a defect.
+
+(v5 supersedes the v3 per-tab mapping below for the Overview → Q1/Q2 zones; the
+component→source table still documents each widget's real feed.)
+
 ## v3 Overview — component → real source (all live, 3s poll)
 | Component | Kind | Source (real) |
 |---|---|---|

@@ -12,6 +12,7 @@ import csv
 import datetime as dt
 import json
 import os
+import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -107,11 +108,197 @@ def build_gates():
             "generated_at_ms": lc.get("generated_at_ms")}
 
 
+MANIFEST = os.path.join(ROOT, "work/warehouse/manifest.csv")
+
+
+# ---- Q1: is it healthy NOW? ----
+def _proc(pattern):
+    """(alive, pid, etime) for a process matched by pgrep -f, else (False,..)."""
+    try:
+        out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, timeout=3)
+        pid = out.stdout.split()[0] if out.stdout.strip() else None
+        if not pid:
+            return {"alive": False, "pid": None, "etime": None}
+        et = subprocess.run(["ps", "-o", "etime=", "-p", pid], capture_output=True, text=True, timeout=3)
+        return {"alive": True, "pid": int(pid), "etime": et.stdout.strip()}
+    except Exception:
+        return {"alive": None, "pid": None, "etime": None}  # UNKNOWN
+
+
+_baseline_cache = {"t": 0, "val": None}
+
+
+def _rate_baseline(recs_now):
+    """msg_rate_hz band at the SAME clock-time ~24h ago (baseline over bare
+    number). Cached 5 min; UNKNOWN if the window can't be found."""
+    if time.time() - _baseline_cache["t"] < 300 and _baseline_cache["val"] is not None:
+        return _baseline_cache["val"]
+    band = {"status": "unknown"}
+    try:
+        sz = os.path.getsize(METRICS)
+        # file span
+        with open(METRICS, "rb") as f:
+            first = None
+            for line in f:
+                if b'"ts_ms"' in line:
+                    first = json.loads(line)["ts_ms"]
+                    break
+            f.seek(max(0, sz - 2_000_000))
+            last = None
+            for line in f:
+                if b'"ts_ms"' in line:
+                    try:
+                        last = json.loads(line)["ts_ms"]
+                    except ValueError:
+                        pass
+        target = (recs_now[-1]["ts_ms"] if recs_now else last) - 86_400_000  # 24h ago
+        if first and last and first < target < last:
+            rates = []
+            with open(METRICS, "rb") as f:
+                # binary-search the byte offset of `target` (records are monotonic
+                # in ts; gaps make a linear estimate unreliable — search instead)
+                lo, hi = 0, sz
+                while hi - lo > 131072:
+                    mid = (lo + hi) // 2
+                    f.seek(mid)
+                    f.readline()
+                    ts = None
+                    for _ in range(400):
+                        line = f.readline()
+                        if not line:
+                            break
+                        if b'"ts_ms"' in line:
+                            try:
+                                ts = json.loads(line)["ts_ms"]
+                                break
+                            except ValueError:
+                                pass
+                    if ts is None or ts < target:
+                        lo = mid
+                    else:
+                        hi = mid
+                f.seek(lo)
+                f.readline()
+                for line in f:
+                    if b'"type":"feed"' not in line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    d = r["ts_ms"] - target
+                    if d < -1_200_000:
+                        continue
+                    if d > 1_200_000:  # ±20 min window
+                        break
+                    rates.append(r["msg_rate_hz"])
+            if len(rates) >= 5:
+                rates.sort()
+                band = {"status": "ok", "lo": rates[len(rates) // 10],
+                        "p50": rates[len(rates) // 2], "hi": rates[-1 - len(rates) // 10],
+                        "n": len(rates), "at": target}
+    except Exception:
+        band = {"status": "unknown"}
+    _baseline_cache.update(t=time.time(), val=band)
+    return band
+
+
+def build_q1():
+    recs = tail_feed(120)
+    L = recs[-1] if recs else None
+    # channel breakdown (breakdown over global): trade vs ticker rate from last 2
+    ch = {"status": "unknown"}
+    if len(recs) >= 2:
+        a, b = recs[-2], recs[-1]
+        dt_s = (b["ts_ms"] - a["ts_ms"]) / 1000.0
+        if dt_s > 0:
+            ch = {"status": "ok",
+                  "trades_per_s": max(0, (b["trades"] - a["trades"]) / dt_s),
+                  "tickers_per_s": max(0, (b["tickers"] - a["tickers"]) / dt_s)}
+    try:
+        vfs = os.statvfs(ROOT)
+        disk = {"free_gb": vfs.f_bavail * vfs.f_frsize / 1e9,
+                "total_gb": vfs.f_blocks * vfs.f_frsize / 1e9}
+        disk["used_pct"] = 100 * (1 - disk["free_gb"] / disk["total_gb"])
+    except Exception:
+        disk = {"status": "unknown"}
+    return {
+        "procs": {"ws_shadow": _proc("build/ws_shadow"),
+                  "ingest": _proc("tools/ingest.py"),
+                  "supervisor": _proc("pipeline_supervisor.sh")},
+        "feed": {"freshness_ms": (L or {}).get("freshness_ms"),
+                 "msg_rate_hz": (L or {}).get("msg_rate_hz"),
+                 "connected": (L or {}).get("connected"),
+                 "age_s": (round(time.time() - L["ts_ms"] / 1000, 1) if L else None),
+                 "capture": (L or {}).get("capture")},
+        "channels": ch,
+        "baseline": _rate_baseline(recs),
+        "disk": disk,
+    }
+
+
+# ---- Q2: is the data USABLE? ----
+def build_q2():
+    # coverage matrix from the warehouse manifest (breakdown over global)
+    cov = {}
+    cats, dates = set(), set()
+    try:
+        with open(MANIFEST) as f:
+            for r in csv.DictReader(f):
+                d, c = r.get("date"), r.get("category")
+                if not d or not c:
+                    continue
+                dates.add(d)
+                cats.add(c)
+                cov[(d, c)] = cov.get((d, c), 0) + int(r.get("row_count") or 0)
+    except FileNotFoundError:
+        pass
+    dates = sorted(dates)
+    cats = sorted(cats)
+    matrix = [{"category": c, "cells": [{"date": d, "rows": cov.get((d, c), 0)} for d in dates]}
+              for c in cats]
+    # latency distribution p50/p95/p99 (distribution over average — NO mean headline)
+    recs = tail_feed(600)
+    fr = sorted(max(0, r["freshness_ms"]) for r in recs if r.get("freshness_ms") is not None)
+    def pct(p):
+        return fr[min(len(fr) - 1, int(p / 100 * len(fr)))] if fr else None
+    lat = ({"p50": pct(50), "p95": pct(95), "p99": pct(99), "max": fr[-1], "n": len(fr)}
+           if fr else {"status": "unknown"})
+    L = recs[-1] if recs else {}
+    counts = {"recorder_dropped": L.get("recorder_dropped"),
+              "telemetry_dropped": L.get("telemetry_dropped"),
+              "corrupt": {"status": "not_persisted",
+                          "note": "per-day unparsed count available via capture_gaps --date; not yet persisted"}}
+    # 7-clean-days progress (with evidence status) from the gap record
+    g = parse_gaps()
+    gapdays = {d["date"]: d["count"] for d in g["days"]}
+    today = dt.datetime.utcnow().date()
+    days7 = []
+    streak = 0
+    for i in range(7):
+        day = (today - dt.timedelta(days=i)).isoformat()
+        scanned = day in gapdays
+        clean = scanned and gapdays[day] == 0
+        days7.append({"date": day, "scanned": scanned,
+                      "gaps": gapdays.get(day), "clean": clean,
+                      "evidence": "ok" if clean else ("gaps" if scanned else "no-scan")})
+    for d in days7:  # streak from today backwards
+        if d["clean"]:
+            streak += 1
+        else:
+            break
+    return {"coverage": {"dates": dates, "matrix": matrix},
+            "latency": lat, "counts": counts,
+            "clean": {"streak": streak, "target": 7, "days": days7}}
+
+
 ROUTES = {
     "/api/feed": build_feed,
     "/api/gaps": parse_gaps,
     "/api/alert": lambda: (read_json(ALERT) or {"status": "unknown"}),
     "/api/gates": build_gates,
+    "/api/q1": build_q1,
+    "/api/q2": build_q2,
 }
 
 
@@ -172,7 +359,7 @@ class H(BaseHTTPRequestHandler):
             w("retry: 3000\n\n")
             snap = {"feed": build_feed(), "gaps": parse_gaps(),
                     "alert": read_json(ALERT) or {"status": "unknown"},
-                    "gates": build_gates()}
+                    "gates": build_gates(), "q1": build_q1(), "q2": build_q2()}
             w("event: snapshot\ndata: " + json.dumps(snap) + "\n\n")
             pos = os.path.getsize(METRICS)  # tail forward from current EOF
             last_aux = last_ping = time.time()
@@ -201,7 +388,8 @@ class H(BaseHTTPRequestHandler):
                     w("event: aux\ndata: " + json.dumps({
                         "gaps": parse_gaps(),
                         "alert": read_json(ALERT) or {"status": "unknown"},
-                        "gates": build_gates()}) + "\n\n")
+                        "gates": build_gates(),
+                        "q1": build_q1(), "q2": build_q2()}) + "\n\n")
                     last_aux = now
                 if now - last_ping >= 15:
                     w(": ping\n\n")

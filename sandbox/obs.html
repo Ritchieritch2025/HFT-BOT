@@ -3,90 +3,137 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Kalshi Observatory</title>
 <link rel="stylesheet" href="/uplot/uPlot.min.css"/>
-<!-- W-D1 v4 — uPlot (vendored third_party/uplot v1.6.30, no CDN) interactive
-     charts (zoom/pan-drag/crosshair/box-select, synced), SSE push (no polling).
-     Bound by PLAN_DASHBOARD_OBSERVATORY W-D1 DESIGN SYSTEM RULES. REAL data only. -->
+<!-- W-D1 v5 — DECISION-DRIVEN IA. Four zones = four operator questions. Every
+     panel states which question it answers + what action an anomaly triggers.
+     Granularity: distribution>average, breakdown>global, baseline>bare number.
+     REAL data only (obs_server.py). uPlot vendored; SSE push. -->
 <style>
   :root{--bg:#0a0d11;--panel:#0e1319;--border:#1c2733;--grid:#161f28;--text:#c3cdd7;
     --muted:#5a6672;--head:#7d8b98;--line:#6f93ad;--green:#3fb950;--amber:#d29922;--red:#f85149;--dim:#48535e}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
     font:12px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
-  .wrap{max-width:1500px;margin:0 auto;padding:0 12px 30px}
+  .wrap{max-width:1520px;margin:0 auto;padding:0 12px 30px}
   .num{text-align:right}.mut{color:var(--muted)}.hd{color:var(--head)}
   .g{color:var(--green)}.a{color:var(--amber)}.r{color:var(--red)}.d{color:var(--dim)}
   header{display:flex;align-items:center;gap:14px;padding:7px 12px;border-bottom:1px solid var(--border);
     position:sticky;top:0;background:var(--bg);z-index:9;font-size:11.5px}
   .brand{font-weight:700;letter-spacing:.5px}.brand .k{color:var(--line)}
-  .vd{padding:2px 9px;border:1px solid;border-radius:2px;font-weight:700}
-  .vd.go{color:var(--green);border-color:#1d4a30}.vd.no{color:var(--red);border-color:#4a1e22}.vd.un{color:var(--amber);border-color:#463813}
   .hl{margin-left:auto;display:flex;gap:14px;align-items:center;color:var(--muted)}.hl b{color:var(--text)}
   .tick{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block}.tick.down{background:var(--red)}
-  .panel{border:1px solid var(--border);border-radius:2px;background:var(--panel);margin-top:8px}
+  /* zone banners */
+  .zone{display:flex;align-items:baseline;gap:10px;margin:14px 0 2px;padding:0 2px}
+  .zone .q{font-weight:700;font-size:13px;letter-spacing:.4px}
+  .zone .n{color:var(--line);font-weight:700}
+  .zone .sub{color:var(--muted);font-size:10.5px;margin-left:auto}
+  .row{display:grid;gap:8px}
+  .r4{grid-template-columns:repeat(4,1fr)}.r3{grid-template-columns:repeat(3,1fr)}.r2{grid-template-columns:2fr 1fr}
+  @media(max-width:1000px){.r4,.r3,.r2{grid-template-columns:1fr 1fr}}
+  .panel{border:1px solid var(--border);border-radius:2px;background:var(--panel)}
   .panel>.h{display:flex;align-items:center;gap:8px;padding:4px 9px;border-bottom:1px solid var(--border);
-    font-size:10.5px;letter-spacing:.6px;color:var(--head);text-transform:uppercase}
-  .panel>.h .m{margin-left:auto;color:var(--muted);text-transform:none;letter-spacing:0}
-  .strip{display:flex;flex-wrap:wrap;align-items:center}
-  .stat{display:flex;align-items:center;gap:7px;padding:6px 12px;border-right:1px solid var(--border)}
-  .stat .l{color:var(--head);font-size:10px}.stat .v{font-weight:700;font-size:14px}.stat .u{color:var(--muted);font-size:10px}
-  .sm{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
-  @media(max-width:900px){.sm{grid-template-columns:1fr}}
-  .cell{border-right:1px solid var(--border)}.cell:last-child{border-right:0}
-  .cell .ch{display:flex;align-items:baseline;gap:8px;padding:4px 9px 0;font-size:10.5px}
-  .cell .ch .nm{color:var(--head)}.cell .ch .mm{margin-left:auto;color:var(--muted)}.cell .ch .mm b{color:var(--text)}
-  .cell .plot{padding:2px 4px 4px}
-  .hint{padding:3px 9px;color:var(--muted);font-size:9.5px;border-top:1px solid var(--grid)}
-  .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:8px}@media(max-width:900px){.cols{grid-template-columns:1fr}}
-  .tl{display:flex;align-items:center;gap:9px;padding:4px 9px;border-bottom:1px solid var(--grid)}.tl:last-child{border-bottom:0}
-  .tl .d{width:52px;color:var(--head)}
-  .tl .track{flex:1;height:15px;background:#0a0f14;border:1px solid var(--border);position:relative;overflow:hidden}
-  .tl .seg{position:absolute;top:0;bottom:0;background:var(--red)}
-  .tl .seg.start{background:repeating-linear-gradient(45deg,#3a2d10,#3a2d10 3px,#241d0a 3px,#241d0a 6px)}
-  .tl .hrs{position:absolute;top:0;bottom:0;border-left:1px solid #131b23}
-  .tl .sum{width:210px;color:var(--muted);font-size:10.5px;text-align:right}.tl .sum b{color:var(--text)}
-  .tlhdr{display:flex;padding:2px 9px;color:var(--muted);font-size:9px}.tlhdr .d{width:52px}.tlhdr .h{flex:1;display:flex;justify-content:space-between}
-  table.t{width:100%;border-collapse:collapse}table.t td{padding:3px 9px;border-bottom:1px solid var(--grid)}table.t tr:last-child td{border-bottom:0}
-  table.t td.s{width:88px;text-align:right;white-space:nowrap}.rsn{color:var(--muted);font-size:10.5px}.badge{font-weight:700;font-size:10.5px}
-  .tape{max-height:132px;overflow:auto;padding:4px 9px;font-size:10.5px;color:var(--muted);white-space:pre}.tape b{color:var(--text)}
-  .note{padding:4px 9px;color:var(--muted);font-size:10px}
-  /* uPlot dense-terminal overrides */
-  .uplot{font-family:ui-monospace,Menlo,monospace}
-  .u-legend{display:none}
-  .u-cursor-x,.u-cursor-y{border-right:1px dashed #47586a!important;border-bottom:1px dashed #47586a!important}
-  .u-select{background:rgba(111,147,173,.12)}
-  .u-cursor-pt{border:0!important}
+    font-size:10.5px;letter-spacing:.5px;color:var(--head);text-transform:uppercase}
+  .panel>.h .m{margin-left:auto;color:var(--muted);text-transform:none;letter-spacing:0;font-size:10px}
+  .ask{padding:3px 9px;border-bottom:1px solid var(--grid);font-size:10px;color:var(--muted);background:#0b0f14}
+  .ask b{color:var(--head);font-weight:600}.ask .act{color:var(--amber)}
+  .body{padding:7px 9px}
+  table.t{width:100%;border-collapse:collapse;font-size:11px}
+  table.t td{padding:3px 6px;border-bottom:1px solid var(--grid)}table.t tr:last-child td{border-bottom:0}
+  table.t td.s{text-align:right;white-space:nowrap}
+  .big{font-size:20px;font-weight:700}.u{color:var(--muted);font-size:10px}
+  .kpi{display:flex;align-items:baseline;gap:6px}
+  /* baseline band bar */
+  .band{position:relative;height:26px;background:#0a0f14;border:1px solid var(--border);border-radius:2px;margin-top:4px}
+  .band .base{position:absolute;top:0;bottom:0;background:rgba(111,147,173,.22);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .band .p50{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+  .band .cur{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--green)}
+  .band.bad .cur{background:var(--red)}
+  /* heatmap */
+  table.hm{border-collapse:collapse;font-size:9.5px;width:100%}
+  table.hm th{color:var(--muted);font-weight:500;padding:2px 4px;text-align:center;font-size:9px}
+  table.hm td.c{color:var(--head);padding:2px 6px 2px 2px;white-space:nowrap;text-align:left;font-size:10px}
+  table.hm td.cell{width:34px;height:16px;text-align:center;border:1px solid var(--bg);color:#0a0d11;font-size:8.5px}
+  /* distribution bars */
+  .dist{display:flex;flex-direction:column;gap:4px;padding-top:2px}
+  .dist .b{display:flex;align-items:center;gap:8px}
+  .dist .b .l{width:38px;color:var(--head)}
+  .dist .b .bar{flex:1;height:14px;background:#0a0f14;border:1px solid var(--border)}
+  .dist .b .bar>i{display:block;height:100%}
+  .dist .b .v{width:56px;text-align:right}
+  /* clean-day cells */
+  .cd{display:flex;gap:4px;margin-top:5px}
+  .cd .day{flex:1;text-align:center;padding:5px 0;border:1px solid var(--border);border-radius:2px;font-size:9.5px}
+  .cd .day.ok{background:#12261a;color:var(--green);border-color:#1d4a30}
+  .cd .day.gaps{background:#2b1416;color:var(--red);border-color:#4a1e22}
+  .cd .day.noscan{background:#181d24;color:var(--dim)}
+  .badge{font-weight:700}.note{padding:3px 9px;color:var(--muted);font-size:9.5px}
+  .proc{display:flex;align-items:center;gap:7px;padding:3px 0}
+  .proc .st{width:8px;height:8px;border-radius:50%}.proc .st.up{background:var(--green)}.proc .st.down{background:var(--red)}.proc .st.un{background:var(--amber)}
+  .proc .nm{width:88px;color:var(--head)}.proc .meta{margin-left:auto;color:var(--muted);font-size:10px}
 </style></head>
 <body>
 <header>
-  <span class="brand">KALSHI <span class="k">OBSERVATORY</span> <span class="mut">/ overview</span></span>
-  <span id="vd" class="vd un">…</span>
-  <span class="hl">
-    <span><span id="tick" class="tick"></span> <span id="conn">connecting</span></span>
-    <span>rate <b id="hz">—</b>/s</span><span>fresh <b id="fr">—</b>ms</span><span>recon <b id="rc">—</b></span><span id="clk">—</span>
-  </span>
+  <span class="brand">KALSHI <span class="k">OBSERVATORY</span></span>
+  <span class="hl"><span><span id="tick" class="tick"></span> <span id="conn">connecting</span></span>
+    <span>rate <b id="hz">—</b>/s</span><span>fresh <b id="fr">—</b>ms</span><span id="clk">—</span></span>
 </header>
 <div class="wrap">
-  <div class="panel"><div class="strip" id="strip"></div></div>
-  <div class="panel">
-    <div class="h">FEED HEALTH <span class="m" id="sm-meta">metrics.ndjson · feed · SSE</span></div>
-    <div class="sm">
-      <div class="cell"><div class="ch"><span class="nm">msg_rate_hz</span><span class="mm" id="mm0"></span></div><div class="plot" id="p0"></div></div>
-      <div class="cell"><div class="ch"><span class="nm">freshness_ms</span><span class="mm" id="mm1"></span></div><div class="plot" id="p1"></div></div>
-      <div class="cell"><div class="ch"><span class="nm">trades/min</span><span class="mm" id="mm2"></span></div><div class="plot" id="p2"></div></div>
-    </div>
-    <div class="hint">drag = box-zoom · dbl-click = reset · crosshair synced across charts · live push (SSE)</div>
-  </div>
-  <div class="cols">
+
+  <!-- ================= ZONE ① HEALTHY NOW? ================= -->
+  <div class="zone"><span class="q"><span class="n">①</span> HEALTHY NOW?</span>
+    <span class="sub">live · SSE · is the machine capturing right this second</span></div>
+  <div class="row r4">
     <div class="panel">
-      <div class="h">CAPTURE-GAP TIMELINE <span class="m" id="gap-meta">capture_gaps.csv</span></div>
-      <div class="tlhdr"><span class="d"></span><span class="h"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></span></div>
-      <div id="tl"></div><div class="note" id="gap-note"></div>
+      <div class="h">PROCESS &amp; FEED LIVENESS <span class="m">pgrep · feed</span></div>
+      <div class="ask">Q: <b>are the daemons up &amp; is data arriving?</b> · <span class="act">⚠ dead proc / age&gt;30s → restart</span></div>
+      <div class="body" id="q1-live"></div>
     </div>
-    <div class="panel"><div class="h">CAPTURE STATE <span class="m">capture_alert.json</span></div><table class="t" id="capt"></table></div>
+    <div class="panel">
+      <div class="h">RATE vs BASELINE <span class="m">now vs 24h-ago band</span></div>
+      <div class="ask">Q: <b>is throughput normal vs same time yesterday?</b> · <span class="act">⚠ below band → investigate feed</span></div>
+      <div class="body" id="q1-base"></div>
+    </div>
+    <div class="panel">
+      <div class="h">CHANNEL BREAKDOWN <span class="m">trade vs ticker /s</span></div>
+      <div class="ask">Q: <b>which channel carries it / is one silent?</b> · <span class="act">⚠ a channel → 0 while other flows</span></div>
+      <div class="body" id="q1-ch"></div>
+    </div>
+    <div class="panel">
+      <div class="h">DISK <span class="m">work/ volume</span></div>
+      <div class="ask">Q: <b>will capture run out of space?</b> · <span class="act">⚠ &gt;85% → prune / expand</span></div>
+      <div class="body" id="q1-disk"></div>
+    </div>
   </div>
-  <div class="panel"><div class="h">LIFECYCLE GATES <span class="m" id="gates-meta">lifecycle_status.json</span></div><table class="t" id="gates"></table></div>
-  <div class="panel"><div class="h">METRICS TAPE <span class="m">tail · feed records</span></div><div class="tape" id="tape"></div></div>
-  <div class="note">read-only · localhost · no order/panic (S5) · uPlot vendored (third_party, pinned) · SSE push</div>
+
+  <!-- ================= ZONE ② DATA USABLE? ================= -->
+  <div class="zone"><span class="q"><span class="n">②</span> DATA USABLE?</span>
+    <span class="sub">is what we captured complete &amp; trustworthy for backtest</span></div>
+  <div class="row r2">
+    <div class="panel">
+      <div class="h">COVERAGE MATRIX <span class="m">manifest.csv · day × category · rows</span></div>
+      <div class="ask">Q: <b>which category/day is thin or missing?</b> · <span class="act">⚠ empty/low cell → check capture+ingest for it</span></div>
+      <div class="body" id="q2-cov" style="overflow:auto"></div>
+      <div class="note">archived days only; today is in staging (not yet archived). cell = row_count, log-shaded green.</div>
+    </div>
+    <div class="panel">
+      <div class="h">LATENCY DISTRIBUTION <span class="m">freshness_ms · p50/p95/p99</span></div>
+      <div class="ask">Q: <b>is the TAIL latency acceptable?</b> · <span class="act">⚠ p99 spike → investigate (avg is banned)</span></div>
+      <div class="body" id="q2-lat"></div>
+    </div>
+  </div>
+  <div class="row r2" style="margin-top:8px">
+    <div class="panel">
+      <div class="h">7-CLEAN-DAYS PROGRESS <span class="m">gap record + evidence</span></div>
+      <div class="ask">Q: <b>how close to the capture gate?</b> · <span class="act">⚠ any gap/no-scan resets the streak</span></div>
+      <div class="body" id="q2-clean"></div>
+    </div>
+    <div class="panel">
+      <div class="h">INTEGRITY COUNTS <span class="m">drop / corrupt (D2)</span></div>
+      <div class="ask">Q: <b>is anything silently dropped/corrupted?</b> · <span class="act">⚠ drop&gt;0 → D2 incident</span></div>
+      <div class="body" id="q2-int"></div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · every figure traces to a work/ source · ③ gates + ④ incidents zones next</div>
 </div>
 
 <script src="/uplot/uPlot.iife.min.js"></script>
@@ -94,109 +141,90 @@
 const $=s=>document.querySelector(s);
 const f=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 const hms=t=>new Date(t).toISOString().slice(11,19);
-const CAP=2400; // ring size (~40min @1/s), zoomable
-let T=[],RATE=[],FRESH=[],TRATE=[],prevTr=null,prevTs=null,LATEST=null;
-
-// --- uPlot dense-terminal chart factory ---
-const axStroke="#5a6672",gcol={stroke:"#161f28",width:1},tcol={stroke:"#1c2733",width:1,size:4},FONT="10px ui-monospace,Menlo,monospace";
-function mk(elId,color){
-  const el=document.getElementById(elId);
-  const opts={width:el.clientWidth||300,height:118,
-    cursor:{sync:{key:"obs"},drag:{x:true,y:false},points:{size:5}},
-    legend:{show:false},
-    scales:{x:{time:true},y:{range:(u,mn,mx)=>[0,mx===mn?mx+1:mx]}}, // zero-floored, no pad
-    axes:[
-      {stroke:axStroke,grid:gcol,ticks:tcol,font:FONT,size:22,space:78,
-        values:(u,vs)=>vs.map(v=>hms(v*1000))},
-      {stroke:axStroke,grid:gcol,ticks:tcol,font:FONT,size:44,space:26,
-        values:(u,vs)=>vs.map(v=>f(v,v<10&&v>0?1:0))}
-    ],
-    series:[{},{stroke:color,width:1.3,points:{show:false}}],
-    padding:[6,8,0,0]};
-  return new uPlot(opts,[[],[]],el);
-}
-const U=[mk("p0","#6f93ad"),mk("p1","#3fb950"),mk("p2","#6f93ad")];
-
-function agg(a){const v=a.filter(x=>x!=null);if(!v.length)return[0,0,0];return[Math.min(...v),v.reduce((s,x)=>s+x,0)/v.length,Math.max(...v)];}
-function setMM(i,a){const[mn,av,mx]=agg(a);$("#mm"+i).innerHTML=`min <b>${f(mn,mn<10?1:0)}</b> avg <b>${f(av,av<10?1:0)}</b> max <b>${f(mx,mx<10?1:0)}</b>`;}
-function redraw(){
-  const xs=T.map(t=>t/1000);
-  U[0].setData([xs,RATE]);U[1].setData([xs,FRESH]);U[2].setData([xs,TRATE]);
-  setMM(0,RATE);setMM(1,FRESH);setMM(2,TRATE);
-}
-function pushFeed(r){
-  const ts=r.ts_ms;
-  let tr=null;
-  if(prevTr!=null&&prevTs!=null){const dt=(ts-prevTs)/1000;const d=r.trades-prevTr;tr=(dt>0&&d>=0)?d/dt*60:null;}
-  prevTr=r.trades;prevTs=ts;
-  T.push(ts);RATE.push(r.msg_rate_hz);FRESH.push(Math.max(0,r.freshness_ms));TRATE.push(tr);
-  if(T.length>CAP){T.shift();RATE.shift();FRESH.shift();TRATE.shift();}
-  LATEST=r;
-}
-function renderLatest(alert){
-  const L=LATEST;if(!L)return;
-  $("#hz").textContent=f(L.msg_rate_hz);$("#fr").textContent=f(Math.max(0,L.freshness_ms));$("#rc").textContent=f(L.reconnects);
-  const drop=(L.recorder_dropped||0)+(L.telemetry_dropped||0);
-  const cur=TRATE.length?TRATE[TRATE.length-1]:null;
-  const cells=[["MSG RATE",f(L.msg_rate_hz),"/s","v"],["FRESHNESS",f(Math.max(0,L.freshness_ms)),"ms",L.freshness_ms>2000?"a":"g"],
-    ["TRADE RATE",f(cur),"/min","v"],["RECONNECTS",f(L.reconnects),"","v"],["DROPPED",f(drop),"D2",drop>0?"r":"g"],
-    ["CAPTURE",L.capture?L.capture.split("/").pop():"—","","mut"]];
-  $("#strip").innerHTML=cells.map(c=>`<div class="stat"><span class="l">${c[0]}</span><span class="v ${c[3]}">${c[1]}</span><span class="u">${c[2]}</span></div>`).join("");
-  const drops=`${f(L.recorder_dropped)} / ${f(L.telemetry_dropped)}`;
-  $("#capt").innerHTML=[
-    ["Active gap",alert&&alert.status==="ok"?`<span class="g badge">NONE</span>`:alert&&alert.status==="gap"?`<span class="r badge">ACTIVE ${f(alert.silent_secs)}s</span>`:`<span class="a badge">UNKNOWN</span>`],
-    ["Feed freshness",`${f(Math.max(0,L.freshness_ms))} ms`],["Reconnects (session)",f(L.reconnects)],
-    ["Recorder / telemetry drop (D2)",`<span class="${drop>0?'r':'g'}">${drops}</span>`],
-    ["Messages captured",f(L.messages)],["Trades / tickers",`${f(L.trades)} / ${f(L.tickers)}`],
-    ["Last record",alert&&alert.since_utc?alert.since_utc.slice(11,23)+"Z":"—"]
-  ].map(r=>`<tr><td class="hd">${r[0]}</td><td class="num">${r[1]}</td></tr>`).join("");
-  const tp=[];for(let i=Math.max(0,T.length-9);i<T.length;i++)tp.push(`<b>${hms(T[i])}Z</b>  rate=${String(f(RATE[i])).padStart(5)}  fresh=${String(f(FRESH[i])).padStart(4)}ms  trate=${String(f(TRATE[i])).padStart(6)}`);
-  $("#tape").innerHTML=tp.reverse().join("\n");
-  const stale=(Date.now()-L.ts_ms)>10000;
-  $("#tick").className="tick"+((L.connected&&!stale)?"":" down");$("#conn").textContent=(L.connected&&!stale)?"connected":"stale";
-}
-function renderGaps(gaps){
-  if(!gaps||!gaps.days)return;const DAY=86400e6;$("#gap-meta").textContent=`${gaps.total} gaps · ${gaps.days.length} days`;
-  $("#tl").innerHTML=gaps.days.slice(-6).map(d=>{
-    const ds=Date.parse(d.date+"T00:00:00Z")*1000;
-    const segs=d.intervals.map(iv=>{let l=Math.max(0,(iv[0]-ds)/DAY*100),w=Math.max(.3,(iv[1]-iv[0])/DAY*100);
-      const isStart=d.date==="2026-07-06"&&iv[0]<=ds+1e6;
-      return `<span class="seg${isStart?' start':''}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%" title="${hms(iv[0]/1000)}-${hms(iv[1]/1000)}Z"></span>`;}).join("");
-    const hrs=[6,12,18].map(h=>`<span class="hrs" style="left:${h/24*100}%"></span>`).join("");
-    const note=d.date==="2026-07-06"?' <span class="a">(hatched=capture start)</span>':'';
-    const w5=d.date==="2026-07-08"?' <span class="mut">·02:00=W-C5</span>':'';
-    return `<div class="tl"><span class="d">${d.date.slice(5)}</span><div class="track">${hrs}${segs}</div><span class="sum"><b>${d.count}</b> gap${d.count!=1?'s':''} · ${f(d.downtime_s/60)}m${note}${w5}</span></div>`;
-  }).join("");
-  $("#gap-note").textContent="red = capture hole at true UTC position/width · 07-08 verified vs record (00:00 + 02:00 W-C5)";
-}
-function renderGates(gates){
-  if(!gates||!gates.stages)return;
-  const lc=s=>(s.status||"").toLowerCase();
-  const bad=s=>["blocked","fail","failed","error"].includes(lc(s)),un=s=>lc(s)==="unknown",nl=s=>lc(s)==="not_started";
-  const dep=gates.stages.filter(s=>!nl(s)),allok=dep.length&&dep.every(s=>["pass","passed","ok"].includes(lc(s)));
-  const v=$("#vd");if(allok){v.className="vd go";v.textContent="GO";}else{v.className="vd no";v.textContent=`NOT-GO · ${gates.stages.filter(nl).length} not-live · ${gates.stages.filter(bad).length} blocked`;}
-  const cl=s=>bad(s)?"r":un(s)?"a":nl(s)?"d":["pass","passed","ok"].includes(lc(s))?"g":"a";
-  $("#gates").innerHTML=gates.stages.map(s=>{const p=(s.checks||[]).filter(c=>c.status==="pass").length,t=(s.checks||[]).length;
-    return `<tr><td>${s.label||s.id}${s.reason?` <span class="rsn">— ${s.reason}</span>`:t?` <span class="rsn">${p}/${t} checks</span>`:''}</td><td class="s badge ${cl(s)}">${s.status}</td></tr>`;}).join("");
-  $("#gates-meta").textContent=`overall ${gates.overall}`;
-}
 setInterval(()=>$("#clk").textContent=hms(Date.now())+"Z",1000);
+let LATEST=null;
 
-// --- SSE push (replaces polling) ---
-let ALERT={status:"unknown"};
+function renderHeader(feedLatest,age){
+  const L=feedLatest;if(!L)return;LATEST=L;
+  $("#hz").textContent=f(L.msg_rate_hz);$("#fr").textContent=f(Math.max(0,L.freshness_ms));
+  const stale=age!=null&&age>10;$("#tick").className="tick"+((L.connected&&!stale)?"":" down");$("#conn").textContent=(L.connected&&!stale)?"connected":"stale";
+}
+function renderQ1(q){
+  if(!q)return;
+  // liveness
+  const pr=q.procs||{},fd=q.feed||{};
+  const procRow=(nm,p)=>{const cls=p.alive===true?"up":p.alive===false?"down":"un";
+    return `<div class="proc"><span class="st ${cls}"></span><span class="nm">${nm}</span><span class="meta">${p.alive===true?"pid "+p.pid+" · "+p.etime:p.alive===false?"DOWN":"UNKNOWN"}</span></div>`;};
+  const ageCls=fd.age_s==null?"a":fd.age_s>30?"r":fd.age_s>5?"a":"g";
+  $("#q1-live").innerHTML=procRow("ws_shadow",pr.ws_shadow||{})+procRow("ingest",pr.ingest||{})+procRow("supervisor",pr.supervisor||{})
+    +`<div class="proc" style="border-top:1px solid var(--grid);margin-top:3px;padding-top:6px"><span class="nm">feed age</span><span class="meta ${ageCls}">${fd.age_s==null?"UNKNOWN":fd.age_s+"s · "+f(fd.msg_rate_hz)+"/s"}</span></div>`;
+  // baseline band
+  const b=q.baseline||{},cur=fd.msg_rate_hz||0;
+  if(b.status==="ok"){
+    const hi=Math.max(b.hi,cur,1),scale=v=>Math.min(100,100*v/hi);
+    const gap=b.hi===0&&b.p50===0;
+    $("#q1-base").innerHTML=`<div class="kpi"><span class="big ${gap?'a':cur<b.lo?'r':'g'}">${f(cur)}</span><span class="u">/s now</span>
+      <span class="u" style="margin-left:auto">24h-ago ${gap?'—':f(b.lo)+'–'+f(b.hi)}</span></div>
+      <div class="band ${cur<b.lo&&!gap?'bad':''}"><span class="base" style="left:${scale(b.lo)}%;width:${Math.max(1,scale(b.hi)-scale(b.lo))}%"></span>
+      <span class="p50" style="left:${scale(b.p50)}%"></span><span class="cur" style="left:${scale(cur)}%"></span></div>
+      <div class="note" style="padding:4px 0 0">${gap?'<span class="a">baseline window overlapped a capture gap 24h ago — uninformative</span>':'grey band = yesterday p10–p90 · line = p50 · green = now'}</div>`;
+  } else $("#q1-base").innerHTML='<div class="a">baseline UNKNOWN (no comparable window)</div>';
+  // channels
+  const c=q.channels||{};
+  if(c.status==="ok"){const tot=c.trades_per_s+c.tickers_per_s||1;
+    $("#q1-ch").innerHTML=`<table class="t">
+      <tr><td>tickers</td><td class="s g">${f(c.tickers_per_s)}/s</td></tr>
+      <tr><td>trades</td><td class="s g">${f(c.trades_per_s)}/s</td></tr></table>
+      <div class="band" style="height:10px"><span class="base" style="left:0;width:${100*c.tickers_per_s/tot}%;background:rgba(63,185,80,.3);border:0"></span>
+      <span class="base" style="left:${100*c.tickers_per_s/tot}%;width:${100*c.trades_per_s/tot}%;background:rgba(111,147,173,.35);border:0"></span></div>`;
+  } else $("#q1-ch").innerHTML='<div class="a">UNKNOWN</div>';
+  // disk
+  const dk=q.disk||{};
+  if(dk.used_pct!=null){const cls=dk.used_pct>85?"r":dk.used_pct>70?"a":"g";
+    $("#q1-disk").innerHTML=`<div class="kpi"><span class="big ${cls}">${f(dk.used_pct,1)}</span><span class="u">% used</span></div>
+      <div class="band" style="height:10px"><span class="base" style="left:0;width:${dk.used_pct}%;background:${dk.used_pct>85?'rgba(248,81,73,.4)':'rgba(63,185,80,.3)'};border:0"></span></div>
+      <div class="note" style="padding:4px 0 0">${f(dk.free_gb,0)} GB free of ${f(dk.total_gb,0)} GB</div>`;
+  } else $("#q1-disk").innerHTML='<div class="a">UNKNOWN</div>';
+}
+function renderQ2(q){
+  if(!q)return;
+  // coverage heatmap
+  const cv=q.coverage||{dates:[],matrix:[]};
+  let mx=1;cv.matrix.forEach(m=>m.cells.forEach(c=>mx=Math.max(mx,c.rows)));
+  const col=r=>{if(r<=0)return"background:#181d24;color:#48535e";const a=0.12+0.88*Math.log(r+1)/Math.log(mx+1);return`background:rgba(63,185,80,${a.toFixed(2)})`;};
+  const fmtCell=r=>r<=0?"·":r>=1e6?(r/1e6).toFixed(1)+"M":r>=1e3?(r/1e3).toFixed(0)+"k":r;
+  $("#q2-cov").innerHTML=`<table class="hm"><tr><th></th>${cv.dates.map(d=>`<th>${d.slice(5)}</th>`).join("")}</tr>`+
+    cv.matrix.map(m=>`<tr><td class="c">${m.category}</td>${m.cells.map(c=>`<td class="cell" style="${col(c.rows)}" title="${m.category} ${c.date}: ${f(c.rows)} rows">${fmtCell(c.rows)}</td>`).join("")}</tr>`).join("")+`</table>`;
+  // latency distribution
+  const L=q.latency||{};
+  if(L.p50!=null){const hi=Math.max(L.max,1);const bar=(v,c)=>`<div class="b"><span class="l">${c}</span><div class="bar"><i style="width:${100*v/hi}%;background:${v===L.p99||v===L.max?'var(--amber)':'var(--line)'}"></i></div><span class="v">${f(v)} ms</span></div>`;
+    $("#q2-lat").innerHTML=`<div class="dist">${bar(L.p50,"p50")}${bar(L.p95,"p95")}${bar(L.p99,"p99")}${bar(L.max,"max")}</div>
+      <div class="note" style="padding:5px 0 0">${L.n} samples · <b>p99=${f(L.p99)}ms</b> is the decision number (mean is banned)</div>`;
+  } else $("#q2-lat").innerHTML='<div class="a">UNKNOWN — no samples</div>';
+  // clean days
+  const cd=q.clean||{days:[]};
+  $("#q2-clean").innerHTML=`<div class="kpi"><span class="big ${cd.streak>=cd.target?'g':cd.streak>0?'a':'r'}">${cd.streak}</span><span class="u">/ ${cd.target} clean days</span></div>
+    <div class="cd">${cd.days.slice().reverse().map(d=>{const cls=d.evidence==="ok"?"ok":d.evidence==="gaps"?"gaps":"noscan";
+      return `<div class="day ${cls}" title="${d.date}: ${d.evidence}">${d.date.slice(5)}<br>${d.evidence==="ok"?"✓":d.evidence==="gaps"?d.gaps+"g":"?"}</div>`;}).join("")}</div>
+    <div class="note" style="padding:4px 0 0">✓ clean · <span class="r">Ng</span> gaps · <span class="d">?</span> no-scan (evidence required — silence never counts, audit A3)</div>`;
+  // integrity
+  const ct=q.counts||{};
+  $("#q2-int").innerHTML=`<table class="t">
+    <tr><td>recorder dropped</td><td class="s ${ct.recorder_dropped?'r':'g'}">${f(ct.recorder_dropped)}</td></tr>
+    <tr><td>telemetry dropped</td><td class="s ${ct.telemetry_dropped?'r':'g'}">${f(ct.telemetry_dropped)}</td></tr>
+    <tr><td>corrupt lines</td><td class="s a">${(ct.corrupt&&ct.corrupt.status)==="not_persisted"?"not persisted":"—"}</td></tr></table>
+    <div class="note" style="padding:4px 0 0">${ct.corrupt&&ct.corrupt.note?ct.corrupt.note:""}</div>`;
+}
+
+let ES;
 function connect(){
-  const es=new EventSource("/stream");
-  es.addEventListener("snapshot",e=>{
-    const d=JSON.parse(e.data);T=[];RATE=[];FRESH=[];TRATE=[];prevTr=null;prevTs=null;
-    (d.feed.series||[]).forEach(pushFeed);
-    ALERT=d.alert||ALERT;redraw();renderLatest(ALERT);renderGaps(d.gaps);renderGates(d.gates);
-    $("#sm-meta").textContent=`${T.length} pts · SSE live`;
-  });
-  es.addEventListener("feed",e=>{pushFeed(JSON.parse(e.data));redraw();renderLatest(ALERT);});
-  es.addEventListener("aux",e=>{const d=JSON.parse(e.data);ALERT=d.alert||ALERT;renderGaps(d.gaps);renderGates(d.gates);renderLatest(ALERT);});
-  es.onerror=()=>{$("#conn").textContent="reconnecting";$("#tick").className="tick down";}; // EventSource auto-retries
+  ES=new EventSource("/stream");
+  ES.addEventListener("snapshot",e=>{const d=JSON.parse(e.data);
+    renderHeader(d.feed&&d.feed.latest,d.feed&&d.feed.live_age_s);renderQ1(d.q1);renderQ2(d.q2);});
+  ES.addEventListener("feed",e=>{const r=JSON.parse(e.data);renderHeader(r,(Date.now()-r.ts_ms)/1000);});
+  ES.addEventListener("aux",e=>{const d=JSON.parse(e.data);renderQ1(d.q1);renderQ2(d.q2);});
+  ES.onerror=()=>{$("#conn").textContent="reconnecting";$("#tick").className="tick down";};
 }
 connect();
-addEventListener("resize",()=>U.forEach(u=>u.setSize({width:u.root.parentElement.clientWidth,height:118})));
 </script>
 </body></html>
