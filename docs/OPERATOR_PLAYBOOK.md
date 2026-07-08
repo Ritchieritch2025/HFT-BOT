@@ -109,6 +109,19 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 操作员只读前五行即知今天有没有事；裁决三态与 D2 对齐——
   > 数据缺失/检测没跑成渲染为 ⚠/❌，永不默认 ✅。
 
+- [ ] **3d. Readability audit — READ-ONLY (operator complaint 2026-07-08:
+  tool/variable naming not intuitive). Produces the refactor backlog for
+  POST-migration execution; no code changes before cutover (frozen-code
+  rule).** Paste:
+
+  > 只读可读性审计：通读 tools/、src/、include/、apps/，产出
+  > docs/plan_audits/readability_audit_<date>.md：① 命名欠账清单——所有
+  > 误导性/不直观的工具名、函数名、变量名，每条给"现名→建议名→为什么
+  > 现名会误导"；② 按模块的晦涩度排序（最难懂的文件排前）；③ 注释与
+  > 代码脱节处；④ 每条标注修复成本（改名=小，重组=中，重设计=大）。
+  > 全程零代码改动（迁移前代码冻结）；清单成为迁移后逐模块重构 W 的
+  > 队列。退出仪式。
+
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
