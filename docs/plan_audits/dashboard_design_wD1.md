@@ -255,3 +255,10 @@ specified (built or deferred with stated blocked-by), plus addendum contracts
 is FROZEN as of this approval; changes henceforth require an operator-approved
 amendment recorded here and in SESSION_LOG. W-D6 remains blocked by W-D2..D5
 (B1 ruling: collectors built on EC2 after STEP 1 cutover).
+
+
+## 契约① 补充字段（操作员 2026-07-08）：source
+definition 块新增必填字段 `source`：该公式的思想出处（论文引用 / 自研推导）
++ 本地化改造说明（如 "Avellaneda-Stoikov 保留价格式，按 Q1 移植至 log-odds
+空间"）。目的：任何渲染数字可追问到思想族谱；与 P5（外来思想审查）、
+Q4（文献给结构、数据给参数）闭环。
