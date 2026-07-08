@@ -6,6 +6,21 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — OPERATOR_PLAYBOOK.md created: full queue as paste-ready per-session prompts
+
+- commit: (this commit) docs/OPERATOR_PLAYBOOK.md.
+- decision (file: OPERATOR_PLAYBOOK.md): W-C2.1 + coverage_audit supervisor
+  wiring COMBINED into one session (same file, same risk class, one P4
+  review); operator approval for the supervisor edit is granted by pasting
+  playbook item 1 (satisfies next_actions.md item-1 gate).
+- context capsule: playbook = convenience layer over MASTER_SEQUENCE (which
+  stays authoritative); items 1–4 have verbatim prompts, 5+ point at their
+  plan docs; "only-you" list (AWS account, cutover go/no-go, W-D1 approval,
+  OQ-1, S1) and standing gates restated. Playbook maintenance added to exit
+  ritual expectations via E5 note in the file header.
+- blocked / handoff: operator's next action = paste playbook item 1 into a
+  fresh session. Item 2 time-gated until 2026-07-09 00:00 UTC.
+
 ## 2026-07-07 — W-D0 audit remediation: 11 findings confirmed + fixed; 401 evidence archived; B1 ruling OPEN
 
 - commit: (this commit) plan amendments + docs/plan_audits/
