@@ -100,6 +100,103 @@ feed → the raw metrics record, latency → the `freshness_ms` sample window.
 Not-yet-live modules (Backtest/Strategy/Execution) + WS-RTT latency (W-D2, EC2
 post-cutover) render **MODULE NOT LIVE / UNKNOWN**, never faked.
 
+## Full design scope — five contracts (①–⑤)
+These were in the issued W-D1 scope. Each is specified here (contract pinned) and
+marked BUILT / DEFERRED (blocked-by). Deferred items reserve their data contract
+now so the collectors/engines target it; none is faked in the prototype.
+
+### ① Analytics identity contract + generic catalog renderer  (contract PINNED; renderer DEFERRED → W-D6)
+Every analytics result under `work/analytics/<name>/result.json` MUST carry a
+`definition` block (an analysis "ID card") — no anonymous number reaches a panel:
+```
+{ schema_version, generated_at_us, source_sha, max_age_s,       // §1 envelope
+  definition: {
+    id, title,
+    formula:  "precise expression, e.g. markout(τ)=s·(mid(t+τ)−p)",
+    plain:    "one-paragraph plain-language meaning",
+    inputs:   [{dataset, fields, provenance}],   // what it reads (traceable)
+    window:   {start_us, end_us, tz:"UTC"},
+    params:   { ... },                           // horizons, thresholds, knobs
+    units:    "e4-cents | ms | count | log-odds",
+    render:   "distribution | timeseries | table | heatmap | scalar-baseline" },
+  result: <payload matching `render`> }
+```
+The **generic analytics catalog renderer** walks `work/analytics/`, shows each
+`definition` as a foldable ID card, then renders `result` via the component named
+by `render` — **zero per-analysis code** (generalisation rule §1/P8). A new
+analysis appears by dropping a conforming file; over-age envelope → UNKNOWN.
+Prototype today: no `work/analytics/` producers exist yet → renderer DEFERRED to
+W-D6; markout (⑤) is the first consumer.
+
+### ② Data catalog browser + DuckDB query panel  (DEFERRED → W-D6 Data tab, blocked-by W-D5)
+- **Catalog browser:** from W-D5 `catalog.json` — every dataset {name, path,
+  format, rows, date_range, freshness, provenance}. An archived **parquet is
+  clickable → preview** (first N rows, read-only) + a **pre-filled SQL** scoped to
+  that file/partition.
+- **DuckDB query panel — the FOUR RAILS (bright-line, all four mandatory):**
+  1. **READ-ONLY** — SELECT/WITH/DESCRIBE/EXPLAIN only; allowlist rejects
+     DDL/DML/PRAGMA/COPY/ATTACH-write; warehouse attached `READ_ONLY` with D6
+     retry — never the writer, never holds a lock the ingest daemon needs.
+  2. **BOUNDED** — server-injected `LIMIT` (default 10k) + statement timeout +
+     memory/temp cap; truncation is SURFACED (row-count + `truncated` flag, D2 —
+     never silent).
+  3. **S5-SEALED** — localhost only, no network egress, no order/panic; a reader
+     like every other panel; results never leave localhost.
+  4. **PROVENANCE-STAMPED** — every result carries the exact SQL + the
+     files/partitions read + row count + `generated_at_us`; exportable but stamped.
+- Blocked-by: W-D5 (catalog) + a read-only DuckDB reader (W-D6, on EC2).
+
+### ③ Activity heatmap group — day/week/month  (Week tier BUILT as coverage matrix; Day/Month DEFERRED, blocked-by activity_daily collector W-D4/D5)
+- **Three tiers:** **Day** = hour(0–23) × category (intraday coverage); **Week** =
+  day × category × 7d (the delivered ② coverage matrix is this tier); **Month** =
+  day × category × ~30d from the rollup.
+- **`activity_daily` rollup contract:** `work/observatory/activity_daily.ndjson`,
+  one row per (date, category): `{date, category, rows_by_table{trades,l1,…},
+  msg_rate_p50, active_hours, envelope}` — unbounded small daily downsample (like
+  latency_daily, audit C4) so month/quarter horizons survive raw/staging rotation.
+- **Gap diagonal-hatch linkage:** capture_gaps intervals overlaid — any hour/day
+  cell overlapping a recorded gap is **diagonally hatched** (07-06 capture-start
+  style), so "low activity" ≠ "capture was down" is never confused (D2); a hatched
+  cell → the ④ incident.
+
+### ④ Event timeline view  (DEFERRED, blocked-by W-E1)
+- Purpose: market events (e.g. matches) on a timeline — open/active/settle windows
+  aligned with capture gaps + trades, to answer "was capture healthy during this
+  event?".
+- **Reserved data contract (from the W-E1 event index):** `{event_ticker,
+  market_ticker, series, category, open_time, event_start_time, close_time,
+  status, mve_flags}`.
+- **D2 WARNING (pinned):** `close_time ≠ event/game-start time`. Kalshi's
+  `close_time` is settlement/close, often well after the event actually starts.
+  Rendering the event window off `close_time` would MISLEAD. The view MUST use the
+  true `event_start_time` (event index / catalog / derived) and mark `close_time`
+  separately as "settlement". Until W-E1 supplies the real start, this view
+  renders **BLOCKED-BY W-E1** — never faked.
+
+### ⑤ markout / toxicity analytics  (FUTURE, formula + stages PINNED)
+- **Markout** (adverse selection): for a fill at price `p`, `side` s∈{+1,−1}, time
+  `t`, and mid `m`: **`markout(τ) = s · (m(t+τ) − p)`** in E4 cents; negative =
+  adverse (picked off). Horizons τ ∈ {1s, 5s, 30s, 60s, to-settlement} — a
+  **distribution** per horizon (p10/p50/p90), never a mean.
+- **Toxicity:** fraction of notional with adverse markout beyond a threshold at a
+  horizon, broken down **per market / per liquidity-context** (breakdown rule).
+- **Stages:** quote → fill → markout(τ) → settlement; each stage's inputs pinned.
+- **Contract:** emitted as an ① analytics result `work/analytics/markout/result.json`
+  (`definition.formula` above, `inputs`: fills[] from tradingd/backtest + L1 mid
+  series from the warehouse, `params`: horizons+threshold, `units`: e4-cents,
+  `render`: distribution) → renders via the ① generic renderer, zero bespoke code.
+- Blocked-by: fills exist only once execution/backtest ships (STEP 6). Contract
+  pinned now so the engine targets it.
+
+## Productionisation order + decisions (operator 2026-07-08)
+- **Zone flow stays UN-SPLIT** — the four-zone Overview is one view, no
+  Live/Readiness tab split.
+- **Graduation order ①→④→②→③, riding the collector build W-D2→D3→D4/D5:**
+  ① healthy-now on W-D2 (latency/feed-health series) → ④ incident forensics on
+  W-D3 (incident detector) → ② data-usable on W-D4/D5 (readiness + catalog) →
+  ③ gates on W-D4 (readiness). Sandbox prototype proves all four now on real
+  files; production wiring follows this order.
+
 ## Reconciliations (D2)
 - **freshness < 0** → sub-ms clock jitter (record stamped µs ahead of receipt);
   floored to 0 in health views + zero-floored axes; raw value kept only in the
@@ -108,13 +205,23 @@ post-cutover) render **MODULE NOT LIVE / UNKNOWN**, never faked.
   (midnight pre-deploy) + `02:00→02:02:59` (W-C5 respawn). Both real; the second
   is CASE #1 in zone ④.
 
-## STOP — ready for approval review
-The four zones are complete and driven entirely by real files. W-D1 acceptance =
+## Status of the five contracts
+| # | Item | Status |
+|---|---|---|
+| ① | analytics identity contract | contract PINNED · generic renderer DEFERRED → W-D6 (no `work/analytics/` producers yet) |
+| ② | data catalog browser + DuckDB four rails | DEFERRED → W-D6 Data tab · blocked-by W-D5 |
+| ③ | activity heatmap day/week/month | Week tier BUILT (coverage matrix) · Day/Month DEFERRED · blocked-by `activity_daily` collector (W-D4/D5) |
+| ④ | event timeline view | DEFERRED · blocked-by W-E1 · close_time≠start D2 warning pinned |
+| ⑤ | markout / toxicity | FUTURE · formula+stages+contract PINNED · blocked-by execution/backtest (STEP 6) |
+
+Operator decisions (2026-07-08) recorded: four-zone flow un-split;
+productionisation ①→④→②→③ per W-D2→D3→D4/D5.
+
+## STOP — resubmitted for approval
+The Overview four zones are BUILT on real files; the five broader-scope contracts
+(①–⑤) are now specified (built or deferred with blocked-by). W-D1 acceptance =
 operator approves IN WRITING (SESSION_LOG + a plan amendment note); no
-`dashboard_server.py` (W-D6) code before that. Open questions for the operator:
-(1) density/feel OK? (2) explicit Live/Readiness split, or keep the 4-zone flow?
-(3) once W-D2..D5 collectors exist on EC2, which zone graduates to production
-first? Known limits (honest): coverage/rate baselines strengthen as clean days
-accumulate (only ~2 archived days today, both gappy); corrupt-line count needs
-the capture_gaps daily wiring active (W-C2.1, dormant until the supervisor
-restarts).
+`dashboard_server.py` (W-D6) code before that. Known honest limits: coverage/rate
+baselines strengthen as clean days accumulate (~2 archived days today, both
+gappy); corrupt-line count needs the W-C2.1 daily wiring active (dormant until the
+supervisor restarts).

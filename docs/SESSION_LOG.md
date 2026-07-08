@@ -16,7 +16,13 @@ which decisions landed in which files, what the next session must know.
   click→jump; CASE #1 pinned = 07-08 02:00 gap = candidate W-C5). Provenance: click
   any ⌕/incident → source-record drawer. uPlot vendored (third_party, pinned), SSE
   push. Granularity + decision-IA written into docs/plan_audits/dashboard_design_wD1.md.
-  STOP: awaiting operator WRITTEN W-D1 approval before any dashboard_server.py (W-D6).
+  DESIGN DOC COMPLETED per operator: five scope contracts specified — ① analytics
+  identity contract + generic renderer, ② data catalog browser + DuckDB four rails,
+  ③ activity heatmap day/week/month + activity_daily rollup + gap-hatch, ④ event
+  timeline (blocked-by W-E1; close_time≠start D2 warning), ⑤ markout/toxicity
+  formula+stages — each BUILT or DEFERRED w/ blocked-by. Decisions: four-zone flow
+  un-split; productionisation ①→④→②→③ per W-D2→D3→D4/D5.
+  STOP: RESUBMITTED — awaiting operator WRITTEN W-D1 approval before dashboard_server.py (W-D6).
 
 ## 2026-07-08 — W-D1 dashboard prototype (sandbox, P8 free-fire): live observatory, uPlot + SSE
 
