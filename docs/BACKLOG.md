@@ -457,3 +457,22 @@ noticed-during, observation, suggested owner.
   Fix options: lengthen/backoff the staging-attach retry; OR read archive + a
   staging read-replica snapshot; OR run research reads when ingest is paused. Owner:
   warehouse-loader hardening.
+- 2026-07-07 · W-C1 (capture hardening) · operator requirement: for LIVE
+  short-term trading the market-data feed must recover in **≤ 1 second** with
+  effectively ZERO perceptible gap. W-C1's watchdog force-reconnect gets the
+  CAPTURE (backtest-data) feed from up-to-60-min holes down to ~20-25s recovery
+  (20s silence detection + ~1-3s reopen) — sufficient for complete backtest
+  data, but NOT for a 1s-seamless execution feed. A single socket can never hit
+  1s reliably: detecting a wedged (half-open) socket needs >~0.5-1s of missed
+  heartbeats, and a fresh Kalshi handshake+auth+resubscribe+first-frame is
+  typically 1-3s. DECISION: sub-second continuity is achieved by REDUNDANCY, not
+  faster single-socket reconnect — run two independent WS connections (primary +
+  hot standby, both live), so a wedge on one causes ZERO gap because the other is
+  already delivering; the dead one reconnects in the background. This belongs to
+  the **Phase-2 EXECUTION feed** (World A/B merge, Q5: WS full-depth book drives
+  execution) — NOT the Phase-1 capture path. Design notes for that W: dual
+  ws_client instances with de-dup by (sid,seq)/epoch at the book layer; aggressive
+  sub-second liveness (enable our own ping cadence on the execution transport, or
+  a per-connection watchdog << 1s); failover is instant (consume whichever feed is
+  fresher), reconnect is lazy. Owner: Phase-2 execution-feed W (new plan; gate:
+  Q5 WS-drives-execution). Capture (W-C1..C4) stays single-socket + watchdog.

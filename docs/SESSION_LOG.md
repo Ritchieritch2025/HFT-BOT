@@ -6,6 +6,59 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 21:20 UTC — W-C0 diagnosis + W-C1 force-reconnect watchdog (built, tested, NOT deployed)
+
+- commits: 8f89d88 W-C0 capture diagnosis; 06db331 W-C1 force-reconnect watchdog
+  + red-first test. (Audit + decision docs staged this session — see below.)
+- ROOT CAUSE FOUND (W-C0, lives in docs/plan_audits/capture_diagnosis_2026-07-07.md):
+  the top-of-hour gaps are a **silently-wedged (half-open) socket**. It delivers
+  no Close/Error, so ixwebsocket never attempts a reconnect; STEP 0's re-sign only
+  runs ON a reconnect attempt, so it never runs; the ping-silence watchdog detects
+  the 30s silence but only did `++missed_pong_disconnects` — never forced recovery.
+  Dead until the :00 respawn. Contributing mechanism: `ix_transport.cpp`
+  `setPingInterval(0)` disables ixwebsocket's own heartbeat, so the library cannot
+  detect the dead socket itself. STEP 0 (6d56aae) IS in the running binary and is
+  NOT the bug (it fixes a different mode: 401 relockout on reconnect).
+- The four W-C0 questions answered with cited evidence; caught a LIVE 46-min gap in
+  progress (07-07 20:07:30 -> 21:00 UTC recovery). Q1 CAPTURE (raw firehose frozen,
+  not ingest lag), Q2 right binary, Q3 reconnect flat at 0 across the gap, Q4
+  watchdog only counts.
+- FIX (W-C1, decision in code + docs/plan_audits/capture_wc1_audit_2026-07-07.md):
+  KalshiWsClient::force_reconnect() = t_.stop() + refresh_auth() + t_.start();
+  wired into the ws_shadow watchdog — after **20s** of zero inbound frames it
+  forces the reconnect (bounded **15s** backoff, logged, `watchdog_reconnect`
+  metrics event, `forced=` on the counter line). Recovery: up-to-60min -> ~20-25s.
+  Healthy path byte-for-byte unchanged (force is unreachable unless the whole
+  all-markets firehose is silent 20s). Fail-closed (S2).
+- red-first PROVEN: neuter force_reconnect -> recovery asserts FAIL; restore ->
+  make check GREEN + tests/run_pipeline.sh PIPELINE PASS (ws_shadow_mock ran the
+  REAL W-C1 binary). Test at tail of tests/test_ws_client.cpp.
+- AUDIT: independent fresh-context agent FAILED TWICE on an infra API error
+  ("Connection closed mid-response"); a rigorous in-context self-audit traced the
+  vendored ixwebsocket source and found NO BLOCKING DEFECTS (stop() close()s+wakes
+  the timeout-bounded poll then joins => wedged socket exits, no hang; start()
+  after join spawns a fresh thread => restart supported; join is a barrier => no
+  new race). 3 non-blocking notes (20s threshold tunable to 30-45s; legacy
+  missed_pong may undercount; 2 weak test asserts). Full writeup in the wc1_audit
+  doc. **A 3rd independent-agent audit was relaunched at session end.**
+- NOT DEPLOYED (critical): build/ws_shadow is RESTORED to the approved pre-W-C1
+  binary (sha 3c389ae; W-C1 binary was sha 560fc23). The live pipeline (PID at
+  21:00 respawn) runs the approved binary. run_pipeline.sh relinks build/ws_shadow
+  via run_ws_shadow_mock.sh (`make build/ws_shadow`), so ALWAYS back up + restore
+  the approved binary around it until W-C3, or the next hourly respawn deploys
+  unaudited code. Backup kept at scratchpad/ws_shadow.approved this session.
+- DECISION for the operator's "≤1s seamless recovery" ask (in docs/BACKLOG.md):
+  a single socket CANNOT hit 1s (detection >~0.5-1s + reopen 1-3s). Sub-second
+  continuity = REDUNDANCY (dual independent WS feeds, hot standby, de-dup at the
+  book layer) and belongs to the **Phase-2 EXECUTION feed** (World A/B merge, Q5),
+  NOT this capture path. W-C1 makes the CAPTURE/backtest feed complete; dual-feed
+  is a separate Phase-2 W.
+- NEXT SESSION: (1) read the 3rd independent audit result (agent was running at
+  exit) and fix anything it finds; (2) W-C2 (durable structured capture-gap record
+  + alert, replaces the coarse quality_log parser as V-EP15's source); (3) W-C3
+  deploy is operator go/no-go, gated on independent audit clear + zero-gap 24h
+  proof. SINGLE-OWNER RULE in force.
+
 ## 2026-07-07 20:15 UTC — 🔴 CAPTURE STILL DROPPING TODAY (post-fix) — next session #1 priority
 
 - HOW THIS SURFACED: operator asked to pull real sports games + graph them.
