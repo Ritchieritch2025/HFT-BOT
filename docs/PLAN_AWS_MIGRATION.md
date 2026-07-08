@@ -13,7 +13,8 @@ flow back to the Mac):** every daily/acceptance-class detection emits a typed
 PDF report with numbers (playbook item 3c, tools/daily_report.py). Post-cutover
 these are generated ON EC2 into reports/, included in the daily EC2→S3 sync
 under a reports/ prefix, and a small launchd job on the Mac runs a daily
-`aws s3 sync` of that prefix into the operator's local reports folder — EC2
+`aws s3 sync` of that prefix into the operator-designated folder
+**`/Users/ritcardo/Desktop/TradingSys Report/`** (designated 2026-07-08) — EC2
 generates, S3 relays, Mac lands. Offline Mac ⇒ reports arrive late, never lost.
 PDFs are derived copies; the structured artifacts remain the authoritative
 record (D1).
