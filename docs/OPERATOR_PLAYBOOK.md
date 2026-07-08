@@ -96,6 +96,14 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 都渲染，参照 2026-07-08 阅读清单 PDF 的踩坑）。红字测试：给定
   > 固定 fixture 产物 ⇒ 确定性 PDF（文本层可断言）；渲染器崩溃 ⇒
   > 管线无感。E5：RUNBOOK 加 reports 一节。退出仪式 + 独立审计。
+  > **报告格式契约（操作员 2026-07-08，验收硬条款）**：每份 PDF 首页
+  > 开头必须依次是——① 标题（检测名 + 日期，人话不用代号：
+  > "采集缺口日报 · 2026-07-10"而不是"W-C2.1 output"）；② 一行裁决，
+  > 三态：✅ 一切正常 / ⚠️ 有异常但不用你动手 / ❌ 需要你行动（+一句
+  > 做什么）；③ 3-5 行白话简介：这个检测在查什么、这次结果是什么、
+  > 关键数字意味着什么。数字表格与图一律放简介之后。验收标准：
+  > 操作员只读前五行即知今天有没有事；裁决三态与 D2 对齐——
+  > 数据缺失/检测没跑成渲染为 ⚠/❌，永不默认 ✅。
 
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
