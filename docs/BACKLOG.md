@@ -510,3 +510,19 @@ noticed-during, observation, suggested owner.
   correctly, D2 holds). Fix ideas: shrink the 15s retry to ~1-2s; find why the
   relaunch exits non-zero (add exit-reason logging); stagger catalog/export off
   the ws_shadow relaunch instant. Owner: W-C5 diagnosis (read-only first).
+- 2026-07-08 · W-C5 ROOT CAUSE PROVEN (operator full-repo scan + code trace) ·
+  The hourly gaps are NOT just "non-zero-exit at the boundary" — a 62-gap scan
+  (criterion: `subscribed` record within 60s of gap-end) splits them into 58
+  RECONNECT-RECOVERY (connection died → Open → resubscribe) and 4 SAME-CONNECTION
+  DATA-DROPOUT (data resumed on a LIVE connection, no reconnect): 07-06 12:26 &
+  14:48 (~62s each, precede larger wedges — periodicity suspect), 07-07
+  17:29→17:51 (22.7min, key sample), 07-07 23:55 (4.3min). PROVEN: W-C1's
+  any-frame watchdog (last_activity_ms_ bumped by ping/pong, ws_client.cpp:114)
+  is blind to data holes on a live connection — it fires at ~901s (whole
+  connection dies, pings stop), not 20s, so the 58 are ~15-min holes not ~20s.
+  FIX (input pinned): a DATA-frame-silence trigger (last_data_ms_ on Text only),
+  two-stage — re-subscribe on the live socket first (fixes the 4), escalate to
+  force_reconnect if no data (fixes the 58). Handles both classes; red-first test
+  injects ping-only frames. FULL WRITEUP + autopsy TODOs:
+  docs/plan_audits/capture_gap_taxonomy_2026-07-08.md. Owner: W-C5 session
+  (production code, full discipline).
