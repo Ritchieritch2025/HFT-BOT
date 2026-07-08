@@ -24,7 +24,7 @@
 ### ② 入库 · STAGING
 | 部件 | 技术 | 说明 |
 |---|---|---|
-| 语言 | **Python 3.10**（研究/工具层专用） | |
+| 语言 | **Python 3.x — 当前未钉版本**（研究/工具层专用） | ⚠️ 治理缺口（2026-07-08 发现）：无 .python-version/requirements 约束，各机器随缘。W-A1 装机时钉死一个成熟版本（如 3.12.x）+ 测试跑绿为契约；"最新版"非目标，可复现才是 |
 | 引擎 | **DuckDB**（staging.duckdb） | 单写者规则（D6）；checkpoint(file, byte_offset) 表保证重启不丢不重 |
 | 策略配置 | **YAML**（config/market_classes.yaml 等） | 两类市场策略：Class A 存 L1，Class B 不存 |
 
