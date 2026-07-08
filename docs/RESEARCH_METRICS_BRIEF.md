@@ -37,11 +37,19 @@ Each metric: **Q** (question) · **⚠** (anomaly action) · **formula** · **da
 - **data:** captured trades + L1 mid series (have it). `mm_calibrate` computes `tox_lo[τ]` exactly this way, and `edge_after_tox = avg_spread/2 − tox_120s`.
 - **when:** NOW. Log-odds space (Q1). *Our measured result (ARCHITECTURE_REVIEW): some sports buckets show positive edge-after-toxicity, BTC-15min ≈ 0 — cite the doc, not repeated here as a parameter.*
 
-**Spread capture (gross edge)**  `[VALIDATED]` · Q2/Q3
+**Spread capture (gross edge)**  `[VALIDATED]` · Q3, Q1
 - **Q:** how many cents of touch-spread is theoretically on offer per bucket?
 - **⚠:** gross spread < fee + toxicity ⇒ no edge; deselect.
-- **formula:** `avg_spread = time-avg(ask_e4 − bid_e4)`; net edge candidate = `spread/2 − markout(τ) − fee`. Fee per Q3: taker ≈ `ceil(0.07·P·(1−P))` per contract; maker on designated series looked up, never assumed 0.
-- **data:** L1 book (have it). `mm_calibrate.avg_spread`. NOW.
+- **units note:** `avg_spread` and the tool's `edge_after_tox` are in **cents /
+  price-space** (consistent with the ARCHITECTURE_REVIEW "+8-9¢" figures) —
+  distinct from the log-odds markout above. Skew/vol math stays in log-odds (Q1);
+  the go/no-go edge is quoted in cents.
+- **formula (validated tool output):** `avg_spread = time-avg(ask_e4 − bid_e4)`
+  and fee-free `edge_after_tox = avg_spread/2 − tox_120s`. **Candidate NET
+  composition (structure only — the fee term is NOT in the current tool):**
+  `spread/2 − markout(τ) − fee`, fee per Q3: taker ≈ `ceil(0.07·P·(1−P))` per
+  contract; maker on designated series looked up, never assumed 0.
+- **data:** L1 book (have it). `mm_calibrate.avg_spread` + `edge_after_tox`. NOW.
 
 **Per-market pessimistic fill bound (go/no-go proxy)**  `[VALIDATED]` · **Q2**
 - **Q:** if we only count fills that a trade STRICTLY THROUGH our price would clear (back-of-queue), is the strategy still positive? (The only bound that decides go/no-go.)
@@ -107,7 +115,7 @@ Each metric: **Q** (question) · **⚠** (anomaly action) · **formula** · **da
 - **formula:** `used / cap` per axis (position, notional, day-loss). Caps hard (Q8), checked pre-placement via the reserve-before-send executor (S6).
 - **data:** live risk snapshot + executor state. LIVE.
 
-**Self-fill detection**  `[LIT]` · S6, D2
+**Self-fill detection**  `[LIT]` · S6
 - **Q:** are our own two-sided quotes crossing/filling each other (wash)?
 - **⚠:** any self-fill ⇒ halt that market; it's fee-burn + a correctness bug.
 - **formula:** match our resting order ids against our own aggressing fills within a market/window.
@@ -179,8 +187,11 @@ Literature supplies the SHAPE, our data supplies every number (Q4):
   category·subcategory on ≥N clean days. *Deliverable:* our calibration table (the
   numbers), refreshed as clean days accrue.
 - **Pessimistic-bound go/no-go (Q2)** — run `mm_backtest` over clean days; which
-  buckets clear the pessimistic bound net of fees. *Deliverable:* go/no-go list per
-  bucket (the market-selection decision).
+  buckets clear the pessimistic bound. **Fees are NOT yet in the sim** (backtest
+  hardcodes maker-fee 0; there is no taker / designated-series maker lookup), so
+  "net of fees" is not real until the **Q3 fee model is wired** — that wiring is a
+  prerequisite of this deliverable, not an afterthought. *Deliverable:* go/no-go
+  list per bucket + the fee-model wiring as its gating task.
   *(Unlock is the capture-hardening + 7-clean-days gate — the dashboard's zone ②.)*
 
 ### C3 — gated on HISTORICAL BACKFILL (settlement calibration)

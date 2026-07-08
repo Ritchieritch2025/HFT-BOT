@@ -6,6 +6,26 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — RESEARCH_METRICS_BRIEF.md drafted + independently audited (paper, P9)
+
+- commit f4a72a5 (draft) + remediation (this commit). For operator research day.
+- Content: (A) MM monitoring metrics menu by our 4 lifecycle phases (collection/
+  calibration/shadow/live), 16 metrics each with question+anomaly-action+formula+
+  data+when-computable, tagged VALIDATED/PARTIAL/LIT + a GUARDRAILS Q1-Q9 anchor;
+  (B) reference frame — rodlaf autopsy lessons (P5) + Avellaneda-Stoikov
+  structure-only with 3 mandatory adaptations (log-odds Q1 / event-not-diffusion
+  risk Q8 / expiry boundary Q6); (C) two-week agenda by unlock condition (now /
+  clean-days / backfill) with deliverables. No fabricated params (Q4).
+- INDEPENDENT AUDIT (combined, P9): NO BLOCKING DEFECTS. Verified against
+  mm_calibrate.py (markout=tox_lo signed log-odds mid-move; edge_after_tox),
+  mm_backtest.py (pessimistic/optimistic bound defs; fees/settlement NOT modeled),
+  GUARDRAILS Q1-Q9 anchors, MM_ROADMAP phases, ARCHITECTURE_REVIEW (+8-9¢ cite is
+  real, not invented). Remediated its 2 non-blocking + nits: (1) C2 "net of fees"
+  reworded — backtest hardcodes maker-0, Q3 fee model is a prerequisite; (2) added
+  a units note that avg_spread/edge_after_tox are price-space (cents) vs the
+  log-odds markout; spread-capture re-anchored Q3/Q1; self-fill anchor → S6 only.
+- verified: doc committed; no code touched (pure paper). Ready for research day.
+
 ## 2026-07-08 — W-D1 APPROVED (written, with operator addendum ⑥⑦) — design FROZEN
 
 - commit: (this commit) dashboard_design_wD1.md gains OPERATOR ADDENDUM
