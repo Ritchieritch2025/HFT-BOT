@@ -476,3 +476,23 @@ noticed-during, observation, suggested owner.
   a per-connection watchdog << 1s); failover is instant (consume whichever feed is
   fresher), reconnect is lazy. Owner: Phase-2 execution-feed W (new plan; gate:
   Q5 WS-drives-execution). Capture (W-C1..C4) stays single-socket + watchdog.
+- 2026-07-08 · W-C2 (discovered building capture_gaps) · raw firehose ROTATION
+  can leave TIME-OVERLAPPING segments: 2026-07-08 hour-00 had firehose_00.ndjson
+  (511MB, spanning 00:10-00:32) AND firehose_00.ndjson.1 (264MB, spanning
+  00:17-00:33) — overlapping ~15 min, and file0 is 2x the ~256MB rotation cap.
+  capture_gaps global-sort proves NO data LOSS there (0 real holes), but the
+  overlap implies records may be DUPLICATED across segments (record count 1.23M
+  for the hour looks inflated). NOT loss, so W-C1/W-C2 unaffected, but for
+  "bulletproof": investigate (1) why a within-hour respawn/rotation produces
+  overlapping + oversized segments, (2) whether ingest DEDUPES the duplicated
+  records (staging is keyed by (sid,seq)/epoch — likely yes, verify), (3) whether
+  the 256MB cap is being enforced. Owner: capture-rotation review (read-only
+  first: diff record sets of the two overlapping segments).
+- 2026-07-08 · W-C2 · the live capture-gap ALERT (capture_gaps.py --live ->
+  work/live/capture_alert.json, exit 2 on active gap) is BUILT + tested but not
+  yet WIRED to run automatically. Options: add to pipeline_supervisor.sh's 60s
+  watchdog loop (it already revives ingest — a natural home) OR a launchd/cron;
+  plus an operator-chosen push (email/webhook) on status=gap. Needs operator
+  decision on the push channel + touches the supervisor (production), so left as
+  a follow-up W (W-C2.1). Until then run --live manually or via cron. Owner: R
+  (channel choice) + a supervisor-wiring W.

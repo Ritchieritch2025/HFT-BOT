@@ -6,6 +6,43 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 00:40 UTC — W-C2 durable capture-gap record + detector (built, real-data-proven)
+
+- commit: e455f99 W-C2 (tools/capture_gaps.py + tests/test_capture_gaps.py +
+  tools.json 2 entries + run_pipeline). Independent audit LAUNCHED at exit.
+- WHAT: capture_gaps.py builds work/event_packs/capture_gaps.csv (start_us,end_us)
+  from raw-feed inter-record silence — the authoritative source for
+  event_validate V-EP15 (replaces the coarse quality_log text parser, which stays
+  as fallback). --live writes work/live/capture_alert.json + exits 2 on an active
+  gap (fail-closed: no raw => gap). Default --min-gap-secs 60 (above W-C1's
+  ~20-25s recovery envelope + the 0.33s healthy inter-record max, so normal ops
+  yield an EMPTY record). 11 pytest incl. an end-to-end raw-built-record ->
+  event_validate=degraded (AF-1).
+- KEY BUG CAUGHT MID-BUILD (by running on real data): the first draft streamed
+  raw files sequentially by first-record ts and reported 2 PHANTOM gaps on
+  2026-07-08 hour-00 — because a within-hour respawn/rotation left two segments
+  whose time ranges OVERLAP (file0 00:10-00:32, file1 00:17-00:33). Fix: GLOBAL
+  SORT of all record timestamps (int64-us array, memory-cheap) before gap
+  detection. Re-run => 0 real gaps for hour-00 (matches forced=0/healthy). A
+  regression test pins this. Lesson: raw segments are NOT guaranteed
+  chronologically disjoint.
+- REAL-DATA RESULT: 2026-07-07 had 19 real capture gaps (31.6M records, 93 files,
+  0 unparsed, 22s) — many 45-60+ min: pre-STEP-0 morning 05:24-12:00, and
+  post-STEP-0/pre-W-C1 15:28-24:00 incl. the confirmed 20:07:30->21:00 hole. Now
+  in the record => backtests over 07-07 correctly `degraded`. CONFIRMS STEP 0
+  alone did NOT stop the gaps; only W-C1 (deployed 07-08 00:25) does. 2026-07-08
+  post-deploy: 0 gaps so far.
+- BACKLOG added: (1) overlapping+oversized rotation segments on 07-08 hour-00
+  (possible DUPLICATE records across segments — no data loss, but verify ingest
+  dedups + rotation/256MB cap correctness); (2) wire --live alert into the
+  supervisor watchdog / cron + operator-chosen email/webhook (W-C2.1).
+- NEXT: (1) read the W-C2 independent audit + fix findings; (2) W-C3 acceptance
+  tail — a 24h ZERO-gap report post-deploy closes it: run
+  `python3 tools/capture_gaps.py --date 2026-07-08` after the day completes
+  (expect 0); the live forced-reconnect proof is nice-to-have (feed has stayed
+  healthy so the watchdog hasn't needed to fire, forced=0). (3) wire the live
+  alert. SINGLE-OWNER RULE in force.
+
 ## 2026-07-08 00:25 UTC — W-C1 independent audit CLEARED + DEPLOYED (W-C3, operator go)
 
 - commits: 72aa110 W-C1 audit remediation (atomic last_activity_ms_ + audit-clear).
