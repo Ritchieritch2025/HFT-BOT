@@ -69,3 +69,16 @@ W-A4 完成   ── 拼图② 执行：settlements 爬取 → 校准研究解�
    开机前 trades 至操作员选定的起始日期；全部行带 rest_backfill。
 3. ③ 深度：全市场 orderbook_delta 在采集，ws_seq 连续性检查绿。
 4. ④ W-LC：determined 帧实时入库，事件包索引含状态时间戳。
+
+## 拼图⑤ CF Benchmarks 指数流（operator 发现 2026-07-08）— 随拼图③同窗执行
+
+- WHAT: WS 频道 `cfbenchmarks_value`（需认证）：Kalshi 加密市场的**结算指数**
+  实时值，每秒一跳，含 trailing 60s 均值 + 刻钟收盘前最后一分钟的结算均值
+  直播（`last_60s_windowed_average_15min`——KXBTC15M 类市场的结算变量本体）。
+- WHY: Crypto 类（第二大类）做市的公允价直接是该指数的函数；临近刻钟收盘，
+  市场价必须向成形中的结算均值收敛——可测的定价锚。没有它，Crypto 定价
+  模型只能从盘口反推标的；有它，标的真值是官方喂价。
+- HOW: 订阅面变更 = capture 端改动 ⇒ D4 测试同 change；先 `indexlist` 发现
+  可用指数，初期订 BTC/ETH 相关；存储走独立 channel 标记（provenance 清晰）；
+  与拼图③（深度）同窗口一次审计。成本：每指数 ~1 条/秒，可忽略。
+- 完成判据: 指数流入库、与对应市场结算价的对账测试绿（结算值 = 指数均值）。
