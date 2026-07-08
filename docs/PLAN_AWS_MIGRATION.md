@@ -65,6 +65,116 @@ Acceptance:     printed vCPU / RAM / EBS, **sized for the POST-migration load, n
 Rollback:       n/a (read-only).
 Exit evidence:  the sizing line + the gold-build-location decision in this doc.
 
+### W-A0 RESULT (2026-07-08, paper branch — no instance exists yet)
+
+**BRANCH DECISION (operator, 2026-07-08): ≥32 GB — gold builds run ON EC2; the
+Mac is fully retired after W-A5** (it remains the dormant rollback host only
+until then). Consequence: the W-A5 "<32 GB exception" paragraph is **n/a** —
+after cutover the Mac's sleep is fully re-enabled, no scheduled wake.
+
+**Sizing mandate (operator, this session):** size for the POST-expansion load —
+rider (b)/playbook 3e full-market L1 + 3g sports-first depth watchlist + the
+future STEP 4 full depth rollout — NOT today's volume.
+
+#### Design-load ledger (every number carries provenance)
+
+| Input | Value | Source |
+|---|---|---|
+| Firehose raw capture | 21–22 GB/day measured on gap days (07-07/07-08 `du work/raw/date=*`); ~24–30 GB/day at true 24/7 uptime [ESTIMATE, uptime-corrected] | this session, measured |
+| Rider (b)/3e full-market L1 | **raw unchanged** — capture already records all categories; only ingest discards Class B today. Ingest/archive/gold input rows grow ~1.3–2× [ESTIMATE] | DATA_COMPLETENESS_ROADMAP 拼图① |
+| 3g depth watchlist N=50 | +2.4 GB/day (30× expected) … +7.9 GB/day (100× conservative); ≤565 msg/s peak | PLAN_DEPTH_EXPANSION §3 [PROBE-PENDING brackets] |
+| STEP 4 full depth N=500 | +15.7 … +52.5 GB/day; ~3,000 msg/s conservative peak | PLAN_DEPTH_EXPANSION §3 [PROBE-PENDING brackets] |
+| Design raw/day (worst case) | ~30 + 52.5 ≈ **~80 GB/day** ⇒ 3-day raw window ≈ **240 GB** | derived from rows above |
+| Gold build memory | ru_maxrss 6.33 GB, peak footprint 17.7 GB incl. compressor, at today's 8.2 M-record day | SESSION_LOG 2026-07-07 (measured) |
+| Mac reference frame | the Mac has **16 GB RAM** (`hw.memsize`, measured this session), arm64, 10 cores — the 17.7 GB peak already exceeds physical RAM (macOS compressed memory/swap absorbs it) | this session, measured |
+| Gold build at STEP 4 scale | input rows grow ~5–12×; memory scaling law UNKNOWN (streaming vs linear) — this is the argument for 64 GB, not 32 | honest unknown; DuckDB spill is the fallback |
+| CPU | decode+apply 281.9 ns/msg ⇒ capture is ~0.1% of one core even at 4 k msg/s; vCPUs are for the daily zstd-15 build, not capture | kalshi_facts.latency [VERIFIED-MEASURED] |
+| Bandwidth | firehose 472 ev/s + depth ~3 k msg/s × 270 B wire ≈ ~1 MB/s ≈ 8 Mbit/s — trivial vs any instance's network | kalshi_facts + PLAN_DEPTH_EXPANSION §2.3 |
+
+#### Region — **us-east-2 (Ohio)**, decided
+
+`dig external-api.kalshi.com` / `external-api-ws.kalshi.com` (2026-07-08) both
+CNAME to `elections-external-api-107430227.us-east-2.elb.amazonaws.com` —
+Kalshi's external Trade API terminates in AWS us-east-2. Same-region EC2 gives
+the lowest latency path and free same-region S3 transfer. (Kalshi also offers
+AWS **PrivateLink** for these hosts — institutional@kalshi.com — a future
+latency/isolation option, not needed for capture. From EC2 prefer the
+`external-api*` hosts over `api.elections.kalshi.com`, which resolves to
+CloudFront; host switch is a W-A2 checklist item, signature payload unchanged.)
+
+#### Instance choice — **r8g.2xlarge** (8 vCPU / 64 GB, Graviton4), on-demand
+
+Prices: ec2.shop API, us-east-2, on-demand Linux, fetched 2026-07-08 (verify
+the console quote at launch; reserved = 1-yr no-upfront):
+
+| Instance | vCPU/RAM | $/mo on-demand | $/mo 1-yr reserved | Verdict |
+|---|---|---|---|---|
+| **r8g.2xlarge** (recommended) | 8 / 64 GB | **$344** | $228 | covers STEP 4 full depth without betting on the unknown gold-build memory scaling; no resize (= no capture gap) ever needed |
+| m8g.2xlarge (budget) | 8 / 32 GB | $262 | $173 | fine through 3g N=50; at STEP 4 the RAM is a measured gamble — resize to 2xlarge later costs a stop/start capture gap |
+| r8g.xlarge (floor) | 4 / 32 GB | $172 | $114 | meets the ≥32 GB branch letter but not the sizing mandate (build hours on 4 cores at 10× data; thin RAM) |
+| r7i.2xlarge (x86 fallback) | 8 / 64 GB | $386 | $256 | only if ARM-Linux surprises appear in W-A1/W-A2 (terminate + relaunch is cheap pre-cutover) |
+
+Why Graviton (aarch64): the dev Mac is arm64 Apple Silicon — the whole codebase
+(incl. simdjson NEON, E4 integer fixed-point) already builds and passes tests
+on ARM64; Graviton4 is ~11% cheaper than the x86 equivalent. W-A2's full test
+battery ON the box is the proof gate either way. Endianness identical.
+
+Why not spot: 24/7 revenue-critical capture; interruption = capture gap by
+design. On-demand until the cutover is proven; the reserved/savings-plan
+purchase is an operator decision deferred to W-A5's cost section.
+
+#### EBS — **300 GB gp3 at launch, grow online before STEP 4**
+
+- Launch: **300 GB gp3** (defaults: 3,000 IOPS / 125 MB/s — ample; avg write
+  <1 MB/s). Cost **$24/mo** ($0.08/GB-mo us-east-2, AWS published rate —
+  verify on the console quote).
+- Working set today+3g: raw window ~75–90 GB + staging ~5–10 GB + local archive
+  + repo/build/OS ~20 GB + rotated metrics 1.5 GB (rider (a)) ⇒ ~120 GB, so
+  300 GB is ~2.5× headroom.
+- Before STEP 4 N≥200: grow the volume online to **500 GB** (+$16/mo; gp3
+  grows with NO downtime, no capture gap; can't shrink — that's why we don't
+  start at 500). Local archive retention policy (S3 is the vault) is W-A5's
+  cost-budget item.
+
+#### Monthly budget line (black and white)
+
+| Item | $/mo |
+|---|---|
+| r8g.2xlarge on-demand | 344 |
+| EBS 300 GB gp3 | 24 |
+| S3 (initial vault ~54 GB raw + archive; ongoing sync) | ~3–5 |
+| Egress (reports S3→Mac; ingress is free) | <1 |
+| **Total at launch** | **~$375/mo** (→ ~$255/mo if/when 1-yr reserved, W-A5 decision) |
+| STEP 4 delta (EBS 500 GB, S3 growth) | +$20–30/mo |
+
+#### Operator boot checklist（照着点；从"Launch instance"起开始计费 ~$0.47/小时）
+
+1. 登录 AWS 控制台，右上角 region 切到 **us-east-2（Ohio / 俄亥俄）**。
+2. EC2 → **Launch instance**（启动实例）。
+3. Name（名称）: `kalshi-pipeline-1`。
+4. AMI（系统镜像）: **Ubuntu Server 24.04 LTS**，Architecture 选 **64-bit (Arm)**。
+5. Instance type（机型）: **r8g.2xlarge**（确认页面显示 8 vCPU / 64 GiB）。
+6. Key pair（密钥对）: Create new key pair → 类型 **ED25519**，格式 .pem，
+   下载后保存好（这是登录钥匙，丢了要换锁；不要发给任何人，包括我）。
+7. Network settings（网络）: 默认 VPC 即可；**Create security group**，只勾
+   **Allow SSH traffic from → My IP**（务必选 My IP，不要 Anywhere）。
+   不勾 HTTP/HTTPS（本机不对外服务）。
+8. Configure storage（磁盘）: 改成 **300 GiB, gp3**（IOPS/吞吐留默认
+   3000/125）。Advanced 里把这块盘的 **Delete on termination 改成 No**
+   （实例误删时数据盘保留）。
+9. Advanced details（高级）最下方: **Termination protection → Enable**
+   （防误删）。其余全部默认；**不要**挂 IAM role（凭证走 env.sh，S4）。
+10. 右侧 Summary 核对：r8g.2xlarge / 300 GiB gp3 / us-east-2 → **Launch
+    instance**。此刻开始计费。
+11. 实例页 → Elastic IPs → **Allocate** 一个并 **Associate** 到该实例
+    （固定公网 IP，挂着不额外收费）。
+12. 把「公网 IP + 你本机 `ssh -i 密钥.pem ubuntu@IP` 能登上」发回来。
+    我下一步（W-A0 收尾）只做三条只读命令：`nproc` / `free -g` / `lsblk`，
+    核对 8 / 62-64 / 300 后 W-A0 关闭，进入 W-A1。
+
+**STOP — 花钱节点：以上每一步都由操作员执行；agent 不碰账号（S4）。批准即
+照单点击；不批准则本清单作废重议，无任何已产生费用。**
+
 ## W-A1 — hardening & bring-up
 Purpose:        Turn a bare Ubuntu box into a locked-down, reproducible pipeline
                 host — repo, deps, time sync, service units — WITHOUT capture yet.

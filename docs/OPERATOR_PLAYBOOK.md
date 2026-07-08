@@ -189,6 +189,11 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A0 纸面完成 2026-07-08**：选型 r8g.2xlarge（8 vCPU/64GB，us-east-2）
+  + 300GB gp3，~$375/月；决策、账目、开机清单全在
+  PLAN_AWS_MIGRATION.md「W-A0 RESULT」一节。下一步 = 操作员照清单开机
+  （花钱节点，等批），然后 W-A1 会话开头跑 3 条只读命令核对后关闭 W-A0。
+
 - [ ] **11–14. W-D2 → W-D3 → W-D4 → W-D5 (dashboard collectors, ON EC2 —
   B1 ruling 2026-07-07),** prompts per their seven-field definitions in
   PLAN_DASHBOARD_OBSERVATORY.md. Unblocked by item 10 (cutover).
