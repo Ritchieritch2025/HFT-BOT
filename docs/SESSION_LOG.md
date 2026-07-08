@@ -6,6 +6,23 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — GUARDRAILS P7-P9: three friction relaxations (operator-approved); safety fuses untouched
+
+- commits: GUARDRAILS P7-P9 (own commit per its change rule); this entry.
+- decisions (file: docs/GUARDRAILS.md §5): P7 reads never need enumeration,
+  only writes; P8 sandbox/ = free-fire zone (no W/audit/full ritual; production
+  may never import from it); P9 paper-only Ws batchable per session, one
+  combined audit. Explicitly NOT relaxed: S1-S6, D1-D6, supervisor/capture
+  gates, independent audits for anything non-sandbox.
+- context capsule: prompted by operator ("放松没必要的权限提升流畅度").
+  Principle applied: freedom where mistakes are cheap+reversible, rigor where
+  irreversible/lie-prone. Evidence anchors: A1 doc-bug came from over-tight
+  read lists (P7); dashboard prototype iteration already worked sandbox-style
+  de facto (P8); W-D0 paper audit found 11 real issues so audits stay (P9).
+- blocked / handoff: dashboard design iteration continues in sandbox under P8;
+  queue unchanged (playbook 2a supervisor restart + item 2 after 07-09 00:00
+  UTC; W-D1 approval still the STOP before W-D6).
+
 ## 2026-07-08 03:45 UTC — Playbook item 1 DONE: supervisor daily wiring (W-C2.1 + coverage_audit) + audit
 
 - commits: 9878025 (W-C2.1 capture_gaps daily+live), 7ced1a7 (coverage_audit
