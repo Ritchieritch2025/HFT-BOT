@@ -215,3 +215,28 @@ approved+audited; B1 ruled (collectors wait for EC2).
 - Seven clean days of capture (counts only with positive coverage evidence —
   PLAN_DASHBOARD_OBSERVATORY §W-D4 / audit A3); earliest 2026-07-13.
 - Live orders: ALL lifecycle gates + risk caps + tested kill switch + S1.
+
+---
+
+## 迁移完成 · 操作员亲自验收单（2026-07-08 定，切换后逐项打勾）
+
+问 agent 要证据，每项要看到实物数字/文件，口头"没问题"不算：
+
+- [ ] **数据零丢失**：双机重叠 diff 报告——重叠窗口内 EC2 漏检数字；
+      Mac→S3 残余窗口回灌完成 + md5 校验输出。
+- [ ] **金库可恢复**：W-A3 恢复演练的实际输出（从 S3 拉回并校验成功的记录），
+      不是"配置了备份"。
+- [ ] **金库删不掉**：EC2 所用 IAM 策略原文——确认无 DeleteObject；
+      S3 版本化开启截图/输出。
+- [ ] **EC2 采集健康**：切换后连续 24h 的 capture_gaps 报告 = 零缺口；
+      freshness/msg rate 正常；ws_seq 连续。
+- [ ] **测试全绿在云上**：EC2 上 `make check` + `run_pipeline.sh` 的输出尾巴。
+- [ ] **Mac 正确退役**：launchd 已卸载但保留（随时可回滚）；
+      恢复睡眠（W-A5 步骤，≥32GB 分支才允许）。
+- [ ] **报告回流**：桌面 TradingSys Report 文件夹收到第一份 EC2 生成的
+      每日 PDF。
+- [ ] **成本白纸黑字**：首月预算表（EC2+EBS+S3+流出流量）+ 设定的上限。
+- [ ] **随手取数演示**：现场从 S3 拉任意一天任意类别的数据（或 DuckDB
+      直查 S3）跑通一次给你看。
+
+九项全勾 = 迁移正式完结；缺一项 = W-A5 不算完成，不进入下一阶段。
