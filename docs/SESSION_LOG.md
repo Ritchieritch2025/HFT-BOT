@@ -6,6 +6,48 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — W-D0 audit remediation: 11 findings confirmed + fixed; 401 evidence archived; B1 ruling OPEN
+
+- commit: (this commit) plan amendments + docs/plan_audits/
+  dashboard_wD0_requirements_audit_2026-07-07.md (audit VERBATIM + verdicts)
+  + tests/fixtures/incidents/ (archived 401 evidence).
+- decisions (file: PLAN_DASHBOARD_OBSERVATORY.md unless noted):
+  - A1: W-D6 Allowed reads explicitly include capture_gaps.csv,
+    capture_alert.json, metrics.ndjson — no mirroring layer.
+  - A2: notify.json contract added to W-D3; refresh cadence = 5s poll;
+    "one refresh cycle" = ≤10s, objectively judgeable.
+  - A3: clean-day now requires POSITIVE coverage evidence (scan record +
+    continuous metrics + zero gaps); silence never advances the counter.
+  - A4: artifact envelope rule (schema_version/generated_at_us/source_sha/
+    max_age_s; stale ⇒ UNKNOWN); W-D4 60s + W-D5 10min supervisor cadence;
+    W-D7 stop-collector degradation test.
+  - B2: live-statistic vs state definition (TREND RULE now enforceable).
+  - B3: MODULE NOT LIVE = banner-exempt honest state; green-washing a
+    scaffold = named D2 violation.
+  - B4: backtest contract pinned — schema_version 1, ts int64 µs UTC, money
+    E4 cents, qty whole contracts, no floats.
+  - C1 (URGENT, DONE): real 401 evidence archived to tests/fixtures/incidents/
+    (full ws_shadow.log copy, 886KB, 488 401-lines + quality_log slice) —
+    raw/log rotation would have destroyed it before W-D3 executes.
+  - C2: RESOLVED-GOOD — lifecycle_status.json/lifecycle_events.ndjson already
+    exist (lifecycle_check.py); W-D4 reads them; sha-absent ⇒ UNKNOWN.
+  - C3: forced_reconnects_ verified NOT in metrics.ndjson; log-parse stays as
+    pinned fallback; metrics-export rider proposed (capture-side, D4 test
+    same change, operator-gated).
+  - C4: catalog (path,size,mtime) count cache + IO-budget acceptance;
+    latency_daily.ndjson downsample so long trends survive 512MB×3 rotation.
+- context capsule: audit source = operator-relayed independent review of
+  commit 0326a59. All A/B findings verified true against the doc; C2 was the
+  only inaccuracy (record already exists). Verification evidence: 401 replay
+  previously existed ONLY as unit-test pattern (test_ws_client.cpp:159-186)
+  + live log; forced_reconnects at ws_client.hpp:100,142; lifecycle files
+  confirmed by reading tools/lifecycle_check.py:4-27.
+- blocked / handoff: **B1 ordering ruling still OPEN** (operator did not yet
+  rule; conservative default written into doc: W-D2..D5 blocked by STEP 1
+  cutover W-A4, built on EC2). Next dashboard W = W-D1 static design mock
+  (STOP), now unblocked since B2/B3 renderings are specified. Wider queue
+  unchanged: STEP 1 AWS + W-C3 acceptance tail + W-C2.1 wiring.
+
 ## 2026-07-07 — W-D0 DONE: dashboard requirements approved + PLAN_DASHBOARD_OBSERVATORY.md drafted
 
 - commit: (this commit) docs/PLAN_DASHBOARD_OBSERVATORY.md — the previously

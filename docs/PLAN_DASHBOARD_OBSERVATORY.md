@@ -5,10 +5,18 @@ this is the monitoring substrate the Phase-2 gates (and eventually S1 live
 sessions) are *read through*. A dashboard that lies blocks every later gate (D2).
 
 Status: **W-D0 requirements APPROVED by operator 2026-07-07** (this doc, §2–§3).
-W-D1 design is the next STOP. Sequencing note: MASTER_SEQUENCE puts STEP 1 (AWS)
-before STEPs 2–3; the operator initiated W-D0 early on 2026-07-07 — permissible
-because W-D0/D1 are paper-only STOPs that gate only W-D6 (amendment in
-MASTER_SEQUENCE STEP 2). Implementation Ws still queue behind STEP 1.
+Independently audited 2026-07-07 (docs/plan_audits/
+dashboard_wD0_requirements_audit_2026-07-07.md): findings A1–A4, B2–B4, C1–C4
+remediated in this revision. W-D1 design is the next STOP.
+
+Sequencing note: MASTER_SEQUENCE puts STEP 1 (AWS) before STEPs 2–3; the
+operator initiated W-D0 early on 2026-07-07 — permissible because W-D0/D1 are
+paper-only STOPs that gate only W-D6 (amendment in MASTER_SEQUENCE STEP 2).
+
+**OPEN — B1 ordering ruling (operator):** do the collector Ws (W-D2..D5) queue
+behind STEP 1 and get built directly on EC2 (conservative default, in force
+until ruled otherwise), or may they start on the Mac now and be redeployed
+post-cutover? Until ruled: W-D2 is Blocked by STEP 1 cutover (W-A4).
 
 ---
 
@@ -16,7 +24,21 @@ MASTER_SEQUENCE STEP 2). Implementation Ws still queue behind STEP 1.
 
 - **TREND RULE** (operator-approved, MASTER_SEQUENCE STEP 2): every live
   statistic renders with a visual trend (sparkline/time-series), never a bare
-  number. A bare number on any tab = acceptance FAIL.
+  number. A bare number on any tab = acceptance FAIL. *Definition (audit B2):*
+  a **live statistic** is a time-varying measurement used for health judgment
+  (rates, latencies, lag, counts-over-time, PnL, budget consumption) — trend
+  mandatory. **State** (gate status, kill-switch armed, git sha, catalog
+  attributes like row counts/date ranges/paths) is exempt — rendered as status
+  chips or plain values, no sparkline.
+- **Artifact envelope (audit A4):** every observatory artifact (latency series
+  header, incidents, notify, readiness, catalog) carries `schema_version`,
+  `generated_at_us` (int64 µs UTC), `source_sha`, and a declared `max_age_s`.
+  The frontend renders any artifact older than its max_age as UNKNOWN —
+  a dead collector must never leave stale-green widgets. Max ages: latency
+  series 120s; notify/readiness 180s; catalog 1800s.
+- **Refresh cadence (audit A2):** frontend polls tab endpoints every 5s (SSE
+  retained where it already exists). "Within one refresh cycle" in any
+  acceptance below means ≤ 2× poll interval (≤ 10s).
 - **S5 forever:** read-only, localhost-bound, live_order-class tools refused by
   the console. No trade button, no panic button (operator decision 2026-07-07:
   panic stays the standalone CLI per S3; the dashboard may *display* kill-switch
@@ -41,7 +63,13 @@ analysis stays in CLI/notebooks; the dashboard renders result artifacts only.
 
 **First screen / Overview tab (Q2):**
 1. Go/no-go banner: lifecycle gates + kill-switch state; any UNKNOWN ⇒ banner
-   cannot be green.
+   cannot be green. *Scope (audit B3):* the banner aggregates **deployed
+   modules only**. MODULE NOT LIVE is a distinct, honest, banner-exempt state
+   (grey, labeled, visually unmistakable from both green and UNKNOWN) for
+   modules that have not shipped (Backtest/Strategy/Execution pre-STEP-6).
+   Rendering a scaffold as green, or silently folding it into the banner to
+   make it green, is a named D2 violation. UNKNOWN (expected data missing or
+   over-age) always forces non-green.
 2. Capture health: freshness, active-gap state (capture_alert.json), gap count
    trend from capture_gaps.csv.
 3. Latency snapshot: WS RTT + full-chain latency, sparklined (TREND RULE).
@@ -87,11 +115,16 @@ Purpose:          One structured, append-only time-series for every number the
                   Overview/Data tabs sparkline: WS RTT, full-chain latency,
                   per-feed msg rate, ingest lag, freshness. The observatory's
                   backbone (TREND RULE needs history, not instants).
-Blocked by:       nothing (amendment 2026-07-07); runs on Mac now, EC2 later.
+Blocked by:       STEP 1 cutover (W-A4) — conservative default pending the B1
+                  ruling (see header OPEN item). Built on EC2.
 Allowed reads:    work/metrics.ndjson; work/raw (timestamps only); existing
                   latency probe outputs (full_chain_latency).
 Allowed writes:   tools/observatory_collect.py; work/observatory/latency.ndjson
-                  (rotated, 512MB keep 3 like metrics); tests; tools.json entry;
+                  (rotated, 512MB keep 3 like metrics) + latency_daily.ndjson
+                  (audit C4: unbounded small daily downsample so long-horizon
+                  trends survive rotation; Data tab "full time-series" = the
+                  rotation window, longer horizons render from the downsample);
+                  tests; tools.json entry;
                   supervisor wiring (append-only block, capture continuity stated).
 Forbidden writes: capture/ingest/export code; anything under src/.
 Acceptance:       fixture metrics stream ⇒ deterministic series rows; rotation
@@ -105,16 +138,31 @@ Purpose:          Machine-readable incident stream: auth-401 bursts, capture
                   gap open/close (from W-C2's alert), freshness stalls, forced-
                   reconnect spikes. Feeds the Overview alert stream and W-D7's
                   401-replay acceptance.
-Blocked by:       W-D2 (series to detect on).
+Blocked by:       W-D2 (series to detect on); W-C2 artifacts (capture_alert.json
+                  contract — cross-plan dep, audit C1); acceptance fixture
+                  ARCHIVED 2026-07-07: tests/fixtures/incidents/
+                  ws_shadow_401_lockout_2026-07-07.log (full live log, 488
+                  401-lines, all lockout bursts) + quality_log slice — preserved
+                  before raw/log rotation could destroy it.
 Allowed reads:    work/observatory/; work/live/capture_alert.json;
-                  work/quality_log.ndjson; ws_shadow.log.
+                  work/quality_log.ndjson; ws_shadow.log (fallback path — audit
+                  C3: forced_reconnects_ exists in ws_client but is NOT in
+                  metrics.ndjson; log-parse is pinned by fixture; RIDER,
+                  operator-gated: export forced= into metrics.ndjson —
+                  capture-side change, D4 ingest test in the same change).
 Allowed writes:   tools/incident_detect.py; work/observatory/incidents.ndjson;
-                  tests; tools.json; supervisor wiring (same rules as W-D2).
+                  work/observatory/notify.json (audit A2 — THE notification
+                  file: {schema_version, generated_at_us, source_sha, active:[
+                  {id, severity, kind, start_us, summary}]}; empty active list
+                  when healthy; consumed by the banner and by W-A5's alert
+                  routing); tests; tools.json; supervisor wiring (same rules
+                  as W-D2).
 Forbidden writes: capture/ingest/export code.
-Acceptance:       replay of the REAL 2026-07-07 401 segment ⇒ exactly one
-                  auth-lockout incident with correct [start,end]; seeded gap
-                  fixture ⇒ open+close pair; healthy day fixture ⇒ zero incidents.
-Rollback:         remove supervisor line; delete incidents.ndjson.
+Acceptance:       replay of the ARCHIVED 2026-07-07 401 fixture ⇒ auth-lockout
+                  incident(s) with correct burst boundaries + notify.json gains
+                  an active entry; seeded gap fixture ⇒ open+close pair; healthy
+                  day fixture ⇒ zero incidents + empty notify active list.
+Rollback:         remove supervisor line; delete incidents.ndjson + notify.json.
 Exit evidence:    commit; test tail; real replayed-incident record.
 
 ## W-D4 — Readiness/gates snapshot collector
@@ -123,14 +171,28 @@ Purpose:          The production-readiness half: lifecycle gate states, test-
                   registry status, standing gates (7-clean-days countdown,
                   fees OQ-1) — as one snapshot JSON the Overview banner reads.
 Blocked by:       W-D2 (shared collector harness).
-Allowed reads:    lifecycle_check outputs; tools.json; git HEAD; SESSION_LOG
-                  (dates only); capture_gaps.csv (clean-day computation).
-Allowed writes:   tools/readiness_snapshot.py; work/observatory/readiness.json;
-                  tests; tools.json entry.
+Allowed reads:    work/lifecycle_status.json + work/lifecycle_events.ndjson
+                  (verified existing, written by tools/lifecycle_check.py —
+                  audit C2 resolved; if a recorded run lacks git sha, sha
+                  renders UNKNOWN, fail-closed); tools.json; git HEAD;
+                  SESSION_LOG (dates only); capture_gaps.csv + the per-day
+                  scan records; work/metrics.ndjson (coverage evidence).
+Allowed writes:   tools/readiness_snapshot.py; work/observatory/readiness.json
+                  (envelope per §1); tests; tools.json entry; supervisor wiring
+                  (audit A4 — cadence: every 60s, same append-only rules as
+                  W-D2).
 Forbidden writes: everything else.
 Acceptance:       fixture inputs ⇒ deterministic snapshot; any missing input ⇒
-                  that gate = UNKNOWN, overall = NOT-GO (fail-closed, S2/D2).
-Rollback:         delete tool + snapshot.
+                  that gate = UNKNOWN, overall = NOT-GO (fail-closed, S2/D2);
+                  **clean-day requires POSITIVE coverage evidence** (audit A3):
+                  a day counts clean only if (a) its capture_gaps scan record
+                  exists, (b) its metrics/freshness series is present and
+                  continuous, AND (c) zero gaps recorded. A day with no
+                  evidence — collector down, scan never ran, day pruned
+                  unscanned — is NOT clean; the 7-clean-days counter renders
+                  UNKNOWN, never advances on silence. Red-first test: absent-
+                  evidence fixture day ⇒ counter UNKNOWN.
+Rollback:         delete tool + snapshot; remove supervisor line.
 Exit evidence:    commit; test tail; real snapshot rendered in existing console.
 
 ## W-D5 — Warehouse catalog builder (Data-tab access path)
@@ -140,21 +202,29 @@ Purpose:          "A path to access all the data pulled": walk archive/staging/
                   (ws_capture vs rest_backfill, never merged silently).
 Blocked by:       W-D2 (harness); pairs with PLAN_EVENT_PACKAGING outputs.
 Allowed reads:    work/ tree (read-only walk); DuckDB read-only with D6 retry.
-Allowed writes:   tools/warehouse_catalog.py; work/observatory/catalog.json;
-                  tests; tools.json entry.
+Allowed writes:   tools/warehouse_catalog.py; work/observatory/catalog.json
+                  (envelope per §1); its (path,size,mtime) count cache;
+                  tests; tools.json entry; supervisor wiring (audit A4 —
+                  cadence: every 10 min, niced/backgrounded).
 Forbidden writes: any data file it catalogs (it is a pure reader).
 Acceptance:       fixture tree ⇒ exact catalog; a DuckDB held by a writer ⇒
                   retry-then-UNKNOWN, never a lock conflict (D6); row counts
-                  match a direct count on fixtures.
+                  match a direct count on fixtures; **IO budget** (audit C4):
+                  unchanged files (same path+size+mtime) are NEVER re-counted —
+                  proven by a fixture rerun with a touched-nothing tree
+                  completing without opening data files.
 Rollback:         delete tool + catalog.json.
 Exit evidence:    commit; test tail; real catalog covering 07-06→today.
 
 ## W-D1 — Design (STOP: operator approves before W-D6)
 Purpose:          Wireframe + component spec for all 7 tabs: layout per tab,
                   every widget mapped to its W-D2..D5 field, every status
-                  element's UNKNOWN rendering specified (D2), sparkline
-                  placement per TREND RULE. Static HTML mock, no live data.
-Blocked by:       W-D0 ✅.
+                  element's UNKNOWN rendering specified (D2), the three-way
+                  visual distinction green / UNKNOWN / MODULE NOT LIVE (§2,
+                  audit B3), stale-artifact rendering (§1 envelope), sparkline
+                  placement per TREND RULE definition (§1, audit B2).
+                  Static HTML mock, no live data.
+Blocked by:       W-D0 ✅ incl. audit remediation 2026-07-07.
 Allowed reads:    this doc; existing dashboard_server.py.
 Allowed writes:   docs/plan_audits/dashboard_design_wD1.md + static mock under
                   sandbox/ (throwaway).
@@ -170,7 +240,13 @@ Purpose:          Implement §2 on the kept backend: modular frontend, shared
                   work/observatory/. Overview+Data full; Backtest/Strategy/
                   Execution as contract-true scaffolds.
 Blocked by:       W-D1 approval + W-D2..D5 outputs existing.
-Allowed reads:    work/observatory/; existing endpoints.
+Allowed reads:    work/observatory/; existing endpoints; AND (audit A1 —
+                  granted here explicitly, not improvised at build time) the pipeline-owned read-only files the
+                  §2 table names: work/event_packs/capture_gaps.csv,
+                  work/live/capture_alert.json, work/metrics.ndjson (tail).
+                  Rationale: no mirroring layer — copying them into observatory
+                  would add a staleness hop for zero safety gain; the server
+                  already reads work/ files read-only.
 Allowed writes:   dashboard_server.py (endpoints + templates); static assets;
                   tests (endpoint contract tests + a headless render smoke).
 Forbidden writes: collectors (they're done); capture/ingest/export; tools.json
@@ -188,22 +264,35 @@ Blocked by:       W-D6.
 Allowed reads:    everything above.
 Allowed writes:   fixes found by the audit; docs.
 Forbidden writes: new features.
-Acceptance:       replay the real 401 segment through W-D3 ⇒ Overview banner
-                  degrades + incident row + notification file within one refresh
-                  cycle; pull a source file ⇒ affected widgets go UNKNOWN (never
-                  stale-green); independent fresh-context adversarial audit of
+Acceptance:       replay the ARCHIVED 401 fixture through W-D3 ⇒ Overview
+                  banner degrades + incident row + notify.json entry, all
+                  visible within one refresh cycle (≤10s per §1 cadence);
+                  pull a source file ⇒ affected widgets go UNKNOWN (never
+                  stale-green); **stop each collector** (audit A4) ⇒ its
+                  widgets degrade to UNKNOWN within max_age + one refresh;
+                  independent fresh-context adversarial audit of
                   the whole plan (mandatory — it has caught defects every time).
 Rollback:         n/a.
 Exit evidence:    audit writeup in docs/plan_audits/; SESSION_LOG entry.
 
 ## 4. Backtest result-artifact contract (fixed now so the future engine targets it)
 
-`work/backtest/<run_id>/result.json`: {run_id, git_sha, params, date_range,
-markets[], equity_curve[[ts,pnl_pessimistic,pnl_optimistic]], fills[{ts,market,
+`work/backtest/<run_id>/result.json`: {**schema_version: 1** (audit B4 —
+renderer rejects unknown majors with an explicit UNSUPPORTED SCHEMA state,
+never a guess), run_id, git_sha, params, date_range, markets[],
+equity_curve[[ts,pnl_pessimistic,pnl_optimistic]], fills[{ts,market,
 side,px_e4,qty,queue_model}], summary{n_fills, pnl_pessimistic, pnl_optimistic,
-max_drawdown, fees_paid}}. Prices E4 fixed-point (D5); **pessimistic bound is
-the headline number everywhere; optimistic is diagnosis-only** (Q2). The
-Backtest tab renders any conforming file; the engine (STEP 6+) writes them.
+max_drawdown, fees_paid}}.
+
+Units (audit B4, pinned): `ts` = int64 **microseconds UTC** (same convention as
+capture_gaps start_us/end_us); `px_e4` = int64, price in cents × 10⁴ (E4, D5);
+all money fields (`pnl_*`, `max_drawdown`, `fees_paid`) = int64 cents × 10⁴
+(E4, fees rounded up per Q3 before summation); `qty` = int64 whole contracts.
+No floats anywhere in the file (D5).
+
+**Pessimistic bound is the headline number everywhere; optimistic is
+diagnosis-only** (Q2). The Backtest tab renders any conforming file; the
+engine (STEP 6+) writes them.
 
 ## 5. Self-audit against GUARDRAILS §6
 
