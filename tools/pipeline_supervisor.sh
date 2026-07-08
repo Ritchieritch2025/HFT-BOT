@@ -73,6 +73,11 @@ start_ingest() {
 # ingest daemon must be revived independently (skipped during the export pause).
 ( while true; do
     sleep 60
+    # W-C2.1: refresh the live capture-gap alert every cycle. Read-only over raw
+    # (checks the newest firehose segment's freshness), writes ONLY
+    # work/live/capture_alert.json + exits non-zero on an active gap. It never
+    # touches ws_shadow/ingest/export, so it cannot affect capture continuity (P4).
+    python3 tools/capture_gaps.py --live >/dev/null 2>&1
     [ -f "$LIVE/export_pause" ] && continue
     ingest_alive || start_ingest
   done ) &
@@ -110,6 +115,13 @@ while true; do
     fi
     rm -f "$LIVE/export_pause"
     ingest_alive || start_ingest
+    # W-C2.1: record the just-completed day's capture gaps into the durable
+    # structured record (event_validate V-EP15's source) BEFORE its raw ages out
+    # of the 3-day retention — an unscanned pruned day loses its gaps forever.
+    # Read-only over raw; writes ONLY the derived work/event_packs/capture_gaps.csv.
+    # Backgrounded + placed AFTER the pause is lifted and ingest is back, so it
+    # extends neither the ingest pause nor the ws_shadow relaunch (P4 preserved).
+    python3 tools/capture_gaps.py --date "$YESTERDAY" >> "$LIVE/capture_gaps.log" 2>&1 &
     # daily research refresh on the freshly archived day (read-only, background)
     ( python3 tools/mm_scan.py --date "$YESTERDAY" &&
       python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&

@@ -595,3 +595,16 @@ def test_kill_restart_determinism(tmp_path):
         assert (only_ref, only_int) == (0, 0), \
             "%s differs after kill/restart: ref-only=%d int-only=%d" % (t, only_ref, only_int)
     con.close()
+
+
+def test_supervisor_wires_capture_gaps_daily_and_live():
+    """W-C2.1 contract: the supervisor MUST (a) record each completed day's
+    capture gaps into the durable record before its raw ages out of the 3-day
+    retention (else B3 — a pruned unscanned day loses its gaps forever), and
+    (b) refresh the live gap alert. A regression that drops either wiring
+    silently rots the gap gate / hides an in-progress outage."""
+    sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    assert 'capture_gaps.py --date "$YESTERDAY"' in sup, \
+        "daily capture-gap record not wired into the supervisor export block"
+    assert "capture_gaps.py --live" in sup, \
+        "live capture-gap alert not wired into the supervisor watchdog loop"
