@@ -217,22 +217,35 @@ Rollback:         delete tool + catalog.json.
 Exit evidence:    commit; test tail; real catalog covering 07-06→today.
 
 ## W-D1 — Design (STOP: operator approves before W-D6)
-Purpose:          Wireframe + component spec for all 7 tabs: layout per tab,
-                  every widget mapped to its W-D2..D5 field, every status
-                  element's UNKNOWN rendering specified (D2), the three-way
-                  visual distinction green / UNKNOWN / MODULE NOT LIVE (§2,
-                  audit B3), stale-artifact rendering (§1 envelope), sparkline
-                  placement per TREND RULE definition (§1, audit B2).
-                  Static HTML mock, no live data.
+*(AMENDED 2026-07-08, operator-approved: v1 static mock REJECTED — grey
+placeholder aesthetic + hardcoded fake data made design review meaningless.
+W-D1 is now a READ-ONLY LIVE PROTOTYPE, not a static mock.)*
+Purpose:          Throwaway sandbox prototype of all 7 tabs driven by REAL
+                  existing local files — zero fabricated numbers. Every panel
+                  either reads a real source or renders MODULE NOT LIVE;
+                  faking a series in a design artifact is itself a D2-spirit
+                  violation (it lied to the operator, hence this amendment).
+                  Must demonstrate: dense dark terminal aesthetic (§2 Q4),
+                  three-way green/UNKNOWN/MODULE NOT LIVE distinction (B3),
+                  stale-artifact UNKNOWN rendering (§1 envelope), TREND RULE
+                  sparklines from real history (B2).
 Blocked by:       W-D0 ✅ incl. audit remediation 2026-07-07.
-Allowed reads:    this doc; existing dashboard_server.py.
-Allowed writes:   docs/plan_audits/dashboard_design_wD1.md + static mock under
-                  sandbox/ (throwaway).
-Forbidden writes: dashboard_server.py, anything production.
-Acceptance:       operator reviews the mock and approves IN WRITING (SESSION_LOG
-                  + amendment note here). No code before that.
-Rollback:         n/a (paper).
-Exit evidence:    approved design doc committed.
+Allowed reads:    this doc; existing dashboard_server.py; READ-ONLY:
+                  work/metrics.ndjson, work/event_packs/capture_gaps.csv,
+                  work/lifecycle_status.json, work/live/capture_alert.json,
+                  work/quality_log.ndjson.
+Allowed writes:   docs/plan_audits/dashboard_design_wD1.md + prototype under
+                  sandbox/ (throwaway; may include a trivial localhost-only
+                  read-only file server for preview — run manually, never
+                  supervised/launchd, killed after review).
+Forbidden writes: dashboard_server.py, anything production; no daemons, no
+                  supervisor entries, no writes to work/.
+Acceptance:       operator reviews the LIVE prototype and approves IN WRITING
+                  (SESSION_LOG + amendment note here). No W-D6 code before
+                  that. Zero fabricated data points — spot-checkable: every
+                  rendered number traceable to a source file line/row.
+Rollback:         delete sandbox/ prototype.
+Exit evidence:    approved design doc committed; prototype screenshot set.
 
 ## W-D6 — Frontend rebuild + tab endpoints
 Purpose:          Implement §2 on the kept backend: modular frontend, shared
