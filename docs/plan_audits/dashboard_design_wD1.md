@@ -225,3 +225,33 @@ operator approves IN WRITING (SESSION_LOG + a plan amendment note); no
 baselines strengthen as clean days accumulate (~2 archived days today, both
 gappy); corrupt-line count needs the W-C2.1 daily wiring active (dormant until the
 supervisor restarts).
+
+## OPERATOR ADDENDUM (2026-07-08, part of the approval — binding as contracts ⑥⑦)
+
+⑥ **Live·partial "today" column** (all heatmaps/coverage matrices): closed days
+render from rollup/archive (authoritative, immutable); TODAY renders as a
+separate column incrementally accumulated from the already-tailed SSE stream
+(in-memory, category×hour buckets via the config classification map; no new
+full scans). The column header reads IN PROGRESS and is visually distinct
+(hatch/translucent) — a half-elapsed day must not read as "volume halved" (D2).
+At day-end export the column switches to the archived authoritative values;
+the live-accumulated vs archived delta is logged, and any delta >1% is surfaced
+in the provenance drawer (reconciliation principle).
+
+⑦ **Per-panel data-layer annotation**: every panel declares which storage tier
+feeds it — raw / staging / archive / rollup / live-stream — and that tier's
+expected update cadence, rendered in the panel's provenance header next to the
+source file. A panel that "looks static" must be answerable in one glance:
+which tier, when does it refresh. (Origin: the 07-08 "why is the heatmap not
+dynamic" confusion — heatmaps fed from day-end archive while the operator
+expected live.)
+
+## OPERATOR APPROVAL — W-D1 APPROVED (written, 2026-07-08)
+
+Approved by operator via advisor session, 2026-07-08: four-zone decision-driven
+IA (un-split), dense-terminal style per DESIGN SYSTEM RULES, contracts ①–⑤ as
+specified (built or deferred with stated blocked-by), plus addendum contracts
+⑥–⑦ above. Productionisation order ①→④→②→③ riding W-D2→D3→D4/D5. The design
+is FROZEN as of this approval; changes henceforth require an operator-approved
+amendment recorded here and in SESSION_LOG. W-D6 remains blocked by W-D2..D5
+(B1 ruling: collectors built on EC2 after STEP 1 cutover).

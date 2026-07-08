@@ -6,6 +6,27 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — W-D1 APPROVED (written, with operator addendum ⑥⑦) — design FROZEN
+
+- commit: (this commit) dashboard_design_wD1.md gains OPERATOR ADDENDUM
+  (⑥ live·partial today column w/ day-end reconciliation; ⑦ per-panel
+  data-layer + cadence annotation) and the written OPERATOR APPROVAL block.
+- decisions (file: docs/plan_audits/dashboard_design_wD1.md): W-D1 STOP
+  cleared. Four-zone IA un-split; contracts ①–⑦ binding; productionisation
+  ①→④→②→③ riding W-D2→D3→D4/D5; design frozen — further changes need an
+  operator-approved amendment.
+- context capsule: approval given after doc verification (five contracts
+  confirmed present at 59f2a1c, 227 lines; two gaps found by grep —
+  live·partial column and data-layer annotation had 0 hits — folded in as
+  addendum rather than another resubmission round). W-D6 still blocked by
+  W-D2..D5 (B1: collectors on EC2 post-cutover). Prototype remains
+  sandbox-only, manual-run (P8).
+- blocked / handoff: dashboard track now idle until STEP 1 cutover; next
+  actionable items remain playbook 2a (supervisor restart after 07-09
+  00:00 UTC), item 2 (W-C3 acceptance), W-C5 fix (critical path to
+  clean-days gate), and the two research Ws (event packaging W-E0/E1,
+  pricing-model math skeleton) which are unblocked NOW.
+
 ## 2026-07-08 — W-D1 prototype COMPLETE (sandbox, P8): decision-driven Q1–Q4, ready for approval review
 
 - sandbox/obs_server.py + obs.html: all four operator-question zones live on REAL

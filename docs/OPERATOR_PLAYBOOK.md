@@ -57,7 +57,7 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > SESSION_LOG + 勾掉本文件第 2 条；若发现新缺口，按 W-C2 审计的口径
   > 红字先行修复。退出仪式。
 
-- [ ] **3. W-D1 dashboard 设计稿 — anytime, no dependencies, STOP at the
+- [x] **3. W-D1 dashboard 设计稿 — APPROVED 2026-07-08 (addendum ⑥⑦, design frozen) — anytime, no dependencies, STOP at the
   end (you must approve the design before any dashboard code).** Paste:
 
   > 读 docs/GUARDRAILS.md 和 docs/PLAN_DASHBOARD_OBSERVATORY.md 后，执行
