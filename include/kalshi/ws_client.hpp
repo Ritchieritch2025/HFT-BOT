@@ -24,6 +24,7 @@
 #include "kalshi/ws_transport.hpp"
 #include "trading/bus.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -100,9 +101,14 @@ class KalshiWsClient {
   std::uint64_t errors() const { return errors_; }
   std::uint64_t overflow_events() const { return overflow_events_; }  // error 25 (I7)
   std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_; }
-  std::int64_t last_activity_ms() const { return last_activity_ms_; }
+  std::int64_t last_activity_ms() const {
+    return last_activity_ms_.load(std::memory_order_relaxed);
+  }
   bool ping_silent(std::int64_t now_ms, std::int64_t timeout_ms = 30000) const {
-    return last_activity_ms_ != 0 && now_ms - last_activity_ms_ > timeout_ms;
+    // last_activity_ms_ is written on the transport thread and read here on the
+    // watchdog (main) thread; atomic so this teardown-deciding read is not UB.
+    const std::int64_t last = last_activity_ms_.load(std::memory_order_relaxed);
+    return last != 0 && now_ms - last > timeout_ms;
   }
 
  private:
@@ -135,7 +141,8 @@ class KalshiWsClient {
   std::uint64_t messages_ = 0, reconnects_ = 0, errors_ = 0, overflow_events_ = 0;
   std::uint64_t forced_reconnects_ = 0;  // watchdog-forced reconnects (W-C1)
   std::uint64_t lifecycle_deletes_ = 0;
-  std::int64_t last_activity_ms_ = 0;
+  // Cross-thread (transport writes, watchdog reads to decide force_reconnect).
+  std::atomic<std::int64_t> last_activity_ms_{0};
 };
 
 }  // namespace kalshi

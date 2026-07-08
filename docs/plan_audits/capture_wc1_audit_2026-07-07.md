@@ -3,15 +3,44 @@
 **Subject:** commit 06db331 (force_reconnect + ws_shadow watchdog wiring +
 red-first test). **Verdict: NO BLOCKING DEFECTS.**
 
-**Independence caveat (read this):** the mandatory *independent fresh-context*
-audit was attempted TWICE via a separate agent; both runs died on an
-infrastructure API error ("Connection closed mid-response"), each partway
-through the ixwebsocket-semantics check. What follows is a rigorous in-context
-adversarial self-audit that traced the real library source. It is NOT a
-substitute for the independent pass — **the independent-agent audit MUST be
-re-run and clear before the W-C3 deploy** (W-C1 is committed but NOT deployed;
-the live pipeline still runs the approved pre-W-C1 binary, so nothing is at risk
-in the meantime).
+**Independence status:** the first TWO independent-agent runs died on an infra
+API error; the THIRD completed and CLEARED the change — **verdict: no blocking
+defects**, confirming this in-context self-audit. It independently verified the
+stop()/start() restart safety (and found the exact bound that makes join()
+non-hanging: `kClosingMaximumWaitingDelayInMs = 300ms`,
+IXWebSocketTransport.cpp:58 — a wedged socket's CLOSING is force-completed within
+300ms). It raised 3 non-blocking findings; their remediation is below.
+
+## Independent-audit findings + remediation (2026-07-07)
+- **#1 [FIXED] `last_activity_ms_` non-atomic data race.** Written on the
+  transport thread, read on the watchdog thread to decide teardown — a formal
+  C++ data race (UB), pre-existing but escalated by W-C1 to load-bearing. FIXED:
+  made `std::atomic<std::int64_t>` with relaxed load/store (ws_client.hpp,
+  ws_client.cpp). make check GREEN after. The remaining cross-thread reads of
+  `reconnects_/epoch_` are logging-only and left as-is (benign, pre-existing).
+- **#2 [RESOLVED by measurement — the deploy gate] 20s threshold vs a healthy
+  quiet socket.** The risk: if Kalshi emits no frame for ≥20s during a genuine
+  all-market lull, the watchdog would false-teardown a healthy socket. RESOLVED
+  with our own data (Q4): over a healthy hour (firehose_23, 134,100 records) the
+  **max inter-record silence excluding real holes is 0.33s** (p99.99 ≈ 0.17s) —
+  the firehose is sub-second-continuous when alive, so 20s of silence is
+  unambiguously a dead socket (~60× margin). The only >5s gaps in that hour were
+  three ~903s (15-min) holes = the wedge itself (recovered late by an eventual
+  TCP-level error, ~15-min Kalshi LB idle-timeout, instead of at :00 — same root
+  cause W-C1 fixes). 20s stays; no false-teardown risk in production.
+- **#3 [ACCEPTED] cold-start wedge uncovered.** If the INITIAL connect wedges
+  before any frame, `last_activity_ms_==0` so the watchdog never fires; the
+  hourly respawn bounds it. Coverage gap, not a regression (the incident is a
+  mid-run wedge). BACKLOG: optionally fire on "no Open within N s of start()".
+- nits #4/#5 (pre-bump values in the post-force log line; two non-discriminating
+  test asserts) noted, not fixed — cosmetic, do not weaken the red-first proof.
+
+**Deploy status:** the independent audit now CLEARS W-C1. Deploy remains the
+separate operator-gated W-C3; the live pipeline still runs the approved pre-W-C1
+binary (sha 3c389ae) until the operator says go.
+
+---
+(original in-context self-audit follows)
 
 ## What was verified SOUND (with evidence)
 1. **Real-transport restart is safe.** `ix::WebSocket::stop()` (IXWebSocket.cpp

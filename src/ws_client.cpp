@@ -129,7 +129,8 @@ void KalshiWsClient::refresh_auth() {
 }
 
 void KalshiWsClient::on_message(const WsMessage& m) {
-  last_activity_ms_ = trading::wall_ns() / 1'000'000;  // any inbound frame = alive (I6)
+  // any inbound frame = alive (I6); relaxed store, read by the watchdog thread.
+  last_activity_ms_.store(trading::wall_ns() / 1'000'000, std::memory_order_relaxed);
   switch (m.type) {
     case WsMessage::Type::Open: on_open(); break;
     case WsMessage::Type::Close: on_close(); break;
