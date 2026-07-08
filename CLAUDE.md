@@ -53,3 +53,10 @@ session actually stopped.
    in the conversation (a pasted plan, spec, audit, external doc) is written
    VERBATIM to `docs/` or `docs/plan_audits/` before the session ends — the
    EXECUTION_PLAN v1.0 near-loss (2026-07-06) is why this rule exists.
+5. **Docs mirror (operator standing requirement, 2026-07-08):** after
+   committing, sync all `docs/**/*.md` (plus CLAUDE.md as `_CLAUDE.md`) to
+   `/Users/ritcardo/Desktop/TradingSys Report/docs-mirror/`:
+   `rsync -a --include="*/" --include="*.md" --exclude="*" docs/ "/Users/ritcardo/Desktop/TradingSys Report/docs-mirror/"`.
+   The mirror is the operator's progress-tracking copy for retrospectives;
+   git stays the authoritative history. Mirror unwritable ⇒ note a WARN in
+   the SESSION_LOG entry, never block the session.
