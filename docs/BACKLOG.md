@@ -496,3 +496,17 @@ noticed-during, observation, suggested owner.
   decision on the push channel + touches the supervisor (production), so left as
   a follow-up W (W-C2.1). Until then run --live manually or via cron. Owner: R
   (channel choice) + a supervisor-wiring W.
+- 2026-07-08 · W-C3 acceptance (found verifying the deploy) · SECOND capture-gap
+  mechanism, distinct from the wedge W-C1 fixes: ws_shadow EXITS NON-ZERO at some
+  hour boundaries and the supervisor retries every 15s (~15x = ~3-4min gap).
+  Confirmed post-W-C1: 2026-07-08 02:00:00->02:02:59Z (179s) on the W-C1 binary,
+  forced=0 (NOT a wedge). supervisor.out.log shows clustered "ws_shadow exited
+  non-zero (will retry in 15s)". Likely cause: at :00 the supervisor runs catalog
+  classify (11240 series) + daily/second-pass export + holds the DuckDB lock, and
+  ws_shadow's relaunch fails transiently (crash? connect/auth on a contended
+  boundary? OOM?). W-C1 does NOT address this — it recovers mid-session wedges,
+  not a process that exits and slow-retries. So W-C3's 24h-zero-gap acceptance is
+  NOT met yet; capture_gaps DOES record these (events over them degrade
+  correctly, D2 holds). Fix ideas: shrink the 15s retry to ~1-2s; find why the
+  relaunch exits non-zero (add exit-reason logging); stagger catalog/export off
+  the ws_shadow relaunch instant. Owner: W-C5 diagnosis (read-only first).
