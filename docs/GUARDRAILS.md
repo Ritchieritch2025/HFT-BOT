@@ -117,6 +117,22 @@ live; pricing model next; Phase 2 starts with the World A/B merge — see
   tests — never wholesale adoption.
 - P6 **Destructive operations are reversible by default** (attic, not rm;
   purge with counts logged; --force flags require stated reason).
+- P7 **Reads are free** (operator-approved 2026-07-08): any session/W may
+  read any repo or work/ file without enumeration; only WRITES are
+  enumerated per W. Rationale: per-W read lists produced documentation bugs
+  (the W-D0 audit's A1 contradiction) and friction, while reading is
+  harmless — credentials never live in the repo (S4).
+- P8 **sandbox/ is a free-fire zone** (operator-approved 2026-07-08): work
+  under sandbox/ needs no W definition, no independent audit, and only a
+  one-line SESSION_LOG note. Hard line: production code must never import
+  or depend on anything in sandbox/; promotion out of sandbox/ goes through
+  full W discipline. Rationale: cheap, reversible mistakes deserve freedom;
+  rigor is reserved for the irreversible.
+- P9 **Paper-only Ws may share a session** (operator-approved 2026-07-08):
+  Ws that change only docs/plans/design (no code, no config behavior) may
+  be batched in one session with one combined independent audit at the end.
+  The audit itself is never waived — it has caught real defects even on
+  pure paper (W-D0: 11 confirmed findings).
 
 ## 6. Plan-audit checklist (how plans are reviewed against this file)
 
