@@ -6,6 +6,36 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-07 — W-D0 DONE: dashboard requirements approved + PLAN_DASHBOARD_OBSERVATORY.md drafted
+
+- commit: (this commit) docs/PLAN_DASHBOARD_OBSERVATORY.md — the previously
+  referenced-but-nonexistent plan for MASTER_SEQUENCE STEPs 2–3 now exists.
+- decisions (all operator-approved 2026-07-07, recorded in the plan §2):
+  1. Keep dashboard_server.py backend skeleton (audited S5/E3 properties);
+     rebuild frontend as modular tabs + shared component kit.
+  2. Execution tab strictly read-only; NO panic button (S5 stands as written);
+     dashboard shows kill-switch state + copyable panic CLI line only.
+  3. Visual: dense terminal dark (GitHub-dark palette, tabular-nums, sparklines).
+  4. W-D6 launch scope: Overview + Data tabs fully functional; Backtest/
+     Strategy/Execution as D2-honest scaffolds with fixed data contracts.
+- context capsule: 7 tabs (Overview/Data/Backtest/Strategy/Execution/Tests/
+  Tools) specced with data sources in plan §2 table. Backend Ws defined:
+  W-D2 latency/feed-health collector (work/observatory/latency.ndjson),
+  W-D3 incident detector (acceptance = real 2026-07-07 401-segment replay),
+  W-D4 readiness snapshot (fail-closed: missing input ⇒ UNKNOWN ⇒ NOT-GO),
+  W-D5 warehouse catalog (the "path to all data pulled"). Backtest result
+  contract fixed in plan §4 (E4 prices, pessimistic bound headline) so the
+  future engine targets it. TREND RULE restated as binding: bare live number
+  = acceptance FAIL. Sequencing: W-D0/D1 gate only W-D6; STEP 1 (AWS) still
+  precedes implementation Ws. Dead end ruled out: full server rewrite
+  (rejected — would re-audit S5/E3 for no functional gain).
+- blocked / handoff: NEXT for dashboard = W-D1 static design mock (STOP:
+  operator approves in writing before any W-D6 code). Overall queue still at
+  MASTER_SEQUENCE STEP 1 (AWS) + W-C3 acceptance tail (24h zero-gap on
+  2026-07-08) + W-C2.1 daily capture_gaps wiring (urgent, 3d raw retention).
+  Pre-existing dirty state NOT touched by this session: modified
+  config/*.csv (gitignore rider, STEP 1), untracked sandbox/discovery/*.
+
 ## 2026-07-08 00:55 UTC — W-C2 independent audit: 3 BLOCKING false-negatives + a crash, ALL FIXED
 
 - commit: d0890f4 W-C2 audit remediation. Writeup:
