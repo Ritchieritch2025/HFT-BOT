@@ -151,6 +151,21 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 验收 = 拼图② 完成判据照抄进计划的 Acceptance。退出仪式 + 独立审计
   > （P9：可与其他纸面活同会话，审计合并一次）。
 
+- [ ] **3g. 深度名单扩容 W — Sports-first tick-level L2 on Mac NOW (operator
+  strategic focus 2026-07-08: 体育市场为主攻方向).** Paste:
+
+  > 执行深度名单扩容 W（操作员批准，STEP 4 的 Mac 先行版，体育优先）：
+  > ① 建 config/depth_watchlist.txt（补上 next_actions.md 第 2 项的声明
+  > 清单缺口），按最近 3 天成交量选 top N 市场——**Sports 占主体** +
+  > Crypto 刻钟盘，N 初始 50，写明按量调整规则；② ws_shadow 按名单订阅
+  > orderbook_delta（快照+增量+ws_seq），沿用现有 orderbooks_full 通路；
+  > ③ D4 入库测试同 change；④ 渐进上量：先 10 个市场跑 1 小时打印
+  > 带宽/磁盘实测，再扩到 50（P4 采集连续性声明）；⑤ `make check` +
+  > `run_pipeline.sh` 全绿；更新 warehouse_schema.md + roadmap 拼图③
+  > 加"Mac 先行名单"小节（E5）。验收：名单市场整本簿逐笔入库、
+  > ws_seq 连续、V15 覆盖审计从 declared_list_missing 转绿。
+  > 退出仪式 + 独立审计。
+
 - [x] **4. STEP 1 plan draft (SUPERSEDED — see 4-DONE note below) — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
