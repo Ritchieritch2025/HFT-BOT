@@ -130,6 +130,13 @@ WS feed. A laptop is not 24/7 infrastructure.** This is the empirical answer to
    launchd job / supervisor wraps ws_shadow in `caffeinate -s`, or `sudo pmset -c
    disablesleep 1` on AC). This alone should eliminate the great majority of gaps
    TODAY, before AWS.
+   **OPERATOR ACTION TAKEN (2026-07-08):** `sudo pmset -a disablesleep 1` — sleep
+   fully disabled on ALL power profiles (AC + battery), so the Mac NEVER sleeps.
+   This is a deliberate INTERIM state: **do NOT re-enable sleep** until STEP 1
+   (AWS/EC2) migration is complete AND all data pipelines are verified healthy on
+   EC2 — the revert (`pmset -a disablesleep 0`) is a **W-A5 post-cutover** step.
+   (Verify current state: `pmset -g | grep SleepDisabled` ⇒ `SleepDisabled 1`.)
+   The `caffeinate` assertion is now redundant with this and may be killed.
 2. **Permanent:** MASTER_SEQUENCE STEP 1 (AWS/EC2 migration) — a always-on Linux
    host that never sleeps. This finding is the concrete justification for it.
 3. **Still worth doing (defense-in-depth, secondary):** the data-frame-silence
