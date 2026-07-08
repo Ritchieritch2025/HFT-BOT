@@ -79,6 +79,17 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > CASE #1）。要求：先诊断写明根因，再红字先行修复；P4 说明采集连续性；
   > `make check` + `tests/run_pipeline.sh` 全绿；结果对照 capture_gaps
   > 真实数据验证（修后整点无新洞）；退出仪式 + 独立审计。
+  > **同会话并入（capture_gap_taxonomy_2026-07-08.md 钉定的 W-C5 输入）**：
+  > ① 数据静默看门狗——触发器从"任意帧静默"改为"数据帧静默"（ping 不算
+  > 活着；阈值依据实测：健康时最大帧间隔 0.33s，数据静默 5-10s 触发），
+  > 阶梯：先原地重订阅（秒级）→ 无效再走 W-C1 全量重连；每次重订阅
+  > 必须留痕（epoch/sub_epoch 递增，禁无痕恢复，D2）；红字测试用
+  > MockWebSocketTransport 重放"订阅静默但 ping 正常"合成场景。
+  > ② 三个原子计数器进 metrics（只加计数不加计时，E7）：seq_gaps
+  > （per-channel ws_seq 跳号计数+跳了几条——"连接活着丢数据"的铁证
+  > 探测器）、ring 深度高水位（relaxed atomic max）、simdjson 解析失败
+  > 计数。三者红字先行 + warehouse_schema.md 的 metrics 字段文档同步
+  > （E5）。seq_gaps 报警阈值留白，等 W-A4 双机 diff 给实测基线。
 
 - [ ] **3c. W-R — PDF report pipeline (operator standing requirement,
   2026-07-08): every daily/acceptance-class detection emits a typed PDF
