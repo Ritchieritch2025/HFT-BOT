@@ -25,6 +25,12 @@ present.** One W per fresh session, independent audit after each (as the capture
   `tests/run_pipeline.sh` green **on the EC2 box** (W-A2) before cutover.
 - **D1:** raw/archive are the source of truth; S3 copies are versioned, restore is
   proven BEFORE cutover (W-A3), never destroy Mac data until EC2 is authoritative.
+- **Least-privilege IAM (makes D1 structural, not just procedural):** the EC2
+  instance role gets `PutObject`/`GetObject`/`ListBucket` on the vault prefixes but
+  **NO `DeleteObject` (and no lifecycle-expiry) on raw/archive/catalog prefixes** —
+  so a bug or compromised box on EC2 *cannot* erase the vaulted history. S3 Object
+  Versioning + (optionally) a bucket policy denying delete on those prefixes back it
+  up. Deletes, if ever needed, are an operator action with separate credentials.
 
 ---
 
@@ -37,11 +43,18 @@ Allowed reads:  the instance `nproc` / `free -g` / `lsblk` (read-only over SSH);
                 docs/warehouse_schema.md (peak-size facts).
 Allowed writes: docs/PLAN_AWS_MIGRATION.md (record the measured sizing + decision).
 Forbidden writes: anything on the box beyond reading; no installs.
-Acceptance:     printed vCPU / RAM / EBS. **Rule: if RAM < 32 GB, the daily gold
-                build stays on the Mac reading from S3 (17.7 GB peak) — stated as a
-                deliberate split, not a wedge.** Recommend ≥ 8 vCPU / 32 GB / 200 GB
-                gp3 for headroom; the WS capture itself is light, the warehouse
-                build is the RAM driver.
+Acceptance:     printed vCPU / RAM / EBS, **sized for the POST-migration load, not
+                today's** — rider (b) promotes ALL categories to class_a_full_l1, so
+                the box must carry the full-market L1 subscription universe
+                (subscription count, bandwidth, storage/day), materially more than
+                the current filtered set. Recommend ≥ 8 vCPU / **32 GB** / 200 GB
+                gp3; the WS capture is light, the warehouse build is the RAM driver.
+                **≥32 GB is the strong path** — gold builds run ON EC2 and the Mac
+                becomes truly dormant (W-A5). If RAM < 32 GB is accepted, the daily
+                gold build **stays on the Mac reading from S3** (17.7 GB peak) — a
+                deliberate split; in that branch the Mac is **NOT dormant** (it runs
+                a wake-scheduled daily build) and W-A5 does **NOT** fully re-enable
+                Mac sleep (see W-A5). Pick the branch here so W-A5 is unambiguous.
 Rollback:       n/a (read-only).
 Exit evidence:  the sizing line + the gold-build-location decision in this doc.
 
@@ -59,9 +72,19 @@ Allowed writes: `deploy/` — **systemd** unit files (pipeline supervisor, inges
 Forbidden writes: `~/.kalshi/env.sh` (operator hand-creates it — S4); any secret;
                 capture/ingest/export SOURCE (only build + service wiring).
 Acceptance:     box builds `build/ws_shadow` + all binaries clean; systemd units
-                load (dry, capture NOT started); chrony synced (offset printed);
-                SSH restricted to the operator IP; `env.sh` present (operator-made,
-                600) and the auth smoke (REST `/exchange/status`) passes.
+                load (dry, capture NOT started) and **reproduce the three
+                load-bearing launchd behaviors** — (a) **top-of-hour respawn /
+                hourly raw-log rotation** (the warehouse is built on hourly raw
+                partitions; a wrong rotation cadence breaks the three-layer build),
+                (b) the **single-instance lock** (systemd + app flock — never two
+                ws_shadow writers), (c) the app's **internal W-C1 watchdog** must
+                own reconnect, so systemd uses `Restart=on-failure` only (NOT
+                `WatchdogSec=`) to avoid two supervisors fighting (restart storms /
+                double reconnect). chrony synced (offset printed); SSH restricted to
+                the operator IP; **egress allow-listed to 443 (Kalshi + AWS/S3
+                endpoints)** — not left at the AWS all-allowed default; `env.sh`
+                present (operator-made, 600) and the auth smoke (REST
+                `/exchange/status`) passes.
 Rollback:       terminate/rebuild the box; nothing on the Mac touched.
 Exit evidence:  commit (deploy/ units + script); the hardening checklist output.
 
@@ -115,16 +138,27 @@ by the **2026-07-06 three-concurrent-connection test**).
 
 **Cutover sequence (no instant where REST has two owners; capture never drops
 because WS overlaps throughout):**
-1. **EC2 starts WS capture, REST DISABLED** (WS-only; Mac remains the sole REST owner).
+1. **EC2 starts WS capture, REST DISABLED** (WS-only; Mac remains the sole REST
+   owner). EC2 **seeds its subscription universe from the S3-vaulted catalog**
+   (W-A3), issuing **NO REST call** — so the single-REST-owner rule is never
+   momentarily violated by a catalog fetch. No REST runs on EC2 until step 4.
 2. **Verify EC2 capture health** over a soak — feed FRESH + event counter climbing
-   ≥10 min, `ws_seq` continuous, zero gaps — before proceeding.
+   ≥10 min, `ws_seq` continuous, zero gaps — AND confirm the **hourly raw-log
+   rotation** fires correctly on EC2 across an hour boundary (the warehouse depends
+   on hourly partitions; systemd must reproduce it) — before proceeding.
 3. **Mac stops REST** (pause its periodic REST tasks; WS still on both machines).
 4. **EC2 starts REST** (now the single REST owner).
 5. **Mac `launchctl unload`** (WS + everything) — EC2 is the sole owner of WS+REST.
 
-Rollback: reverse the last step; because WS runs on both boxes through steps 1–4
-no rollback loses capture. **Mac launchd stays installed but dormant** — re-enable
-to fall back instantly.
+Rollback: through steps 1–4, WS runs on both boxes, so reversing the last step
+loses NO capture. **After step 5** (Mac unloaded), rollback is not instant: it
+needs `launchctl load` + reconnect + resubscribe, and the Mac's raw has a HOLE
+from unload→reload that only EC2 captured — so a post-step-5 rollback must
+**backfill that window from EC2/S3** (which is why W-A5 syncs EC2→S3 promptly, not
+only daily, during the fragile early window). Mac launchd stays installed but
+dormant throughout. (In-flight **staging DuckDB** on the unloaded Mac is safe by
+D1 — it is derived from raw and rebuildable; the two boxes keep separate
+raw/staging, so a partial staging is harmless.)
 
 ### ACCEPTANCE — BONUS: dual-machine capture-completeness report
 While both machines run WS (the overlap window), record BOTH firehoses and **diff
@@ -143,11 +177,18 @@ Purpose:        Make EC2 the durable, observable, cost-bounded home; land report
                 back to the operator; retire the interim Mac mitigation.
 Blocked by:     W-A4.
 Allowed reads:  EC2 pipeline outputs; S3.
-Allowed writes: a **daily EC2→S3 sync** (archive + reports/ prefix); detectors run
-                ON EC2 with alerts to a dashboard-readable file (+ operator-chosen
-                email/webhook — **ask**); a **storage/cost budget section**
-                (mandatory — S3 + EBS + egress monthly estimate + a cap); systemd
-                timers.
+Allowed writes: **FIRST action — a final incremental Mac→S3 sync** of the archive
+                + catalog delta accumulated since the W-A3 vault (the Mac kept
+                capturing between W-A3 and W-A4-step-1; that window lives only on
+                Mac disk and is NOT yet in S3), re-run the byte/md5 verify on the
+                delta — so "the S3 vault has the full history" is TRUE before the
+                Mac is ever treated as disposable. Then: a **daily EC2→S3 sync**
+                (archive + reports/ prefix) — but **prompt (sub-daily) EC2→S3 sync
+                during the fragile early post-cutover window** so a post-step-5
+                rollback can backfill; detectors run ON EC2 with alerts to a
+                dashboard-readable file (+ operator-chosen email/webhook — **ask**);
+                a **storage/cost budget section** (mandatory — S3 + EBS + egress
+                monthly estimate + a cap); systemd timers.
 Forbidden writes: nothing on the Mac except the report-landing job (below).
 
 **Report flow-back (operator standing requirement, 2026-07-08):** every
@@ -163,7 +204,11 @@ structured artifacts remain authoritative (D1).
 and all pipelines are verified healthy there, revert the Mac's interim mitigation
 — `sudo pmset -a disablesleep 0` (re-enable normal Mac sleep). This is deliberately
 a W-A5 step, NOT before (the Mac must stay awake as the dormant rollback host until
-cutover is proven).
+cutover is proven). **EXCEPTION — the W-A0 <32 GB branch:** if the daily gold build
+was kept on the Mac (RAM<32 GB), the Mac is NOT fully dormant — it wakes daily to
+build. In that branch do NOT fully re-enable sleep; instead schedule a daily
+wake (`pmset repeat wake`) around the build and leave sleep off during it. The
+≥32 GB path (gold on EC2, Mac dormant) avoids this entirely.
 
 Acceptance:     24 h of EC2-only capture with zero gaps (the `capture_gaps`
                 detector); daily S3 sync + report landing on the Mac verified once;
@@ -190,7 +235,9 @@ Exit evidence:  24 h zero-gap report from EC2; a landed PDF on the Mac Desktop;
 2. Live orders (S1–S6): none. Credentials operator-only (S4); cutover operator go/no-go. ✅
 3. Log-odds + fees (Q1,Q3): n/a (infra). ✅
 4. Pessimistic bound (Q2): unaffected; this PROTECTS it by giving it a holed-free tape. ✅
-5. WS trading data (Q5): preserves the WS capture path unchanged; only relocates it. ✅
+5. WS trading data (Q5): the WS capture path is preserved and **relocated AND
+   EXPANDED** — rider (b) promotes all categories to full-market L1, so W-A0
+   sizing must carry the larger subscription universe (noted in W-A0). ✅
 6. Tests incl. behavior (E1,D4): W-A2 = full green on the box; riders ship tests. ✅
 7. Pipeline continuity (P4): the whole plan is built around zero-gap; WS overlaps
    both boxes; Mac stays dormant-recoverable; S3 restore proven BEFORE cutover. ✅
