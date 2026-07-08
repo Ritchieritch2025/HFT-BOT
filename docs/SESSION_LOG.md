@@ -6,6 +6,42 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 00:25 UTC — W-C1 independent audit CLEARED + DEPLOYED (W-C3, operator go)
+
+- commits: 72aa110 W-C1 audit remediation (atomic last_activity_ms_ + audit-clear).
+  Deploy is a binary swap (no new commit): build/ws_shadow rebuilt from HEAD.
+- INDEPENDENT AUDIT (3rd agent attempt; first two died on infra API errors)
+  CLEARED 06db331 — no blocking defects. Independently confirmed stop()/start()
+  restart safety: join() is bounded by ixwebsocket's kClosingMaximumWaitingDelay
+  = 300ms (IXWebSocketTransport.cpp:58), so a wedged socket cannot hang teardown.
+  Findings: #1 FIXED (last_activity_ms_ was a non-atomic cross-thread race, now
+  std::atomic relaxed); #2 RESOLVED by measurement — over a healthy hour the max
+  inter-record silence excluding real holes is 0.33s (p99.99 ~0.17s), so the 20s
+  force threshold has ~60x margin and can't false-teardown a healthy socket;
+  #3 accepted (cold-start wedge -> respawn-bounded, BACKLOG). Full writeup:
+  docs/plan_audits/capture_wc1_audit_2026-07-07.md.
+- NEW FINDING while resolving #2: hour 23 (07-07) had THREE ~15-min gaps
+  (period ~948s). Not restarts (a crash = 15s gap; the 60s supervisor watchdog
+  only revives ingest, not ws_shadow) — they are the SAME wedge, recovered late
+  by an eventual TCP-level error (~15-min Kalshi LB idle-timeout) instead of at
+  :00. So the wedge recovery time is unpredictable (15-60 min); W-C1's 20s forced
+  reconnect preempts all of it. Capture was losing ~95% of data in bad hours.
+- DEPLOYED (W-C3, operator go/no-go = GO, method: immediate SIGTERM respawn):
+  rebuilt build/ws_shadow from HEAD (sha 3db4043, was approved 3c389ae; rollback
+  copy at build/ws_shadow.rollback_3c389ae AND scratchpad/ws_shadow.approved).
+  SIGTERM'd PID 8428 at 00:25:11Z; supervisor respawned PID 9962 in ~1s. Deploy
+  gap ~1-2s (last pre record 00:25:11.9Z, resumed by 00:25:12). CONFIRMED the
+  W-C1 binary is live: the stderr counter line now carries `forced=` (old binary
+  had no such field): `events=8974 ... reconnects=0 forced=0 errors=0 epoch=1`.
+- REMAINING W-C3 TAIL (acceptance not yet fully green): (1) catch the FIRST live
+  forced reconnect (forced=>=1 / a `watchdog_reconnect` metrics event) proving the
+  watchdog recovers a real wedge in <<1min — a background monitor was started at
+  session end (~40min cap); given the ~15-min wedge cadence it should fire soon.
+  (2) W-C2 durable structured capture-gap detector + 24h zero-gap report. Rollback
+  if it misbehaves: cp build/ws_shadow.rollback_3c389ae build/ws_shadow && SIGTERM.
+- NEXT: confirm the live forced-reconnect proof; then W-C2 (gap detector+alert);
+  then the 24h zero-gap report closes W-C3. SINGLE-OWNER RULE in force.
+
 ## 2026-07-07 21:20 UTC — W-C0 diagnosis + W-C1 force-reconnect watchdog (built, tested, NOT deployed)
 
 - commits: 8f89d88 W-C0 capture diagnosis; 06db331 W-C1 force-reconnect watchdog
