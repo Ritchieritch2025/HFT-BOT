@@ -18,8 +18,10 @@ approved+audited; B1 ruled (collectors wait for EC2).
 
 ## Queue (top = next)
 
-- [ ] **1. Supervisor daily wiring — W-C2.1 + coverage_audit (combined: same
-  file, same risk class, one P4 review).** Operator approval to touch
+- [x] **1. Supervisor daily wiring — W-C2.1 + coverage_audit (combined: same
+  file, same risk class, one P4 review).** DONE 2026-07-08 (commits 9878025 +
+  7ced1a7; independent audit: no blocking defects; not active until the next
+  supervisor restart). Operator approval to touch
   pipeline_supervisor.sh is GRANTED by pasting this (satisfies the
   operator-gate in next_actions.md item 1 and W-C2's audit note). Paste:
 

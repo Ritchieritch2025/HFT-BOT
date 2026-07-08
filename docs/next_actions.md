@@ -4,10 +4,12 @@ Items here require explicit operator approval before any agent implements
 them. They exist because a plan's Forbidden-writes list blocked the wiring,
 not because the wiring is optional.
 
-- [ ] **Wire `tools/coverage_audit.py` into `tools/pipeline_supervisor.sh`**
+- [x] **Wire `tools/coverage_audit.py` into `tools/pipeline_supervisor.sh`**
   (daily, after the day's export completes): run
   `python3 tools/coverage_audit.py --date <yesterday>` and surface a nonzero
-  exit (V15 depth-set shrinkage) in supervisor logs. OPERATOR-GATED per
+  exit (V15 depth-set shrinkage) in supervisor logs.
+  DONE 2026-07-08 (commit 7ced1a7, combined with W-C2.1); active on next
+  supervisor restart. OPERATOR-GATED per
   PLAN_GOLD_DATA_CONTRACT W4 Forbidden-writes (P4: the 24/7 pipeline is
   revenue-critical; supervisor edits need their own reviewed change).
   Until wired, the audit is manual and the lifecycle "Coverage Audit

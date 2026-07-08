@@ -6,6 +6,45 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 03:45 UTC — Playbook item 1 DONE: supervisor daily wiring (W-C2.1 + coverage_audit) + audit
+
+- commits: 9878025 (W-C2.1 capture_gaps daily+live), 7ced1a7 (coverage_audit
+  daily wiring + W-C2.1 audit fixes). Discharges OPERATOR_PLAYBOOK item 1 +
+  next_actions.md item 1 (both checked off this session).
+- NOTE ON SCOPE: the pasted prompt was only the W-C2.1 half; the playbook defines
+  item 1 as W-C2.1 + coverage_audit COMBINED (one supervisor P4 review). Completed
+  the full item so the supervisor is touched once, not twice.
+- WIRED into tools/pipeline_supervisor.sh (all read-only, write only derived
+  artifacts; P4 continuity preserved — see commit messages):
+  - daily export block: `capture_gaps.py --date "$YESTERDAY"` (durable gap record
+    before 3-day raw prune) + `coverage_audit.py --date "$YESTERDAY"` (non-zero exit
+    = V15 depth shrinkage, surfaced to supervisor.out.log). Both backgrounded after
+    the pause lifts, so neither delays the ws_shadow relaunch.
+  - 60s watchdog loop: `capture_gaps.py --live` -> work/live/capture_alert.json.
+- INDEPENDENT AUDIT of the capture_gaps wiring: NO BLOCKING DEFECTS. Verified
+  no-hang, no set -e abort (script is set -u only), no prune race (YESTERDAY raw is
+  1-day old vs 3-day retention), correct UTC, live-file-edit-safe. Non-blocking
+  fixes applied: (#1) capture_gaps._last_us now TAIL-SEEKS the final 64 KiB instead
+  of scanning the whole ~0.5 GB current segment every 60s (--live now O(1));
+  (#5) the wiring contract test now checks NON-COMMENT lines. Nits left: no
+  `timeout` guard (macOS lacks timeout; tail-seek makes hang risk negligible),
+  unbounded capture_gaps.log (matches other work/live logs), transient false
+  hour-rollover alert (cosmetic, dashboard-only).
+- NOT ACTIVE until the next supervisor restart: the running supervisor (PIDs
+  4314/4323) already parsed its while-loop, so this file edit doesn't disturb it
+  AND doesn't take effect until it restarts (launchd crash-recovery or manual). I
+  did NOT restart it (production action = operator's call). Record already populated
+  07-06..07-08 from this session's manual runs.
+- verification: make check GREEN; run_pipeline PIPELINE PASS (capture_gaps,
+  coverage_audit, pipeline_contract); bash -n OK; registry 121.
+- CONTEXT for a fresh session: a PARALLEL effort landed on this branch during this
+  work — PLAN_DASHBOARD_OBSERVATORY.md (W-D0..D7, dashboard redesign) + W-D0 audit
+  remediation + OPERATOR_PLAYBOOK.md. Next playbook items: 2 = W-C3 acceptance tail
+  (TIME-GATED, run after 2026-07-09 00:00 UTC); 3 = W-D1 dashboard design mockups
+  (STOP for operator approval before any dashboard code). Still open from earlier:
+  W-C5 (hour-boundary non-zero-exit gap, BACKLOG 07-08). Branch pushed to
+  origin=github.com/Ritchieritch2025/HFT-BOT. SINGLE-OWNER RULE in force.
+
 ## 2026-07-07 — OPERATOR_PLAYBOOK.md created: full queue as paste-ready per-session prompts
 
 - commit: (this commit) docs/OPERATOR_PLAYBOOK.md.
