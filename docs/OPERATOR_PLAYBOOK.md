@@ -148,6 +148,10 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 验证（禁止凭记忆写 API）；read-token 预算上限；
   > provenance=rest_backfill 列，永不与 ws_capture 混桶；断点续爬；
   > 首次真实爬取 operator-gated；含 §6 自审计。
+  > **追加 W（操作员 2026-07-08）：缺口自愈** —— capture_gaps 每记录一个
+  > 新缺口，自动经 REST 抓取该时间窗的成交并以 rest_backfill 标签补录
+  > （盘口状态协议上不可补，明确不承诺）；受同一 read-token 预算约束；
+  > 补录量与缺口清单对账入日报 PDF。
   > 验收 = 拼图② 完成判据照抄进计划的 Acceptance。退出仪式 + 独立审计
   > （P9：可与其他纸面活同会话，审计合并一次）。
 
