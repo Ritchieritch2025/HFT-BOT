@@ -44,10 +44,20 @@ MIN_GAP_SECS_DEFAULT = 60
 ALERT_SECS_DEFAULT = 45
 
 
+# Plausibility window for recv_wall_ns (D3: validate external input at the
+# boundary). Microseconds since epoch for 2020-01-01 .. 2100-01-01. A corrupt
+# line whose digit-run parses to an absurd value is DROPPED (counted unparsed),
+# never staged and never crashing the scan (a garbage huge int also overflows
+# the int64 timestamp array).
+_MIN_PLAUSIBLE_US = 1_577_836_800_000_000   # 2020-01-01Z
+_MAX_PLAUSIBLE_US = 4_102_444_800_000_000   # 2100-01-01Z
+
+
 def _extract_recv_us(line):
     """recv_wall_ns (2nd field) -> microseconds, via a targeted slice (no full
-    JSON parse: raw files are hundreds of MB). Returns None on an unparsable or
-    truncated line so a corrupt tail is skipped, never crashes the scan (D3)."""
+    JSON parse: raw files are hundreds of MB). Returns None on an unparsable,
+    truncated, or IMPLAUSIBLE line so a corrupt record is skipped and counted,
+    never crashes the scan (D3)."""
     i = line.find('"recv_wall_ns":')
     if i < 0:
         return None
@@ -58,9 +68,10 @@ def _extract_recv_us(line):
     if k < 0:
         return None
     try:
-        return int(line[j:k]) // 1000
+        us = int(line[j:k]) // 1000
     except ValueError:
         return None
+    return us if _MIN_PLAUSIBLE_US <= us <= _MAX_PLAUSIBLE_US else None
 
 
 def find_gaps(times_us, min_gap_us):
@@ -95,13 +106,32 @@ def _raw_files_for_date(date_str, raw_root):
                   glob.glob(os.path.join(d, "firehose_*.ndjson.*")))
 
 
-def scan_date(date_str, raw_root, min_gap_us):
-    """Collect ALL record timestamps for a date, GLOBALLY SORT, then detect
-    gaps. Global sort (not sequential-per-file streaming) is required: a
-    within-hour respawn/rotation can leave two segments whose time ranges
-    OVERLAP, and streaming them back-to-back would invent a false backward
-    'gap'. Timestamps are int64 microseconds in an array (8 bytes each) so a
-    full day stays memory-cheap. Returns (gaps, stats)."""
+def scan_date(date_str, raw_root, min_gap_us, now_us=None):
+    """Detect capture gaps for a UTC date. Returns (gaps, stats).
+
+    Global sort (not sequential-per-file streaming) is required: a within-hour
+    respawn/rotation can leave two segments whose time ranges OVERLAP, and
+    streaming them back-to-back would invent a false backward 'gap'. int64-us
+    array keeps a full day memory-cheap.
+
+    Gaps detected (each a real hole in coverage; D2 — never miss one):
+      * INTERIOR: silence between two consecutive records.
+      * LEADING: day_start -> first record (feed down at the start of the day).
+      * TRAILING: last record -> min(day_end, now) (feed died and stayed down;
+        capped at `now` so a still-in-progress day isn't flagged as trailing).
+    These edges close the day-boundary blind spot: a hole crossing midnight is
+    recorded as a trailing gap of day D plus a leading gap of day D+1.
+
+    Fail-closed on missing data (never certify a day clean without evidence):
+      * files present but ZERO parseable records (e.g. a recv_wall_ns format
+        change) -> the whole elapsed span is a gap; stats['unreadable']=True.
+      * NO raw files at all (pruned past retention, or never captured) ->
+        stats['has_files']=False; NO gap fabricated and the caller MUST NOT
+        overwrite this day's existing record (raw outlives-nothing; the record
+        must outlive the 3-day raw)."""
+    now_us = now_us if now_us is not None else int(time.time() * 1_000_000)
+    day_start, day_end = _day_bounds_us(date_str)
+    eff_end = min(day_end, now_us)
     files = _raw_files_for_date(date_str, raw_root)
     times = array("q")
     bad = 0
@@ -116,8 +146,22 @@ def scan_date(date_str, raw_root, min_gap_us):
                     continue
                 times.append(u)
     ts = sorted(times)
-    gaps = find_gaps(ts, min_gap_us)
-    return gaps, {"files": len(files), "records": len(ts), "unparsed": bad}
+    stats = {"files": len(files), "records": len(ts), "unparsed": bad,
+             "has_files": len(files) > 0, "unreadable": False}
+
+    if not ts:
+        if files and eff_end - day_start > min_gap_us:
+            stats["unreadable"] = True          # raw present but unparseable (B2)
+            return [(day_start, eff_end)], stats
+        return [], stats                         # no raw -> preserve record (B3)
+
+    gaps = list(find_gaps(ts, min_gap_us))       # interior
+    if ts[0] - day_start > min_gap_us:           # leading-edge silence
+        gaps.append((day_start, ts[0]))
+    if eff_end - ts[-1] > min_gap_us:            # trailing-edge silence
+        gaps.append((ts[-1], eff_end))
+    gaps.sort()
+    return gaps, stats
 
 
 def _day_bounds_us(date_str):
@@ -126,10 +170,13 @@ def _day_bounds_us(date_str):
     return start, start + 86_400 * 1_000_000
 
 
-def write_record(record_path, date_str, gaps):
-    """Merge `gaps` for `date_str` into the durable record, idempotently: drop
-    any existing rows whose start_us falls in this day, add the fresh ones, keep
-    the rest, sorted. Absence of the file = first write."""
+def write_record(record_path, date_str, gaps, replace_day=True):
+    """Merge `gaps` for `date_str` into the durable record. With replace_day
+    (the day was actually SCANNED with data) the day's existing rows are
+    replaced by the fresh scan. With replace_day=False (the raw was pruned/absent
+    — scan produced no evidence) the day's existing rows are PRESERVED: a
+    re-run over aged-out raw must never wipe a previously-recorded real gap (B3).
+    Other days are always kept. Idempotent; deduped; atomic replace."""
     os.makedirs(os.path.dirname(record_path) or ".", exist_ok=True)
     day_start, day_end = _day_bounds_us(date_str)
     kept = []
@@ -141,8 +188,10 @@ def write_record(record_path, date_str, gaps):
                     e = int(r["end_us"])
                 except (KeyError, ValueError):
                     continue
-                if not (day_start <= s < day_end):
-                    kept.append((s, e))
+                in_day = day_start <= s < day_end
+                if in_day and replace_day:
+                    continue  # superseded by the fresh scan of this day
+                kept.append((s, e))
     rows = sorted(set(kept) | set((int(s), int(e)) for s, e in gaps))
     tmp = record_path + ".tmp"
     with open(tmp, "w", newline="") as f:
@@ -224,18 +273,28 @@ def main(argv):
 
     min_gap_us = int(args.min_gap_secs * 1_000_000)
     total = 0
+    rc = 0
     for d in dates:
         gaps, stats = scan_date(d, args.raw_root, min_gap_us)
-        write_record(args.record, d, gaps)
+        if not stats["has_files"]:
+            # Raw pruned/absent: preserve any existing record for this day, never
+            # wipe it (B3). The record must outlive the 3-day raw retention.
+            print(f"{d}: no raw files (pruned or absent) — existing record preserved (not rescanned)")
+            continue
+        write_record(args.record, d, gaps, replace_day=True)
         total += len(gaps)
         for s, e in gaps:
             dur = (e - s) / 1_000_000
             print(f"{d} GAP {dt.datetime.utcfromtimestamp(s/1e6).isoformat()}Z "
                   f"-> {dt.datetime.utcfromtimestamp(e/1e6).isoformat()}Z ({dur:.0f}s)")
+        if stats["unreadable"]:
+            print(f"{d}: RAW PRESENT BUT UNREADABLE — {stats['unparsed']} unparsed lines, 0 "
+                  f"records; recorded a full-day gap (fail-closed). Fix the parser + rescan.")
+            rc = 3
         print(f"{d}: {len(gaps)} gap(s) >{args.min_gap_secs:g}s "
               f"[{stats['records']} records, {stats['files']} files, {stats['unparsed']} unparsed]")
     print(f"total {total} gap(s) written to {args.record}")
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
