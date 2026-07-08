@@ -122,6 +122,16 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > 全程零代码改动（迁移前代码冻结）；清单成为迁移后逐模块重构 W 的
   > 队列。退出仪式。
 
+- [ ] **3e. 升舱 W — all categories to full L1 NOW on Mac (operator-approved
+  2026-07-08; every day of delay permanently discards Class-B orderbooks
+  beyond the 3-day raw window).** Paste: see DATA_COMPLETENESS_ROADMAP.md
+  拼图① / the operator's approved paste block (config flip + 3-day raw
+  backfill + D4 tests + P4 statement).
+
+- [ ] **3f. PLAN_HISTORICAL_BACKFILL.md draft — paper only (P9), can share a
+  session with other paper work.** Execution stays gated behind W-A4 (single
+  REST owner). See DATA_COMPLETENESS_ROADMAP.md 拼图②.
+
 - [ ] **4. STEP 1 plan draft — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
