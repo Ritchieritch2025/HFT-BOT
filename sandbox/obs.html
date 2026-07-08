@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kalshi Observatory</title>
+<link rel="stylesheet" href="/uplot/uPlot.min.css"/>
+<!-- W-D1 v4 — uPlot (vendored third_party/uplot v1.6.30, no CDN) interactive
+     charts (zoom/pan-drag/crosshair/box-select, synced), SSE push (no polling).
+     Bound by PLAN_DASHBOARD_OBSERVATORY W-D1 DESIGN SYSTEM RULES. REAL data only. -->
+<style>
+  :root{--bg:#0a0d11;--panel:#0e1319;--border:#1c2733;--grid:#161f28;--text:#c3cdd7;
+    --muted:#5a6672;--head:#7d8b98;--line:#6f93ad;--green:#3fb950;--amber:#d29922;--red:#f85149;--dim:#48535e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:12px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .wrap{max-width:1500px;margin:0 auto;padding:0 12px 30px}
+  .num{text-align:right}.mut{color:var(--muted)}.hd{color:var(--head)}
+  .g{color:var(--green)}.a{color:var(--amber)}.r{color:var(--red)}.d{color:var(--dim)}
+  header{display:flex;align-items:center;gap:14px;padding:7px 12px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);z-index:9;font-size:11.5px}
+  .brand{font-weight:700;letter-spacing:.5px}.brand .k{color:var(--line)}
+  .vd{padding:2px 9px;border:1px solid;border-radius:2px;font-weight:700}
+  .vd.go{color:var(--green);border-color:#1d4a30}.vd.no{color:var(--red);border-color:#4a1e22}.vd.un{color:var(--amber);border-color:#463813}
+  .hl{margin-left:auto;display:flex;gap:14px;align-items:center;color:var(--muted)}.hl b{color:var(--text)}
+  .tick{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block}.tick.down{background:var(--red)}
+  .panel{border:1px solid var(--border);border-radius:2px;background:var(--panel);margin-top:8px}
+  .panel>.h{display:flex;align-items:center;gap:8px;padding:4px 9px;border-bottom:1px solid var(--border);
+    font-size:10.5px;letter-spacing:.6px;color:var(--head);text-transform:uppercase}
+  .panel>.h .m{margin-left:auto;color:var(--muted);text-transform:none;letter-spacing:0}
+  .strip{display:flex;flex-wrap:wrap;align-items:center}
+  .stat{display:flex;align-items:center;gap:7px;padding:6px 12px;border-right:1px solid var(--border)}
+  .stat .l{color:var(--head);font-size:10px}.stat .v{font-weight:700;font-size:14px}.stat .u{color:var(--muted);font-size:10px}
+  .sm{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+  @media(max-width:900px){.sm{grid-template-columns:1fr}}
+  .cell{border-right:1px solid var(--border)}.cell:last-child{border-right:0}
+  .cell .ch{display:flex;align-items:baseline;gap:8px;padding:4px 9px 0;font-size:10.5px}
+  .cell .ch .nm{color:var(--head)}.cell .ch .mm{margin-left:auto;color:var(--muted)}.cell .ch .mm b{color:var(--text)}
+  .cell .plot{padding:2px 4px 4px}
+  .hint{padding:3px 9px;color:var(--muted);font-size:9.5px;border-top:1px solid var(--grid)}
+  .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:8px}@media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .tl{display:flex;align-items:center;gap:9px;padding:4px 9px;border-bottom:1px solid var(--grid)}.tl:last-child{border-bottom:0}
+  .tl .d{width:52px;color:var(--head)}
+  .tl .track{flex:1;height:15px;background:#0a0f14;border:1px solid var(--border);position:relative;overflow:hidden}
+  .tl .seg{position:absolute;top:0;bottom:0;background:var(--red)}
+  .tl .seg.start{background:repeating-linear-gradient(45deg,#3a2d10,#3a2d10 3px,#241d0a 3px,#241d0a 6px)}
+  .tl .hrs{position:absolute;top:0;bottom:0;border-left:1px solid #131b23}
+  .tl .sum{width:210px;color:var(--muted);font-size:10.5px;text-align:right}.tl .sum b{color:var(--text)}
+  .tlhdr{display:flex;padding:2px 9px;color:var(--muted);font-size:9px}.tlhdr .d{width:52px}.tlhdr .h{flex:1;display:flex;justify-content:space-between}
+  table.t{width:100%;border-collapse:collapse}table.t td{padding:3px 9px;border-bottom:1px solid var(--grid)}table.t tr:last-child td{border-bottom:0}
+  table.t td.s{width:88px;text-align:right;white-space:nowrap}.rsn{color:var(--muted);font-size:10.5px}.badge{font-weight:700;font-size:10.5px}
+  .tape{max-height:132px;overflow:auto;padding:4px 9px;font-size:10.5px;color:var(--muted);white-space:pre}.tape b{color:var(--text)}
+  .note{padding:4px 9px;color:var(--muted);font-size:10px}
+  /* uPlot dense-terminal overrides */
+  .uplot{font-family:ui-monospace,Menlo,monospace}
+  .u-legend{display:none}
+  .u-cursor-x,.u-cursor-y{border-right:1px dashed #47586a!important;border-bottom:1px dashed #47586a!important}
+  .u-select{background:rgba(111,147,173,.12)}
+  .u-cursor-pt{border:0!important}
+</style></head>
+<body>
+<header>
+  <span class="brand">KALSHI <span class="k">OBSERVATORY</span> <span class="mut">/ overview</span></span>
+  <span id="vd" class="vd un">…</span>
+  <span class="hl">
+    <span><span id="tick" class="tick"></span> <span id="conn">connecting</span></span>
+    <span>rate <b id="hz">—</b>/s</span><span>fresh <b id="fr">—</b>ms</span><span>recon <b id="rc">—</b></span><span id="clk">—</span>
+  </span>
+</header>
+<div class="wrap">
+  <div class="panel"><div class="strip" id="strip"></div></div>
+  <div class="panel">
+    <div class="h">FEED HEALTH <span class="m" id="sm-meta">metrics.ndjson · feed · SSE</span></div>
+    <div class="sm">
+      <div class="cell"><div class="ch"><span class="nm">msg_rate_hz</span><span class="mm" id="mm0"></span></div><div class="plot" id="p0"></div></div>
+      <div class="cell"><div class="ch"><span class="nm">freshness_ms</span><span class="mm" id="mm1"></span></div><div class="plot" id="p1"></div></div>
+      <div class="cell"><div class="ch"><span class="nm">trades/min</span><span class="mm" id="mm2"></span></div><div class="plot" id="p2"></div></div>
+    </div>
+    <div class="hint">drag = box-zoom · dbl-click = reset · crosshair synced across charts · live push (SSE)</div>
+  </div>
+  <div class="cols">
+    <div class="panel">
+      <div class="h">CAPTURE-GAP TIMELINE <span class="m" id="gap-meta">capture_gaps.csv</span></div>
+      <div class="tlhdr"><span class="d"></span><span class="h"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></span></div>
+      <div id="tl"></div><div class="note" id="gap-note"></div>
+    </div>
+    <div class="panel"><div class="h">CAPTURE STATE <span class="m">capture_alert.json</span></div><table class="t" id="capt"></table></div>
+  </div>
+  <div class="panel"><div class="h">LIFECYCLE GATES <span class="m" id="gates-meta">lifecycle_status.json</span></div><table class="t" id="gates"></table></div>
+  <div class="panel"><div class="h">METRICS TAPE <span class="m">tail · feed records</span></div><div class="tape" id="tape"></div></div>
+  <div class="note">read-only · localhost · no order/panic (S5) · uPlot vendored (third_party, pinned) · SSE push</div>
+</div>
+
+<script src="/uplot/uPlot.iife.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const f=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+const hms=t=>new Date(t).toISOString().slice(11,19);
+const CAP=2400; // ring size (~40min @1/s), zoomable
+let T=[],RATE=[],FRESH=[],TRATE=[],prevTr=null,prevTs=null,LATEST=null;
+
+// --- uPlot dense-terminal chart factory ---
+const axStroke="#5a6672",gcol={stroke:"#161f28",width:1},tcol={stroke:"#1c2733",width:1,size:4},FONT="10px ui-monospace,Menlo,monospace";
+function mk(elId,color){
+  const el=document.getElementById(elId);
+  const opts={width:el.clientWidth||300,height:118,
+    cursor:{sync:{key:"obs"},drag:{x:true,y:false},points:{size:5}},
+    legend:{show:false},
+    scales:{x:{time:true},y:{range:(u,mn,mx)=>[0,mx===mn?mx+1:mx]}}, // zero-floored, no pad
+    axes:[
+      {stroke:axStroke,grid:gcol,ticks:tcol,font:FONT,size:22,space:78,
+        values:(u,vs)=>vs.map(v=>hms(v*1000))},
+      {stroke:axStroke,grid:gcol,ticks:tcol,font:FONT,size:44,space:26,
+        values:(u,vs)=>vs.map(v=>f(v,v<10&&v>0?1:0))}
+    ],
+    series:[{},{stroke:color,width:1.3,points:{show:false}}],
+    padding:[6,8,0,0]};
+  return new uPlot(opts,[[],[]],el);
+}
+const U=[mk("p0","#6f93ad"),mk("p1","#3fb950"),mk("p2","#6f93ad")];
+
+function agg(a){const v=a.filter(x=>x!=null);if(!v.length)return[0,0,0];return[Math.min(...v),v.reduce((s,x)=>s+x,0)/v.length,Math.max(...v)];}
+function setMM(i,a){const[mn,av,mx]=agg(a);$("#mm"+i).innerHTML=`min <b>${f(mn,mn<10?1:0)}</b> avg <b>${f(av,av<10?1:0)}</b> max <b>${f(mx,mx<10?1:0)}</b>`;}
+function redraw(){
+  const xs=T.map(t=>t/1000);
+  U[0].setData([xs,RATE]);U[1].setData([xs,FRESH]);U[2].setData([xs,TRATE]);
+  setMM(0,RATE);setMM(1,FRESH);setMM(2,TRATE);
+}
+function pushFeed(r){
+  const ts=r.ts_ms;
+  let tr=null;
+  if(prevTr!=null&&prevTs!=null){const dt=(ts-prevTs)/1000;const d=r.trades-prevTr;tr=(dt>0&&d>=0)?d/dt*60:null;}
+  prevTr=r.trades;prevTs=ts;
+  T.push(ts);RATE.push(r.msg_rate_hz);FRESH.push(Math.max(0,r.freshness_ms));TRATE.push(tr);
+  if(T.length>CAP){T.shift();RATE.shift();FRESH.shift();TRATE.shift();}
+  LATEST=r;
+}
+function renderLatest(alert){
+  const L=LATEST;if(!L)return;
+  $("#hz").textContent=f(L.msg_rate_hz);$("#fr").textContent=f(Math.max(0,L.freshness_ms));$("#rc").textContent=f(L.reconnects);
+  const drop=(L.recorder_dropped||0)+(L.telemetry_dropped||0);
+  const cur=TRATE.length?TRATE[TRATE.length-1]:null;
+  const cells=[["MSG RATE",f(L.msg_rate_hz),"/s","v"],["FRESHNESS",f(Math.max(0,L.freshness_ms)),"ms",L.freshness_ms>2000?"a":"g"],
+    ["TRADE RATE",f(cur),"/min","v"],["RECONNECTS",f(L.reconnects),"","v"],["DROPPED",f(drop),"D2",drop>0?"r":"g"],
+    ["CAPTURE",L.capture?L.capture.split("/").pop():"—","","mut"]];
+  $("#strip").innerHTML=cells.map(c=>`<div class="stat"><span class="l">${c[0]}</span><span class="v ${c[3]}">${c[1]}</span><span class="u">${c[2]}</span></div>`).join("");
+  const drops=`${f(L.recorder_dropped)} / ${f(L.telemetry_dropped)}`;
+  $("#capt").innerHTML=[
+    ["Active gap",alert&&alert.status==="ok"?`<span class="g badge">NONE</span>`:alert&&alert.status==="gap"?`<span class="r badge">ACTIVE ${f(alert.silent_secs)}s</span>`:`<span class="a badge">UNKNOWN</span>`],
+    ["Feed freshness",`${f(Math.max(0,L.freshness_ms))} ms`],["Reconnects (session)",f(L.reconnects)],
+    ["Recorder / telemetry drop (D2)",`<span class="${drop>0?'r':'g'}">${drops}</span>`],
+    ["Messages captured",f(L.messages)],["Trades / tickers",`${f(L.trades)} / ${f(L.tickers)}`],
+    ["Last record",alert&&alert.since_utc?alert.since_utc.slice(11,23)+"Z":"—"]
+  ].map(r=>`<tr><td class="hd">${r[0]}</td><td class="num">${r[1]}</td></tr>`).join("");
+  const tp=[];for(let i=Math.max(0,T.length-9);i<T.length;i++)tp.push(`<b>${hms(T[i])}Z</b>  rate=${String(f(RATE[i])).padStart(5)}  fresh=${String(f(FRESH[i])).padStart(4)}ms  trate=${String(f(TRATE[i])).padStart(6)}`);
+  $("#tape").innerHTML=tp.reverse().join("\n");
+  const stale=(Date.now()-L.ts_ms)>10000;
+  $("#tick").className="tick"+((L.connected&&!stale)?"":" down");$("#conn").textContent=(L.connected&&!stale)?"connected":"stale";
+}
+function renderGaps(gaps){
+  if(!gaps||!gaps.days)return;const DAY=86400e6;$("#gap-meta").textContent=`${gaps.total} gaps · ${gaps.days.length} days`;
+  $("#tl").innerHTML=gaps.days.slice(-6).map(d=>{
+    const ds=Date.parse(d.date+"T00:00:00Z")*1000;
+    const segs=d.intervals.map(iv=>{let l=Math.max(0,(iv[0]-ds)/DAY*100),w=Math.max(.3,(iv[1]-iv[0])/DAY*100);
+      const isStart=d.date==="2026-07-06"&&iv[0]<=ds+1e6;
+      return `<span class="seg${isStart?' start':''}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%" title="${hms(iv[0]/1000)}-${hms(iv[1]/1000)}Z"></span>`;}).join("");
+    const hrs=[6,12,18].map(h=>`<span class="hrs" style="left:${h/24*100}%"></span>`).join("");
+    const note=d.date==="2026-07-06"?' <span class="a">(hatched=capture start)</span>':'';
+    const w5=d.date==="2026-07-08"?' <span class="mut">·02:00=W-C5</span>':'';
+    return `<div class="tl"><span class="d">${d.date.slice(5)}</span><div class="track">${hrs}${segs}</div><span class="sum"><b>${d.count}</b> gap${d.count!=1?'s':''} · ${f(d.downtime_s/60)}m${note}${w5}</span></div>`;
+  }).join("");
+  $("#gap-note").textContent="red = capture hole at true UTC position/width · 07-08 verified vs record (00:00 + 02:00 W-C5)";
+}
+function renderGates(gates){
+  if(!gates||!gates.stages)return;
+  const lc=s=>(s.status||"").toLowerCase();
+  const bad=s=>["blocked","fail","failed","error"].includes(lc(s)),un=s=>lc(s)==="unknown",nl=s=>lc(s)==="not_started";
+  const dep=gates.stages.filter(s=>!nl(s)),allok=dep.length&&dep.every(s=>["pass","passed","ok"].includes(lc(s)));
+  const v=$("#vd");if(allok){v.className="vd go";v.textContent="GO";}else{v.className="vd no";v.textContent=`NOT-GO · ${gates.stages.filter(nl).length} not-live · ${gates.stages.filter(bad).length} blocked`;}
+  const cl=s=>bad(s)?"r":un(s)?"a":nl(s)?"d":["pass","passed","ok"].includes(lc(s))?"g":"a";
+  $("#gates").innerHTML=gates.stages.map(s=>{const p=(s.checks||[]).filter(c=>c.status==="pass").length,t=(s.checks||[]).length;
+    return `<tr><td>${s.label||s.id}${s.reason?` <span class="rsn">— ${s.reason}</span>`:t?` <span class="rsn">${p}/${t} checks</span>`:''}</td><td class="s badge ${cl(s)}">${s.status}</td></tr>`;}).join("");
+  $("#gates-meta").textContent=`overall ${gates.overall}`;
+}
+setInterval(()=>$("#clk").textContent=hms(Date.now())+"Z",1000);
+
+// --- SSE push (replaces polling) ---
+let ALERT={status:"unknown"};
+function connect(){
+  const es=new EventSource("/stream");
+  es.addEventListener("snapshot",e=>{
+    const d=JSON.parse(e.data);T=[];RATE=[];FRESH=[];TRATE=[];prevTr=null;prevTs=null;
+    (d.feed.series||[]).forEach(pushFeed);
+    ALERT=d.alert||ALERT;redraw();renderLatest(ALERT);renderGaps(d.gaps);renderGates(d.gates);
+    $("#sm-meta").textContent=`${T.length} pts · SSE live`;
+  });
+  es.addEventListener("feed",e=>{pushFeed(JSON.parse(e.data));redraw();renderLatest(ALERT);});
+  es.addEventListener("aux",e=>{const d=JSON.parse(e.data);ALERT=d.alert||ALERT;renderGaps(d.gaps);renderGates(d.gates);renderLatest(ALERT);});
+  es.onerror=()=>{$("#conn").textContent="reconnecting";$("#tick").className="tick down";}; // EventSource auto-retries
+}
+connect();
+addEventListener("resize",()=>U.forEach(u=>u.setSize({width:u.root.parentElement.clientWidth,height:118})));
+</script>
+</body></html>

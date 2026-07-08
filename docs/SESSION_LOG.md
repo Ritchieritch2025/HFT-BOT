@@ -6,6 +6,22 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-08 — W-D1 dashboard prototype (sandbox, P8 free-fire): live observatory, uPlot + SSE
+
+- sandbox prototype `sandbox/obs_server.py` + `obs.html` (read-only, localhost,
+  manual-run only, no order/panic — S5): live Overview driven by REAL files
+  (metrics.ndjson feed series, capture_gaps.csv, capture_alert.json,
+  lifecycle_status.json) — zero fabricated data. Rebuilt to the DESIGN SYSTEM
+  RULES (c5d45bb): flat dense terminal, status strip + small multiples (shared
+  axis, min/avg/max), gap TIMELINES (00:00-24:00, true positions; 07-06 hatched
+  capture-start), rates-not-cumulative, zero-floored axes, metrics tape. v1 static
+  mock REJECTED by operator (grey/fake) — deleted. v4: charts = **uPlot**
+  (vendored third_party/uplot v1.6.30, pinned, no CDN) box-zoom/crosshair-synced;
+  data via **SSE** /stream (not polling). Reconciled: freshness<0 = clock jitter,
+  floored; 07-08 "2 gaps" VERIFIED real (00:00 midnight + 02:00 W-C5). Design doc:
+  docs/plan_audits/dashboard_design_wD1.md. STOP: awaiting operator written W-D1
+  approval before any dashboard_server.py (W-D6) code.
+
 ## 2026-07-08 — GUARDRAILS P7-P9: three friction relaxations (operator-approved); safety fuses untouched
 
 - commits: GUARDRAILS P7-P9 (own commit per its change rule); this entry.
