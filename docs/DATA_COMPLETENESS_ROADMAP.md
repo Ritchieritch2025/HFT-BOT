@@ -151,3 +151,21 @@ W-E1 中解决并记录来源选择。
   逻辑（采集 adapter、执行网关、费用表、结算语义）与场馆无关核心
   （log-odds 定价、悲观界回测、选品三层、风控规则）保持接口隔离；
   审计项：核心模块中出现 "kalshi" 字样即为违规。
+
+---
+
+## 附 5：延迟优化分层备案（操作员问答 2026-07-08；仅适用于未来交易盒，Phase 4/STEP 6）
+
+优先级铁律：**盈利判决前不调延迟**（Kalshi 现以毫秒计价，抠微秒不改变
+有无 edge；先回测判决→实盘→延迟探针指认瓶颈→再优化）。旋钮按收益排：
+- L0 位置（已拿·占>99%）：EC2 同区 us-east-2，30ms→~1ms。
+- L1 网络路径：Kalshi PrivateLink（institutional@kalshi.com，流量走 AWS
+  骨干不出公网），够institutional资格再谈。
+- L2 内核/网卡 config（"通过 config 调延迟"即此层，纯配置不改码）：CPU
+  亲和+核隔离(isolcpus)、performance governor 关节能、网卡中断绑核、
+  禁超线程、tuned network-latency、大页内存。收益微秒~数十微秒。
+- L3 应用热路径（已有）：持久连接、E7 无阻塞、simdjson(281.9ns/条实测)、
+  无锁环。
+- L4 极端（当前不需要，Kalshi 无 colo 选项）：kernel bypass/DPDK、FPGA。
+触发规则：只在 full_chain_latency 探针于实盘指认某段真吃成交时，才拧对应
+旋钮。数据机（本次 W-A0 的盒子）不适用——它只采集入库，延迟无意义。
