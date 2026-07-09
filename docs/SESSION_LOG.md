@@ -45,6 +45,14 @@ which decisions landed in which files, what the next session must know.
   (not instant — by design post-step-5). Diff tool: sandbox/wa4_capture_diff
   (P8). EC2 metrics.ndjson still unbounded (rider (a) pending, 173G free —
   not urgent).
+- INDEPENDENT AUDIT: PASS — auditor independently RECOMPUTED the headline
+  diff (190,815 trades, 0/0 missing) AND verified within-machine seq
+  continuity zero-gaps on both boxes; single-REST-owner never violated
+  (log-ordering verified). 6 non-blocking applied: timeline gains the two
+  ~30s EC2 restart outages (each Mac-covered; zero-gap phrasing corrected),
+  incident-2 timestamp, committed-tool ticker numbers, rollback rest_disabled
+  caveat, RUNBOOK post-cutover reality (E5), SIGTERM-kill + events-cap →
+  W-A5 queue.
 - blocked / handoff: NEXT = W-A5 (fresh session): ① final Mac→S3 delta —
   **Mac-ONLY residual = raw date=2026-07-09 hours 17:00→18:31** (vault ≤16,
   EC2 ≥18:30:57); sync Mac 17–23 anyway (D1) with the
