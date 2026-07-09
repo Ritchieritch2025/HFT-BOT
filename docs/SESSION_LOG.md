@@ -43,6 +43,21 @@ which decisions landed in which files, what the next session must know.
   `ssh -i ~/.ssh/kalshi-key.pem ubuntu@13.59.9.97`. Box disk 20/193 GB.
   Preflight defaults to external-api.kalshi.com (the us-east-2-native host,
   W-A0 region note) — no BASE_URL override needed on EC2.
+- INDEPENDENT AUDIT (post-entry, same session): verdict FAIL-until-fixed —
+  **1 BLOCKING (B1): work/ is gitignored ⇒ fresh clone has no work/live/, and
+  systemd opens the unit's StandardOutput=append: log BEFORE ExecStart without
+  creating parent dirs ⇒ `systemctl start` would die status=209 and crash-loop
+  every 30 s at W-A4** (auditor proved the semantics empirically on the box
+  with a throwaway /bin/true transient unit). FIXED (commit d3aa540): mkdir in
+  bringup step 7 + mkdir applied on the box NOW + W-A4 gained a PREREQUISITES
+  block (EIP, egress-443, work/live exists) so the go/no-go re-checks all
+  three. 3 non-blocking also applied: W-A4 prerequisites recorded in W-A4's
+  own section (E5); checklist notes VPC-resolver SG bypass + that the egress
+  lockdown silently stops unattended-upgrades (http/80). Auditor verified
+  clean: env.hpp diff exactly one line; Restart semantics (exit 0 lock /
+  exit 78 config) correct; KillMode no worse than launchd; oom_guard regex
+  covers all 10 supervisor python invocations; Mac capture alive throughout
+  (P4); no credentials in any diff (S4); make check re-run green by auditor.
 - blocked / handoff: NEXT = W-A2 (fresh session): full battery on the box
   incl. tests/run_pipeline.sh + check_registry + ONE read-only preflight from
   EC2 IP (already de-facto smoked) + 10 s ws_smoke. Before W-A4: operator
