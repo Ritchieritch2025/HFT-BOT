@@ -74,9 +74,17 @@ def main(argv):
             if "e." in me:
                 ev_join = ("LEFT JOIN read_parquet('%s') e ON m.event_ticker = e.event_ticker"
                            % os.path.join(cat, "events", "part-00000.parquet").replace("'", "''"))
-            strike = ("coalesce(try_cast(m.floor_strike AS DOUBLE), "
-                      "try_cast(m.cap_strike AS DOUBLE))"
-                      if has_col(con, rel, "floor_strike") else "NULL::DOUBLE")
+            # W-A4 incident (2026-07-09): a fresh catalog crawl produced a
+            # markets parquet with floor_strike but NO cap_strike column (no
+            # open market carried the field; union_by_name creates only the
+            # columns present in the data) — referencing an absent column
+            # unconditionally is a Binder Error. Build the expression from
+            # the columns that actually exist (D3: validate at the boundary).
+            strike_cols = [c for c in ("floor_strike", "cap_strike")
+                           if has_col(con, rel, c)]
+            strike = ("coalesce(%s)" % ", ".join(
+                          "try_cast(m.%s AS DOUBLE)" % c for c in strike_cols)
+                      if strike_cols else "NULL::DOUBLE")
             sel = """
             WITH base AS (
               SELECT m.*, %s AS _strike, %s AS _me,
