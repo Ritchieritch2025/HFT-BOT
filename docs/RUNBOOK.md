@@ -92,11 +92,11 @@ make check              # 纯/离线测试 + 仓库 gates + 新仓库测试
 ./tests/run_pipeline.sh # 离线全家桶(含 mock 交易所)
 ```
 
-## 5. EC2 盒子(W-A1 起;13.59.9.97,us-east-2,r8g.large 2核/16GB/200GB)
+## 5. EC2 盒子(固定 Elastic IP 3.130.232.109;us-east-2,r8g.large 2核/16GB/200GB)
 
 ```bash
 # 登录(密钥在 ~/.ssh/kalshi-key.pem,chmod 400)
-ssh -i ~/.ssh/kalshi-key.pem ubuntu@13.59.9.97   # 注意:临时 IP,停/起会变(EIP 待办)
+ssh -i ~/.ssh/kalshi-key.pem ubuntu@3.130.232.109   # Elastic IP,停/起不变(2026-07-09 起)
 
 # 送代码上盒子(Mac 上执行;盒子上永远没有 GitHub 凭证,S4)
 git push ec2 <分支名>                       # Mac → 盒子裸仓库 ~/kalshi.git
