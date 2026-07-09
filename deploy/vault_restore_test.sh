@@ -10,6 +10,11 @@ KEY="$1"; OUT="$HOME/vault_scratch/$2"
 mkdir -p "$OUT"
 # shellcheck disable=SC1090
 source "$HOME/.kalshi/env.sh"
-aws s3 cp "s3://kalshi-vault-ritcardo/$KEY" "$OUT/" --recursive --no-progress \
-  || aws s3 cp "s3://kalshi-vault-ritcardo/$KEY" "$OUT/" --no-progress
+# single object first; only fall back to prefix-recursive if that fails.
+# (NOT the other way round: `cp --recursive` on an exact key treats it as a
+# prefix, matches nothing, and still exits 0 — a silent no-op restore.)
+aws s3 cp "s3://kalshi-vault-ritcardo/$KEY" "$OUT/" --no-progress \
+  || aws s3 cp "s3://kalshi-vault-ritcardo/$KEY" "$OUT/" --recursive --no-progress
+RESTORED=$(find "$OUT" -type f | wc -l)
+[ "$RESTORED" -gt 0 ] || { echo "RESTORE FAILED: zero files under $OUT"; exit 1; }
 find "$OUT" -type f -exec md5sum {} \; | sort -k2
