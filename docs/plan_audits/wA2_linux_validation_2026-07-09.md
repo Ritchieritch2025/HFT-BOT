@@ -63,6 +63,26 @@ after the Makefile change (fuzz rebuild + run included).
   `work/probe/wA2_ws_preflight.ndjson` (+ .metrics) — probe artifacts, safe
   to delete any time, never read by ingest.
 
+## Independent audit outcome (2026-07-09)
+
+**✅ PASS — 0 blocking, 4 non-blocking (all evidence-hygiene).** The auditor
+re-measured everything measurable (box state over read-only SSH, both diffs,
+Mac battery + fuzz re-run, probe-file sampling, credential grep) and
+confirmed: scope test-only; 50/50 suites pass on box; capture NOT started;
+work/raw absent on box; transmitted=0 structurally implied by WS SHADOW PASS
+(ws_shadow.cpp:610); no secrets anywhere. Non-blocking, applied/queued:
+1. Operator-run preflights now **tee to a durable log on the box**
+   (`~/wA<N>_preflight.log`) — REST-leg stdout of this session lives only in
+   the operator terminal (mechanism honestly stated; WS leg has artifacts).
+   BINDING for W-A3/W-A4 operator commands.
+2. Same tee rule covers the WS-leg stdout in future runs.
+3. The EC2→Kalshi RTT line in W-A0 RESULT stays [ESTIMATE] — **measure during
+   the W-A4 preflight** (or W-LAT-BENCH) and update it.
+4. Makefile FUZZ_IGNORELIST made lazy (`=`) so the compiler probe doesn't run
+   on every make parse; on-box fuzz count evidence is artifact-inferred
+   (binary + scratch mtimes + hardcoded 200000) — future fuzz runs tee an
+   `FUZZ_RC=` line into the validation log.
+
 ## What W-A2 did NOT do (by design)
 
 No `ws_shadow` firehose service start, no systemd enable, no S3/IAM (W-A3),

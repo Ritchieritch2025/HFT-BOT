@@ -241,7 +241,9 @@ $(BUILD)/bench_ws_decode: apps/bench_ws_decode.cpp $(BUILD)/gateway.o $(BUILD)/s
 # inlines DO get instrumented — W-A2 (2026-07-09) ran `make fuzz` (200k iters)
 # on the EC2 box to prove that is clean in practice; re-prove after any
 # simdjson upgrade.
-FUZZ_IGNORELIST := $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo "-fsanitize-ignorelist=tests/sanitizer_ignore.txt")
+# `=` (lazy), not `:=`: the compiler probe should run only when the fuzz rule
+# actually fires, not on every make parse (audit nit, 2026-07-09).
+FUZZ_IGNORELIST = $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo "-fsanitize-ignorelist=tests/sanitizer_ignore.txt")
 $(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 	    $(FUZZ_IGNORELIST) \

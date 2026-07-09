@@ -38,6 +38,10 @@ which decisions landed in which files, what the next session must know.
   fail-closed default working as designed, S2). Probe artifacts in work/probe/
   are disposable. wc=5,817 lines captured in 10 s ≈ 580 msg/s whole-market
   firehose at that hour (useful datapoint vs the 472 ev/s day-mean).
+- INDEPENDENT AUDIT: ✅ PASS, 0 blocking, 4 non-blocking (evidence hygiene) —
+  all applied/queued; details in the validation log’s "Independent audit
+  outcome" section. New binding practice: operator-run preflight commands
+  tee output to a durable on-box log (~/wA<N>_preflight.log).
 - blocked / handoff: NEXT = W-A3 (S3 vault + RESTORE TEST). OPERATOR
   PREREQUISITES for W-A3 (S4): create S3 bucket (versioned) + IAM user per
   the plan's least-privilege rules (Put/Get/List on vault prefixes, NO
