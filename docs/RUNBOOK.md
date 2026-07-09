@@ -15,8 +15,14 @@ pkill -f "build/tradingd" ; pkill -f "dashboard_server.py"
 
 ## 1. 数据收集系统(三层管道)
 
+**⚠️ 割接后现状(2026-07-09 23:09 UTC 起):生产管线跑在 EC2 上(见 §5),
+Mac 是休眠回滚载体。下面的 Mac 启动命令是【回滚/应急路径】,平时不要跑——
+在 EC2 采集正常时启动它会造成双机采集(WS 双跑无害但浪费;真正回滚时
+还需先删 work/live/rest_disabled 才恢复 Mac 的 REST,并停掉 EC2 侧,
+守住单一 REST 所有者铁律,详见 plan_audits/wA4_cutover_2026-07-09.md)。**
+
 ```bash
-# 启动(推荐,launchd 守护:崩溃自动拉起,开机自启)
+# 回滚/应急启动(launchd 守护:崩溃自动拉起,开机自启)
 cp deploy/com.ritcardo.kalshi-pipeline.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.ritcardo.kalshi-pipeline.plist
 
@@ -92,7 +98,7 @@ make check              # 纯/离线测试 + 仓库 gates + 新仓库测试
 ./tests/run_pipeline.sh # 离线全家桶(含 mock 交易所)
 ```
 
-## 5. EC2 盒子(固定 Elastic IP 3.130.232.109;us-east-2,r8g.large 2核/16GB/200GB)
+## 5. EC2 盒子 —— 生产主机(固定 Elastic IP 3.130.232.109;us-east-2,r8g.large 2核/16GB/200GB)
 
 ```bash
 # 登录(密钥在 ~/.ssh/kalshi-key.pem,chmod 400)
@@ -102,8 +108,8 @@ ssh -i ~/.ssh/kalshi-key.pem ubuntu@3.130.232.109   # Elastic IP,停/起不变(2
 git push ec2 <分支名>                       # Mac → 盒子裸仓库 ~/kalshi.git
 ssh ... 'cd ~/hft-bot && git pull'          # 盒子工作区更新
 
-# 盒子上的服务(替代 Mac launchd;W-A4 割接前 pipeline 单元保持"装而不启")
-sudo systemctl status kalshi-pipeline       # 采集管线(W-A4 后才 enable/start)
+# 盒子上的服务 —— 2026-07-09 23:09 UTC 起这就是生产管线(enabled+active)
+sudo systemctl status kalshi-pipeline       # 采集管线(应为 active;停=事故)
 systemctl list-timers | grep kalshi         # oom-guard 每分钟护栏(已启用)
 chronyc tracking                            # 时钟偏移(应 <1ms,Amazon Time Sync)
 swapon --show                               # 16GB 交换区(一体机护栏)
