@@ -12,12 +12,8 @@
     <string>com.ritcardo.kalshi-report-pull</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/rsync</string>
-        <string>-a</string>
-        <string>-e</string>
-        <string>ssh -i /Users/ritcardo/.ssh/kalshi-key.pem -o ConnectTimeout=15</string>
-        <string>ubuntu@3.130.232.109:hft-bot/reports/</string>
-        <string>/Users/ritcardo/Desktop/TradingSys Report/</string>
+        <string>/bin/bash</string>
+        <string>/Users/ritcardo/HFT BOT/deploy/mac_report_pull.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
