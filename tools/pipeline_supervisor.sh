@@ -90,7 +90,13 @@ while true; do
   ingest_alive || start_ingest
 
   # --- reference catalog + classification + dim snapshots (background) --------
-  if [ $((hour_cycle % FULL_CATALOG_EVERY_HOURS)) -eq 0 ]; then
+  # W-A4 single-REST-owner gate: these three tools are this script's ONLY REST
+  # spenders. Touch work/live/rest_disabled to run WS-capture-only (zero REST)
+  # during the Mac<->EC2 overlap; remove the flag to become the REST owner.
+  # The skip is logged every cycle — a silently-suppressed catalog is D2 rot.
+  if [ -f "$LIVE/rest_disabled" ]; then
+    echo "[supervisor] REST disabled ($LIVE/rest_disabled present): catalog/classification/dim block skipped this cycle (W-A4 single-REST-owner)"
+  elif [ $((hour_cycle % FULL_CATALOG_EVERY_HOURS)) -eq 0 ]; then
     ( python3 tools/catalog_sync.py --settled-pages 40 &&
       python3 tools/build_classification.py &&
       python3 tools/dim_snapshot.py ) >> "$LIVE/catalog.log" 2>&1 &

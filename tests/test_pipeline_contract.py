@@ -614,3 +614,21 @@ def test_supervisor_wires_capture_gaps_daily_and_live():
     # next_actions.md item 1: daily coverage audit, non-zero exit surfaced.
     assert any('coverage_audit.py --date "$YESTERDAY"' in ln for ln in live), \
         "daily coverage audit not wired into the supervisor export block"
+
+
+def test_supervisor_single_rest_owner_gate():
+    """W-A4 contract: the catalog block (catalog_sync / build_classification /
+    dim_snapshot — the supervisor's ONLY REST spenders; ws_shadow's XCHECK
+    defaults off) must be gated on the absence of work/live/rest_disabled.
+    This is the mechanism behind the cutover's single-REST-owner rule: a box
+    runs WS capture while provably spending zero REST tokens (EC2 before
+    step 4, the Mac after step 3). The skip must be LOUD (D2), never silent."""
+    sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    live = [ln for ln in sup.splitlines() if not ln.lstrip().startswith("#")]
+    assert any('-f "$LIVE/rest_disabled"' in ln for ln in live), \
+        "rest_disabled flag gate missing from the supervisor catalog block"
+    txt = "\n".join(live)
+    assert txt.find('rest_disabled') < txt.find("catalog_sync.py"), \
+        "rest_disabled gate must precede the first catalog_sync invocation"
+    assert any("REST disabled" in ln for ln in live), \
+        "suppressed catalog block must log loudly (D2), not skip silently"
