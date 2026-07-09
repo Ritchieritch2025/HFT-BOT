@@ -332,6 +332,19 @@ Acceptance:     **`make check` + `tests/run_pipeline.sh` fully GREEN on the EC2
 Rollback:       n/a (tests).
 Exit evidence:  the green test tails from the box; the preflight output.
 
+### W-A2 RESULT (2026-07-09 — ✅ PASS)
+
+Full evidence + declared deviation (ws_smoke is mock-only by design ⇒ the WS
+leg used a 10 s read-only ws_shadow) + the three test-only portability fixes
+(pyyaml lazy import; 4 registry binaries built; fuzz ignorelist flag made
+clang-conditional, g++ 200k-iter fuzz clean): see
+**docs/plan_audits/wA2_linux_validation_2026-07-09.md**. Battery: make check
+exit 0 + run_pipeline `PIPELINE PASS` (50/50 suites) + check_registry green,
+all ON the box; REST+WS preflight from the EC2 IP operator-run (S4):
+preflight exit 0, WS SHADOW PASS 5,815 events/10 s, transmitted=0. Capture
+still NOT started (W-A4). NEXT: W-A3 needs the operator's S3 bucket + IAM
+user (S4) per the credential-model rules above.
+
 ## W-A3 — S3 vault + RESTORE TEST (before cutover)
 Purpose:        Get the Mac's accumulated data safely into S3, restore-verified,
                 BEFORE the cutover — so a cutover failure can never lose history.

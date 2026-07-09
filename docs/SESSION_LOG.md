@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-09 — W-A2 DONE ✅: full battery green ON EC2 (50/50), REST+WS preflight from AWS passed; 3 portability fixes
+
+- commits: 2f0c1b3 (Makefile fuzz ignorelist clang-conditional + bringup
+  pyyaml) · this commit (validation log + plan/playbook/session docs).
+  Same-session continuation after W-A0/W-A1 (operator-initiated resume).
+- ACCEPTANCE (all demonstrated, evidence in
+  docs/plan_audits/wA2_linux_validation_2026-07-09.md + ~/wA2_validation.log
+  on the box): make check exit 0 ON the box; tests/run_pipeline.sh
+  `PIPELINE PASS` 50/50 suites zero fails; check_registry --require-built
+  green; operator-run preflight --prod-ok exit 0 (REST, external-api host) +
+  10 s read-only ws_shadow WS SHADOW PASS — 5,815 events (578 trade/5,237
+  tick), reconnects/errors/drops all 0, transmitted=0, capture to isolated
+  work/probe/ (never work/raw).
+- DECLARED DEVIATION: plan said "10 s ws_smoke" but ws_smoke is mock-only by
+  design (hardcoded fake signer — apps/ws_smoke.cpp); intent satisfied with
+  ws_shadow. Recorded in the validation log for the audit.
+- 3 PORTABILITY FIXES (test-only, W-A2 allowed writes):
+  (1) pyyaml missing from venv — `import yaml` is lazy (function-body) in
+  mm_research/build_classification, invisible to top-level import scans;
+  (2) fuzz_decode/account_info/rate_probe/account_upgrade not in default make
+  target ⇒ check_registry --require-built failed on fresh box — bringup now
+  builds them (fixed by direct make targets this session);
+  (3) -fsanitize-ignorelist= is clang-only ⇒ FUZZ_IGNORELIST conditional in
+  Makefile; PROOF: make fuzz 200k iters clean on box/g++ (simdjson inlines
+  instrumented!) AND Mac/clang. Re-prove after simdjson upgrades.
+- context capsule: box HEAD 2f0c1b3; venv now duckdb==1.4.5/numpy/pandas/
+  pytest/pyyaml-6.0.3; clang-18+libstdc++ lacks std::expected (that's why
+  fuzz couldn't just use clang); preflight without KALSHI_ENV=prod correctly
+  fail-closes to local_mock (operator's first attempt demonstrated it — the
+  fail-closed default working as designed, S2). Probe artifacts in work/probe/
+  are disposable. wc=5,817 lines captured in 10 s ≈ 580 msg/s whole-market
+  firehose at that hour (useful datapoint vs the 472 ev/s day-mean).
+- blocked / handoff: NEXT = W-A3 (S3 vault + RESTORE TEST). OPERATOR
+  PREREQUISITES for W-A3 (S4): create S3 bucket (versioned) + IAM user per
+  the plan's least-privilege rules (Put/Get/List on vault prefixes, NO
+  DeleteObject, no lifecycle-expiry on raw/archive/catalog) + put the keys in
+  the box env.sh by hand. Pre-W-A4 items unchanged: Elastic IP + egress-443.
+  Mac pipeline untouched again this session (P4; the only prod-adjacent
+  action was the 10 s second WS connection — exempt per 3-conn test).
+
 ## 2026-07-09 — W-A0 CLOSED + W-A1 DONE: EC2 box hardened, make check green both platforms, capture NOT started (correct)
 
 - commits: df13191 (deploy/ artifacts: systemd units, oom-guard, bringup,

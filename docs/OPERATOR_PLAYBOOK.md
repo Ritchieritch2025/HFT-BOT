@@ -221,6 +221,16 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A2 完成 2026-07-09（✅ PASS）**：EC2 上全家桶全绿——make check exit 0、
+  run_pipeline PIPELINE PASS（50/50 套件）、check_registry 绿；REST+WS 只读
+  预检从 EC2 IP 通过（操作员跑，preflight exit 0 + WS SHADOW PASS
+  10 秒 5,815 事件、零发送）。3 个移植修复（pyyaml 懒加载/4 个注册表
+  二进制/fuzz 旗标条件化，g++ 20 万次 fuzz 干净）。验证日志：
+  docs/plan_audits/wA2_linux_validation_2026-07-09.md。下一步 = W-A3
+  （S3 金库 + 恢复测试）——**前置：你先在控制台建 S3 桶 + IAM 用户**
+  （按计划"Least-privilege IAM"规则：无 DeleteObject；凭证进盒子的
+  env.sh，S4 你手工）。
+
   **W-A1 完成 2026-07-09（操作员判定收官）**：盒子 i-0fd427becf740a06b
   （13.59.9.97 临时 IP）装机加固全绿——make check 两平台 exit 0、chrony
   偏移 6.9µs、16GB 交换区 + oom-guard 护栏、pipeline 单元装而不启、凭证
