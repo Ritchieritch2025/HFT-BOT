@@ -221,6 +221,15 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A3 完成 2026-07-09（✅ PASS）**：金库上线
+  s3://kalshi-vault-ritcardo/mac-vault/ —— 1,082 对象 / 85.52 GB（raw 四天
+  含抢救下来的 07-06 + 仓库全层 + MD5 账本）；1,076 个数据对象三跳 MD5
+  全验通过、恢复测试两条腿逐字节一致（含与 manifest.csv 的 file_md5 对账）；
+  月成本实算 ~$2.0（预算内）。Mac 数据零删除。Elastic IP 已就位
+  （3.130.232.109）。证据：docs/plan_audits/wA3_s3_vault_2026-07-09.md。
+  下一步 = **W-A4 割接（你必须在场 go/no-go）**；仅剩前置：出站收紧到
+  443（SECURITY_CHECKLIST_EC2.md §4–5）。
+
   **W-A2 完成 2026-07-09（✅ PASS）**：EC2 上全家桶全绿——make check exit 0、
   run_pipeline PIPELINE PASS（50/50 套件）、check_registry 绿；REST+WS 只读
   预检从 EC2 IP 通过（操作员跑，preflight exit 0 + WS SHADOW PASS

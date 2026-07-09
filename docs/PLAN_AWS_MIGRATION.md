@@ -363,6 +363,26 @@ Acceptance:     archive + raw(3 d) + catalog uploaded (byte/md5 verified against
 Rollback:       delete the S3 objects (versioned, reversible); Mac untouched.
 Exit evidence:  upload manifest + the restore-diff = 0 result.
 
+### W-A3 RESULT (2026-07-09 — ✅ PASS)
+
+Vault live: `s3://kalshi-vault-ritcardo/mac-vault/` — **1,082 objects /
+85.52 GB** (raw 4 days incl. at-risk 07-06 synced first; warehouse
+facts/dim/catalog/legacy_greed/_meta + manifest.csv; the 6 MD5 account books
+under meta/). **1,076/1,076 data objects MD5-verified end-to-end** (Mac md5 →
+box md5 → S3 ETag, single-part uploads so ETag==MD5). **RESTORE TEST passed
+on two legs** (largest raw file 663 MB + an archive partition), byte-for-byte
+`cmp` on the Mac AND md5 == manifest.csv's file_md5. Cost ~$2.0/mo measured.
+Nothing deleted anywhere (D1); no `--delete` anywhere. One torn mid-write
+copy (hour-16 retry segment) was CAUGHT by the hop-1 md5 check and fixed
+after the hour closed — W-A5's delta sync must exclude
+`firehose_<current-hour>.ndjson*` (glob). Full evidence + no-fabrication
+provenance table + declared deviations:
+**docs/plan_audits/wA3_s3_vault_2026-07-09.md**; on-box `~/wA3_vault.log`.
+Box staging copy (~/vault_staging, 79 GB) kept until W-A4 completes.
+NEXT: W-A4 (zero-gap cutover, operator go/no-go + present) — its
+PREREQUISITES block below: EIP ✅ DONE (3.130.232.109, 2026-07-09);
+egress-443 still pending; work/live exists ✅ (W-A1 fix).
+
 ## W-A4 — zero-gap cutover (operator go/no-go, operator present)
 Purpose:        Move live capture Mac→EC2 with ZERO gap and a clean REST handoff.
 Blocked by:     W-A3 green + operator go/no-go.
@@ -512,6 +532,23 @@ Exit evidence:  24 h zero-gap report from EC2; a landed PDF on the Mac Desktop;
   - Ships with a test (D4): a dry-run proving a RED `make check` does NOT restart
     the unit. Build target: W-A5 (steady state); the capture-unit split can land
     at W-A1.
+- **(e) notification / alerting system (operator requirement 2026-07-09).** This
+  specifies W-A5's alert delivery (the "operator-chosen email/webhook — ask").
+  - **PRIMARY channel = Telegram** (bot via @BotFather → bot token lives in
+    `~/.kalshi/env.sh`, operator-created, S4; an alert = a simple HTTPS POST to the
+    Bot API — reaches the operator's phone anywhere). **Backup = email**
+    (Lyz2003@protonmail.com). **At-console history = the dashboard alert stream.**
+  - **INFRA layer (AWS CloudWatch alarms → SNS):** instance status-check fail /
+    unreachable, **disk usage > threshold (e.g. 80%)** — fires EVEN IF the app is
+    dead. SNS→email needs an operator email-subscription confirm (S4).
+  - **APP layer (pipeline detectors: capture_gaps W-C2, incident detector W-D3):**
+    capture gap / feed stale / reconnect storm, clock skew, **monthly cost over the
+    S3+EBS+egress cap**.
+  - **LATER (execution engine, STEP 6+):** fills, position-limit breach,
+    kill-switch, risk events fan out through the SAME Telegram/email path —
+    extended, not rebuilt.
+  - Built at W-A5 (post-cutover, on EC2); read-only, off the hot path (S5). The
+    Telegram bot token + email SNS confirmation are operator actions (S4).
 
 ## §6 self-audit (this plan vs GUARDRAILS)
 1. Phase/gates (P1,P2): infra for Phase 1→2; skips no gate; enables the 7-clean-days gate. ✅

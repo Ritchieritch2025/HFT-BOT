@@ -6,6 +6,45 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-09 — W-A3 DONE ✅: S3 vault live (1,082 obj / 85.52 GB), 1,076/1,076 MD5-verified, restore proven byte-for-byte, ~$2/mo
+
+- commits: f36d60a (vault scripts: sync/verify/restore — never --delete,
+  single-part⇒ETag==MD5), restore-script fix commit (cp --recursive silent
+  no-op guard), this commit (validation log + plan/playbook/session docs).
+- WHAT LANDED: s3://kalshi-vault-ritcardo/mac-vault/{raw,warehouse,meta}.
+  Raw FOUR days (07-06 was hours from 3-day age-out — synced FIRST, 11.08 GB;
+  07-07 22.27 GB; 07-08 29.51 GB; 07-09 through hour 16, 19.68+1.23 GB),
+  warehouse 2.0 GB (facts/dim/catalog/legacy_greed/_meta/manifest.csv), and
+  the 6 MD5 account books under meta/. Route: Mac→EC2 rsync (25.9–42 MB/s
+  measured) → aws s3 sync on the box (AWS creds never leave the box, S4).
+- VERIFICATION (three-hop, every number in the no-fabrication table of
+  docs/plan_audits/wA3_s3_vault_2026-07-09.md): Mac `md5 -r` manifests →
+  box `md5sum -c` (BAD=0 all components) → S3 ETag==MD5 per object
+  (VERIFY 0 mismatches ×5, total 1,076). RESTORE TEST both legs: biggest raw
+  file (663,175,728 B) and an archive parquet partition — S3→box→Mac `cmp`
+  rc=0 AND the parquet md5 == manifest.csv file_md5 (literal acceptance).
+- THE CATCH THAT PROVES THE CHECKS WORK: hour-16 retry segment
+  firehose_16.ndjson.4 was rsynced MID-APPEND → hop-1 md5 flagged it (BAD=1);
+  refreshed after the hour closed ⇒ BAD=0, 84/84 in S3. LESSON FOR W-A5 delta
+  sync: exclude firehose_<current-hour>.ndjson* (GLOB — main + segments).
+- Cost measured: 85.52 GB × $0.023 = ~$2.0/mo + one-off pennies; within the
+  W-A0 S3 budget row. Versions from the refresh ≈1.2 GB noncurrent (delete
+  is impossible for vaultWriter — operator-only, separate creds).
+- Operator prerequisites consumed: bucket kalshi-vault-ritcardo (versioned),
+  IAM no-deletion-ritcardo (List/Get/Put only), vaultWriter keys in box
+  env.sh, awscli(snap), **Elastic IP 3.130.232.109** (git remote `ec2` +
+  RUNBOOK updated from the old 13.59.9.97).
+- tooling incidents (fixed in-session, committed): macOS rsync rejects
+  --info=stats2 (use --stats); aws s3 cp --recursive on an exact key is a
+  SILENT NO-OP (exit 0, zero files) — restore script now tries single-object
+  first + zero-file guard.
+- blocked / handoff: NEXT = **W-A4 zero-gap cutover — operator MUST be
+  present (go/no-go)**. Remaining prerequisite: egress-443 lockdown
+  (SECURITY_CHECKLIST_EC2.md §4–5); EIP ✅ done; work/live ✅ exists.
+  ~/vault_staging (79 GB) on the box = redundant third copy, keep until
+  W-A4 done. Mac untouched all session (P4): zero deletions, capture ran
+  throughout, only reads + a second WS connection never opened this session.
+
 ## 2026-07-09 — W-A2 DONE ✅: full battery green ON EC2 (50/50), REST+WS preflight from AWS passed; 3 portability fixes
 
 - commits: 2f0c1b3 (Makefile fuzz ignorelist clang-conditional + bringup
