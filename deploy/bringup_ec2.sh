@@ -69,6 +69,12 @@ make -j"$(nproc)" >/dev/null
 ls -la build/ws_shadow build/ws_smoke build/preflight
 
 echo "== [7/8] systemd units — installed DRY (capture NOT started; W-A4 owns that) =="
+# AUDIT FIX (W-A1 audit B1): work/ is gitignored so a fresh clone has no
+# work/live/ — but the unit's StandardOutput=append: opens the log file
+# BEFORE ExecStart and systemd does NOT create parent dirs (empirically
+# verified: missing dir ⇒ status=209/STDOUT crash-loop). The supervisor's own
+# mkdir never gets the chance to run. Create it here; W-A4 go/no-go re-checks.
+mkdir -p "$REPO/work/live"
 sudo cp "$REPO/deploy/kalshi-pipeline.service"  /etc/systemd/system/
 sudo cp "$REPO/deploy/kalshi-oom-guard.service" /etc/systemd/system/
 sudo cp "$REPO/deploy/kalshi-oom-guard.timer"   /etc/systemd/system/

@@ -13,10 +13,14 @@
 4. **出站收紧（bring-up 完成后才做，apt 装包需要 80 口）** — Security Group
    → Outbound rules，删掉默认 All traffic，只留：
    - `HTTPS TCP 443 → 0.0.0.0/0`（Kalshi API + S3 + git 均走 443）
-   - `DNS UDP 53 + TCP 53 → <VPC CIDR>`（如 172.31.0.0/16；VPC 内置解析器）
+   - DNS 其实也不用开：VPC 内置解析器（VPC+2 / 169.254.169.253）不经 SG
+     评估（同下面 NTP 的旁路，AWS 文档口径）。想加一条
+     `DNS UDP/TCP 53 → <VPC CIDR>` 做保险也无害。
    - 时钟同步不用开：chrony 已指向 169.254.169.123（链路本地，不经 SG）
-   - 注意：此后 `apt-get` 默认源（http 80）会失效；要装包时临时加回
-     `HTTP TCP 80 → 0.0.0.0/0`，装完删掉（或把 apt 源改 https）。
+   - 注意：此后 `apt-get` 默认源（http 80）会失效——**包括
+     unattended-upgrades 的自动安全更新也会静默停摆**。要装包/恢复自动
+     更新时临时加回 `HTTP TCP 80 → 0.0.0.0/0`，装完删掉（或把 apt 源
+     永久改 https，一劳永逸）。
 5. **验证**（收紧后在盒子上跑）：
    - `curl -sS https://external-api.kalshi.com/trade-api/v2/exchange/status` 通
    - `chronyc tracking` 偏移 < 1ms

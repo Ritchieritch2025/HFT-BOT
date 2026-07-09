@@ -354,6 +354,15 @@ Exit evidence:  upload manifest + the restore-diff = 0 result.
 Purpose:        Move live capture Mac→EC2 with ZERO gap and a clean REST handoff.
 Blocked by:     W-A3 green + operator go/no-go.
 
+**PREREQUISITES (from W-A1 deviations + audit, verify FIRST in the go/no-go):**
+1. Elastic IP associated (the W-A1-era 13.59.9.97 is ephemeral; a stop/start
+   before cutover would silently break the Mac's `ec2` git remote + RUNBOOK).
+2. Egress locked to 443 per deploy/SECURITY_CHECKLIST_EC2.md §4, verified §5.
+3. `~/hft-bot/work/live/` EXISTS on the box (W-A1 audit B1: systemd opens the
+   unit's append: log BEFORE ExecStart and does not create parent dirs —
+   missing dir = status=209 crash-loop, empirically verified 2026-07-09;
+   bringup_ec2.sh step 7 now creates it, re-check anyway).
+
 ### RULE — SINGLE REST OWNER (operator-locked 2026-07-08)
 During the Mac↔EC2 **overlap**, the periodic **REST** tasks (catalog_sync,
 dim_snapshot, build_classification, settlements, batch-orderbook cross-check —
@@ -457,6 +466,39 @@ Exit evidence:  24 h zero-gap report from EC2; a landed PDF on the Mac Desktop;
 - **(c) gitignore the two pipeline-churned config CSVs**
   (`config/classification_review.csv`, `config/series_tags_report.csv`) — the
   standing BACKLOG item; stops the perpetual dirty-tree noise.
+- **(d) auto-deploy for the STRATEGY process ONLY (operator requirement
+  2026-07-08: "改策略期间永远不断链，一直保持数据采集").** The zero-gap guarantee
+  is ARCHITECTURAL, not automation — capture and strategy are SEPARATE systemd
+  units and the auto-deploy loop touches ONLY the strategy unit, NEVER capture.
+  - `kalshi-capture` (ws_shadow + ingest = the data line): long-running,
+    `OOMScoreAdjust=-1000`, `Restart=on-failure`, single-instance flock. Its
+    restart is ALWAYS manual + off-peak + gap-accounted — **never in any auto
+    loop.** (Today this is the only pipeline unit; when a live/shadow strategy
+    process is added later it goes in its OWN unit — the split is what makes this
+    rider real.)
+  - `kalshi-strategy` (does NOT exist on the box yet — research/backtest today
+    reads the warehouse OFF the hot path, so strategy work CANNOT touch capture
+    now; this rider is for when a shadow/live strategy process runs ON the box):
+    restarted freely on deploy.
+  - Deploy mechanism: read-only GitHub **deploy key** on the box (narrowest
+    secret — read-only, single-repo, no account/push reach; S4-bounded). Box
+    watches a dedicated `deploy` branch (random dev commits elsewhere never
+    auto-ship = a deliberate release switch). On a new `deploy`-branch commit:
+    `git pull` → build → `make check` ON THE BOX → **only if green** restart
+    `kalshi-strategy`; if red, DON'T restart + alert. Trigger = systemd timer
+    poll (default; opens no inbound port) or GitHub webhook (instant).
+  - **KEY INSIGHT (recorded for the operator):** `git pull`/build NEVER touch a
+    running process; only a restart does; and only a CAPTURE restart makes a data
+    gap. Strategy redeploys are therefore gap-free BY CONSTRUCTION.
+  - **HARD GATE (S1/S6):** auto-restart is allowed ONLY while the strategy places
+    NO live orders (research/shadow). Once it is live-order-capable, auto-restart
+    of a trading process is FORBIDDEN without the lifecycle gates
+    (cancel-on-disconnect proven, position reconcile) + operator per-session
+    confirm — the loop must then insert an operator-ack step before the strategy
+    restart. This gate ships WITH the auto-deploy unit, not later.
+  - Ships with a test (D4): a dry-run proving a RED `make check` does NOT restart
+    the unit. Build target: W-A5 (steady state); the capture-unit split can land
+    at W-A1.
 
 ## §6 self-audit (this plan vs GUARDRAILS)
 1. Phase/gates (P1,P2): infra for Phase 1→2; skips no gate; enables the 7-clean-days gate. ✅
