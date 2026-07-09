@@ -27,10 +27,44 @@ import json
 import os
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 BASE = "https://external-api.kalshi.com/trade-api/v2"
+
+# shared pacing state across all requests in this process
+_LAST_REQUEST_MONO = [0.0]
+
+
+def paced_open(url, timeout=45, min_interval_s=0.05, max_tries=6,
+               opener=None, sleeper=None, clock=None):
+    """Rate-paced urlopen with exponential backoff on HTTP 429.
+
+    W-A4 cutover lesson (2026-07-09): on EC2 (same-region, <1 ms RTT) the
+    sequential pagination loop fires ~30x more requests/second than on the
+    ~30 ms-RTT Mac and burns through the read-token burst -> HTTP 429. The
+    Mac never hit this only because its network latency throttled it for
+    free. So: every request waits min_interval_s (default 50 ms, <=20 req/s
+    vs the 300 tok/s refill) and 429 retries back off 1,2,4,8,16 s. Non-429
+    errors raise immediately (fail-closed, never masked).
+    """
+    opener = opener or urllib.request.urlopen
+    sleeper = sleeper or time.sleep
+    clock = clock or time.monotonic
+    for attempt in range(max_tries):
+        wait = _LAST_REQUEST_MONO[0] + min_interval_s - clock()
+        if wait > 0:
+            sleeper(wait)
+        _LAST_REQUEST_MONO[0] = clock()
+        try:
+            return opener(url, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == max_tries - 1:
+                raise
+            sleeper(2 ** attempt)
+    raise AssertionError("unreachable")
 
 
 def fetch_all(path, key, limit=200, params=None, cap_pages=400, log=None):
@@ -42,7 +76,7 @@ def fetch_all(path, key, limit=200, params=None, cap_pages=400, log=None):
         if cur:
             q["cursor"] = cur
         url = "%s%s?%s" % (BASE, path, urllib.parse.urlencode(q))
-        with urllib.request.urlopen(url, timeout=45) as r:
+        with paced_open(url, timeout=45) as r:
             d = json.load(r)
         batch = d.get(key, [])
         items.extend(batch)

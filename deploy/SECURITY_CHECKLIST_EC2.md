@@ -10,7 +10,11 @@
    任何人/任何聊天（包括 agent 会话）。
 3. **凭证（S4）**：`~/.kalshi/env.sh`（600）+ Kalshi 私钥由你手工创建在
    盒子上；永不进 repo/日志/聊天。AWS 侧本步不需要任何 IAM（S3 是 W-A3）。
-4. **出站收紧（bring-up 完成后才做，apt 装包需要 80 口）** — Security Group
+4. **出站收紧 —— 操作员裁定 2026-07-09：顺延为「实盘（live）前必办」硬门，
+   不再是 W-A4 前置。** 理由：测试/部署阶段出站依赖仍在变（装包、
+   Telegram、外部数据源、Polymarket 等），现在收紧会反复改规则；纯安全
+   加固，不影响割接零缺口。**S1 关联：第一笔真实订单前，本条必须完成
+   并按 §5 验证** —— 到时 Security Group
    → Outbound rules，删掉默认 All traffic，只留：
    - `HTTPS TCP 443 → 0.0.0.0/0`（Kalshi API + S3 + git 均走 443）
    - DNS 其实也不用开：VPC 内置解析器（VPC+2 / 169.254.169.253）不经 SG
