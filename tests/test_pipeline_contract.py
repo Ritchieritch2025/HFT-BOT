@@ -632,3 +632,74 @@ def test_supervisor_single_rest_owner_gate():
         "rest_disabled gate must precede the first catalog_sync invocation"
     assert any("REST disabled" in ln for ln in live), \
         "suppressed catalog block must log loudly (D2), not skip silently"
+
+
+def test_rider_b_all_categories_full_l1():
+    """Rider (b), W-A5 (operator-approved 2026-07-08): the PRODUCTION config
+    must carry every category as class_a_full_l1 — an empty Class B. A
+    regression that demotes a category silently reopens the permanent
+    Class-B orderbook loss (DATA_COMPLETENESS 拼图①)."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(ROOT, "tools"))
+    from build_classification import load_yaml_classes
+    a, b = load_yaml_classes(os.path.join(ROOT, "config", "market_classes.yaml"))
+    assert b == [], "class_b_trades_only must be empty since rider (b): %r" % b
+    # the full historical taxonomy (18 categories) is all present in A
+    for cat in ("Crypto", "Sports", "Elections", "Exotics", "Mentions",
+                "World", "Science and Technology"):
+        assert cat in a, "category %s missing from class_a_full_l1" % cat
+    assert len(a) >= 18, "expected the full 18-category taxonomy, got %d" % len(a)
+
+
+def test_supervisor_metrics_rotation_rider_a():
+    """Rider (a), W-A5: metrics.ndjson rotates at 512MB keep-3 via
+    tools/rotate_metrics.sh, wired into the supervisor's hourly loop (the
+    file was 23GB unbounded on the Mac). Threshold env-tunable for tests."""
+    sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    live = [ln for ln in sup.splitlines() if not ln.lstrip().startswith("#")]
+    assert any("rotate_metrics.sh" in ln for ln in live), \
+        "supervisor must invoke tools/rotate_metrics.sh in the hourly loop"
+    rot = os.path.join(ROOT, "tools", "rotate_metrics.sh")
+    assert os.path.exists(rot), "tools/rotate_metrics.sh missing"
+
+
+def test_metrics_rotation_semantics(tmp_path):
+    """rotate_metrics.sh: keep-3 chain, no-op below threshold/missing file."""
+    import subprocess
+    rot = os.path.join(ROOT, "tools", "rotate_metrics.sh")
+    mf = tmp_path / "metrics.ndjson"
+
+    def run():
+        return subprocess.run(
+            ["bash", rot, str(mf)], env={**os.environ,
+                                         "METRICS_ROTATE_BYTES": "10"},
+            capture_output=True, text=True).returncode
+
+    assert run() == 0  # missing file: no-op, success
+    mf.write_text("x" * 5)
+    assert run() == 0 and mf.exists()  # below threshold: untouched
+    for gen in "abc":
+        mf.write_text(gen * 20)  # above threshold each time
+        assert run() == 0
+    mf.write_text("d" * 20)
+    assert run() == 0
+    # keep-3: current gone (rotated to .1), chain shifted, oldest dropped
+    assert not mf.exists()
+    assert (tmp_path / "metrics.ndjson.1").read_text() == "d" * 20
+    assert (tmp_path / "metrics.ndjson.2").read_text() == "c" * 20
+    assert (tmp_path / "metrics.ndjson.3").read_text() == "b" * 20
+    assert not (tmp_path / "metrics.ndjson.4").exists()
+
+
+def test_supervisor_sigterm_graceful():
+    """W-A5 (audit finding 3): systemctl stop must not need SIGKILL.
+    Two requirements on live lines: (1) ws_shadow runs BACKGROUNDED with a
+    `wait` (a foreground child blocks bash trap delivery for the whole
+    hour); (2) INT/TERM trap must EXIT (bash resumes after a signal trap —
+    the old combined trap would keep looping after cleanup)."""
+    sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    live = [ln for ln in sup.splitlines() if not ln.lstrip().startswith("#")]
+    txt = "\n".join(live)
+    assert 'wait "$WS_PID"' in txt, "ws_shadow must be backgrounded + waited"
+    assert any("exit 143" in ln and "trap" in ln for ln in live), \
+        "INT/TERM trap must exit (143) so the EXIT trap runs cleanup once"

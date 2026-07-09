@@ -6,6 +6,12 @@
 #          markets in the category. Plus trades + settlements.
 # Class B: NO L1. Trades + settlements only.
 # (trades + settlements are recorded for EVERY market regardless of class.)
+#
+# RIDER (b) EXECUTED (W-A5, 2026-07-09; operator-approved 2026-07-08): ALL
+# categories promoted to class_a_full_l1 — full-market L1 on the EC2
+# production box. Exotics stay Q7-EXCLUDED FROM MM CANDIDACY (a research
+# filter, NOT a storage filter — their books are still recorded). Class B is
+# deliberately EMPTY; the new-category warning below still applies.
 
 class_a_full_l1:
   - Crypto                 # sub-penny prices — highest-value L1
@@ -15,19 +21,21 @@ class_a_full_l1:
   - Commodities
   - Sports                 # books recorded (per operator priority)
   - Politics               # books recorded (per operator priority)
+  - Companies              # promoted 2026-07-09 (rider b)
+  - Education              # promoted 2026-07-09 (rider b)
+  - Elections              # promoted 2026-07-09 (rider b)
+  - Entertainment          # promoted 2026-07-09 (rider b)
+  - Exotics                # promoted 2026-07-09 (rider b); Q7 MM exclusion unchanged
+  - Health                 # promoted 2026-07-09 (rider b)
+  - Mentions               # promoted 2026-07-09 (rider b)
+  - Science and Technology # promoted 2026-07-09 (rider b)
+  - Social                 # promoted 2026-07-09 (rider b)
+  - Transportation         # promoted 2026-07-09 (rider b)
+  - World                  # promoted 2026-07-09 (rider b)
 
 class_b_trades_only:
-  - Companies
-  - Education
-  - Elections
-  - Entertainment
-  - Exotics
-  - Health
-  - Mentions
-  - Science and Technology
-  - Social
-  - Transportation
-  - World
+# (empty since rider (b) — header kept so the parser and the new-category
+#  warning keep working; a future demotion would list categories here again)
 
 # Any live category not listed above is treated as Class B and logged as a
 # warning (catches new Kalshi categories).

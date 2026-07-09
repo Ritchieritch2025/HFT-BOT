@@ -54,9 +54,15 @@ fi
 cleanup() {
   [ -f "$LIVE/ingest.pid" ] && kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null
   kill "$WATCHDOG_PID" 2>/dev/null
+  [ -n "${WS_PID:-}" ] && kill "$WS_PID" 2>/dev/null
   rm -rf "$LOCK"
 }
-trap cleanup EXIT INT TERM
+# W-A5 (audit finding 3): a signal trap in bash RESUMES execution after the
+# handler — the old `trap cleanup EXIT INT TERM` cleaned up and then kept
+# looping, so every systemctl stop escalated to SIGKILL after 30 s. Split:
+# INT/TERM exit(143) -> the EXIT trap runs cleanup exactly once.
+trap cleanup EXIT
+trap 'exit 143' INT TERM
 
 echo "[supervisor] start pid=$$ raw=$RAW retention=${RAW_RETENTION_DAYS}d"
 
@@ -167,10 +173,20 @@ while true; do
   CAP="$DAYDIR/firehose_$HH.ndjson"
   SECS_LEFT=$(( 3600 - 10#$(date -u +%M) * 60 - 10#$(date -u +%S) ))
   [ "$SECS_LEFT" -lt 30 ] && SECS_LEFT=30
+  # rider (a): rotate metrics between capture segments (writer not running)
+  bash tools/rotate_metrics.sh work/metrics.ndjson >> "$LIVE/supervisor.out.log" 2>&1 || true
+  # W-A5 (audit finding 3): ws_shadow runs BACKGROUNDED + wait — a foreground
+  # child blocks bash signal-trap delivery for the whole hour, which is why
+  # systemctl stop used to time out into SIGKILL. `wait` is interruptible.
   KALSHI_WS_FIREHOSE=1 KALSHI_SHADOW_SECONDS="$SECS_LEFT" \
     KALSHI_SHADOW_CAPTURE="$CAP" KALSHI_SHADOW_METRICS=work/metrics.ndjson \
-    ./build/ws_shadow >> "$LIVE/ws_shadow.log" 2>&1 || \
-    { echo "[supervisor] ws_shadow exited non-zero (will retry in 15s)"; sleep 15; }
+    ./build/ws_shadow >> "$LIVE/ws_shadow.log" 2>&1 &
+  WS_PID=$!
+  if ! wait "$WS_PID"; then
+    echo "[supervisor] ws_shadow exited non-zero (will retry in 15s)"
+    sleep 15 & wait $!
+  fi
+  WS_PID=""
 
   # --- prune raw logs older than retention (archive parquet is kept forever) --
   find "$RAW" -name '*.ndjson*' -type f -mtime +"$RAW_RETENTION_DAYS" -delete 2>/dev/null

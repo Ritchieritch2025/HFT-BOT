@@ -1,0 +1,6 @@
+[Unit]
+Description=Kalshi EC2->S3 sync (daily full)
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/bin/bash /home/ubuntu/hft-bot/deploy/ec2_s3_sync.sh daily

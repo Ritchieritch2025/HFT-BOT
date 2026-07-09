@@ -1,0 +1,9 @@
+# W-A5 ②: prompt sub-daily raw sync (fragile-window requirement). :05 past
+# each hour — the previous hour's files are final by then.
+[Unit]
+Description=Kalshi EC2->S3 raw sync (hourly, completed hours only)
+[Timer]
+OnCalendar=*-*-* *:05:00
+Persistent=true
+[Install]
+WantedBy=timers.target

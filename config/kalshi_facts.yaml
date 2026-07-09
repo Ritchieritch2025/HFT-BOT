@@ -105,6 +105,7 @@ ws:
   private_subscribe: "VERIFIED-LIVE: one subscribe cmd with [fill, user_orders, market_positions] -> three subscribed acks (sids 1..3), same cmd id; auth = same RSA-PSS headers on the upgrade request signed over ts+GET+/trade-api/ws/v2"
   server_ping: {interval_s: 10, payload: heartbeat}   # VERIFIED-LIVE: 3 pings in 25s
   fill_delivery_semantics: "DOCS-ONLY until Phase 4 (amendment A2): fill/user_orders payload shapes from asyncapi.yaml only"
+  ticker_conflation: "VERIFIED-MEASURED (W-A4 dual-machine diff, 2026-07-09, docs/plan_audits/wA4_cutover_2026-07-09.md): the ticker channel is CONFLATED PER CONNECTION — two concurrent subscribers over 18:32-18:59Z received near-identical message VOLUME (1,242,791 vs 1,242,534) but ~11% differing intermediate states (ts-stripped state keys; 1,100,981 shared), while 190,815 trades on the SAME connections matched exactly 0/0. Consequence: ticker is NOT a lossless event log — never measure capture loss on it and never feed strategy math assuming completeness (Q5); lossless channels are trade (unique trade_id) and orderbook_delta (per-sid seq)."
 
 demo_env:
   # CORRECTION (report §CORRECTIONS): live probe contradicts our engine's

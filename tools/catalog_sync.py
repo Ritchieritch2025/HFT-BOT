@@ -141,14 +141,21 @@ def main(argv):
     log("      %d series, %d categories" % (n, len(cats)))
 
     log("[2/4] events (dim_event) ...")
-    events, trunc = fetch_all("/events/", "events", limit=200, log=log)
+    # cap_pages raised 400->2000 (W-A5 audit item, 2026-07-09): the crawl hit
+    # exactly 80,000 = 400x200 — a hard-cap truncation, not the real total.
+    # The "(capped)" marker below still surfaces any future ceiling hit (D2).
+    events, trunc = fetch_all("/events/", "events", limit=200, log=log,
+                              cap_pages=2000)
     n = write_parquet_raw(events, os.path.join(cat, "events"))
     log("      %d events%s" % (n, " (capped)" if trunc else ""))
 
     if not args.skip_markets:
         log("[3/4] markets (dim_market, open snapshot) ...")
+        # cap raised with events (W-A5): open-markets ALSO hit 80,000 = 400x200
+        # every hourly crawl — historic snapshots are tail-truncated.
         markets, trunc = fetch_all("/markets", "markets", limit=200,
-                                   params={"status": "open"}, log=log)
+                                   params={"status": "open"}, log=log,
+                                   cap_pages=2000)
         n = write_parquet_raw(markets, os.path.join(cat, "markets"))
         log("      %d open markets%s" % (n, " (capped)" if trunc else ""))
     else:

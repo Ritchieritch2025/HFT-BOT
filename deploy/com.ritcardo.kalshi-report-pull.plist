@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- W-A5 report flow-back: the ONE job the dormant Mac keeps (sanctioned by
+     the plan's W-A5 "report-landing job" exception). Pulls EC2's reports/
+     into the operator's Desktop folder daily at 09:00 local. Uses SSH (the
+     existing key) — no AWS credentials on the Mac; reports are ALSO in S3
+     via the daily EC2 sync (durability), this is just the last-mile copy.
+     Mac asleep at 09:00 => launchd runs it at next wake: late, never lost. -->
+<dict>
+    <key>Label</key>
+    <string>com.ritcardo.kalshi-report-pull</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/rsync</string>
+        <string>-a</string>
+        <string>-e</string>
+        <string>ssh -i /Users/ritcardo/.ssh/kalshi-key.pem -o ConnectTimeout=15</string>
+        <string>ubuntu@3.130.232.109:hft-bot/reports/</string>
+        <string>/Users/ritcardo/Desktop/TradingSys Report/</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <key>StandardErrorPath</key>
+    <string>/tmp/kalshi-report-pull.err</string>
+</dict>
+</plist>

@@ -112,3 +112,42 @@ def test_fetch_all_routes_through_paced_open():
         "fetch_all must not call urlopen directly — use paced_open"
     assert any("paced_open(" in ln and "def " not in ln for ln in live), \
         "paced_open is defined but never used"
+
+
+def test_fetch_all_cap_stops_and_reports_truncation():
+    """W-A5: the page cap must stop the crawl AND report truncated=True (D2 —
+    the 80,000 events/markets truncation ran silently-in-a-log for days)."""
+    import io
+    import json as _json
+
+    class FakeResp(io.StringIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(url, timeout):
+        return FakeResp(_json.dumps(
+            {"items": [{"n": 1}], "cursor": "more"}))
+
+    orig = catalog_sync.paced_open
+    catalog_sync.paced_open = lambda url, timeout=45: opener(url, timeout)
+    try:
+        items, truncated = catalog_sync.fetch_all("/x", "items", limit=1,
+                                                  cap_pages=3)
+    finally:
+        catalog_sync.paced_open = orig
+    assert len(items) == 3 and truncated is True
+
+
+def test_events_and_markets_crawl_with_raised_cap():
+    """The two known-truncating crawls must pass cap_pages > the default 400."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "tools",
+                            "catalog_sync.py")).read()
+    live = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    ev = live[live.index('fetch_all("/events/"'):]
+    assert "cap_pages=2000" in ev[:200], "events crawl still default-capped"
+    mk = live[live.index('params={"status": "open"}'):]
+    assert "cap_pages=2000" in mk[:120], "open-markets crawl still default-capped"

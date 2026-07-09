@@ -103,6 +103,7 @@ run_suite "test_event_pack" ./tests/run_pytest.sh tests/test_event_pack.py
 run_suite "test_freshness" ./tests/run_pytest.sh tests/test_freshness.py
 run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
 run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
+run_suite "test_alert_notify" ./tests/run_pytest.sh tests/test_alert_notify.py
 run_suite "test_catalog_sync_pacing" ./tests/run_pytest.sh tests/test_catalog_sync_pacing.py
 run_suite "test_dim_snapshot_schema_drift" ./tests/run_pytest.sh tests/test_dim_snapshot_schema_drift.py
 run_suite "test_research_metrics" ./tests/run_pytest.sh tests/test_research_metrics.py
