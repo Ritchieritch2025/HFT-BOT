@@ -55,8 +55,10 @@ echo "== [5/8] python venv (>=3.12 required; Ubuntu 24.04 ships 3.12) =="
 python3 --version
 if [ ! -d .venv ]; then python3 -m venv .venv; fi
 ./.venv/bin/pip install --quiet --upgrade pip
-# duckdb pinned to the Mac production version (warehouse file compatibility)
-./.venv/bin/pip install --quiet duckdb==1.4.5 numpy pandas pytest
+# duckdb pinned to the Mac production version (warehouse file compatibility).
+# pyyaml: LAZY-imported inside function bodies (mm_research.load_fee_facts,
+# build_classification) — invisible to top-level import scans; W-A2 caught it.
+./.venv/bin/pip install --quiet duckdb==1.4.5 numpy pandas pytest pyyaml
 ./.venv/bin/python -c "import duckdb; print('duckdb', duckdb.__version__)"
 
 # NOTE (measured, W-A1): the build lands on g++ 13.3.0, NOT clang — GNU make

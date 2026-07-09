@@ -236,9 +236,15 @@ $(BUILD)/bench_ws_decode: apps/bench_ws_decode.cpp $(BUILD)/gateway.o $(BUILD)/s
 # Decoder/reader fuzzer under ASan+UBSan (OUR JSON parsing surface). simdjson is
 # excluded from instrumentation via the ignore-list — it does deliberate
 # low-level ops (SIMDJSON_ASSUME etc.) that UBSan flags but are safe by design.
+# -fsanitize-ignorelist= is CLANG-ONLY; g++ (the Linux default compiler) has no
+# equivalent flag, so it is added conditionally. Under g++ the simdjson header
+# inlines DO get instrumented — W-A2 (2026-07-09) ran `make fuzz` (200k iters)
+# on the EC2 box to prove that is clean in practice; re-prove after any
+# simdjson upgrade.
+FUZZ_IGNORELIST := $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo "-fsanitize-ignorelist=tests/sanitizer_ignore.txt")
 $(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
-	    -fsanitize-ignorelist=tests/sanitizer_ignore.txt \
+	    $(FUZZ_IGNORELIST) \
 	    -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
 	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o -o $@
 
