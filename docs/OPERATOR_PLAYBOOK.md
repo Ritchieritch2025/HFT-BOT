@@ -221,6 +221,16 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A4 完成 2026-07-09（✅ 割接成功，23:09 UTC 起 EC2 独挑生产）**：
+  WS 双机并跑 4 小时 38 分交接，无损通道 diff = 190,815 笔 trades 双向
+  零缺失（seq_gaps 基线 0%）；三次 go/no-go 操作员在场拍板；割接中实战
+  抓出并修复两个 bug（429 限速穿透、schema 漂移崩溃，均红字先行）；
+  发现新事实：ticker 通道按连接合并推送（非无损流）。Mac 休眠回滚态、
+  数据未动、防睡眠未撤。证据全文：
+  docs/plan_audits/wA4_cutover_2026-07-09.md。下一步 = **W-A5**（日常
+  S3 同步 + Mac 尾差补录[07-09 17:00→18:31 只在 Mac] + 报表回流 +
+  成本收口 + 恢复 Mac 睡眠）。出站收紧=实盘前 S1 硬门（操作员裁定）。
+
   **W-A3 完成 2026-07-09（✅ PASS）**：金库上线
   s3://kalshi-vault-ritcardo/mac-vault/ —— 1,082 对象 / 85.52 GB（raw 四天
   含抢救下来的 07-06 + 仓库全层 + MD5 账本）；1,076 个数据对象三跳 MD5

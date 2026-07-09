@@ -6,6 +6,56 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-09 — W-A4 DONE ✅: ZERO-GAP CUTOVER COMPLETE — EC2 sole owner since 23:09 UTC; trades diff 190,815 = 0/0 missing
+
+- commits: (rest-owner gate) feeeabc · (429 pacing fix) 8e6d703 · (dim_snapshot
+  schema-drift fix) + this exit commit. Full evidence:
+  docs/plan_audits/wA4_cutover_2026-07-09.md (timeline + diff report +
+  no-fabrication table + deviations).
+- SEQUENCE AS EXECUTED (operator present, go/no-go ×3): prereqs (delete-denial
+  LIVE-tested AccessDenied; egress-443 DEFERRED by operator to before-live S1
+  hard gate) → 18:30:57 EC2 WS-only (rest_disabled flag, new supervisor gate,
+  red-first contract test) → 29.5-min soak across the hour boundary all green
+  (1.54M events, 0 reconnects/drops, rotation correct) → 19:17 Mac REST off
+  (flag+reload, 20 s gap EC2-covered) → 19:18–19:29 EC2 REST owner (after
+  429 fix) → 23:09:07 Mac unload. WS overlapped the entire 4 h 38 m.
+- ACCEPTANCE DIFF (the plan's completeness report): window 18:32–18:59,
+  trades by globally-unique trade_id + exchange ts_ms: mac=ec2=190,815,
+  ZERO missing either direction ⇒ **seq_gaps counter baseline = 0** (W-C5).
+  Ticker channel: symmetric ~11% state differences at equal message volume =
+  per-connection CONFLATION (server samples per subscriber), NOT loss —
+  proven by zero trade loss on the same TCP stream. NEW FEED FACT for
+  kalshi_facts.yaml (queued W-A5/backlog): ticker ≠ lossless event log;
+  trades/orderbook_delta are the lossless channels (Q5 implication).
+- TWO LIVE INCIDENTS fixed mid-cutover (both required for EC2 REST ownership,
+  both red-first + battery green both platforms):
+  (1) catalog_sync 429 — EC2's <1 ms RTT ran the pagination loop ~30× faster
+  than the Mac's 30 ms RTT and burned the 600-token read burst; the latency
+  win itself broke the crawler. Fix: paced_open, 50 ms pacing + exponential
+  429 backoff, 5 unit tests (fake opener/clock).
+  (2) dim_snapshot Binder Error — fresh crawl's markets parquet had NO
+  cap_strike column (union_by_name only materializes present fields); strike
+  SQL now built from columns that exist (D3). Regression tests both modes.
+  Post-fix proof on box: catalog 4 tables zero-429; DIM SNAPSHOT PASS;
+  classification 11,295 series (A=6,194/B=5,101).
+- context capsule: EC2 post-cutover healthy (hour-23: 365k events, growing
+  +8.5 MB/20 s checked after unload). Mac: launchd plist INSTALLED-dormant,
+  pmset disablesleep still ON (do NOT re-enable before W-A5), all data
+  intact. Rollback now = load + resubscribe + backfill hole from EC2/S3
+  (not instant — by design post-step-5). Diff tool: sandbox/wa4_capture_diff
+  (P8). EC2 metrics.ndjson still unbounded (rider (a) pending, 173G free —
+  not urgent).
+- blocked / handoff: NEXT = W-A5 (fresh session): ① final Mac→S3 delta —
+  **Mac-ONLY residual = raw date=2026-07-09 hours 17:00→18:31** (vault ≤16,
+  EC2 ≥18:30:57); sync Mac 17–23 anyway (D1) with the
+  firehose_<hour>.ndjson* GLOB exclusion lesson; ② daily+prompt EC2→S3 sync;
+  ③ detectors/alerts on EC2 + report flow-back to Mac Desktop; ④ cost
+  budget section (first real AWS bill = the measurement); ⑤ retire Mac
+  sleep-disable; ⑥ riders: metrics rotation (a), full-L1 promotion (b) on
+  EC2 config, gitignore CSVs (c); ⑦ vault_staging 85 GB reclaim (operator
+  call); ⑧ ticker-conflation fact → kalshi_facts.yaml. Egress-443 = S1 gate
+  before first live order (operator ruling, SECURITY_CHECKLIST §4).
+
 ## 2026-07-09 — W-A3 DONE ✅: S3 vault live (1,082 obj / 85.52 GB), 1,076/1,076 MD5-verified, restore proven byte-for-byte, ~$2/mo
 
 - commits: f36d60a (vault scripts: sync/verify/restore — never --delete,

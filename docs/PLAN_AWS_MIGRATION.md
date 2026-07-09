@@ -445,6 +445,22 @@ independently proves the cutover was genuinely zero-gap.
 Exit evidence:  the cutover timeline; the completeness report (miss counts +
                 rate); EC2-only capture running FRESH; Mac dormant.
 
+### W-A4 RESULT (2026-07-09 — ✅ CUTOVER COMPLETE, operator present, 3 go/no-gos)
+
+EC2 is sole owner of WS+REST since 23:09:07 UTC. WS ran on BOTH boxes for
+the whole 4 h 38 m transition; **the lossless-channel diff (190,815 unique
+trade_ids in the 18:32–18:59 window) shows ZERO missing in either direction
+— the seq_gaps baseline is 0.000000%**. Mac: dormant launchd, data intact,
+sleep-disable still on. Two live incidents found & fixed mid-cutover with
+red-first tests (catalog_sync 429 from EC2's low-RTT pagination burst;
+dim_snapshot Binder Error on a crawl missing cap_strike). NEW FEED FACT:
+the ticker channel is per-connection CONFLATED (two subscribers get
+different samplings; trades/orderbook_delta are the lossless channels) —
+kalshi_facts.yaml candidate. Full timeline, diff report, no-fabrication
+table, deviations (incl. operator's egress-443 deferral to a before-live S1
+gate), and the W-A5 inheritance list (Mac-only residual = 07-09 hour
+17:00→18:31): **docs/plan_audits/wA4_cutover_2026-07-09.md**.
+
 ## W-A5 — post-cutover (steady state on EC2)
 Purpose:        Make EC2 the durable, observable, cost-bounded home; land reports
                 back to the operator; retire the interim Mac mitigation.
