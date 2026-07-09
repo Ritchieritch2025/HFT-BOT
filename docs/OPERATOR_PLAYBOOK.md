@@ -181,6 +181,23 @@ approved+audited; B1 ruled (collectors wait for EC2).
   > ws_seq 连续、V15 覆盖审计从 declared_list_missing 转绿。
   > 退出仪式 + 独立审计。
 
+- [ ] **3h. W-LAT-BENCH — 迁移前延迟/稳定性基准 (operator 2026-07-08；
+  必须在 W-A4 切换前跑，作为迁移后对照 baseline).** Paste:
+
+  > 执行 W-LAT-BENCH：在当前 Mac 上采集迁移前基准，产出
+  > docs/plan_audits/latency_baseline_pre_migration_<date>.json + 人读 PDF
+  > 落桌面报告柜。测五层，每层给 avg/p50/p90/p99/**p99.9**/max/**stddev
+  > (抖动)**：① WS RTT（复用 bench_rtt/full_chain_latency）；② 交易所→本机
+  > 单向延迟（recv_wall_ns − 消息 ts，从 metrics/raw 现算）；③ simdjson 解码
+  > ns/条（复用 bench_ws_decode，迁移对照组应不变）；④ 端到端全链
+  > （full_chain_latency_probe）；⑤ 时钟准确度（chrony/ntp offset，迁移后
+  > 必同测——所有延迟数字的信任前提）。附非延迟稳定性对照：msg_rate_hz、
+  > seq 缺口率、reconnect 频率、drop 计数。方法铁律：记录采样时间窗+当时
+  > 市场活跃度（活跃市场数/总成交率），迁移后须在相近活跃度窗口复测
+  > （禁深夜比白天）。输出 JSON 机器可读、字段固定，供迁移后一键 diff
+  > 每指标变化%。只读、不改生产、不阻塞采集（E7/P4）。退出仪式 + 独立审计。
+  > **配套**：W-A5 收尾时在 EC2 复跑同一 W，diff 出迁移收益报告。
+
 - [x] **4. STEP 1 plan draft (SUPERSEDED — see 4-DONE note below) — PLAN_AWS_MIGRATION.md (paper only).**
   Prerequisite YOU must do first: have an AWS account ready (agent never
   touches account creation or credentials — S4). Paste:
