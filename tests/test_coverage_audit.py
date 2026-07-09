@@ -111,9 +111,13 @@ def run_fixture_audit(full_set=frozenset(), declared=None):
 
 # --- class policy / V16 ---------------------------------------------------------
 def test_load_class_policy_real_file():
+    # Rider (b), W-A5 2026-07-09: ALL categories are class A (full-market L1);
+    # Class B is deliberately empty. Exotics stay Q7-excluded from MM candidacy
+    # (a research filter, not a storage filter — this policy file is storage).
     a, b = load_class_policy(os.path.join(ROOT, "config", "market_classes.yaml"))
     assert "Sports" in a and "Crypto" in a
-    assert "Exotics" in b and "Entertainment" in b
+    assert "Exotics" in a and "Entertainment" in a
+    assert b == set(), "class B must be empty since rider (b): %r" % b
     assert not (a & b)
 
 
