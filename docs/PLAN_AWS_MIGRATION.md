@@ -202,8 +202,16 @@ sizing with profit, not before.
 ~$100 signup credit (+ activity credits, up to $200 total) and a 6-month free
 plan — month 1–2 may be near-free.
 
-**PENDING OPERATOR: pick option 0 / 1 / 2.** On pick, update checklist steps
-4–5/8 (instance type + volume size); everything else in it stands.
+**OPERATOR PICKED OPTION 1 (2026-07-08)** — instance launched:
+`i-0fd427becf740a06b`, r8g.large, Ubuntu 24.04 arm64, us-east-2, 200 GB gp3,
+SSH restricted to operator IP, key `YINQIAN` (operator-held).
+
+**W-A0 CLOSED (2026-07-08, measured on the box over SSH, read-only):**
+`nproc`=2 · `free -g`=15 (16 GiB nominal) · `lsblk` nvme0n1=200 GB (root
+199 GB) · aarch64 · Ubuntu 24.04.4 LTS — matches option 1 exactly.
+Acceptance met: vCPU/RAM/EBS printed, post-migration-load sizing recorded
+above, gold-build location = EC2 (branch decision). Public IP at W-A1 time:
+13.59.9.97 (Elastic IP association still recommended — checklist step 11).
 
 #### Operator boot checklist（照着点；从"Launch instance"起开始计费——
 每小时费率见上表所选档位）

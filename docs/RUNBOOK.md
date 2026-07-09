@@ -91,3 +91,26 @@ df = load("trades", category="Sports", group="MLB",
 make check              # 纯/离线测试 + 仓库 gates + 新仓库测试
 ./tests/run_pipeline.sh # 离线全家桶(含 mock 交易所)
 ```
+
+## 5. EC2 盒子(W-A1 起;13.59.9.97,us-east-2,r8g.large 2核/16GB/200GB)
+
+```bash
+# 登录(密钥你自己保管;建议挪到 ~/.ssh/ 并 chmod 400)
+ssh -i "<你的密钥.pem>" ubuntu@13.59.9.97
+
+# 送代码上盒子(Mac 上执行;盒子上永远没有 GitHub 凭证,S4)
+git push ec2 <分支名>                       # Mac → 盒子裸仓库 ~/kalshi.git
+ssh ... 'cd ~/hft-bot && git pull'          # 盒子工作区更新
+
+# 盒子上的服务(替代 Mac launchd;W-A4 割接前 pipeline 单元保持"装而不启")
+sudo systemctl status kalshi-pipeline       # 采集管线(W-A4 后才 enable/start)
+systemctl list-timers | grep kalshi         # oom-guard 每分钟护栏(已启用)
+chronyc tracking                            # 时钟偏移(应 <1ms,Amazon Time Sync)
+swapon --show                               # 16GB 交换区(一体机护栏)
+
+# 重装/修复:重跑装机脚本(幂等,不会启动采集)
+cd ~/hft-bot && bash deploy/bringup_ec2.sh
+```
+
+安全清单(SSH 限 IP、出站收紧步骤):`deploy/SECURITY_CHECKLIST_EC2.md`。
+三条 launchd 关键行为如何在 systemd 复现:`deploy/README_EC2.md`。
