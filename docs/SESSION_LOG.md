@@ -38,6 +38,14 @@ which decisions landed in which files, what the next session must know.
   --info=stats2 (use --stats); aws s3 cp --recursive on an exact key is a
   SILENT NO-OP (exit 0, zero files) — restore script now tries single-object
   first + zero-file guard.
+- INDEPENDENT AUDIT (no-fabrication sweep): PASS on substance, ZERO fabricated
+  numbers (auditor re-measured every reachable figure, all matched; plus a
+  full 699-row manifest.csv file_md5 cross-check vs S3 — 0 mismatches). ONE
+  blocking CITATION defect (B1): 07-06 verify lines predated the tee’d log —
+  re-run + appended 17:43Z, doc citations corrected. Also applied: du -sb as
+  the durable row-2 artifact; delete-denial relabeled UNTESTED and queued as
+  a W-A4 go/no-go item (witnessed aws s3 rm ⇒ AccessDenied); GiB-vs-GB cost
+  nit noted ($1.83–1.97 bracket); multipart>2GB fail-closed note for W-A5.
 - blocked / handoff: NEXT = **W-A4 zero-gap cutover — operator MUST be
   present (go/no-go)**. Remaining prerequisite: egress-443 lockdown
   (SECURITY_CHECKLIST_EC2.md §4–5); EIP ✅ done; work/live ✅ exists.

@@ -311,7 +311,7 @@ Evidence (all measured on the box unless noted):
 **Acceptance deviations (operator-ruled 2026-07-09, both due before W-A4):**
 1. **Egress allow-list to 443 NOT yet applied** — deferred; steps in
    deploy/SECURITY_CHECKLIST_EC2.md §4–5.
-2. **Elastic IP not associated** — 13.59.9.97 is ephemeral (changes on
+2. **Elastic IP not associated (DONE 2026-07-09: 3.130.232.109)** — 13.59.9.97 is ephemeral (changes on
    stop/start; breaks the Mac's `ec2` git remote + RUNBOOK). Checklist item 11.
 Both are W-A4 *prerequisites*: the cutover go/no-go checklist must verify
 them first.
@@ -391,6 +391,9 @@ Blocked by:     W-A3 green + operator go/no-go.
 1. Elastic IP associated (the W-A1-era 13.59.9.97 is ephemeral; a stop/start
    before cutover would silently break the Mac's `ec2` git remote + RUNBOOK).
 2. Egress locked to 443 per deploy/SECURITY_CHECKLIST_EC2.md §4, verified §5.
+2b. **Delete-denial TEST (from W-A3 audit — design is untested):**
+   operator-witnessed `aws s3 rm` attempt on a scratch key under
+   `mac-vault/` must return **AccessDenied** (vaultWriter has no Delete).
 3. `~/hft-bot/work/live/` EXISTS on the box (W-A1 audit B1: systemd opens the
    unit's append: log BEFORE ExecStart and does not create parent dirs —
    missing dir = status=209 crash-loop, empirically verified 2026-07-09;
