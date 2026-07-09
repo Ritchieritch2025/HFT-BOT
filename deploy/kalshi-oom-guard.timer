@@ -1,0 +1,14 @@
+# Re-rank OOM/CPU priorities every minute (children respawn hourly, so the
+# ranking must be re-applied continuously). Cheap: a pgrep + choom sweep.
+# THIS timer may be enabled at W-A1 (it only adjusts priorities of processes
+# that exist; with capture not yet started it is a no-op).
+[Unit]
+Description=Kalshi one-box OOM/CPU isolation guard (every minute)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
