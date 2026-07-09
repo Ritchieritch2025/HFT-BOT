@@ -6,6 +6,49 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-09 — W-A0 CLOSED + W-A1 DONE: EC2 box hardened, make check green both platforms, capture NOT started (correct)
+
+- commits: df13191 (deploy/ artifacts: systemd units, oom-guard, bringup,
+  security checklist, README_EC2) · d231452 (env.hpp <cstdint> portability fix
+  + RUNBOOK EC2 section + W-A0 closure) · this commit (W-A1 RESULT + docs).
+- W-A0 CLOSED (measured over SSH): nproc=2 / 16 GiB / 200 GB nvme / aarch64 /
+  Ubuntu 24.04.4 on i-0fd427becf740a06b @ 13.59.9.97 — matches operator-picked
+  option 1 (r8g.large). Recorded in PLAN_AWS_MIGRATION "W-A0 RESULT".
+- W-A1 DONE (operator 判定收官 after running the auth smoke themselves):
+  - Code path: Mac pushes to bare ~/kalshi.git over SSH → ~/hft-bot worktree.
+    NO GitHub credentials on the box, ever (S4). git remote name: `ec2`.
+  - ONE portability fix unblocked the whole Linux build: env.hpp missing
+    #include <cstdint> (libc++ transitive vs libstdc++). Zero behavior change;
+    make check exit 0 on BOTH platforms at the same commit. (Scope note: a
+    W-A2-class fix pulled forward by the operator's "make check on EC2" ask.)
+  - Compiler FACT: binaries are g++ 13.3.0 (readelf-verified). Makefile's
+    `CXX ?= clang++` never fires on Linux (make built-in CXX=g++ wins). Kept
+    deliberately; clang installed as fallback. bringup echo corrected.
+  - Guardrails live: 16 GB swap, oom-guard timer (ws_shadow −1000 / batch
+    +300+nice+ionice), unit OOMScoreAdjust −600, chrony→Amazon Time Sync
+    offset 6.9 µs, UTC, unattended security updates.
+  - kalshi-pipeline.service installed+disabled+inactive — FIRST START IS
+    W-A4's (single-writer discipline; Mac remains the only capture).
+  - Credentials: operator scp'd env.sh(127B)+private_key.pem(1679B), 600;
+    agent's attempt to source env.sh was permission-blocked (correct, S4);
+    operator ran `preflight --prod-ok` ⇒ PREFLIGHT PASS (order line untested,
+    no --order — as designed).
+- decisions → files: W-A1 RESULT + two operator-ruled deviations (Elastic IP
+  未分配 + egress 未收紧, BOTH due before W-A4 as cutover prerequisites) in
+  PLAN_AWS_MIGRATION.md; playbook updated; RUNBOOK §5 EC2 ops; key now at
+  ~/.ssh/kalshi-key.pem (400).
+- context capsule: box repo may hold untracked .venv/ + tools/__pycache__/
+  (harmless; consider .gitignore with rider (c)). bringup_ec2.sh is idempotent
+  — rerun after any teardown. ssh alias pattern:
+  `ssh -i ~/.ssh/kalshi-key.pem ubuntu@13.59.9.97`. Box disk 20/193 GB.
+  Preflight defaults to external-api.kalshi.com (the us-east-2-native host,
+  W-A0 region note) — no BASE_URL override needed on EC2.
+- blocked / handoff: NEXT = W-A2 (fresh session): full battery on the box
+  incl. tests/run_pipeline.sh + check_registry + ONE read-only preflight from
+  EC2 IP (already de-facto smoked) + 10 s ws_smoke. Before W-A4: operator
+  does EIP + egress-443 (checklist §4–5, item 11). Mac pipeline untouched all
+  session (P4: zero capture risk — nothing on the Mac was stopped/started).
+
 ## 2026-07-08 — W-A0 DONE (paper): r8g.2xlarge/64GB/us-east-2/300GB gp3 ≈ $380/mo; boot checklist ready; audit PASS
 
 - commits: f8cff37 (sizing decision + operator boot checklist) + this commit

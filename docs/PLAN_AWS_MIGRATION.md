@@ -274,6 +274,48 @@ Acceptance:     box builds `build/ws_shadow` + all binaries clean; systemd units
 Rollback:       terminate/rebuild the box; nothing on the Mac touched.
 Exit evidence:  commit (deploy/ units + script); the hardening checklist output.
 
+### W-A1 RESULT (2026-07-09 UTC — DONE, operator-判定收官)
+
+Evidence (all measured on the box unless noted):
+- **Code delivery:** Mac→box bare-repo push over SSH (`~/kalshi.git` →
+  `~/hft-bot`), zero GitHub credentials on the box (S4). HEAD at close:
+  d231452 + this session's exit commits.
+- **Build:** all binaries clean on **g++ 13.3.0** (readelf-verified; GNU
+  make's built-in CXX=g++ overrides the Makefile's `?=` intent — clang
+  installed as fallback only, deliberately unused so validation matches the
+  production binaries).
+- **make check: exit 0 on the EC2 box AND on the Mac at the same commit.**
+  One portability fix was needed: `include/kalshi/env.hpp` lacked
+  `#include <cstdint>` (libc++ provides `std::uint8_t` transitively,
+  libstdc++ does not). Zero behavior change. SCOPE NOTE: strictly a
+  W-A2-class fix ("Linux portability"), executed here because the operator
+  instructed `make check` on EC2 within the W-A1 session.
+- **Time:** chrony → Amazon Time Sync (169.254.169.123, link-local, survives
+  egress lockdown); offset **6.9 µs**. Timezone UTC.
+- **One-box guardrails (16 GB):** 16 GB swapfile active (swappiness 10);
+  `kalshi-oom-guard.timer` firing every 60 s (ws_shadow → oom_score −1000,
+  batch python → +300 / nice+10 / ionice-7); pipeline unit OOMScoreAdjust −600.
+- **systemd:** `kalshi-pipeline.service` **installed, disabled, inactive**
+  (dry — W-A4 owns first start); Restart=on-failure only (no WatchdogSec);
+  exit-78 (missing env.sh) stays stopped visibly. The three load-bearing
+  launchd behaviors remain app-level (see deploy/README_EC2.md).
+- **Credentials (S4, operator-executed):** `~/.kalshi/env.sh` (127 B) +
+  `private_key.pem` (1,679 B), both 600, scp'd by the operator; agent's
+  attempt to source env.sh was correctly blocked by the permission layer —
+  the **auth smoke was run BY THE OPERATOR**: `preflight --prod-ok`
+  (read-only, no --order) ⇒ **PREFLIGHT PASS**, order-execution line untested
+  as expected (operator-reported 2026-07-09).
+- Disk after bring-up: 20 G / 193 G used. SSH key relocated to
+  `~/.ssh/kalshi-key.pem` (400) on the operator's Mac.
+
+**Acceptance deviations (operator-ruled 2026-07-09, both due before W-A4):**
+1. **Egress allow-list to 443 NOT yet applied** — deferred; steps in
+   deploy/SECURITY_CHECKLIST_EC2.md §4–5.
+2. **Elastic IP not associated** — 13.59.9.97 is ephemeral (changes on
+   stop/start; breaks the Mac's `ec2` git remote + RUNBOOK). Checklist item 11.
+Both are W-A4 *prerequisites*: the cutover go/no-go checklist must verify
+them first.
+
 ## W-A2 — Linux validation (prove it on the box)
 Purpose:        Prove the whole pipeline is correct on Linux before trusting it
                 with capture.

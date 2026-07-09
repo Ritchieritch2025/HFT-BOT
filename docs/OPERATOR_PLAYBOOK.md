@@ -221,6 +221,14 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A1 完成 2026-07-09（操作员判定收官）**：盒子 i-0fd427becf740a06b
+  （13.59.9.97 临时 IP）装机加固全绿——make check 两平台 exit 0、chrony
+  偏移 6.9µs、16GB 交换区 + oom-guard 护栏、pipeline 单元装而不启、凭证
+  已上盒（操作员 scp，S4）、preflight 冒烟 PASS。**两条 W-A4 前置待办：
+  ① Elastic IP 未分配（现 IP 停/起会变）② 出站未收紧到 443**（步骤在
+  deploy/SECURITY_CHECKLIST_EC2.md）。证据全文在 PLAN_AWS_MIGRATION.md
+  「W-A1 RESULT」。下一步 = W-A2（Linux 全量验证，新会话）。
+
   **W-A0 纸面完成 2026-07-08（独立审计 PASS，0 阻断）+ 预算修订同日**：
   操作员裁定没盈利前不花几百刀、所有东西一台机器跑、STEP 4 全深度扩容
   推迟到盈利后 ⇒ 原 r8g.2xlarge/$380 方案撤回。现行方案表（0=不搬$0 /

@@ -59,7 +59,12 @@ if [ ! -d .venv ]; then python3 -m venv .venv; fi
 ./.venv/bin/pip install --quiet duckdb==1.4.5 numpy pandas pytest
 ./.venv/bin/python -c "import duckdb; print('duckdb', duckdb.__version__)"
 
-echo "== [6/8] C++ build (clang++, system OpenSSL per Makefile Linux branch) =="
+# NOTE (measured, W-A1): the build lands on g++ 13.3.0, NOT clang — GNU make
+# has a built-in default CXX=g++, so the Makefile's `CXX ?= clang++` never
+# fires on Linux. Deliberately NOT overridden: the W-A1/W-A2 validation ran
+# against g++-built binaries; changing compilers would invalidate it. clang is
+# installed as a fallback only.
+echo "== [6/8] C++ build (g++ per make default, system OpenSSL per Makefile Linux branch) =="
 make -j"$(nproc)" >/dev/null
 ls -la build/ws_shadow build/ws_smoke build/preflight
 

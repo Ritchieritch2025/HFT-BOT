@@ -5,8 +5,9 @@
 1. **SSH 只对你的 IP 开放** — 控制台 EC2 → Security Groups → 该实例的组 →
    Inbound rules：只有一条 `SSH TCP 22  来源 = 你的 IP/32`。
    没有 0.0.0.0/0，没有其他端口。家里换 IP 后连不上 = 正常，来这里改成新 IP。
-2. **密钥硬件位**：YINQIAN.pem 只存你本机，`chmod 400`；丢失 = 去控制台
-   换 key pair，不要把 .pem 发给任何人/任何聊天（包括 agent 会话）。
+2. **密钥硬件位**：SSH 登录钥匙在你本机 `~/.ssh/kalshi-key.pem`（chmod 400，
+   2026-07-09 已就位）；丢失 = 去控制台换 key pair，不要把 .pem 发给
+   任何人/任何聊天（包括 agent 会话）。
 3. **凭证（S4）**：`~/.kalshi/env.sh`（600）+ Kalshi 私钥由你手工创建在
    盒子上；永不进 repo/日志/聊天。AWS 侧本步不需要任何 IAM（S3 是 W-A3）。
 4. **出站收紧（bring-up 完成后才做，apt 装包需要 80 口）** — Security Group

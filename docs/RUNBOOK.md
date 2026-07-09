@@ -95,8 +95,8 @@ make check              # 纯/离线测试 + 仓库 gates + 新仓库测试
 ## 5. EC2 盒子(W-A1 起;13.59.9.97,us-east-2,r8g.large 2核/16GB/200GB)
 
 ```bash
-# 登录(密钥你自己保管;建议挪到 ~/.ssh/ 并 chmod 400)
-ssh -i "<你的密钥.pem>" ubuntu@13.59.9.97
+# 登录(密钥在 ~/.ssh/kalshi-key.pem,chmod 400)
+ssh -i ~/.ssh/kalshi-key.pem ubuntu@13.59.9.97   # 注意:临时 IP,停/起会变(EIP 待办)
 
 # 送代码上盒子(Mac 上执行;盒子上永远没有 GitHub 凭证,S4)
 git push ec2 <分支名>                       # Mac → 盒子裸仓库 ~/kalshi.git
