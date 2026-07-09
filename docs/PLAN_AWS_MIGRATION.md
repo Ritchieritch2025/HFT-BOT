@@ -166,19 +166,59 @@ then, with measured numbers, on a box that costs tens of $/mo to add.
 | **Total at launch** | **~$380/mo** (→ ~$260/mo if/when 1-yr reserved, W-A5 decision) |
 | STEP 4 delta (EBS 500 GB, S3 growth) | +$20–30/mo |
 
-#### Operator boot checklist（照着点；从"Launch instance"起开始计费 ~$0.47/小时）
+#### W-A0 REVISION (operator budget constraint, 2026-07-08 — supersedes the
+#### instance/EBS choice above; the region, branch, and latency notes stand)
+
+**Operator ruling:** budget is NOT hundreds of $/mo pre-profit; EVERYTHING runs
+on ONE machine (capture + warehouse + detectors + the future trading process);
+STEP 4 full-depth expansion is DEFERRED until the system is profitable — so
+W-A0 no longer sizes for the N=500 worst case. The r8g.2xlarge/$380 pick is
+WITHDRAWN (it priced the deferred ceiling).
+
+Revised ladder (ec2.shop us-east-2, fetched 2026-07-08; totals incl. EBS +
+public-IPv4 + S3):
+
+| Option | Config | Total $/mo | Notes |
+|---|---|---|---|
+| 0 — defer migration | Mac stays (sleep-disable live) | 0 | home ISP/power/operator-use risk remains; clean-days accumulate at the mercy of the laptop |
+| **1 — bootstrap (recommended)** | **r8g.large 2 vCPU/16 GB** + 200 GB gp3 | **~$110** ($86+$16+$4+~$3) | gold build measured ru_maxrss 6.33 GB runs on the 16 GB Mac daily — same RAM, now with guardrails (below); nightly build slower on 2 cores (batch, harmless); 3g N=50 fits (+2.4–7.9 GB/day inside 200 GB) |
+| 2 — comfort | r8g.xlarge 4 vCPU/32 GB + 300 GB gp3 | ~$195 | no RAM care needed |
+
+**16 GB guardrails (W-A1 items, free):** systemd `MemoryMax` on the gold-build
+unit + DuckDB `memory_limit` (build degrades to spill, never evicts others);
+swap file as backstop; ws_shadow unit gets `OOMScoreAdjust=-1000` — worst case
+is ALWAYS "report is late", never "capture died" (S2 fail-closed). Upgrade
+path when profitable: instance resize = stop/start ~3 min (schedule off-peak,
+gap noted honestly) + EBS grows online; no rebuild.
+
+**Branch decision restated for one-box reality:** gold builds run ON EC2 even
+at 16 GB (the ≥32 GB/"<32 GB ⇒ gold stays on Mac" dichotomy above is
+superseded — the Mac retires from the pipeline either way; the 32 GB line was
+comfort, not feasibility, per the measured 6.33 GB RSS). Phase 4 note: the
+trading process shares this box — `nice` the nightly build below it; revisit
+sizing with profit, not before.
+
+**Free-credit note [VERIFY AT SIGNUP]:** post-2025-07 new AWS accounts get
+~$100 signup credit (+ activity credits, up to $200 total) and a 6-month free
+plan — month 1–2 may be near-free.
+
+**PENDING OPERATOR: pick option 0 / 1 / 2.** On pick, update checklist steps
+4–5/8 (instance type + volume size); everything else in it stands.
+
+#### Operator boot checklist（照着点；从"Launch instance"起开始计费——
+每小时费率见上表所选档位）
 
 1. 登录 AWS 控制台，右上角 region 切到 **us-east-2（Ohio / 俄亥俄）**。
 2. EC2 → **Launch instance**（启动实例）。
 3. Name（名称）: `kalshi-pipeline-1`。
 4. AMI（系统镜像）: **Ubuntu Server 24.04 LTS**，Architecture 选 **64-bit (Arm)**。
-5. Instance type（机型）: **r8g.2xlarge**（确认页面显示 8 vCPU / 64 GiB）。
+5. Instance type（机型）: **按上表所选档位**（方案 1 = r8g.large，确认页显示 2 vCPU / 16 GiB；方案 2 = r8g.xlarge，4 vCPU / 32 GiB）。
 6. Key pair（密钥对）: Create new key pair → 类型 **ED25519**，格式 .pem，
    下载后保存好（这是登录钥匙，丢了要换锁；不要发给任何人，包括我）。
 7. Network settings（网络）: 默认 VPC 即可；**Create security group**，只勾
    **Allow SSH traffic from → My IP**（务必选 My IP，不要 Anywhere）。
    不勾 HTTP/HTTPS（本机不对外服务）。
-8. Configure storage（磁盘）: 改成 **300 GiB, gp3**（IOPS/吞吐留默认
+8. Configure storage（磁盘）: 改成 **所选档位对应容量（方案 1 = 200 GiB，方案 2 = 300 GiB），gp3**（IOPS/吞吐留默认
    3000/125）。Advanced 里把这块盘的 **Delete on termination 改成 No**
    （实例误删时数据盘保留）。
 9. Advanced details（高级）最下方: **Termination protection → Enable**
