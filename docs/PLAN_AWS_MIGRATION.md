@@ -127,6 +127,19 @@ Why not spot: 24/7 revenue-critical capture; interruption = capture gap by
 design. On-demand until the cutover is proven; the reserved/savings-plan
 purchase is an operator decision deferred to W-A5's cost section.
 
+**Latency scope note (operator Q&A 2026-07-08): this box is the DATA
+pipeline host, not the future trading host — its ISA is NOT a latency
+decision.** Measured ladder: Mac→Kalshi RTT ~30 ms (curl, 2026-07-08);
+same-region EC2 ~0.2–1 ms [ESTIMATE, measure in W-A2 preflight]; our decode
+281.9 ns/msg — so the region move captures >99% of the latency win and
+ARM-vs-x86 differs at the sub-microsecond level, noise on this path. The
+**trading box is a SEPARATE Phase 4/STEP 6 decision** with its own levers,
+none ISA-bound today: dedicated small high-clock instance (x86 c-family a
+live option there), same-AZ placement, **Kalshi PrivateLink**
+(institutional@kalshi.com; REST+WS interface endpoints, traffic stays on the
+AWS backbone), persistent connections + hot-path engineering (E7). Decide it
+then, with measured numbers, on a box that costs tens of $/mo to add.
+
 #### EBS — **300 GB gp3 at launch, grow online before STEP 4**
 
 - Launch: **300 GB gp3** (defaults: 3,000 IOPS / 125 MB/s — ample; avg write
