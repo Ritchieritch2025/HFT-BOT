@@ -20,6 +20,14 @@ Group C(正式校准,gated ≥2026-07-13)。
 - **"净数据日"定义钉死**:当日除已标注维护缺口(合计 ≤15 分钟)
   外无未解释缺口 = clean。否则今晚的刻意重启会静默重置 07-13
   七天门;若后续校准会话另有更严定义,以先落盘者为准并知会操作员。
+- ✅ **S0 验证(全过才算完)**:
+  ① 24h 窗口:EC2 上 `capture_gaps --date 2026-07-10` 无未解释缺口;
+  ② 维护后:`systemctl status kalshi-pipeline` = active;今日 raw
+    分片两次 `ls -la` 字节数在涨;journalctl 无 SIGKILL(优雅退出实测);
+  ③ TL1 生效铁证:staging 三表 DESCRIBE 出现四列;**维护后新行
+    recv_wall_ns 非 NULL**(抽查 SQL),heartbeat 行四列 NULL 且
+    ts_utc=整点;④ 维护缺口已在 capture_gaps 标注 deliberate。
+  🚩 红旗:部署后新行 recv 仍全 NULL = ingest 没换代码或没重启。
 
 ## S1 · Maker-edge pilot 完整版(spread − markout − fees 分解)
 - 目的:H1 第一次开庭——赛前网球的价差收入是否盖得住毒性。
@@ -35,6 +43,15 @@ Group C(正式校准,gated ≥2026-07-13)。
 - 注意:Mac-era 数据 → 结论标 dev-grade;方法学在 S5 用 EC2 数据重跑。
 - 选品钉死:零 maker 费 series;查证来源 = kalshi_facts.yaml 费率节
   + docs/vendor 费率表;series 未列明 = 按未知剔除(fail-closed,Q3)。
+- ✅ **S1 验证(机器门 + 五眼清单)**:
+  机器门:make check + run_pipeline 绿;**恒等式自检**——每桶
+  bounce+drift 与 markout_total 之差 < 0.01¢(纪律 11 的代数保证,
+  不满足 = 算法写错);剔除计数器(陈旧/无市场/locked)全部入报;
+  悲观成交 n 打印且与 200 阈值比对;产出带指纹头。
+  操作员五眼清单(缺一退回):① 报告开头有"预注册"节且在结果
+  之前;② 每个数字旁有 n;③ 结论 ∈ {methodology-valid+collect,
+  methodology-flawed};④ regime=slam-week 标签在;⑤ 指纹头
+  (SHA+manifest md5+命令行)在。
 
 ## S2 · 反应秒表·上半(本地可测,无风险)
 - 目的:回答 Rhys 问题#3 的"我方钟":签名到底多贵。
@@ -45,6 +62,11 @@ Group C(正式校准,gated ≥2026-07-13)。
   (openssl RSA-PSS,同 src/client.cpp 用法与密钥规格)——测错库
   = 数字作废。纯本地计算,不碰网络。
 - 读数:回 Cowork——签名占整个反应预算的几成,值不值得优化。
+- ✅ **S2 验证**:① yaml diff 显示 PLACEHOLDER→MEASURED(+日期+host),
+  数值 = 报告数值(抄写恒等);② 复跑一遍 p50 偏差 <30%(稳定性);
+  ③ 合理性区间:RSA-PSS 签名 p50 预期落在 0.1–5ms——快得反常
+  (<50µs,可能测了错误路径/缓存)或慢得反常(>20ms)都是红旗,
+  先查再录;④ 基准脚本入库并注册 tools.json(E3)。
 
 ## S3 · 反应秒表·下半(需操作员批准后执行)
 - 目的:signed-POST 全链 RTT p99(真实往返,不碰真单)。
@@ -54,6 +76,12 @@ Group C(正式校准,gated ≥2026-07-13)。
   预算)→ 替换 RTT PLACEHOLDER。
 - 读数:回 Cowork——合成 order_effective 总预算,对照 S1 的
   市场心跳表,正式回答"我们比市场快几倍/慢几倍"。
+- ✅ **S3 验证**:① 采样日志:≥3 时段 × ≥100 次,时间戳可查,
+  QPS ≤0.5;② 零副作用铁证:采样前后各跑一次
+  `account_view --assert-zero-resting`(W-K1 工具),两次都 exit 0
+  ——用自己的 kill-switch 眼睛证明没碰真单;③ 合理性区间:
+  us-east-2 内 RTT p50 预期 1–50ms,<0.5ms(打到缓存/错 host)或
+  超时率 >1% = 红旗;④ 分时段 p50/p99 各自入报再合并。
 
 ## S4 · 盘口级 burstiness + 品类横向对比
 - 目的:Rhys 问题#2 的完整版(quote 更新比成交更密)+ 品类对比
@@ -61,6 +89,10 @@ Group C(正式校准,gated ≥2026-07-13)。
 - 执行:**单独一场**(全品类 L1 体量大,16GB 盒子按品类×日期
   分块;S1 的 burstiness 只含 Tennis,此处才做横向)。
 - 读数:每品类一行:心跳中位/p99、爆发系数、与我方预算的倍数。
+- ✅ **S4 验证**:① 每品类样本量 + 与 manifest 行数对账(抽 2 个
+  品类核对,差异 >1% = 数据没读全);② 无 OOM(分块纪律的证明);
+  ③ 指纹头;④ Tennis 行与 S1 内部结果一致(同数据同口径,
+  数字对不上 = 两处算法漂移)。
 
 ## S5 · EC2 时代重跑(唯一有资格进 go/no-go 的版本)
 - 门:≥2026-07-13 七天净数据 + recv 列积累(实际 ≥07-17 成熟)。
@@ -72,14 +104,34 @@ Group C(正式校准,gated ≥2026-07-13)。
 - 读数:回 Cowork,与 dev-grade 版对比——结论变没变,为什么;
   **trade/reject 判决只在此步产生**。
 - 此后接 Group C 正式校准(PLAN_PRICING_MODEL,recv-only,无例外)。
+- ✅ **S5 验证**:① 开跑前门检:按 S0 钉死的 clean 定义逐日核对
+  七天 + EC2-era recv 覆盖率 ≥95%(SQL 入报);② test 窗开封
+  记录:报告注明开封时刻,且 val 版报告的指纹早于开封时刻
+  (只碰一次的可查证据);③ 双钟表并排,主判决标注 clock=recv;
+  ④ 与 dev-grade 版逐桶对照表(方向翻转的桶必须逐个解释);
+  ⑤ 结论 ∈ {trade, reject, collect}。
 
 ## S6 · 订单行为实证(W-K6,操作员排期)
 - 目的:Rhys 问题#4 的收尾——订单类型行为与文档一致性
   (post-only 拒单、到期自灭、client_order_id 409 去重)。
 - 门:操作员排期 + 注资;按 PLAN_RISK_KILLSWITCH W-K6 原文执行,
   全程 operator-gated(S1/S3)。
+- ✅ **S6 验证**:按 W-K6 自带 Acceptance 原文;外加前后各一次
+  assert-zero-resting;每个订单行为断言(post-only 拒单/到期自灭/
+  409 去重)= 一条实测记录,假设与实测不符 ⇒ 更新 kalshi_facts
+  并回改依赖该假设的代码。
 
 ---
+
+## 每步通用验证(读数时执行,2026-07-10 追加)
+
+- **三查**:任何产出先查三样——指纹头在不在、每个数字旁边有没有
+  样本量、剔除有没有计数。缺任何一样,退回,不读内容。
+- **Cowork 复算抽检**:每步读数时,Cowork 用独立路径(csv.gz
+  流式/另一种写法)重算 ≥1 个核心数字;偏差 >5% = 打回执行会话
+  对账。两条独立管道算出同一个数,才配叫"验证过"。
+- **红旗直觉**:任何"好得离谱"的数字默认是 bug 不是 alpha,
+  先找错再庆祝(访谈铁律:大亏都来自工程错误)。
 
 ## 统计与可信性纪律(2026-07-10 审计后追加,约束 S1/S4/S5 全部分析)
 
@@ -135,9 +187,11 @@ Group C(正式校准,gated ≥2026-07-13)。
 > methodology-flawed(trade/reject 保留给 S5)**。产出仅落
 > work/research/;运行过长可按文件断点分两场续跑。Mac-era 数据结论
 > 标注 dev-grade(regime=slam-week)。**严格执行本计划
-> 「统计与可信性纪律」全部 9 条**(预注册主指标、选样/测量分离、
-> 按场 bootstrap、中价卫生、tick 分层、因果分界、可复现指纹、
-> parquet 物化 + 分区过滤);主指标未预先声明即开算 = 审计 REJECT。
+> 「统计与可信性纪律」全部 12 条与「每步通用验证」**(预注册
+> 主指标、最小样本、bounce/drift 恒等式自检、选样/测量分离、
+> 按场 bootstrap、中价卫生、tick 分层、因果分界、指纹、parquet
+> 物化+分区过滤、费用预览不动门);主指标未预先声明即开算、或
+> 恒等式自检缺失 = 审计 REJECT。
 > 退出仪式 + 独立审计。
 
 ## 执行台账(操作员勾选)
