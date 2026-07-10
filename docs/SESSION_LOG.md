@@ -6,6 +6,47 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 21:00 UTC — W-P3 DONE ✅ (A-S quote generator) — Group-M math pieces (lo→fair→quote) COMPLETE
+
+- commits: 6d593c4 (W-P3) + 6f5e13b (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wP3_audit_2026-07-10.md.
+- delivered: tools/pricing/quote.py (imports the FROZEN lo core; fair.py +
+  lo.py confirmed untouched; pure, emits quotes only, transmits nothing) +
+  tests/test_pricing_quote.py (8 tests incl. the 7-name Q9 battery).
+- composition (all in log-odds space, mapped to legal cents at emission):
+  reservation = fair − inventory·γ(t) (γ ∝ remaining time, A-S variance);
+  δ_lo = base + vol + toxicity + |inventory| widening, scaled by a time factor
+  that WIDENS toward settlement; cap(t) → 0; Q6 hard stop inside the
+  convergence window; jump breaker on lo-mid VELOCITY + book-update RATE
+  (never trade volume); at max inventory the RISK-ADDING side is suppressed
+  but the EXIT side NEVER (Q8). Coeffs all NAMED Group-C placeholders.
+- AUDIT: ACCEPT-WITH-FINDINGS (no sign error = the reject condition; 9/10
+  mutations caught; frozen cores untouched). 4 fixed: N2 (Q8 fail-closed) a
+  negative/zero cap_max could suppress the EXIT side and TRAP a live position
+  (rodlaf deadlock) → cap_max validated + suppression re-keyed on inventory
+  SIGN (a long only ever loses its bid, a short only its ask, flat neither —
+  deadlock structurally impossible regardless of cap). N1 the "never trips on
+  volume" test was vacuous → jump_breaker gains a deliberately-ignored
+  trade_volume param + a 1e9-volume no-trip assert. N4 breaker fails-closed
+  (trips) on non-finite/degenerate-dt. N3 documented the cent-spread floor at
+  the band edge is correct dump-near-floor, not a regression.
+  LESSON: a "never depends on X" contract is only testable if X is an
+  explicit (ignored) input — absence of a parameter proves nothing.
+- gates: make check + tests/run_pipeline.sh PASS (62 suites) after
+  remediation. quote.py now FROZEN for W-P4.
+- blocked / handoff: NEXT agent-executable = **W-P4** (golden scenario tapes:
+  calm / buy-pressure / bracket-dislocation / pre-settlement / jump-event,
+  each with FULLY hand-computed expected quote sequences — the executable
+  spec the Phase-2 C++ port must reproduce number-for-number;
+  PLAN_PRICING_MODEL §3). W-P4 is a consumer of lo+fair+quote (all frozen) —
+  it writes only tests/fixtures, per its Allowed writes. W-P4 also folds in
+  the two W-P3 audit wiring items (N1 real volume-fed no-trip; N4 breaker
+  wiring) since it's the first place the breaker gets a caller. After W-P4,
+  Group M is DONE; Group C waits on 7 clean days + ladder-era recv data.
+  Still open: W-K6 (operator live rehearsal); PLAN_RESEARCH_CYCLE_1 (operator
+  hand-held); OQ-1 fees; W-A5 24h; env-hardening + reconcile-delivery BACKLOG;
+  Phase-2 engine/shadow wiring (needs its plan).
+
 ## 2026-07-10 19:50 UTC — W-P2 DONE ✅ (fair value estimator) — resumed PLAN_PRICING_MODEL Group M after the K-track
 
 - commits: fd08749 (W-P2) + fb40b1f (audit remediation) + this exit. Audit
