@@ -33,7 +33,7 @@ BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
-        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode \
+        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(BUILD)/panic \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
         $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
         $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(PURE_TESTS)
@@ -301,6 +301,9 @@ $(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/clie
 
 $(BUILD)/fill_test: apps/fill_test.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/fill_test.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
+$(BUILD)/panic: apps/panic.cpp include/kalshi/wire.hpp include/kalshi/env.hpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/panic.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 # ThreadSanitizer builds. Note: libcrypto/libcurl are not TSan-instrumented,
 # so these validate our ring/doorbell/pool call sites — not OpenSSL internals.

@@ -208,6 +208,12 @@ Purpose:          `apps/panic.cpp` (or panic.py if the audit accepts cold-path
                   liquidation rounds (crossing is the point) — flagged
                   explicitly so S6's post-only rule is read as maker-quote
                   scoped, with the operator confirming that reading at audit.
+                  **OPERATOR RULING (2026-07-10, E2, verbatim): panic 清仓单
+                  允许 crossing(吃单)——紧急退出要的是确定成交,不是好
+                  价格,taker 费在 panic 语境下是可接受成本;每笔 panic 单
+                  必须带 dead-man 到期(审计 N4 条款)。除 panic 外,一切
+                  策略性退出维持 post-only 被动(费用自杀红线不变,
+                  MM_ROADMAP 1.5B 原文)。**
 Allowed writes:   `apps/panic.cpp`; `tests/test_panic_dryrun.py`;
                   `tests/mock_exchange_panic.py` (mock with seeded resting
                   orders/positions incl. ack-loss injection); Makefile;
@@ -227,6 +233,39 @@ Acceptance:       dry-run against a mock seeded with N resting orders + M
                   registry check proves the live entry is console-refused.
 Rollback:         revert commit; dry-run has no external effects.
 Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
+
+#### W-K2 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Language decision (recorded per the W text): **C++** (`apps/panic.cpp`) —
+  reuses the proven client/env/wire layers (signing, warm lanes, redaction,
+  the `require_orders_allowed` S1 choke point, fail-closed env
+  cross-validation) instead of standing up a SECOND mutation-capable stack
+  in Python; E7-consistent. account_view (Python) stays the read-only
+  cross-check tool.
+- Operator ruling (2026-07-10, E2, verbatim above): crossing allowed for
+  panic, dead-man mandatory. Implementation: liquidation orders are
+  `time_in_force=immediate_or_cancel` + `reduce_only=true` — IOC IS the
+  dead-man (expiry immediate; structurally cannot become an orphaned
+  resting order), reduce_only means panic can never CREATE risk (Q8). If a
+  future panic version uses any resting order type, `expiration_time`
+  becomes mandatory. The drill mock 400-rejects any order violating this
+  contract, so every green drill re-proves it.
+- client_order_id (contract #9): deterministic from
+  (action/side/type/price/ticker/seq) + run-stable ts, strategy_id=29
+  (reserved panic namespace); ack-loss drills prove retries reuse the SAME
+  id byte-identically with ZERO double fills (mock journal asserted).
+- Drills (8 tests, real binary vs seeded localhost mock): dry-run
+  journal-proven silent; clean execute (hand-computed crossing prices:
+  long→ask@bid, short→bid@ask, magnitudes from position_fp); cancel/order
+  ack-loss recovery; refused cancel ⇒ loud PARTIAL-FAILURE exit 1;
+  endless-cursor enumeration ⇒ INCOMPLETE, never "clear" (account_view B1
+  rule); --execute vs prod-shaped env without live arming ⇒ refused (S1).
+- LIVE dry-run demonstrated (read-only): orders=0, positions=0 — the real
+  account was genuinely flat at run time (the W-K1-era MVE position had
+  settled/closed; re-verified via raw GET: all position_fp zero). Also
+  confirms simdjson handles the real API's alphabetical field order.
+- Registry: `panic_dryrun` (network_read) + `panic_live` (live_order,
+  console-forbidden — proven by check_registry output) + `test_panic_dryrun`
+  (offline, localhost mock only).
 
 ### W-K3 — Five-layer reservation ledger (contract #7, the heart)
 Purpose:          `include/kalshi/risk_ledger.hpp`: in-process, in-memory
