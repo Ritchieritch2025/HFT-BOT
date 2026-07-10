@@ -181,6 +181,18 @@ Exit evidence:    commit hash; tests green; live read output (redacted ok).
   market positions parsed (0 dropped — incl. a KXMVECROSSCATEGORY combo
   position, 25.69 contracts / $4.726960 exposure), resting orders 0,
   `--assert-zero-resting` rc=0.
+- Independent audit: initial verdict REJECT (B1 pagination truncation was
+  fail-open in the zero-resting primitive; B2 unicode digits mis-computed
+  money) — both fixed same session + tests; redirects now refused (N1);
+  balance cross-check widened to 1-cent tolerance (N2: floor vs round
+  unresolved from one sample, both pass, >= 1 cent = corruption). Report:
+  docs/plan_audits/wK1_audit_2026-07-10.md. CAVEATS for consumers (audit
+  N4): GET /portfolio/orders defaults to ALL subaccounts (zero-resting
+  verdict is account-wide, correct for panic) but GET /portfolio/positions
+  defaults to PRIMARY only — W-K5 reconcile must pass subaccount params if
+  subaccounts ever exist. Ignored-but-available fields (order_group_id,
+  subaccount_number, expiration_time, balance_breakdown, …) listed in the
+  audit for W-K2/K5 to adopt as needed.
 
 ### W-K2 — Panic CLI with dry-run mode (the kill switch, S3)
 Purpose:          `apps/panic.cpp` (or panic.py if the audit accepts cold-path

@@ -6,6 +6,58 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 11:30 UTC — W-K1 DONE ✅ (typed read-only account endpoints) · live acceptance on the REAL account · audit initially REJECTED (2 blocking), remediated same session to green
+
+- commits: 342b798 (W-K1 + live acceptance) + remediation/exit commit (this
+  one). Audit verbatim: docs/plan_audits/wK1_audit_2026-07-10.md.
+- delivered: `tools/account_view.py` — GET balance / positions / resting
+  orders; openssl RSA-PSS signing mirroring src/client.cpp (MGF1=SHA-256
+  default proven empirically by the auditor); D3 field gates with counted
+  drops; `--assert-zero-resting` panic primitive (W-K2's building block);
+  redirects REFUSED (signed headers never forwarded); read-only by
+  construction (GET only, grep-gated). 17 tests vs a local mock incl. PSS
+  round-trip through openssl verify + credential redaction.
+- FIELD-SEMANTICS FACTS (VERIFIED-LIVE 2026-07-10, now in the W-K1 RESULT
+  block): ① position money carries SIX decimals with nonzero sub-centicent
+  digits (real value "4.726960") ⇒ account money is parsed to E6
+  micro-dollars, byte-exact, floats rejected — E4 would be lossy narrowing
+  (D5); recorded DEVIATION from the W text ("E4 money"), evidence-forced.
+  ② `balance` (cents int) sits within 1 cent of `balance_dollars`
+  (fixed-point, authoritative) — consistent with floor, ONE sample, round
+  not excluded; cross-check accepts <1 cent, fails closed at >=1 cent.
+  ③ GET /portfolio/orders defaults to ALL subaccounts (zero-resting is
+  account-wide ✓) but /portfolio/positions defaults to PRIMARY-ONLY —
+  W-K5 reconcile flag. ④ W-K3 ledger must adopt E6 money or state its
+  narrowing rule (flagged in RESULT).
+- AUDIT (the process worked): initial verdict REJECT — B1: pagination
+  truncation at MAX_PAGES printed WARN but still reported "ZERO — clear"
+  rc=0 (fail-OPEN in the panic primitive; auditor proved it with an
+  endless-cursor mock); B2: unicode-aware \\d regex accepted Arabic-Indic
+  digits and COMPUTED WRONG MONEY (parse_e6('4.72696٠')→4728544). Both
+  fixed (truncation now raises everywhere; ASCII [0-9] like gold_load) +
+  4 new tests (truncation⇒rc1, unicode reject e2e, floor-vs-round
+  discriminating fixtures, redirect refusal). 13→17 tests.
+- live acceptance (operator's real account): balance $23.261400 (NOTE:
+  account was FUNDED — memory said $0.04; Phase-4 funding gate item is
+  moving), portfolio value $4.70, 3/3 positions parsed 0 dropped —
+  including a KXMVECROSSCATEGORY combo position (25.69 contracts,
+  $4.726960 exposure; MVE = Q7-excluded from MM candidacy, noted as an
+  operator-held position, no action), resting orders 0,
+  --assert-zero-resting rc=0.
+- incident (not mine, surfaced + resolved): found src/storage.cpp in the
+  working tree with an uncommitted single-character change DELETING a
+  semicolon from committed code (pure syntax breakage, broke ws_shadow_mock
+  compile mid-gates; plausibly an editor miskey from a human/browsing
+  session). Restored to HEAD via git checkout; pipeline re-ran green. No
+  other stray modifications found at exit.
+- gates: make check + tests/run_pipeline.sh PASS (56 suites) before AND
+  after remediation.
+- blocked / handoff: NEXT SESSION = W-K2 (panic CLI dry-run,
+  PLAN_RISK_KILLSWITCH §3; account_view is its verify primitive — consume
+  --assert-zero-resting rc, remember rc=1 also means UNPROVABLE/truncated).
+  W-K2 must record the crossing/post-only operator ruling per E2 at
+  execution. Standing: OQ-1 fees; W-A5 24h items; Group C gates.
+
 ## 2026-07-10 08:55 UTC — W-P1 DONE ✅ (log-odds core) + riders ③: reverse-scan caught 4 real drifts · audit ACCEPT-WITH-FINDINGS (0 blocking), all applied
 
 - commits: W-P1 commit (94f9d74 per audit) + audit-fix commit (this exit).

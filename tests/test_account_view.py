@@ -218,6 +218,65 @@ def test_pagination_follows_cursor(server, creds):
     assert len(orders) == 2 and drops == {}
 
 
+def test_unicode_digits_rejected(server, creds):
+    """audit B2: unicode digits must REJECT, never mis-compute money."""
+    with pytest.raises(Exception):
+        av.parse_e6("٥.٠٠")                    # Arabic-Indic digits
+    with pytest.raises(Exception):
+        av.parse_e6("4.72696٠")
+    _srv, base = server
+    _Handler.routes["/trade-api/v2/portfolio/orders"] = {
+        "orders": [dict(ORDER_OK, yes_price_dollars="٠.٥٦",
+                        client_order_id="cu")], "cursor": ""}
+    orders, drops = av.get_resting_orders(base, *creds)
+    assert orders == [] and drops["bad_yes_price_dollars"] == 1
+
+
+def test_pagination_truncation_fails_closed(server, creds):
+    """audit B1: an enumeration cut at MAX_PAGES could hide a resting order
+    — the call must FAIL, and --assert-zero-resting must exit 1 (S2/D2),
+    never print WARN and report 'clear'."""
+    _srv, base = server
+    _Handler.routes["/trade-api/v2/portfolio/orders"] = \
+        lambda path: {"orders": [], "cursor": "AGAIN"}    # endless pages
+    with pytest.raises(av.AccountViewError, match="INCOMPLETE"):
+        av.get_resting_orders(base, *creds)
+    assert _cli(base, "--assert-zero-resting") == 1
+
+
+def test_balance_round_or_floor_both_within_one_cent(server, creds):
+    """audit N2: floor vs round is unresolved from one live sample — a
+    rounding server (23.2699 -> 2327) must NOT spuriously fail; >= 1 cent
+    apart still fails closed."""
+    _srv, base = server
+    _Handler.routes["/trade-api/v2/portfolio/balance"] = {
+        "balance": 2327, "balance_dollars": "23.2699",
+        "portfolio_value": 0, "updated_ts": 1}
+    assert av.get_balance(base, *creds)["balance_e6"] == 23_269_900
+    _Handler.routes["/trade-api/v2/portfolio/balance"] = {
+        "balance": 2328, "balance_dollars": "23.2699",   # 1.01 cents apart
+        "portfolio_value": 0, "updated_ts": 1}
+    with pytest.raises(av.AccountViewError, match="mismatch"):
+        av.get_balance(base, *creds)
+
+
+def test_redirects_refused(server, creds):
+    """audit N1: a 3xx must fail closed — signed headers are never
+    forwarded to a redirect target."""
+    _srv, base = server
+    orig_do_get = _Handler.do_GET
+    def do_get_302(self):
+        self.send_response(302)
+        self.send_header("Location", "http://127.0.0.1:1/steal")
+        self.end_headers()
+    _Handler.do_GET = do_get_302
+    try:
+        with pytest.raises(av.AccountViewError, match="redirect"):
+            av.get_resting_orders(base, *creds)
+    finally:
+        _Handler.do_GET = orig_do_get
+
+
 def test_malformed_top_level_fails_closed(server, creds):
     _srv, base = server
     _Handler.routes["/trade-api/v2/portfolio/orders"] = b"not json at all"

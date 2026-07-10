@@ -78,7 +78,7 @@ class AccountViewError(RuntimeError):
     """Top-level failure (transport, auth, malformed body) — fail closed."""
 
 
-_DEC_RE = re.compile(r"^(-)?(\d+)(?:\.(\d+))?$")
+_DEC_RE = re.compile(r"^(-)?([0-9]+)(?:\.([0-9]+))?$")  # ASCII only — unicode digits REJECTED (audit B2; matches gold_load)
 
 
 def parse_e6(v):
@@ -132,13 +132,24 @@ def signed_headers(method, path, key_id, key_path, now_ms=None):
             "KALSHI-ACCESS-TIMESTAMP": ts}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """audit N1: a 3xx would forward the signed auth headers to an attacker-
+    chosen location; there is no legitimate redirect on this API — refuse."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AccountViewError("refusing HTTP %d redirect to %r (auth headers "
+                               "are never forwarded)" % (code, newurl))
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 def _get(base_url, path, key_id, key_path, timeout=15):
     url = base_url + API_PREFIX + path
     req = urllib.request.Request(url, method="GET")
     for k, v in signed_headers("GET", path, key_id, key_path).items():
         req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _OPENER.open(req, timeout=timeout) as r:
             body = r.read()
     except urllib.error.HTTPError as e:
         raise AccountViewError("GET %s -> HTTP %d %s"
@@ -202,10 +213,10 @@ def get_balance(base_url, key_id, key_path):
 
     balance_dollars (fixed-point string) is AUTHORITATIVE — VERIFIED-LIVE
     2026-07-10: the real account answered balance=2326 (cents int) with
-    balance_dollars="23.2614"; post fixed-point migration the true balance
-    carries sub-cent precision and the cents int is its floor. Cross-check
-    therefore accepts cents == floor(e6/10000); anything else (>= 1 whole
-    cent apart) is corruption and fails closed."""
+    balance_dollars="23.2614" — consistent with floor (ONE sample; round
+    not excluded, audit N2). Cross-check accepts |cents - e6| < 1 whole
+    cent (floor and round both pass); anything >= 1 cent apart is
+    corruption and fails closed."""
     b = _get(base_url, "/portfolio/balance", key_id, key_path)
     drops = {}
     try:
@@ -216,11 +227,13 @@ def get_balance(base_url, key_id, key_path):
     except _Drop:
         raise AccountViewError("balance response failed field gates: %s"
                                % drops) from None
-    if cents != e6 // 10000:
+    if abs(cents * 10000 - e6) >= 10000:   # audit N2: floor vs round is
+        # unresolved from one live sample; both keep |diff| < 1 cent —
+        # anything >= 1 whole cent apart is corruption, fail closed
         raise AccountViewError(
             "balance mismatch: balance=%d cents vs balance_dollars=%d E6 "
-            "(cents is not the fixed-point floor) — refusing to pick one "
-            "(fail-closed)" % (cents, e6))
+            "(>= 1 cent apart) — refusing to pick one (fail-closed)"
+            % (cents, e6))
     return {"balance_cents": cents, "balance_e6": e6,
             "portfolio_value_cents": pv, "updated_ts": ts}
 
@@ -242,9 +255,12 @@ def _paged(base_url, path_base, key_id, key_path, list_key):
         if not cursor:
             return
         if pages >= MAX_PAGES:
-            print("WARN: pagination stopped at %d pages for %s — RESULTS "
-                  "TRUNCATED" % (MAX_PAGES, path_base), file=sys.stderr)
-            return
+            # audit B1: a truncated enumeration can hide a resting order —
+            # never a WARN-and-proceed; fail the whole call closed (S2/D2)
+            raise AccountViewError(
+                "pagination exceeded %d pages for %s — enumeration "
+                "INCOMPLETE, refusing to report a partial answer"
+                % (MAX_PAGES, path_base))
 
 
 def get_positions(base_url, key_id, key_path):
@@ -266,9 +282,9 @@ def get_positions(base_url, key_id, key_path):
         if not cursor:
             break
         if pages >= MAX_PAGES:
-            print("WARN: positions pagination truncated at %d pages" % MAX_PAGES,
-                  file=sys.stderr)
-            break
+            raise AccountViewError(   # audit B1: same fail-closed rule
+                "positions pagination exceeded %d pages — INCOMPLETE"
+                % MAX_PAGES)
     for r in raw_m:
         try:
             mkt.append({
