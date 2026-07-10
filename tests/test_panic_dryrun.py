@@ -200,6 +200,50 @@ def test_execute_refused_without_live_arming_outside_mock(drill_factory,
     assert "refused" in p.stderr
 
 
+def test_execute_refused_when_localmock_points_at_real_host(throwaway_key):
+    """Audit B1: KALSHI_HOST_UNSAFE_OVERRIDE can aim a local_mock env at a
+    REAL host — the mock-drill branch must then refuse (loopback assertion),
+    never fire. Refusal happens before any network I/O."""
+    env = dict(os.environ,
+               KALSHI_ENV="local", KALSHI_HOST_UNSAFE_OVERRIDE="1",
+               KALSHI_BASE_URL="https://external-api.kalshi.com",
+               KALSHI_API_KEY_ID="k", KALSHI_PRIVATE_KEY_PATH=throwaway_key)
+    env.pop("KALSHI_ALLOW_LIVE", None)
+    env.pop("KALSHI_MODE", None)
+    p = subprocess.run([PANIC, "--execute"], env=env, capture_output=True,
+                       text=True, timeout=30)
+    assert p.returncode == 2
+    assert "not armed" in p.stderr and "loopback" in p.stderr
+
+
+def test_execute_refused_for_loopback_lookalike_host(throwaway_key):
+    """Audit B1 hardening: the loopback check is EXACT host, not a substring
+    — 'localhost.evil.com' must NOT count as loopback."""
+    # https so the env-layer TLS rule doesn't reject first — we want to reach
+    # panic's OWN loopback guard (env override skips the host allowlist).
+    # Covers suffix lookalikes AND the userinfo tricks (curl dials the host
+    # AFTER the '@'; re-audit round 2).
+    for host in ("https://localhost.evil.com", "https://127.0.0.1.evil.com",
+                 "https://127.0.0.1@evil.com", "https://127.0.0.1:18099@evil.com",
+                 "https://localhost@evil.com",
+                 # query/fragment authority terminator (audit round 3): curl
+                 # ends the authority at '?'/'#', so these dial the REAL host
+                 "https://external-api.kalshi.com?@127.0.0.1",
+                 "https://external-api.kalshi.com#@localhost",
+                 "https://evil.com?x=@127.0.0.1"):
+        env = dict(os.environ,
+                   KALSHI_ENV="local", KALSHI_HOST_UNSAFE_OVERRIDE="1",
+                   KALSHI_BASE_URL=host,
+                   KALSHI_API_KEY_ID="k", KALSHI_PRIVATE_KEY_PATH=throwaway_key)
+        env.pop("KALSHI_ALLOW_LIVE", None)
+        env.pop("KALSHI_MODE", None)
+        p = subprocess.run([PANIC, "--execute"], env=env,
+                           capture_output=True, text=True, timeout=30)
+        assert p.returncode == 2, host
+        assert "not armed" in p.stderr and "loopback" in p.stderr, \
+            "%s -> %s" % (host, p.stderr)
+
+
 def test_json_report_written(drill_factory, tmp_path):
     d = drill_factory(orders=1)
     out = str(tmp_path / "report.json")

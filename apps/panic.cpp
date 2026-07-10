@@ -34,10 +34,17 @@
 // All other (strategic) exits stay post-only passive per MM_ROADMAP 1.5B —
 // that red line is untouched by this tool.
 //
-// client_order_id idempotency (design contract #9): every order intent gets
-// a DETERMINISTIC id from (action, side, count, price, ticker, seq) with the
-// run-stable timestamp captured ONCE at startup — a retry after ack loss
-// reuses the SAME id, so a duplicate can fill at most once. Cancel retries
+// client_order_id idempotency (design contract #9): wire::client_order_id
+// derives the id from (ts_ns, strategy_id, seq) ONLY (audit N3 — action/
+// side/price/ticker do NOT enter it); panic uses strategy_id=29, a
+// run-stable ts_ns captured once at startup, and a per-order-intent seq —
+// so the id is unique per intent and BYTE-IDENTICAL on retry, and a
+// duplicate can fill at most once. NOTE (audit N1): "the exchange dedupes
+// orders by client_order_id and answers 409 on a retry" is an ASSUMPTION —
+// openapi documents coid-dedup semantics only for transfers; it must be
+// CONFIRMED live at the W-K6 rehearsal. reduce_only caps the worst case at
+// flat, and the post-round re-enumeration keeps the report honest either
+// way. Cancel retries
 // reuse the same DELETE (idempotent by order_id); "already canceled" /
 // "not found" on retry counts as success (exchange is truth, S2).
 //
@@ -136,6 +143,43 @@ std::string e4_to_fp(long e4) {        // E4 -> "D.DDDD" (prices are >= 0)
   return buf;
 }
 
+// EXACT loopback host check (audit B1 hardening, re-audit round 2). The kill
+// switch classifies its own connect target with FULL host equality — never a
+// substring, and userinfo-aware, so every one of these is correctly NOT
+// loopback:
+//   https://localhost.evil.com        (suffix lookalike)
+//   https://127.0.0.1.evil.com        (suffix lookalike)
+//   https://127.0.0.1@evil.com        (userinfo trick — curl dials evil.com)
+//   https://127.0.0.1:18099@evil.com  (userinfo with a port — the sharp one)
+// NOTE: src/env.cpp::parse_url shares the userinfo quirk (it stops at the
+// first ':' and would misread the last case) — filed to BACKLOG as an
+// env-layer hardening item; this self-contained check does not depend on it
+// (a kill switch minimizes dependencies by design).
+bool base_host_is_loopback(const std::string& url) {
+  auto p = url.find("://");
+  if (p == std::string::npos) return false;
+  size_t s = p + 3;
+  // Authority ends at the FIRST of '/', '?' or '#' (RFC 3986 / libcurl). A
+  // round-2 bug ended it only at '/', so "https://realhost?@127.0.0.1"
+  // promoted the query's 127.0.0.1 into the host slot while curl dialed
+  // realhost — audit round 3. Terminate on all three.
+  size_t auth_end = url.find_first_of("/?#", s);
+  std::string auth = url.substr(
+      s, auth_end == std::string::npos ? std::string::npos : auth_end - s);
+  auto at = auth.rfind('@');                           // strip userinfo
+  if (at != std::string::npos) auth = auth.substr(at + 1);
+  std::string host;
+  if (!auth.empty() && auth[0] == '[') {              // [::1]:port
+    auto rb = auth.find(']');
+    host = auth.substr(0, rb == std::string::npos ? std::string::npos : rb + 1);
+  } else {                                            // host[:port]
+    auto colon = auth.find(':');
+    host = auth.substr(0, colon == std::string::npos ? std::string::npos : colon);
+  }
+  for (char& c : host) if (c >= 'A' && c <= 'Z') c += 32;  // case-fold (curl)
+  return host == "127.0.0.1" || host == "localhost" || host == "[::1]";
+}
+
 }  // namespace
 
 // ── enumeration (same fail-closed rules as tools/account_view.py) ────────
@@ -168,7 +212,8 @@ static bool list_resting(KalshiClient& client, simdjson::ondemand::parser& parse
         out.push_back(std::move(ro));
       }
       std::string_view cv;
-      auto doc2 = parser.iterate(j);   // re-iterate for cursor (ondemand is single-pass)
+      simdjson::ondemand::parser cparser;   // fresh parser: ondemand allows
+      auto doc2 = cparser.iterate(j);       // one live doc per parser (N4)
       cursor = (doc2["cursor"].get(cv) == simdjson::SUCCESS) ? std::string(cv) : "";
     } catch (...) {
       rep.failures.push_back("enumerate resting: malformed body");
@@ -207,7 +252,8 @@ static bool list_positions(KalshiClient& client, simdjson::ondemand::parser& par
         out.push_back(std::move(p));
       }
       std::string_view cv;
-      auto doc2 = parser.iterate(j);
+      simdjson::ondemand::parser cparser;   // fresh parser (N4)
+      auto doc2 = cparser.iterate(j);
       cursor = (doc2["cursor"].get(cv) == simdjson::SUCCESS) ? std::string(cv) : "";
     } catch (...) {
       rep.failures.push_back("enumerate positions: malformed body");
@@ -299,13 +345,20 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (execute) {
-    // Mock drill on localhost is the rehearsal path (tests). Anything else
-    // must pass the single live choke point (S1: operator-armed session).
-    if (rt.env != Env::LocalMock) {
+    // Mock drill on LOOPBACK is the rehearsal path (tests). The env label
+    // alone is NOT sufficient: KALSHI_HOST_UNSAFE_OVERRIDE can point a
+    // local_mock env at a real host (audit B1) — so the drill branch also
+    // requires the RESOLVED base URL to be loopback. Anything else passes
+    // the single live choke point (S1: operator-armed session).
+    const bool loopback = base_host_is_loopback(rt.rest_base_url);
+    if (rt.env != Env::LocalMock || !loopback) {
       try {
         require_orders_allowed(rt);
       } catch (const SafetyViolation& e) {
-        std::fprintf(stderr, "PANIC ABORT (not armed): %s\n", e.what());
+        std::fprintf(stderr, "PANIC ABORT (not armed): %s%s\n", e.what(),
+                     (rt.env == Env::LocalMock && !loopback)
+                         ? " [mock-drill branch refused: resolved base URL "
+                           "is not loopback — audit B1 guard]" : "");
         return 2;
       }
     }
@@ -343,9 +396,11 @@ int main(int argc, char** argv) {
       if (attempt) ++rep.cancel_retries;
       auto r = client.request(Method::Delete, path);   // idempotent by order_id
       if (r && r->ok()) { ok = true; break; }
-      if (r && (r->status == 404 || r->status == 400)) {
+      if (r && r->status == 404) {
         // already canceled / already executed — the exchange is truth (S2);
         // verification below is what certifies "zero resting", not this code.
+        // (400 = rejected request, NOT proof of cancellation — audit N2:
+        // it retries and then fails loudly.)
         ok = true; break;
       }
       // transport error or 5xx: retry the SAME request
@@ -392,6 +447,15 @@ int main(int argc, char** argv) {
       // Crossing price, one cent deeper each round (reprice-cross):
       //   exit long  -> sell into the bid: bid - round cents (floor 1c)
       //   exit short -> buy from the ask:  ask + round cents (cap 99c)
+      // audit N2: an empty exit side (bid=0 for a long, ask=0/at-cap for a
+      // short) has NO counterparty — an IOC there fills nothing and a
+      // fabricated 1c/99c price would misstate the plan. Record + skip;
+      // the flat-verification loop keeps the verdict honest.
+      if (pos.is_long ? (bid_e4 < 100) : (ask_e4 < 100 || ask_e4 > 9900)) {
+        rep.failures.push_back("exit side empty for " + pos.ticker +
+                               " — no counterparty to cross");
+        continue;
+      }
       long px = pos.is_long ? bid_e4 - 100L * round : ask_e4 + 100L * round;
       if (px < 100) px = 100;
       if (px > 9900) px = 9900;

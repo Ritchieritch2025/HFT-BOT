@@ -4,6 +4,26 @@ Per EXECUTION_PLAN operating protocol rule 1: anything noticed outside the
 current WP's scope lands here as a note, never as code. Each entry: date,
 noticed-during, observation, suggested owner.
 
+- 2026-07-10 · noticed during W-K2 panic audit (round 2) · **env-layer
+  `parse_url` (src/env.cpp:37) is userinfo-blind and disagrees with curl on
+  the connect host.** It takes the host as everything from `://` up to the
+  first `:` or `/`, so `https://127.0.0.1:18099@evil.com` parses host=
+  `127.0.0.1` while curl actually dials `evil.com` (the loopback string is
+  userinfo `user:pass@`). Today this is mostly latent: the host allowlist
+  (exact match) rejects real prod-lookalikes, and it only opens under
+  `KALSHI_HOST_UNSAFE_OVERRIDE=1` (a dev flag, refused in live mode). But any
+  code trusting `parse_url().host` for a safety decision inherits the gap.
+  W-K2's panic guard does NOT depend on it — apps/panic.cpp
+  base_host_is_loopback is its own complete RFC-3986 authority parser
+  (terminate at first of `/?#`, strip userinfo at last `@`, strip port,
+  `[::1]` brackets, case-fold), hardened over THREE audit rounds against
+  substring, userinfo (`@`), and query/fragment (`?@`/`#@`) bypasses and
+  tested against all of them. The env-layer gap below is a SEPARATE latent
+  issue in the shared safety layer.
+  Fix: strip userinfo (everything up to the last `@` in the authority) in
+  parse_url, add IPv6 `[..]` handling, regression-test the vectors. Owner:
+  a small env-hardening W (touches the shared safety layer ⇒ its own audit;
+  out of W-K2 scope). Suggested: fold into the next STEP that touches env.cpp.
 - 2026-07-10 · STEP 6 combined audit N7 + operator ruling ③ ·
   **(a) `tools/rtt_baseline_sampler.sh` is unregistered (E3 drift), KEEP:**
   it arrived via commit 6da7317 and is wanted by the upcoming latency

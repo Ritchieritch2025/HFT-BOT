@@ -249,10 +249,15 @@ Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
   future panic version uses any resting order type, `expiration_time`
   becomes mandatory. The drill mock 400-rejects any order violating this
   contract, so every green drill re-proves it.
-- client_order_id (contract #9): deterministic from
-  (action/side/type/price/ticker/seq) + run-stable ts, strategy_id=29
-  (reserved panic namespace); ack-loss drills prove retries reuse the SAME
-  id byte-identically with ZERO double fills (mock journal asserted).
+- client_order_id (contract #9): wire::client_order_id derives from
+  (ts_ns, strategy_id, seq) ONLY (audit N3 correction) — run-stable ts +
+  strategy_id=29 (reserved panic namespace) + per-intent seq ⇒ unique per
+  intent, byte-identical on retry; ack-loss drills prove ZERO double fills
+  against the mock. **ASSUMPTION (audit N1, requires LIVE confirmation at
+  W-K6): the exchange dedupes orders by client_order_id and answers 409 on
+  a retried id — openapi documents coid-dedup only for transfers.
+  Worst-case bound if false: reduce_only caps at flat + post-round
+  re-enumeration keeps the report honest.**
 - Drills (8 tests, real binary vs seeded localhost mock): dry-run
   journal-proven silent; clean execute (hand-computed crossing prices:
   long→ask@bid, short→bid@ask, magnitudes from position_fp); cancel/order
@@ -266,6 +271,22 @@ Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
 - Registry: `panic_dryrun` (network_read) + `panic_live` (live_order,
   console-forbidden — proven by check_registry output) + `test_panic_dryrun`
   (offline, localhost mock only).
+- Independent audit: initial verdict REJECT — **B1: the mock-drill branch
+  keyed on the env LABEL alone, so KALSHI_HOST_UNSAFE_OVERRIDE could aim a
+  local_mock env at the real host and --execute would fire unarmed (S1
+  defeated). Fixed over THREE audit rounds — the drill branch requires the
+  RESOLVED base URL host to be loopback by a complete RFC-3986 authority
+  parse (terminate at first `/?#`, strip userinfo at last `@`, strip port,
+  `[::1]` brackets, case-fold), each round closing one more bypass class:
+  substring (`localhost.evil.com`, round 1→2), userinfo (`127.0.0.1@evil`,
+  round 2→3), query/fragment (`realhost?@127.0.0.1`, round 3). Regression
+  tests cover all eight vectors. The env-layer parse_url shares the userinfo
+  quirk ⇒ BACKLOG (panic's guard is fully independent of it).** Also
+  applied: N2 empty-exit-side refusal (no fabricated 1c/99c dumps) + 400 no
+  longer counts as cancel success (404 only); N3 id-derivation comment
+  corrected; N4 cursor re-read uses a fresh simdjson parser (one-live-doc
+  contract). 8→9 drills. Gate fix re-verified by the same auditor.
+  Report: docs/plan_audits/wK2_audit_2026-07-10.md.
 
 ### W-K3 — Five-layer reservation ledger (contract #7, the heart)
 Purpose:          `include/kalshi/risk_ledger.hpp`: in-process, in-memory
