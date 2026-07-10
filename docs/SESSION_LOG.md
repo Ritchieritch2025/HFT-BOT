@@ -6,6 +6,43 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 17:30 UTC — W-K4 DONE ✅ (defensive rule engine) · 4 scenario tapes genuine · audit found 2 dead-man defects, both fixed
+
+- commits: 8be4b9c (W-K4) + 23a4982 (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wK4_audit_2026-07-10.md.
+- delivered: include/kalshi/rule_engine.hpp (DEDICATED module, not folded into
+  risk_ledger — recorded choice; header-only, zero-I/O, transmits nothing,
+  shadow-style) + tests/test_rule_engine.cpp (34 checks, ALL PASS).
+- four rules, four hand-computed scenario tapes: (1) dead-man expiry
+  (heartbeat loss ⇒ Expire ALL resting; per-order TTL expires only the stale
+  one); (2) cancel-on-disconnect ⇒ Cancel every resting order (S6); (3)
+  day-loss breaker WIRED TO THE REAL RiskLedger ⑤ (book a loss to the cap ⇒
+  QuoteStop on new quotes + one-shot PanicRecommend on a bare tick between
+  book updates, Q8); (4) rate limiter (TokenBucketI64) SHEDS requotes but
+  NEVER cancels (cancel-starvation guard, proven by interleaving cancels
+  through a saturated burst). Scenario tapes IN-CODE (recorded scope choice
+  vs the optional fixtures dir).
+- AUDIT: ACCEPT-WITH-FINDINGS, both dead-man defects fixed: B1 the engine
+  dead-man armed ONLY after a prior heartbeat ⇒ an engine that never
+  heartbeats never expired its orders (fail-OPEN — the worst case a dead-man
+  exists to catch); fixed by arming from add_resting (now takes a required
+  now_ns). B2 `now - ref` unsigned-underflowed on an out-of-order/skewed tick
+  ⇒ spurious mass-expiry of the whole book; fixed with a `now > ref` guard —
+  token_bucket.hpp already had this exact guard but it wasn't carried over.
+  +3 regression tapes; both exploit probes re-run fail-closed.
+  LESSON: a safety guard proven in one module (here token_bucket's
+  non-monotonic-clock guard) must be carried to every sibling that does the
+  same unsigned time subtraction — grep for `now.*-.*_ns` on new time math.
+- gates: make check + tests/run_pipeline.sh PASS (59 suites) after
+  remediation.
+- blocked / handoff: NEXT SESSION = W-K5 (reconcile loop, tools/reconcile.py,
+  contract #8: pull exchange resting orders + positions via account_view,
+  diff against an engine-state snapshot, mismatch ⇒ alarm + report, exchange
+  wins never blind-retry S2; mock + synthetic snapshots, no live engine yet).
+  After W-K5, the K-track's non-live Ws are complete and W-K6 (live rehearsal)
+  is the only remainder — operator-scheduled + funded (S1). Standing: OQ-1
+  fees; W-A5 24h; the two env-hardening BACKLOG items.
+
 ## 2026-07-10 16:10 UTC — W-K3 DONE ✅ (five-layer reservation ledger, contract #7) · 4 named tests genuine · audit found 6 fail-open holes on the risk core, all fixed
 
 - commits: 5c0f6e5 (W-K3) + 2f06300 (audit remediation) + this exit. Audit
