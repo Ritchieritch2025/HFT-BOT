@@ -6,6 +6,79 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 — W-A5 machinery DONE ✅ (24h gate + operator items open): delta vaulted, sync timers live, alerting built, riders a/b/c live, full-L1 = 11,307/11,307
+
+- commits: 415ac7e (batch 1: riders+SIGTERM+caps+sync+alerting+report-pull+
+  facts) · policy-test fix · report-pull two-stage · TimeoutStopSec=90 ·
+  sample_size=-1 regression fix · this exit commit. Evidence:
+  docs/plan_audits/wA5_steady_state_2026-07-10.md (no-fabrication table).
+- ①-⑨ status: ① Mac delta (17:00→23:09 residual) 49 files 3-hop 0-mismatch
+  → vault now holds the COMPLETE Mac era. ② hourly(:05)+daily(03:10Z)
+  EC2→S3 timers enabled, first hourly run proven (00:05:16Z journalctl).
+  ③ alert_notify (capture/freshness/disk → Telegram-or-log, state-change
+  anti-spam, 5 dry-run tests) every 60s; report flow-back PROVEN onto the
+  Desktop (TCC two-stage fallback). ④ run-rate ~$110/mo + S3 raw accrual
+  ~+$20/mo/month; bill+$150-budget = operator. ⑤ sleep re-enable deferred
+  to the 24h verdict (by plan). ⑥ (a) rotate_metrics keep-3 wired+tested;
+  (b) ALL categories class A — verified end-to-end: series_classified
+  11,307/11,307 record_class='A'; (c) CSVs untracked+ignored. ⑦ staging
+  92GB/1,132 files deleted (operator-approved; disk 65%→19%).
+  ⑧ ticker_conflation → kalshi_facts (VERIFIED-MEASURED). ⑨ SIGTERM: trap
+  split + backgrounded ws_shadow (supervisor exits <1s, contract-tested) +
+  TimeoutStopSec=90 for slow children (ws_shadow drain, python-in-DuckDB);
+  PARTIAL by honest definition — children may still hit the 90s backstop;
+  avoid restarts 00:00-00:15Z. Events cap: BOTH events AND markets had
+  silently truncated at 80k EVERY hourly crawl (the "(capped)" marker
+  screamed into an unread log — D2 lesson); raised to 2000 pages; markets
+  now complete (~50k); events endpoint is ALL-HISTORY (hit 400k cap too;
+  newest-first pagination so only historical tail trimmed; redesign =
+  BACKLOG with E4 spec-check). The raise exposed a latent schema-sampling
+  crash (mixed timestamp precisions at row 363,172) — fixed same session
+  (sample_size=-1, VARCHAR fallback, regression test).
+- incidents this session: 00:09:48Z restart landed mid-export → 4 children
+  SIGKILLed at +30s (supervisor itself exited clean — fix working); export
+  self-healed via write-once + 02:00 force sweep, as designed. Box git pull
+  blocked once by churned CSVs (rider (c)'s raison d'être) — resolved.
+  Stale Mac git HEAD.lock cleared (concurrent research session). battery:
+  run_pipeline PIPELINE PASS both boxes at final code.
+- blocked / handoff: NEXT SESSION (short, after 2026-07-10 23:09Z):
+  ① capture_gaps --date 2026-07-10 on the box + the 00:10→00:10 window ⇒
+  24h zero-gap verdict; ② if green: operator runs `sudo pmset -a
+  disablesleep 0` (Mac sleeps again) ⇒ **STEP 1 CLOSED** ⇒ update
+  MASTER_SEQUENCE amendment + memory. OPERATOR standing items: Telegram
+  token+chat_id into box env.sh (then ping me to test-fire); CloudWatch
+  StatusCheckFailed→SNS→email; bill figure + $150 AWS Budget; TCC grant if
+  tomorrow's 09:00 pull WARNs. BACKLOG added: events crawl redesign;
+  3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
+  Glacier/retention ruling.
+
+## 2026-07-09 ~22:00 UTC — Interview intel #2/#3 + edge-hypotheses synthesis (H1-H12) committed 5811f0d
+
+- commits: 5811f0d (analysis docs #2 P=peanutbettor, #3 K=risktakers-ep3,
+  synthesis RESEARCH_EDGE_HYPOTHESES_2026-07-09.md, 2 vendor transcripts,
+  prior pending SESSION_LOG entry + BACKLOG notes incl. operator's
+  timestamp-ladder note from another session — swept in deliberately with
+  operator present). Prior commit this session: b0a8446 (Eggsy analysis).
+- operator directives (binding, recorded): (1) docs research notes OK to
+  write, NEVER touch execution plans (MASTER_SEQUENCE/PLAN_*) or code;
+  (2) interview takeaways are HYPOTHESES to verify, not conclusions —
+  hence H1-H12 each with test method + pessimistic pass line; (3) analysis
+  docs use "建议" framing, category-ban style decisions belong to operator.
+- context capsule: edge decomposition = fee-wall × anchor-lead ×
+  rec-flow-existence × ops-discipline; rec-flow existence in crypto (H7)
+  is the untested revenue-side multiplier — highest priority, data already
+  in warehouse, no timestamp-ladder dependency. H2 (anchor lead-lag)
+  depends on timestamp-ladder columns landing first. Ep3 added flow
+  taxonomy (H10), one-sided-run adverse-selection test (H11),
+  iceberg-vs-queue tradeoff (H12), plus traps: palp-void contagion /
+  orphaned hedge leg, exchange adjudication conflict-of-interest.
+- ⚠️ WARN: sandbox again left stale .git/HEAD.lock it cannot delete —
+  operator run: `cd ~/HFT\ BOT && rm -f .git/HEAD.lock .git/index.lock`
+  (this SESSION_LOG edit is uncommitted until then). Mirror sync still
+  not possible from sandbox (Desktop not mounted).
+- blocked / handoff: none; MASTER_SEQUENCE untouched. Hypothesis testing
+  (H7 first) awaits operator go — fits Phase 1 tooling (mm_scan data).
+
 ## 2026-07-09 20:15 UTC — Interview intel: top Kalshi sports MM (Eggsy) analyzed, mapped to MM_ROADMAP; 6 backlog items
 
 - commits: b0a8446 "docs: interview intel analysis — top Kalshi sports MM

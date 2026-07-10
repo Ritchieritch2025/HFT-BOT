@@ -508,6 +508,24 @@ Exit evidence:  24 h zero-gap report from EC2; a landed PDF on the Mac Desktop;
 
 ---
 
+### W-A5 RESULT (2026-07-10 — ✅ machinery complete & verified; ⏳ 24 h gate + operator-channel items open)
+
+All nine operator-scoped items executed; full evidence + no-fabrication table:
+**docs/plan_audits/wA5_steady_state_2026-07-10.md**. Highlights: Mac-only
+residual vaulted (49 files, 3-hop 0-mismatch — the vault now holds the
+complete Mac era); EC2→S3 hourly+daily timers live (first run proven on
+schedule); rider (e) alerting live in log-only mode (Telegram pending
+operator token) + report flow-back proven onto the Mac Desktop; riders
+(a)(b)(c) live — **classification now 11,307/11,307 record_class=A** (full-
+market L1); vault_staging deleted (operator-approved, disk 65%→19%);
+ticker-conflation in kalshi_facts; SIGTERM two-layer fix + TimeoutStopSec=90;
+events/markets caps: BOTH had truncated at 80k every hourly crawl — raised,
+which surfaced and same-session-fixed a schema-sampling crash; events endpoint
+is all-history (400 k cap trims historical tail only; redesign BACKLOGged).
+OPEN: 24 h zero-gap check (≥2026-07-10 23:09Z; then Mac sleep re-enable),
+operator items (Telegram token, CloudWatch/SNS, first bill + $150 budget).
+STEP 1 closes when the 24 h check passes.
+
 ## Riders (operator-approved, executed within STEP 1)
 - **(a) metrics.ndjson rotation** EXECUTED (512 MB, keep 3) — **on both boxes**
   (the current single unbounded `work/metrics.ndjson` is 17.8 GB; rotate it like

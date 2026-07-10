@@ -221,6 +221,18 @@ approved+audited; B1 ruled (collectors wait for EC2).
   W-A0 附加一句：「sizing 选定 ≥32GB 分支（gold 上 EC2，Mac 彻底退役）
   并记录进计划」。W-A4 你必须在场 go/no-go。
 
+  **W-A5 机制全部落地 2026-07-10（✅;两项收尾开放）**：Mac 尾差 49 文件
+  三跳零误入库（Mac 时代数据在金库齐了）;EC2→S3 双定时器首跑准点;
+  报警器就位（Telegram 等你的 token,暂 log-only）;报表回流已实测落
+  你桌面;三 riders 生效——**分类 11,307/11,307 全 Class A（全市场 L1）**;
+  staging 92GB 已删（盘 19%）;优雅退出两层修复;爬取截断（events/markets
+  双双 80k 每小时静默截断!）修复并顺手抓掉一个模式采样崩溃。
+  **你的待办**：① Telegram token+chat_id 进盒子 env.sh;② CloudWatch
+  StatusCheckFailed→SNS→邮箱确认;③ 账单数字 + $150 预算报警;
+  ④ 明天 23:09Z 后开个短会话跑 24h 零缺口验收,过了就
+  `sudo pmset -a disablesleep 0` 恢复 Mac 睡眠 → **STEP 1 正式关闭**。
+  证据：docs/plan_audits/wA5_steady_state_2026-07-10.md。
+
   **W-A4 完成 2026-07-09（✅ 割接成功，23:09 UTC 起 EC2 独挑生产）**：
   WS 双机并跑 4 小时 38 分交接，无损通道 diff = 190,815 笔 trades 双向
   零缺失（seq_gaps 基线 0%）；三次 go/no-go 操作员在场拍板；割接中实战
