@@ -1,6 +1,13 @@
 build/
 *.dSYM/
-work/
+# work/ is the data tree (never committed) EXCEPT work/research/ committed
+# research TOOLS (W-TL1: jitter_report.py). Git cannot re-include files under
+# an ignored directory, so work must be ignored as work/* with an explicit
+# re-include chain; report OUTPUTS in work/research/ stay ignored.
+work/*
+!work/research/
+work/research/*
+!work/research/jitter_report.py
 .DS_Store
 # test-generated data artifacts (raw logs, replays, rotation shards, fuzz corpus)
 *.ndjson

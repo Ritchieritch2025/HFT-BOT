@@ -18,6 +18,11 @@ TYPES (locked — no downcasting; Kalshi is sub-penny + fractional):
   timestamps -> BIGINT epoch MICROSECONDS (UTC)
   is_snapshot-> BOOLEAN (heartbeat / first-observation = true; real change = false)
 
+TIMESTAMP LADDER (W-TL1): every fact row additionally carries exchange_ts_us +
+recv_wall_ns + recv_mono_ns + local_recv_ts_us (all nullable BIGINT; scheduled
+heartbeats = all NULL). ts_utc = COALESCE(exchange_ts_us, local_recv_ts_us) is
+legacy-compat only — never a tradable replay clock (see comment on STAGING_DDL).
+
 CHANGE-ONLY + HEARTBEAT (orderbooks_l1, Class A markets only):
   state = (yes_bid_e4, yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4)
   - first observation of a market       -> write, is_snapshot=true
@@ -60,6 +65,22 @@ def _fsync_dir(path):
     finally:
         os.close(fd)
 
+
+# W-TL1 (2026-07-09): timestamp ladder. Four additive nullable BIGINT columns
+# on all three fact tables:
+#   exchange_ts_us   exchange-reported time (ms-granular! `ts_ms` authoritative,
+#                    legacy `ts` fallback) normalized to epoch micros
+#   recv_wall_ns     capture-host wall clock at WS receive, raw envelope value
+#   recv_mono_ns     capture-host monotonic clock at WS receive, raw envelope
+#                    value (arbitrary epoch — only differences are meaningful,
+#                    and only within one stream_epoch/connection)
+#   local_recv_ts_us recv_wall_ns // 1000 (epoch micros) — the tradable clock
+# ts_utc is kept for LEGACY COMPATIBILITY ONLY: ts_utc =
+# COALESCE(exchange_ts_us, local_recv_ts_us). It is used for partitioning /
+# day export / coarse queries / old tools. It MUST NOT be used as a tradable
+# replay clock: on most rows it is EXCHANGE time, and backtesting decisions on
+# it is look-ahead bias (see tools/mm_backtest.py --clock). Old archive files
+# are never rewritten; pre-TL1 rows read back NULL in all four columns.
 STAGING_DDL = """
 CREATE TABLE IF NOT EXISTS checkpoint (
   file TEXT PRIMARY KEY, byte_offset BIGINT, updated_us BIGINT);
@@ -67,31 +88,53 @@ CREATE TABLE IF NOT EXISTS orderbooks_l1 (
   ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
   category TEXT, subcategory TEXT, "group" TEXT, record_class TEXT,
   yes_bid_e4 INTEGER, yes_bid_qty_e4 BIGINT, yes_ask_e4 INTEGER, yes_ask_qty_e4 BIGINT,
-  price_e4 INTEGER, volume_e4 BIGINT, open_interest_e4 BIGINT, is_snapshot BOOLEAN);
+  price_e4 INTEGER, volume_e4 BIGINT, open_interest_e4 BIGINT, is_snapshot BOOLEAN,
+  exchange_ts_us BIGINT, recv_wall_ns BIGINT, recv_mono_ns BIGINT,
+  local_recv_ts_us BIGINT);
 CREATE TABLE IF NOT EXISTS trades (
   ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
   category TEXT, subcategory TEXT, "group" TEXT,
-  trade_id TEXT, yes_price_e4 INTEGER, no_price_e4 INTEGER, count_e4 BIGINT, taker_side TEXT);
+  trade_id TEXT, yes_price_e4 INTEGER, no_price_e4 INTEGER, count_e4 BIGINT, taker_side TEXT,
+  exchange_ts_us BIGINT, recv_wall_ns BIGINT, recv_mono_ns BIGINT,
+  local_recv_ts_us BIGINT);
 CREATE TABLE IF NOT EXISTS orderbooks_full (
   ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
   category TEXT, subcategory TEXT, "group" TEXT,
   msg_type TEXT, side TEXT, price_e4 INTEGER, delta_e4 BIGINT,
-  yes_levels TEXT, no_levels TEXT, ws_sid BIGINT, ws_seq BIGINT);
+  yes_levels TEXT, no_levels TEXT, ws_sid BIGINT, ws_seq BIGINT,
+  exchange_ts_us BIGINT, recv_wall_ns BIGINT, recv_mono_ns BIGINT,
+  local_recv_ts_us BIGINT);
 CREATE TABLE IF NOT EXISTS ingest_stats (
   day TEXT, category TEXT, ticks_seen BIGINT, l1_written BIGINT, trades_written BIGINT,
   PRIMARY KEY (day, category));
 """
 
+LADDER_COLS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns", "local_recv_ts_us")
+
 # W5 (2026-07-07): per-sid WS seq. orderbook_snapshot / orderbook_delta frames
 # carry top-level `sid` + `seq` ints (verified against live captures, W3.3) —
 # the per-subscription sequence that fixes the known ordering defect (same-µs
 # deltas were ordered only by file position). Additive + nullable: frames
-# without them (or pre-W5 rows) stay NULL, never required. The explicit column
-# list keeps the INSERT correct on both fresh and ALTER-migrated staging DBs.
+# without them (or pre-W5 rows) stay NULL, never required.
+#
+# W-TL1: EVERY insert uses an explicit column list (the FULL_INSERT pattern),
+# so a column-count change can never silently shift values by position on
+# either a fresh or an ALTER-migrated staging DB.
+L1_COLS = ("ts_utc", "market_ticker", "series_ticker", "event_ticker",
+           "category", "subcategory", '"group"', "record_class",
+           "yes_bid_e4", "yes_bid_qty_e4", "yes_ask_e4", "yes_ask_qty_e4",
+           "price_e4", "volume_e4", "open_interest_e4", "is_snapshot") + LADDER_COLS
+TRADE_COLS = ("ts_utc", "market_ticker", "series_ticker", "event_ticker",
+              "category", "subcategory", '"group"', "trade_id", "yes_price_e4",
+              "no_price_e4", "count_e4", "taker_side") + LADDER_COLS
 FULL_COLS = ("ts_utc", "market_ticker", "series_ticker", "event_ticker",
              "category", "subcategory", '"group"', "msg_type", "side",
              "price_e4", "delta_e4", "yes_levels", "no_levels",
-             "ws_sid", "ws_seq")
+             "ws_sid", "ws_seq") + LADDER_COLS
+L1_INSERT = "INSERT INTO orderbooks_l1 (%s) VALUES (%s)" % (
+    ", ".join(L1_COLS), ", ".join(["?"] * len(L1_COLS)))
+TRADE_INSERT = "INSERT INTO trades (%s) VALUES (%s)" % (
+    ", ".join(TRADE_COLS), ", ".join(["?"] * len(TRADE_COLS)))
 FULL_INSERT = "INSERT INTO orderbooks_full (%s) VALUES (%s)" % (
     ", ".join(FULL_COLS), ", ".join(["?"] * len(FULL_COLS)))
 
@@ -169,13 +212,59 @@ def normalize_ts_us(v):
     return None
 
 
-def frame_ts_us(rec, msg):
-    """Best plausible timestamp: exchange ts_ms -> ts -> local receive time."""
-    for v in (msg.get("ts_ms"), msg.get("ts"), rec.get("recv_wall_ns")):
-        ts = normalize_ts_us(v)
-        if ts is not None:
-            return ts
+def _plaus(us):
+    return us if (us is not None and TS_MIN_US <= us <= TS_MAX_US) else None
+
+
+def exchange_ts_us(msg):
+    """Exchange-reported timestamp -> epoch micros, or None (W-TL1).
+
+    `ts_ms` is AUTHORITATIVE (epoch milliseconds, verified against live
+    captures): micros = ts_ms * 1000. `ts` is a LEGACY FALLBACK only: a JSON
+    number is parsed as epoch SECONDS, a JSON string as ISO-8601; anything
+    else is NULL — no unit guessing (D3 boundary validation + plausibility
+    window). Kalshi exchange timestamps are millisecond-granular: sub-ms
+    conclusions are never supported by this value.
+    """
+    v = msg.get("ts_ms")
+    if type(v) in (int, float):
+        us = _plaus(int(v) * 1000)
+        if us is not None:
+            return us
+    v = msg.get("ts")
+    if type(v) in (int, float):
+        return _plaus(int(v * 1_000_000))
+    if isinstance(v, str):
+        try:
+            import datetime
+            dt = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return _plaus(int(dt.timestamp() * 1_000_000))
+        except ValueError:
+            return None
     return None
+
+
+def recv_ladder(rec):
+    """Raw-envelope receive clocks -> (recv_wall_ns, recv_mono_ns,
+    local_recv_ts_us), each None when absent/corrupt (W-TL1).
+
+    recv_wall_ns / recv_mono_ns are stored as the envelope's ORIGINAL values
+    (ints only — boundary validation, D3). local_recv_ts_us = recv_wall_ns //
+    1000, derived only when it lands in the plausibility window; an implausible
+    wall clock nulls both (corrupt values never enter staging). recv_mono_ns
+    has an arbitrary epoch (monotonic), so it is only type/sign-checked —
+    differences are meaningful solely within one stream_epoch/connection.
+    """
+    wall = rec.get("recv_wall_ns")
+    wall = wall if type(wall) is int else None
+    mono = rec.get("recv_mono_ns")
+    mono = mono if (type(mono) is int and mono >= 0) else None
+    local_us = _plaus(wall // 1000) if wall is not None else None
+    if wall is not None and local_us is None:
+        wall = None
+    return wall, mono, local_us
 
 
 class Ingester:
@@ -185,7 +274,7 @@ class Ingester:
         self.raw_root = os.path.abspath(
             raw_root or os.path.join(os.path.dirname(self.warehouse_root), "raw"))
         self.con.execute(STAGING_DDL)
-        self._migrate_full_seq()
+        self._migrate_additive()
         self.classes = self._load_classification(warehouse_root)
         self.active_us = active_hours * HOUR_US
         # per market: book state, dim meta, last tick ts, last snapshot-hour
@@ -196,17 +285,22 @@ class Ingester:
         self.bad_ticker = 0      # frames dropped for corrupt/spliced tickers
         self._rebuild_state()
 
-    def _migrate_full_seq(self):
-        """W5 migration: a pre-existing staging DB still has the 13-column
-        orderbooks_full (CREATE TABLE IF NOT EXISTS never adds columns).
-        ALTER TABLE ADD COLUMN is nullable, instant, and idempotent-guarded —
-        existing rows read back NULL, which is the additive contract."""
-        have = {r[1] for r in self.con.execute(
-            "PRAGMA table_info('orderbooks_full')").fetchall()}
-        for col in ("ws_sid", "ws_seq"):
-            if col not in have:
-                self.con.execute(
-                    "ALTER TABLE orderbooks_full ADD COLUMN %s BIGINT" % col)
+    def _migrate_additive(self):
+        """Additive-column migrations for pre-existing staging DBs (CREATE
+        TABLE IF NOT EXISTS never adds columns): W5 ws_sid/ws_seq on
+        orderbooks_full + W-TL1 timestamp-ladder columns on all three fact
+        tables. ALTER TABLE ADD COLUMN is nullable, instant, and
+        idempotent-guarded — existing rows read back NULL, which is the
+        additive contract (history is NOT backfilled here; that is W-TL2)."""
+        for table, cols in (("orderbooks_full", ("ws_sid", "ws_seq") + LADDER_COLS),
+                            ("orderbooks_l1", LADDER_COLS),
+                            ("trades", LADDER_COLS)):
+            have = {r[1] for r in self.con.execute(
+                "PRAGMA table_info('%s')" % table).fetchall()}
+            for col in cols:
+                if col not in have:
+                    self.con.execute(
+                        "ALTER TABLE %s ADD COLUMN %s BIGINT" % (table, col))
 
     def _load_classification(self, warehouse_root):
         pq = os.path.join(warehouse_root, "catalog", "series_classified", "part-00000.parquet")
@@ -243,7 +337,20 @@ class Ingester:
 
     def _heartbeats(self, new_hour, l1_rows):
         """Write hour-start heartbeats for every active market lacking one, for
-        each hour crossed. Runs before processing the tick that advanced the clock."""
+        each hour crossed. Runs before processing the tick that advanced the clock.
+
+        Scheduled heartbeats are SYSTEM-GENERATED state-continuation rows, not
+        exchange messages (W-TL1 contract, both halves mandatory):
+          - ts_utc = the hour start, ALWAYS (the per-day export, LOCF
+            reconstruction and heartbeat detection depend on it; NULL here
+            breaks production).
+          - exchange_ts_us / recv_wall_ns / recv_mono_ns / local_recv_ts_us =
+            ALL NULL (no real message exists; a fabricated timestamp would
+            poison the timestamp ladder).
+        A heartbeat may seed LOCF state continuation, but must NEVER be
+        treated as "the strategy newly observed a market change" — it enters
+        no lag/jitter/pacing-residual statistics and is counted separately by
+        every consumer (jitter report, backtest clock)."""
         if self.global_hour is None:
             self.global_hour = new_hour
             return
@@ -257,7 +364,8 @@ class Ingester:
                     continue  # market left the active session
                 se, ev, cat, sub, grp, kl = self.meta[mt]
                 l1_rows.append((h_start, mt, se, ev, cat, sub, grp, kl,
-                                st[0], st[1], st[2], st[3], None, None, None, True))
+                                st[0], st[1], st[2], st[3], None, None, None, True,
+                                None, None, None, None))
                 self.hb_hour[mt] = h
                 self._stat(h_start, cat, l1=1)
             self.global_hour = h
@@ -465,10 +573,17 @@ class Ingester:
             return  # spliced/corrupt ticker never enters staging
         series, event = split_ticker(mt)
         cat, sub, grp, klass = self.classes.get(series, (None, None, None, "B"))
-        ts_us = frame_ts_us(rec, msg)
+        # W-TL1 timestamp ladder: exchange + receive clocks carried as separate
+        # columns; ts_utc = COALESCE(exchange, local recv) for LEGACY
+        # compatibility only (partitioning/coarse queries — never a tradable
+        # replay clock; see mm_backtest --clock).
+        exch_us = exchange_ts_us(msg)
+        wall_ns, mono_ns, local_us = recv_ladder(rec)
+        ts_us = exch_us if exch_us is not None else local_us
         if ts_us is None:
             self.bad_ts += 1
             return  # corrupt/implausible timestamps never enter staging
+        ladder = (exch_us, wall_ns, mono_ns, local_us)
         self._stat(ts_us, cat, ticks=1)
         self._heartbeats(ts_us // HOUR_US, l1_rows)
 
@@ -494,33 +609,31 @@ class Ingester:
             l1_rows.append((ts_us, mt, series, event, cat, sub, grp, klass,
                             st[0], st[1], st[2], st[3],
                             e4(msg.get("price_dollars")), e4(msg.get("volume_fp")),
-                            e4(msg.get("open_interest_fp")), snap))
+                            e4(msg.get("open_interest_fp")), snap) + ladder)
             self._stat(ts_us, cat, l1=1)
         elif typ == "trade":
             tr_rows.append((ts_us, mt, series, event, cat, sub, grp,
                             msg.get("trade_id"), e4(msg.get("yes_price_dollars")),
                             e4(msg.get("no_price_dollars")), e4(msg.get("count_fp")),
-                            msg.get("taker_side")))
+                            msg.get("taker_side")) + ladder)
             self._stat(ts_us, cat, trades=1)
         elif typ == "orderbook_snapshot":
             full_rows.append((ts_us, mt, series, event, cat, sub, grp, "snapshot",
                               None, None, None,
                               levels_e4(msg, "yes"), levels_e4(msg, "no"),
-                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))))
+                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))) + ladder)
         elif typ == "orderbook_delta":
             price = msg.get("price_dollars", msg.get("price"))
             delta = msg.get("delta_fp", msg.get("delta"))
             full_rows.append((ts_us, mt, series, event, cat, sub, grp, "delta",
                               msg.get("side"), e4(price), e4(delta), None, None,
-                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))))
+                              ws_int(frame.get("sid")), ws_int(frame.get("seq"))) + ladder)
 
     def _insert(self, l1_rows, tr_rows, full_rows):
         if l1_rows:
-            self.con.executemany(
-                "INSERT INTO orderbooks_l1 VALUES (%s)" % ",".join(["?"] * 16), l1_rows)
+            self.con.executemany(L1_INSERT, l1_rows)
         if tr_rows:
-            self.con.executemany(
-                "INSERT INTO trades VALUES (%s)" % ",".join(["?"] * 12), tr_rows)
+            self.con.executemany(TRADE_INSERT, tr_rows)
         if full_rows:
             self.con.executemany(FULL_INSERT, full_rows)
         if self.stats:

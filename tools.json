@@ -954,9 +954,9 @@
       "kind": "tool",
       "safety": "pure",
       "cmd": "python3 tools/mm_backtest.py",
-      "args_template": "--date D [--archive-only] [--from-scan N | --markets T1,T2] [--size N] [--max-inv N] [--min-spread $]",
+      "args_template": "--date D [--from-scan N | --markets T1,T2] [--size N] [--max-inv N] [--min-spread $] [--clock recv|exchange] [--allow-missing-recv] [--archive-only]",
       "needs": [],
-      "description": "NON-GATE join-the-touch diagnostic with strict-through/optimistic fill bounds; maker fees, queue, settlement and capture quality are not yet validated",
+      "description": "Conservative join-the-touch maker backtest with pessimistic/optimistic fill bounds (read-only, no orders). W-TL1: explicit decision clock — recv (default, local_recv_ts_us, fail-closed on missing) vs exchange (DIAGNOSTIC ONLY, look-ahead-bias demo, never go/no-go) — plus the active-quote latency model (order_effective_not_before; p99 params from config/backtest_latency.yaml, PLACEHOLDERS until measured)",
       "docs": "tools/mm_backtest.py"
     },
     {
@@ -1470,6 +1470,49 @@
       "needs": [],
       "description": "PIPE-R001 W02: seal-gated raw pruning — a receipt day is deletable only when its seal (and the cross-day successor's, for hour-00/01 files) exists and no unsealed exchange day lists the file as a late-raw dependency. Fail-closed (any error deletes nothing); always writes work/live/raw_retention_alert.json listing every retained-overdue file with its reason (D2). Reconciles the 2026-07-10 retention ruling with the 2026-07-11 write-once seal ruling",
       "docs": "tools/prune_raw.py"
+    },
+    {
+      "name": "jitter_report",
+      "kind": "tool",
+      "safety": "offline",
+      "cmd": "python3 work/research/jitter_report.py",
+      "args_template": "--capture-host ec2|mac-precutover|unknown_overlap|fixture FILES... [--out CSV]",
+      "needs": [],
+      "description": "W-TL1: lag/jitter/pacing-residual report over RAW NDJSON envelopes (or fixtures) ONLY — never from warehouse tables (stream_epoch/reconnect boundaries live only in raw). Hourly buckets per (capture_host, category, table); reconnect-aware residuals; heartbeats excluded+counted; capture_host is DECLARED provenance (never inferred from timestamps); mandatory ms-granularity footnote; only capture_host=ec2 may feed go/no-go",
+      "docs": "work/research/jitter_report.py"
+    },
+    {
+      "name": "test_timestamp_ladder",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_timestamp_ladder.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "W-TL1 §3: old archive files (pre-TL1 parquet/csv.gz) read back NULL ladder columns through load() union_by_name; new rows carry values; all-NULL csv ladder column stays BIGINT (dtype pin); export SELECT * carries the four columns; old files byte-untouched (D1)",
+      "docs": "tests/test_timestamp_ladder.py"
+    },
+    {
+      "name": "test_backtest_clock",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_backtest_clock.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "W-TL1 §5 look-ahead-bias DEMO: late-arrival fixture through the production Ingester — clock=exchange manufactures fills=2 pnl=+$0.10, clock=recv + order_effective_not_before produces zero fills; recv fail-closed on missing local_recv_ts_us (exit 3; --allow-missing-recv drops, never remaps); heartbeat replay rules; latency config PLACEHOLDER + override plumbing",
+      "docs": "tests/test_backtest_clock.py"
+    },
+    {
+      "name": "test_jitter_report",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_jitter_report.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "W-TL1 §6: hand-computed nearest-rank lag/jitter percentiles; residuals never differenced across stream_epoch/file/missing-field boundaries; out-of-order exchange ts counted not differenced; heartbeat exclusion; batch-burst annotation; full required column set + mandatory ms-granularity footnote; --capture-host required",
+      "docs": "tests/test_jitter_report.py"
     }
   ]
 }

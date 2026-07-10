@@ -85,12 +85,14 @@ Note: `volume_e4` / `open_interest_e4` are carried as-of the last **book** chang
 **orderbooks_l1** (staging + archive): `ts_utc, market_ticker, series_ticker,
 event_ticker, category, subcategory, group, record_class, yes_bid_e4,
 yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4, price_e4, volume_e4,
-open_interest_e4, is_snapshot`.
+open_interest_e4, is_snapshot` + the four W-TL1 ladder columns (below).
 **trades**: `ts_utc, market_ticker, series_ticker, event_ticker, category,
-subcategory, group, trade_id, yes_price_e4, no_price_e4, count_e4, taker_side`.
+subcategory, group, trade_id, yes_price_e4, no_price_e4, count_e4, taker_side`
++ ladder columns.
 **orderbooks_full** (watchlist runs): `ts_utc, market_ticker, series_ticker,
 event_ticker, category, subcategory, group, msg_type ('snapshot'|'delta'),
-side, price_e4, delta_e4, yes_levels, no_levels, ws_sid, ws_seq`.
+side, price_e4, delta_e4, yes_levels, no_levels, ws_sid, ws_seq` + ladder
+columns.
 **dim** (`catalog/`): `series`, `events`, `markets`, `settlements` (raw, all
 API fields) + `series_classified` (pinned category/subcategory/group/class).
 
@@ -109,6 +111,41 @@ column, so same-µs deltas were ordered only by raw-file position. With
 gold builder's merge (PLAN_GOLD_DATA_CONTRACT W2.3) can adopt `ws_seq` as
 its sequence source in a future workstream — adoption is out of W5 scope;
 until then gold builds on pre-W5 data record `seq_unavailable`.
+
+### Timestamp ladder (added 2026-07-10, W-TL1 — additive, nullable)
+All three fact tables carry four nullable BIGINT columns, filled from the raw
+capture envelope at ingest:
+
+| column | meaning |
+|---|---|
+| `exchange_ts_us` | exchange-reported time, epoch µs. `ts_ms` is AUTHORITATIVE (ms×1000); legacy `ts` is fallback only (JSON number = epoch seconds, JSON string = ISO-8601); anything else NULL — no unit guessing. **Kalshi exchange timestamps are millisecond-granular; sub-ms conclusions are not supported.** |
+| `recv_wall_ns` | capture-host wall clock at WS receive — raw envelope value, untransformed |
+| `recv_mono_ns` | capture-host monotonic clock at WS receive — raw envelope value; arbitrary epoch, differences meaningful only within one `stream_epoch`/connection |
+| `local_recv_ts_us` | `recv_wall_ns // 1000` — **the tradable decision clock** (when WE saw the message) |
+
+**`ts_utc` is legacy-compat only**: `ts_utc = COALESCE(exchange_ts_us,
+local_recv_ts_us)`. It remains the partition/export/coarse-query key for old
+tools, but it is EXCHANGE time on most rows — using it as a backtest replay
+clock is look-ahead bias. `tools/mm_backtest.py` defaults to `--clock recv`
+(local_recv_ts_us, fail-closed on missing) and allows `--clock exchange` only
+as a look-ahead-bias diagnostic (never go/no-go, Q2).
+
+**Scheduled heartbeats** (system state-continuation rows, not exchange
+messages): `ts_utc` = hour start ALWAYS (export/LOCF/heartbeat detection
+depend on it), all four ladder columns NULL ALWAYS (no fabricated
+timestamps). Heartbeats may seed LOCF continuation but are never a "strategy
+newly saw the market change" trigger, enter no lag/jitter/residual statistic,
+and are counted separately by every consumer.
+
+**History**: existing archive files are NEVER rewritten (write-once, D1);
+pre-TL1 files read back NULL in all four columns via `load()`'s
+union_by_name (an all-NULL csv.gz ladder column is dtype-pinned back to
+BIGINT in `load()`). A real historical backfill is W-TL2 (rebuild from
+vaulted raw + row-count/key-level diff), not a join-style patch.
+
+The lag/jitter/pacing-residual diagnostic over raw envelopes is
+`work/research/jitter_report.py` (reads raw NDJSON ONLY — reconnect
+boundaries don't exist in warehouse tables).
 
 ## Directory & naming (archive)
 ```
@@ -193,7 +230,12 @@ kill/restart mid-file → counts reconcile, no dups · Class B has trades but no
 L1 · manifest rows == archive files, md5 verified · staging prune retains
 today + 1 prior day · load() slices by category/subcategory/date and routes
 archive vs staging automatically · ws_sid/ws_seq flow raw→staging→export,
-missing ⇒ NULL, pre-W5 staging migrated on init, old+new archives union.
+missing ⇒ NULL, pre-W5 staging migrated on init, old+new archives union ·
+W-TL1 ladder (tests/test_ingest.py §10, tests/test_timestamp_ladder.py,
+tests/test_backtest_clock.py, tests/test_jitter_report.py): four columns flow
+raw→staging→export, heartbeats all-NULL + hour-start ts_utc, pre-TL1
+staging/archives migrate/union to NULL, exchange-clock fake profit vs
+recv-clock zero-fill demonstrated on a late-arrival fixture.
 
 ## Event packs (derived layer — PLAN_EVENT_PACKAGING)
 A **derived, rebuildable** layer under `work/event_packs/`, keyed by

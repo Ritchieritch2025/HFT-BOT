@@ -27,9 +27,15 @@ def _staging(wh, checkpoint_file, n_l1=3):
     con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
     con.execute(ingest.STAGING_DDL)
     for i in range(n_l1):
-        con.execute("INSERT INTO orderbooks_l1 VALUES (?, 'KXBTC-X-B1', 'KXBTC', "
-                    "'KXBTC-X', 'Crypto', 'BTC', 'BTC', 'A', 40, 1, 42, 1, "
-                    "41, 1, 1, ?)", [1_783_300_000_000_000 + i, i == 0])
+        # explicit column list (W-TL1 contract): fixture stays valid as
+        # additive nullable columns land on the table
+        con.execute("INSERT INTO orderbooks_l1 (ts_utc, market_ticker, "
+                    "series_ticker, event_ticker, category, subcategory, "
+                    '"group", record_class, yes_bid_e4, yes_bid_qty_e4, '
+                    "yes_ask_e4, yes_ask_qty_e4, price_e4, volume_e4, "
+                    "open_interest_e4, is_snapshot) VALUES (?, 'KXBTC-X-B1', "
+                    "'KXBTC', 'KXBTC-X', 'Crypto', 'BTC', 'BTC', 'A', 40, 1, "
+                    "42, 1, 41, 1, 1, ?)", [1_783_300_000_000_000 + i, i == 0])
     con.execute("INSERT INTO checkpoint VALUES (?, 100, 1783300000000000)",
                 [checkpoint_file])
     con.close()
