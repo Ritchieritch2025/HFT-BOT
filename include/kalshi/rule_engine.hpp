@@ -84,12 +84,18 @@ class RuleEngine {
   // ---- state feeds -------------------------------------------------------
   void on_heartbeat(std::uint64_t now_ns) {
     std::lock_guard<std::mutex> l(mu_);
-    last_hb_ns_ = now_ns;
-    hb_seen_ = true;
+    if (!armed_ || now_ns > ref_ns_) ref_ns_ = now_ns;   // monotonic reference
+    armed_ = true;
   }
-  void add_resting(const RestingOrder& o) {
+  // now_ns is REQUIRED (audit B1): adding a resting order ARMS the engine
+  // dead-man from that instant, so an engine that never heartbeats still
+  // expires its orders after the window (an engine dead from birth is the
+  // worst case a dead-man must catch — arming only on a prior heartbeat was
+  // fail-open). A later heartbeat advances the reference.
+  void add_resting(const RestingOrder& o, std::uint64_t now_ns) {
     std::lock_guard<std::mutex> l(mu_);
     resting_[o.id] = o;
+    if (!armed_) { ref_ns_ = now_ns; armed_ = true; }
   }
   void remove_resting(const std::string& id) {
     std::lock_guard<std::mutex> l(mu_);
@@ -115,9 +121,13 @@ class RuleEngine {
   std::vector<Decision> on_tick(std::uint64_t now_ns, bool day_loss_tripped) {
     std::lock_guard<std::mutex> l(mu_);
     std::vector<Decision> out;
+    // `now_ns > ref_ns_` guards the unsigned subtraction (audit B2): an
+    // out-of-order / clock-skewed tick (now < ref) must NOT wrap to a huge
+    // delta and spuriously mass-expire the book — mirror token_bucket.hpp's
+    // non-monotonic guard.
     const bool engine_dead =
-        cfg_.dead_man_window_ns != 0 && hb_seen_ &&
-        now_ns - last_hb_ns_ > cfg_.dead_man_window_ns;
+        cfg_.dead_man_window_ns != 0 && armed_ && now_ns > ref_ns_ &&
+        now_ns - ref_ns_ > cfg_.dead_man_window_ns;
     if (engine_dead) {
       for (auto& [id, o] : resting_)
         out.push_back({Action::Expire, id, "dead_man: heartbeat lost"});
@@ -175,8 +185,8 @@ class RuleEngine {
   Config cfg_;
   TokenBucketI64 bucket_;
   std::unordered_map<std::string, RestingOrder> resting_;
-  std::uint64_t last_hb_ns_ = 0;
-  bool hb_seen_ = false;
+  std::uint64_t ref_ns_ = 0;    // last "engine known alive" time (hb or 1st order)
+  bool armed_ = false;          // do we have a dead-man reference at all
   bool panic_recommended_ = false;
 };
 

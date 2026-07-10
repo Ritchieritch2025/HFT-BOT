@@ -35,9 +35,9 @@ constexpr std::uint64_t kMs = 1'000'000ULL;   // ns per ms
 // ── tape 1: disconnect mid-quote => Cancel for EVERY resting order (S6) ──
 static void tape_disconnect() {
   RuleEngine eng(RuleEngine::Config{});
-  eng.add_resting({"o1", 0});
-  eng.add_resting({"o2", 0});
-  eng.add_resting({"o3", 0});
+  eng.add_resting({"o1", 0}, /*now_ns=*/0);
+  eng.add_resting({"o2", 0}, 0);
+  eng.add_resting({"o3", 0}, 0);
   auto ds = eng.on_disconnect(1000);
   check(count_action(ds, Action::Cancel) == 3,
         "disconnect: every resting order gets a Cancel (S6)");
@@ -54,8 +54,8 @@ static void tape_heartbeat_loss() {
   cfg.dead_man_window_ns = 500 * kMs;   // 500ms without a heartbeat = dead
   RuleEngine eng(cfg);
   eng.on_heartbeat(0);
-  eng.add_resting({"o1", 0});
-  eng.add_resting({"o2", 0});
+  eng.add_resting({"o1", 0}, 0);
+  eng.add_resting({"o2", 0}, 0);
 
   // still within the window: no expiry
   auto ds0 = eng.on_tick(400 * kMs, /*day_loss_tripped=*/false);
@@ -71,8 +71,8 @@ static void tape_heartbeat_loss() {
   // per-order TTL path: only the stale order expires, the fresh one stays
   RuleEngine eng2(cfg);
   eng2.on_heartbeat(0);
-  eng2.add_resting({"stale", 100 * kMs});
-  eng2.add_resting({"fresh", 900 * kMs});
+  eng2.add_resting({"stale", 100 * kMs}, 0);
+  eng2.add_resting({"fresh", 900 * kMs}, 0);
   auto ds2 = eng2.on_tick(200 * kMs, false);   // heartbeat still fresh here
   check(count_action(ds2, Action::Expire) == 1 && ds2[0].order_id == "stale",
         "dead_man: a single past-TTL order expires, others survive");
@@ -148,11 +148,62 @@ static void tape_rate_saturation() {
   check(shed == 7, "rate_limit: the rest (7) are SHED, never silently dropped");
 }
 
+// ── tape 5 (audit B1): an engine that NEVER heartbeats still expires its
+//    orders — adding a resting order ARMS the dead-man (an engine dead from
+//    birth is exactly what a dead-man must catch). ───────────────────────
+static void tape_dead_from_birth() {
+  RuleEngine::Config cfg;
+  cfg.dead_man_window_ns = 500 * kMs;
+  RuleEngine eng(cfg);
+  eng.add_resting({"o1", 0}, /*now_ns=*/0);   // arms at t=0, NO heartbeat ever
+  eng.add_resting({"o2", 0}, 0);
+  auto within = eng.on_tick(400 * kMs, false);
+  check(count_action(within, Action::Expire) == 0,
+        "dead-from-birth: within the window, nothing expires");
+  auto ds = eng.on_tick(600 * kMs, false);
+  check(count_action(ds, Action::Expire) == 2,
+        "dead-from-birth: no heartbeat EVER -> orders still expire (not fail-open)");
+}
+
+// ── tape 6 (audit B2): an out-of-order / clock-skewed tick (now < ref) must
+//    NOT underflow and mass-expire the book. ─────────────────────────────
+static void tape_out_of_order_tick() {
+  RuleEngine::Config cfg;
+  cfg.dead_man_window_ns = 500 * kMs;
+  RuleEngine eng(cfg);
+  eng.on_heartbeat(1000 * kMs);
+  eng.add_resting({"o1", 0}, 1000 * kMs);
+  auto ds = eng.on_tick(999 * kMs, false);   // 1ms EARLIER than the heartbeat
+  check(count_action(ds, Action::Expire) == 0,
+        "out-of-order tick: now<ref does NOT underflow into a mass-expiry");
+  check(eng.resting_count() == 1, "out-of-order tick: the book is intact");
+}
+
+// ── tape 7 (audit D coverage): the rate limiter REFILLS (rate>0) so
+//    saturation is not a permanent lockout. ───────────────────────────────
+static void tape_rate_refill() {
+  RuleEngine::Config cfg;
+  cfg.write_rate = 1'000'000;   // 1e6 tokens/sec -> ~1 token per microsecond
+  cfg.write_capacity = 1;       // budget of 1, refills fast
+  cfg.requote_cost = 1;
+  RuleEngine eng(cfg);
+  check(eng.on_quote_intent(0, false).action == Action::Admit,
+        "refill: first quote admits (full budget)");
+  check(eng.on_quote_intent(0, false).action == Action::Shed,
+        "refill: immediate second quote sheds (budget spent)");
+  // 2us later ~2 tokens have accrued (capped at 1) -> admits again
+  check(eng.on_quote_intent(2000, false).action == Action::Admit,
+        "refill: after time passes the budget refills and quotes admit again");
+}
+
 int main() {
   tape_disconnect();
   tape_heartbeat_loss();
   tape_day_loss_breach();
   tape_rate_saturation();
+  tape_dead_from_birth();
+  tape_out_of_order_tick();
+  tape_rate_refill();
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "TEST FAIL\n");
   return g_failures == 0 ? 0 : 1;
 }

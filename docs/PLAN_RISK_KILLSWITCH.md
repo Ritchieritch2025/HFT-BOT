@@ -436,6 +436,18 @@ Exit evidence:    commit hash; tests green; scenario decision logs.
 - Consumes: RiskLedger (W-K3) day_loss() for the breaker + TokenBucketI64 for
   the limiter. Feeds the Phase-2 engine's always-on defensive layer (S6) and
   informs when to run panic (W-K2).
+- Independent audit: ACCEPT-WITH-FINDINGS (four tapes mutation-verified
+  genuine; breaker edge-trigger + concurrency probed clean). Two dead-man
+  defects found + FIXED: **B1** the engine dead-man armed only after a prior
+  heartbeat → an engine that NEVER heartbeats never expired its orders
+  (fail-OPEN, the worst case a dead-man must catch) — now adding a resting
+  order ARMS the dead-man (add_resting takes a required now_ns); **B2**
+  `now - ref` unsigned-underflowed on an out-of-order/skewed tick → spurious
+  mass-expiry of the whole book — now guarded with `now > ref` (the same
+  guard token_bucket.hpp already had, not carried over). +3 regression tapes
+  (dead-from-birth, out-of-order tick, rate-limiter refill — the last closes
+  the auditor's D coverage gap); 27→34 checks; both exploit probes re-run
+  fail-closed. Report: docs/plan_audits/wK4_audit_2026-07-10.md.
 
 ### W-K5 — Reconcile loop (contract #8)
 Purpose:          `tools/reconcile.py`: cold-path, periodic — pull exchange
