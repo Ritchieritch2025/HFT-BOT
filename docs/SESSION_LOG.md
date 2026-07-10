@@ -6,6 +6,57 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 14:20 UTC — W-K2 DONE ✅ (panic kill-switch CLI, S3) · operator crossing+dead-man ruling recorded · audit REJECTED×3 on the execute gate then ACCEPT
+
+- commits: 766f943 (W-K2 initial) + remediation commit (d4b4a52) + this
+  doc-fix/exit. Audit verbatim (all 3 rounds): docs/plan_audits/wK2_audit_2026-07-10.md.
+- OPERATOR RULING (2026-07-10, E2, recorded verbatim in PLAN_RISK_KILLSWITCH
+  W-K2): panic 清仓单允许 crossing(吃单)——确定成交优先,taker 费是可
+  接受的 panic 成本;每笔 panic 单必须带 dead-man 到期。除 panic 外一切
+  策略性退出维持 post-only(费用自杀红线,MM_ROADMAP 1.5B)。
+- delivered: apps/panic.cpp — standalone kill switch (no strategy/ring/Redis
+  deps; only client/env/wire). Sequence: cancel-all → verify-zero-resting →
+  reprice-cross IOC+reduce_only liquidation rounds → machine-parseable
+  report. Dead-man IMPLEMENTED as time_in_force=immediate_or_cancel (an IOC
+  can never orphan as a resting order — strongest dead-man) + reduce_only
+  (can shrink risk, never create it, Q8). Dry-run is DEFAULT (plan printed,
+  journal-proven silent). --execute gated: localhost-loopback drill (tests)
+  OR require_orders_allowed (S1 live arming). panic_live = live_order class,
+  console-forbidden (proven). + tests/mock_exchange_panic.py +
+  tests/test_panic_dryrun.py (10 drills).
+- client_order_id (contract #9): wire::client_order_id from (ts_ns,
+  strategy_id=29, seq) — run-stable, byte-identical on retry; ack-loss
+  drills prove zero double fills. ASSUMPTION (W-K6 live-confirm): exchange
+  dedupes orders by coid + answers 409 (openapi documents this only for
+  transfers) — reduce_only + re-enumeration bound the worst case.
+- context capsule: THE HARD PART was the execute gate. Audit rejected it
+  THREE times, each closing one more URL-authority bypass under
+  KALSHI_HOST_UNSAFE_OVERRIDE=1 (a dev flag that skips the host allowlist,
+  refused only in LIVE mode — panic's drill path runs non-live, so that
+  guard doesn't engage): (1) keyed on env LABEL only →
+  KALSHI_BASE_URL=prod-host fired unarmed; (2) substring find("://localhost")
+  → localhost.evil.com + 127.0.0.1@evil.com (userinfo); (3) authority split
+  at '/' only → external-api.kalshi.com?@127.0.0.1 (query terminator — curl
+  ends authority at '?', we read the query's 127.0.0.1 as host). FINAL fix:
+  base_host_is_loopback is a COMPLETE RFC-3986 authority parse — terminate
+  at first '/?#', strip userinfo at last '@', strip port, [::1] brackets,
+  case-fold — regression-tested against all 8 vectors; auditor cleared 18
+  corners + libcurl connect-target checks. DEAD END for future sessions: do
+  NOT re-derive a connect host with substring or partial parsing anywhere
+  near a safety gate. BACKLOG has the deeper fix (resolve_runtime should
+  expose ONE validated host) + the env.cpp parse_url userinfo quirk.
+- live demo (read-only dry-run): orders=0, positions=0 — account genuinely
+  flat (the W-K1-era MVE position had since settled/closed, re-verified via
+  raw GET). Confirms simdjson handles the real API's alphabetical field order.
+- gates: make check + tests/run_pipeline.sh PASS (57 suites) after the
+  round-3 fix.
+- blocked / handoff: NEXT SESSION = W-K3 (five-layer reservation ledger,
+  PLAN_RISK_KILLSWITCH §3 — the four named tests Eggsy/NHL/deadlock/refund +
+  red-first ①④⑤-only proof). W-K3 MONEY must be E6 micro-dollars (or state a
+  narrowing rule) — the W-K1 live finding that account money carries 6
+  decimals. Standing: OQ-1 fees; W-A5 24h items; the two BACKLOG env-hardening
+  items; W-K6 will live-confirm the 409-coid assumption.
+
 ## 2026-07-10 11:30 UTC — W-K1 DONE ✅ (typed read-only account endpoints) · live acceptance on the REAL account · audit initially REJECTED (2 blocking), remediated same session to green
 
 - commits: 342b798 (W-K1 + live acceptance) + remediation/exit commit (this

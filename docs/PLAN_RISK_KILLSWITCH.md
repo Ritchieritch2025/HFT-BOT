@@ -285,8 +285,13 @@ Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
   applied: N2 empty-exit-side refusal (no fabricated 1c/99c dumps) + 400 no
   longer counts as cancel success (404 only); N3 id-derivation comment
   corrected; N4 cursor re-read uses a fresh simdjson parser (one-live-doc
-  contract). 8→9 drills. Gate fix re-verified by the same auditor.
-  Report: docs/plan_audits/wK2_audit_2026-07-10.md.
+  contract). 8→10 drills. FINAL verdict ACCEPT after the round-3 fix (auditor
+  probed 18 authority-grammar corners + libcurl connect-target confirmation).
+  Report: docs/plan_audits/wK2_audit_2026-07-10.md. Residual (non-blocking,
+  both recorded): the airtight design is for resolve_runtime to expose ONE
+  validated host the connection also uses so the drill gate never re-parses
+  — future env-hardening W (BACKLOG); N1's 409-coid-dedup stays an ASSUMPTION
+  for W-K6 live confirmation.
 
 ### W-K3 — Five-layer reservation ledger (contract #7, the heart)
 Purpose:          `include/kalshi/risk_ledger.hpp`: in-process, in-memory
