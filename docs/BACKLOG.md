@@ -617,3 +617,15 @@ noticed-during, observation, suggested owner.
   (weather/mentions manipulable-mid trap) (owner: mm_scan). Plus far-future:
   RFQ/combo making (high margin, low competition; requester-ID toxicity
   tiering; 30 resp/s budget is the scarce resource).
+- 2026-07-10 · operator requirement (dashboard/W-D0 input, verbatim intent) ·
+  **CLI-first observability.** Operator: all trading numbers (PnL, positions,
+  fills, ladders, latency) render in CLI as the primary surface ("我很喜欢
+  CLI 的格式"); the web dashboard keeps only what terminals do badly
+  (heatmaps, dense visualizations) and stays READ-ONLY per S5. Action
+  buttons: NONE on web — all operations (panic, freeze, limit knobs) stay
+  CLI-only per S5/S3 (deliberate-typing as a safety feature). Architecture:
+  one data layer (EC2 status files: lifecycle_status.json, alerts, metrics)
+  + two renderers (CLI status command as primary; web as secondary skin);
+  CLI and web must read the SAME files, never compute independently.
+  Owner: STEP 3 W-D0 requirements (this entry is the operator's
+  pre-approved requirement seed).
