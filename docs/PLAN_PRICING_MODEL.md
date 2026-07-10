@@ -183,6 +183,32 @@ Acceptance:       synthetic books with hand-computed micro-prices (incl. the
 Rollback:         revert commit.
 Exit evidence:    commit hash; pytest green; the three sign-test names listed.
 
+#### W-P2 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `tools/pricing/fair.py` (imports the frozen W-P1 lo core; pure,
+  no I/O) + `tests/test_pricing_fair.py` (12 tests). lo.py untouched (frozen).
+- (a) micro-price computed IN LOG-ODDS space (imbalance-weighted average of
+  lo(bid)/lo(ask)); balanced 40/60 = 50c exactly; heavy-ask pulls toward the
+  bid. One-sided / empty / crossed / locked / off-band ⇒ None (fail-closed,
+  never a fabricated fair, S2).
+- (b) taker-flow drift: bounded lo-shift, coeff/cap = NAMED Group-C
+  PLACEHOLDERS (DRIFT_COEFF_LO=0.10, DRIFT_CAP_LO=0.30). Q9 sign #1: zero
+  imbalance ⇒ fair EXACTLY micro; buy-heavy above, sell-heavy below, monotone,
+  clamped to ±cap.
+- (c) bracket-sum: a PROBABILITY-space identity (siblings' yes-sum = 1);
+  excess redistributed by 1/depth so THIN legs move most. Q9 sign #2: 3 legs
+  summing 1.08 ⇒ all corrections downward, total == the excess, corrected sum
+  == 1; undervalued set corrects upward; lone leg / already-consistent ⇒ zero;
+  zero depth rejected.
+- (d) `external_anchor_lo` NAMED slot: inert by default (weight 0), blends
+  toward the anchor when weighted — wired now for the deferred Crypto
+  spot-index anchor (§5), fed later.
+- Three sign-test names (exit evidence): test_q9_drift_sign_and_zero_identity,
+  test_q9_bracket_downward_total_excess_thin_moves_most,
+  test_q9_bracket_lone_leg_zero_and_consistent_set_zero.
+- Interface for W-P3: fair_lo(book, taker_imbalance, bracket_correction_prob,
+  external_anchor_lo, ...) → lo or None. W-P2 freezes fair.py for W-P3
+  (defects go back through a filed note).
+
 ### W-P3 — A-S quote generator (`tools/pricing/quote.py`)
 Purpose:          quotes = g(fair_lo, inventory, t_remaining, market state):
                   reservation_lo = fair_lo − inventory·γ(t) (γ risk coeff);
