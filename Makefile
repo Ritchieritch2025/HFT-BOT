@@ -26,7 +26,7 @@ PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
               $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies \
               $(BUILD)/test_market_filter $(BUILD)/test_gold_layout \
-              $(BUILD)/test_risk_ledger
+              $(BUILD)/test_risk_ledger $(BUILD)/test_rule_engine
 
 BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -158,6 +158,9 @@ $(BUILD)/test_token_bucket: tests/test_token_bucket.cpp include/kalshi/token_buc
 
 $(BUILD)/test_risk_ledger: tests/test_risk_ledger.cpp include/kalshi/risk_ledger.hpp include/kalshi/wire.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_risk_ledger.cpp -o $@ -lpthread
+
+$(BUILD)/test_rule_engine: tests/test_rule_engine.cpp include/kalshi/rule_engine.hpp include/kalshi/risk_ledger.hpp include/kalshi/token_bucket.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_rule_engine.cpp -o $@ -lpthread
 
 $(BUILD)/test_backoff: tests/test_backoff.cpp include/kalshi/backoff.hpp include/kalshi/request_spec.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_backoff.cpp -o $@

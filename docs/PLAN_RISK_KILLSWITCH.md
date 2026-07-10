@@ -411,6 +411,32 @@ Acceptance:       each scenario tape's expected decision sequence
 Rollback:         revert commit.
 Exit evidence:    commit hash; tests green; scenario decision logs.
 
+#### W-K4 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `include/kalshi/rule_engine.hpp` (a DEDICATED module, not folded
+  into risk_ledger — recorded choice: the rules consume the ledger's ⑤ state
+  but are their own concern; header-only, zero-I/O, transmits nothing) +
+  `tests/test_rule_engine.cpp` (27 checks, ALL PASS).
+- Four rules, each a scenario tape with hand-computed expected decisions:
+  (1) dead-man expiry — engine heartbeat loss ⇒ Expire ALL resting; a
+      per-order expiry_ns expires only the individually-stale one;
+  (2) cancel-on-disconnect (S6) — Cancel for EVERY resting order, none
+      silently dropped;
+  (3) day-loss breaker — wired to the REAL RiskLedger layer-⑤ (the test
+      books a loss to the cap and feeds `led.day_loss() >= cap`): a new
+      quote intent gets QuoteStop, and a BARE tick (no requote) surfaces
+      QuoteStop + a ONE-SHOT PanicRecommend — the breaker trips BETWEEN book
+      updates (Q8), and the recommend doesn't spam under a burst;
+  (4) rate limiter — new quotes spend the write-token budget (TokenBucketI64,
+      roadmap 300/s); saturation SHEDS requotes but **cancels are never
+      rate-limited or shed** (cancel-starvation guard, proven by interleaving
+      cancels through a saturated burst — all admit).
+- Scenario tapes are IN-CODE (recorded scope choice vs the plan's optional
+  `tests/fixtures/risk_scenarios/`): the four are compact + deterministic, so
+  hand-asserting them in the test is equivalent and self-contained.
+- Consumes: RiskLedger (W-K3) day_loss() for the breaker + TokenBucketI64 for
+  the limiter. Feeds the Phase-2 engine's always-on defensive layer (S6) and
+  informs when to run panic (W-K2).
+
 ### W-K5 — Reconcile loop (contract #8)
 Purpose:          `tools/reconcile.py`: cold-path, periodic — pull exchange
                   resting orders + positions (W-K1) and diff against an
