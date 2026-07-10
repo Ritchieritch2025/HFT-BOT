@@ -75,6 +75,27 @@ Rounds 1-2 are read-only for the plan file itself; only Round 3 edits it.
 tool is empirical contact (the first data-producing W), not more review
 rounds — reviews converge the plan, data corrects it.
 
+## 3.5 Governance tiering — weight follows blast radius (operator-ratified 2026-07-10)
+
+Audit depth is set by what the work can DESTROY, not by how recent the
+document is. Ten lines, binding:
+
+| Tier | Work touches | Required governance |
+|---|---|---|
+| T0 | Order paths / risk caps / money movement / kill switch | Full: dual audit (A6), mutation check (A4), independent fixtures (A5), pre-mortem review before design freeze |
+| T1 | Pipeline / capture / non-regenerable data / config that changes production behavior | executor≠auditor + auditor RUNS acceptance (A1); single cross-vendor audit |
+| T2 | Read-only research (scans, backtests, calibration) — worst case = a wrong number that real data exposes; rollback = delete file | Single audit round: auditor reruns the commands, checks sample sizes; done |
+| T3 | Pure documents / plans | One adversarial reading + the operator's own eyes; the full review circuit (§3) is reserved for T0/T1 designs (first target: Phase-1.5 pricing/quoting logic) |
+
+Independent re-derivation (§3 R1) is a silver bullet: spend it only where a
+wrong FRAME bleeds money continuously (T0 designs), never on tasks with one
+obvious minimal shape. Pre-mortem's real target is the live trading loop
+("micro-live lost the bankroll in 3 weeks — write the post-mortem").
+
+**Governance freeze:** until W-S1 produces data, NO new governance
+documents or mechanisms are added to this repo. Data is the only auditor
+that shares no priors with Claude or Codex — put it on the job.
+
 ## 4. Scope
 
 Applies to all Ws and plans from 2026-07-10 onward. Does not retroactively
