@@ -20,7 +20,7 @@
 #   export KALSHI_PRIVATE_KEY_PATH=$HOME/.kalshi/private_key.pem
 #
 # Tunables (env): CATALOG_EVERY_HOURS (default 1), FULL_CATALOG_EVERY_HOURS
-# (default 6), RAW_RETENTION_DAYS (default 3, matches config/warehouse.yaml).
+# (default 6), RAW_RETENTION_DAYS (default 2, matches config/warehouse.yaml).
 set -u
 cd "$(dirname "$0")/.."
 
@@ -36,7 +36,9 @@ export KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 KALSHI_MODE=data_collect
 
 CATALOG_EVERY_HOURS="${CATALOG_EVERY_HOURS:-1}"
 FULL_CATALOG_EVERY_HOURS="${FULL_CATALOG_EVERY_HOURS:-6}"
-RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-3}"
+# 3 -> 2: operator ruling 2026-07-10 (audit B3 disk math) — raw is vaulted
+# to S3 hourly since W-A5, so 2 local days is a safe window on the 200GB box.
+RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-2}"
 
 RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
 

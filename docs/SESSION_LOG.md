@@ -62,6 +62,13 @@ which decisions landed in which files, what the next session must know.
   1,132 objects intact post-deletion; current-hour glob exclusion PROVEN
   correct (no date=2026-07-10 prefix during hour 00); alert timer 1h+ zero
   errors; hour boundary rolled cleanly under the new loop.
+- OPERATOR RULING (2026-07-10, post-audit): **RAW_RETENTION_DAYS 3 -> 2**
+  (raw vaulted to S3 hourly since W-A5; audit B3 disk math). Changed in
+  supervisor default + config/warehouse.yaml + warehouse_common fallback.
+  TAKES EFFECT at the next supervisor restart — scheduled for tomorrow's
+  24h-check session as a DELIBERATE restart that doubles as the pending
+  graceful-stop LIVE test (avoid 00:00-00:15Z; expect no SIGKILL in
+  journalctl, that is the pass criterion).
 - blocked / handoff: NEXT SESSION (short, after 2026-07-10 23:09Z):
   ① capture_gaps --date 2026-07-10 on the box + the 00:10→00:10 window ⇒
   24h zero-gap verdict; ② if green: operator runs `sudo pmset -a

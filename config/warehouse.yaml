@@ -10,7 +10,7 @@ staging_db: work/warehouse/staging.duckdb   # LAYER 2: live DuckDB (today + 1 pr
 warehouse_root: work/warehouse          # catalog/, dim/, manifest.csv live here
 archive_root: work/warehouse/facts      # LAYER 3: final partitioned files (ARCHIVE_ROOT)
 
-raw_retention_days: 3                   # prune raw logs older than this
+raw_retention_days: 2                   # prune raw logs older than this (3->2 operator ruling 2026-07-10; raw vaulted to S3 hourly)
 staging_retain_days: 2                  # today + 1 prior day
 heartbeat_active_hours: 24              # market counts as active-session if seen within this window
 ingest_loop_seconds: 60                 # ingester tail cycle

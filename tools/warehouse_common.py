@@ -19,7 +19,7 @@ DEFAULTS = {
     "staging_db": "work/warehouse/staging.duckdb",
     "warehouse_root": "work/warehouse",
     "archive_root": "work/warehouse/facts",
-    "raw_retention_days": "3",
+    "raw_retention_days": "2",
     "staging_retain_days": "2",
     "heartbeat_active_hours": "24",
     "ingest_loop_seconds": "60",
