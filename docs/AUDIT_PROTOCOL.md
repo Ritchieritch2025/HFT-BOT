@@ -49,21 +49,31 @@ Codex 审,Codex 的活 Claude 审);审计员必须亲自运行验收命令,禁�
 ## 3. Plan review circuit (for plans, before execution)
 
 Plans (PLAN_*/PROPOSAL_* docs) get multi-agent passes BEFORE the first
-execution session:
+execution session. **Checklists catch compliance errors, not framing bias**
+— so the circuit uses de-biasing REVIEW FORMS, not just re-reading:
 
-1. **Round 1 — Claude Code review:** feasibility on the real machine (paths,
-   tools, data availability, runtimes), missing steps, seven-field
-   completeness. Output: findings table appended to `docs/plan_audits/`.
-2. **Round 2 — Codex review:** adversarial pass — internal contradictions,
-   GUARDRAILS conflicts, silent-failure surfaces, acceptance loopholes
-   (anything that could "pass" while wrong — D2 in plan form).
-3. **Round 3 — consolidation (web Claude):** merge findings, revise the plan
-   (version bump), list rejected findings with reasons.
+1. **Round 1 — independent re-derivation (strongest de-biaser).** The
+   reviewing agent does NOT read the plan first. It gets the goal + the raw
+   inputs (research docs, GUARDRAILS) and derives its own minimal plan.
+   THEN it reads the actual plan and diffs: divergences = framing blind
+   spots of one side or the other. Feasibility checks (paths/tools/data
+   verified on the real machine) ride along. Output to `docs/plan_audits/`.
+2. **Round 2 — pre-mortem, cross-vendor.** Instruction is NOT "review this"
+   but: "assume this system failed / lost the bankroll N months from now —
+   write the post-mortem." Plus persona rotation: the courtsider exploiting
+   us, the exchange compliance officer, the accountant explaining where the
+   capital went. Forces generation of failure paths instead of validation.
+3. **Round 3 — consolidation (web Claude).** Merge findings, bump plan
+   version. **Conflict-of-interest control (the consolidator often authored
+   the plan):** every finding quoted verbatim; rejected findings listed
+   separately WITH reasons, shown to the operator; on request the rejection
+   list goes back to the Round-2 agent for a final objection.
 4. **Operator approval** of the revised version → execution begins.
 
-Rounds 1-2 are read-only for the plan file itself (findings go to
-plan_audits); only Round 3 edits the plan. A plan that skipped the circuit
-may not enter execution unless the operator explicitly waives it.
+Rounds 1-2 are read-only for the plan file itself; only Round 3 edits it.
+**Time-box: one circuit + at most one recheck.** The strongest de-biasing
+tool is empirical contact (the first data-producing W), not more review
+rounds — reviews converge the plan, data corrects it.
 
 ## 4. Scope
 

@@ -160,25 +160,37 @@ STEP 2-6;W-S2 起须以 operator-approved amendment 进 MASTER_SEQUENCE。
 本提案(v1.1)在进入 session A 之前,先走 AUDIT_PROTOCOL §3 的
 计划评审回路。操作员按顺序粘贴以下引文:
 
-**Round 1 → VS Code 里的 Claude Code(可行性评审,只读):**
-> 读 AGENTS.md、docs/GUARDRAILS.md、docs/AUDIT_PROTOCOL.md §3,然后
-> 评审 docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md(含 v1.1 附录)
-> 与 docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md。角度:真机可行性
-> ——附录 A 的每条路径/工具/数据是否存在(实际验证,不猜),EC2 上
-> W-S1 的运行时是否现实,七字段是否有缺口,Acceptance 是否可被
-> 空跑绕过。产出 findings 表写入
-> docs/plan_audits/review_R1_claudecode_<日期>.md,severity 分级,
-> 每条带证据。**不修改提案本身。**退出仪式照做。
+**Round 1 → VS Code 里的 Claude Code(独立重推导 + 可行性,只读原提案):**
+> 读 AGENTS.md、docs/GUARDRAILS.md、docs/AUDIT_PROTOCOL.md §3。
+> **第一步(先不要读 PROPOSAL_DIRECTION_ADJUST):**只依据
+> docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md、五份 RESEARCH_INTERVIEW_*
+> 分析、GUARDRAILS 与 MASTER_SEQUENCE,独立起草一份"体育优先方向
+> 调整"的最小执行计划(目标:决定品类权重与 feed 预算所需的最短
+> 验证路径),写成草稿章节。
+> **第二步:**再读 docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md(含
+> v1.1 附录),对 diff:你的计划有而提案没有的、提案有而你认为多余
+> 或有害的,逐条列出。**第三步:**真机可行性核查——附录 A 的路径/
+> 工具/数据逐项实际验证(不猜),EC2 运行时是否现实,Acceptance
+> 能否被空跑绕过。全部产出写入
+> docs/plan_audits/review_R1_claudecode_<日期>.md(含你的独立草稿
+> 原文、diff 表、feasibility findings,severity 分级带证据)。
+> **不修改提案本身。**退出仪式照做。
 
-**Round 2 → Codex(对抗性评审,只读):**
-> Read AGENTS.md, docs/GUARDRAILS.md, docs/AUDIT_PROTOCOL.md §3. Then
-> adversarially review docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md
-> (incl. v1.1 appendices) and docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md.
-> Hunt for: internal contradictions, GUARDRAILS conflicts beyond the
-> registered Q7 one, acceptance criteria that could pass while wrong,
-> silent-failure surfaces, unstated dependencies, ways W-S1 metrics could
-> mislead (clock, World Cup skew, survivorship). Write findings to
-> docs/plan_audits/review_R2_codex_<date>.md with severity + evidence.
+**Round 2 → Codex(事前验尸 pre-mortem,只读):**
+> Read AGENTS.md, docs/GUARDRAILS.md, docs/AUDIT_PROTOCOL.md §3, then
+> docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md (incl. v1.1 appendices)
+> and docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md.
+> **Premise: it is 6 months later. This system followed the proposal,
+> went live on sports, and lost the entire bankroll / was shut down.
+> Write the post-mortem:** the 5 most probable causal chains of death,
+> each traced back to a specific weakness in the proposal (quote the
+> section), with what evidence would have caught it earlier. Then repeat
+> briefly from three personas: (a) the courtsider who exploited us,
+> (b) the exchange compliance officer who banned us, (c) the accountant
+> explaining where the capital went. Also flag: acceptance criteria that
+> could pass while wrong, unstated dependencies, metric traps in W-S1
+> (clock, World Cup skew, survivorship). Write to
+> docs/plan_audits/review_R2_codex_<date>.md, severity + evidence.
 > Do NOT edit the proposal. Follow the session exit ritual in CLAUDE.md.
 
 **Round 3 → 回到我(网页 Cowork):**
