@@ -339,6 +339,17 @@ Exit evidence:    commit hash; pytest green incl. the red-proof run output.
   caller): the jump scenario asserts the velocity trip AND the
   huge-trade-volume-with-still-book NO-trip (N1), driving the breaker
   through the pipeline.
+- Independent audit: ACCEPT-WITH-FINDINGS (strongest result — the auditor
+  hand-derived ALL ~15 fixture quote points independently and every one
+  matched; red-proof genuinely bites; frozen cores untouched). Two applied:
+  **N1** the single committed red-proof (price-space micro) only bit the
+  imbalanced scenario (the balanced books have no Jensen gap) — added a
+  per-scenario-class red-proof: each class is now made RED by a relevant
+  TRANSIENT mutation (calm=flip reservation sign, buy-pressure=zero drift,
+  wind-down=kill settle-widen, bracket=zero corrections, jump=broken
+  velocity threshold), satisfying "one seeded defect per class" literally.
+  **N2** value-pinned the wind-down t=400 δ/cap and made the two
+  monotonicity tests strict. 10→11 tests.
 - **GROUP M COMPLETE** (W-P1 lo core → W-P2 fair → W-P3 quotes → W-P4 golden
   spec). Next: Group C calibration, GATED on 7 clean days + ladder-era
   recv-clock data (§4 gate box) — not agent-startable until that data

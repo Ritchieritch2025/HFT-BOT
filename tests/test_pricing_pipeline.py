@@ -63,13 +63,17 @@ def test_book_scenarios_match_golden(fixture):
         _assert_quote(got, s["expect"], "%s step %d" % (sc["name"], i))
 
 
+def _strict_increasing(xs):
+    return all(a < b for a, b in zip(xs, xs[1:]))
+
+
 def test_buy_pressure_is_monotone_up():
     sc = _load("buy_pressure_trend.json")
     bids = [_run_book_step(s, sc["horizon_s"], sc["cap_max"])["bid_e4"]
             for s in sc["steps"]]
     asks = [_run_book_step(s, sc["horizon_s"], sc["cap_max"])["ask_e4"]
             for s in sc["steps"]]
-    assert bids == sorted(bids) and asks == sorted(asks)   # rise with pressure
+    assert _strict_increasing(bids) and _strict_increasing(asks)  # STRICTLY up
 
 
 def test_winddown_delta_widens_cap_shrinks_then_stops():
@@ -78,8 +82,8 @@ def test_winddown_delta_widens_cap_shrinks_then_stops():
     # the quoting steps (exclude the final Q6 hard stop, whose δ is None):
     deltas = [o["delta_lo"] for o in outs if o["delta_lo"] is not None]
     caps = [o["cap"] for o in outs if o["quoting"]]
-    assert deltas == sorted(deltas)                        # δ widens toward close
-    assert caps == sorted(caps, reverse=True)              # cap shrinks to ~0
+    assert _strict_increasing(deltas)                      # δ STRICTLY widens
+    assert _strict_increasing(list(reversed(caps)))        # cap STRICTLY shrinks
     assert outs[-1]["quoting"] is False                    # hard stop inside Q6
 
 
@@ -146,6 +150,63 @@ def test_redproof_price_space_micro_diverges(monkeypatch):
     # and the golden assertion would raise
     with pytest.raises(AssertionError):
         _assert_quote(got, s["expect"], "redproof")
+
+
+def test_redproof_every_scenario_class_is_falsifiable(monkeypatch):
+    """One seeded-defect run PER SCENARIO CLASS (audit N1): each scenario is
+    made RED by a TRANSIENT mutation of the relevant frozen knob, proving the
+    golden of every class can genuinely fail — not just the imbalanced one the
+    price-space defect happens to bite. Never a committed edit to
+    tools/pricing/*."""
+    # calm: flip the reservation-skew SIGN -> the inv!=0 steps diverge
+    with monkeypatch.context() as m:
+        m.setattr(q, "reservation_lo",
+                  lambda f, inv, t, h, gb=q.GAMMA_BASE_LO:
+                  f + inv * q.gamma_t(t, h, gb))
+        sc = _load("calm_two_sided.json")
+        s = sc["steps"][1]                     # inventory = 5
+        got = _run_book_step(s, sc["horizon_s"], sc["cap_max"])
+        assert (got["bid_e4"], got["ask_e4"]) != \
+            (s["expect"]["bid_e4"], s["expect"]["ask_e4"])
+
+    # buy-pressure: zero the drift coeff -> the imbalance>0 steps diverge
+    with monkeypatch.context() as m:
+        m.setattr(q, "reservation_lo", q.reservation_lo)  # ensure real one
+        m.setattr(fair, "taker_flow_drift_lo", lambda ti, coeff=0, cap=0: 0.0)
+        sc = _load("buy_pressure_trend.json")
+        s = sc["steps"][2]                     # taker_imbalance = 1.0
+        got = _run_book_step(s, sc["horizon_s"], sc["cap_max"])
+        assert (got["bid_e4"], got["ask_e4"]) != \
+            (s["expect"]["bid_e4"], s["expect"]["ask_e4"])
+
+    # winddown: kill the settlement widening (δ = base only, no time factor)
+    # -> δ no longer grows toward settlement
+    with monkeypatch.context() as m:
+        m.setattr(q, "half_width_lo",
+                  lambda t, h, inventory=0.0, vol_lo=0.0, tox_lo=0.0,
+                  delta_base=q.DELTA_BASE_LO, settle_widen=0.0:
+                  delta_base + q.INV_WIDEN_LO * abs(inventory))
+        sc = _load("pre_settlement_winddown.json")
+        s = sc["steps"][1]                     # t=900, expects δ 0.2625
+        got = _run_book_step(s, sc["horizon_s"], sc["cap_max"])
+        assert got["delta_lo"] != pytest.approx(s["expect"]["delta_lo"], abs=1e-6)
+
+    # bracket: zero the corrections -> the dislocation is not corrected
+    with monkeypatch.context() as m:
+        m.setattr(fair, "bracket_corrections",
+                  lambda legs: [0.0] * len(legs))
+        sc = _load("bracket_dislocation.json")
+        leg = sc["legs"][2]                    # thin leg
+        corr = fair.bracket_corrections([(l["prob"], l["depth"]) for l in sc["legs"]])
+        cf = fair.apply_bracket_to_fair_lo(lo.logit(leg["prob"]), corr[2])
+        assert cf != pytest.approx(leg["expect"]["corr_lo"], abs=1e-6)
+
+    # jump: a broken (too-high) velocity threshold -> the BADAMS reprice no
+    # longer trips (the defect the breaker's calibration must never have)
+    sc = _load("jump_event.json")
+    lb, la = lo.logit(sc["velocity_prob_from"]), lo.logit(sc["velocity_prob_to"])
+    assert q.jump_breaker(lb, la, sc["dt_s"], lo_vel_thresh=999.0,
+                          book_rate_thresh=999.0) != sc["expect_velocity_trips"]
 
 
 def test_pricing_modules_frozen_not_edited_by_this_w():

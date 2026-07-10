@@ -2,15 +2,74 @@
   "name": "pre_settlement_winddown",
   "kind": "book",
   "note": "same book, t_remaining shrinking; delta widens, cap shrinks, then a HARD STOP inside the Q6 convergence window",
-  "horizon_s": 3600, "cap_max": 25,
+  "horizon_s": 3600,
+  "cap_max": 25,
   "steps": [
-    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":0,"t_remaining_s":1800,"taker_imbalance":0.0,
-     "expect":{"quoting":true,"bid_e4":4400,"ask_e4":5600,"reason":"two_sided","delta_lo":0.225,"cap":12.5}},
-    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":0,"t_remaining_s":900,"taker_imbalance":0.0,
-     "expect":{"quoting":true,"bid_e4":4300,"ask_e4":5700,"reason":"two_sided","delta_lo":0.2625,"cap":6.25}},
-    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":0,"t_remaining_s":400,"taker_imbalance":0.0,
-     "expect":{"quoting":true,"bid_e4":4200,"ask_e4":5800,"reason":"two_sided"}},
-    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":0,"t_remaining_s":200,"taker_imbalance":0.0,
-     "expect":{"quoting":false,"bid_e4":null,"ask_e4":null,"reason":"q6_settlement_window"}}
+    {
+      "bid_e4": 4800,
+      "ask_e4": 5200,
+      "bid_qty": 100,
+      "ask_qty": 100,
+      "inventory": 0,
+      "t_remaining_s": 1800,
+      "taker_imbalance": 0.0,
+      "expect": {
+        "quoting": true,
+        "bid_e4": 4400,
+        "ask_e4": 5600,
+        "reason": "two_sided",
+        "delta_lo": 0.225,
+        "cap": 12.5
+      }
+    },
+    {
+      "bid_e4": 4800,
+      "ask_e4": 5200,
+      "bid_qty": 100,
+      "ask_qty": 100,
+      "inventory": 0,
+      "t_remaining_s": 900,
+      "taker_imbalance": 0.0,
+      "expect": {
+        "quoting": true,
+        "bid_e4": 4300,
+        "ask_e4": 5700,
+        "reason": "two_sided",
+        "delta_lo": 0.2625,
+        "cap": 6.25
+      }
+    },
+    {
+      "bid_e4": 4800,
+      "ask_e4": 5200,
+      "bid_qty": 100,
+      "ask_qty": 100,
+      "inventory": 0,
+      "t_remaining_s": 400,
+      "taker_imbalance": 0.0,
+      "expect": {
+        "quoting": true,
+        "bid_e4": 4200,
+        "ask_e4": 5800,
+        "reason": "two_sided",
+        "delta_lo": 0.283333,
+        "cap": 2.777778
+      }
+    },
+    {
+      "bid_e4": 4800,
+      "ask_e4": 5200,
+      "bid_qty": 100,
+      "ask_qty": 100,
+      "inventory": 0,
+      "t_remaining_s": 200,
+      "taker_imbalance": 0.0,
+      "expect": {
+        "quoting": false,
+        "bid_e4": null,
+        "ask_e4": null,
+        "reason": "q6_settlement_window"
+      }
+    }
   ]
 }
