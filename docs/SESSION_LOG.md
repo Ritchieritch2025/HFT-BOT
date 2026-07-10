@@ -6,6 +6,50 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 08:55 UTC — W-P1 DONE ✅ (log-odds core) + riders ③: reverse-scan caught 4 real drifts · audit ACCEPT-WITH-FINDINGS (0 blocking), all applied
+
+- commits: W-P1 commit (94f9d74 per audit) + audit-fix commit (this exit).
+  Full audit verbatim: docs/plan_audits/wP1_audit_2026-07-10.md.
+- delivered: `tools/pricing/{__init__.py,lo.py}` (logit/expit, E4↔lo maps,
+  conservative grid quantization — bid floors / ask ceils; fee plumbing
+  DELEGATED to mm_research.trade_fee, maker-rate lookup fail-closed on
+  flat/unknown fee_type; gate-before-enum locked by test) +
+  `tests/test_pricing_lo.py` (15 tests after audit) + W-P1 RESULT block in
+  PLAN_PRICING_MODEL.
+- riders (operator ruling ③): check_registry REVERSE SCAN (disk→registry;
+  E3 machine-checked; scope + laundering residual documented in docstring).
+  RED-FIRST evidence: first run flagged 4 real unregistered scripts —
+  rtt_baseline_sampler.sh, rotate_metrics.sh, dashboard_net.sh, load_db.py
+  — all four now registered with verified safety classes (network_read /
+  offline / network_read / offline), autorun:false.
+- golden table (exit evidence, hand-derivable): lo(1c)=−4.59512,
+  2c→1c=+0.70330 vs 50c→49c=+0.04001, edge/mid asymmetry 17.6×; fees C=1
+  {1c,50c,99c}→{$0.0007,$0.0175,$0.0007} (ceil_to_centicent per
+  kalshi_facts.yaml; repo yaml still fees.verified:false so gate-mode
+  refuses BY DESIGN, OQ-1 pending).
+- context capsule: (1) fee formula/rounding has exactly ONE implementation
+  (mm_research.trade_fee); lo.fee_raw duplicates only the pre-rounding
+  polynomial for Q9 limit tests, consistency locked by test (audit N4).
+  (2) NORMATIVE port notes in lo.py docstring: side=None ties round
+  half-up; _EPS=1e-9 grid-snap is spec (worst-case tighten ≈ $1e-11);
+  Python fees are float dollars — C++ port lands fees on integer centicent
+  (audit N5). (3) TRIPWIRE: when OQ-1 flips fees.verified to true, one
+  test in test_pricing_lo.py intentionally fails — update it consciously
+  (audit N6, also flagged in the PLAN RESULT block). (4) reverse-scan
+  residuals: args_template laundering possible (defends accidental drift,
+  not adversarial edits — that's the audit's job); globs non-recursive by
+  design (package modules/tests/apps covered elsewhere). (5) audit
+  independently torture-tested quantization: 99 cents + 989 deci-cents +
+  centicents at ±1 ulp, zero on-grid moves.
+- gates: make check + tests/run_pipeline.sh PASS (55 suites) before AND
+  after audit fixes.
+- blocked / handoff: NEXT SESSION = W-P2 (fair value: micro-price in
+  lo-space + taker-flow drift shape + bracket-sum constraint +
+  external_anchor_lo inert slot; PLAN_PRICING_MODEL §3). W-P1 froze
+  tools/pricing/lo.py for W-P2 (defects go back through a filed note).
+  Standing: OQ-1 fee ratification (operator); W-A5 24h items; Group C
+  gates unchanged.
+
 ## 2026-07-10 07:10 UTC — STEP 6 paper W DONE ✅ (P9): PLAN_PRICING_MODEL + PLAN_RISK_KILLSWITCH drafted · DESIGN_HOTPATH folded byte-verbatim · combined audit ACCEPT-WITH-FINDINGS, all applied
 
 - commits: plan drafts + audit-fix commit (B1+N1..N6,N8 applied; audit

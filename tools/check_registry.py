@@ -14,6 +14,16 @@ some registry cmd OR appear in SCRIPT_LIBS (import-only helper libraries,
 never run directly) — anything else fails the gate (E3: the registry is
 complete, machine-checked).
 
+Scope + residual risk (stated deliberately, W-P1 audit N2): the globs are
+non-recursive on purpose — package subdirectories (tools/pricing/*) are
+import-only modules covered by their test suites, tests/* are reached via
+registered suite entries, and apps/* are Makefile-covered binaries (the
+existing coverage check). args_template tokens count as "referenced" so
+wrapper entries (run_pytest.sh <suite>) resolve; a deliberately bogus entry
+could launder a reference through args_template — this gate defends against
+ACCIDENTAL drift; adversarial registry edits are what the per-W independent
+audit is for.
+
 With --require-built: additionally assert each non-on_demand binary + every script
 path actually exists (run after a full `make`). stdlib only.
 """

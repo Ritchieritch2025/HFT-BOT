@@ -114,6 +114,12 @@ def test_gate_mode_fail_closed_until_verified(tmp_path):
     with pytest.raises(lo.FeeNotVerifiedError):
         lo.maker_rate("quadratic_with_maker_fees", gate_mode=True,
                       facts_path=unver)
+    # audit N3: the gate fires BEFORE the enum — even the "makers pay 0"
+    # answer rests on unratified provenance, so quadratic must raise too
+    with pytest.raises(lo.FeeNotVerifiedError):
+        lo.maker_rate("quadratic", gate_mode=True, facts_path=unver)
+    with pytest.raises(lo.FeeNotVerifiedError):
+        lo.maker_fee(0.50, 1, "quadratic", gate_mode=True, facts_path=unver)
     ver = _facts(tmp_path, verified=True)
     assert lo.trade_fee(0.50, 1, gate_mode=True, facts_path=ver) == \
         pytest.approx(0.0175, abs=1e-12)
@@ -145,6 +151,26 @@ def test_maker_rate_lookup_never_assumed(tmp_path):
 
 
 # ─────────────────────────────────────── Q9 signs on the PRE-ROUNDING curve
+
+def test_fee_raw_consistent_with_trade_fee(tmp_path):
+    """audit N4: the pre-rounding curve and the rounded fee must never
+    diverge — ceil_to_centicent(fee_raw) == trade_fee, always."""
+    import math as m
+    facts = _facts(tmp_path, verified=True)
+    for p in (0.01, 0.13, 0.50, 0.87, 0.99):
+        for c in (1, 2.5, 100):
+            raw = lo.fee_raw(p, c, facts_path=facts)
+            assert m.ceil(round(raw * 10000.0, 6)) / 10000.0 == \
+                pytest.approx(lo.trade_fee(p, c, facts_path=facts), abs=1e-15)
+
+
+def test_nearest_mode_tie_break_is_half_up():
+    """audit N5a: side=None rounds half-UP (floor(x+0.5)) — normative for
+    the Phase-2 C++ port, not an accident."""
+    # exact midpoint between 42c and 43c on the E4 scale is 4250
+    l_mid = lo.logit(0.425)
+    assert lo.e4_of_lo(l_mid) == 4300
+
 
 def test_q9_fee_curve_symmetric_around_50c():
     for p in (0.01, 0.1, 0.25, 0.4):

@@ -132,7 +132,13 @@ Acceptance:       hand-computed golden values (e.g. 2c→1c ≈ −0.70 lo shift
 Rollback:         revert commit; the package is imported by nothing else yet.
 Exit evidence:    commit hash; pytest green; golden table printed in the log.
 
-#### W-P1 RESULT (2026-07-10 — DONE, audited)
+#### W-P1 RESULT (2026-07-10 — DONE; independent audit ACCEPT-WITH-FINDINGS,
+0 blocking / 6 non-blocking, all applied or recorded — full report in
+docs/plan_audits/wP1_audit_2026-07-10.md. Port note for Phase 2: fees are
+float dollars in the Python reference (WP-05 convention); the C++ port lands
+fees on an integer centicent grid. HEADS-UP for the OQ-1 ratifying session:
+flipping fees.verified to true intentionally trips one gate test — update it
+consciously, audit N6.)
 - Delivered: `tools/pricing/{__init__.py,lo.py}` + `tests/test_pricing_lo.py`
   (13 tests) + registry entry. Fee formula/rounding NOT reimplemented —
   delegated to `mm_research.trade_fee` (single source of truth, WP-05

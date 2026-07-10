@@ -23,6 +23,13 @@ Conventions:
 Quantization direction is conservatism-aware: a BID rounds DOWN to the grid
 and an ASK rounds UP — off-grid quotes always widen, never tighten, so
 float fuzz can only cost edge, never invent it (Q2 spirit).
+
+NORMATIVE for the Phase-2 C++ port (audit N5): side=None ties round HALF-UP
+(floor(x+0.5)); the _EPS=1e-9 grid-snap guard is part of the spec — a
+genuine off-grid value within 1e-9 tick of a grid line snaps onto it
+(worst-case "tighten" ≈ $1e-11, deliberate and immaterial); fee functions
+return FLOAT dollars (WP-05 convention inherited from mm_research) — the
+C++ port must land fees on an integer centicent grid at its E4 boundary.
 """
 import math
 import os
