@@ -239,12 +239,13 @@ per fresh session; independent audit after each, MASTER_SEQUENCE rule).
 >    clean recv-clock backtest). **Honesty note: ladder columns populate
 >    only from the EC2 deploy of W-TL1 ingest (2026-07-10/11), so ≥7 days
 >    of ladder-era data means Group C realistically starts ≥ ~2026-07-17;
->    the 2026-07-13 label is the clean-days gate, not a promise. OPTION
->    (requires an explicit operator ruling recorded per E2 BEFORE use):
->    W-C2/W-C3 distribution-SHAPE statistics (toxicity drift, vol — not
->    fill-model parameters) could be estimated on the pre-ladder archive
->    to start earlier, each output labeled `clock=exchange_legacy,
->    shape-only`. Default without that ruling: recv-only, no exceptions.**
+>    the 2026-07-13 label is the clean-days gate, not a promise.
+>    OPERATOR RULING (2026-07-10): the pre-ladder shape-only option is
+>    **REFUSED**. Calibration is recv-clock only, no exceptions.
+>    Exploratory shape analysis on pre-ladder data is permitted ONLY under
+>    `sandbox/` (P8 free-fire), and its outputs must never enter any
+>    calibration parameter or go/no-go — promotion out of sandbox/ goes
+>    through full W discipline.**
 > 3. Fee facts ratified (OQ-1) for any gate-mode expectation number.
 
 ### W-C1 — λ(δ) fill-intensity calibration
@@ -325,11 +326,11 @@ W-C4 last, consumes all three).
 
 ## 5. Queue position & dependencies
 
-- MASTER_SEQUENCE STEP 6 verbatim queues both plans "for post-gate
-  execution". Group M has no DATA dependency (pure synthetic), but pulling
-  it ahead in the queue is an operator sequencing ruling (SESSION_LOG +
-  MASTER_SEQUENCE amendment) — approval of this plan alone does not start
-  it (audit N6).
+- **OPERATOR SEQUENCING RULING (2026-07-10, recorded in the MASTER_SEQUENCE
+  amendment of the same date):** Group M starts ahead of the post-gate
+  default — one W per fresh session, strictly W-P1 → W-P2 → W-P3 → W-P4,
+  independent audit after each. PLAN_RISK_KILLSWITCH W-K1..K5 interleave
+  AFTER Group M completes; W-K6 stays operator-scheduled.
 - Group C additionally consumes: seven-clean-days gate, ladder-era data
   accumulation, OQ-1 fee ratification, and (for honest latency numbers in
   W-C4's model) the separate signing/RTT p99 measurement task (sampling plan
@@ -383,5 +384,6 @@ Self-audit verdict: PASS with two flagged operator items in §4's gate box:
 (i) the go/no-go date mismatch (clean-days 2026-07-13 vs ladder-era data ≥
 ~2026-07-17) is stated, not hidden; (ii) the recv-clock rule is EXCLUSIVE
 for all Group-C Ws per the operator's instruction (independent-audit B1
-closed the draft's shape-only carve-out; it survives only as a labeled
-OPTION requiring an explicit operator ruling recorded per E2 before use).
+closed the draft's shape-only carve-out; the operator REFUSED it outright
+on 2026-07-10 — sandbox/-only exploration, outputs never enter calibration
+or go/no-go; see §4 gate box).

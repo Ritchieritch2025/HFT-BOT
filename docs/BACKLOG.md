@@ -4,6 +4,19 @@ Per EXECUTION_PLAN operating protocol rule 1: anything noticed outside the
 current WP's scope lands here as a note, never as code. Each entry: date,
 noticed-during, observation, suggested owner.
 
+- 2026-07-10 · STEP 6 combined audit N7 + operator ruling ③ ·
+  **(a) `tools/rtt_baseline_sampler.sh` is unregistered (E3 drift), KEEP:**
+  it arrived via commit 6da7317 and is wanted by the upcoming latency
+  measurement task. Operator ruling (2026-07-10): the NEXT code session
+  registers it into tools.json with a safety class (it samples RTT — verify
+  it is read-only before classing; do not run it as part of registration).
+  **(b) check_registry blind spot:** the gate validates registry→disk but
+  never disk→registry, so a runnable file on disk that is absent from
+  tools.json passes silently — exactly how (a) went unnoticed. Add a
+  reverse scan (glob tools/*.{py,sh} + apps binaries vs registry names;
+  allowlist for helpers/libs like warehouse_common.py) so E3's "registry is
+  complete" claim becomes machine-checked. Suggested owner: same next code
+  session as (a), one small W or a rider.
 - 2026-07-09 · operator requirement (VERY IMPORTANT, backtest fidelity) ·
   **Preserve the full timestamp ladder into the warehouse + backtest on the
   LOCAL clock, never the exchange clock.** Operator: "I need all timestamps —

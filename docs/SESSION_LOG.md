@@ -16,6 +16,9 @@ which decisions landed in which files, what the next session must know.
   a prior session checked out main after committing 331f816/6098584/6da7317
   on the work branch); switched back to plan-live-validation-p0-p3 — no
   tracked changes were lost (verified clean status before checkout).
+  ATTRIBUTION CORRECTED (operator, 2026-07-10): the main-checkout was most
+  likely the live-readiness audit session (its report self-describes
+  checking out main), not the DESIGN-doc session. No fault assigned.
 - decisions (each in its file):
   - Phase 1.5 decomposition → docs/PLAN_PRICING_MODEL.md: Group M math-now
     (W-P1 lo-core → W-P2 fair value → W-P3 A-S generator → W-P4 golden
@@ -50,19 +53,22 @@ which decisions landed in which files, what the next session must know.
   ANY calibration input use exchange-clock data "because it's just shape" —
   λ(δ) parameters launder look-ahead into a formally-clean recv backtest
   (audit B1's core argument).
-- blocked / handoff: ① both plans queued for POST-GATE execution per
-  MASTER_SEQUENCE STEP 6 verbatim; pulling Group M or W-K1..K5 earlier =
-  operator sequencing ruling (+amendment). ② operator rulings pending:
-  pre-ladder shape-only OPTION (PLAN_PRICING_MODEL §4 gate box) — default
-  is recv-only if unruled; W-K2 crossing ruling to be recorded at execution
-  (E2). ③ audit N7 for the operator: commit 6da7317 ("Plan live validation
-  rollout for P0-P3", local identity, likely the Cowork/web session that
-  wrote the DESIGN doc) shipped tools/rtt_baseline_sampler.sh — still
-  unregistered in tools.json (E3 drift) and check_registry does NOT catch
-  file-on-disk-not-in-registry drift (gate blind spot; candidate BACKLOG
-  item). ④ STEP 6 of MASTER_SEQUENCE is now satisfied (both plans drafted +
-  audited); the master queue's drafting steps are exhausted — next session
-  consults the operator on which queued execution track opens first.
+- OPERATOR RULINGS (2026-07-10, same session — all landed in files):
+  ① sequencing APPROVED: Group M starts ahead, one W per session,
+  W-P1→P2→P3→P4; W-K1..K5 interleave after; W-K6 operator-scheduled
+  (→ MASTER_SEQUENCE amendment + both plans' §5).
+  ② pre-ladder shape-only option REFUSED: calibration recv-clock only, no
+  exceptions; exploratory shape analysis sandbox/-only (P8), outputs never
+  enter calibration params or go/no-go (→ PLAN_PRICING_MODEL §4 gate box).
+  ③ rtt_baseline_sampler.sh KEPT — next code session registers it in
+  tools.json; check_registry reverse-scan gap → BACKLOG (both in the
+  2026-07-10 BACKLOG entry).
+- blocked / handoff: **NEXT SESSION = W-P1** (log-odds core,
+  PLAN_PRICING_MODEL §3) — plus the two riders from ruling ③ (register
+  rtt_baseline_sampler.sh with a verified safety class; reverse-scan check).
+  W-K2 crossing ruling still gets recorded per E2 at W-K2 execution time.
+  Standing: W-A5 24h-gate items (see the W-A5 entry below); Group C gates
+  unchanged (7 clean days + ladder-era recv data + OQ-1 fees).
 
 ## 2026-07-10 — Hot-path execution design notes archived (operator-directed)
 

@@ -93,3 +93,11 @@ lifecycle gates + per-session operator confirmation (S1).
   with STEP 5's settlements backfill and unlocks per-event backtesting/
   calibration. Executable now (W-E0/E1 are read-only derived research);
   W-LC (lifecycle capture) is operator-gated. Does not reorder STEPs 1–4.
+- 2026-07-10 — STEP 6 drafting DONE (PLAN_PRICING_MODEL + PLAN_RISK_KILLSWITCH,
+  combined P9 audit applied; see SESSION_LOG). **Operator sequencing ruling
+  (2026-07-10):** PLAN_PRICING_MODEL Group M is approved to start AHEAD of
+  the post-gate default — one W per session, order W-P1→W-P2→W-P3→W-P4;
+  PLAN_RISK_KILLSWITCH W-K1..K5 interleave AFTER Group M; W-K6 stays
+  operator-gated and operator-scheduled (S1/S3). Group C remains gated
+  (7 clean days + recv-clock exclusive; pre-ladder shape-only option
+  REFUSED — see the plan's gate box).
