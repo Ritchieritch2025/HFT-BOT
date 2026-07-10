@@ -41,6 +41,11 @@ import warehouse_common as wc  # noqa: E402
 TABLES = ("orderbooks_l1", "orderbooks_full", "trades")
 _EXT = {"orderbooks_l1": "parquet", "orderbooks_full": "parquet", "trades": "csv.gz"}
 
+# W-TL1 timestamp-ladder columns (mirrors ingest.LADDER_COLS). Additive +
+# nullable on all three tables since 2026-07-09; pre-TL1 archive files are
+# NEVER rewritten and read back NULL via union_by_name.
+_LADDER_COLS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns", "local_recv_ts_us")
+
 
 def _to_us(v, end=False):
     if v is None:
@@ -184,9 +189,20 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
                         "category", "subcategory", "group", "trade_id",
                         "taker_side")
             types = ", ".join("'%s': 'VARCHAR'" % c for c in str_cols)
-            parts.append(
-                "SELECT * FROM read_csv([%s], header=true, union_by_name=true, "
-                "types={%s})" % (lst, types))
+            csv_sql = ("SELECT * FROM read_csv([%s], header=true, union_by_name=true, "
+                       "types={%s})" % (lst, types))
+            # W-TL1: an all-NULL ladder column in a csv.gz sniffs as VARCHAR
+            # and would drag the UNION BY NAME dtype away from staging's
+            # BIGINT. Pin whichever ladder columns exist in these files back
+            # to BIGINT (types={} can't name absent columns, so introspect
+            # first — binding only, no scan).
+            present = set(_conn().sql(csv_sql).columns)
+            ladder_here = [c for c in _LADDER_COLS if c in present]
+            if ladder_here:
+                csv_sql = "SELECT * REPLACE (%s) FROM (%s)" % (
+                    ", ".join("TRY_CAST(%s AS BIGINT) AS %s" % (c, c)
+                              for c in ladder_here), csv_sql)
+            parts.append(csv_sql)
     if os.path.exists(staging):
         if staging not in _ATTACHED:
             # The ingest daemon holds the write lock briefly each cycle; retry

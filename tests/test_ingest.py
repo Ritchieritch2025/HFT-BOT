@@ -288,8 +288,157 @@ def main():
         ingest.Ingester(con_i, wh)              # idempotent second re-open
         n_cols = len(con_i.execute("PRAGMA table_info('orderbooks_full')").fetchall())
         check("migration is idempotent (no duplicate columns, no crash)",
-              n_cols == 15, n_cols)
+              n_cols == 19, n_cols)   # 13 original + ws_sid/ws_seq + 4 ladder
         con_i.close()
+
+        # ---- 10. W-TL1 timestamp ladder ---------------------------------------
+        # 10a. all four columns land from the raw envelope; exchange_ts_us is
+        #      ts_ms-authoritative (ms*1000); ts_utc == exchange when present.
+        t10 = T0 + 50 * HOUR_US            # fresh hour, far from earlier data
+        mt_l = "KXBTC-25DEC31-B70"
+        env = {"recv_mono_ns": 1_849_853_442_697_375,        # arbitrary epoch
+               "recv_wall_ns": (t10 + 250_000) * 1000,       # arrived 250ms late
+               "raw": json.dumps({"type": "ticker", "msg": {
+                   "market_ticker": mt_l, "ts": 1_783_607_448,   # decoy legacy
+                   "ts_ms": t10 // 1000,
+                   "yes_bid_dollars": "0.4000", "yes_ask_dollars": "0.4200",
+                   "yes_bid_size_fp": "100.00", "yes_ask_size_fp": "100.00"}})}
+        cap10 = os.path.join(tmp, "cap10.ndjson")
+        open(cap10, "w").write(json.dumps(env) + "\n")
+        ing.process_file(cap10)
+        r = q(ing, "SELECT ts_utc, exchange_ts_us, recv_wall_ns, recv_mono_ns, "
+                   "local_recv_ts_us FROM orderbooks_l1 WHERE market_ticker='%s'"
+                   % mt_l)[-1]
+        check("ladder: exchange_ts_us = ts_ms*1000 (authoritative over ts)",
+              r[1] == (t10 // 1000) * 1000, r)
+        check("ladder: recv_wall_ns/recv_mono_ns keep raw envelope values",
+              r[2] == (t10 + 250_000) * 1000 and r[3] == 1_849_853_442_697_375, r)
+        check("ladder: local_recv_ts_us = recv_wall_ns // 1000",
+              r[4] == t10 + 250_000, r)
+        check("ladder: ts_utc = exchange_ts_us when present (legacy COALESCE)",
+              r[0] == r[1], r)
+
+        # 10b. legacy `ts` fallbacks: JSON number = seconds; string = ISO-8601.
+        def raw_line(mt, msg_extra, wall_ns=None, mono_ns=None):
+            e = {"raw": json.dumps({"type": "ticker", "msg": dict(
+                {"market_ticker": mt, "yes_bid_dollars": "0.1000",
+                 "yes_ask_dollars": "0.1200", "yes_bid_size_fp": "10.00",
+                 "yes_ask_size_fp": "10.00"}, **msg_extra)})}
+            if wall_ns is not None:
+                e["recv_wall_ns"] = wall_ns
+            if mono_ns is not None:
+                e["recv_mono_ns"] = mono_ns
+            return json.dumps(e)
+
+        sec = (t10 + HOUR_US) // 1_000_000
+        iso_us = t10 + HOUR_US + 123_456
+        import datetime as _dt
+        iso = _dt.datetime.fromtimestamp(
+            iso_us / 1e6, tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        cap11 = os.path.join(tmp, "cap11.ndjson")
+        open(cap11, "w").write("\n".join([
+            raw_line(mt_l, {"ts": sec}, wall_ns=(sec * 1_000_000 + 99) * 1000),
+            raw_line(mt_l, {"ts": iso, "yes_bid_dollars": "0.2000"}),
+        ]) + "\n")
+        ing.process_file(cap11)
+        rows11 = q(ing, "SELECT exchange_ts_us FROM orderbooks_l1 "
+                        "WHERE market_ticker='%s' AND ts_utc > %d "
+                        "AND exchange_ts_us IS NOT NULL ORDER BY ts_utc"
+                   % (mt_l, t10))   # heartbeat rows (NULL ladder) excluded
+        check("ladder: legacy numeric ts parsed as SECONDS",
+              rows11[0][0] == sec * 1_000_000, rows11)
+        check("ladder: legacy string ts parsed as ISO-8601",
+              rows11[-1][0] == iso_us, rows11)
+
+        # 10c. no exchange ts at all -> ts_utc falls back to local_recv_ts_us.
+        no_exch_us = t10 + 2 * HOUR_US + 42
+        cap12 = os.path.join(tmp, "cap12.ndjson")
+        open(cap12, "w").write(
+            raw_line(mt_l, {"yes_bid_dollars": "0.3000"},
+                     wall_ns=no_exch_us * 1000, mono_ns=7) + "\n")
+        ing.process_file(cap12)
+        r12 = q(ing, "SELECT ts_utc, exchange_ts_us, local_recv_ts_us "
+                     "FROM orderbooks_l1 WHERE market_ticker='%s' "
+                     "ORDER BY ts_utc DESC LIMIT 1" % mt_l)[0]
+        check("ladder: ts_utc falls back to local_recv_ts_us when no exchange ts",
+              r12 == (no_exch_us, None, no_exch_us), r12)
+
+        # 10d. scheduled heartbeats: ts_utc = hour start (production contract),
+        #      all four ladder columns NULL (no fabricated timestamps).
+        hb10 = q(ing, "SELECT ts_utc, exchange_ts_us, recv_wall_ns, recv_mono_ns, "
+                      "local_recv_ts_us FROM orderbooks_l1 "
+                      "WHERE market_ticker='%s' AND is_snapshot AND price_e4 IS NULL "
+                      "AND ts_utc > %d" % (mt_a, T0))
+        check("heartbeats: ts_utc stays hour-start AND ladder is all NULL",
+              len(hb10) > 0 and all(ts % HOUR_US == 0 and e is None and w is None
+                                    and m is None and l is None
+                                    for ts, e, w, m, l in hb10),
+              hb10[:3])
+
+        # 10e. trades + orderbooks_full carry the ladder too.
+        cap13 = os.path.join(tmp, "cap13.ndjson")
+        tr_env = {"recv_wall_ns": (t10 + 500) * 1000, "recv_mono_ns": 111,
+                  "raw": json.dumps({"type": "trade", "msg": {
+                      "market_ticker": mt_l, "ts_ms": t10 // 1000,
+                      "trade_id": "tl1", "yes_price_dollars": "0.5000",
+                      "no_price_dollars": "0.5000", "count_fp": "1.00",
+                      "taker_side": "yes"}})}
+        full_env = {"recv_wall_ns": (t10 + 600) * 1000, "recv_mono_ns": 222,
+                    "raw": json.dumps({"type": "orderbook_delta", "sid": 3, "seq": 9,
+                                       "msg": {"market_ticker": mt_l,
+                                               "ts_ms": t10 // 1000, "side": "yes",
+                                               "price_dollars": "0.0100",
+                                               "delta_fp": "5.00"}})}
+        open(cap13, "w").write(json.dumps(tr_env) + "\n" + json.dumps(full_env) + "\n")
+        ing.process_file(cap13)
+        rt = q(ing, "SELECT exchange_ts_us, recv_wall_ns, recv_mono_ns, "
+                    "local_recv_ts_us FROM trades WHERE trade_id='tl1'")[0]
+        rf = q(ing, "SELECT exchange_ts_us, recv_wall_ns, recv_mono_ns, "
+                    "local_recv_ts_us, ws_seq FROM orderbooks_full "
+                    "WHERE market_ticker='%s' AND ws_sid=3" % mt_l)[0]
+        check("ladder on trades", rt == ((t10 // 1000) * 1000, (t10 + 500) * 1000,
+                                         111, t10 + 500), rt)
+        check("ladder on orderbooks_full (coexists with ws_sid/ws_seq)",
+              rf == ((t10 // 1000) * 1000, (t10 + 600) * 1000, 222, t10 + 600, 9), rf)
+
+        # 10f. migration: a pre-TL1 staging DB (all three tables, old widths)
+        #      gains the four columns; legacy rows read back NULL.
+        PRE_TL1_DDL = """
+        CREATE TABLE orderbooks_l1 (
+          ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
+          category TEXT, subcategory TEXT, "group" TEXT, record_class TEXT,
+          yes_bid_e4 INTEGER, yes_bid_qty_e4 BIGINT, yes_ask_e4 INTEGER,
+          yes_ask_qty_e4 BIGINT, price_e4 INTEGER, volume_e4 BIGINT,
+          open_interest_e4 BIGINT, is_snapshot BOOLEAN);
+        CREATE TABLE trades (
+          ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
+          category TEXT, subcategory TEXT, "group" TEXT,
+          trade_id TEXT, yes_price_e4 INTEGER, no_price_e4 INTEGER,
+          count_e4 BIGINT, taker_side TEXT);
+        CREATE TABLE orderbooks_full (
+          ts_utc BIGINT, market_ticker TEXT, series_ticker TEXT, event_ticker TEXT,
+          category TEXT, subcategory TEXT, "group" TEXT,
+          msg_type TEXT, side TEXT, price_e4 INTEGER, delta_e4 BIGINT,
+          yes_levels TEXT, no_levels TEXT, ws_sid BIGINT, ws_seq BIGINT);"""
+        pre_db = os.path.join(tmp, "pre_tl1.duckdb")
+        pre_con = _dd.connect(pre_db)
+        pre_con.execute(PRE_TL1_DDL)
+        pre_con.execute("INSERT INTO trades VALUES (%d, '%s', 'KXBTC', "
+                        "'KXBTC-25DEC31', 'Crypto', 'BTC', 'BTC', 'old1', "
+                        "5000, 5000, 10000, 'yes')" % (T0, mt_a))
+        ingest.Ingester(pre_con, wh)
+        for tbl in ("orderbooks_l1", "trades", "orderbooks_full"):
+            cols_t = {c[1] for c in pre_con.execute(
+                "PRAGMA table_info('%s')" % tbl).fetchall()}
+            check("TL1 migration: %s gains all four ladder columns" % tbl,
+                  {"exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
+                   "local_recv_ts_us"} <= cols_t, cols_t)
+        old_row = pre_con.execute(
+            "SELECT exchange_ts_us, recv_wall_ns, recv_mono_ns, local_recv_ts_us "
+            "FROM trades WHERE trade_id='old1'").fetchone()
+        check("TL1 migration: legacy rows read back all-NULL ladder",
+              old_row == (None, None, None, None), old_row)
+        pre_con.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

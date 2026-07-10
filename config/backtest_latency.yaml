@@ -1,0 +1,19 @@
+# W-TL1 active-quote latency model for tools/mm_backtest.py.
+# Flat `key: value` (parsed by warehouse_common.load_config-style reader in
+# mm_backtest; comments ignored). Env var of the same UPPER-CASED name overrides.
+#
+# ALL THREE VALUES ARE PLACEHOLDERS — conservative guesses, NOT measurements.
+# The real measurement campaign is a separate follow-up task whose sampling
+# plan goes to the operator BEFORE running (it must not touch live orders):
+#   processing_chain_p99_us  full local chain p99: WS recv -> ring -> book
+#                            apply -> strategy sees it -> order intent built
+#   signing_p99_us           RSA-PSS request signing p99, local benchmark
+#   signed_post_rtt_p99_us   signed POST round-trip p99 on the order endpoint
+#                            class (NEVER a plain-GET mean — wrong path, wrong
+#                            statistic)
+# Until measured, keep these pessimistic (larger = quotes activate later =
+# fewer fills = honest Q2 bound).
+
+processing_chain_p99_us: 2000     # PLACEHOLDER (measured decode+apply is ~282ns; 2ms is deliberate headroom)
+signing_p99_us: 5000              # PLACEHOLDER RSA-PSS local signing p99
+signed_post_rtt_p99_us: 60000     # PLACEHOLDER signed POST RTT p99 (60ms)

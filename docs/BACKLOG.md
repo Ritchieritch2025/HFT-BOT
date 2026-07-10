@@ -57,6 +57,15 @@ noticed-during, observation, suggested owner.
   Also: `recv_wall_ns` is only a proxy for "message RECEIVED"; the true
   `strategy_seen_ns` / `book_applied_ns` must be stamped by the execution
   engine's own hot path (STEP 6), never inferred from the batch ingest.
+  · STATUS 2026-07-10: **W-TL1 LANDED** — (a) four ladder columns
+  staging+archive (docs/warehouse_schema.md "Timestamp ladder"), (b) backtest
+  default clock=recv + active-not-before latency model + exchange-clock
+  look-ahead demo (tools/mm_backtest.py, tests/test_backtest_clock.py),
+  jitter/residual tool over raw envelopes (work/research/jitter_report.py).
+  STILL OPEN: real p99 latency measurement (config placeholders; sampling
+  plan → operator first) · true #4 hot-path stamp (STEP 6) · historical
+  backfill = W-TL2 (rebuild-from-raw + diff, never join-patch) · production
+  EC2 jitter report (post-deploy) · clock-model error bars (chrony logging).
 - 2026-07-07 · WP-06 interpretation for R to CONFIRM · the plan's wiggle
   fixture (mids [10,12,10,12] → K=12, z=2, wiggle=(12−4)/2=4) is satisfied by
   two readings; tools/mm_research.py adopted **K = Σ(Δmid)² (realized
