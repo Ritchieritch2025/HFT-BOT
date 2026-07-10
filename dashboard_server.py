@@ -32,6 +32,14 @@ KALSHI_UPDATES = os.path.join(run_tests.WORK, "kalshi_updates.ndjson")
 # ---------------------------------------------------------------- init checks
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def _tool_by_name():
     return {t["name"]: t for t in run_tests.load_registry()}
 
@@ -1354,6 +1362,8 @@ function stbadge(s){
 function isCoreTest(t){
   if(!(t.kind==='test'||t.kind==='check')) return false;
   if(!(t.safety==='pure'||t.safety==='offline')) return false;
+  if(t.autorun===false) return false;
+  if((t.args_template||'').indexOf('<')>=0) return false;
   if(t.name==='run_pipeline'||t.name==='run_tests'||t.name==='lifecycle_check') return false;
   if(t.name.indexOf('run_')===0) return false;  // wrapper scripts live in Tools
   return true;
@@ -1377,14 +1387,26 @@ async function postJson(path, obj){
   try { return JSON.parse(text || '{}'); }
   catch(e) { throw new Error(path+' returned invalid JSON: '+text.slice(0,160)); }
 }
+const PRIMARY_LIFECYCLE_IDS = [
+  'kalshi_api_updates',
+  'api_spec_alignment',
+  'connection_exchange',
+  'core_tests',
+  'data_pipeline',
+  'strategy_shadow',
+  'live_execution',
+];
 function renderLifecycle(data){
   state.lifecycle = data;
   const stages = (data && data.stages) || [];
+  const byId = {};
+  stages.forEach(s=>{ byId[s.id]=s; });
+  const primaryStages = PRIMARY_LIFECYCLE_IDS.map(id=>byId[id]).filter(Boolean);
   const overall = data && data.status ? data.status : 'not_started';
   const age = data && data.generated_at_ms ? agestr(Date.now()-data.generated_at_ms)+' ago' : 'never';
   $('lifecycle-summary').innerHTML = stbadge(overall)+' generated '+esc(age)
     +(data && data.allow_network ? ' · network checks enabled' : ' · network checks skipped/blocked');
-  $('lifecycle-grid').innerHTML = stages.length ? stages.map(s=>{
+  $('lifecycle-grid').innerHTML = primaryStages.length ? primaryStages.map(s=>{
     return '<div class="stage-card">'
       +'<div class="stage-title">'+esc(s.label||s.id)+'</div>'
       +stbadge(s.status)
@@ -1630,7 +1652,7 @@ def main():
 
     metrics_path = os.path.abspath(args.metrics)
     handler = make_handler(metrics_path, args.backfill, args.allow_network)
-    httpd = ThreadingHTTPServer((args.host, args.port), handler)
+    httpd = QuietThreadingHTTPServer((args.host, args.port), handler)
     httpd.daemon_threads = True
 
     print("Kalshi PoC ops console")

@@ -272,6 +272,14 @@ class TestDashboardServerPolicy(unittest.TestCase):
         self.assertEqual(body.get("type"), "lifecycle_status")
         self.assertIn(body.get("status"), ("pass", "fail", "skipped", "not_started", "blocked"))
 
+    def test_kalshi_updates_stream_is_sse(self):
+        req = urllib.request.Request(self.base + "/updates-stream?backfill=0",
+                                     method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get_content_type(), "text/event-stream")
+            self.assertTrue(resp.readline().decode().startswith("retry:"))
+
 
 if __name__ == "__main__":
     # Emit the house PASS:/ALL PASS convention so run_pipeline can parse it.

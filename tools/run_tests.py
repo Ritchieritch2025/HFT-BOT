@@ -152,7 +152,8 @@ def run_tool(tool, allow_network=False):
     err_reason = ""
     try:
         cmd = _absolutize(mocks.build_cmd(tool))
-        proc = subprocess.run(cmd, cwd=scratch, stdout=subprocess.PIPE,
+        run_cwd = ROOT if tool.get("cwd") == "root" else scratch
+        proc = subprocess.run(cmd, cwd=run_cwd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, timeout=300)
         out = proc.stdout.decode("utf-8", "replace")
         rc = proc.returncode
@@ -201,6 +202,7 @@ def runnable_test_set(tools):
     return [t for t in tools if t.get("kind") in ("test", "check")
             and t.get("safety") in ("pure", "offline")
             and t.get("autorun", True)  # component validators that need input args opt out
+            and "<" not in t.get("args_template", "")
             and t.get("name") not in ("run_pipeline", "run_tests", "lifecycle_check")
             and not t.get("name", "").startswith("run_")]  # wrappers live in Tools
 
