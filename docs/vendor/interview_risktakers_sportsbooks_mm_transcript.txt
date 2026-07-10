@@ -1,0 +1,5597 @@
+[SPEAKER_00] SPEAKER_00: DraftKings and FanDuel did it so well in terms
+
+[SPEAKER_00] of getting the Rex on their platform.
+
+[SPEAKER_00] You know, I think it's like part of like and this this there's
+
+[SPEAKER_00] there's a parallel to the exchanges, and I'll I'll I'll
+
+[SPEAKER_00] mention it, but like it's not just like it's not just about
+
+[SPEAKER_00] limiting.
+
+[SPEAKER_00] Like the reason that FanDuel and DraftKings make a lot of money
+
+[SPEAKER_00] gambling, which is what they do, um, is that they make their
+
+[SPEAKER_00] biggest department and most spend in like customer
+
+[SPEAKER_00] acquisition and recreational customers and and whatnot, and
+
+[SPEAKER_00] making the experience good for them.
+
+[SPEAKER_00] Like what's up, everybody?
+
+[SPEAKER_00] GPS P a fun, a fun solo episode today.
+
+[SPEAKER_00] Or I I call these solo episodes.
+
+[SPEAKER_00] Like, I don't what would you call them?
+
+[SPEAKER_00] It's ones where we don't have a guest.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I would probably just say something like
+
+[SPEAKER_00] no guest or no everything.
+
+[SPEAKER_00] SPEAKER_00: Yeah, we hate guests and we don't have one, so that's
+
+[SPEAKER_00] sick.
+
+[SPEAKER_00] No, just kidding.
+
+[SPEAKER_00] Love all our guests.
+
+[SPEAKER_00] Um, we're going to we have a ton of good questions, and we had a
+
+[SPEAKER_00] backlog, if you remember, from the one, the no guester from two
+
+[SPEAKER_00] weeks ago, where we had a record-setting number of
+
+[SPEAKER_00] questions.
+
+[SPEAKER_00] So we're gonna try and hit everybody's questions today.
+
+[SPEAKER_00] We have a main topic um that is a good main topic, and we're
+
+[SPEAKER_00] gonna try and keep it keep it short and sweet, and then uh hit
+
+[SPEAKER_00] some news.
+
+[SPEAKER_00] There's been a lot of brewing on the streets, but we'll try and
+
+[SPEAKER_00] get through that quickly and then go on to the uh go on to
+
+[SPEAKER_00] the questions.
+
+[SPEAKER_00] So the main topic.
+
+[SPEAKER_00] We've kind of hinted at this like or like you know, in jest
+
+[SPEAKER_00] said, yeah, I think you said like reinventing sports books
+
+[SPEAKER_00] from first principles.
+
+[SPEAKER_00] Uh the main topic is kind of stuff that we've we've either
+
+[SPEAKER_00] realized sports books were right about or what we learned from
+
+[SPEAKER_00] them, um, that's helpful as market makers on prediction
+
+[SPEAKER_00] markets.
+
+[SPEAKER_00] Or I guess honestly, just in general.
+
+[SPEAKER_00] But you know, you could call it stuff sports books are right
+
+[SPEAKER_00] about, stuff we learn from sports books.
+
+[SPEAKER_00] But uh yeah, how how are how are you kind of thinking about this,
+
+[SPEAKER_00] this topic?
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean, I and I'm curious because like you
+
+[SPEAKER_00] were you were sort of the one that pitched it, like what
+
+[SPEAKER_00] direction you wanted to take this in.
+
+[SPEAKER_00] I mean, I think it it pairs well with some of the conversations
+
+[SPEAKER_00] um we've been having of like, I think being in these shoes,
+
+[SPEAKER_00] there's a lot you can um you can gain additional perspective that
+
+[SPEAKER_00] maybe you didn't previously have.
+
+[SPEAKER_00] Some of it like maybe was obvious, even like not being on
+
+[SPEAKER_00] this side of like you know, why there are limits and these
+
+[SPEAKER_00] things and all that sort of stuff.
+
+[SPEAKER_00] But you do gain a new appreciation.
+
+[SPEAKER_00] I think one of the I I guess I could just kick it off because I
+
+[SPEAKER_00] have like a smattering of of random bullet points that I
+
+[SPEAKER_00] jotted down for this.
+
+[SPEAKER_00] So the first thing that it's sort of like maybe confirmed for
+
+[SPEAKER_00] me that I I generally believed going in, but like it's really
+
+[SPEAKER_00] confirmed it is this idea that sometimes gets floated around of
+
+[SPEAKER_00] like, you know, bookmaking is just like take a bet, you know,
+
+[SPEAKER_00] and move the number is like not how it works at all, in my
+
+[SPEAKER_00] opinion.
+
+[SPEAKER_00] Um like these people who who complain about you know limits
+
+[SPEAKER_00] and everything and all the, you know, it's oftentimes like in
+
+[SPEAKER_00] that discussion is like you just take the bet, and if you take
+
+[SPEAKER_00] the bet, then you move the number, you know, to the
+
+[SPEAKER_00] opposite side, and that's how you make money booking.
+
+[SPEAKER_00] It's like the reality is if you take a bet at a bad number, like
+
+[SPEAKER_00] you made a mistake or whatever, have a bad price, you take a bet
+
+[SPEAKER_00] at a bad number and then move to a like a okay number, it's not
+
+[SPEAKER_00] like it just magically corrects itself.
+
+[SPEAKER_00] Like that bad bet goes away, and you can just like, oh, now I can
+
+[SPEAKER_00] write infinite action on both sides and like sort of wash it
+
+[SPEAKER_00] away.
+
+[SPEAKER_00] Like that's not how it works.
+
+[SPEAKER_00] I do think one of the things that we're gonna have to, you
+
+[SPEAKER_00] know, talk about like with this episode is it's a totally
+
+[SPEAKER_00] different game when you know, like you and I are competing in
+
+[SPEAKER_00] an order book versus like what DraftKings and FanDuel or
+
+[SPEAKER_00] whoever, like any OSB book are doing.
+
+[SPEAKER_00] Like it's totally different in that respect.
+
+[SPEAKER_00] So like especially like especially for us, and but but
+
+[SPEAKER_00] for them too, but especially for us, it's like if you if you're
+
+[SPEAKER_00] like off market, then you move to a different number, it's like
+
+[SPEAKER_00] you just don't get any more fills.
+
+[SPEAKER_00] The only fill you got was like the bad number and you're stuck
+
+[SPEAKER_00] with it.
+
+[SPEAKER_00] Whereas, you know, like when you have a monopoly on where you can
+
+[SPEAKER_00] play, that's a little bit of a different story.
+
+[SPEAKER_00] But I I guess that was like the first thing is that like just
+
+[SPEAKER_00] all those conceit, and I know these are pretty basic, and like
+
+[SPEAKER_00] obviously I knew that you, you know, the the goal wasn't to
+
+[SPEAKER_00] balance action and all this beforehand, but I think it's
+
+[SPEAKER_00] like reinforced, reinforced and even strengthened um the idea
+
+[SPEAKER_00] that like it's it's literally impossible to balance action.
+
+[SPEAKER_00] Like it's just not even like something if you wanted to do,
+
+[SPEAKER_00] you could do with with how people bet.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] Yeah, I think and then also in the order book, if you move, you
+
+[SPEAKER_00] might just be behind two million in the queue, too.
+
+[SPEAKER_00] You could also be at the right level, but you just don't get
+
+[SPEAKER_00] anything, regardless.
+
+[SPEAKER_00] And like, yeah, I think I think that's a really good point that
+
+[SPEAKER_00] I I didn't like explicitly think of this, but a lot of the stuff
+
+[SPEAKER_00] I wrote down was stuff that applies in the framework of
+
+[SPEAKER_00] prediction markets or the order book or the RFQ system, um, and
+
+[SPEAKER_00] not necessarily the stuff where books are optimizing for the
+
+[SPEAKER_00] game they're playing when they have when all the customers are
+
+[SPEAKER_00] are theirs.
+
+[SPEAKER_00] Whereas some of the behavior that um you would be doing, you
+
+[SPEAKER_00] would like crank it to 11.
+
+[SPEAKER_00] Like you would shade, you know.
+
+[SPEAKER_00] I think I saw Jeffrey Benson respond to somebody like, you
+
+[SPEAKER_00] know, sport, you know, like someone had DraftKings was like
+
+[SPEAKER_00] minus 220 OKC or something, everybody else was like minus
+
+[SPEAKER_00] 186, and he's like, Yeah, if you kick out all the winners, like
+
+[SPEAKER_00] you can just shade the favorite or something like that.
+
+[SPEAKER_00] Like there's stuff that you can do there that you wouldn't be
+
+[SPEAKER_00] able to really do on prediction markets.
+
+[SPEAKER_00] Um, but you know, it also helps you understand why sportsbooks
+
+[SPEAKER_00] do this.
+
+[SPEAKER_00] The Scotty Shuffler, you know, you're getting all these bets on
+
+[SPEAKER_00] Scotty Shuffler, you're getting all these bets on OKC.
+
+[SPEAKER_00] Like you start to realize why sportsbook would want to maybe
+
+[SPEAKER_00] shade uh someone like that.
+
+[SPEAKER_00] Um so the first point I have, and this is gonna be part of my
+
+[SPEAKER_00] apology toward to the Sharp Takers, kind of, but I thought a
+
+[SPEAKER_00] lot about this, and I've gotten some DMs and from some Sharp
+
+[SPEAKER_00] Takers being like, you know, we do this, we don't do that, you
+
+[SPEAKER_00] know, don't lump us together.
+
+[SPEAKER_00] So I started thinking about it, and there's three um there's
+
+[SPEAKER_00] three buckets of sharp sharp takers, in my opinion.
+
+[SPEAKER_00] And one bucket, no matter who you are as a sports book, is a
+
+[SPEAKER_00] really bad, useless bucket from your point of view, and the
+
+[SPEAKER_00] other two can go either way.
+
+[SPEAKER_00] So there's three buckets.
+
+[SPEAKER_00] The the first two are the ones that you know I think can go
+
+[SPEAKER_00] either way.
+
+[SPEAKER_00] So you have arbitrage, you know, people are displacing arbs.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] You have um winning on an opinion, we'll call it.
+
+[SPEAKER_00] Call them maybe the originators or you know, just going broad.
+
+[SPEAKER_00] And then the third bucket, which is the the bucket that I'm
+
+[SPEAKER_00] realizing is actually the bucket that um sucks the most, in my
+
+[SPEAKER_00] opinion.
+
+[SPEAKER_00] I'm not saying you suck as a person, like win your money, but
+
+[SPEAKER_00] like is the most annoying to deal with is the people who have
+
+[SPEAKER_00] a latency advantage.
+
+[SPEAKER_00] And I think it's a very clear split.
+
+[SPEAKER_00] Um, where like a customer with a latency advantage, and I mean
+
+[SPEAKER_00] latency advantage, not like they know somebody's injured two days
+
+[SPEAKER_00] before, like you're just like clicking in a second before
+
+[SPEAKER_00] something happens or or whatever.
+
+[SPEAKER_00] Um you're just con you you just lose 24-7 to these people with
+
+[SPEAKER_00] no benefit to you.
+
+[SPEAKER_00] You can't tweak your model like you could do with the
+
+[SPEAKER_00] originators, you can win off the ARBRs because you know, the
+
+[SPEAKER_00] obviously the strategy on profit and Novic for a long time was
+
+[SPEAKER_00] setting up ARBs to DK and Fandle, and you're like making
+
+[SPEAKER_00] money from people who are ARBing.
+
+[SPEAKER_00] And like I I think like a lot of like those two buckets of
+
+[SPEAKER_00] customers are can bring a lot of value, but it's it's really like
+
+[SPEAKER_00] the latency, latency people that are super toxic, I think.
+
+[SPEAKER_00] And the court siding is obviously the you know the final
+
+[SPEAKER_00] boss version of it, but uh yeah, I kind of because I was I I I I
+
+[SPEAKER_00] I'm sorry to all the sharp takers out there who feel like I
+
+[SPEAKER_00] lumped them in with court siders, so this is kind of my
+
+[SPEAKER_00] apology to them.
+
+[SPEAKER_00] But like it made me think about like what actually are these
+
+[SPEAKER_00] groups of um people, and that you know, I kind of realized
+
+[SPEAKER_00] like, oh, okay, like there's there's a clear um there's a
+
+[SPEAKER_00] clear difference in how people win who are sharp.
+
+[SPEAKER_00] Now, there's sports books that'll ban all three of those,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] Like, I'm not saying that that's not the case, but I think like
+
+[SPEAKER_00] someone like circa is gonna take action from the first two, and
+
+[SPEAKER_00] then if they're getting past posted, they'll probably still
+
+[SPEAKER_00] ban that type of person.
+
+[SPEAKER_00] You know, like a sharp book, like I think Ant talked about
+
+[SPEAKER_00] they were taking like hundred dollar bets from this guy who
+
+[SPEAKER_00] like crushed uh some, I forget what sport it was, right?
+
+[SPEAKER_00] On the pod.
+
+[SPEAKER_00] And like they could they could use that information to make so
+
+[SPEAKER_00] much more money.
+
+[SPEAKER_00] And they even offered, like, do you want to bet more?
+
+[SPEAKER_00] You want us to bet?
+
+[SPEAKER_00] You, you know, whatever.
+
+[SPEAKER_00] He's like, nah, I'm cool betting my hundred.
+
+[SPEAKER_00] But you know, I think like I'm starting to realize like a sharp
+
+[SPEAKER_00] bookmaker would be willing to take on the first two, but
+
+[SPEAKER_00] nobody's willing to take on that third group, really.
+
+[SPEAKER_00] SPEAKER_01: Yeah, that was that was a point I had jot jotted
+
+[SPEAKER_00] down, is basically some betters provide helpful information.
+
+[SPEAKER_00] Um, with if assuming, you know, like the market maker book or
+
+[SPEAKER_00] whatever has the right attitude, um, and some betters don't.
+
+[SPEAKER_00] So like for me, if there is if there's a sport where I have my
+
+[SPEAKER_00] own number and I take a bet that I believe is opinionated and not
+
+[SPEAKER_00] recreational and not just like a latency thing, like that's
+
+[SPEAKER_00] that's actually extremely valuable for for me as someone
+
+[SPEAKER_00] who was like trying to model the sport.
+
+[SPEAKER_00] It's like honestly a reason to just like get in there and and
+
+[SPEAKER_00] get the limits to an amount that you think like you will actually
+
+[SPEAKER_00] sometimes get that flow, even if it's like short-term bad.
+
+[SPEAKER_00] Um, it's like similar to the conversations we've had of like,
+
+[SPEAKER_00] you know, working at a sports book and seeing the like seeing
+
+[SPEAKER_00] sharp bet flow for just like a little bit is probably extremely
+
+[SPEAKER_00] valuable.
+
+[SPEAKER_00] I mean, there's been stuff I've done, um, you know, and it's
+
+[SPEAKER_00] it's so you know, like you could turn on basically quote RFQs for
+
+[SPEAKER_00] like two minutes.
+
+[SPEAKER_00] And if you just like have no parameters on it, except for
+
+[SPEAKER_00] like size, you obviously don't want to lose your whole bank.
+
+[SPEAKER_00] But if you you'll just get hit with like the most garbage like
+
+[SPEAKER_00] stuff, and like that can help you see uh like potential
+
+[SPEAKER_00] vulnerabilities or whatnot, like in other um quotas or other
+
+[SPEAKER_00] stuff, like you know, like going forward.
+
+[SPEAKER_00] So like that's even a very specific case in in like the RFQ
+
+[SPEAKER_00] world, but just in general, like I think the the books that that
+
+[SPEAKER_00] do the best job of this, like understand to to try they try
+
+[SPEAKER_00] and balance as best they can the keeping the other two around for
+
+[SPEAKER_00] the lowest possible cost.
+
+[SPEAKER_00] And one of the things that like I've always thought um that I
+
+[SPEAKER_00] would be doing and never worked at one of these companies, like
+
+[SPEAKER_00] I don't know how how reasonable it is, but like I get the sense
+
+[SPEAKER_00] that there's not nearly as much like A-B testing as I would want
+
+[SPEAKER_00] to do if I was like running, you know, like one of these books of
+
+[SPEAKER_00] like today, we're just gonna make this baseball game like um
+
+[SPEAKER_00] have different limits and different uh like the limits are
+
+[SPEAKER_00] gonna open higher overnight for this specific one and we're
+
+[SPEAKER_00] gonna sort of like flag it and there's gonna be some promotion,
+
+[SPEAKER_00] or we're gonna flag like this the the we're gonna narrow this
+
+[SPEAKER_00] the spread or the hold on on the market, like flag that as a
+
+[SPEAKER_00] promotion.
+
+[SPEAKER_00] Because like I think everybody has these ideas of like what
+
+[SPEAKER_00] like how does customer behavior change if we go from like minus
+
+[SPEAKER_00] 110 to minus 107, or if our overnight limit is$500 or$100,
+
+[SPEAKER_00] or our stake factor is this or that.
+
+[SPEAKER_00] And I could be totally wrong on what you know what sports books
+
+[SPEAKER_00] are doing, but like that would be the stuff I would be doing
+
+[SPEAKER_00] like all day to try and hone that in.
+
+[SPEAKER_00] Cause like for you and I, well, at least I can speak for myself,
+
+[SPEAKER_00] like that's what I'm doing.
+
+[SPEAKER_00] Like I'm trying to like tweak these things all the time in
+
+[SPEAKER_00] different sports, different markets to be like this is the
+
+[SPEAKER_00] exact combination that I think is getting me the best possible,
+
+[SPEAKER_00] the most amount of money at the best possible prices.
+
+[SPEAKER_00] And um, like with with the what you were talking about, like the
+
+[SPEAKER_00] whole game to me is like get get those people to stay betting
+
+[SPEAKER_00] with you so you can keep keep getting their information and
+
+[SPEAKER_00] improving your models and whatnot.
+
+[SPEAKER_00] It's not just about like moving the price in that market, it's
+
+[SPEAKER_00] like what is this person doing so that I can incorporate that
+
+[SPEAKER_00] into my my models.
+
+[SPEAKER_00] Um you still want to get that information until you can build
+
+[SPEAKER_00] it in, but like you want to do it at the lowest possible cost.
+
+[SPEAKER_00] And like that could probably be like a like there should be some
+
+[SPEAKER_00] randomness in that.
+
+[SPEAKER_00] SPEAKER_00: Um I love that, yeah.
+
+[SPEAKER_00] I would say like maybe, yeah, I'm trying to think.
+
+[SPEAKER_00] Like, I could see like DraftKings and FanDuel maybe
+
+[SPEAKER_00] doing the A some A-B testing with that type of stuff, but
+
+[SPEAKER_00] yeah, it hasn't like I haven't like actually it's I mean it's
+
+[SPEAKER_00] the obvious downside is it's like confusing potentially to a
+
+[SPEAKER_00] career, right?
+
+[SPEAKER_00] SPEAKER_01: And it's just like operationally, it's like, do you
+
+[SPEAKER_00] want to be doing this every day?
+
+[SPEAKER_00] Yeah, so I really get it.
+
+[SPEAKER_00] SPEAKER_00: I totally get the logistics of it, but um they
+
+[SPEAKER_00] make like a line like minus 107 once just to see, and then they
+
+[SPEAKER_00] make it minus 110, and everybody's like, oh, they
+
+[SPEAKER_00] raised their rake.
+
+[SPEAKER_00] SPEAKER_01: Well, that that's why that's why I think I would
+
+[SPEAKER_00] frame it as like, you know, let's say every baseball game,
+
+[SPEAKER_00] you know, gets X dollars in handle, like on average, and
+
+[SPEAKER_00] obviously certain games are gonna get more, like Yakes or
+
+[SPEAKER_00] whatever, always gonna get more.
+
+[SPEAKER_00] I would just pick like a game and be like, I'm gonna change
+
+[SPEAKER_00] some things about it this and see like what it does to my
+
+[SPEAKER_00] handle, my hold, my my theoretical hold, all those
+
+[SPEAKER_00] things.
+
+[SPEAKER_00] It'd be really and you could you could turn it into some like
+
+[SPEAKER_00] sort of promotion, like whatever.
+
+[SPEAKER_00] Like because like in my head, people don't care if it's like
+
+[SPEAKER_00] Binus 107, but maybe they do, maybe they do.
+
+[SPEAKER_00] Yeah, yeah.
+
+[SPEAKER_00] SPEAKER_00: I heard yeah, some like I I do think like there is
+
+[SPEAKER_00] kind of that like we always say like price doesn't matter, like
+
+[SPEAKER_00] Rex don't care about price, which I think broadly is true,
+
+[SPEAKER_00] but like the counterpoint is like I do think everybody can
+
+[SPEAKER_00] kind of feel the Vig or feel the juice a little bit.
+
+[SPEAKER_00] You just lose a little slow or whatever, like you might not
+
+[SPEAKER_00] know that you care about it, but you do care about it.
+
+[SPEAKER_00] So I don't know.
+
+[SPEAKER_00] Um I have one that kind of ties in with that, which is the whole
+
+[SPEAKER_00] point is to trade against as many rex as you can while I said
+
+[SPEAKER_00] while avoiding the sharps, but I can I can take your point on the
+
+[SPEAKER_00] useful information and and whatnot.
+
+[SPEAKER_00] Like I do think that that that's that has its value, but I think
+
+[SPEAKER_00] broad like the the point is get yourself in front of the rex.
+
+[SPEAKER_00] That's the key.
+
+[SPEAKER_00] And like I think if you look at that from a macro standpoint,
+
+[SPEAKER_00] DraftKings and FanDuel did it so well in terms of getting the Rex
+
+[SPEAKER_00] on their platform.
+
+[SPEAKER_00] You know, I think it's like like part of like and this this
+
+[SPEAKER_00] there's there's a parallel to the exchanges, I'll I'll I'll
+
+[SPEAKER_00] mention it, but like it's not just like it's not just about
+
+[SPEAKER_00] limiting.
+
+[SPEAKER_00] Like the reason that FanDuel and DraftKings make a lot of money
+
+[SPEAKER_00] gambling, which is what they do, um, is that they make their
+
+[SPEAKER_00] biggest department and most spend in like customer
+
+[SPEAKER_00] acquisition and recreational customers and and whatnot and
+
+[SPEAKER_00] making the experience good for them.
+
+[SPEAKER_00] Like we talk about they obviously like have um a lot of
+
+[SPEAKER_00] good like data science and and trading and and everything like
+
+[SPEAKER_00] that, but like their bread's buttered by by getting
+
+[SPEAKER_00] recreationals in the door.
+
+[SPEAKER_00] Um so on the prediction markets, you know, I think there's a lot
+
+[SPEAKER_00] of I remember I was talking to somebody who was like um trying
+
+[SPEAKER_00] to start an exchange or something, and he was he was
+
+[SPEAKER_00] asking me, like, you know, what do you like about you know call
+
+[SPEAKER_00] she?
+
+[SPEAKER_00] What could be done better?
+
+[SPEAKER_00] He's like, I don't think like they do this well or do that
+
+[SPEAKER_00] well.
+
+[SPEAKER_00] I'm like, sure, you know, like uh yes, like this could be
+
+[SPEAKER_00] better, that could be better.
+
+[SPEAKER_00] And then um he was like, but like what what do they do well?
+
+[SPEAKER_00] And I say, well, they do the only thing that matters well,
+
+[SPEAKER_00] they have the most recreational customers, like, and that's it.
+
+[SPEAKER_00] That you know, like you're not no matter like, okay, it's a
+
+[SPEAKER_00] little smoother or whatever, like I don't care if there's no
+
+[SPEAKER_00] recreational customers on the exchange.
+
+[SPEAKER_00] So I I think like knowing which exchanges to spend your time on,
+
+[SPEAKER_00] um, where to spend your time, that's valuable.
+
+[SPEAKER_00] And then like on a micro uh scale, you'd be like, okay, like
+
+[SPEAKER_00] what should my display size be?
+
+[SPEAKER_00] So, yes, I will interact with sharps, but when they take the
+
+[SPEAKER_00] full click, like I won't get absolutely killed, and you know,
+
+[SPEAKER_00] all of those things.
+
+[SPEAKER_00] Like, how do I maximize my exposure to Rex while minimizing
+
+[SPEAKER_00] my exposure to sharps basically?
+
+[SPEAKER_00] Um, is just the entire question, I think.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean, the the having enough recreational
+
+[SPEAKER_00] customers can like um basically gloss over any other aspects
+
+[SPEAKER_00] that are deficient in the business.
+
+[SPEAKER_00] Like anything is solvable if you have.
+
+[SPEAKER_00] I mean, this is honestly probably applicable to, I know
+
+[SPEAKER_00] like recruit the idea of recreational customers is like a
+
+[SPEAKER_00] very much a gambling thing, but this is like in any business
+
+[SPEAKER_00] thing.
+
+[SPEAKER_00] Like if you have enough customers like that are like
+
+[SPEAKER_00] good customers to have, however you define good in your
+
+[SPEAKER_00] industry, like it's it's a very um, it's usually solvable
+
+[SPEAKER_00] problems from there.
+
+[SPEAKER_00] Um I think where where that was going like leads into really my
+
+[SPEAKER_00] last point, because I think we hit we hit on all the other
+
+[SPEAKER_00] ones, was the and I think we've talked about it, like the I the
+
+[SPEAKER_00] whole the whole game on prediction markets is is getting
+
+[SPEAKER_00] in front of the recreational customers and taking as as small
+
+[SPEAKER_00] a percent of um you know bad action as possible.
+
+[SPEAKER_00] You know, that shouldn't be, but like to to to optimize the
+
+[SPEAKER_00] amount of money you earn, like that definitely should not be
+
+[SPEAKER_00] zero percent.
+
+[SPEAKER_00] Like you and so what what one of the things it's it's enforced in
+
+[SPEAKER_00] me is because I I have a tendency to like fall into this
+
+[SPEAKER_00] like binary thinking of like in sportsbook land of like limited,
+
+[SPEAKER_00] not limited, like like very binary.
+
+[SPEAKER_00] And I think you know, on the prediction markets, like you
+
+[SPEAKER_00] don't have that many tools in your your toolbox, and your
+
+[SPEAKER_00] limits are like your primary, your primary weapon on how to on
+
+[SPEAKER_00] how to optimize this.
+
+[SPEAKER_00] And like I'm sure sportsbooks are doing like a lot of data
+
+[SPEAKER_00] science, like the good ones are doing a lot of data science on
+
+[SPEAKER_00] this, of some of what I was talking about of like are what
+
+[SPEAKER_00] limits, what should our limits be at each point in the day to
+
+[SPEAKER_00] optimize like getting to the the right price, the most accurate
+
+[SPEAKER_00] price for as cheap as possible.
+
+[SPEAKER_00] And um by right price, it could be shaded, it could not be, you
+
+[SPEAKER_00] know, based on that.
+
+[SPEAKER_00] But like you you need to use your limits like effectively.
+
+[SPEAKER_00] So like in prediction market, when we talk about it, it's
+
+[SPEAKER_00] stuff like if buying again going to binary land, if like every
+
+[SPEAKER_00] dollar over an a thousand share order is just like bad, you
+
+[SPEAKER_00] would obviously never post size for more than a thousand unless
+
+[SPEAKER_00] there's like Q stuff going on.
+
+[SPEAKER_00] Um, so like that's the con that's really the complicating
+
+[SPEAKER_00] part about it in prediction markets is the Q aspect, which
+
+[SPEAKER_00] like again, the OSB books don't need to really think about in
+
+[SPEAKER_00] the same way.
+
+[SPEAKER_00] Um, but it's it's the same sorts of I like the sports market goes
+
+[SPEAKER_00] through the same exercise of like what limits should we be
+
+[SPEAKER_00] offering such that it's like because what you don't want to
+
+[SPEAKER_00] do like is set the limits so low that you are cutting off what
+
+[SPEAKER_00] like a recreational customer could wants to bet, right?
+
+[SPEAKER_00] You want that to be as high.
+
+[SPEAKER_00] I mean, one of the things that's made me realize is like people
+
+[SPEAKER_00] complain about like limited to like eight dollars on this
+
+[SPEAKER_00] market.
+
+[SPEAKER_00] And what it's made me realize is like that probably captures a
+
+[SPEAKER_00] hundred percent of like the recreational lot of because
+
+[SPEAKER_00] nobody will bet eight dollars.
+
+[SPEAKER_00] You know, so it's like it actually makes sense that it's
+
+[SPEAKER_00] so low for certain markets.
+
+[SPEAKER_00] Like if there's no Q position, you probably would set it that
+
+[SPEAKER_00] low, right?
+
+[SPEAKER_00] Like like I'm guessing for you, like in in certain markets, if
+
+[SPEAKER_00] let's just say like you were the you know, the Q position doesn't
+
+[SPEAKER_00] that part of the discussion.
+
+[SPEAKER_00] Like your actual limit on things would probably be like extremely
+
+[SPEAKER_00] low.
+
+[SPEAKER_00] SPEAKER_00: Yeah, definitely.
+
+[SPEAKER_00] SPEAKER_01: Like laughably low.
+
+[SPEAKER_00] Like if you were a sports book, you would be getting called like
+
+[SPEAKER_00] pathetic.
+
+[SPEAKER_00] SPEAKER_00: Like that would be Yeah, I would be getting dragged
+
+[SPEAKER_00] through the streets on Twitter.
+
+[SPEAKER_00] SPEAKER_01: That would right, because that would be optimal
+
+[SPEAKER_00] based on like if you were trying to optimize for percent of you
+
+[SPEAKER_00] know volume, like maximize volume, but also maximized
+
+[SPEAKER_00] percent of volume that is recreational.
+
+[SPEAKER_00] Like that math problem is balanced when limits are
+
+[SPEAKER_00] actually pretty low.
+
+[SPEAKER_00] So I mean there's there's further complications in the
+
+[SPEAKER_00] prediction markets because of Q and stuff, but that's another
+
+[SPEAKER_00] thing I've I've learned is just like I I've probably wrongly
+
+[SPEAKER_00] thought of it as like sort of simply like limited, not
+
+[SPEAKER_00] limited, but it's like it should be like it should be much more
+
+[SPEAKER_00] complicated than that.
+
+[SPEAKER_00] And I'm confident like the the DraftKings and FanDuels are are
+
+[SPEAKER_00] working on these problems.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] I mean, I did I always hear about it from FanDuel, like
+
+[SPEAKER_00] they'll have some very dynamic, like interesting limiting
+
+[SPEAKER_00] practices that aren't necessarily always like across
+
+[SPEAKER_00] the board.
+
+[SPEAKER_00] I mean, I'm trying to remember, you know, I it's been a while,
+
+[SPEAKER_00] you know, since I've been in the uh sportsbook streets, but I
+
+[SPEAKER_00] did, I feel like I've heard some interesting stuff there.
+
+[SPEAKER_00] And yeah, I agree.
+
+[SPEAKER_00] It's like it's definitely a more dynamic problem.
+
+[SPEAKER_00] Um, I had one last one that I wanted to quickly touch on,
+
+[SPEAKER_00] which is like when you take a big loss, you go and review the
+
+[SPEAKER_00] bet.
+
+[SPEAKER_00] Like you basically, like, I would say, especially for like
+
+[SPEAKER_00] RFQs and stuff like this, but it's it's kind of funny.
+
+[SPEAKER_00] You're like, as a sports better, you win a big parlay or SGP, and
+
+[SPEAKER_00] then you got limited, and you're like, oh, they're gonna limit me
+
+[SPEAKER_00] after like one win.
+
+[SPEAKER_00] Well, it's not that, it's that you won and then they looked at
+
+[SPEAKER_00] it because you know it's actually not that difficult to
+
+[SPEAKER_00] like look at these things, and I'll say, like, you're sometimes
+
+[SPEAKER_00] just human nature, you're like, motherfucker, what did this
+
+[SPEAKER_00] person get me with, or whatever?
+
+[SPEAKER_00] Like, it's just human, like sometimes it's just like a fishy
+
+[SPEAKER_00] instinct, but you're still gonna go look at it, and then you see
+
+[SPEAKER_00] what they did, and then you realize you think about it, and
+
+[SPEAKER_00] you're like, Oh, is this sharp?
+
+[SPEAKER_00] And you're like, actually, like it kind of is because oh, if you
+
+[SPEAKER_00] look at the time, it was like you know, one minute after the
+
+[SPEAKER_00] injury report came out, or something, you know, whatever it
+
+[SPEAKER_00] is, but you kind of like look at it, and then you realize, oh,
+
+[SPEAKER_00] it's sharp, and then you limit the person.
+
+[SPEAKER_00] So I think like going back, I was like, oh, these sports
+
+[SPEAKER_00] books, like they don't, yeah, they're cutting people off like
+
+[SPEAKER_00] after winning one SGP, like they're cutting off my runners
+
+[SPEAKER_00] after they won one SGP or something.
+
+[SPEAKER_00] And it's like, well, no, they're cutting them off because they
+
+[SPEAKER_00] looked at one SGP, you know.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean that that's been a recurring theme of
+
+[SPEAKER_00] like how how much certain things stick out, and if you look at
+
+[SPEAKER_00] things, lots of times it's extremely obvious, you know,
+
+[SPEAKER_00] what's going on, you know.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, absolutely.
+
+[SPEAKER_00] Uh news.
+
+[SPEAKER_00] All right, let's go to the news.
+
+[SPEAKER_00] Look at us cruising.
+
+[SPEAKER_00] We almost hit our so many questions.
+
+[SPEAKER_00] SPEAKER_01: We we we're trying to keep it tight on these first
+
+[SPEAKER_00] two.
+
+[SPEAKER_00] SPEAKER_00: Um, okay, so yeah, this is the the I feel like
+
+[SPEAKER_00] whatever this is the big news of the last couple weeks.
+
+[SPEAKER_00] Um, Matt, the Matt K okay, so there's been a new, there's been
+
+[SPEAKER_00] new developments in this, but we're starting out the Matt
+
+[SPEAKER_00] Kalish situation.
+
+[SPEAKER_00] We touched on it with Troy last episode.
+
+[SPEAKER_00] Um, if if you haven't, if you didn't listen to that, or you're
+
+[SPEAKER_00] not on Twitter, because if you are on Twitter, you've seen
+
+[SPEAKER_00] this, like you cannot miss it.
+
+[SPEAKER_00] Basically, Matt Calish tried to place a bet on Brooks Kepka to
+
+[SPEAKER_00] like, I think it was it must have been during the PGA, and
+
+[SPEAKER_00] he's a founder of DraftKings, so he's like has a ton of money.
+
+[SPEAKER_00] And he, I think he tried to bet like to win 90,000, and like
+
+[SPEAKER_00] they showed a price for like when he had like 10,000, you
+
+[SPEAKER_00] know, to win like 30 or something, and then when he went
+
+[SPEAKER_00] to bet more, he got a much worse price.
+
+[SPEAKER_00] And basically that's because of the order book, like it was only
+
+[SPEAKER_00] you know, it only on the top level or whatever level maybe
+
+[SPEAKER_00] was the top level, or that he, you know, had the size that he
+
+[SPEAKER_00] had requested maybe at first, um, only had so much, and then
+
+[SPEAKER_00] it went down the order book because I'm assuming this was a
+
+[SPEAKER_00] market order.
+
+[SPEAKER_00] And then he got pissed at call sheet, and then he went on an
+
+[SPEAKER_00] actual two-week long tweeting bender against call sheet, and
+
+[SPEAKER_00] in and it is still going as of yeah.
+
+[SPEAKER_00] SPEAKER_01: You said went.
+
+[SPEAKER_00] I I think it's it's it's still going, yeah.
+
+[SPEAKER_00] SPEAKER_00: So it's still happening.
+
+[SPEAKER_00] I responded to one today.
+
+[SPEAKER_00] Um, it's amazing.
+
+[SPEAKER_00] I I you know, I mean, you know, I think um, and then okay, so
+
+[SPEAKER_00] the new news today, I think it was the Kyle Kuzman news was
+
+[SPEAKER_00] today, right?
+
+[SPEAKER_00] Where he came out and tweeted.
+
+[SPEAKER_00] Okay, so so he's an active NBA player.
+
+[SPEAKER_00] I not to I didn't I don't know ball, so I like I heard of him,
+
+[SPEAKER_00] but I didn't really know who he was.
+
+[SPEAKER_00] He's still acting, he's on the bucks, right?
+
+[SPEAKER_00] SPEAKER_01: Yep, yep.
+
+[SPEAKER_00] SPEAKER_00: And he's like, it's interesting, he's like on the
+
+[SPEAKER_00] bucks, and he's getting involved, like he's talking
+
+[SPEAKER_00] about his bets on the mark the politics market.
+
+[SPEAKER_00] SPEAKER_01: Well, you you had Gianni.
+
+[SPEAKER_00] Uh that's right.
+
+[SPEAKER_00] Wow, all the Bucks guys.
+
+[SPEAKER_00] Yeah, Bucks guys.
+
+[SPEAKER_00] He I don't know what's going on with the Bucks to Takalchi
+
+[SPEAKER_00] pipeline, but it seems like there's a connection.
+
+[SPEAKER_00] SPEAKER_00: Um, but yeah, so Kyle Kuzma came in and posted
+
+[SPEAKER_00] uh, you know, basically saying because Matt Matt was saying
+
+[SPEAKER_00] something about how RFQs are limiting people.
+
+[SPEAKER_00] I mean, he's had a lot of different intertwined points
+
+[SPEAKER_00] that have come out during this rant, but one of them was about
+
+[SPEAKER_00] like the hold on parlays and how like he keeps saying like Wall
+
+[SPEAKER_00] Street market makers are like ripping you off, and that's kind
+
+[SPEAKER_00] of like one of his themes.
+
+[SPEAKER_00] And then Kyle Kuzma tweeted basically saying like your hold
+
+[SPEAKER_00] on your parlays at DraftKings was really high, and the you
+
+[SPEAKER_00] know, you throw winning betters out, and that's the value of the
+
+[SPEAKER_00] prediction markets, is they don't like kick those people off
+
+[SPEAKER_00] the platform.
+
+[SPEAKER_00] And then it was highlighted that Kyle Kuzma was invested in Call
+
+[SPEAKER_00] She and You know, there's been some, I think, pretty fair
+
+[SPEAKER_00] speculation that he may not have written that tweet.
+
+[SPEAKER_00] Um, I don't know.
+
+[SPEAKER_00] I mean, what's your fear on Kyle Kuzma's I had the idea to write
+
+[SPEAKER_00] that tweet?
+
+[SPEAKER_00] SPEAKER_01: Not even like he wrote the whole thing, but I
+
+[SPEAKER_00] mean it's it's it's it's like it with no other prior, like it
+
+[SPEAKER_00] seems like unlikely that he wrote it with the prior that
+
+[SPEAKER_00] there's literally like history of yeah, um the Antonio Brown
+
+[SPEAKER_00] thing or whatever.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] I saw that come, which is the that's the funniest screenshot.
+
+[SPEAKER_00] SPEAKER_01: I mean, this is not I I don't know Kyle Kuzma as a
+
+[SPEAKER_00] person.
+
+[SPEAKER_00] This this is not, you know, the in in the parenthetical, which
+
+[SPEAKER_00] literally is the best part of prediction markets, like it just
+
+[SPEAKER_00] doesn't strike me as uh yeah as Kyle Kuzma, what he would say.
+
+[SPEAKER_00] I mean, the whole thing on the the the the Kaylish saga, I
+
+[SPEAKER_00] guess starting with that, is it he's just a generational tweeter
+
+[SPEAKER_00] because like it's very clearly half like rage bait and half
+
+[SPEAKER_00] real, and it's not discernible at all what's going on, like
+
+[SPEAKER_00] which one's which.
+
+[SPEAKER_00] Like you know, he's like cackling to himself while he's
+
+[SPEAKER_00] he's tweeting some of these, and in some of these, he's like
+
+[SPEAKER_00] legitimately angry, like and you don't know what's actually
+
+[SPEAKER_00] happening.
+
+[SPEAKER_00] I mean, the the the original point, like if we're just gonna
+
+[SPEAKER_00] focus on the point, not the the people, like I understand like
+
+[SPEAKER_00] that like slippage and the the complaint is is like legitimate.
+
+[SPEAKER_00] Like if if you if you had that for a normal better, like they
+
+[SPEAKER_00] they wouldn't understand that, and they they would never
+
+[SPEAKER_00] understand that.
+
+[SPEAKER_00] There's you know, there's probably people who work at
+
+[SPEAKER_00] prediction markets who are just like, we just got to do a better
+
+[SPEAKER_00] job of explaining it.
+
+[SPEAKER_00] Like that's not gonna happen.
+
+[SPEAKER_00] So you need to figure out a different strategy than
+
+[SPEAKER_00] explaining it.
+
+[SPEAKER_00] But what I will say is like you can't use betting$10,000 on a 93
+
+[SPEAKER_00] to 1 as evidence that slippage is a problem for the common man.
+
+[SPEAKER_00] Like that is not how that works.
+
+[SPEAKER_00] Like we're just talking about like$8 is the maximum bad
+
+[SPEAKER_00] people.
+
+[SPEAKER_00] Like, as long as you're not having slippage for the average
+
+[SPEAKER_00] person, then I don't think it's a problem.
+
+[SPEAKER_00] This is not indicative of it being a problem at all in my
+
+[SPEAKER_00] case, and in my opinion.
+
+[SPEAKER_00] I think it is a problem if you know, not to get into the tick
+
+[SPEAKER_00] sizes, you know, wormhole or whatever.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I mean, I'm not throwing the biggest at told
+
+[SPEAKER_00] you so party of all time over here, but it literally, I told
+
+[SPEAKER_00] you so.
+
+[SPEAKER_00] SPEAKER_01: Go on, go on.
+
+[SPEAKER_00] Thank God they changed the tick size, or else we wouldn't have
+
+[SPEAKER_00] got this, you know, two weeks.
+
+[SPEAKER_00] But your dominoes trying to do that.
+
+[SPEAKER_00] Every prediction market should be trying to solve is how can we
+
+[SPEAKER_00] make sure that almost any customer they see a price,
+
+[SPEAKER_00] that's the price they get, no matter how much they want to
+
+[SPEAKER_00] bet.
+
+[SPEAKER_00] And what I mean, like that's never going to be the case for
+
+[SPEAKER_00] every customer, but the the vast majority of that they it needs,
+
+[SPEAKER_00] it's it you really should want that to be the case.
+
+[SPEAKER_00] And so these ones with like less liquidity caused by like lower
+
+[SPEAKER_00] tick sizes and all those problems, like that is a problem
+
+[SPEAKER_00] that I would be thinking about, but all the rest is like
+
+[SPEAKER_00] half-rage.
+
+[SPEAKER_00] Like, I don't know.
+
+[SPEAKER_00] The guy clearly understands the industry, like like clearly gets
+
+[SPEAKER_00] it.
+
+[SPEAKER_00] So, like when he's when he's doing these tweets where it's
+
+[SPEAKER_00] like, does this dude under like people are quoting him being
+
+[SPEAKER_00] like he doesn't understand how an order book works?
+
+[SPEAKER_00] Like, yeah, yes, he dies.
+
+[SPEAKER_00] SPEAKER_00: No, I was actually gonna, I was gonna give you the
+
+[SPEAKER_00] Q D question.
+
+[SPEAKER_00] Um, what's your what's your price on Kaelish understanding
+
+[SPEAKER_00] order book?
+
+[SPEAKER_00] I think it's obviously almost close 100.
+
+[SPEAKER_00] SPEAKER_01: It's gotta be like a hundred, yeah.
+
+[SPEAKER_00] Yeah, like I'm quite confident he understands.
+
+[SPEAKER_00] That's what I when that's why when I said it's like half rage
+
+[SPEAKER_00] bait and half real.
+
+[SPEAKER_00] Yeah, and that that's that's what Twitter's all about, right?
+
+[SPEAKER_00] SPEAKER_00: Like I mean better at it.
+
+[SPEAKER_00] SPEAKER_01: Yeah, he's just better at it.
+
+[SPEAKER_00] Like well, it's kind of indecipherable, what's real and
+
+[SPEAKER_00] not, like, that's a good Twitter experience, like right.
+
+[SPEAKER_00] SPEAKER_00: And the way he like break, I think we mentioned this
+
+[SPEAKER_00] on the Troy episode, but the way he like fragments the
+
+[SPEAKER_00] conversation all around the place by like quote tweeting
+
+[SPEAKER_00] like himself that was a reply to like somebody else, and just
+
+[SPEAKER_00] forcing everybody to go chase him down to reply to his
+
+[SPEAKER_00] comeback.
+
+[SPEAKER_00] It's so it's so good, but yeah, I mean I I think with with
+
+[SPEAKER_00] Kaelish, like the the issue people myself included, at first
+
+[SPEAKER_00] had was like I think you're making a lot of fair points, but
+
+[SPEAKER_00] like it's weird that you're the one making these points, um,
+
+[SPEAKER_00] because like obviously DraftKings is you know heavily
+
+[SPEAKER_00] backed by a lot of the people he's calling like Wall Street or
+
+[SPEAKER_00] whatever, and I'm sure he has a very good relationship with a
+
+[SPEAKER_00] lot of people on Wall Street that made a lot of money um
+
+[SPEAKER_00] backing him and the other DK founders and all of this and you
+
+[SPEAKER_00] know, limiting and all this stuff.
+
+[SPEAKER_00] But like, I do think like if you take away like some uh some of
+
+[SPEAKER_00] if you just kind of get rid of some of the uh initial like
+
+[SPEAKER_00] pushback to who's delivering the message, like some of the
+
+[SPEAKER_00] message is all over the place, so it's hard to track down what
+
+[SPEAKER_00] it is, but there's some points in there that are are pretty
+
+[SPEAKER_00] pretty valid.
+
+[SPEAKER_00] Um and some of it was just what SP said.
+
+[SPEAKER_00] He's like, you know, racks are never gonna want to know what an
+
+[SPEAKER_00] order book is, you know.
+
+[SPEAKER_00] Like he he said that when somebody was like trying to
+
+[SPEAKER_00] explain to him, he was like, if you can't like make me if you
+
+[SPEAKER_00] can't like make me like somewhat happy, like you've got a
+
+[SPEAKER_00] problem.
+
+[SPEAKER_00] That's kind of interesting because I think we always heard
+
+[SPEAKER_00] how much of uh sportsbooks business was from via you know
+
+[SPEAKER_00] from Wales.
+
+[SPEAKER_00] Now is the prediction market um like business model a little bit
+
+[SPEAKER_00] less uh a little bit less uh exposed to like a couple whales,
+
+[SPEAKER_00] like probably because you're just doing fees and you're not
+
+[SPEAKER_00] taking like PL.
+
+[SPEAKER_00] Um but at the same time, like Matt Kalish is a very valuable
+
+[SPEAKER_00] customer for your you know, he's still gonna be one of the most
+
+[SPEAKER_00] valuable customers.
+
+[SPEAKER_00] Like you know, there there's something there that you
+
+[SPEAKER_00] probably should think about.
+
+[SPEAKER_00] Like, um, you know, obviously he has other interests and you know
+
+[SPEAKER_00] who knows why he's tweeting and whatever.
+
+[SPEAKER_00] And is he actually pissed off?
+
+[SPEAKER_00] But I do feel like like he was clearly pissed at the first
+
+[SPEAKER_00] part, and like he probably even if he wasn't like had a public
+
+[SPEAKER_00] profile and could go in a tweeting rampage, like he
+
+[SPEAKER_00] probably wouldn't have played at Calchy again, you know.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean I think the by far the least interesting
+
+[SPEAKER_00] part of the conversation, just my opinion, is like the like
+
+[SPEAKER_00] conflict of interest or like this is the wrong messenger or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] Like everybody understands that that situation, like to me, it's
+
+[SPEAKER_00] fascinating when anybody like it's so hard to get real
+
+[SPEAKER_00] thoughts from anybody who's had any of types of positions like
+
+[SPEAKER_00] this.
+
+[SPEAKER_00] Like you get like the most canned garbage from anybody
+
+[SPEAKER_00] who's been in these types of positions.
+
+[SPEAKER_00] So, like I just think it's it's he's clearly been in like board
+
+[SPEAKER_00] meetings and like all these very like with very high ups who've
+
+[SPEAKER_00] made very important and very beneficial to the company
+
+[SPEAKER_00] decisions around DraftKings.
+
+[SPEAKER_00] And so, like the idea that he just like knows nothing about
+
+[SPEAKER_00] prediction markets or like hasn't been involved in any of
+
+[SPEAKER_00] those conversations the past year is just obviously not true.
+
+[SPEAKER_00] So, like these companies are clearly doing like the research
+
+[SPEAKER_00] on what they think cut consumers want and whatnot.
+
+[SPEAKER_00] And so for him to be talking like like this, like I don't
+
+[SPEAKER_00] think it's just like it probably doesn't.
+
+[SPEAKER_00] My guess is it does not come out of like nowhere, right?
+
+[SPEAKER_00] Like right, the there's probably really strong evidence that that
+
+[SPEAKER_00] Kaelish has to believe these things, and it's not just like
+
+[SPEAKER_00] me, I could be wrong, but like my guess is he's been informed
+
+[SPEAKER_00] and like in these conversations, such a getting him to say these
+
+[SPEAKER_00] things aloud, like he he wouldn't, it's not like me and
+
+[SPEAKER_00] you are just like speculating on what people want and whatnot.
+
+[SPEAKER_00] SPEAKER_00: Like he has actual like inside, like not inside of
+
+[SPEAKER_00] your chamber, but he's like yeah, he legitimately has lots
+
+[SPEAKER_00] of private, non-public information about like what the
+
+[SPEAKER_00] exact customer that calls you want is going after, wants.
+
+[SPEAKER_00] SPEAKER_01: Right.
+
+[SPEAKER_00] It's it's you know, like yeah, it's like the you know, when
+
+[SPEAKER_00] when we had the election, the guy supposedly did like the
+
+[SPEAKER_00] private poll or whatever, and like it would be like me
+
+[SPEAKER_00] watching CNN being like, you don't know who's gonna win to
+
+[SPEAKER_00] the guy, you know, like this guy has data.
+
+[SPEAKER_00] SPEAKER_00: Yeah, exactly.
+
+[SPEAKER_00] Like this, like he has data we don't have.
+
+[SPEAKER_00] And just because he's a little crazy doesn't mean he still
+
+[SPEAKER_00] doesn't have that data, you know.
+
+[SPEAKER_00] SPEAKER_01: Right, you got to say, and what you know, like
+
+[SPEAKER_00] years of experience of rolling out the thing is like these
+
+[SPEAKER_00] customers, they are not like new people who just dropped on the
+
+[SPEAKER_00] earth.
+
+[SPEAKER_00] These customers are the customers who were into DFS a
+
+[SPEAKER_00] decade ago, and then were into like the Pick'em games, and now
+
+[SPEAKER_00] are into sports batting and now are into prediction markets.
+
+[SPEAKER_00] Like these are the same people.
+
+[SPEAKER_00] Like Jaffkings has been catering to those people for you know 15
+
+[SPEAKER_00] plus years, probably at this point.
+
+[SPEAKER_00] Like, I can assure you they have good analytics on what those
+
+[SPEAKER_00] people like, they don't like what's too complicated, not too
+
+[SPEAKER_00] complicated.
+
+[SPEAKER_00] I mean, you could take the pick six example, for example, and
+
+[SPEAKER_00] like I think the direction they went on that was like, I thought
+
+[SPEAKER_00] it was bad.
+
+[SPEAKER_00] Like it was bad for me.
+
+[SPEAKER_00] I've basically stopped like all this stuff.
+
+[SPEAKER_00] It's now more popular than ever, like in terms of volume for
+
+[SPEAKER_00] like, you know, like so, like they they like they know what
+
+[SPEAKER_00] they're doing.
+
+[SPEAKER_00] Like, there's a lot of people working at it, so yeah.
+
+[SPEAKER_00] I mean, that the idea that he just like doesn't know how to
+
+[SPEAKER_00] order bookworks or whatever is just like what are we doing?
+
+[SPEAKER_00] That's why he's such a good rage better.
+
+[SPEAKER_00] SPEAKER_02: He's so good.
+
+[SPEAKER_00] SPEAKER_01: He's so good.
+
+[SPEAKER_00] I try, I'm I'm horrible at it.
+
+[SPEAKER_00] Like, I try to get people to respond to me earnestly, and I
+
+[SPEAKER_00] can't do it.
+
+[SPEAKER_00] SPEAKER_00: Yeah, you just the thing is like you just don't
+
+[SPEAKER_00] have the persona.
+
+[SPEAKER_00] Like he yeah, his range is so balanced, like your range is not
+
+[SPEAKER_00] balanced.
+
+[SPEAKER_00] Like, if you say something that it sounds like rage baity and
+
+[SPEAKER_00] kind of stupid, everybody's just gonna think you're being
+
+[SPEAKER_00] sarcastic.
+
+[SPEAKER_00] Like Caleb's just out there just doing the wildest shit, and
+
+[SPEAKER_00] nobody can pin him down, nobody knows what's real.
+
+[SPEAKER_00] Like it, it's just you have to commit to the whole thing, and
+
+[SPEAKER_00] that that's where he has you.
+
+[SPEAKER_00] Like, he's just fully immersed in this process of being this
+
+[SPEAKER_00] tweet storm person right now.
+
+[SPEAKER_00] I'm trying to think like I was literally thinking, like, what
+
+[SPEAKER_00] was my favorite kaylish tweet?
+
+[SPEAKER_00] I feel like I retweeted one I really like, but I I wish I put
+
+[SPEAKER_00] I I don't know.
+
+[SPEAKER_00] SPEAKER_01: I there's so many have deleted one that I sent
+
+[SPEAKER_00] over.
+
+[SPEAKER_00] Yeah, I'm trying to even think it's about like stealing
+
+[SPEAKER_00] someone's girl or something.
+
+[SPEAKER_00] SPEAKER_00: Oh, okay, yeah, yeah, yeah, yeah.
+
+[SPEAKER_00] Wait.
+
+[SPEAKER_00] SPEAKER_01: I think he pulled it back from that one.
+
+[SPEAKER_00] SPEAKER_00: God damn it.
+
+[SPEAKER_00] He apologizing.
+
+[SPEAKER_00] SPEAKER_02: Yeah.
+
+[SPEAKER_00] SPEAKER_00: Oh yeah.
+
+[SPEAKER_00] SPEAKER_01: The fat double word.
+
+[SPEAKER_00] That one, that one might have crossed the line.
+
+[SPEAKER_00] So I'm glad he deal with that.
+
+[SPEAKER_00] SPEAKER_00: Yeah, okay.
+
+[SPEAKER_00] So he's even he's he's looking out for people.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Um, well, you know, shout out to Kaylish.
+
+[SPEAKER_00] Good good job out there.
+
+[SPEAKER_00] What honestly, what's the last on this?
+
+[SPEAKER_00] Like, do you think that he will still be going?
+
+[SPEAKER_00] What a reasonable person would describe as going on this in a
+
+[SPEAKER_00] week's time.
+
+[SPEAKER_00] SPEAKER_01: I mean, there's no indication.
+
+[SPEAKER_00] The the reason I would say yes is like the hallmark of someone
+
+[SPEAKER_00] who who who is like not near stopping at all is you announce
+
+[SPEAKER_00] you're stopping and then just don't like it's you you you are
+
+[SPEAKER_00] immediately back at it one day later.
+
+[SPEAKER_00] So it'd be like if someone says they're done smoking and then
+
+[SPEAKER_00] are smoking an hour later, like they're not even close to
+
+[SPEAKER_00] stopping.
+
+[SPEAKER_00] And he had that tweet that was like, yeah, of course, he's
+
+[SPEAKER_00] like, I'm yeah, I've still got things in the couch.
+
+[SPEAKER_00] And then he it was like, I remember it.
+
+[SPEAKER_00] So I don't think he's remotely close now.
+
+[SPEAKER_00] Um that's like someone who's thought like I should stop,
+
+[SPEAKER_00] potentially.
+
+[SPEAKER_00] Like he had that thought that, but but then like just so
+
+[SPEAKER_00] briefly, at least clearly he's not he's not close.
+
+[SPEAKER_00] SPEAKER_00: I actually looked back through because I said that
+
+[SPEAKER_00] thing with where it was like the Twitter news, and it said like
+
+[SPEAKER_00] uh DraftKings founder ends beef with Call She over barefoot
+
+[SPEAKER_00] posts, and I wrote like sad if true, and you said that's
+
+[SPEAKER_00] literally fake news.
+
+[SPEAKER_00] Like going at it, yeah, yeah.
+
+[SPEAKER_00] Uh but then I saw one, and this was my favorite one.
+
+[SPEAKER_00] So it was when that lawyer came, like that.
+
+[SPEAKER_00] There's like this new adult lawyer in the room for Calci,
+
+[SPEAKER_00] who's like seemingly like knows what he's doing or whatever, and
+
+[SPEAKER_00] uh he kind of was getting into it with Kalish and talking about
+
+[SPEAKER_00] how like you know we don't do any like bad ads or whatever,
+
+[SPEAKER_00] and then Kayleigh screenshot and this ad that says Callshi, the
+
+[SPEAKER_00] first national legal sports betting platform, and wrote,
+
+[SPEAKER_00] comment on this bitch.
+
+[SPEAKER_00] I mean it's it's yeah, any guitar.
+
+[SPEAKER_00] SPEAKER_01: That's what I mean.
+
+[SPEAKER_00] Like, you don't get I mean, like that's obviously like whatever,
+
+[SPEAKER_00] but like you don't get people who've been in the seat he's
+
+[SPEAKER_00] been in for so long.
+
+[SPEAKER_00] You don't get them talking candidly heavy.
+
+[SPEAKER_00] SPEAKER_00: So yeah, this is generational, you know, great.
+
+[SPEAKER_00] Um, all right.
+
+[SPEAKER_00] Well hit a couple quick ones here.
+
+[SPEAKER_00] Sport trade exits OSB, they announced that.
+
+[SPEAKER_00] I think we assume this is because they're going CFTC.
+
+[SPEAKER_00] SPEAKER_01: Over under their their live CFTC by football go
+
+[SPEAKER_00] September 1st.
+
+[SPEAKER_00] SPEAKER_00: I think it'll later just because I always assume
+
+[SPEAKER_00] stuff's gonna take longer than than you initially think.
+
+[SPEAKER_00] SPEAKER_01: I do feel like I feel like they wouldn't do this
+
+[SPEAKER_00] unless they think there's a good chance they're live at some
+
+[SPEAKER_00] point football season.
+
+[SPEAKER_00] When?
+
+[SPEAKER_00] That's true.
+
+[SPEAKER_00] I don't know, but like if they didn't think they were like they
+
+[SPEAKER_00] wouldn't sit out a whole football season.
+
+[SPEAKER_00] SPEAKER_00: That's a good point.
+
+[SPEAKER_00] Like, why would they?
+
+[SPEAKER_00] SPEAKER_01: Yeah.
+
+[SPEAKER_00] They probably I I'm sure that that's their goal.
+
+[SPEAKER_00] Because one of the things about this one is like if you're like
+
+[SPEAKER_00] you already know what the headlines are gonna come.
+
+[SPEAKER_00] Like if they get CFTC approved, it's gonna be like sports book
+
+[SPEAKER_00] leaves to just do the sports book nationally, right?
+
+[SPEAKER_00] SPEAKER_00: Interesting.
+
+[SPEAKER_00] SPEAKER_01: So like I wonder if you know ceilings, like, you
+
+[SPEAKER_00] know, this is gonna look bad.
+
+[SPEAKER_00] You guys gotta be like off the market for a while to like have
+
+[SPEAKER_00] people forget that you were actually a sports book.
+
+[SPEAKER_00] Um button.
+
+[SPEAKER_00] SPEAKER_00: Yeah, no, I think I think yeah, like they have you
+
+[SPEAKER_00] have some kind of like time out cooldown period you have to do
+
+[SPEAKER_00] or something.
+
+[SPEAKER_00] SPEAKER_01: Yeah, that would be I mean, like this company has I
+
+[SPEAKER_00] I don't know anybody involved.
+
+[SPEAKER_00] It I've you know seen uh Alex Kane, I think is that's his
+
+[SPEAKER_00] name.
+
+[SPEAKER_00] SPEAKER_00: Yeah, Alex Alex Kane.
+
+[SPEAKER_00] SPEAKER_01: He seems like a great guy, like from Twitter and
+
+[SPEAKER_00] stuff.
+
+[SPEAKER_00] Like this it goes to show that like being nice and and like
+
+[SPEAKER_00] following the rules does not necessarily, yeah, it does it.
+
+[SPEAKER_00] Because like they've seemingly tried to do everything by the
+
+[SPEAKER_00] book and are gonna are like so behind.
+
+[SPEAKER_00] Yeah, exactly.
+
+[SPEAKER_00] It's like I mean same same with the the sweeps, the sweepstakes
+
+[SPEAKER_00] ones, right?
+
+[SPEAKER_00] Like Novic and Prophet both tried in the states.
+
+[SPEAKER_00] Yes, like they were in OSB first, exactly, and then they
+
+[SPEAKER_00] were like, okay, we gotta go sweeps, and then I mean
+
+[SPEAKER_00] obviously this you know sport trade just stayed OSB, like
+
+[SPEAKER_00] really tried to just be with the rules, but like never follow the
+
+[SPEAKER_00] rules, children.
+
+[SPEAKER_00] SPEAKER_00: Never follow the rules.
+
+[SPEAKER_00] No, um Culchi joins National Council on Problem Gambling.
+
+[SPEAKER_00] I don't know, like I don't know.
+
+[SPEAKER_00] I mean it's interesting.
+
+[SPEAKER_00] I actually think like I was just surprised because I thought it
+
+[SPEAKER_00] might not fit with their, I guess, the technicalities
+
+[SPEAKER_00] they're trying to portray.
+
+[SPEAKER_00] SPEAKER_01: I think it's good on them that like they they I think
+
+[SPEAKER_00] exactly that they've probably had that internal discussion of
+
+[SPEAKER_00] like if we go on this council, are we admitting we're gambling?
+
+[SPEAKER_00] Um you know, honestly, I I I mean, and I know they I think
+
+[SPEAKER_00] they had a press release, like Calchi in some regards has had
+
+[SPEAKER_00] made made better decisions in some regards lately, I would
+
+[SPEAKER_00] say, in terms of communication and whatnot.
+
+[SPEAKER_00] I think they're they are sort of getting their act together a
+
+[SPEAKER_00] little bit.
+
+[SPEAKER_00] Um, so this this to me is like if you want to be around and
+
+[SPEAKER_00] like not rile people up, this type of thing to get like you
+
+[SPEAKER_00] know, people in politics to be like more okay with you.
+
+[SPEAKER_00] Um I honestly think like hope hopefully like the Robin Hoods,
+
+[SPEAKER_00] the coin of all those companies, like I don't want to see the
+
+[SPEAKER_00] challenge with all this when we've talked about responsible
+
+[SPEAKER_00] gambling and stuff, is it's extremely tricky to do good
+
+[SPEAKER_00] legislation on this stuff and like not make it onerous and
+
+[SPEAKER_00] just garbage that doesn't solve any problems.
+
+[SPEAKER_00] Right.
+
+[SPEAKER_00] But like with these new like financial gambling intersection
+
+[SPEAKER_00] that like is just really common today, there should be some if
+
+[SPEAKER_00] we want to call it like responsible trading or
+
+[SPEAKER_00] something, so everybody's happy and like but it can protect like
+
+[SPEAKER_00] some some young people like in a common sense way, like that's
+
+[SPEAKER_00] probably a good thing for everybody, right?
+
+[SPEAKER_00] SPEAKER_00: And like you shouldn't be punished for
+
+[SPEAKER_00] joining this industry or for joining this group, yeah.
+
+[SPEAKER_00] Like full stop, and I'm sure everybody on that list feels
+
+[SPEAKER_00] like they might be Robin Hood, Coinbase, College, Poly.
+
+[SPEAKER_00] SPEAKER_01: Well, it's it's the same problem that the the you
+
+[SPEAKER_00] know self-exclusion lists have if they're not like if you
+
+[SPEAKER_00] exclude a Draft Kings, like yeah, and you can go play and
+
+[SPEAKER_00] shake them.
+
+[SPEAKER_00] If you're draft kings, why like why would you ever like
+
+[SPEAKER_00] encourage someone to self-excl exclude?
+
+[SPEAKER_00] SPEAKER_00: Right, right, have the national self-exclusion.
+
+[SPEAKER_00] Yeah, yeah.
+
+[SPEAKER_00] I think I I mean I think and we talked about that uh some
+
+[SPEAKER_00] earlier episode of the news where they I think it was like a
+
+[SPEAKER_00] few of the prediction marxists or whatever were trying to get
+
+[SPEAKER_00] some global exclusion.
+
+[SPEAKER_00] But um, yeah, I mean I think the one thing to me this so to me
+
+[SPEAKER_00] the most annoying, annoying argument from the AGA and the
+
+[SPEAKER_00] casino lobby is like this is bad because it's not protecting the
+
+[SPEAKER_00] customers.
+
+[SPEAKER_00] It's like you're not protecting the custom, you know, it's just
+
+[SPEAKER_00] like so stupid.
+
+[SPEAKER_00] And and like they're kind of trying to play that that card
+
+[SPEAKER_00] because they don't want to say the real thing, which is like we
+
+[SPEAKER_00] just want exclusive rights to recreational gamblers.
+
+[SPEAKER_00] Um so well okay, then call she's joining problem gambling, you
+
+[SPEAKER_00] know, the same problem gambling, you know, group that you're a
+
+[SPEAKER_00] part of.
+
+[SPEAKER_00] Like I just I would just I think that is just the absolute like
+
+[SPEAKER_00] worst um put tack like thing that they're pushing the
+
+[SPEAKER_00] casinos, and like it would just be nice for that not like I
+
+[SPEAKER_00] think it's in the prediction market's best interests to feel
+
+[SPEAKER_00] like that's really not um a winning point for the casinos
+
+[SPEAKER_00] because then like the other points that they have are kind
+
+[SPEAKER_00] of hard to defend.
+
+[SPEAKER_00] Um, I would say, like in terms of saying this is a better
+
+[SPEAKER_00] solution.
+
+[SPEAKER_00] SPEAKER_01: Agree.
+
+[SPEAKER_00] Like I and that's where I think they've, in my opinion, they're
+
+[SPEAKER_00] making better decisions on just communication and strategy.
+
+[SPEAKER_00] Like they are not like by doing by doing this, they're like not
+
+[SPEAKER_00] harping on like we're not gambling, none of this is even
+
+[SPEAKER_00] similar to your industry.
+
+[SPEAKER_00] Like, they've gotten away from the messaging that we're not
+
+[SPEAKER_00] like competing with you all to an extent.
+
+[SPEAKER_00] I mean, it's like every time I I see some like reasonable
+
+[SPEAKER_00] communication, it feels like the next day they do something in
+
+[SPEAKER_00] the polar opposite, where it's like, you know, I think we
+
+[SPEAKER_00] talked about it last time of like only a few number of people
+
+[SPEAKER_00] win, and then they have these communications where it's like
+
+[SPEAKER_00] everybody wins or everybody has an edge.
+
+[SPEAKER_00] It's like really like the next day.
+
+[SPEAKER_00] Right.
+
+[SPEAKER_00] Like the the the next thing we had on news, I guess it sort of
+
+[SPEAKER_00] leads to it was I think this this Wall Street Journal article
+
+[SPEAKER_00] discussing um it was something I don't the title was something
+
+[SPEAKER_00] along the lines of like meet the the normal people beating Wall
+
+[SPEAKER_00] Street or something.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I think it was New York Times.
+
+[SPEAKER_00] SPEAKER_01: Was it New York Times?
+
+[SPEAKER_00] Okay, maybe maybe I didn't get I I only got a chance to to read
+
+[SPEAKER_00] maybe it was a very long article.
+
+[SPEAKER_00] I only got a chance to read maybe the first third of it.
+
+[SPEAKER_00] SPEAKER_00: Um I only read what people posted on Twitter is I
+
+[SPEAKER_00] don't have a New York Times sub.
+
+[SPEAKER_00] SPEAKER_01: Okay.
+
+[SPEAKER_00] Yeah, I mean like this is the type of I mean like it's it's
+
+[SPEAKER_00] funny.
+
+[SPEAKER_00] Like when a negative article comes out about prediction
+
+[SPEAKER_00] markets, it's like the the establishment, the gambling
+
+[SPEAKER_00] companies are behind this like smear campaign.
+
+[SPEAKER_00] And then when a positive one comes out, it's like, see,
+
+[SPEAKER_00] they're finally covering it fairly.
+
+[SPEAKER_00] When like it, you know, not tinfoil hat, like this could
+
+[SPEAKER_00] have very well put up been put up, like yeah, encouragement,
+
+[SPEAKER_00] just like there's encouragement from you know the opposite side.
+
+[SPEAKER_00] Um, I I just think I would steer clear like of this narrative.
+
+[SPEAKER_00] Like if I was Cal G, I would not want to contribute anything.
+
+[SPEAKER_00] Cal Sheet Polymarket, any of these companies.
+
+[SPEAKER_00] I wouldn't want to contribute anything to the narrative of
+
+[SPEAKER_00] like the common man is going to make money on this.
+
+[SPEAKER_00] Um it there's I understand like why that's alluring to do that,
+
+[SPEAKER_00] and like it's but it's just like it's an unforced error, in my
+
+[SPEAKER_00] opinion.
+
+[SPEAKER_00] Even if there's like truth in it, like like I think one of the
+
+[SPEAKER_00] misconceptions is that like right now that like because when
+
+[SPEAKER_00] people talk about a prediction markets, you know, even Calish,
+
+[SPEAKER_00] like the Wall Street bros and whatnot, but like they're not
+
+[SPEAKER_00] like the sharpest people in the in every single market right
+
+[SPEAKER_00] now, like certainly not.
+
+[SPEAKER_00] Um, full of opportunities.
+
+[SPEAKER_00] You and I are in there because we think there's opportunities,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] But like I just don't think same way, like there's opportunities
+
+[SPEAKER_00] on sports books, but sports books shouldn't be like like
+
+[SPEAKER_00] imagine if that it was flipped.
+
+[SPEAKER_00] Like imagine if there's a New York Times article, like meet
+
+[SPEAKER_00] the normal people beating DraftKings.
+
+[SPEAKER_00] Like, no, we don't do that, and there's reasons we don't do
+
+[SPEAKER_00] that, right?
+
+[SPEAKER_00] Right.
+
+[SPEAKER_00] That's misleading and and it sends the wrong people down the
+
+[SPEAKER_00] wrong paths.
+
+[SPEAKER_00] Yeah, it's not because there's limits, like before someone
+
+[SPEAKER_00] jumps in, it's not because there's limits.
+
+[SPEAKER_00] Like, that's not the reason we don't do that.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I think I think there's so one one thing
+
+[SPEAKER_00] that I liked about poker was like I did like learning and
+
+[SPEAKER_00] following like the highest stakes players, like the players
+
+[SPEAKER_00] who were who were crushing.
+
+[SPEAKER_00] Um but full tilt poker, poker stars.
+
+[SPEAKER_00] I mean, I don't know.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] I can't, it's it's been a long time.
+
+[SPEAKER_00] I don't remember all of the ads, but like it would be more like
+
+[SPEAKER_00] play, you know, come play where the pros play or something.
+
+[SPEAKER_00] Or it wasn't necessarily like poker stars, it's a great place
+
+[SPEAKER_00] to get your rent money or whatever, you know.
+
+[SPEAKER_00] Like it wasn't that, and there is a fine line because I'm
+
+[SPEAKER_00] always interested, like I've loved reading books, you know,
+
+[SPEAKER_00] since my trading days too, of like market wizards, like
+
+[SPEAKER_00] reading about Paul Tudor-Jones or or stuff like this.
+
+[SPEAKER_00] I think it's just like I think where we would probably the I
+
+[SPEAKER_00] think uh correct me if I'm wrong, but where I find like
+
+[SPEAKER_00] this is kind of not the article I'd want is like here are the
+
+[SPEAKER_00] normal people winning.
+
+[SPEAKER_00] It's just that normal people.
+
+[SPEAKER_00] You could be like, here are like the most success, you know,
+
+[SPEAKER_00] here's we interviewed like the 10 most six ten of the most
+
+[SPEAKER_00] successful traders on prediction markets.
+
+[SPEAKER_00] Like that almost feels like to me like enough to be like, okay,
+
+[SPEAKER_00] that's totally fine.
+
+[SPEAKER_00] Like, that's a great article.
+
+[SPEAKER_00] And you can be like, at one point they were normal.
+
+[SPEAKER_00] Like, I think every I mean this is what we do.
+
+[SPEAKER_00] We bring we we bring on people from prediction markets who've
+
+[SPEAKER_00] made a lot of money, and sometimes it's like, yeah, I was
+
+[SPEAKER_00] like a losing better, and you know, and then I did XYZ and I
+
+[SPEAKER_00] went through this whole thing, and we talk about like their
+
+[SPEAKER_00] whole process, and I think that's good for like long-form
+
+[SPEAKER_00] content, is it allows us to like kind of honestly portray these
+
+[SPEAKER_00] people, like we have the time to do it.
+
+[SPEAKER_00] Um, but like I don't think we'd be like, look at this normal
+
+[SPEAKER_00] person who you know, like the eggsy episode, the other title
+
+[SPEAKER_00] could be normal college student wins millions of dollars on
+
+[SPEAKER_00] prediction market and then gets quant internship, and he's just
+
+[SPEAKER_00] normal, you know.
+
+[SPEAKER_00] SPEAKER_01: It's like that you honestly bring up an amazing
+
+[SPEAKER_00] point.
+
+[SPEAKER_00] What we should do is like we should, I should pitch the New
+
+[SPEAKER_00] York Times and say, like, okay, put at the bottom of our uh at
+
+[SPEAKER_00] this article, if anybody wants to actually do this seriously,
+
+[SPEAKER_00] like listen to just like two hours of one of these, because
+
+[SPEAKER_00] like you're exactly right.
+
+[SPEAKER_00] Like the article would be, and I like I found the article
+
+[SPEAKER_00] fascinating.
+
+[SPEAKER_00] It is, it is, it's because I when I'm reading it, I know
+
+[SPEAKER_00] these people aren't normal people, right?
+
+[SPEAKER_00] Like, like they're people who work really, really hard or are
+
+[SPEAKER_00] like grinding really hard.
+
+[SPEAKER_00] And like that's that's always the concern.
+
+[SPEAKER_00] It's like if it's not done by subject matter experts or it's
+
+[SPEAKER_00] not being listened to, like the other part is we don't have
+
+[SPEAKER_00] casuals listening to our show who are just like listening to
+
+[SPEAKER_00] like, oh, I'm gambling for the first time.
+
+[SPEAKER_00] I'm just gonna make a million dollars on Calfi too.
+
+[SPEAKER_00] Like, we don't really have those listeners.
+
+[SPEAKER_00] SPEAKER_00: They're more like, wow, it sounds so boring to make
+
+[SPEAKER_00] a million dollars.
+
+[SPEAKER_00] I'd rather just not.
+
+[SPEAKER_00] SPEAKER_01: Right.
+
+[SPEAKER_00] I mean, yeah, I mean, I think that's where the concern is
+
+[SPEAKER_00] because like when I'm when I was reading some of the articles,
+
+[SPEAKER_00] it's like it's portraying it in a light that's like fun and like
+
+[SPEAKER_00] sexy, like, oh, they're you know, discussing strategies in
+
+[SPEAKER_00] Discord all day.
+
+[SPEAKER_00] And if you're like an 18-year-old kid, you're like, I
+
+[SPEAKER_00] can discuss strategies in Discord all day.
+
+[SPEAKER_00] Yeah, like, but if you're like, you know, actually talking about
+
+[SPEAKER_00] the like it they just gloss over the the realities of it because
+
+[SPEAKER_00] it's an article and whatnot.
+
+[SPEAKER_00] SPEAKER_00: So yeah, I don't know.
+
+[SPEAKER_00] SPEAKER_01: I would just I would just articles are hard.
+
+[SPEAKER_00] It's not their article, but I would try and avoid that that
+
+[SPEAKER_00] type of marketing and whatever.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] Yeah, and there's you know, I don't when people were when full
+
+[SPEAKER_00] till poker was like, you know, this is you know, Phil Ivy, you
+
+[SPEAKER_00] know, this is what he does.
+
+[SPEAKER_00] I don't think anybody was like necessarily under the impression
+
+[SPEAKER_00] that they could be Phil Ivy in like two days, you know.
+
+[SPEAKER_00] That wasn't like cross people's mind.
+
+[SPEAKER_00] SPEAKER_01: Right, because the I mean the article wouldn't have
+
+[SPEAKER_00] been written like Phil Ivy just you know has never studied the
+
+[SPEAKER_00] game before, or whatever, like he just Phil Ivy watched a
+
+[SPEAKER_00] five-minute YouTube video on his like that like unfortunately
+
+[SPEAKER_00] that's the way some of these articles are are portrayed,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah.
+
+[SPEAKER_00] Um Betfair Palp.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] So there so there's two Betfair.
+
+[SPEAKER_00] Um there's two interesting Bet Fair Palps over uh the weekend.
+
+[SPEAKER_00] So one of them was a champions tour event, I believe, with
+
+[SPEAKER_00] Tommy Ganey, and the other was uh some alt-line call versus
+
+[SPEAKER_00] WCE.
+
+[SPEAKER_00] I don't even know what these teams are, but basically, um
+
+[SPEAKER_00] this has happened on on Bet Fair in the past on some horses, and
+
+[SPEAKER_00] uh you know, I on I I remember uh but Bowtie Better sent me a
+
+[SPEAKER_00] really interesting like like$10 million palp on on a Bet Fair
+
+[SPEAKER_00] horse race back in the day.
+
+[SPEAKER_00] But basically, um they voided both markets and they voided all
+
+[SPEAKER_00] trades in the um market, whether it was traded at the palp price
+
+[SPEAKER_00] or not.
+
+[SPEAKER_00] Um and it's basically just to you know, I I'm not you know, I
+
+[SPEAKER_00] think we're kind of noobs as far as like the UK gambling scene
+
+[SPEAKER_00] goes.
+
+[SPEAKER_00] It's it's like a very interesting uh bet fair, and I
+
+[SPEAKER_00] think like you know, UK has this like long history of of gambling
+
+[SPEAKER_00] and horse betting and you know offering stuff in decimal odds,
+
+[SPEAKER_00] which I feel like also semi-contributes to some of
+
+[SPEAKER_00] this, but um you know I don't know the exact exact uh pricing,
+
+[SPEAKER_00] but basically there was a Tommy Ganey uh price where he was
+
+[SPEAKER_00] offered from for 120 to one when he was basically six to four at
+
+[SPEAKER_00] the uh at the regular sports books.
+
+[SPEAKER_00] I know that was like the golf one, the other one I don't know
+
+[SPEAKER_00] as much about, but basically it's just a some bot errors.
+
+[SPEAKER_00] Like we've talked about it, we've been there.
+
+[SPEAKER_00] Um and uh yeah, they decided to avoid all the bets in the
+
+[SPEAKER_00] market.
+
+[SPEAKER_00] So one thing that I'm not as uh one thing where I'm gonna not
+
+[SPEAKER_00] know what I'm talking about is like the legal ramifications
+
+[SPEAKER_00] here in the UK.
+
+[SPEAKER_00] I know that that's probably of some concern.
+
+[SPEAKER_00] I saw people mention that on this topic.
+
+[SPEAKER_00] Um I, you know, we know that the ethical whatever, like bookies
+
+[SPEAKER_00] void palps.
+
+[SPEAKER_00] I think we're all okay with these are like serious, serious
+
+[SPEAKER_00] palps.
+
+[SPEAKER_00] Think about getting something that six to four, you know,
+
+[SPEAKER_00] you're you're you're getting plus 150.
+
+[SPEAKER_00] You're you're betting something that's like plus 150 for one for
+
+[SPEAKER_00] 120 to one.
+
+[SPEAKER_00] Like I think we can all agree like that's you know, a palp and
+
+[SPEAKER_00] like is is maybe worthy of a void.
+
+[SPEAKER_00] Um, but yeah, I don't know.
+
+[SPEAKER_00] I think it it puts into it's interesting because like would
+
+[SPEAKER_00] these be voided on call stream polymarket?
+
+[SPEAKER_00] SPEAKER_01: Like maybe I don't think there's been like I mean,
+
+[SPEAKER_00] at least not publicly.
+
+[SPEAKER_00] Yeah, it would be interesting, like the first time.
+
+[SPEAKER_00] Uh I should say it there very well could have been.
+
+[SPEAKER_00] I'm not aware of any like big situations where this has
+
+[SPEAKER_00] happened on either of those quite yet.
+
+[SPEAKER_00] It will be interesting when one does happen, because no doubt
+
+[SPEAKER_00] one will happen, um, what they do and what the precedent is
+
+[SPEAKER_00] set.
+
+[SPEAKER_00] I'm sure there have been smaller ones and things behind the
+
+[SPEAKER_00] scenes that you know just haven't been talked about um
+
+[SPEAKER_00] publicly.
+
+[SPEAKER_00] I mean, my view, yeah, you got three parties in the situation.
+
+[SPEAKER_00] You have the the person who bet the palp, the person who offered
+
+[SPEAKER_00] the palp, and then the exchange.
+
+[SPEAKER_00] And if we just go through those three, the person who offered
+
+[SPEAKER_00] the palp, meaning they got taken advantage of, basically, uh just
+
+[SPEAKER_00] you know, for sake of giving the direction I'm talking about,
+
+[SPEAKER_00] like that person should clearly ask for it to be voided.
+
+[SPEAKER_00] There's like no downside, in my opinion.
+
+[SPEAKER_00] Oh, for if it's like for sure, for sure.
+
+[SPEAKER_00] So they should ask for it to be voided.
+
+[SPEAKER_00] That's pretty clear.
+
+[SPEAKER_00] I think anybody sensible would agree with that.
+
+[SPEAKER_00] The person who, who, um, who bet the palp, like, in my opinion,
+
+[SPEAKER_00] if I'm just trying to be reasonable and and fair, like if
+
+[SPEAKER_00] I am betting something that's that I know is like plus 150 and
+
+[SPEAKER_00] I'm betting it for over 100 to one, like if I'm being honest
+
+[SPEAKER_00] with myself, I really can't be mad whatever anybody chooses.
+
+[SPEAKER_00] Like, I know what I'm getting myself into when I'm betting
+
+[SPEAKER_00] something like that.
+
+[SPEAKER_00] And like I think complaining about anything is sort of lame
+
+[SPEAKER_00] in my like just me personally.
+
+[SPEAKER_00] SPEAKER_00: Um for surely, for surely.
+
+[SPEAKER_00] SPEAKER_01: Okay.
+
+[SPEAKER_00] So we both agree with that.
+
+[SPEAKER_00] And so then it comes down to the exchange.
+
+[SPEAKER_00] And my general philosophy of I was in that shoe is um is it a
+
+[SPEAKER_00] what I I basically in I want to default to rewarding the less
+
+[SPEAKER_00] sophisticated party as like a guiding principle.
+
+[SPEAKER_00] So if it is like a sophisticated market maker who made it and a
+
+[SPEAKER_00] mistake and a recreational customer took it, I'm gonna side
+
+[SPEAKER_00] with the recreational customer almost certainly.
+
+[SPEAKER_00] If it is like the opposite, like someone meant to, you know, just
+
+[SPEAKER_00] a recreational customer meant to place an order for 100 and put
+
+[SPEAKER_00] you know a thousand at night, you know, ridiculous odds or
+
+[SPEAKER_00] something, like I'm gonna probably void it.
+
+[SPEAKER_00] Um and the the reason for that is just what we started the show
+
+[SPEAKER_00] with the the lifeblood of your company is recreational
+
+[SPEAKER_00] customers.
+
+[SPEAKER_00] The shark people are always gonna find their way to your
+
+[SPEAKER_00] games if there's enough recreational people.
+
+[SPEAKER_00] So I'm gonna, in any sort of ecosystem, I'm always gonna err
+
+[SPEAKER_00] towards making the recreational happy.
+
+[SPEAKER_00] So that that would be like my guiding principle of what
+
+[SPEAKER_00] obviously that's not like leak legal advice or systemic, but
+
+[SPEAKER_00] that's gonna be like my guiding principle.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I mean, I I just I think like I think
+
+[SPEAKER_00] there's some value to protecting your market makers from just
+
+[SPEAKER_00] absolute disaster palps.
+
+[SPEAKER_00] Like, I mean, you know, obviously here I am talking
+
+[SPEAKER_00] about how you should support the market maker here or whatever.
+
+[SPEAKER_00] But like, is the wreck taking taking market?
+
+[SPEAKER_00] SPEAKER_01: Well, I'm sure there's that's not a wreck, like
+
+[SPEAKER_00] that's somewhere like like if if if a market maker made a mistake
+
+[SPEAKER_00] and like someone came in there and pounded it for yeah,
+
+[SPEAKER_00] whatever a million shares, or just kept hitting it over and
+
+[SPEAKER_00] over again as your bot was reposting.
+
+[SPEAKER_00] Like, we are no longer in wreck territory, right?
+
+[SPEAKER_00] So yeah, I mean, I think maybe maybe a better way to say it is
+
+[SPEAKER_00] not shading it towards the recreational cost, you're
+
+[SPEAKER_00] shading it towards what you think is best for the ecosystem,
+
+[SPEAKER_00] is what I would be doing.
+
+[SPEAKER_00] Because at the end of the day, that's your business, like the
+
+[SPEAKER_00] health of the ecosystem.
+
+[SPEAKER_00] So whether that that could go both ways.
+
+[SPEAKER_00] It's a it's a fair point.
+
+[SPEAKER_00] I think in general, it would be to what I would view the the
+
+[SPEAKER_00] least sophisticated party is in that situation.
+
+[SPEAKER_00] Um, but it it could not be.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] Well, I think like one thing I saw in the discussion of this
+
+[SPEAKER_00] was uh uh Nick White, who he's he's a friend of the show, asked
+
+[SPEAKER_00] a couple of questions before, but he pointed out Bet Fair paid
+
+[SPEAKER_00] out 45 million themselves um on a horse that was 28 to 1 after
+
+[SPEAKER_00] it it had already won.
+
+[SPEAKER_00] So like assuming right there they're protecting, I imagine, a
+
+[SPEAKER_00] market maker, but like doing the thing where they take out of
+
+[SPEAKER_00] pocket and pay.
+
+[SPEAKER_00] I just so I think maybe like they didn't want to keep doing
+
+[SPEAKER_00] that or something, and they've you know, I and which I
+
+[SPEAKER_00] understand, um, because that's the other option is like you,
+
+[SPEAKER_00] the exchange, just like make everybody happy if both parties
+
+[SPEAKER_00] are important to the ecosystem or whatever, or you don't want
+
+[SPEAKER_00] to get bad press.
+
+[SPEAKER_00] Like, like you said, I think looking at it through that lens
+
+[SPEAKER_00] of like what's good for the ecosystem um matters.
+
+[SPEAKER_00] But I don't know.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] I think it's gonna be interesting.
+
+[SPEAKER_00] This is this is gonna be become this certainly isn't going to be
+
+[SPEAKER_00] like a one-off year especially now that all of this betting
+
+[SPEAKER_00] shifting to the exchanges and there was some um there was some
+
+[SPEAKER_00] precedent of palps being voided on sportsbooks but now you're
+
+[SPEAKER_00] you know you're on an exchange and there's different rules
+
+[SPEAKER_00] different governing bodies people might who knows you know
+
+[SPEAKER_00] you have a financial institution that comes in and gets the palp
+
+[SPEAKER_00] and what's their like what's their kind of playbook go go go
+
+[SPEAKER_00] to which is probably just like hedge it out and then like you
+
+[SPEAKER_00] avoid the palp and they're pissed because they just thought
+
+[SPEAKER_00] they hedged out like this position or or whatever.
+
+[SPEAKER_00] Like I don't know there's the this is going to be a very
+
+[SPEAKER_00] annoying problem over the next two years I think.
+
+[SPEAKER_00] SPEAKER_01: Yeah one of the things that when I was on a show
+
+[SPEAKER_00] the ETR show with Henry that they mentioned I think he's
+
+[SPEAKER_00] mentioned in the past um that I think is an interesting idea.
+
+[SPEAKER_00] I don't know how well it would be received or how well it would
+
+[SPEAKER_00] work in practice but the idea of like having an independent
+
+[SPEAKER_00] committee um be the arbiters of this not the company itself
+
+[SPEAKER_00] because it came up in the context of like you know Novig
+
+[SPEAKER_00] you know I think Adam was asking about um the like internal
+
+[SPEAKER_00] market makers and stuff and and it just gets complicated when
+
+[SPEAKER_00] you know if Cauchi has a has a relationship a financial
+
+[SPEAKER_00] relationship with certain market makers or Novig you know has
+
+[SPEAKER_00] Novig trading or whatever these decisions cannot be made without
+
+[SPEAKER_00] conflict of interest.
+
+[SPEAKER_00] Like they just can't be and so how to make them fairly in those
+
+[SPEAKER_00] cases and have it optically look fairly is uh is an interesting
+
+[SPEAKER_00] problem to solve.
+
+[SPEAKER_00] SPEAKER_00: Yeah we will offer we will be on that committee um
+
+[SPEAKER_00] but we need to be paid no no no wait we need to be paid a lot of
+
+[SPEAKER_00] money that'd be the worst job in the world you're you're gonna
+
+[SPEAKER_00] have someone also we can't have people know we're on the
+
+[SPEAKER_00] committee so if we do get hired to it you can't tell anybody no
+
+[SPEAKER_00] I feel like I feel like the people the people need to be
+
+[SPEAKER_00] like for it to be valuable it I think the people need to be
+
+[SPEAKER_00] public right like it needs to be like the spokeys or or levitan
+
+[SPEAKER_00] or what like people who have a a public persona are asked like
+
+[SPEAKER_00] what's the point right so yeah horrible jobs does sound like uh
+
+[SPEAKER_00] you're gonna get them you're gonna get a lot of you're gonna
+
+[SPEAKER_00] be like a professional athlete you're gonna be like I'm gonna
+
+[SPEAKER_00] kill your family because you did that's why I said I don't know
+
+[SPEAKER_00] about the feasibility of of it but maybe I'm wrong I it just
+
+[SPEAKER_00] does not sound like an envious physician um couple quick
+
+[SPEAKER_00] hitters okay survivor inside trading break I uh I call it uh
+
+[SPEAKER_00] breaks contain this is one that got you know the host of
+
+[SPEAKER_00] survivor was talking about how like the show was spoiled on
+
+[SPEAKER_00] Calci and Polymarket it got definitely got some mainstream
+
+[SPEAKER_00] coverage um I just think it's funny like that the these
+
+[SPEAKER_00] companies want to like do all these non-sports markets and
+
+[SPEAKER_00] then every non-sports market's just problematic just to sports
+
+[SPEAKER_00] but yeah I mean I I I tweeted about this I have my own I'm a
+
+[SPEAKER_00] I'm a big traders fan I said this in a in a tweet um and I
+
+[SPEAKER_00] don't like it I don't like that these markets are up because I
+
+[SPEAKER_00] want to watch the these shows these great shows without like
+
+[SPEAKER_00] feeling like uh without knowing who wins and that's the whole
+
+[SPEAKER_00] point of these shows is it they're really fun to watch if
+
+[SPEAKER_00] you don't know who wins they're a lot less fun to watch if you
+
+[SPEAKER_00] know who wins um and it ruins like the whole season the whole
+
+[SPEAKER_00] viewing uh experience so and they prominently kind of display
+
+[SPEAKER_00] these markets and while traders was airing I was so afraid and
+
+[SPEAKER_00] so careful like going on to Colche and trying not to to ever
+
+[SPEAKER_00] like see is traders truly live or no no okay I mean that's
+
+[SPEAKER_00] that's a thing because like if it was live you could make the
+
+[SPEAKER_00] argument that it's no different than a sport right it's like
+
+[SPEAKER_00] live is okay yeah because I was gonna say you could change these
+
+[SPEAKER_00] shows to be live to kind of work.
+
+[SPEAKER_00] SPEAKER_01: This is just like not worth the effort for Cal she
+
+[SPEAKER_00] like I like I said like if I was offering a market and I thought
+
+[SPEAKER_00] there's any chance it's gonna be front page negative I just just
+
+[SPEAKER_00] don't offer it.
+
+[SPEAKER_00] You just don't need to be doing that.
+
+[SPEAKER_00] SPEAKER_00: Yeah I agree and like this one is like a personal
+
+[SPEAKER_00] one too where I just really don't want my game shows ruined
+
+[SPEAKER_00] so it's like and a lot of people in this in the uh community of
+
+[SPEAKER_00] people who are active on call she and stuff like don't like
+
+[SPEAKER_00] this like they like survivor I can't there's a lot of
+
+[SPEAKER_00] professional gamblers who like survivor I was yeah they're like
+
+[SPEAKER_00] similar type of games yeah exactly it's like this really
+
+[SPEAKER_00] interesting game that's like more dimensions than just the
+
+[SPEAKER_00] game we play there's a social dimension there's all this other
+
+[SPEAKER_00] stuff they're so fun I really don't want these these to be
+
+[SPEAKER_00] spoiled because the thing is the the guy from college was like
+
+[SPEAKER_00] well you know it was spoiled on Reddit well okay I just don't go
+
+[SPEAKER_00] on the sur the Survivor Reddit or the traders Reddit when a
+
+[SPEAKER_00] season's airing it's like I can't not go on call street
+
+[SPEAKER_00] that's my whole job so it's it's it's like not necessarily the
+
+[SPEAKER_00] same thing.
+
+[SPEAKER_00] Anyway um do you have anything more there?
+
+[SPEAKER_00] No okay I gotta give a shout out quick shout out to my mom so my
+
+[SPEAKER_00] mom is uh an executive director of this charity and she has been
+
+[SPEAKER_00] finding some success with becoming a gambling operator.
+
+[SPEAKER_00] No it's a legal one.
+
+[SPEAKER_00] So what she's you know what you can do and this is one of the
+
+[SPEAKER_00] pros of gambling is like you can go fill out the appropriate
+
+[SPEAKER_00] paperwork and do things like bingo uh do some lotteries or
+
+[SPEAKER_00] whatever and put them into like make them like fundraising
+
+[SPEAKER_00] events for your charity and she said like she did this bingo
+
+[SPEAKER_00] night and realized that like it was like the worst weather day
+
+[SPEAKER_00] of the year.
+
+[SPEAKER_00] You're in the Northeast and you're like nobody's gonna go
+
+[SPEAKER_00] that's when my dad said like man is anybody gonna go to this
+
+[SPEAKER_00] thing and they're thinking like it's gonna be absolutely empty
+
+[SPEAKER_00] the worst weather day fully packed they're turning people
+
+[SPEAKER_00] away at the door people love gambling and it's also combining
+
+[SPEAKER_00] it with a cause where like I think even us like I went to one
+
+[SPEAKER_00] of her events where like I bought a ticket for the raffle
+
+[SPEAKER_00] and my ticket was probably worth like 10% in EV of face value but
+
+[SPEAKER_00] I then you don't even care about the EV because the EV is going
+
+[SPEAKER_00] to the charity right so it's like this very nice like kind of
+
+[SPEAKER_00] win win situation you can't do these huge huge raffles and and
+
+[SPEAKER_00] you know there's a whole process behind it.
+
+[SPEAKER_00] You gotta like go to the police station fill out like certain
+
+[SPEAKER_00] forms but if you are listening to this and you're like in this
+
+[SPEAKER_00] uh gambling type mindset space and you're involved with
+
+[SPEAKER_00] charities you know I think like look into what would be legal in
+
+[SPEAKER_00] your state because from talking to my mom I was pretty surprised
+
+[SPEAKER_00] like you can kind of you can you can kind of be creative with
+
+[SPEAKER_00] some of the stuff as long as you get the right paperwork.
+
+[SPEAKER_00] SPEAKER_01: Well you know it's it's fitting for a show she has
+
+[SPEAKER_00] the recreational customers I look for her to get her uh CFTC
+
+[SPEAKER_00] license and start start operating in 50 states here soon
+
+[SPEAKER_00] yeah next next part now charity gambling legal in all 50 states
+
+[SPEAKER_00] and Matt Caleb comment on this bitch all right we can probably
+
+[SPEAKER_00] go through some of these questions uh on the quicker side
+
+[SPEAKER_00] because we want to we want to get through them all to to clear
+
+[SPEAKER_00] the backlog and make sure everybody can ask uh new
+
+[SPEAKER_00] questions going forward so first from Rishi from a while back it
+
+[SPEAKER_00] was there's a thread in I think this whole topic came about I
+
+[SPEAKER_00] think it was some bar stool employee or something was um
+
+[SPEAKER_00] yeah would use a bonus bet on 1000 or something bad on odds um
+
+[SPEAKER_00] 50 like basically not using the bonus bet in an optimal way
+
+[SPEAKER_00] someone got mad at it I think it was like a 10k bonus bet.
+
+[SPEAKER_00] And so Rishi's question was if someone gave you uh a billion
+
+[SPEAKER_00] dollar bonus bet, assuming no limit issues, what odds range
+
+[SPEAKER_00] would you use it on?
+
+[SPEAKER_00] I don't know if we've actually answered the specific question.
+
+[SPEAKER_00] I think it used to be a question on circles off of like how much
+
+[SPEAKER_00] would you accept for a billion dollar flip or something this is
+
+[SPEAKER_00] really the same mathematical idea.
+
+[SPEAKER_00] For me it would be extremely um I would do extremely short odds
+
+[SPEAKER_00] right like I don't I'm just trying to get like I could take
+
+[SPEAKER_00] something minus wow what a fish you're not using it optimally
+
+[SPEAKER_00] you're so simple you know SBF and be like the richest person
+
+[SPEAKER_00] of of human history.
+
+[SPEAKER_00] SPEAKER_00: I don't need that much um yeah so for me it would
+
+[SPEAKER_00] be minus a lot um you know targeting some amount basically
+
+[SPEAKER_00] yeah I I would think of it the same way I mean there's
+
+[SPEAKER_00] obviously there's obviously a way you can kind of formulate
+
+[SPEAKER_00] formulaically do this with like Kelly or some kind of
+
+[SPEAKER_00] manufactured Kelly where you have a concept of what like your
+
+[SPEAKER_00] total wealth and future wealth net present value is and there's
+
+[SPEAKER_00] like that boring way but I would say like what Tes P said I would
+
+[SPEAKER_00] kind of think of a number because there's key numbers in
+
+[SPEAKER_00] life right like there's there's key numbers in football there's
+
+[SPEAKER_00] key numbers in life like hit your key numbers there's obvious
+
+[SPEAKER_00] like the concept of you know decreasing marginal utility is
+
+[SPEAKER_00] well studied documented I think we would all you know normal
+
+[SPEAKER_00] people would would easily agree with it that the second hundred
+
+[SPEAKER_00] million is not worth as much as the first hundred million um so
+
+[SPEAKER_00] think of your I would probably just think of key numbers uh
+
+[SPEAKER_00] what are some things I kind of would like and then uh target
+
+[SPEAKER_00] that I guess be said we'll go next one friend of the show
+
+[SPEAKER_00] Isaac is being a good sports market maker or market maker in
+
+[SPEAKER_00] general on calcium more about a being good at predicting however
+
+[SPEAKER_00] divine however you want or b being good at optimizing how to
+
+[SPEAKER_00] take money from recreationals or C, neither both they're the same
+
+[SPEAKER_00] thing.
+
+[SPEAKER_00] SPEAKER_01: So dumb question I think this goes well with you
+
+[SPEAKER_00] know like our our opening topic I mean to me the most important
+
+[SPEAKER_00] part right now is B uh being being good at optimizing how to
+
+[SPEAKER_00] take money from rec recreationals.
+
+[SPEAKER_00] That could change and I think the dynamics of like the
+
+[SPEAKER_00] ecosystem could change that a little bit specific to
+
+[SPEAKER_00] prediction markets over time um just as they get more
+
+[SPEAKER_00] competitive.
+
+[SPEAKER_00] SPEAKER_00: I think at the end of the day the people who are
+
+[SPEAKER_00] making the most in gambling broadly is always going to be
+
+[SPEAKER_00] the people who are in front of the most recreationals wherever
+
+[SPEAKER_00] that is yeah I I would say like I'm very very very firmly in the
+
+[SPEAKER_00] B camp here.
+
+[SPEAKER_00] I don't think it is close at all at this point in time like to to
+
+[SPEAKER_00] your point SP like I think right now it's like it's not a
+
+[SPEAKER_00] question.
+
+[SPEAKER_00] But yeah I think being good at predicting will increase in
+
+[SPEAKER_00] value as it will give you more opportunities to do B.
+
+[SPEAKER_00] But the point is always B, I think still like who you know
+
+[SPEAKER_00] the point is B, but how much predicting is gonna um help you
+
+[SPEAKER_00] with B, I think will go up in time and kind of close the gap.
+
+[SPEAKER_00] SPEAKER_01: Well let me add I the next question actually sort
+
+[SPEAKER_00] of goes into this and I'll just ask ask you so you could give a
+
+[SPEAKER_00] first crack of this one.
+
+[SPEAKER_00] This one from Matafer you mentioned in the last pod that a
+
+[SPEAKER_00] lot of the big traders make money because they aren't
+
+[SPEAKER_00] crossing each other.
+
+[SPEAKER_00] I think that was you who said something like that.
+
+[SPEAKER_00] How long do you think that lasts as the market grows?
+
+[SPEAKER_00] SPEAKER_00: I think that's sort of related to the topic we were
+
+[SPEAKER_00] just sort of talking about yeah um that does sound like me or
+
+[SPEAKER_00] something I said the I think part of it is fees like take
+
+[SPEAKER_00] fees so like crossing requires somebody to post a take fee.
+
+[SPEAKER_00] Obviously big traders cross occasionally or like winning
+
+[SPEAKER_00] winning betters like um I think it will go up as fees go down
+
+[SPEAKER_00] which I guess there's no guarantee fee fees will go down
+
+[SPEAKER_00] or that people or that exchangers will be forced to
+
+[SPEAKER_00] compete on fees but you know there's I guess the fees you
+
+[SPEAKER_00] might trend that way if uh you know if there's a big
+
+[SPEAKER_00] discrepancy but yeah I think I think a lot of it's gonna be a
+
+[SPEAKER_00] lot of the crossing since one of it it involves a taker is gonna
+
+[SPEAKER_00] is mainly controlled by the the take fee.
+
+[SPEAKER_00] Certainly if that's lower you'd be more willing to cross.
+
+[SPEAKER_00] SPEAKER_01: Yeah I didn't have all too much to add.
+
+[SPEAKER_00] I I think it primarily depends on the exchange the the the tick
+
+[SPEAKER_00] sizes and the fees um you know I know people love us talking
+
+[SPEAKER_00] about tick sizes but I think it it matters a lot on how much we
+
+[SPEAKER_00] will be willing to cross the larger those are and the larger
+
+[SPEAKER_00] the fees are the less crossing in general there's going to be
+
+[SPEAKER_00] that's why there's probably the least amount on calcium relative
+
+[SPEAKER_00] to other exchanges where it's like much more not costly to
+
+[SPEAKER_00] cross.
+
+[SPEAKER_00] I think it'll just depend on different markets.
+
+[SPEAKER_00] Like I think certain markets will have more of this earlier
+
+[SPEAKER_00] on like if you think of something like like mentions or
+
+[SPEAKER_00] something where it's like one cent wide at this point.
+
+[SPEAKER_00] Like people who are like sharp takers are clearly taking into
+
+[SPEAKER_00] those markets.
+
+[SPEAKER_00] So I think it just depends on like the market and and what's
+
+[SPEAKER_00] going on with the fees and tech sizes.
+
+[SPEAKER_00] SPEAKER_00: Okay we got you want to do Fred's you could you could
+
+[SPEAKER_00] you why don't you read a couple questions maybe I'll do I'll do
+
+[SPEAKER_00] I'll do Fred's okay uh so Fred says does there exist a lender
+
+[SPEAKER_00] that would let you borrow against your call street
+
+[SPEAKER_00] bankroll you mentioned on the last pod that size is a big
+
+[SPEAKER_00] source of edge.
+
+[SPEAKER_00] Yeah like having money is is an edge in prediction markets which
+
+[SPEAKER_00] is true and hilarious um so something like this seems like
+
+[SPEAKER_00] it could be useful I work in credit and my instinct is uh it
+
+[SPEAKER_00] would look something somewhat like a margin loan lending
+
+[SPEAKER_00] against position value uh with pretty conservative haircuts and
+
+[SPEAKER_00] tight margin the hardest part seems like integrating with the
+
+[SPEAKER_00] exchange exactly for real-time risk and liquidation I'm curious
+
+[SPEAKER_00] though do you think there's actually meaningful demand for
+
+[SPEAKER_00] something like this um I will I I've said this uh yeah I've I've
+
+[SPEAKER_00] said a lot of our biggest issues have come come around reasons
+
+[SPEAKER_00] why we don't get into certain things have been like capital
+
+[SPEAKER_00] efficiency and um I think Fred uh the thing that would win like
+
+[SPEAKER_00] something that of would be hugely useful in prediction
+
+[SPEAKER_00] markets would be like a prediction market focused prime
+
+[SPEAKER_00] broker and uh I yeah not to I don't want to torpedo the whole
+
+[SPEAKER_00] episode here I think it's just like a very interesting question
+
+[SPEAKER_00] like since Fred you're you're in the industry so you know better
+
+[SPEAKER_00] than me but like I would that would be what I think would be
+
+[SPEAKER_00] worth building um because yeah like you said you have to
+
+[SPEAKER_00] integrate into the exchanges but if you had a prime broker and
+
+[SPEAKER_00] basically what a prime broker does is like uh like a hedge
+
+[SPEAKER_00] fund might use the broker and route all their orders through
+
+[SPEAKER_00] the broker to different exchanges and whatever so they
+
+[SPEAKER_00] can have their positions kind of offset like if you had a poly
+
+[SPEAKER_00] position and a call sheet position so let's say let's say
+
+[SPEAKER_00] that you're your short 200k Scotty Shuffler on call sheet
+
+[SPEAKER_00] but your long 200k Scotty Shuffler on Polly like right now
+
+[SPEAKER_00] you would have to put out the 200k on on call she and whatever
+
+[SPEAKER_00] your amount was to get 200k contracts buying Scotty you know
+
+[SPEAKER_00] whatever 50k so now you have to put out 250k or 200k I guess
+
+[SPEAKER_00] because you're only shorting 150 on call she when really what you
+
+[SPEAKER_00] should be doing if those positions were aware of each
+
+[SPEAKER_00] other would be putting out zero dollars.
+
+[SPEAKER_00] And that's what a prime broker would kind of take care of is
+
+[SPEAKER_00] like they would see both their positions.
+
+[SPEAKER_00] They would then be able to basically like give you the
+
+[SPEAKER_00] capital back that you would get if you did it all on call she or
+
+[SPEAKER_00] whatnot.
+
+[SPEAKER_00] SPEAKER_01: And it would uh I think I think that would and
+
+[SPEAKER_00] then you can you know do margin um you know you'd have all your
+
+[SPEAKER_00] stuff settled in the same place like a lot of the other benefits
+
+[SPEAKER_00] I I could see that being a uh we would use one so you have one
+
+[SPEAKER_00] customer it's almost like we need a uh a betting exchange for
+
+[SPEAKER_00] all the betting exchanges you know like exactly like because
+
+[SPEAKER_00] you know I I wasn't familiar with that that term prime broker
+
+[SPEAKER_00] like I didn't know what that was it sounds like like that because
+
+[SPEAKER_00] really a betting exchange is like you know to explain it
+
+[SPEAKER_00] simply it's like it basically makes price shopping you know
+
+[SPEAKER_00] there's no friction there it like does it for you effectively
+
+[SPEAKER_00] right um and it's like with all these prediction markets we just
+
+[SPEAKER_00] need one prediction market to connect all the prediction
+
+[SPEAKER_00] markets and we could just have prediction markets infinity to
+
+[SPEAKER_00] you know connecting those and so yeah that that's that's I mean
+
+[SPEAKER_00] there there's gonna be issues of like the contracts might be a
+
+[SPEAKER_00] little different which is always the annoying part and like
+
+[SPEAKER_00] whatever but yes like I think a lot of the traditional like what
+
+[SPEAKER_00] you see like hedge funds actually trading through isn't
+
+[SPEAKER_00] necessarily what it looks like for us right now in prediction
+
+[SPEAKER_00] markets.
+
+[SPEAKER_00] SPEAKER_00: Like they're trading through a much more centralized
+
+[SPEAKER_00] um like more risk capital efficient system that's kind of
+
+[SPEAKER_00] enabled by a prime broker like these types of services I think
+
+[SPEAKER_00] what I mean like broadly I think margin would be any type would
+
+[SPEAKER_00] be very popular.
+
+[SPEAKER_00] SPEAKER_01: It's obviously probably not a good thing for a
+
+[SPEAKER_00] lot of people um but like it would be very popular and
+
+[SPEAKER_00] helpful for a select group of market makers.
+
+[SPEAKER_00] I think you're gonna see more of this what I'm guessing it's
+
+[SPEAKER_00] gonna look like though is stuff like where the way the contract
+
+[SPEAKER_00] is designed makes it higher leverage.
+
+[SPEAKER_00] So like for example I think Polymarket has done stuff like
+
+[SPEAKER_00] this where it's like you you have a market that's like will
+
+[SPEAKER_00] aliens be confirmed this year and then you have a separate
+
+[SPEAKER_00] market that's will the will aliens be confirmed market reach
+
+[SPEAKER_00] 5% or something.
+
+[SPEAKER_00] And it's way to basically like lever your position is like like
+
+[SPEAKER_00] an option versus a um right you know like buying the equity not
+
+[SPEAKER_00] exactly comparable but somewhat similar and I think it would
+
+[SPEAKER_00] allow people to bet um effectively more uh which you
+
+[SPEAKER_00] know margin does so it's like a I think that's like the creative
+
+[SPEAKER_00] way to to give people margin without actually giving them
+
+[SPEAKER_00] margin.
+
+[SPEAKER_00] And just like that's what like sort of the zero day option type
+
+[SPEAKER_00] of stuff is and options just in general the reason they're so
+
+[SPEAKER_00] popular is people can in theory have achieve higher returns
+
+[SPEAKER_00] because they're it's it's higher leverage.
+
+[SPEAKER_00] SPEAKER_00: So right right yeah we I feel like we've got a
+
+[SPEAKER_00] question about zero like zero like zero day options it's like
+
+[SPEAKER_00] are they that different than what we're what we're doing here
+
+[SPEAKER_00] or that's com commonly a refrain or maybe not that's a refrain
+
+[SPEAKER_00] from from our friends on the PM space.
+
+[SPEAKER_00] SPEAKER_01: Yeah I mean I think it's fair yeah no I think um
+
+[SPEAKER_00] let's go to priptonite's new better here state doesn't allow
+
+[SPEAKER_00] traditional books so strictly betting on Cauchy two questions
+
+[SPEAKER_00] first wondering if I'm too obsessive about avoiding fees
+
+[SPEAKER_00] multiple times I've liked the spot posted at one cent under
+
+[SPEAKER_00] the ask only to get 10% filled uh assuming of what he posted
+
+[SPEAKER_00] but then hits feel like an idiot for not taking the 1% high or
+
+[SPEAKER_00] one cent higher these are data driven bets but not a direct
+
+[SPEAKER_00] model output so I don't have a strict affair just based on
+
+[SPEAKER_00] metrics I'm looking at on a traditional book I just take
+
+[SPEAKER_00] knowing I'm meeting some big right um I'll just read both
+
+[SPEAKER_00] questions and then we we can answer them both.
+
+[SPEAKER_00] And the second question was when does it make sense to sell when
+
+[SPEAKER_00] you've captured CLV on a on a predictor for a pre-game bet.
+
+[SPEAKER_00] I think in theory over the long run you'd see the same returns
+
+[SPEAKER_00] just holding the bets as you would selling the CL CLV.
+
+[SPEAKER_00] So I'll answer the second one first.
+
+[SPEAKER_00] Like I think if you assume it's fair at close like the
+
+[SPEAKER_00] mathematical answer would be to sell you know like like you
+
+[SPEAKER_00] should never absorb risk just for the you know sake of
+
+[SPEAKER_00] absorbing risk.
+
+[SPEAKER_00] So if like if uh you know if a market is truly at fair like
+
+[SPEAKER_00] holding the position is just introducing variance for no gain
+
+[SPEAKER_00] in EV or expected growth or anything.
+
+[SPEAKER_00] So you should get out of that position.
+
+[SPEAKER_00] Um now is it exactly at fair that's the Important thing.
+
+[SPEAKER_00] What fees do you have to pay?
+
+[SPEAKER_00] That's the important thing.
+
+[SPEAKER_00] I think the further it is from fare, the more fees you have to
+
+[SPEAKER_00] pay makes it less, less and less likely that you should get out
+
+[SPEAKER_00] of the position.
+
+[SPEAKER_00] Um, so that would be my answer for the second one.
+
+[SPEAKER_00] For the first one, I I honestly think the way, you know, I think
+
+[SPEAKER_00] we I'd probably err on the side of telling people to be more
+
+[SPEAKER_00] aggressive generally, like just doing these questions.
+
+[SPEAKER_00] I honestly feel like if you don't have an exact price, this
+
+[SPEAKER_00] isn't a bad strategy at all.
+
+[SPEAKER_00] Meaning, just post like this is what I would tell someone to do
+
+[SPEAKER_00] if they don't have an exact price, just like always, but you
+
+[SPEAKER_00] think a side is good, like just be at the top of the book for
+
+[SPEAKER_00] that side all the time.
+
+[SPEAKER_00] And like it's probably not that bad.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] SPEAKER_01: Um, and it's a good way to learn and hone in until
+
+[SPEAKER_00] you can maybe improve your process to get it a more precise
+
+[SPEAKER_00] price if that's something you're working on.
+
+[SPEAKER_00] But like, I don't think I think the whole gain you get in having
+
+[SPEAKER_00] a an exact price, like if you have a model that spits out
+
+[SPEAKER_00] exact price, like really the benefit you have is you're
+
+[SPEAKER_00] you're able to not take the best price in market anymore.
+
+[SPEAKER_00] Right?
+
+[SPEAKER_00] Like that that's what you're gaining.
+
+[SPEAKER_00] Um, because you have a very specific, I mean you still can
+
+[SPEAKER_00] take best price, but you without it, it's like very challenging
+
+[SPEAKER_00] to do that.
+
+[SPEAKER_00] Um so like that's the the reason to get an exact price.
+
+[SPEAKER_00] But I think general, this is probably what I'd be doing.
+
+[SPEAKER_00] If it means you grow slower, I think that may just be the
+
+[SPEAKER_00] reality until you can hone in and be like, these are actually
+
+[SPEAKER_00] better enough such that I could be taking at one cent worse, two
+
+[SPEAKER_00] cent worse, whatever.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I I was gonna say, like, if I if I'm even
+
+[SPEAKER_00] taking a step back, like new better, am I too obsessive about
+
+[SPEAKER_00] avoiding fees?
+
+[SPEAKER_00] Like, I would just immediately say no.
+
+[SPEAKER_00] Because it's like honestly the opposite.
+
+[SPEAKER_00] I'm going, like, you're new better and you're listening to
+
+[SPEAKER_00] the show, which is that's awesome.
+
+[SPEAKER_00] SPEAKER_01: Like, I call the yes, I don't know how new.
+
+[SPEAKER_00] Yeah, I was gonna say like I'm trying to wrap it up how new is
+
+[SPEAKER_00] new.
+
+[SPEAKER_00] SPEAKER_00: I don't yeah, I was gonna say, like, they're
+
+[SPEAKER_00] probably new, but they're like an options trader or something.
+
+[SPEAKER_00] Like, or something, I don't know.
+
+[SPEAKER_00] But anyway, like, yeah, I think like like SP said, when you're
+
+[SPEAKER_00] you're kind of starting out, you don't have like a fair or
+
+[SPEAKER_00] whatever doing this, being kind of maybe too cautious, but being
+
+[SPEAKER_00] or too feeware is okay.
+
+[SPEAKER_00] I was thinking like it's a different question.
+
+[SPEAKER_00] Like if Rufus wrote in and he was like, Yeah, I don't know,
+
+[SPEAKER_00] like maybe I'm being too too tight with fees, and I should
+
+[SPEAKER_00] just take some of this stuff, because I think yeah, I'm
+
+[SPEAKER_00] missing out on a lot of value.
+
+[SPEAKER_00] I'd be like, you probably should be taking more.
+
+[SPEAKER_00] Like, but if it's you know, if it's more like you're just
+
+[SPEAKER_00] trying to get your feet under you, um, and you don't have a
+
+[SPEAKER_00] you're not betting like your own number that's proven to be
+
+[SPEAKER_00] really good, then this is a really good way to bet.
+
+[SPEAKER_00] I think you're doing a great job.
+
+[SPEAKER_00] I think that's awesome.
+
+[SPEAKER_00] I'm glad this is the way like you're you're betting and you're
+
+[SPEAKER_00] a listener of the show.
+
+[SPEAKER_00] Not saying the two are connected, but you know, who's
+
+[SPEAKER_00] saying they're not?
+
+[SPEAKER_00] SPEAKER_01: I mean that that that's the advice I would give
+
+[SPEAKER_00] to any anybody who's starting out in prediction markets, is
+
+[SPEAKER_00] just take something you think could be good, go on the top,
+
+[SPEAKER_00] like don't don't get out of line of the order book, just sort of
+
+[SPEAKER_00] like be at the top where you get filled sometimes and whatever,
+
+[SPEAKER_00] but like you're not like totally exposed and just learn, yeah,
+
+[SPEAKER_00] and try and get better, you know.
+
+[SPEAKER_00] SPEAKER_00: Absolutely.
+
+[SPEAKER_00] And yes, to your point on the second one, I I agree.
+
+[SPEAKER_00] SPEAKER_01: Yeah, okay.
+
+[SPEAKER_00] I forgot there was a second one.
+
+[SPEAKER_00] You you didn't have anything else there.
+
+[SPEAKER_00] SPEAKER_00: It's just like like you said, like if you're gonna
+
+[SPEAKER_00] get out, like get out passively.
+
+[SPEAKER_00] Like, don't don't take to exit your position, I would say,
+
+[SPEAKER_00] especially in the don't add fees there.
+
+[SPEAKER_00] Exactly.
+
+[SPEAKER_00] It's the same thing as the it's the same thing as the first
+
+[SPEAKER_00] question, kind of, but like there's no reason that you
+
+[SPEAKER_00] wouldn't want to get out if you're at fair or whatever, at
+
+[SPEAKER_00] close, which is should be close to fair, but make sure you're
+
+[SPEAKER_00] not adding fees, uh, because then it's very far from fair.
+
+[SPEAKER_00] SPEAKER_01: I'll ask you this one.
+
+[SPEAKER_00] I think you would have maybe better perspective on this one.
+
+[SPEAKER_00] From Pat Chiwache.
+
+[SPEAKER_00] Uh, we got a we got an international listener.
+
+[SPEAKER_00] Um, hey guys, and from let's go.
+
+[SPEAKER_00] I I gotta imagine he is the one and only listener from Belgium,
+
+[SPEAKER_00] but maybe that's wrong.
+
+[SPEAKER_00] Um, hey guys, I'm from Belgium and built a pretty solid uh
+
+[SPEAKER_00] machine learning-based tennis edge over the past year.
+
+[SPEAKER_00] My edge is mainly embedding mispriced opening odds,
+
+[SPEAKER_00] especially on ATP and men's challenger markets.
+
+[SPEAKER_00] Problem is scaling.
+
+[SPEAKER_00] Belgium only has a few softbooks, and exchanges like
+
+[SPEAKER_00] Beton Asia have pretty low liquidity and are in a gray
+
+[SPEAKER_00] area.
+
+[SPEAKER_00] So I'm stuck with a clear edge, but not enough liquidity to
+
+[SPEAKER_00] scale without moving countries, which I'd rather avoid.
+
+[SPEAKER_00] Yeah, just you know that I just I've said that.
+
+[SPEAKER_00] You got to live where you want to live.
+
+[SPEAKER_00] Don't yes, okay, which he wants to avoid.
+
+[SPEAKER_00] What should I do in this uh situation?
+
+[SPEAKER_00] SPEAKER_00: Um, I think this is good, this is a good opportunity
+
+[SPEAKER_00] to work with.
+
+[SPEAKER_00] I what I would what I would be thinking here is like I mean you
+
+[SPEAKER_00] have a machine learning based, I assume that it's machine
+
+[SPEAKER_00] learning based and not like moneyline based, but uh learn uh
+
+[SPEAKER_00] tennis mall.
+
+[SPEAKER_00] This is great.
+
+[SPEAKER_00] This is people are what people what you're uh what you're
+
+[SPEAKER_00] looking to do scale-wise is maybe not available to you in
+
+[SPEAKER_00] overnight tennis, but that's fine.
+
+[SPEAKER_00] You've done a good job of building something that can win
+
+[SPEAKER_00] in these markets, and your process and you as like a data
+
+[SPEAKER_00] scientist and somebody who who's betting is open to growing into
+
+[SPEAKER_00] bigger markets and whatnot.
+
+[SPEAKER_00] So I think what I would do is look for maybe partnerships uh
+
+[SPEAKER_00] with people who are kind of doing this at a bigger scale, or
+
+[SPEAKER_00] somebody who might be a good modeler or have a betting group
+
+[SPEAKER_00] that does you know a couple sports, and maybe they don't
+
+[SPEAKER_00] have tennis.
+
+[SPEAKER_00] I could see it going either way.
+
+[SPEAKER_00] Maybe you want to get in with somebody who does tennis and
+
+[SPEAKER_00] kind of ramp up from there, but there may be just too much
+
+[SPEAKER_00] overlap.
+
+[SPEAKER_00] So you may want to work with um somebody else who's good at
+
+[SPEAKER_00] another sport or has a group that that can get down a lot of
+
+[SPEAKER_00] action and they could get down more for you, but I think it's
+
+[SPEAKER_00] also like gives you the opportunity to grow your um
+
+[SPEAKER_00] skill set to win in other markets that might have a little
+
+[SPEAKER_00] bit more scalability.
+
+[SPEAKER_00] So I wouldn't think like, oh, I have this one edge in overnight
+
+[SPEAKER_00] tennis, like I need to scale this.
+
+[SPEAKER_00] I would think like, oh, I'm proven to, you know, I'm proven
+
+[SPEAKER_00] to be a successful originator in this betting market.
+
+[SPEAKER_00] How do I scale that?
+
+[SPEAKER_00] You know, yeah.
+
+[SPEAKER_00] SPEAKER_01: I mean, I think you know, this question was asked in
+
+[SPEAKER_00] Discord, and I think some some people mentioned it, and you you
+
+[SPEAKER_00] just mentioned it.
+
+[SPEAKER_00] It's like I think working with others is the broad broad
+
+[SPEAKER_00] solution.
+
+[SPEAKER_00] I think the that's not necessarily helpful in itself.
+
+[SPEAKER_00] It's like, how do you get there?
+
+[SPEAKER_00] I think to me, some of the easiest ways to get out there is
+
+[SPEAKER_00] post something that's interesting and or like
+
+[SPEAKER_00] engaging.
+
+[SPEAKER_00] Like I'm more in favor, probably than ever.
+
+[SPEAKER_00] I don't really have a Bayesian update, so maybe this can be
+
+[SPEAKER_00] mine of like the flup style article.
+
+[SPEAKER_00] Obviously, everybody's not like fluff, but like um Pads in the
+
+[SPEAKER_00] past has wrote written an article that I think probably
+
+[SPEAKER_00] was very beneficial for him.
+
+[SPEAKER_00] Um I think if you can write like some type of article tweet, like
+
+[SPEAKER_00] it probably needs to be longer than just like a tweet, but I'm
+
+[SPEAKER_00] saying like something that shows you know what's going on or your
+
+[SPEAKER_00] results or something.
+
+[SPEAKER_00] Um I think that's like a really easy way for people to approach
+
+[SPEAKER_00] you.
+
+[SPEAKER_00] It's like very apparent if you've written a little bit that
+
+[SPEAKER_00] you either know what you're talking about generally or not.
+
+[SPEAKER_00] Um and so like that's that's like one thing is to try and get
+
+[SPEAKER_00] exposed.
+
+[SPEAKER_00] Cause like it's fine for us to say, like, oh, just start
+
+[SPEAKER_00] working with people.
+
+[SPEAKER_00] But I think we sometimes be like, what do we, what, how do I
+
+[SPEAKER_00] actually do that?
+
+[SPEAKER_00] And I think that would be like one way I would recommend to
+
+[SPEAKER_00] people is like try and write something.
+
+[SPEAKER_00] It you don't even have to become a writer.
+
+[SPEAKER_00] Like, I'm talking about write one piece that is interesting,
+
+[SPEAKER_00] um, or like your story or something.
+
+[SPEAKER_00] And I've read several of these from gamblers in the past, you
+
+[SPEAKER_00] know, the two I mentioned, but but other ones too.
+
+[SPEAKER_00] And they've always immediately made me interested in the person
+
+[SPEAKER_00] if they're well written.
+
+[SPEAKER_00] So um I think that that's what I would do uh if I was trying to
+
+[SPEAKER_00] like work with others.
+
+[SPEAKER_00] I think the other thing you could do is like I don't know
+
+[SPEAKER_00] what is if you have a clear idea of what is generating your edge,
+
+[SPEAKER_00] but like I'd be remiss to not mention like if you could work
+
+[SPEAKER_00] with someone in the States, like the predictions are doing big
+
+[SPEAKER_00] volume on like relatively big volume on these events, which
+
+[SPEAKER_00] historically would have had very low limits at softbugs.
+
+[SPEAKER_00] Like, if if there's a challenger tennis overnight and that's like
+
+[SPEAKER_00] all that's live on on Calchi overnight, like it's gonna get a
+
+[SPEAKER_00] lot of action.
+
+[SPEAKER_00] So like live might also be something.
+
+[SPEAKER_00] I don't know if that's something you could work towards, but that
+
+[SPEAKER_00] would be another thing I just I would consider.
+
+[SPEAKER_00] SPEAKER_00: That's a real that's a really good point.
+
+[SPEAKER_00] Like, uh think about can your model be bet at like set breaks
+
+[SPEAKER_00] or whatever, or game breaks, you know, like that's a little bit
+
+[SPEAKER_00] faster, but can you do something like between sets?
+
+[SPEAKER_00] And then you're you're really cooking on prediction markets.
+
+[SPEAKER_00] Um yeah, that's a good point.
+
+[SPEAKER_00] Uh we got Ben.
+
+[SPEAKER_00] As a fellow top-down MM, or this was this maybe a question for
+
+[SPEAKER_00] this this was for Troy.
+
+[SPEAKER_00] Yeah, Troy on.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] As a fellow top-down MM or market maker, my strata is often
+
+[SPEAKER_00] to just post post both sides of a market pregame and collect the
+
+[SPEAKER_00] VIG.
+
+[SPEAKER_00] More often than not, though, I end up with a lopsided position
+
+[SPEAKER_00] on one side at game start.
+
+[SPEAKER_00] I'm generally fine with that though, because I know I'm
+
+[SPEAKER_00] posting slightly plus EV to both sides.
+
+[SPEAKER_00] So regardless of which side I end up getting filled to more,
+
+[SPEAKER_00] which which side I get uh filled on more, my position should be
+
+[SPEAKER_00] good.
+
+[SPEAKER_00] However, I'm experiencing more variance market making than I
+
+[SPEAKER_00] ever did on uh online sports books because the edge often
+
+[SPEAKER_00] ends up smaller since I have to quote tight to be top of a book
+
+[SPEAKER_00] and get filled.
+
+[SPEAKER_00] Curious how you think about managing lopsided situations
+
+[SPEAKER_00] like this from a top-down point of view?
+
+[SPEAKER_00] Are you riding whatever side you get filled on pre-game?
+
+[SPEAKER_00] Or are you doing any trading live to capture the EV you got
+
+[SPEAKER_00] pregame and reduce variants?
+
+[SPEAKER_00] How do you think about managing risk when you don't have a
+
+[SPEAKER_00] strong directional opinion?
+
+[SPEAKER_00] So yeah, I would say like the first check I always think is
+
+[SPEAKER_00] like, do you have is there like an obvious reason why this is
+
+[SPEAKER_00] you get lopsided flow?
+
+[SPEAKER_00] So it's like, oh, is it Scotty Sheffler?
+
+[SPEAKER_00] Is it the Lakers?
+
+[SPEAKER_00] Is it you know I have no clue.
+
+[SPEAKER_00] You know, Lakers are in California and prediction
+
+[SPEAKER_00] markets are you know live in California and Texas or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] Like, can you come up with a good reason why you would be
+
+[SPEAKER_00] getting flow on one team?
+
+[SPEAKER_00] Um, if so, like I'm more willing to like let that ride.
+
+[SPEAKER_00] But a lot of times, like you're top of book on both sides and
+
+[SPEAKER_00] you get a lot of flow on one side.
+
+[SPEAKER_00] Well, that side might be the minus EV side.
+
+[SPEAKER_00] So you're suddenly not you're not necessarily like guaranteed
+
+[SPEAKER_00] to be plus EV just because you're top of book on on both
+
+[SPEAKER_00] sides, and maybe are like the price is like good to so and so
+
+[SPEAKER_00] sportsbook.
+
+[SPEAKER_00] Like you're you could be posting pinnacle lines and like people
+
+[SPEAKER_00] have a reason to bet you on prediction markets instead of
+
+[SPEAKER_00] pinnacle.
+
+[SPEAKER_00] Like there's reasons to to not move the pinnacle line, right?
+
+[SPEAKER_00] So I think like a lot of times like you you really want to the
+
+[SPEAKER_00] best case scenario is you do straddle the fair and you take a
+
+[SPEAKER_00] decent amount on both sides.
+
+[SPEAKER_00] It can be lopsided, but like the fact that you're getting some
+
+[SPEAKER_00] flow on both sides is a pretty good sign.
+
+[SPEAKER_00] Um if you're getting run over on one side, like it's likely and
+
+[SPEAKER_00] there's no obvious reason, I'm more inclined to try and get out
+
+[SPEAKER_00] of it, like trying to scratch out of it.
+
+[SPEAKER_00] So let's say like let's say the book's 49.50, right?
+
+[SPEAKER_00] And you're like you're you're you're buying a team at 50, then
+
+[SPEAKER_00] you know, and the other teams like you're buying it, buying
+
+[SPEAKER_00] it, buying it, and the and it basically flips against you.
+
+[SPEAKER_00] So now you have to pay uh you can buy that team for 49, you
+
+[SPEAKER_00] could sell them on the other side for 50.
+
+[SPEAKER_00] I would once I if I feel like it's super directional, I would
+
+[SPEAKER_00] probably like preemptively get on the other side to try and
+
+[SPEAKER_00] scratch the trade.
+
+[SPEAKER_00] If there was an obvious reason that it was directional, that's
+
+[SPEAKER_00] kind of how I would think about managing the risk.
+
+[SPEAKER_00] Um, whereas like if I had a fair or you know, it was a popular
+
+[SPEAKER_00] position, like the Jake Paul fight or whatever, like you
+
+[SPEAKER_00] know, you can just sell Jake Paul against AJ, right?
+
+[SPEAKER_00] And like you know that the flow is going to be lopsided, but you
+
+[SPEAKER_00] know that's a good side.
+
+[SPEAKER_00] Like that's where I'm more willing to stick in there.
+
+[SPEAKER_00] Um, but I think like being willing to get in the queue on
+
+[SPEAKER_00] the other side to scratch your position um when you feel like
+
+[SPEAKER_00] this might not be the right side is very, very valuable.
+
+[SPEAKER_00] SPEAKER_01: I honestly don't have much to add.
+
+[SPEAKER_00] I think you you nailed that.
+
+[SPEAKER_00] Um, I think you know everything out everything you said, plus
+
+[SPEAKER_00] everything we covered on the um the like managing risk.
+
+[SPEAKER_00] I think a lot was sort of related to some of that.
+
+[SPEAKER_00] So I think I think you nailed it.
+
+[SPEAKER_00] Um I can read the next one from DB.
+
+[SPEAKER_00] Can you talk about building models and metrics you look at
+
+[SPEAKER_00] to determine model strength, Pearson R, um, MAE, MSE, and how
+
+[SPEAKER_00] much importance you put into them when building or iterating?
+
+[SPEAKER_00] So I know it's getting into like the you know, a little bit of
+
+[SPEAKER_00] like back testing discussion, but um I think what I'm
+
+[SPEAKER_00] generally what I would just for the types of problems I've done
+
+[SPEAKER_00] more recently, the past I'd say two, three years.
+
+[SPEAKER_00] Um generally the way I think about the problem is more like
+
+[SPEAKER_00] calibration.
+
+[SPEAKER_00] Um so all of these metrics, I think I've said many times on
+
+[SPEAKER_00] the podcast, like they don't mean anything in of themselves.
+
+[SPEAKER_00] It's only like a comparison of one version of a model to a
+
+[SPEAKER_00] different one.
+
+[SPEAKER_00] So like there's no magic mean squared error that's good and
+
+[SPEAKER_00] mean squared error that's bad, or no R squared that's good and
+
+[SPEAKER_00] bad.
+
+[SPEAKER_00] It's just relative.
+
+[SPEAKER_00] But I think when I say I think about calibration, I think I
+
+[SPEAKER_00] generally have found myself more using like if I think this thing
+
+[SPEAKER_00] is 70%, like do the 70% things generally happen 70% of the
+
+[SPEAKER_00] time?
+
+[SPEAKER_00] Does the 30% things generally happen 30% of the time?
+
+[SPEAKER_00] And where what are the biases where those aren't the case?
+
+[SPEAKER_00] Like, cause there's there's gonna be like a range, like you
+
+[SPEAKER_00] predict, you know, like is there are there certain predictors
+
+[SPEAKER_00] that make it less likely that the 70% happens and and less
+
+[SPEAKER_00] likely or more and less likely, and trying to calibrate that
+
+[SPEAKER_00] way.
+
+[SPEAKER_00] I think the reason I generally think that it depends a lot on
+
+[SPEAKER_00] the modeling problem, but in sports where there's like key
+
+[SPEAKER_00] numbers or like you're not modeling something continuous or
+
+[SPEAKER_00] the distribution isn't like normal.
+
+[SPEAKER_00] I don't necessarily think like looking at something like a mean
+
+[SPEAKER_00] squared error is even like the best metric or any of these
+
+[SPEAKER_00] types of things.
+
+[SPEAKER_00] It doesn't like it's not clear.
+
+[SPEAKER_00] I'll just use an example.
+
+[SPEAKER_00] Let's say you're modeling like football spread, which would is
+
+[SPEAKER_00] not be the way I would do that problem, but like let's say
+
+[SPEAKER_00] that's what you're modeling.
+
+[SPEAKER_00] It would not be clear that like a model with a mean squared
+
+[SPEAKER_00] error of 3.3 is materially better if at all than a mean
+
+[SPEAKER_00] squared error of like 3.5 or something, because that's not
+
+[SPEAKER_00] how football points are scored.
+
+[SPEAKER_00] They're not scored continuously.
+
+[SPEAKER_00] Like you can't score 0.3.
+
+[SPEAKER_00] So, like, yeah, maybe you're better fit, but it doesn't
+
+[SPEAKER_00] necessarily tell you like that the distributions are gonna be
+
+[SPEAKER_00] right or anything.
+
+[SPEAKER_00] So it's probably like not, I'm probably doing a bad job of
+
+[SPEAKER_00] explaining it, but I think in general, like betting is about
+
+[SPEAKER_00] probabilities.
+
+[SPEAKER_00] And so most anything I want to do, I want to think about like
+
+[SPEAKER_00] the calibration more than I mean, I use all this stuff like
+
+[SPEAKER_00] for preliminary, but I think broadly I would think more about
+
+[SPEAKER_00] the calibration than anything.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I didn't uh yeah, I I I don't want to take
+
+[SPEAKER_00] too long because I agree a ton.
+
+[SPEAKER_00] I agree with everything you said.
+
+[SPEAKER_00] Basically, yeah, I think the key, and I always ran into this
+
+[SPEAKER_00] problem when I was like, you know, I'm I'm kind of a
+
+[SPEAKER_00] self-taught in a lot of this stuff, and I worked with uh my
+
+[SPEAKER_00] partner Luke, who's you know, had a long career of statistical
+
+[SPEAKER_00] um modeling and you know, eventually got his PhD and
+
+[SPEAKER_00] whatnot.
+
+[SPEAKER_00] So when I would talk to Luke and I would show him like, is this a
+
+[SPEAKER_00] good R squared?
+
+[SPEAKER_00] He'd be like, I don't know.
+
+[SPEAKER_00] I'm like, how do you not know that?
+
+[SPEAKER_00] And he's like, I don't know, what was the R squared in the
+
+[SPEAKER_00] time you ran it before then?
+
+[SPEAKER_00] And I was like, Oh, okay.
+
+[SPEAKER_00] So I for about a year I kept asking him these things, and
+
+[SPEAKER_00] then I realized like the key is like what you're you can't
+
+[SPEAKER_00] there's no good R squared, there's good no good mean
+
+[SPEAKER_00] square.
+
+[SPEAKER_00] There's obviously quote unquote good directions for it to go,
+
+[SPEAKER_00] like you know, like that the example you said, it's like yes,
+
+[SPEAKER_00] if your mean square went from thirty, you know, 0.33 to you
+
+[SPEAKER_00] know 0.35, you might be like that's quote unquote bad.
+
+[SPEAKER_00] But like in football, it might not be bad because of the key
+
+[SPEAKER_00] numbers and the distribution.
+
+[SPEAKER_00] But I think like what you said preliminary is these things,
+
+[SPEAKER_00] compare them to the version of the model before.
+
+[SPEAKER_00] I make sure now I log all my model runs and I have that like
+
+[SPEAKER_00] printed out at the end of my notebook, which will show me you
+
+[SPEAKER_00] know all my last model runs.
+
+[SPEAKER_00] So right away when I run it, I see like okay, this is kind of
+
+[SPEAKER_00] changed by that, and and whatever.
+
+[SPEAKER_00] Like so that's very important.
+
+[SPEAKER_00] And then what you do, at least what I like to do, is like the
+
+[SPEAKER_00] back test, so which is dollars one.
+
+[SPEAKER_00] So I think like testing something where it's very much
+
+[SPEAKER_00] like let's say golfer matchups, unless you know, a back test is
+
+[SPEAKER_00] like kind of a basic back test, is pretty good, but like where
+
+[SPEAKER_00] you want to get into distributions is like winner
+
+[SPEAKER_00] marketing, all this, and now that takes a lot more.
+
+[SPEAKER_00] You want to kind of sim the event and stuff like this.
+
+[SPEAKER_00] So, like to SP's point, like there's there's basically stages
+
+[SPEAKER_00] of of testing your model.
+
+[SPEAKER_00] The nice thing about like doing your R squared and whatever is
+
+[SPEAKER_00] like it's not a super heavy compute load, doesn't take a lot
+
+[SPEAKER_00] of time.
+
+[SPEAKER_00] It gives you this basic like sense check.
+
+[SPEAKER_00] If you then you decide do you want to spend the compute and
+
+[SPEAKER_00] time on a back test?
+
+[SPEAKER_00] Do you want to then spend the time and compute on this sim
+
+[SPEAKER_00] version of the back test that's like now understands
+
+[SPEAKER_00] distributions?
+
+[SPEAKER_00] That that's kind of how I think of it.
+
+[SPEAKER_00] SPEAKER_01: Next one's a DFS question, a rare, rare DFS
+
+[SPEAKER_00] question.
+
+[SPEAKER_00] How'd that sneak through?
+
+[SPEAKER_00] I got this, I got this on Twitter in the DMs.
+
+[SPEAKER_00] He was, you know, that's how I know the DFS, you know, they
+
+[SPEAKER_00] they don't even feel comfortable.
+
+[SPEAKER_00] Yeah, they're they're afraid.
+
+[SPEAKER_00] Um, but no, we appreciate the DFS question.
+
+[SPEAKER_00] Gumby asks, how how much of your edge in DFS came from having
+
+[SPEAKER_00] private projections versus other areas?
+
+[SPEAKER_00] Is there anything that isn't common in DFS, such as
+
+[SPEAKER_00] projections, range of outcomes, contest sims, that can still
+
+[SPEAKER_00] give an edge?
+
+[SPEAKER_00] So I think you know, I played DFS for the long time.
+
+[SPEAKER_00] A lot of it I was trying hard, but I I don't think I was doing
+
+[SPEAKER_00] that well like early on.
+
+[SPEAKER_00] I think most of the success I would have had would have been
+
+[SPEAKER_00] at stuff where I had my own stuff, like my own projections
+
+[SPEAKER_00] or sim or ownership projections or all of the three.
+
+[SPEAKER_00] Um, and that would be been sort of later on, uh, you know, like
+
+[SPEAKER_00] in the life cycle of DFS.
+
+[SPEAKER_00] So I'd say most of it came like I never I never think I played
+
+[SPEAKER_00] competitively, like using public stuff.
+
+[SPEAKER_00] Um, that just like wasn't my style or like what I was even
+
+[SPEAKER_00] interested in doing at that point.
+
+[SPEAKER_00] It was like half academic for me at that point, um, and half, you
+
+[SPEAKER_00] know, like trying really hard.
+
+[SPEAKER_00] Um, so it was mostly all my own stuff.
+
+[SPEAKER_00] I think to the second part, is there anything common in DFS
+
+[SPEAKER_00] that isn't common in DFS that can still give an edge?
+
+[SPEAKER_00] I mean, if I was playing like competitively today and trying
+
+[SPEAKER_00] to actually like make money and and like make a living or or
+
+[SPEAKER_00] whatever on this, like I think all my effort would be spent
+
+[SPEAKER_00] around like game selection primarily um and getting into
+
+[SPEAKER_00] the right contests.
+
+[SPEAKER_00] I there's so many different types now of like tiers and um
+
+[SPEAKER_00] like home run specific contests and like televised MMA and
+
+[SPEAKER_00] non-televised.
+
+[SPEAKER_00] Like there's just so many contests that it's like not fun
+
+[SPEAKER_00] at all.
+
+[SPEAKER_00] And I get why people don't do it.
+
+[SPEAKER_00] Like people want to go and play in the contest where they can
+
+[SPEAKER_00] win a hundred thousand dollars, and I get that entirely, but
+
+[SPEAKER_00] there are probably spots um that if you were trying to grind out,
+
+[SPEAKER_00] would be like where I'd want to be in.
+
+[SPEAKER_00] So I think it would be like trying to build ways of
+
+[SPEAKER_00] analyzing the lobby.
+
+[SPEAKER_00] Um of the games I want to get in and creating like databases on
+
+[SPEAKER_00] players and some of the stuff I that I've I have done, um like
+
+[SPEAKER_00] tracking what people are doing and stuff.
+
+[SPEAKER_00] But like that's what I would be doing.
+
+[SPEAKER_00] I I understand why no site does that because nobody's interested
+
+[SPEAKER_00] in that, but that's what I would be doing.
+
+[SPEAKER_00] Um the other thing I guess I would say is like if if you
+
+[SPEAKER_00] don't want to do that, something more fun, at least, you know, I
+
+[SPEAKER_00] I don't play many sports at all and like not really in the
+
+[SPEAKER_00] contest at all.
+
+[SPEAKER_00] But I never really thought the industry got very good at
+
+[SPEAKER_00] ownership projections still.
+
+[SPEAKER_00] Um, there's some sports I play where I still think there's like
+
+[SPEAKER_00] clear holes in the ownership projections.
+
+[SPEAKER_00] I don't, I don't know, I've never really had a conversation
+
+[SPEAKER_00] with any of the sites, how they think about it.
+
+[SPEAKER_00] I I think they could be a lot more, I guess my opinion is they
+
+[SPEAKER_00] could be a lot more creative with what predictors they are
+
+[SPEAKER_00] are putting in to predict ownership projections to like
+
+[SPEAKER_00] understand how human beings actually play this game.
+
+[SPEAKER_00] Um so I think ownership projections are important in any
+
+[SPEAKER_00] of the big field contests, and that that would be an area I I
+
+[SPEAKER_00] think you could potentially focus and add value even beyond
+
+[SPEAKER_00] the the projections.
+
+[SPEAKER_00] And some sites do it really some sites in sports do it really
+
+[SPEAKER_00] well.
+
+[SPEAKER_00] Like I would like, for example, like NFL Showdown or something,
+
+[SPEAKER_00] like I've seen the ETR graph or whatever of their project, like
+
+[SPEAKER_00] it's quite good, the ownership projections.
+
+[SPEAKER_00] I'm talking like maybe the less, not the most popular sports
+
+[SPEAKER_00] slates, et cetera.
+
+[SPEAKER_00] Like I think you could do very well.
+
+[SPEAKER_00] Because nobody's really like no site has that.
+
+[SPEAKER_00] No site has the you know, late slate MLB projections.
+
+[SPEAKER_00] Like nobody, like that's that's not that doesn't exist really.
+
+[SPEAKER_00] So and if it does, it's not like a well thought out problem.
+
+[SPEAKER_00] So it'd be stuff like that, similar to game selection, is is
+
+[SPEAKER_00] what I'd be focusing on.
+
+[SPEAKER_00] So probably not the answer you you wanted because nobody wants
+
+[SPEAKER_00] that, but that's what I would be doing.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I I can't I can't get you know give too much
+
+[SPEAKER_00] here.
+
+[SPEAKER_00] So um, but shout out to you, Gumby, for grinding the grinding
+
+[SPEAKER_00] the DFS streets.
+
+[SPEAKER_00] Um okay, we got a question from Bryce, you know, a very frequent
+
+[SPEAKER_00] question asker.
+
+[SPEAKER_00] Shout out, Bryce.
+
+[SPEAKER_00] What's your most important background experience slash
+
+[SPEAKER_00] knowledge that's helped you scale your operation to where it
+
+[SPEAKER_00] is now?
+
+[SPEAKER_00] Um I can go.
+
+[SPEAKER_00] I th I actually uh I would say when I my time when I business
+
+[SPEAKER_00] school and right after business school when I did a year in
+
+[SPEAKER_00] investment banking, like I think one thing that I always was was
+
+[SPEAKER_00] like I think I was interested in gambling, I was like very um it
+
+[SPEAKER_00] was very easy for me to get on board with thinking
+
+[SPEAKER_00] probabilistically and like you know I was winning poker player,
+
+[SPEAKER_00] um but I think my biggest leak, and I think a leak of a lot of
+
+[SPEAKER_00] people I knew in poker or just in gambling, were like I really
+
+[SPEAKER_00] wasn't I don't want to say like a hard worker, but I wasn't like
+
+[SPEAKER_00] willing to just kind of like just eat shit like and and grind
+
+[SPEAKER_00] it out and like be professional and organized and all of these
+
+[SPEAKER_00] things, and like if you're listening to this and you you
+
+[SPEAKER_00] know were in the investment banking streets, like prayers to
+
+[SPEAKER_00] you, like you know what uh what you gotta do in that job to to
+
+[SPEAKER_00] survive.
+
+[SPEAKER_00] So I think like it injected me with just the right amount of
+
+[SPEAKER_00] like professionalism, work ethic, and like ability to kind
+
+[SPEAKER_00] of work on something I don't want to work on for an extended
+
+[SPEAKER_00] period of time to get like a positive result.
+
+[SPEAKER_00] And like I think there is a lot of other stuff that probably
+
+[SPEAKER_00] made me a good gambler that wasn't this, but as far as like
+
+[SPEAKER_00] actually being successful, I think this was like the missing
+
+[SPEAKER_00] link.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean, this is sort of an awkward question
+
+[SPEAKER_00] to answer for anybody because it's like sort of um, you know,
+
+[SPEAKER_00] like that don't want to come off as arrogant or or anything.
+
+[SPEAKER_00] It's like talking about it.
+
+[SPEAKER_00] SPEAKER_00: I just answered it like right away, no problems.
+
+[SPEAKER_00] SPEAKER_01: I mean, and the other thing, I don't know how
+
+[SPEAKER_00] how how well my operation is scaled.
+
+[SPEAKER_00] Um, but I guess the the thing I would say, like the common
+
+[SPEAKER_00] thread that uh that's allowed me to have success in it in a
+
+[SPEAKER_00] couple of different types of gambling and speculation over
+
+[SPEAKER_00] time would be I think uh the ability to look at a problem and
+
+[SPEAKER_00] or process or anything and see what's sort of like gonna be
+
+[SPEAKER_00] random or like how to distill the problem, maybe is the
+
+[SPEAKER_00] simplest way of saying it, of like what I think like having
+
+[SPEAKER_00] coming up with hypotheses about what matters and what doesn't,
+
+[SPEAKER_00] and being able to build and implement that, I think is uh is
+
+[SPEAKER_00] probably like the common theme of of like distilling the
+
+[SPEAKER_00] problems into what matters and what doesn't.
+
+[SPEAKER_00] I think in all types of betting and you know, actuarial work or
+
+[SPEAKER_00] whatever is is an important skill.
+
+[SPEAKER_00] So like separating the the the noise from the the signal.
+
+[SPEAKER_00] SPEAKER_00: Uh shout out Nate Silver.
+
+[SPEAKER_00] Um Timmy K, two questions.
+
+[SPEAKER_00] Do you see iceberg orders having any role in sports exchanges?
+
+[SPEAKER_00] I'll just answer that one.
+
+[SPEAKER_00] Like, you know, definitely we use them, especially on smaller
+
+[SPEAKER_00] tick sizes where Q doesn't matter.
+
+[SPEAKER_00] You're an iceberg order basically protects you from
+
+[SPEAKER_00] getting hit for huge size by a sharp.
+
+[SPEAKER_00] What an iceberg order is, is you show like you want to get
+
+[SPEAKER_00] 20,000, but you show 500 and you keep refreshing it when you get
+
+[SPEAKER_00] filled.
+
+[SPEAKER_00] It's the same thing that SP talked about earlier this
+
+[SPEAKER_00] episode where you're trying to get filled by squares and not
+
+[SPEAKER_00] get hit huge by sharps in small tick sizes where cues doesn't
+
+[SPEAKER_00] matter, iceberg orders are essential.
+
+[SPEAKER_00] Um pros and cons of being on the calcio leaderboard.
+
+[SPEAKER_00] Yeah, I don't know.
+
+[SPEAKER_00] I mean, I've I've you know, I think pros, cons is like if you
+
+[SPEAKER_00] go on a big down swing and everyone starts asking if you're
+
+[SPEAKER_00] good or like you're an idiot.
+
+[SPEAKER_00] No.
+
+[SPEAKER_00] Um pros are, you know, I think like you want to.
+
+[SPEAKER_00] I think it's always been hard in betting to be like, no, I know,
+
+[SPEAKER_00] you know, I'm a there's val there's value to being known as
+
+[SPEAKER_00] a good better or like a good betting operation.
+
+[SPEAKER_00] Um, but there hasn't been really like a lot of good provable ways
+
+[SPEAKER_00] to do that without like nuking your own edge.
+
+[SPEAKER_00] Um so that's what I like about the call she leaderboard is
+
+[SPEAKER_00] like, yeah, like you know, we're pretty good, you know, make some
+
+[SPEAKER_00] money.
+
+[SPEAKER_00] Um it's not all of our P ⁇ L or it's not everything, but like at
+
+[SPEAKER_00] least you can see like what we do on Call She and if people
+
+[SPEAKER_00] want to uh work with us or or whatever, um, you know, at least
+
+[SPEAKER_00] you know like this is kind of a you know, we're not you can't
+
+[SPEAKER_00] you're not documenting your culture, you know, that's their
+
+[SPEAKER_00] their track, that's their metric, right?
+
+[SPEAKER_00] So it kind of allows you to to without giving away your edges
+
+[SPEAKER_00] or whatnot, kind of have some legitimacy.
+
+[SPEAKER_00] SPEAKER_01: Yeah, that's that's what I said for pro.
+
+[SPEAKER_00] Like it can it can add some legitimacy.
+
+[SPEAKER_00] Obviously, you know, the challenges with with it is is
+
+[SPEAKER_00] one site, you don't know what people are, you know, like
+
+[SPEAKER_00] someone could be if they're like arbing or whatever, they could
+
+[SPEAKER_00] be it doesn't tell like a full story, so I think anybody um
+
+[SPEAKER_00] looking at the casualty leaderboard or whatever should
+
+[SPEAKER_00] should understand that, but it can provide some legitimacy that
+
+[SPEAKER_00] like you know, betting volume or whatever.
+
+[SPEAKER_00] Um yeah, the con, I I I think it's different for everybody,
+
+[SPEAKER_00] and I think it would have affected me different at
+
+[SPEAKER_00] different points in my life.
+
+[SPEAKER_00] Um, but like it definitely can tilt you worse if when it's
+
+[SPEAKER_00] public, right?
+
+[SPEAKER_00] Like it's bad enough to be like on a downswing, and then you're
+
+[SPEAKER_00] like, God, everybody now knows I'm on a downswing.
+
+[SPEAKER_00] I think it's yeah, I I don't I I I honestly have wavered back and
+
+[SPEAKER_00] forth um on whether I, you know, it'd be like I I it's not clear
+
+[SPEAKER_00] to me what the best is.
+
+[SPEAKER_00] I think it it also depends like what you want.
+
+[SPEAKER_00] I mean, we just full transparency, like we do a show,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] Like it's a little bit probably different for us than maybe
+
+[SPEAKER_00] everybody else who like doesn't do a show.
+
+[SPEAKER_00] But I do think like if you wanna, you know, like to that
+
+[SPEAKER_00] that that question from Belgium, like obviously doesn't apply to
+
+[SPEAKER_00] them, but if you're someone that wants to like get into the
+
+[SPEAKER_00] industry, make more connections, like you know, there's you know,
+
+[SPEAKER_00] want to be on our show, like the easiest way is to be on the
+
+[SPEAKER_00] couch computer, like you know.
+
+[SPEAKER_00] SPEAKER_00: So that is true.
+
+[SPEAKER_00] If your goal is to be on this show, that is that's a good way
+
+[SPEAKER_00] to do it.
+
+[SPEAKER_00] SPEAKER_01: It's mostly how we have been paying our guts.
+
+[SPEAKER_00] SPEAKER_00: Um we got I okay.
+
+[SPEAKER_00] So Troy asked a question that's gonna be an episode.
+
+[SPEAKER_00] So Troy, you know, you it was basically about some dead edges.
+
+[SPEAKER_00] We want to do some dead originating edges where we
+
+[SPEAKER_00] actually give out detailed kind of numbers of what we had and
+
+[SPEAKER_00] whatnot.
+
+[SPEAKER_00] I think it's a great, it's a longer, it's a longer answer,
+
+[SPEAKER_00] but it's a good episode.
+
+[SPEAKER_00] Um, we have Isaac again, but we love Isaac.
+
+[SPEAKER_00] So um this one I didn't really get.
+
+[SPEAKER_00] Like, is X roi of picks given by otherwise winning betters on
+
+[SPEAKER_00] shows, which is like I guess liquid.
+
+[SPEAKER_00] I I kind of take this as like Captain Jack's like Super Bowl
+
+[SPEAKER_00] show where like I pick the Seahawks.
+
+[SPEAKER_00] SPEAKER_01: It's like I think that's like the most
+
+[SPEAKER_00] uncharitable version of this.
+
+[SPEAKER_00] I would say like a daily like NBA or NHL show.
+
+[SPEAKER_00] SPEAKER_00: That's I mean obviously like is it is it above
+
+[SPEAKER_00] zero?
+
+[SPEAKER_00] SPEAKER_01: Like, no, no, come on, like I mean it's probably
+
+[SPEAKER_00] like like I said, the most uncharitable version of this you
+
+[SPEAKER_00] could do.
+
+[SPEAKER_00] Yeah, um and the second part was could you could you beat NFL
+
+[SPEAKER_00] side's total set post, say at circa without lying chopping?
+
+[SPEAKER_00] I mean the answer is the second one.
+
+[SPEAKER_00] Smoking crack when you read this question.
+
+[SPEAKER_00] Like neither of us like dude.
+
+[SPEAKER_00] Do you think if you if you gave it like I the more interesting
+
+[SPEAKER_00] question is like if you put enough if you put as much work
+
+[SPEAKER_00] in golf to the NFL?
+
+[SPEAKER_00] I think the answer to me is very clearly you would beat the VIG.
+
+[SPEAKER_00] Like very clearly on NFL side?
+
+[SPEAKER_00] Meaning like you you would beat the no vague you would be better
+
+[SPEAKER_00] than break-even before VIG.
+
+[SPEAKER_00] SPEAKER_00: Yes, yes, yeah, yeah, definitely.
+
+[SPEAKER_00] That that's definitely, but yeah, no shot of like post-vig,
+
+[SPEAKER_00] I don't think.
+
+[SPEAKER_00] Yeah, I think maybe on totals, maybe like really being select
+
+[SPEAKER_00] like really selective on like a total angle.
+
+[SPEAKER_00] Like I maybe there's something weird you could do there, but I
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] I think no.
+
+[SPEAKER_00] Um David, uh do you you you agree?
+
+[SPEAKER_00] You you could probably do that.
+
+[SPEAKER_00] SPEAKER_01: I think most shows, like if we're talking about like
+
+[SPEAKER_00] morning of NBA games, like I'm guessing if they're like actual
+
+[SPEAKER_00] serious people giving the the bets out in general, they're
+
+[SPEAKER_00] probably doing better than coin flipping.
+
+[SPEAKER_00] Like the VIG is a lot to overcome.
+
+[SPEAKER_00] SPEAKER_00: So like they could yeah, like I'm not saying
+
+[SPEAKER_00] they're pure coin flipping, but like no, no, I don't I I think a
+
+[SPEAKER_00] lot of people are beating the no VIG line.
+
+[SPEAKER_00] Yes.
+
+[SPEAKER_00] SPEAKER_01: But yes, yeah, I think that was his question.
+
+[SPEAKER_00] Like, are they are they literally pure coin flipping or
+
+[SPEAKER_00] are they good enough?
+
+[SPEAKER_00] Yeah, like that is like basically if the if the big ROI
+
+[SPEAKER_00] is negative four percent, are they like I see negative three
+
+[SPEAKER_00] percent?
+
+[SPEAKER_00] SPEAKER_00: Yeah, I'd say so.
+
+[SPEAKER_00] I'd say even some pretty bad, you know, people who kind of
+
+[SPEAKER_00] know ball might even be there.
+
+[SPEAKER_00] Um David Freed, how would you go about better learning how to
+
+[SPEAKER_00] play around with order book dynamics um and how to balance
+
+[SPEAKER_00] your fill volume with maximizing EV?
+
+[SPEAKER_00] So I think this is a similar question to what we talked about
+
+[SPEAKER_00] with uh uh the one basically of like, you know, I'm taking you
+
+[SPEAKER_00] know, I'm a top-down market maker, I'm taking bets on both
+
+[SPEAKER_00] sides.
+
+[SPEAKER_00] Um what I would say is you I think the I think it's the same
+
+[SPEAKER_00] stuff.
+
+[SPEAKER_00] Like get in there, post, you know, be posting the top of
+
+[SPEAKER_00] book.
+
+[SPEAKER_00] Um, don't be too uh too afraid to you know post top of top of
+
+[SPEAKER_00] book in a market, and then like worst thing you can do is lose
+
+[SPEAKER_00] like a tiny bit and learn.
+
+[SPEAKER_00] Um that's how you're gonna learn about order book dynamics and
+
+[SPEAKER_00] just pay attention.
+
+[SPEAKER_00] Like, are people joining you?
+
+[SPEAKER_00] Um that's good.
+
+[SPEAKER_00] Are people jumping you?
+
+[SPEAKER_00] That's kind of good.
+
+[SPEAKER_00] Like it means you're at like a decent level of well, what
+
+[SPEAKER_00] happens?
+
+[SPEAKER_00] Do they jump and then they if you don't join them, do they go
+
+[SPEAKER_00] away?
+
+[SPEAKER_00] If they jump and you join, do they stay?
+
+[SPEAKER_00] Like that that's all like you just gotta be in there, right?
+
+[SPEAKER_00] And do it by hand.
+
+[SPEAKER_00] Like you don't have to have like I think a lot of there's a
+
+[SPEAKER_00] misconception of like it's everybody's automated, which
+
+[SPEAKER_00] which is kind of true, but like if we are testing a strategy,
+
+[SPEAKER_00] like a lot almost all of our strategies started from some
+
+[SPEAKER_00] like hand tested stuff.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I I I wrote down trial and error.
+
+[SPEAKER_00] I think you gotta just get in there and and play with
+
+[SPEAKER_00] different strategies, and you can do it by hand.
+
+[SPEAKER_00] So, like you said, post something, see what happens to
+
+[SPEAKER_00] the order book, post something at a different size, see what
+
+[SPEAKER_00] happens to the order book, you know, those types of things, and
+
+[SPEAKER_00] you'll you'll you'll figure it out.
+
+[SPEAKER_00] I I think a large chunk of what's going on on the exchanges
+
+[SPEAKER_00] is like bots.
+
+[SPEAKER_00] Yeah, like different types of bots, and so you will see like
+
+[SPEAKER_00] what happens pretty clearly.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] Bots, it's hard to have a bot be really tricky and random.
+
+[SPEAKER_00] So like remember that and kind of poke it, and you can kind of
+
+[SPEAKER_00] see what it does.
+
+[SPEAKER_00] Um, Sam Schwartz, what will be the second and third most
+
+[SPEAKER_00] competitive CFTC regulated sports prediction market product
+
+[SPEAKER_00] one year from now behind Call Sheet?
+
+[SPEAKER_00] I think I agree with Sam that it's basically impossible for
+
+[SPEAKER_00] someone to jump call she within a year.
+
+[SPEAKER_00] I just it would be I would be shocked.
+
+[SPEAKER_00] Um I think two will be Polly.
+
+[SPEAKER_00] Three will be Novig.
+
+[SPEAKER_00] I don't know, that's maybe my hot take.
+
+[SPEAKER_00] Three might be Novig.
+
+[SPEAKER_00] SPEAKER_01: We just because I like those overlap with our two.
+
+[SPEAKER_00] The two I wrote down were Robinhood and I don't I honestly
+
+[SPEAKER_00] don't know that much about the crypto world.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yeah.
+
+[SPEAKER_00] SPEAKER_01: But I wrote down Robin Hood and Coinbase.
+
+[SPEAKER_00] Like, I don't know if they're doing their own or crypto.com or
+
+[SPEAKER_00] whatever, but I yeah, I like your I like your answer better
+
+[SPEAKER_00] than mine, you know.
+
+[SPEAKER_00] SPEAKER_00: Like I've you know I think Polly has so much money,
+
+[SPEAKER_00] like they'll probably be high off the list.
+
+[SPEAKER_00] SPEAKER_01: Polly is clearly like in there as well.
+
+[SPEAKER_00] Obviously, like they've had a slower rollout.
+
+[SPEAKER_00] I saw some story that they had their first like month that was
+
+[SPEAKER_00] actually a decline.
+
+[SPEAKER_00] I don't exactly know what's going on over there, but they
+
+[SPEAKER_00] they've been slower.
+
+[SPEAKER_00] I mean, I'd love for it to be the sports companies, you know,
+
+[SPEAKER_00] Novig and and Profit or Sport Trade or any of those, you know,
+
+[SPEAKER_00] yeah, represent the sports people well enough for that to
+
+[SPEAKER_00] be the answer.
+
+[SPEAKER_00] SPEAKER_00: But wrap it.
+
+[SPEAKER_00] Um, we had a question about this PPH thing from Nick.
+
+[SPEAKER_00] I mean, you know, I think Porter brought up a good point.
+
+[SPEAKER_00] Why would Golden Pants have expertise in this?
+
+[SPEAKER_00] He wouldn't.
+
+[SPEAKER_00] Um, you know, I think that's a very good point.
+
+[SPEAKER_00] Uh yeah, I don't know.
+
+[SPEAKER_00] I mean, I think the the gist of it was like if you if some if
+
+[SPEAKER_00] you give somebody a uh a PPH account and you don't get paid,
+
+[SPEAKER_00] should you be paying the person uh who bet through it?
+
+[SPEAKER_00] And like I think the default is yes.
+
+[SPEAKER_00] I think obviously just make sure you talk about it.
+
+[SPEAKER_00] Make sure you talk about it, like then what's gonna happen,
+
+[SPEAKER_00] you know.
+
+[SPEAKER_00] But yeah, if you like the the the assumption should probably
+
+[SPEAKER_00] be yes, but I do think it's always good to talk about this
+
+[SPEAKER_00] stuff.
+
+[SPEAKER_00] Um I don't do like I've I did we had a brief PPH period.
+
+[SPEAKER_00] I I've I hated it.
+
+[SPEAKER_00] It was miserable, miserable.
+
+[SPEAKER_00] SPEAKER_01: I had a hypothesis with this whole thing.
+
+[SPEAKER_00] Do you think it you know 20 years from now if PPH is like
+
+[SPEAKER_00] not really nearly as as big of a thing, it continues to get less
+
+[SPEAKER_00] and less big deal.
+
+[SPEAKER_00] Do you think like that will mean gambling Twitter will be like
+
+[SPEAKER_00] less of a like unhappy place because they don't have to deal
+
+[SPEAKER_00] with these types of like situations and stuff like that?
+
+[SPEAKER_00] SPEAKER_00: No, like like I I just think like what a time to
+
+[SPEAKER_00] be alive where we have a temporary reprieve where yeah,
+
+[SPEAKER_00] we can just care about like this is this guy's boss's phone
+
+[SPEAKER_00] number, call him, he got some stiffer.
+
+[SPEAKER_00] SPEAKER_01: I mean, that's just like a tough way to to yeah,
+
+[SPEAKER_00] yeah.
+
+[SPEAKER_00] I mean, like this is I I know nothing about anyway, but like
+
+[SPEAKER_00] that just seems like a tough go of it.
+
+[SPEAKER_00] So I could understand being like a jaded gambler when this is the
+
+[SPEAKER_00] reality.
+
+[SPEAKER_00] SPEAKER_00: For sure, for sure.
+
+[SPEAKER_00] I do I do think that that that's a good take there.
+
+[SPEAKER_00] Um gambling sheriff about some recreational betting.
+
+[SPEAKER_00] Like it your favorite team is in the championship game of the
+
+[SPEAKER_00] sport.
+
+[SPEAKER_00] You have an out with unlimited liquidity at exactly in on like
+
+[SPEAKER_00] we know this is zero percent UV.
+
+[SPEAKER_00] This is a theoretical question.
+
+[SPEAKER_00] How much of your bank will would you be willing to risk on fandom
+
+[SPEAKER_00] fandom alone?
+
+[SPEAKER_00] I everybody's like, don't bet on your favorite teams.
+
+[SPEAKER_00] I think that's that's such a bad take.
+
+[SPEAKER_00] Because as gamblers, like I do think like your fandom kind of
+
+[SPEAKER_00] gets whittled down a little bit.
+
+[SPEAKER_00] I think also as you get older, you know, you're like 12 and
+
+[SPEAKER_00] you're like, this guy's the greatest thing ever.
+
+[SPEAKER_00] Like you're not asking for autographs as like a 35-year-old
+
+[SPEAKER_00] person to like a 26, you know, like it's just a little
+
+[SPEAKER_00] different.
+
+[SPEAKER_00] So as you get older too, I think it kind of switches.
+
+[SPEAKER_00] But you know, I like to I like to root from for my teams.
+
+[SPEAKER_00] I like to, you know, I like the occasional experience of being a
+
+[SPEAKER_00] fan.
+
+[SPEAKER_00] Sad to say, I think like it would bring me back to the more
+
+[SPEAKER_00] of the level of fandom I had when I was growing up if I
+
+[SPEAKER_00] placed some kind of bet on them too.
+
+[SPEAKER_00] SPEAKER_01: Um, it's like a drug need like that higher, that's
+
+[SPEAKER_00] like more and more of a hit to get the same high over time.
+
+[SPEAKER_00] I don't disagree.
+
+[SPEAKER_00] Put it that way, yeah.
+
+[SPEAKER_00] You gotta take the money.
+
+[SPEAKER_00] The key, the the the the key here is has to be the money
+
+[SPEAKER_00] line.
+
+[SPEAKER_00] You gotta take the money line because not take a spread.
+
+[SPEAKER_00] Then you're like happy but not really happy.
+
+[SPEAKER_00] Like, yeah, exactly.
+
+[SPEAKER_00] SPEAKER_00: Um, yeah, I think we're agreed.
+
+[SPEAKER_00] Viking bets, do you know some large whale wrecks taking on on
+
+[SPEAKER_00] Cal Shi.
+
+[SPEAKER_00] I would say like you you can see this if they hit multiple levels
+
+[SPEAKER_00] and it's not a latency advantage.
+
+[SPEAKER_00] That that's the if you're posting uh multiple levels deep,
+
+[SPEAKER_00] which a lot of times that's you know correct strategy, sometimes
+
+[SPEAKER_00] it's not, sometimes it is.
+
+[SPEAKER_00] But if you're in one of those books, you have three levels,
+
+[SPEAKER_00] and somebody comes in and takes all three and it's not latency
+
+[SPEAKER_00] at all, like that is a wreck whale.
+
+[SPEAKER_00] Like, yes, period.
+
+[SPEAKER_00] Market orders, big size.
+
+[SPEAKER_00] Um, I see some of them.
+
+[SPEAKER_00] Not a lot, but some.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I I mean I texted you about some weird
+
+[SPEAKER_00] stuff.
+
+[SPEAKER_00] That was something weird.
+
+[SPEAKER_00] I've seen some weird stuff, so um, I don't know what I honestly
+
+[SPEAKER_00] don't know what to make of it, some of it.
+
+[SPEAKER_00] So uh I I guess my short answer would be yes to this as well.
+
+[SPEAKER_00] SPEAKER_00: You're Jafrica, you're 100% sure of the outcome
+
+[SPEAKER_00] of a contract expiring in a year, and the market fluctuates
+
+[SPEAKER_00] between 85 and 90 percent.
+
+[SPEAKER_00] Um how much are you spending in this market?
+
+[SPEAKER_00] How do you manage your bankroll?
+
+[SPEAKER_00] No, you'll be locked up that long.
+
+[SPEAKER_00] Yeah, I think like this is a big thing we talked about.
+
+[SPEAKER_00] It's like I wouldn't be in that market.
+
+[SPEAKER_00] Like neither would I, period.
+
+[SPEAKER_00] My answer was that's how good the space is right now.
+
+[SPEAKER_00] SPEAKER_01: I don't think opportunities to lose money, you
+
+[SPEAKER_00] know, today.
+
+[SPEAKER_00] Why would I?
+
+[SPEAKER_00] I can I can just lose money today, you know.
+
+[SPEAKER_00] You know, it is funny, like when you're on a downswing, I'm I'm
+
+[SPEAKER_00] sitting here answering the question like zero, and then I'm
+
+[SPEAKER_00] like, that is what's going through my head.
+
+[SPEAKER_00] I'm like, I why why would it be zero?
+
+[SPEAKER_00] I could just lose money today.
+
+[SPEAKER_00] SPEAKER_00: You're like zero.
+
+[SPEAKER_00] You're like, because uh if I'm a hundred percent sure, like it's
+
+[SPEAKER_00] actually wrong.
+
+[SPEAKER_00] unknown: Right.
+
+[SPEAKER_00] SPEAKER_01: Um I'll ask this to you, it'll be a little
+
+[SPEAKER_00] braggadocious from Ian.
+
+[SPEAKER_00] Uh, brag to the listeners a little.
+
+[SPEAKER_00] Tell us about your best month ever, it looks like month to
+
+[SPEAKER_00] date.
+
+[SPEAKER_00] You have more than doubled your your lifetime profit and loss on
+
+[SPEAKER_00] Calci.
+
+[SPEAKER_00] I'm glad Ian didn't you know draw attention to what's been
+
+[SPEAKER_00] going on over here and this focus on the positive only.
+
+[SPEAKER_00] So, what's been going on over there?
+
+[SPEAKER_00] SPEAKER_00: We've had a good two months.
+
+[SPEAKER_00] Actually, I think last month would probably be our best
+
+[SPEAKER_00] month.
+
+[SPEAKER_00] This month, this is one of those that looks good on college.
+
+[SPEAKER_00] It's not there, it's a good month, but we've like it looks
+
+[SPEAKER_00] like we made money last golf tournament, basically, but we
+
+[SPEAKER_00] did not.
+
+[SPEAKER_00] SPEAKER_01: We lost money, so you can't don't tell them that
+
+[SPEAKER_00] when you when you're up, when you're up, you know.
+
+[SPEAKER_00] It's all on college down.
+
+[SPEAKER_00] SPEAKER_00: It's like I have many accounts.
+
+[SPEAKER_00] Yes, I have many, many accounts.
+
+[SPEAKER_00] Yeah, I learned the playbook, clearly, yeah.
+
+[SPEAKER_00] Um but yeah, I mean I you know it's been a good two months.
+
+[SPEAKER_00] It's it's always good to win.
+
+[SPEAKER_00] I mean, I don't um yeah.
+
+[SPEAKER_00] One of those things where you try and not overreact to it
+
+[SPEAKER_00] positive or negative, because we've for the first couple
+
+[SPEAKER_00] months of the year we were just getting fucking killed, like and
+
+[SPEAKER_00] it felt like we couldn't win a single bet, and now it's two
+
+[SPEAKER_00] good months, and you feel like oh I'm just Just gonna keep
+
+[SPEAKER_00] winning, and then you know that's not what happened.
+
+[SPEAKER_00] We had like a very bad, bad Sunday, um, which looked like a
+
+[SPEAKER_00] good Sunday on Call Street, so it's not always what it seems,
+
+[SPEAKER_00] but uh yeah, I don't know.
+
+[SPEAKER_00] I mean, trying to, I think we have we've been building some
+
+[SPEAKER_00] good stuff, and a lot of it's kind of paying off finally.
+
+[SPEAKER_00] SPEAKER_01: I wanted to make the joke that you know GP realized
+
+[SPEAKER_00] he doesn't need to optimize for volume, he can actually try and
+
+[SPEAKER_00] make money.
+
+[SPEAKER_00] Well, it's over for everyone else now.
+
+[SPEAKER_00] SPEAKER_00: It's kind of true.
+
+[SPEAKER_00] SPEAKER_01: Like we've dipped our volume and basically kind of
+
+[SPEAKER_00] been more into well, I think I think there's a lesson in there
+
+[SPEAKER_00] that people should take that it's not about optimizing for
+
+[SPEAKER_00] the amount of money at every single moment of your you know,
+
+[SPEAKER_00] like journey, because I'm sure there's a lot of things you
+
+[SPEAKER_00] learned by uh taking more chance and more volume that have set
+
+[SPEAKER_00] you up for that.
+
+[SPEAKER_00] So yeah, yeah.
+
+[SPEAKER_00] I mean, that's another part of this whole discussion.
+
+[SPEAKER_00] SPEAKER_00: No, that that that's right.
+
+[SPEAKER_00] There's a lot of stuff that either losses or building tech
+
+[SPEAKER_00] or whatever, that was kind of investment in future profits.
+
+[SPEAKER_00] Um uh retired tout.
+
+[SPEAKER_00] Oh, damn, why'd you retire, man?
+
+[SPEAKER_00] I don't know how big a percent of your profit would you give up
+
+[SPEAKER_00] to completely avoid swings.
+
+[SPEAKER_00] Assume that an all-knowing God comes down from the sky with the
+
+[SPEAKER_00] actual true odds and make sure you get paid your EV.
+
+[SPEAKER_00] Bets will still win or lose, your EV will just be realized in
+
+[SPEAKER_00] the smallest time intervals that are possible.
+
+[SPEAKER_00] Okay, after deciding the biggest percent cut, you will accept,
+
+[SPEAKER_00] you will forget about the deal, you can't game it or use it to
+
+[SPEAKER_00] evaluate bets.
+
+[SPEAKER_00] This is a really good question.
+
+[SPEAKER_00] Like, it's kind of airtight locked down.
+
+[SPEAKER_00] Like, I've already thought of ways that you're gonna try and
+
+[SPEAKER_00] sneak around this.
+
+[SPEAKER_00] Um, I mean, it certainly wouldn't be zero.
+
+[SPEAKER_00] Like, I would I would give something.
+
+[SPEAKER_00] Like, uh I don't know.
+
+[SPEAKER_00] 10%?
+
+[SPEAKER_00] Is that crazy?
+
+[SPEAKER_00] SPEAKER_01: My answer is none.
+
+[SPEAKER_00] What what's the fun in this game?
+
+[SPEAKER_00] What's what's the fun in this game if there's no you there's
+
+[SPEAKER_00] no, you know, like no gamble, no fun.
+
+[SPEAKER_00] Give give me like this.
+
+[SPEAKER_00] This is if you if you don't want any gamble, just get it, just do
+
+[SPEAKER_00] just do a normal job.
+
+[SPEAKER_00] SPEAKER_00: Well theoretically you'd be getting paid more to do
+
+[SPEAKER_00] this, hopefully.
+
+[SPEAKER_00] But yeah, I uh yeah, okay, I'll come back to that.
+
+[SPEAKER_00] I'll think about that, but I know we're we're trying to get
+
+[SPEAKER_00] we're trying to get to peanuts question, basically.
+
+[SPEAKER_00] So let's uh I'll retire title that's such a good question.
+
+[SPEAKER_00] Uh may reconsider this.
+
+[SPEAKER_00] Than okay.
+
+[SPEAKER_00] This is another we got three really uh interesting ones.
+
+[SPEAKER_00] This was the fedora one.
+
+[SPEAKER_00] How much money would you need to wear fedora until you die?
+
+[SPEAKER_00] You can't oh yeah, you can't explain to anyone why you're
+
+[SPEAKER_00] wearing it, but it's mandatory outside of the showering or
+
+[SPEAKER_00] sleeping.
+
+[SPEAKER_00] SPEAKER_01: I mean, here's here's the thing with the
+
+[SPEAKER_00] fedora.
+
+[SPEAKER_00] Like after six months of wearing the fedora, everybody would just
+
+[SPEAKER_00] know you as the fedora guy, and it would be like a non-issue.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Like it quickly becomes like you're just the fedora guy.
+
+[SPEAKER_00] SPEAKER_00: Yeah, but I I know you you wouldn't do it for a
+
+[SPEAKER_00] hundred grand, of course.
+
+[SPEAKER_00] SPEAKER_01: No, I mean I wouldn't do it, it would take a
+
+[SPEAKER_00] lot just because it but it could be anything.
+
+[SPEAKER_00] Like, if I was forced to do anything my whole life, that
+
+[SPEAKER_00] just feels like a a like a big commitment that I I wouldn't
+
+[SPEAKER_00] want to sign up for.
+
+[SPEAKER_00] But like, if we're being honest, the fedora thing, like it could
+
+[SPEAKER_00] be anything, and it would be a lot of a lot of money for me.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] SPEAKER_01: Just because it's like locking me into something,
+
+[SPEAKER_00] but like, yeah, like would you but there would be a number?
+
+[SPEAKER_00] To wear the fedora?
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] SPEAKER_01: I mean, there's always a number, right?
+
+[SPEAKER_00] SPEAKER_00: Not always.
+
+[SPEAKER_00] There could be some stuff where you're just like, eh, it's not
+
+[SPEAKER_00] worth it.
+
+[SPEAKER_00] I feel like we've had that up.
+
+[SPEAKER_00] SPEAKER_01: Like, I forget what it was like that grape game
+
+[SPEAKER_00] where we're just like there's a number here, but it's it's it's
+
+[SPEAKER_00] like what something people would consider unreasonably high.
+
+[SPEAKER_00] Yeah, it's like if you say it, you're not a man of the people
+
+[SPEAKER_00] anymore.
+
+[SPEAKER_00] Yeah, it's it's unreasonably high.
+
+[SPEAKER_00] Just yeah, but it but to be clear, it's like not a hate on
+
+[SPEAKER_00] the fedora, you know.
+
+[SPEAKER_00] SPEAKER_00: No, it has nothing to do with the fedora.
+
+[SPEAKER_00] SPEAKER_01: But I was thinking about this question, and I was
+
+[SPEAKER_00] thinking like the awful places you would have to wear the
+
+[SPEAKER_00] fedora to, like funeral, like you know, you're like, yeah,
+
+[SPEAKER_00] yeah, exactly.
+
+[SPEAKER_00] And you like refuse to take the fedora.
+
+[SPEAKER_00] SPEAKER_00: Well, you have to be a professional gambler, like
+
+[SPEAKER_00] that's now that's now something you need to do.
+
+[SPEAKER_00] Like, yeah, you can't just keep a fedora on the office.
+
+[SPEAKER_00] SPEAKER_01: But like overall with your friends and in public,
+
+[SPEAKER_00] you would just be like the quirky fedora guy.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] I don't know what my I think my number would have to be like
+
+[SPEAKER_00] something that gets me basically all of the things I would find
+
+[SPEAKER_00] really important in life or fun that like I would and then it's
+
+[SPEAKER_00] kind of like like your mind.
+
+[SPEAKER_00] SPEAKER_01: Is it more or less than what you would accept for
+
+[SPEAKER_00] the billion dollar flip?
+
+[SPEAKER_00] SPEAKER_00: It's more, I think.
+
+[SPEAKER_00] SPEAKER_01: That's fair.
+
+[SPEAKER_00] That's fair.
+
+[SPEAKER_00] It's it comes at a cost.
+
+[SPEAKER_00] SPEAKER_00: Yeah, it comes, it does.
+
+[SPEAKER_00] It cut exactly, it comes actually at a cost, so you have
+
+[SPEAKER_00] to yeah.
+
+[SPEAKER_00] Um, okay.
+
+[SPEAKER_00] This question derailed me today.
+
+[SPEAKER_00] This is peanuts question.
+
+[SPEAKER_00] Did you think about this for an abnormally long time today?
+
+[SPEAKER_00] No, because I think I came up with an answer pretty quickly.
+
+[SPEAKER_00] So I have this theory.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Oh, I guess we should read the uh we should read the question,
+
+[SPEAKER_00] but I have a theory of why you would have an answer quicker
+
+[SPEAKER_00] than me.
+
+[SPEAKER_00] SPEAKER_01: Um okay.
+
+[SPEAKER_00] Let's I'll read the question and then you can tell me give me
+
+[SPEAKER_00] your theory and then we can both answer.
+
+[SPEAKER_00] So the question is aliens come down and have the ability to
+
+[SPEAKER_00] rank everyone in the world at any skill.
+
+[SPEAKER_00] To save Earth, you have to pick a skill that you are in the top
+
+[SPEAKER_00] 10%, but not in the top 1% of working age adults, 18 to 60.
+
+[SPEAKER_00] It can be any reasonable skill, but if they think you're
+
+[SPEAKER_00] breaking the spirit of the game, you auto-lose.
+
+[SPEAKER_00] SPEAKER_00: Alright, so my theory on why I felt like I
+
+[SPEAKER_00] asked Katie this, and she had a really good answer very quickly,
+
+[SPEAKER_00] is that I'm like I just like will only do like two to three
+
+[SPEAKER_00] things and then just spend like a serious amount of time on
+
+[SPEAKER_00] them.
+
+[SPEAKER_00] So like I don't have you know, yeah, so like I can't do poker
+
+[SPEAKER_00] or sports betting or golf.
+
+[SPEAKER_00] SPEAKER_01: So this is this is a bad you know sign for your you
+
+[SPEAKER_00] only have three interests, you know, that that narrative, it's
+
+[SPEAKER_00] the fairest take is not it's not wrong.
+
+[SPEAKER_00] SPEAKER_00: So that so I was like, okay, shouldn't be too
+
+[SPEAKER_00] hard.
+
+[SPEAKER_00] And then I spent a lot of time thinking about it.
+
+[SPEAKER_00] I give my I'll give my answer.
+
+[SPEAKER_00] My answer is I think that I would be in the top 10, but not
+
+[SPEAKER_00] one percent of playing regular Fortnite.
+
+[SPEAKER_00] So um I haven't played in a really long time.
+
+[SPEAKER_00] I played a lot of zero build for like a period of time, maybe a
+
+[SPEAKER_00] year ago, and I wasn't that good.
+
+[SPEAKER_00] I was I was I was okay, but I wasn't that good.
+
+[SPEAKER_00] So I think anybody who plays regular like traditional
+
+[SPEAKER_00] Fortnite, like even remote, like even a remote tiny bit.
+
+[SPEAKER_00] I'm not naturally gifted at shooters, I'm very bad at
+
+[SPEAKER_00] shooters, like I just kind of like playing, um, would would be
+
+[SPEAKER_00] better than me.
+
+[SPEAKER_00] So but I'm definitely in the top 10% because you're taking people
+
+[SPEAKER_00] who are who've never played Fort Fortnite ever, right, in that
+
+[SPEAKER_00] period.
+
+[SPEAKER_00] But it's a very popular game that like a lot of people in the
+
+[SPEAKER_00] younger range, it's been around for a while where you're gonna
+
+[SPEAKER_00] get a lot of people, everyone like 18 to maybe 30, or a lot of
+
+[SPEAKER_00] them who are men have played Fortnite or may still play it,
+
+[SPEAKER_00] or are very good at shooters and have played it a little bit, um,
+
+[SPEAKER_00] or played build in some capacity.
+
+[SPEAKER_00] So I am hoping that in there's enough of those people to kick
+
+[SPEAKER_00] me out of the 1% because there's no way I'm not in the 10, but I
+
+[SPEAKER_00] don't think I'd be in the one.
+
+[SPEAKER_00] And I think that's the the tricky part is like trying to
+
+[SPEAKER_00] find something where you're not in the one, but you are in the
+
+[SPEAKER_00] 10.
+
+[SPEAKER_00] I think that's the beauty of this question.
+
+[SPEAKER_00] SPEAKER_01: Yeah, I mean, I think you hearing you describe,
+
+[SPEAKER_00] I've obviously never seen you play.
+
+[SPEAKER_00] I think it you would clearly probably be more likely to be in
+
+[SPEAKER_00] the one than the not in the top 10.
+
+[SPEAKER_00] Right.
+
+[SPEAKER_00] Would be my guess, you know, and that's that's I think probably
+
+[SPEAKER_00] where most people's heads go.
+
+[SPEAKER_00] So for me, I don't have that fun of an answer.
+
+[SPEAKER_00] For me, it would be like running any sort of intermediate
+
+[SPEAKER_00] distance, like a 5K, a 10K.
+
+[SPEAKER_00] I would I think I would squarely be exactly in there because I'm
+
+[SPEAKER_00] like, you know, like compared to runners, I'm like an okay
+
+[SPEAKER_00] runner, pretty average.
+
+[SPEAKER_00] I'm a male.
+
+[SPEAKER_00] And right.
+
+[SPEAKER_00] So like I'm clearly not top 1%.
+
+[SPEAKER_00] Like that's very obvious to me.
+
+[SPEAKER_00] Um, like if we put a thousand people in the room, there's no
+
+[SPEAKER_00] way I'm coming in the top 10.
+
+[SPEAKER_00] Um, but it's very unlikely that 100 people would beat me in
+
+[SPEAKER_00] that.
+
+[SPEAKER_00] So it's not that I think for me, honestly, a lot of the like a
+
+[SPEAKER_00] lot of fitness ones would be yeah, reasonable just because
+
+[SPEAKER_00] I'm a 30-year-old guy.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Um, like so like a weightlifting one or running, or like, you
+
+[SPEAKER_00] know, I think you'd generally be be there.
+
+[SPEAKER_00] Cause I think the yeah, the way to think about it is, you know,
+
+[SPEAKER_00] something you're like, the way I was thinking about it is like
+
+[SPEAKER_00] something I'm 70 for fifth percentile, like of a guy.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] SPEAKER_01: And then pick something that is predominantly
+
+[SPEAKER_00] only you know, like the majority.
+
+[SPEAKER_00] So then it just like simplifies it, the the the decision, right?
+
+[SPEAKER_00] Because then you have a broader range.
+
+[SPEAKER_00] So um, but yeah, it's not it's not easy, you know.
+
+[SPEAKER_00] Because there was a couple I thought of that I'm like, yeah,
+
+[SPEAKER_00] I probably actually would be in the top one percent as I ex I as
+
+[SPEAKER_00] I actually thought about it.
+
+[SPEAKER_00] Because I thought like coding, but then I'm like, no, actually
+
+[SPEAKER_00] I'm gonna be like way because like I'm not very good, but like
+
+[SPEAKER_00] a huge portion like of the world has no idea, right?
+
+[SPEAKER_00] Like don't own you know, so right.
+
+[SPEAKER_00] SPEAKER_00: Um I actually thought about that.
+
+[SPEAKER_00] I was gonna do hockey, but then I was like, there's not many
+
+[SPEAKER_00] people who've like it's like just because I played it for a
+
+[SPEAKER_00] while growing up and haven't played since, like, you just run
+
+[SPEAKER_00] into an issue where like it's not that popular.
+
+[SPEAKER_00] SPEAKER_01: Right, being able to like skating, right?
+
+[SPEAKER_00] Probably should be happier time 1%, like which is you just get
+
+[SPEAKER_00] scary, yeah.
+
+[SPEAKER_00] SPEAKER_00: But running's good because like so many people run.
+
+[SPEAKER_00] SPEAKER_01: Well, yeah, anybody like all over the world, people
+
+[SPEAKER_00] could run.
+
+[SPEAKER_00] Like, there's there's people in every country that could be that
+
+[SPEAKER_00] one.
+
+[SPEAKER_00] SPEAKER_00: Honestly, that might be safer.
+
+[SPEAKER_00] I might even uh yeah, I'd be a little worried about dropping
+
+[SPEAKER_00] out of the 10% in that.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] It's a good thing.
+
+[SPEAKER_00] Yeah, yeah.
+
+[SPEAKER_00] I thought about something like I don't know, maybe like some
+
+[SPEAKER_00] sport like basketball, where like I'm not a good basketball
+
+[SPEAKER_00] player, but like I'm I can dribble and shoot, and you know,
+
+[SPEAKER_00] I'm not you know, I'm fine, but some you know, you're gonna go
+
+[SPEAKER_00] against like 65-year-olds and all this and and whatever, and
+
+[SPEAKER_00] it's like a kind of people, a lot of people um play it, so
+
+[SPEAKER_00] you're not never gonna worry about being the one percent.
+
+[SPEAKER_00] SPEAKER_01: Like, I would never that's why I think the physical
+
+[SPEAKER_00] activity is perfect for this question for us, like like
+
+[SPEAKER_00] around mid, you know, 30, 30, mid-30 type like guys, just
+
+[SPEAKER_00] because just by like our demographics and age and
+
+[SPEAKER_00] everything, we're just gonna be like near the top.
+
+[SPEAKER_00] You just want to find something you're not very good at that's
+
+[SPEAKER_00] physical at yeah, like that you're okay at that's physical,
+
+[SPEAKER_00] and I think that's the answer.
+
+[SPEAKER_00] SPEAKER_00: Yeah, okay.
+
+[SPEAKER_00] I I think actually being I feel like I kind of nervous about
+
+[SPEAKER_00] Fortnite when you consider like other countries and stuff.
+
+[SPEAKER_00] SPEAKER_01: I think you're you're you're likely, I think
+
+[SPEAKER_00] it's very realistic.
+
+[SPEAKER_00] Your top one percent.
+
+[SPEAKER_00] SPEAKER_00: I might have just died, yeah.
+
+[SPEAKER_00] Okay, I'm gonna switch to basketball.
+
+[SPEAKER_00] Um, we'll call that the Bayesian update too, because we've we've
+
+[SPEAKER_00] really repped this one, but we hit all the questions.
+
+[SPEAKER_00] We did it.
+
+[SPEAKER_00] Yeah, yes, we've cleared the questions next week.
+
+[SPEAKER_00] All new questions.
+
+[SPEAKER_00] Thanks, everybody.
+
+[SPEAKER_00] Uh, you have anything for the crowd?
+
+[SPEAKER_00] SPEAKER_01: No, we'll see you next week.
+
+[SPEAKER_00] SPEAKER_00: Sounds good.
+
+[SPEAKER_00] Oh, I have one more thing.
+
+[SPEAKER_00] We are maybe hiring a or we are we're looking to hire some
+
+[SPEAKER_00] computer programmer.
+
+[SPEAKER_00] So I'll post something on Twitter.
+
+[SPEAKER_00] But if you listen this far, that's means that you're
+
+[SPEAKER_00] qualified.
+
+[SPEAKER_00] Okay, I'll see we'll see you next week.

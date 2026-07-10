@@ -4,6 +4,59 @@ Per EXECUTION_PLAN operating protocol rule 1: anything noticed outside the
 current WP's scope lands here as a note, never as code. Each entry: date,
 noticed-during, observation, suggested owner.
 
+- 2026-07-09 · operator requirement (VERY IMPORTANT, backtest fidelity) ·
+  **Preserve the full timestamp ladder into the warehouse + backtest on the
+  LOCAL clock, never the exchange clock.** Operator: "I need all timestamps —
+  time at the exchange, time sent, time I received it, time my stack processed
+  it + book updated. It's that LAST time you can backtest a tradable strategy
+  on; the earlier ones are upstream noise/jitter." CURRENT STATE (verified
+  `tools/ingest.py:163-164`): `ts_utc` = exchange `ts_ms` (fallback `ts` →
+  `recv_wall_ns`). The warehouse tables (trades/orderbooks_l1/full) keep ONLY
+  `ts_utc` = **exchange time** → backtesting on it as-is is LOOK-AHEAD BIAS.
+  `recv_wall_ns` / `recv_mono_ns` exist in raw NDJSON ONLY (3-day + S3 vault),
+  NOT carried into the warehouse. The "processed / book-applied" time (#4) is
+  stamped NOWHERE. REQUIREMENT: (a) carry `exchange_ts` + `recv_wall_ns` +
+  `recv_mono_ns` as SEPARATE additive columns into staging/archive (like the
+  W5 ws_seq addition — additive, nullable, backward-compatible); (b) backtest
+  replayer keys decisions off the LOCAL arrival `recv_wall_ns` (honest proxy
+  for #4: decode+apply is ~282 ns measured, deterministic), exchange_ts kept
+  as metadata + for measuring upstream jitter (#1→#3); (c) the TRUE #4
+  (live book-applied time) is stamped by the execution engine's hot path when
+  built (STEP 6) — do NOT record the current 60-s BATCH ingest time as #4, it
+  is a batch artifact, not live apply latency. Suggested owner: a warehouse-
+  schema W (timestamp-ladder columns) BEFORE calibration/backtest research
+  consumes the warehouse; the backtest-clock rule is a Q2/pessimistic-bound
+  acceptance item.
+  · CLOCK-ALIGNMENT extension (operator 2026-07-09, HARD PRE-BACKTEST GATE):
+  the ladder is only trustworthy with a disciplined + BOUNDED clock model.
+  Components: (1) capture host clock tightly synced to true UTC — EC2 chrony→
+  Amazon Time Sync measured **6.9µs** offset (≈150× finer than Kalshi's own
+  1ms ts resolution, so NO PTP/GPS/atomic hardware needed for ms-scale
+  trading); the Mac's hundreds-of-ms skew is why capture MUST live on the box
+  (live proof: a 2026-07-09 Mac trade shows recv_wall − exchange_ts = **−54ms**,
+  physically impossible = pure skew). (2) record BOTH monotonic (ordering/
+  jitter, step-immune) AND wall-UTC per message + the mono↔wall mapping —
+  capture already emits recv_mono_ns + recv_wall_ns, keep both to the
+  warehouse. (3) CLOCK MODEL with error bars: log chrony offset/uncertainty
+  per window + a measured exchange-clock-offset distribution (est. from many
+  recv−exchange samples on the disciplined box) so every timestamp carries a
+  real-world uncertainty bound. (4) HONEST LIMIT (operator
+  correction 2026-07-09, do NOT over-promise): `recv_wall_ns − exchange_ts` is
+  an OBSERVED LAG PROXY, **not** absolute network latency — Kalshi `ts_ms`
+  semantics are undocumented (event time vs match/record time vs aggregation
+  time), and the two clocks cannot be perfectly calibrated. Record a bound,
+  never claim exact latency. (5) backtest orders on local monotonic mapped to
+  disciplined UTC; exchange_ts = metadata. ACCEPTANCE (clock-integrity REVIEW,
+  NOT a hard positivity assert): **most** lag-proxy samples should sit in a
+  reasonable POSITIVE band; a minority of negatives/spikes are ANNOTATED +
+  explained (not auto-fail); SUSTAINED large-scale negatives = red flag ⇒
+  investigate local clock / field semantics / capture path. Also flag: confirm
+  Kalshi `ts_ms` field semantics against vendor docs before trusting it as any
+  kind of "send" time. No backtest is valid until this lag-proxy distribution
+  is reviewed and understood (not "until it is all positive").
+  Also: `recv_wall_ns` is only a proxy for "message RECEIVED"; the true
+  `strategy_seen_ns` / `book_applied_ns` must be stamped by the execution
+  engine's own hot path (STEP 6), never inferred from the batch ingest.
 - 2026-07-07 · WP-06 interpretation for R to CONFIRM · the plan's wiggle
   fixture (mids [10,12,10,12] → K=12, z=2, wiggle=(12−4)/2=4) is satisfied by
   two readings; tools/mm_research.py adopted **K = Σ(Δmid)² (realized
@@ -526,3 +579,19 @@ noticed-during, observation, suggested owner.
   injects ping-only frames. FULL WRITEUP + autopsy TODOs:
   docs/plan_audits/capture_gap_taxonomy_2026-07-08.md. Owner: W-C5 session
   (production code, full discipline).
+- 2026-07-09 · interview intel (operator-supplied transcript, analysis:
+  docs/RESEARCH_INTERVIEW_EGZEE_2026-07-09.md) · 6 items from a top Kalshi
+  sports MM's real losses/practices, to merge when the owning phase is
+  touched: (1) event-level aggregate exposure cap — his $5k/line limit let 10
+  correlated alt-lines fill $50k at once (owner: Phase-3 risk gates);
+  (2) fair-vs-external-anchor deviation clamp, refuse to quote on breach —
+  his flipped-sign hockey scrape bug went straight to the book (owner:
+  Phase-3); (3) quote SIZE (not just δ) as function of per-market toxicity —
+  his "how do I feel if my whole order fills in one click" heuristic (owner:
+  Phase 1.5B); (4) λ calibration adds queue-depth-at-price dimension (owner:
+  Phase 1.5C); (5) strategy-engine external heartbeat + large-fill (> $X)
+  operator alert (owner: Phase-3 gates, before micro-live); (6) market
+  admission HARD RULE: no external leading reference ⇒ not a MM candidate
+  (weather/mentions manipulable-mid trap) (owner: mm_scan). Plus far-future:
+  RFQ/combo making (high margin, low competition; requester-ID toxicity
+  tiering; 30 resp/s budget is the scarce resource).

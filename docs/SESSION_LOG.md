@@ -6,6 +6,39 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-09 20:15 UTC — Interview intel: top Kalshi sports MM (Eggsy) analyzed, mapped to MM_ROADMAP; 6 backlog items
+
+- commits: b0a8446 "docs: interview intel analysis — top Kalshi sports MM
+  (Eggsy), edge/pitfall mapping to MM_ROADMAP" (analysis doc + verbatim
+  transcript to docs/vendor/, full-text preservation rule).
+- ⚠️ UNCOMMITTED (say-so-loudly clause): this SESSION_LOG entry and the
+  docs/BACKLOG.md append could NOT be committed — sandbox left stale git
+  locks it cannot unlink and operator declined delete permission. OPERATOR:
+  run `cd ~/HFT\ BOT && rm -f .git/HEAD.lock .git/index.lock .git/objects/maintenance.lock`
+  then any session can commit. BACKLOG.md also carries an earlier session's
+  uncommitted timestamp-ladder note — deliberately NOT swept into b0a8446.
+- decisions (all live in docs/RESEARCH_INTERVIEW_EGZEE_2026-07-09.md §5 +
+  BACKLOG 2026-07-09 interview-intel entry):
+  (1) 6 borrowed items (event-level exposure cap, fair-vs-anchor clamp,
+  toxicity-driven quote SIZE, queue-depth in λ calibration, engine heartbeat
+  + large-fill alert, external-anchor admission hard rule) merge into their
+  owning phases when touched — no new W, MASTER_SEQUENCE not interrupted.
+  (2) mentions/politics/weather barred from MM candidate pool until a
+  reliable external anchor exists. (3) RFQ/combo making = far-future backlog.
+- context capsule: interviewee = solo college MM, ~$900k P&L, 99.9% sports,
+  60/40 make/take, fair = scraped sharp sportsbooks (their analog of our
+  spot-index anchor — structure validated). His largest losses were
+  engineering bugs (flipped-sign scrape, correlated alt-lines aggregating
+  $5k→$50k, parlay legs treated independent), NOT model error; his #1
+  persistent bleed = faster feeds/courtsiders (= our quote-velocity breaker
+  rationale). Kalshi taker fee ~7% is the maker moat; RFQ requester IDs are
+  static → counterparty blacklisting works but multi-account via borrowed
+  API keys defeats it. Dead end confirmed: quoting markets whose only fair
+  is your own book mid ($500 pushes the anchor, then slams you).
+- blocked / handoff: none blocking; next session per MASTER_SEQUENCE. Mirror
+  sync WARN: /Users/ritcardo/Desktop/TradingSys Report/docs-mirror/ not
+  mounted in this sandbox — operator rsync or next session with access.
+
 ## 2026-07-09 — W-A4 DONE ✅: ZERO-GAP CUTOVER COMPLETE — EC2 sole owner since 23:09 UTC; trades diff 190,815 = 0/0 missing
 
 - commits: (rest-owner gate) feeeabc · (429 pacing fix) 8e6d703 · (dim_snapshot
