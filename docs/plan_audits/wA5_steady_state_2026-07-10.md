@@ -61,15 +61,25 @@ passes: `sudo pmset -a disablesleep 0`.
 ## ⑥ Riders — DONE
 
 - **(a) metrics rotation**: `tools/rotate_metrics.sh` (512 MB default,
-  env-tunable, keep-3) wired into the supervisor's hourly loop between
-  capture segments; semantics + wiring pytest-covered. Applies to both boxes
-  by code (Mac dormant).
+  env-tunable, keep-3) wired into the supervisor's hourly loop; semantics +
+  wiring pytest-covered. **AUDIT B1 (2026-07-10): the first wiring was DEAD
+  in production** — the invocation redirected into root-owned
+  supervisor.out.log, the ubuntu-uid open failed, `|| true` swallowed it,
+  metrics hit 5.4 GB (~16 GB/day) with zero rotations. Fixed by dropping the
+  redirect (systemd already captures stdout); the offline wiring test cannot
+  catch this class — LIVE VERIFICATION = a rotation must fire at the next
+  hour boundary (metrics ≫ 512 MB, so it will), check `.1` file exists.
 - **(b) full-market L1**: `config/market_classes.yaml` → ALL 18 categories
   class_a_full_l1 (Exotics' Q7 MM-exclusion is research-side, unchanged);
-  contract test pins the policy; coverage-audit policy test updated; live on
-  EC2 since the 00:09:48Z restart (next classification cycle promotes
-  series_classified). Raw backfill of pre-promotion Class-B L1 remains
-  possible from the vaulted raw (playbook 3e's fuller variant — BACKLOG).
+  contract test pins the policy; coverage-audit policy test updated.
+  **series_classified verified: 11,307/11,307 record_class='A'** (duckdb
+  query over the 00:30Z manual build; the 01:00Z SUPERVISED cycle rebuilt it
+  identically — auditor-observed "Class A(full-L1)=11307 Class B=0").
+  **AUDIT N1 nuance:** ingest loads classes ONCE at init — the daemon
+  running at claim time still held the 11,280-class table; ingest was
+  bounced post-audit so the promotion is live in staging (watchdog respawn,
+  designed path). Raw backfill of pre-promotion Class-B L1 remains possible
+  from the vaulted raw (3e's fuller variant — BACKLOG).
 - **(c) churned CSVs gitignored** (untracked + .gitignore; box conflict from
   the last churn resolved).
 
@@ -86,31 +96,40 @@ W-A4 evidence and the Q5 consequence spelled out.
 
 ## ⑨ Audit items
 
-- **SIGTERM graceful stop — root-caused in two layers, fixed in two places,
-  honestly PARTIAL:** (1) supervisor bash resumed its loop after the old
-  combined trap → split traps (`exit 143` on INT/TERM) + ws_shadow
-  backgrounded behind an interruptible `wait` (contract-tested); the
-  supervisor now exits <1 s (the 00:09 restart's kill list no longer
-  contains it). (2) Children can legitimately outlive 30 s — ws_shadow's own
-  graceful drain and python-inside-DuckDB (signals deferred during C calls;
-  the restart landed mid-midnight-export) — so `TimeoutStopSec=90` gives
-  them runway; SIGKILL remains the backstop. Restart discipline: avoid
-  00:00–00:15 UTC (export window). Export self-healing confirmed live:
-  write-once refused the partial re-export, the 02:00 `--force` sweep
-  completes the day.
+- **SIGTERM graceful stop — root-caused in two layers, fixed in two places;
+  STATUS CORRECTED BY AUDIT (B2): static/contract-tested ONLY, first live
+  graceful stop still unverified.** The 00:09:48Z restart CANNOT evidence the
+  fix: the stopping instance (pid 81442, started 18:30:49) ran PRE-fix code,
+  and the journal shows systemd killed pid 81442 — the supervisor main
+  itself — among 5 processes (this doc's earlier "supervisor exited clean /
+  4 children" claim was wrong and is retracted). What IS verified live: the
+  new backgrounded-wait loop rolled the 00→01 hour boundary cleanly
+  (auditor-observed). The fixes on review: (1) trap split (`exit 143` on
+  INT/TERM → single EXIT-trap cleanup) + ws_shadow behind an interruptible
+  `wait`; (2) `TimeoutStopSec=90` for children that legitimately outlive
+  30 s (ws_shadow drain; python-inside-DuckDB defers signals). NEXT REAL
+  STOP is the live test — check journalctl for a SIGKILL-free stop then.
+  Restart discipline: avoid 00:00–00:15 UTC. Export self-healing confirmed
+  live (write-once refusal + 02:00 --force sweep). N3: foreground
+  export_day still blocks TERM during the export window (known, later W).
 - **events/markets 80k cap — WORSE than the audit thought, and productive:**
   BOTH crawls had been truncating at 80,000 EVERY hourly run (the "(capped)"
   marker screamed into an unread log — D2 lesson recorded). Caps raised to
   2000 pages: markets now crawls fully (~50 k open); **events hit the new
-  400,000-row cap too — the endpoint returns all-history; pagination is
-  newest-first so the cap trims historical tail only.** Interim: 400 k/hour
-  is tolerable (paced, ~2 min); proper fix = status-filtered hourly crawl +
-  scheduled full crawl, queued to BACKLOG with an E4 spec-check (never
-  assume the status param from memory). **The raise itself exposed a latent
-  bug caught and fixed same-session:** head-only JSON schema sampling
-  crashed on microsecond timestamps at row 363,172 → `sample_size=-1`
-  (mixed-format columns fall back to VARCHAR, lossless for the raw dim
-  store) + mixed-precision regression test.
+  400,000-row cap too — the endpoint returns all-history; "pagination is
+  newest-first so the cap trims historical tail only" is an ASSUMPTION
+  pending the E4 spec check (audit N7; empirical support: current events in
+  early pages, deep tail stale at 2026-02-26).** Interim: 400 k/hour is
+  tolerable (paced, ~2 min); proper fix = status-filtered hourly crawl +
+  scheduled full crawl, queued to BACKLOG with the same E4 spec-check.
+  **The raise introduced-then-fixed a production regression, stated plainly
+  (audit N2): every SUPERVISED catalog cycle from the 23:57Z deploy until
+  the fix crashed at the events write (head-only JSON schema sampling vs a
+  microsecond timestamp at row 363,172) — classification/dim were skipped
+  for that whole window; the first clean supervised post-fix cycle was
+  01:00Z (sync #6, auditor-observed).** Fix: `sample_size=-1` (mixed-format
+  columns fall back to VARCHAR — lossless for the raw dim store) +
+  mixed-precision regression test.
 
 ## no-fabrication 溯源表
 

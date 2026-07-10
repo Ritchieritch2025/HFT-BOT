@@ -173,8 +173,12 @@ while true; do
   CAP="$DAYDIR/firehose_$HH.ndjson"
   SECS_LEFT=$(( 3600 - 10#$(date -u +%M) * 60 - 10#$(date -u +%S) ))
   [ "$SECS_LEFT" -lt 30 ] && SECS_LEFT=30
-  # rider (a): rotate metrics between capture segments (writer not running)
-  bash tools/rotate_metrics.sh work/metrics.ndjson >> "$LIVE/supervisor.out.log" 2>&1 || true
+  # rider (a): rotate metrics between capture segments (writer not running).
+  # NO redirect (audit B1, 2026-07-10): systemd creates supervisor.out.log as
+  # root via StandardOutput=append:, so a ubuntu-uid `>>` open FAILS and kills
+  # the command before rotate_metrics runs (the `|| true` swallowed exactly
+  # that for two cycles). Plain stdout already lands in that file via systemd.
+  bash tools/rotate_metrics.sh work/metrics.ndjson || true
   # W-A5 (audit finding 3): ws_shadow runs BACKGROUNDED + wait — a foreground
   # child blocks bash signal-trap delivery for the whole hour, which is why
   # systemctl stop used to time out into SIGKILL. `wait` is interruptible.

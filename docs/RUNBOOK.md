@@ -120,3 +120,28 @@ cd ~/hft-bot && bash deploy/bringup_ec2.sh
 
 安全清单(SSH 限 IP、出站收紧步骤):`deploy/SECURITY_CHECKLIST_EC2.md`。
 三条 launchd 关键行为如何在 systemd 复现:`deploy/README_EC2.md`。
+
+## 6. EC2 稳态运维面(W-A5 起)
+
+```bash
+# 三个定时器(都应 enabled;停了 = 异常)
+systemctl list-timers | grep kalshi   # oom-guard(每分钟) s3-sync-hourly(:05) s3-sync-daily(03:10Z) alert(每分钟)
+
+# 报警流(仪表盘数据源;Telegram 配好后同时推手机)
+tail work/live/alerts.log             # 无文件 = 一直健康
+journalctl -u kalshi-alert -n 5       # 报警器自身的运行记录
+
+# metrics 轮转(512MB 保 3 代;rider a)
+ls -la work/metrics.ndjson*           # 超 512MB 后应出现 .1/.2/.3
+
+# S3 同步核对
+journalctl -u kalshi-s3-sync-hourly -n 3
+aws s3 ls s3://kalshi-vault-ritcardo/ec2/raw/ --recursive | tail -3
+
+# 已知行为:supervisor 重启后 ingest 可能滞后 ~20-30 分钟(导出链竞争
+# staging 写锁,watchdog 会自动拉起;从 raw 偏移量追平,无数据损失)。
+# 重启纪律:避开 00:00-00:15 UTC 导出窗口。
+```
+
+Mac 侧唯一常驻任务:com.ritcardo.kalshi-report-pull(每日 09:00 拉 EC2
+reports/ 落桌面 TradingSys Report;日志 /tmp/kalshi-report-pull.log)。
