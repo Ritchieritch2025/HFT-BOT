@@ -1,0 +1,13 @@
+{
+  "name": "jump_event",
+  "kind": "jump",
+  "note": "a fast lo-mid reprice (BADAMS 37->28c over 5min on ZERO trades) trips the breaker => pull both sides; the SAME window with a huge trade volume + still book does NOT trip (breaker watches quotes, not volume)",
+  "horizon_s": 3600, "cap_max": 25, "t_remaining_s": 1800, "inventory": 0,
+  "book": {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100},
+  "velocity_prob_from": 0.37, "velocity_prob_to": 0.28, "dt_s": 300,
+  "trade_only_volume": 1000000000,
+  "expect_velocity_trips": true,
+  "expect_trade_only_trips": false,
+  "expect_calm_quote": {"quoting":true,"bid_e4":4400,"ask_e4":5600,"reason":"two_sided"},
+  "expect_jump_quote": {"quoting":false,"bid_e4":null,"ask_e4":null,"reason":"jump_breaker"}
+}

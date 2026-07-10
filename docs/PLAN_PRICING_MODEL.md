@@ -320,6 +320,30 @@ Acceptance:       every scenario's expected quotes committed as fixtures and
 Rollback:         revert commit.
 Exit evidence:    commit hash; pytest green incl. the red-proof run output.
 
+#### W-P4 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `tests/test_pricing_pipeline.py` (10 tests) + six committed
+  fixtures under `tests/fixtures/pricing_scenarios/` (calm, buy-pressure
+  trend, imbalanced-wide-book, pre-settlement wind-down, jump event, bracket
+  dislocation). CONSUMER only — drives the FROZEN lo/fair/quote, edits none
+  (Forbidden-writes intact; git confirms tools/pricing/* untouched).
+- Each scenario's expected quote sequence is hand-computed and asserted
+  EXACTLY on the emitted E4 prices (the executable spec for the Phase-2 C++
+  port); derived lo intermediates (δ/cap/correction) to abs 1e-6.
+- The imbalanced-wide-book scenario (10c/30c, 1:3 size) makes the lo-space
+  vs price-space Jensen gap material: lo-space quote bid1100/ask1700 vs a
+  price-space micro bid1200/ask1900. The RED-PROOF monkeypatches
+  micro_price_lo to a price-space version (TRANSIENT, never committed) and
+  asserts that scenario's golden assertion RAISES — the suite genuinely
+  fails (D2), not a tautology.
+- W-P3 audit wiring items folded in here (first place the breaker gets a
+  caller): the jump scenario asserts the velocity trip AND the
+  huge-trade-volume-with-still-book NO-trip (N1), driving the breaker
+  through the pipeline.
+- **GROUP M COMPLETE** (W-P1 lo core → W-P2 fair → W-P3 quotes → W-P4 golden
+  spec). Next: Group C calibration, GATED on 7 clean days + ladder-era
+  recv-clock data (§4 gate box) — not agent-startable until that data
+  accumulates.
+
 Group-M ordering: W-P1 → W-P2 → W-P3 → W-P4 (each imports the previous; one W
 per fresh session; independent audit after each, MASTER_SEQUENCE rule).
 

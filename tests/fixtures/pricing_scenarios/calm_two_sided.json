@@ -1,0 +1,14 @@
+{
+  "name": "calm_two_sided",
+  "kind": "book",
+  "note": "stable 48/52c book; symmetric quotes around fair; inventory skew moves the near side",
+  "horizon_s": 3600, "cap_max": 25,
+  "steps": [
+    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":0,"t_remaining_s":1800,"taker_imbalance":0.0,
+     "expect":{"quoting":true,"bid_e4":4400,"ask_e4":5600,"reason":"two_sided"}},
+    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":5,"t_remaining_s":1800,"taker_imbalance":0.0,
+     "expect":{"quoting":true,"bid_e4":4200,"ask_e4":5600,"reason":"two_sided"}},
+    {"bid_e4":4800,"ask_e4":5200,"bid_qty":100,"ask_qty":100,"inventory":-5,"t_remaining_s":1800,"taker_imbalance":0.0,
+     "expect":{"quoting":true,"bid_e4":4400,"ask_e4":5800,"reason":"two_sided"}}
+  ]
+}

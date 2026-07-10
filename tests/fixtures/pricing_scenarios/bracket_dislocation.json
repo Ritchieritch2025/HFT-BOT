@@ -1,0 +1,11 @@
+{
+  "name": "bracket_dislocation",
+  "kind": "bracket",
+  "note": "3 sibling legs summing to 1.08; the excess is redistributed by 1/depth so the THIN leg (depth 10) moves most; each leg's fair is corrected DOWNWARD and quoted",
+  "horizon_s": 3600, "cap_max": 25, "t_remaining_s": 1800, "inventory": 0,
+  "legs": [
+    {"prob":0.40,"depth":100,"expect":{"corr_lo":-0.433322,"bid_e4":3400,"ask_e4":4500}},
+    {"prob":0.40,"depth":100,"expect":{"corr_lo":-0.433322,"bid_e4":3400,"ask_e4":4500}},
+    {"prob":0.28,"depth":10,"expect":{"corr_lo":-1.304949,"bid_e4":1700,"ask_e4":2600}}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "imbalanced_wide_book",
+  "kind": "book",
+  "note": "wide 10c/30c book, 1:3 size imbalance — lo-space micro-price differs materially from a price-space one (Jensen gap); this is the scenario the red-proof catches",
+  "horizon_s": 3600, "cap_max": 25,
+  "steps": [
+    {"bid_e4":1000,"ask_e4":3000,"bid_qty":100,"ask_qty":300,"inventory":0,"t_remaining_s":1800,"taker_imbalance":0.0,
+     "expect":{"quoting":true,"bid_e4":1100,"ask_e4":1700,"reason":"two_sided"}}
+  ]
+}
