@@ -6,6 +6,48 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 19:50 UTC — W-P2 DONE ✅ (fair value estimator) — resumed PLAN_PRICING_MODEL Group M after the K-track
+
+- commits: fd08749 (W-P2) + fb40b1f (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wP2_audit_2026-07-10.md. NOTE: another session's
+  PLAN_RESEARCH_CYCLE_1 commit (f71f60e) interleaved between my W-K5 and W-P2
+  commits — no conflict, all work present; its SESSION_LOG entry is below.
+- delivered: tools/pricing/fair.py (imports the FROZEN W-P1 lo core — lo.py
+  confirmed untouched by the auditor; pure, no I/O) + tests/test_pricing_fair.py
+  (14 tests, ALL PASS).
+- four components: (a) micro-price computed IN LOG-ODDS space (imbalance-
+  weighted average of lo(bid)/lo(ask); balanced 40/60=50c; heavy-ask pulls
+  toward bid; one-sided/empty/crossed/off-band/non-finite ⇒ None fail-closed);
+  (b) taker-flow drift — bounded lo-shift, coeff/cap = NAMED Group-C
+  PLACEHOLDERS (0.10/0.30); (c) bracket-sum — probability-space identity
+  (siblings' yes-sum=1), excess redistributed by 1/depth (thin legs move
+  most), infeasible dislocation fail-closes; (d) external_anchor_lo NAMED
+  slot inert now, blends when weighted (deferred Crypto anchor bolts on later).
+- Q9 sign trio (exit evidence): test_q9_drift_sign_and_zero_identity,
+  test_q9_bracket_downward_total_excess_thin_moves_most,
+  test_q9_bracket_lone_leg_zero_and_consistent_set_zero.
+- AUDIT: ACCEPT-WITH-FINDINGS, 2 fixed. B1 (S2 fail-open): NaN/inf qty escaped
+  _valid_book because `NaN <= 0` is False → fabricated a nan fair; fixed with
+  math.isfinite. D1: a 1/depth bracket redistribution could hand a thin leg a
+  correction bigger than its own probability → negative corrected prob → a
+  downstream clip silently broke the sum-to-1 identity the constraint exists
+  for; bracket_corrections now fail-closes on an infeasible dislocation.
+  Auditor confirmed the lo-space micro-price Jensen gap is REAL but exactly
+  what Q1 mandates (not a defect). LESSON: `x <= 0` does NOT reject NaN —
+  every fail-closed numeric guard needs an explicit isfinite check.
+- gates: make check + tests/run_pipeline.sh PASS (61 suites) after
+  remediation. fair.py now FROZEN for W-P3.
+- blocked / handoff: NEXT agent-executable = W-P3 (A-S quote generator
+  tools/pricing/quote.py: reservation_lo = fair − inventory·γ(t), half-width
+  δ(t), cap(t), Q6 settlement-window stop, quote-velocity jump breaker, cent
+  clamps; 7-name Q9 sign battery; PLAN_PRICING_MODEL §3). Then W-P4 golden
+  scenarios. W-P3 consumes fair.py + lo.py (both frozen). Also open: W-K6
+  (operator-scheduled live rehearsal); the new PLAN_RESEARCH_CYCLE_1 (below,
+  hand-held by the operator); OQ-1 fees; W-A5 24h; env-hardening +
+  reconcile-delivery BACKLOG; Phase-2 engine/shadow wiring (needs its plan).
+
+---
+
 ## 2026-07-10 — PLAN_RESEARCH_CYCLE_1 landed (operator-approved test plan, hand-held execution)
 
 - commit: this commit (docs/PLAN_RESEARCH_CYCLE_1.md).
