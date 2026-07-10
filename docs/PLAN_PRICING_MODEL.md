@@ -132,6 +132,22 @@ Acceptance:       hand-computed golden values (e.g. 2c→1c ≈ −0.70 lo shift
 Rollback:         revert commit; the package is imported by nothing else yet.
 Exit evidence:    commit hash; pytest green; golden table printed in the log.
 
+#### W-P1 RESULT (2026-07-10 — DONE, audited)
+- Delivered: `tools/pricing/{__init__.py,lo.py}` + `tests/test_pricing_lo.py`
+  (13 tests) + registry entry. Fee formula/rounding NOT reimplemented —
+  delegated to `mm_research.trade_fee` (single source of truth, WP-05
+  contract); lo.py adds the maker-rate lookup (fail-closed on flat/unknown
+  fee_type) and the pre-rounding curve for the Q9 limit tests.
+- Golden numbers (printed in session log): 2c→1c = ln(49/99) = −0.70330;
+  50c→49c = ln(49/51) = −0.04001; edge/mid asymmetry 17.6×. Fees C=1:
+  {1c,50c,99c} → {$0.0007, $0.0175, $0.0007}.
+- Conservatism rule locked: off-grid quantization floors bids / ceils asks
+  (float fuzz can only widen a quote, never tighten it).
+- Session riders (operator ruling ③, same change): check_registry gained the
+  disk→registry REVERSE SCAN (red-first: it flagged 4 real unregistered
+  scripts on its first run — rtt_baseline_sampler.sh, rotate_metrics.sh,
+  dashboard_net.sh, load_db.py — all now registered with safety classes).
+
 ### W-P2 — Fair value estimator (`tools/pricing/fair.py`)
 Purpose:          fair = f(book, recent trades, sibling legs):
                   (a) micro-price = (bid·ask_qty + ask·bid_qty)/(bid_qty+ask_qty)
