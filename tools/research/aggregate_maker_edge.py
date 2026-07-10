@@ -77,6 +77,11 @@ def _boot_ratio_ci(num, den, seed):
 
 
 def run(con, args, fp):
+    # single-threaded for this stage: parallel aggregation sums floats in
+    # nondeterministic order (last-ulp jitter across runs), which would break
+    # the same-command-same-data bit-reproducibility of discipline #8. The
+    # aggregate stage is seconds-scale; slice/markout keep full parallelism.
+    con.execute("SET threads TO 1")
     m = MARKOUT.replace("'", "''")
     s = SEGMENTS.replace("'", "''")
     train_end_us = wc.day_start_us(args.train_end) + 86_400_000_000  # exclusive
@@ -175,7 +180,7 @@ def run(con, args, fp):
                  sum((count_e4/10000.0)*drift_%d) AS vdr,
                  sum((count_e4/10000.0)*fee_c) AS vfee,
                  sum((count_e4/10000.0)*p_fill) AS vpx
-          %s GROUP BY 1""" % (PRIMARY_H, lf)).fetchall()
+          %s GROUP BY 1 ORDER BY 1""" % (PRIMARY_H, lf)).fetchall()
         if not rows:
             continue
         vol = np.array([r[1] for r in rows], dtype=float)
@@ -235,7 +240,7 @@ def _identity_gate(con):
                  abs(avg(bounce) FILTER (WHERE markout_%d IS NOT NULL)
                      + avg(drift_%d) - avg(markout_%d)) AS g1,
                  abs(avg(markout_%d) - avg(markout_chk_%d)) AS g2
-          FROM a GROUP BY 1, 2""" % ((h,) * 6)).fetchall()
+          FROM a GROUP BY 1, 2 ORDER BY 1, 2""" % ((h,) * 6)).fetchall()
         for fee, tour, nn, g1, g2 in rows:
             if not nn:
                 continue
@@ -258,7 +263,7 @@ def _markout_curve(con):
       FROM a
       WHERE split='val' AND fill_class='pessimistic' AND maker_fee_class='zero'
         AND (%s) IS NOT NULL
-      GROUP BY 1, 2, 3, 4""" % (band_case, sums, band_case)).fetchall()
+      GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4""" % (band_case, sums, band_case)).fetchall()
     cells = {}
     for r in rows:
         rec = [0.0 if v is None else float(v) for v in r[4:]]
@@ -292,7 +297,7 @@ def _decomposition(con):
       SELECT tour_level, phase, event_id, %s
       FROM a WHERE split='val' AND fill_class='pessimistic'
         AND maker_fee_class='zero'
-      GROUP BY 1, 2, 3""" % ", ".join(cols)).fetchall()
+      GROUP BY 1, 2, 3 ORDER BY 1, 2, 3""" % ", ".join(cols)).fetchall()
     cells = {}
     for r in rows:
         rec = [0.0 if v is None else float(v) for v in r[3:]]
@@ -333,7 +338,7 @@ def _time_of_day(con):
         "SELECT phase, dayofweek(to_timestamp(ts_utc/1e6)) dow, "
         "hour(to_timestamp(ts_utc/1e6)) hr, count(*) n, "
         "sum(count_e4/10000.0) vol, avg(spread_e4/100.0) spr "
-        "FROM a GROUP BY 1,2,3").fetchall()
+        "FROM a GROUP BY 1,2,3 ORDER BY 1,2,3").fetchall()
     return [{"phase": r[0], "dow": int(r[1]), "hr": int(r[2]), "n": r[3],
              "vol": r[4], "spread_c": r[5]} for r in rows]
 
@@ -345,7 +350,7 @@ def _per_match_scatter(con, base):
              sum((count_e4/10000.0)*drift_30)/nullif(sum(count_e4/10000.0),0) dr,
              count(*) n
       %s
-      GROUP BY 1,2,3 HAVING count(*) >= 5""" % base).fetchall()
+      GROUP BY 1,2,3 HAVING count(*) >= 5 ORDER BY 1,2,3""" % base).fetchall()
     return [{"event": r[0], "tour": r[1], "fee": r[2], "half_spread": r[3],
              "drift": r[4], "n": r[5]} for r in rows]
 
