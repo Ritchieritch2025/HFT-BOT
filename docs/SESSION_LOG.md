@@ -72,10 +72,11 @@ which decisions landed in which files, what the next session must know.
   taxonomy (H10), one-sided-run adverse-selection test (H11),
   iceberg-vs-queue tradeoff (H12), plus traps: palp-void contagion /
   orphaned hedge leg, exchange adjudication conflict-of-interest.
-- ⚠️ WARN: sandbox again left stale .git/HEAD.lock it cannot delete —
-  operator run: `cd ~/HFT\ BOT && rm -f .git/HEAD.lock .git/index.lock`
-  (this SESSION_LOG edit is uncommitted until then). Mirror sync still
-  not possible from sandbox (Desktop not mounted).
+- RESOLVED: stale-lock problem root-caused (sandbox could create but not
+  delete files → git couldn't remove its own lock files). Operator granted
+  folder delete permission 2026-07-09 → locks + tmp_obj_* cleaned, future
+  git ops from sandbox are self-contained. Mirror sync still not possible
+  from sandbox (Desktop not mounted).
 - blocked / handoff: none; MASTER_SEQUENCE untouched. Hypothesis testing
   (H7 first) awaits operator go — fits Phase 1 tooling (mm_scan data).
 
