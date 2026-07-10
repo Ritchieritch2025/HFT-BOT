@@ -41,6 +41,27 @@ which decisions landed in which files, what the next session must know.
   blocked once by churned CSVs (rider (c)'s raison d'être) — resolved.
   Stale Mac git HEAD.lock cleared (concurrent research session). battery:
   run_pipeline PIPELINE PASS both boxes at final code.
+- INDEPENDENT AUDIT (hardest one yet, and it earned its keep): verdict =
+  machinery sound for overnight, BUT 3 blocking-class findings, all applied:
+  **B1 rider (a) was DEAD in production** (invocation redirected into the
+  root-owned supervisor.out.log; ubuntu-uid open failed; `|| true` swallowed
+  it; metrics hit 5.4GB with zero rotations) — redirect dropped, LIVE
+  verification = .1 file at next hour boundary; **B2 my "supervisor exited
+  clean" evidence was FALSE and is RETRACTED** (journal shows killed pid
+  81442 WAS the supervisor main, and it ran pre-fix code — the graceful-stop
+  fix is static-tested only; first real stop is the live test); **B3 disk
+  fuse ~2-4 days** (raw 28-32GB/day measured + the B1 metrics leak) — B1
+  fixed; retention-vs-EBS ruling handed to operator. Also applied: N1 ingest
+  bounced (loads classes once at init; waiting out the research-chain
+  staging lock, N4 self-heal); N2 catalog outage window stated plainly
+  (23:57Z deploy -> 01:00Z first clean supervised cycle); N5 RUNBOOK §6 ops
+  surface; N7 newest-first marked ASSUMPTION. **N6 SECURITY (operator!):
+  ~/.bash_history on the box holds plaintext AWS key export lines from the
+  W-A2/A3 era — rotate the vaultWriter IAM key + clear history.** Auditor
+  independently verified: vault delta ETag spot-checks byte-exact; mac-vault
+  1,132 objects intact post-deletion; current-hour glob exclusion PROVEN
+  correct (no date=2026-07-10 prefix during hour 00); alert timer 1h+ zero
+  errors; hour boundary rolled cleanly under the new loop.
 - blocked / handoff: NEXT SESSION (short, after 2026-07-10 23:09Z):
   ① capture_gaps --date 2026-07-10 on the box + the 00:10→00:10 window ⇒
   24h zero-gap verdict; ② if green: operator runs `sudo pmset -a
