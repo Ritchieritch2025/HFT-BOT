@@ -115,6 +115,7 @@ run_suite "test_backtest_clock" ./tests/run_pytest.sh tests/test_backtest_clock.
 run_suite "test_jitter_report" ./tests/run_pytest.sh tests/test_jitter_report.py
 run_suite "test_pricing_lo" ./tests/run_pytest.sh tests/test_pricing_lo.py
 run_suite "test_pricing_fair" ./tests/run_pytest.sh tests/test_pricing_fair.py
+run_suite "test_pricing_quote" ./tests/run_pytest.sh tests/test_pricing_quote.py
 run_suite "test_account_view" ./tests/run_pytest.sh tests/test_account_view.py
 run_suite "test_panic_dryrun" ./tests/run_pytest.sh tests/test_panic_dryrun.py
 run_suite "test_risk_ledger" ./build/test_risk_ledger "$SCRATCH"

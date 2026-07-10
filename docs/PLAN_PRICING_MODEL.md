@@ -256,6 +256,33 @@ Acceptance:       Q9 sign battery, each a named test:
 Rollback:         revert commit.
 Exit evidence:    commit hash; pytest green; all 7 sign tests named in log.
 
+#### W-P3 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `tools/pricing/quote.py` (imports the FROZEN lo core; fair.py +
+  lo.py confirmed untouched; pure, emits quotes only, transmits nothing) +
+  `tests/test_pricing_quote.py` (8 tests). All offsets/radii in log-odds
+  space (Q1), mapped to legal cents only at emission (via W-P1
+  apply_halfwidth: bid floors, ask ceils — conservative).
+- composition: reservation_lo = fair − inventory·γ(t) (γ ∝ remaining time,
+  A-S variance argument); δ_lo = base + vol + toxicity + |inventory| widening,
+  scaled by a time factor that WIDENS toward settlement; cap(t) shrinks to 0;
+  Q6 hard stop inside the convergence window (no quotes); jump breaker on
+  lo-mid VELOCITY + book-update RATE (never trade volume); at max inventory
+  the RISK-ADDING side is suppressed but the EXIT side is NEVER (Q8).
+- All coeffs are NAMED Group-C PLACEHOLDERS (GAMMA_BASE_LO, DELTA_BASE_LO,
+  INV_WIDEN_LO, SETTLE_WIDEN, Q6_WINDOW_S, JUMP_* thresholds).
+- The 7 named Q9 sign tests (exit evidence):
+  test_q9_reservation_skew_sign_and_monotone,
+  test_q9_spread_never_narrows_with_inventory,
+  test_q9_skew_sign_at_price_extremes,
+  test_q9_delta_widens_toward_settlement_and_q6_stop,
+  test_q9_cap_monotone_to_zero,
+  test_q9_jump_breaker_watches_quotes_not_volume,
+  test_q9_max_inventory_exit_side_never_suppressed.
+- Group M math pieces (W-P1 lo core → W-P2 fair → W-P3 quotes) are now
+  complete; **W-P4 (golden scenario tapes, the executable spec for the
+  Phase-2 C++ port) is the last Group-M W**, then Group C calibration
+  (gated on 7 clean days + ladder-era recv data). quote.py freezes for W-P4.
+
 ### W-P4 — Synthetic pipeline golden scenarios
 Purpose:          end-to-end fair→quote cycle over hand-built scenario tapes
                   (calm two-sided; buy-pressure trend; bracket dislocation;
