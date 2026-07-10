@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 16:10 UTC — W-K3 DONE ✅ (five-layer reservation ledger, contract #7) · 4 named tests genuine · audit found 6 fail-open holes on the risk core, all fixed
+
+- commits: 5c0f6e5 (W-K3) + 2f06300 (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wK3_audit_2026-07-10.md.
+- delivered: include/kalshi/risk_ledger.hpp (header-only, zero-I/O, one-mutex
+  thread-safe — contract #6) + tests/test_risk_ledger.cpp (39 checks, ALL
+  PASS): the 4 NAMED tests (Eggsy 9/10 rejected at factor; NHL leg aggregates
+  across combos; deadlock exemption = reduce-risk admitted at cap Q8; refund
+  send-fail/timeout/partial restore exactly) + concurrent atomicity hammer +
+  RED-FIRST ①④⑤-only proof + the remediation regressions.
+- MONEY = E6 micro-dollars (Micros=int64), deliberate deviation from the W's
+  "E4" (W-K1 live finding: account money has 6 decimals; E4 = lossy
+  narrowing, D5). Exposure EXACT: CountFp(×100)·PriceE4(×10^4) = micro-dollars.
+  No float (grep-gate on the header).
+- decisions in files: factor key = same underlying/direction, derive_factor_key()
+  implements it; unknown_factor = fail-closed 0-default bucket; Q8 reduce-risk
+  bypass; ⑤ day-loss breaker; conservation reserved==settled+refunded.
+- AUDIT (the pattern held — the risk core got the hardest scrutiny):
+  ACCEPT-WITH-FINDINGS with SIX fail-OPEN/drift holes, all fixed same session
+  because S2 demands fail-closed here: N1 a COPYABLE Reservation could
+  double-release via an aliased copy → used_ went NEGATIVE, defeating every
+  cap (fixed: ledger tracks live slots in open_, close authorized once); N2
+  negative exposure admitted → phantom headroom (reject Layer::Invalid); N3
+  int64 used+e wrap-to-room (headroom by subtraction now); N4
+  __unknown_factor__ inherited kNoCap = fail-OPEN (dedicated 0 default now);
+  N5 client_order_id ts-arg-dependent broke retry-idempotency (ts captured
+  at reserve → slot-pure); N6 factor derivation was doc-only (now coded +
+  tested). Auditor's 4 exploit probes all re-run fail-closed.
+  LESSON for future sessions: a copyable handle to a resource is a
+  double-free waiting to happen — the AUTHORITY for "is this reservation
+  still open" must live in the ledger, not the handle struct.
+- gates: make check + tests/run_pipeline.sh PASS (58 suites) after
+  remediation.
+- blocked / handoff: NEXT SESSION = W-K4 (rule engine on synthetic
+  scenarios: dead-man expiry, cancel-on-disconnect, day-loss breaker wired
+  to ledger ⑤, rate limiter; PLAN_RISK_KILLSWITCH §3). The ledger's
+  day_loss breaker + reduce-risk semantics are W-K4's inputs. Standing: OQ-1
+  fees; W-A5 24h; W-K5 reconcile; W-K6 live rehearsal (operator-scheduled);
+  the two env-hardening BACKLOG items.
+
 ## 2026-07-10 14:20 UTC — W-K2 DONE ✅ (panic kill-switch CLI, S3) · operator crossing+dead-man ruling recorded · audit REJECTED×3 on the execute gate then ACCEPT
 
 - commits: 766f943 (W-K2 initial) + remediation commit (d4b4a52) + this
