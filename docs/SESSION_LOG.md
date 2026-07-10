@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 — Hot-path execution design notes archived (operator-directed)
+
+- commit: this commit (docs/DESIGN_HOTPATH_EXECUTION_2026-07-10.md).
+- operator decision (E2): archive the hot-path order-engine discussion as
+  design-input notes ("先起一个文档把我们的思路加进去"). NOT a plan, no W.
+- content: current-stack honest positioning (capture/vault/watch, not yet
+  low-latency execution); "pointer" intent translated to memory-resident
+  order engine; repo skeleton references (wire.hpp/ring.hpp/tradingd.cpp/
+  client.hpp Lanes); nine-point hot-path contract (operator's six: in-memory
+  state, prebuilt templates, OrderSlot pool, warm lanes, per-order RSA-PSS,
+  no Redis on hot path + three additions: reserve-before-send quota,
+  cold-path reconcile loop, client_order_id idempotency); sequencing
+  discipline (safety before speed, measure signing/RTT p99 before
+  micro-optimizing, first-edge-not-speed per interview archive).
+- handoff: STEP 6 plan-drafting sessions MUST fold this doc verbatim into
+  PLAN_PRICING_MODEL / PLAN_RISK_KILLSWITCH / execution-engine plan.
+- executed-by: web Claude (Cowork).
+
 ## 2026-07-10 04:40 UTC — W-TL1 DONE ✅ (timestamp ladder, local-only): 4 ladder columns on all 3 fact tables · backtest default recv clock + look-ahead demo · jitter tool · audit ACCEPT-WITH-FINDINGS, all applied
 
 - commits: b004ec7 (carry-forward: PRIOR session's uncommitted console/registry
