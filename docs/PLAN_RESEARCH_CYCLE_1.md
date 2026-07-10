@@ -36,7 +36,12 @@ Group C(正式校准,gated ≥2026-07-13)。
   S4 用它横扫全品类出排名表,后续品类扩张照表点名,数据驱动。
 - 执行:操作员在 VSCode 粘给 Claude Code(引文见附录 A)。
 - 产出:DQ 报告 + 分解表(spread capture vs mid-口径 markout,
-  含 bounce/drift 拆分)+ 盘口级 burstiness + HTML,落 work/research/。
+  含 bounce/drift 拆分)+ 盘口级 burstiness + 交互 HTML,落
+  work/research/。
+- **管道即产品**:S1 交付的不是一次性脚本,而是参数化可复跑的
+  研究管道(注册进 tools.json):一条命令 = 切片物化 → join
+  细分维度表 → 指标计算 → 交互 HTML。验收:换参数(品类/日期)
+  重跑即得 S4/S5,**零代码分叉**。
 - 读数:回 Cowork,逐表讲解。**S1(dev-grade)合法结论仅两种:
   methodology-valid + collect / methodology-flawed(修后重跑);
   trade/reject 判决权只属于 S5**(capture_host 规则,自洽修正)。
@@ -168,12 +173,40 @@ Group C(正式校准,gated ≥2026-07-13)。
     NON-GATE / verified=false 横幅;**禁止改动任何 facts-gated
     工具的门**(OQ-1 未批前正式费用计算继续拒绝)。
 
+## 市场细分维度表(2026-07-10 操作员要求:细分成体系,一次建好)
+
+所有研究分析**必须 join 同一张细分维度表**,禁止各脚本临时自切:
+
+- 落点:`work/research/dim_segments.parquet`(derived,可重建),
+  由 catalog/series_classified + ticker 解析生成,建表脚本入库注册。
+- 维度列(细分层级,缺一即 DQ FAIL):
+  ① category / subcategory(仓库已有);
+  ② **tour_level**——从 series 前缀解析,网球实测存在:
+     KXATPMATCH / KXWTAMATCH / KXITFMATCH / KXATPCHALLENGERMATCH
+     → ATP / WTA / ITF / Challenger(其他运动同法:联赛级别);
+  ③ market_kind——胜负盘 / 总分类 / 让分类 / 其他(由 series
+     规则文本与 ticker 形态归类);
+  ④ tick_stratum——1¢ vs 次美分(按该 series 实测价格粒度);
+  ⑤ maker_fee_class——零费 / 收费 / 未知(kalshi_facts 查证,
+     未知按 fail-closed 剔除);
+  ⑥ event_id 与 phase 边界(赛前/in-play 因果探测器输出)。
+- DQ 约束:每个 market_ticker 必须映射到**恰好一个**细分组合;
+  未能归类的进 `_unsegmented` 桶并计数(>2% 即 FAIL 修表)。
+- 一切图表、一切统计的分组键 = 此表的列,别无来源。
+  (毒性、价差、心跳全部按 tour_level 分开看——ITF 深夜盘和
+  ATP 黄金档是两个物种,混在一起 = 平均出一个不存在的市场。)
+
 ## 可视化规格(2026-07-10 操作员要求:每步必出图)
 
-**渲染标准**:静态 HTML + inline SVG(沿用 mm_research 惯例;无外部
-CDN、离线可开、可入库版本化);每图标题 = 它回答的那个问题;
-图上必标 n 与 CI;页脚带指纹头。dev-grade 与 EC2 正式版用同一套
-配色/坐标尺度,保证肉眼可比。
+**渲染标准(2026-07-10 操作员升级:必须动态交互)**:
+自包含 HTML + **本地 vendored 交互库**(Plotly.js 或 ECharts,
+库文件一次性入库到 docs/vendor/js/,HTML 引用本地文件——
+仍然无外部 CDN、离线可开、可版本化)。交互能力下限:悬停显示
+精确值与 n、框选缩放、图例点选显隐序列、**按细分维度切换/过滤**
+(至少:tour 级别、价格带、tick 层、赛前/in-play)。每图标题 =
+它回答的那个问题;n 与 CI 上图;页脚指纹头。归档需要时可另导
+静态 PNG/SVG 快照,但交互版是正本。dev-grade 与 EC2 正式版同
+配色同坐标,肉眼可比。
 
 **诚图五规**(违反任一 = 图作废重画):
 ① 一图一问,标题就是问题;② 不确定性上图(bootstrap CI 带,
@@ -226,8 +259,13 @@ CDN、离线可开、可入库版本化);每图标题 = 它回答的那个问题
 > 按场 bootstrap、中价卫生、tick 分层、因果分界、指纹、parquet
 > 物化+分区过滤、费用预览不动门);主指标未预先声明即开算、或
 > 恒等式自检缺失 = 审计 REJECT。
-> HTML 必含「可视化规格」的 S1 七图(inline SVG,一图一问、
-> CI 上图、零线、log horizon、指纹页脚,诚图五规逐条执行)。
+> 先建「市场细分维度表」(dim_segments.parquet,tour_level/
+> market_kind/tick_stratum/maker_fee_class/phase,每 market 恰好
+> 一组,_unsegmented >2% = FAIL),一切统计与图表按此表分组;
+> HTML 必含 S1 七图且为**动态交互版**(vendored Plotly/ECharts
+> 本地库,无 CDN;悬停出值+n、缩放、图例显隐、按 tour/价格带/
+> tick 层过滤;诚图五规不变);整套分析交付为参数化管道并注册
+> tools.json——换参数即 S4/S5,零代码分叉。
 > 退出仪式 + 独立审计。
 
 ## 执行台账(操作员勾选)
