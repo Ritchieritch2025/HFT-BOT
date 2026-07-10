@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 — PLAN_RESEARCH_CYCLE_1 landed (operator-approved test plan, hand-held execution)
+
+- commit: this commit (docs/PLAN_RESEARCH_CYCLE_1.md).
+- operator decision (E2): all recently identified tests enter one ordered
+  plan; operator executes step-by-step with Cowork explaining every number
+  ("我需要所有这些测试都进入计划,手把手一步步带着我执行并且讲给我").
+- steps: S0 closeout+TL1 deploy → S1 maker-edge pilot dev-grade (spread −
+  markout − fees, bounce/drift split, zero-maker-fee series only) →
+  S2 signing p99 local benchmark → S3 signed-POST RTT p99 (sampling plan
+  operator-gated) → S4 book-level burstiness + category comparison →
+  S5 EC2-era rerun (the only go/no-go-eligible version, recv clock) →
+  S6 W-K6 (operator-scheduled). Paste-ready S1 quote in appendix A;
+  operator checklist ledger at bottom.
+- context: plan consolidates Rhys-conversation test items + operator's
+  10-point pilot spec (sandbox/research/pilot_maker_edge/); no changes to
+  MASTER_SEQUENCE steps; pessimistic-bound and all gates unchanged.
+- executed-by: web Claude (Cowork).
+
 ## 2026-07-10 18:40 UTC — W-K5 DONE ✅ (reconcile loop, contract #8) — K-track non-live Ws (K1–K5) COMPLETE; only W-K6 live rehearsal remains
 
 - commits: 1a03c2b (W-K5) + 586bd10 (audit remediation) + this exit. Audit
