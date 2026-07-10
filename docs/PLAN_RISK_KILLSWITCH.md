@@ -158,6 +158,30 @@ Acceptance:       mock-server fixtures (real captured response shapes) parse
 Rollback:         revert commit.
 Exit evidence:    commit hash; tests green; live read output (redacted ok).
 
+#### W-K1 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `tools/account_view.py` (balance / positions / resting orders;
+  openssl RSA-PSS signing mirroring src/client.cpp; D3 field gates with
+  counted drops; cents↔fixed-point cross-check fail-closed;
+  `--assert-zero-resting` panic primitive, UNPROVABLE⇒exit 1 when any
+  record fails gates) + `tests/test_account_view.py` (13 tests, local mock,
+  PSS round-trip vs openssl verify, redaction + read-only grep gates).
+- **DEVIATION from the W text, evidence-forced (D5):** the definition said
+  "E4 money fields"; the LIVE account answered
+  `market_exposure_dollars="4.726960"` — six decimals, nonzero beyond
+  centicent — so E4 would be lossy narrowing of account money. Money is
+  parsed byte-exactly to **E6 micro-dollars** (`parse_e6`, integer digit
+  accumulation, floats rejected); contract counts stay E4 (spec pins
+  FixedPointCount to 2dp). Both live shapes are committed fixtures.
+- Field-semantics facts (VERIFIED-LIVE 2026-07-10): `balance` (cents int)
+  = floor of `balance_dollars`; true balance carries sub-cent precision
+  ($23.2614 while cents said 2326). W-K3's ledger (E4 per its definition)
+  must adopt E6 for money or state its narrowing rule explicitly — flagged
+  for the W-K3 session.
+- Live demo (acceptance): balance $23.261400, portfolio value $4.70, 3/3
+  market positions parsed (0 dropped — incl. a KXMVECROSSCATEGORY combo
+  position, 25.69 contracts / $4.726960 exposure), resting orders 0,
+  `--assert-zero-resting` rc=0.
+
 ### W-K2 — Panic CLI with dry-run mode (the kill switch, S3)
 Purpose:          `apps/panic.cpp` (or panic.py if the audit accepts cold-path
                   Python for v1 — decision recorded in the W): a STANDALONE

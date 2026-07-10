@@ -114,6 +114,7 @@ run_suite "test_timestamp_ladder" ./tests/run_pytest.sh tests/test_timestamp_lad
 run_suite "test_backtest_clock" ./tests/run_pytest.sh tests/test_backtest_clock.py
 run_suite "test_jitter_report" ./tests/run_pytest.sh tests/test_jitter_report.py
 run_suite "test_pricing_lo" ./tests/run_pytest.sh tests/test_pricing_lo.py
+run_suite "test_account_view" ./tests/run_pytest.sh tests/test_account_view.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
 run_suite "test_warehouse_nonuniform_archive" ./tests/run_pytest.sh tests/test_warehouse_nonuniform_archive.py
 run_suite "test_warehouse_event" ./tests/run_pytest.sh tests/test_warehouse_event.py
