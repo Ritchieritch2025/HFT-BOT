@@ -52,6 +52,31 @@ which decisions landed in which files, what the next session must know.
   3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
   Glacier/retention ruling.
 
+## 2026-07-10 ~00:30 UTC — OPERATOR DIRECTION SHIFT: sports-first, infra-over-models; adjustment proposal written
+
+- commits: 4ba29ff (sports direction, E2) · e13d51c (no complex predictive
+  models; feed+mapping+infra focus, E2) · this commit
+  (PROPOSAL_DIRECTION_ADJUST_2026-07-09.md + this entry).
+- operator decisions (E2, all in RESEARCH_EDGE_HYPOTHESES §4.5 +
+  PROPOSAL_DIRECTION_ADJUST):
+  (1) sports is the target market ("最赚钱的市场还是在体育");
+  (2) no complex predictive-model training — engineering focus =
+      realtime feed + mapping layer + technical details;
+  (3) crypto-first plan lacked market-participant feedback; adjust
+      direction per 5-interview intel and iterate fast.
+- deliverable: docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md — proposal
+  (NOT yet in force): keep pipeline/AWS/gates unchanged; swap 1.5A anchor
+  (spot index → sportsbook odds feed, buy-vs-scrape = operator money
+  decision at W-S2); rework 1.5 effort (cut predictive modeling, add
+  mapping layer + quote-funnel logging + defensive calibration);
+  fast-iteration loop W-S1..W-S4 with all pessimistic-bound gates intact.
+  W-S1 = category-comparative scan on EXISTING warehouse data (sports vs
+  crypto: spread/depth/arrival/toxicity/rec-features), zero procurement.
+- blocked / handoff: awaiting operator approval of proposal → next fresh
+  session executes the formal plan-change W (MM_ROADMAP revision + audit)
+  then W-S1. MASTER_SEQUENCE untouched meanwhile; STEP 1 AWS migration
+  needed under either direction.
+
 ## 2026-07-09 ~23:30 UTC — Interview intel #4 (TroyCuban RFQ) + #5 (World Cup risk) committed c088965; hypotheses now H1-H13
 
 - commits: c088965 (analysis docs #4 T=TroyCuban, #5 W=WorldCup, hypotheses
