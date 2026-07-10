@@ -50,6 +50,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "kalshi/wire.hpp"
 
@@ -67,7 +68,7 @@ inline Micros exposure_micros(std::int64_t count_fp, std::int32_t price_e4) {
 }
 
 enum class Layer : std::uint8_t {
-  None = 0, Market, Event, Factor, Total, DayLoss
+  None = 0, Market, Event, Factor, Total, DayLoss, Invalid
 };
 
 inline const char* to_string(Layer l) {
@@ -77,8 +78,24 @@ inline const char* to_string(Layer l) {
     case Layer::Factor:  return "per_factor";
     case Layer::Total:   return "total";
     case Layer::DayLoss: return "day_loss";
+    case Layer::Invalid: return "invalid_input";
     default:             return "none";
   }
+}
+
+// Canonical factor-key derivation (contract #7: "same underlying / same
+// outcome direction"). The underlying is the EVENT root (all alternate lines
+// / brackets of one event share it); the direction is the outcome side the
+// order is long. An empty event yields an empty key => the fail-closed
+// unknown_factor bucket. Callers should use this rather than hand-rolling a
+// key, so aggregation is consistent across the codebase. `long_yes` = the
+// order increases YES exposure (buy-yes or sell-no); false = the NO side.
+inline std::string derive_factor_key(std::string_view event_ticker,
+                                     bool long_yes) {
+  if (event_ticker.empty()) return {};      // -> unknown_factor (fail-closed)
+  std::string k(event_ticker);
+  k += long_yes ? ":yes" : ":no";
+  return k;
 }
 
 struct OrderReq {
@@ -96,10 +113,12 @@ struct Reservation {
                                   // 0 = invalid / reduce-risk passthrough
   Micros amount = 0;              // reserved exposure (0 for reduce-risk)
   bool reduce = false;            // this was a reduce-risk passthrough
+  std::uint64_t ts_ns = 0;        // captured at reserve -> client_order_id is
+                                  // a pure function of the slot (N5: stable on
+                                  // retry regardless of the retry's clock)
   // keys captured so settle()/refund() hit the exact same buckets
   std::string market, event, factor;
   Micros settled = 0;             // filled part kept (bookkeeping/conservation)
-  bool closed = false;            // settle() or refund() already applied
 };
 
 class RiskLedger {
@@ -110,6 +129,12 @@ class RiskLedger {
     Micros per_factor = kNoCap;
     Micros total      = kNoCap;
     Micros day_loss   = kNoCap;   // realized-loss breaker
+    // The unknown_factor bucket's cap is INDEPENDENT of per_factor and
+    // defaults to 0 — fail-closed (S2): an order whose factor can't be
+    // classified reserves nothing it is allowed, so it is REJECTED until the
+    // operator deliberately widens set_factor_cap(kUnknownFactor, …). This
+    // is the "most conservative bucket" (N4).
+    Micros unknown_factor = 0;
   };
 
   explicit RiskLedger(Caps caps) : caps_(caps) {}
@@ -122,10 +147,12 @@ class RiskLedger {
 
   // Atomic five-layer reserve. Returns ok=false + the short layer, having
   // deducted NOTHING, when any layer lacks headroom. Reduce-risk orders are
-  // admitted unconditionally with amount=0 (Q8).
-  Reservation reserve(const OrderReq& req) {
+  // admitted unconditionally with amount=0 (Q8). `ts_ns` is captured so the
+  // reservation's client_order_id is a pure function of its slot (N5).
+  Reservation reserve(const OrderReq& req, std::uint64_t ts_ns = 0) {
     std::lock_guard<std::mutex> lock(mu_);
     Reservation r;
+    r.ts_ns = ts_ns;
     r.market = req.market;
     r.event = req.event;
     r.factor = req.factor.empty() ? kUnknownFactor : req.factor;
@@ -133,23 +160,30 @@ class RiskLedger {
       r.ok = true; r.reduce = true; r.amount = 0; r.slot = 0;
       return r;
     }
+    // Input validation (S2 fail-closed, N2): a negative or absurd exposure is
+    // never admitted — it would create phantom headroom on a layer.
+    const Micros e = req.exposure;
+    if (e < 0) { r.rejected = Layer::Invalid; return r; }
     // (5) day-loss breaker first: a tripped breaker refuses ALL new risk.
     if (day_loss_ >= caps_.day_loss) { r.rejected = Layer::DayLoss; return r; }
-    const Micros e = req.exposure;
-    // Check every exposure layer's headroom BEFORE deducting any (atomic).
-    if (used_(market_used_, r.market) + e > cap_(market_cap_, caps_.per_market, r.market)) {
+    // Headroom via SUBTRACTION so `used + e` can never overflow (N3): used is
+    // in [0, cap], e in [0, INT64_MAX], so cap - used is a safe non-negative
+    // comparand. A short layer rejects with NOTHING deducted.
+    if (e > cap_(market_cap_, caps_.per_market, r.market) - used_(market_used_, r.market)) {
       r.rejected = Layer::Market; return r; }
-    if (used_(event_used_, r.event) + e > cap_(event_cap_, caps_.per_event, r.event)) {
+    if (e > cap_(event_cap_, caps_.per_event, r.event) - used_(event_used_, r.event)) {
       r.rejected = Layer::Event; return r; }
-    if (used_(factor_used_, r.factor) + e > cap_(factor_cap_, caps_.per_factor, r.factor)) {
+    if (e > factor_cap_for_(r.factor) - used_(factor_used_, r.factor)) {
       r.rejected = Layer::Factor; return r; }
-    if (total_used_ + e > caps_.total) { r.rejected = Layer::Total; return r; }
-    // all five clear -> commit to all layers
+    if (e > caps_.total - total_used_) { r.rejected = Layer::Total; return r; }
+    // all five clear -> commit to all layers + register the OPEN slot so a
+    // close is authorized exactly once (N1: aliased copies can't double-close)
     market_used_[r.market] += e;
     event_used_[r.event] += e;
     factor_used_[r.factor] += e;
     total_used_ += e;
     r.ok = true; r.amount = e; r.slot = ++slot_seq_;
+    open_.insert(r.slot);
     return r;
   }
 
@@ -159,33 +193,35 @@ class RiskLedger {
   // a no-op (so a retry path cannot double-refund).
   void settle(Reservation& r, Micros filled, Micros realized_loss = 0) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (r.reduce || r.closed || !r.ok) { r.closed = true; return; }
+    // Authority is the ledger's OPEN-slot set, not the struct's own flag, so
+    // a COPIED handle cannot double-release (N1): once the slot is erased,
+    // any further close (this instance or an alias) is a no-op.
+    if (r.reduce || !r.ok || open_.erase(r.slot) == 0) return;
     if (filled < 0) filled = 0;
     if (filled > r.amount) filled = r.amount;
-    const Micros refund = r.amount - filled;
-    release_(r, refund);           // return only the unfilled part
+    release_(r, r.amount - filled);   // return only the unfilled part
     r.settled = filled;
     if (realized_loss > 0) day_loss_ += realized_loss;
-    r.closed = true;
   }
 
   // Full refund (send failure / timeout / rejected before any fill).
   void refund(Reservation& r) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (r.reduce || r.closed || !r.ok) { r.closed = true; return; }
+    if (r.reduce || !r.ok || open_.erase(r.slot) == 0) return;  // N1: once only
     release_(r, r.amount);
     r.settled = 0;
-    r.closed = true;
   }
 
-  // Deterministic client_order_id for a reservation (contract #9): stable
-  // across retries that reuse the same reservation slot.
-  std::string client_order_id(const Reservation& r, std::uint8_t strategy_id,
-                              std::uint64_t ts_ns) const {
+  // Deterministic client_order_id for a reservation (contract #9): a pure
+  // function of (reservation slot, captured ts) — stable across EVERY retry
+  // that reuses the same reservation, regardless of the retry's own clock
+  // (N5: ts is the one captured at reserve, not a per-call arg).
+  std::string client_order_id(const Reservation& r,
+                              std::uint8_t strategy_id) const {
     wire::ExecPayload p;
     p.strategy_id = strategy_id;
     p.seq = r.slot;              // process-monotonic, slot-indexed
-    p.ts_ns = ts_ns;
+    p.ts_ns = r.ts_ns;          // captured at reserve
     return wire::client_order_id(p);
   }
 
@@ -211,6 +247,13 @@ class RiskLedger {
     auto it = over.find(k);
     return it == over.end() ? dflt : it->second;
   }
+  // The factor cap: the unknown bucket uses its own conservative default
+  // (caps_.unknown_factor), NOT the global per_factor default (N4).
+  Micros factor_cap_for_(const std::string& k) const {
+    auto it = factor_cap_.find(k);
+    if (it != factor_cap_.end()) return it->second;      // explicit override
+    return k == kUnknownFactor ? caps_.unknown_factor : caps_.per_factor;
+  }
   void release_(const Reservation& r, Micros amt) {
     market_used_[r.market] -= amt;
     event_used_[r.event] -= amt;
@@ -225,6 +268,7 @@ class RiskLedger {
   Micros total_used_ = 0;
   Micros day_loss_ = 0;
   std::uint64_t slot_seq_ = 0;
+  std::unordered_set<std::uint64_t> open_;  // live reservation slots (N1)
 };
 
 }  // namespace kalshi::risk

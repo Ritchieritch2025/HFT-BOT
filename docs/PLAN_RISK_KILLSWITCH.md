@@ -365,6 +365,26 @@ Exit evidence:    commit hash; all four named tests + hammer green; the
   blowup layers ②③ prevent) — proof the additions are load-bearing.
 - Consumes: nothing yet (pure module). Feeds the Phase-2 engine's
   reserve-before-send path (S6) and W-K4's day-loss breaker hook.
+- Independent audit: ACCEPT-WITH-FINDINGS (named tests genuine + mutation-
+  verified; 16-thread mixed hammer conserves). Six fail-OPEN/drift holes on
+  the risk core found and ALL FIXED same session (S2 demands fail-closed on
+  this module): **N1** copied-handle double-release (a Reservation is
+  copyable; the struct-local guard didn't stop an aliased close → used_ went
+  NEGATIVE, defeating every cap) — now the LEDGER tracks live slots in an
+  open_ set and a close is authorized exactly once; **N2** negative exposure
+  admitted → phantom headroom — now rejected as Layer::Invalid; **N3**
+  int64 `used+e` could wrap negative past the cap — headroom now checked by
+  subtraction (`e > cap - used`, never overflows); **N4**
+  __unknown_factor__ inherited the global per_factor default (kNoCap =
+  fail-OPEN) — now a dedicated Caps.unknown_factor defaulting to 0
+  (fail-closed; operator widens deliberately); **N5** client_order_id was
+  ts-arg-dependent (a retry with a different clock changed the id) — ts is
+  now captured at reserve, so the id is slot-pure; **N6** factor derivation
+  was doc-only — `derive_factor_key(event, long_yes)` now implements the
+  canonical rule in code + tests. Regression tests added for each; the
+  auditor's four exploit probes (double-refund, negative, overflow, unknown
+  default) all re-run fail-closed. Report:
+  docs/plan_audits/wK3_audit_2026-07-10.md.
 
 ### W-K4 — Rule engine on synthetic scenarios
 Purpose:          the always-on defensive rules as a pure library +

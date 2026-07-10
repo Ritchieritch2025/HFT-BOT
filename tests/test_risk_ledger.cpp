@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <fstream>
+#include <limits>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -185,20 +186,83 @@ static void test_atomicity_hammer() {
 static void test_unknown_factor_failclosed() {
   RiskLedger::Caps caps;
   caps.per_market = kNoCap; caps.per_event = kNoCap;
-  caps.per_factor = 2 * kLine; caps.total = kNoCap; caps.day_loss = kNoCap;
+  caps.per_factor = kNoCap;          // generous known-factor default...
+  caps.total = kNoCap; caps.day_loss = kNoCap;
   RiskLedger led(caps);
+  // ...but the unknown bucket has its OWN conservative default (N4): with no
+  // operator override it is 0 => every unclassifiable order is REJECTED.
+  int admitted_default = 0;
+  for (int i = 0; i < 3; ++i) {
+    OrderReq q; q.market = "M" + std::to_string(i);
+    q.event = "E" + std::to_string(i); q.factor = ""; q.exposure = kLine;
+    if (led.reserve(q).ok) ++admitted_default;
+  }
+  check(admitted_default == 0,
+        "unknown_factor: fail-CLOSED by default (0 cap) — unclassifiable "
+        "orders rejected until the operator widens the bucket");
+
+  // when the operator DELIBERATELY widens the unknown bucket, they still
+  // share ONE bucket and throttle together (aggregation shape).
+  RiskLedger::Caps caps2 = caps;
+  RiskLedger led2(caps2);
+  led2.set_factor_cap(kUnknownFactor, 2 * kLine);
   int admitted = 0;
   for (int i = 0; i < 5; ++i) {
-    OrderReq q;
-    q.market = "M" + std::to_string(i);   // all distinct
-    q.event = "E" + std::to_string(i);
-    q.factor = "";                        // unclassifiable
-    q.exposure = kLine;
-    if (led.reserve(q).ok) ++admitted;
+    OrderReq q; q.market = "M" + std::to_string(i);
+    q.event = "E" + std::to_string(i); q.factor = ""; q.exposure = kLine;
+    if (led2.reserve(q).ok) ++admitted;
   }
-  check(admitted == 2, "unknown_factor: unclassifiable orders share one capped bucket");
-  check(led.used_factor("") == 2 * kLine,
-        "unknown_factor: they aggregate into the __unknown_factor__ bucket");
+  check(admitted == 2, "unknown_factor: widened bucket still aggregates all "
+        "unclassifiable orders into one cap");
+  check(led2.used_factor("") == 2 * kLine,
+        "unknown_factor: they land in the __unknown_factor__ bucket");
+}
+
+// N2/N3: a negative or overflow-magnitude exposure is REJECTED, never
+// admitted into phantom headroom (S2 fail-closed).
+static void test_bad_exposure_rejected() {
+  RiskLedger::Caps caps;
+  caps.per_market = 10 * kLine; caps.per_event = 10 * kLine;
+  caps.per_factor = 10 * kLine; caps.total = 10 * kLine; caps.day_loss = kNoCap;
+  RiskLedger led(caps);
+  OrderReq neg; neg.market="M"; neg.event="E"; neg.factor="F";
+  neg.exposure = -5 * kLine;
+  Reservation rn = led.reserve(neg);
+  check(!rn.ok && rn.rejected == Layer::Invalid,
+        "bad-exposure: negative exposure rejected as Invalid");
+  check(led.used_total() == 0 && led.used_market("M") == 0,
+        "bad-exposure: negative order deducted NOTHING (no phantom headroom)");
+  // overflow magnitude: used+e cannot wrap because headroom is checked by
+  // subtraction; a near-INT64_MAX exposure simply exceeds headroom -> reject
+  OrderReq huge; huge.market="M"; huge.event="E"; huge.factor="F";
+  huge.exposure = std::numeric_limits<Micros>::max() - 100;
+  Reservation rh = led.reserve(huge);
+  check(!rh.ok && rh.rejected == Layer::Market,
+        "bad-exposure: overflow-magnitude exposure rejected (no wrap-to-room)");
+  check(led.used_total() == 0, "bad-exposure: huge order deducted nothing");
+}
+
+// N1: a COPIED reservation handle cannot double-release. Closing an alias
+// after the original is a no-op — used_ never drifts negative.
+static void test_copied_handle_no_double_release() {
+  RiskLedger::Caps caps;
+  caps.per_market = 10*kLine; caps.per_event=10*kLine; caps.per_factor=10*kLine;
+  caps.total = 10*kLine; caps.day_loss = kNoCap;
+  RiskLedger led(caps);
+  OrderReq q; q.market="M"; q.event="E"; q.factor="F"; q.exposure = kLine;
+  Reservation a = led.reserve(q);
+  Reservation b = a;                 // alias the handle
+  led.refund(a);
+  led.refund(b);                     // second close via the copy: no-op
+  check(led.used_total() == 0 && led.used_market("M") == 0,
+        "double-release: copied-handle second refund does NOT drift below zero");
+  // same for settle-then-settle-via-copy
+  Reservation c = led.reserve(q);
+  Reservation d = c;
+  led.settle(c, kLine);              // fully filled: keeps kLine
+  led.settle(d, 0);                  // alias: must not release the kept amount
+  check(led.used_total() == kLine,
+        "double-release: aliased settle does not release the kept fill");
 }
 
 // day-loss breaker (5): once realized loss reaches the cap, new risk refused.
@@ -223,13 +287,46 @@ static void test_day_loss_breaker() {
 static void test_client_order_id_stability() {
   RiskLedger led(RiskLedger::Caps{});   // all kNoCap
   OrderReq q; q.market = "M"; q.event = "E"; q.factor = "F"; q.exposure = kLine;
-  Reservation a = led.reserve(q);
-  Reservation b = led.reserve(q);
-  const std::string ida1 = led.client_order_id(a, 29, 1000);
-  const std::string ida2 = led.client_order_id(a, 29, 1000);  // retry, same slot
-  const std::string idb = led.client_order_id(b, 29, 1000);
+  Reservation a = led.reserve(q, /*ts_ns=*/1000);
+  Reservation b = led.reserve(q, /*ts_ns=*/1000);
+  const std::string ida1 = led.client_order_id(a, 29);
+  const std::string ida2 = led.client_order_id(a, 29);        // retry, same slot
+  const std::string idb = led.client_order_id(b, 29);
   check(ida1 == ida2, "coid: retry with the same reservation yields the SAME id");
   check(ida1 != idb, "coid: distinct reservations yield distinct ids");
+  // N5: the id is a pure function of the slot+captured ts — a copied handle
+  // (a retry path) yields the SAME id even though no ts is passed at call time
+  Reservation a_copy = a;
+  check(led.client_order_id(a_copy, 29) == ida1,
+        "coid: an aliased handle (retry) yields the SAME id (slot-pure)");
+}
+
+// N6: the canonical factor-key derivation is implemented (not just documented)
+// — same event + same direction => same key (aggregates); different direction
+// or empty event => different / unknown.
+static void test_factor_key_derivation() {
+  check(derive_factor_key("KXEGGSY-25DEC31", true) ==
+        derive_factor_key("KXEGGSY-25DEC31", true),
+        "factor-derive: same event+direction -> same key");
+  check(derive_factor_key("KXEGGSY-25DEC31", true) !=
+        derive_factor_key("KXEGGSY-25DEC31", false),
+        "factor-derive: opposite directions -> distinct keys");
+  check(derive_factor_key("", true).empty(),
+        "factor-derive: empty event -> empty key (routes to unknown_factor)");
+  // end-to-end: derived keys drive the Eggsy aggregation
+  RiskLedger::Caps caps;
+  caps.per_market = 100*kLine; caps.per_event=100*kLine;
+  caps.per_factor = 1*kLine; caps.total=100*kLine; caps.day_loss=kNoCap;
+  RiskLedger led(caps);
+  int admitted = 0;
+  for (int i = 0; i < 5; ++i) {
+    OrderReq q; q.market = "KXEGGSY-25DEC31-L"+std::to_string(i);
+    q.event = "KXEGGSY-25DEC31";
+    q.factor = derive_factor_key(q.event, /*long_yes=*/true);   // canonical
+    q.exposure = kLine;
+    if (led.reserve(q).ok) ++admitted;
+  }
+  check(admitted == 1, "factor-derive: derived keys drive factor aggregation");
 }
 
 // RED-FIRST: the roadmap's old (1)(4)(5)-only list (event+factor disabled)
@@ -301,8 +398,11 @@ int main() {
   test_refund_path();
   test_atomicity_hammer();
   test_unknown_factor_failclosed();
+  test_bad_exposure_rejected();
+  test_copied_handle_no_double_release();
   test_day_loss_breaker();
   test_client_order_id_stability();
+  test_factor_key_derivation();
   test_redfirst_legacy_layers_fail();
   test_no_float_grep_gate();
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "TEST FAIL\n");
