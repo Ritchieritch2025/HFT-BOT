@@ -1,0 +1,369 @@
+# PLAN — Risk Gates & Kill Switch (MM_ROADMAP Phase 3 preparation)
+
+**For the executing agent: read `docs/GUARDRAILS.md` and `docs/MM_ROADMAP.md`
+before touching anything. This plan binds to them; a conflict means STOP and
+ask the operator.**
+
+- **Phase advanced:** 3 preparation (live-safety gates), buildable in
+  parallel with Phase 2 per MM_ROADMAP — but every W here is dry-run /
+  synthetic / read-only; the single live-rehearsal W is OPERATOR-GATED
+  (S1/S3) and sits at the very end.
+- **Gates:** P1 (phase named); P2 (nothing here places a live order without
+  the full S1 stack + operator per-session confirmation); P3 (bounded Ws,
+  demonstrated acceptance, rollback per W); P4 (pipeline untouched — the
+  kill switch is a standalone process, S3); S2 fail-closed everywhere; S5
+  (console never runs live_order class); S6 (reserve-before-send is the
+  ledger built here); E1/E2/E3/E5.
+- **Safety classes:** W-K1 `network_read` (typed read-only endpoints);
+  W-K2 dry-run mode `offline` (mock exchange) with the real-execution path
+  registered `live_order` (console-forbidden forever, E3/S5); W-K3/K4/K5
+  `pure`/`offline` synthetic; W-K6 = operator-gated live rehearsal.
+- **Design input (binding):** `docs/DESIGN_HOTPATH_EXECUTION_2026-07-10.md`.
+  Its nine hot-path contracts, five-layer reservation ledger, and four named
+  acceptance tests are folded VERBATIM in §1 below and bound into the W
+  definitions. **Omitting any of them from the built system = this plan's
+  self-audit FAILS (§6.11) and the W audit REJECTS.**
+
+---
+
+## 0. Problem statement
+
+GUARDRAILS S3: **the kill switch is built and rehearsed before the first
+live order** — a standalone process independent of the strategy (panic CLI:
+cancel-all → verify zero resting → reprice-cross liquidation rounds →
+report). MM_ROADMAP Phase 3 lists the live gates: risk caps, kill switch,
+reconcile-on-ambiguity, token budget, funding, per-session operator
+confirmation. None of these exist as code today; the interview archive's two
+flagship account-blowups (Eggsy correlated-lines, NHL template legs) are both
+*factor-level* exposure failures that per-market caps alone cannot stop.
+
+This plan builds the safety stack in dry-run form NOW, so that when Phase 2
+shadow ends, live-readiness is a rehearsal away — not a development project.
+
+## 1. Design contracts folded VERBATIM (from DESIGN_HOTPATH_EXECUTION_2026-07-10.md §4–5)
+
+> ## 4. 热路径契约(九条,设计定稿输入)
+>
+> 操作员六条:
+>
+> 1. **订单状态常驻内存**:当前仓位、活跃订单、各 market 最佳
+>    bid/ask、风险额度,策略判断即取即用。
+> 2. **订单模板预建**:market、buy/sell、yes/no、post_only 等固定
+>    字段提前放好;下单只改价格、数量、client_order_id、timestamp。
+> 3. **固定内存槽位**:预分配一批 OrderSlot,不做临时对象;策略
+>    拿槽位填关键字段。
+> 4. **热连接常开**:每个下单 worker 自有 warm HTTP/TLS lane,
+>    绝不临下单才建连接。
+> 5. **签名不可省**:Kalshi 每请求需新 timestamp + RSA-PSS 签名,
+>    每单必做;可并行、预分配 buffer、减少额外分配。
+> 6. **Redis 不入热路径**:日志/telemetry/cold path 可用;真正
+>    下单路径全程同进程内存。
+>
+> 补充三条(缺一即经典实盘事故源):
+>
+> 7. **额度是预留式,不是查询式(reserve-before-send,S6)**:
+>    策略取槽位那一刻即从额度扣除本笔敞口 → 发送 → ack 按实结算,
+>    失败/超时归还;部分成交结算成交部分、归还剩余。只"看一眼"
+>    额度 = 同毫秒两笔各自看到余额双双发出 = Q8 multi-fill 窗口
+>    bug 族。
+>    **账本必须开五层,取槽位时五层原子同扣,任何一层不足即拒单:**
+>    ① 单市场 ② 单 event ③ 单因子(同一底层标的/同一结果方向,
+>    如同场比赛的全部 alternate lines、全部 BTC brackets)
+>    ④ 总敞口 ⑤ 日亏损。
+>    (路线图阶段 3 现有清单只有 ①④⑤+单笔,②③ 为本设计新增,
+>    正是访谈两大事故的病根层。)
+>    **减风险方向的单不占额度、永远放行**(Q8 rodlaf 死锁:满仓时
+>    禁止逻辑上压制退出报价)。
+>    **验收测试点名(红字先行,进 PLAN_RISK_KILLSWITCH 的 W 定义,
+>    缺一即计划审计 REJECT):**
+>    (a) Eggsy 重放:同一 event 十条相关线同毫秒并发下单,
+>        因子层额度只放行第一笔预留,其余九笔拒单;
+>    (b) NHL 模板重放:同一条腿串进 N 张不同组合,腿级因子敞口
+>        聚合并触顶;
+>    (c) 死锁豁免:因子层满额时,减仓方向报价仍被放行;
+>    (d) 归还路径:发送失败/超时/部分成交后账户余额精确复原
+>        (E4 定点数,无浮点)。
+> 8. **内存是缓存,交易所是真相——必有对账回路(S2)**:冷路径
+>    定期拉交易所 resting orders/positions 与内存对表;ack 丢失、
+>    部分成交漏收、断线窗口都会造成漂移;不一致 → 报警 + 以
+>    交易所为准,永不盲目重试。
+> 9. **client_order_id 承担幂等**:重试必须复用同一 id(换 id
+>    重发 = 可能双成交);生成规则(进程内单调、含槽位号)在
+>    设计里写死。
+>
+> ## 5. 排序纪律(与 GUARDRAILS 对齐,防跑偏)
+>
+> - **安全层先于速度层**:kill switch 先建先练才许第一笔实盘
+>   (S3);post-only、dead-man、下单前三查(仓位/敞口/日亏)、
+>   reserve-before-send 是下单路径的准入条件(S6),不是 v2 功能。
+> - **先测量再优化**:延迟大头是签名(数百 µs 量级)+ signed POST
+>   RTT(ms 量级);OrderSlot 池省的是 ns-µs。签名与 RTT p99 实测
+>   先行(W-TL1 占位参数的后续任务),数字出来后工程往大头砸。
+> - **第一版 edge 不靠极速**(访谈档案结论):maker 吃费率墙 +
+>   散户流,防快人靠报价熔断与 size 控制;PrivateLink/多 AZ 等
+>   放量且被延迟真实咬过之后再投。
+> - 遥测/日志/S3/dashboard 永远滚出热路径(S5/E7)。
+
+Contract-to-W binding map (every contract has an owner; §6.11 checks this):
+
+| contract | owned by |
+|---|---|
+| #1 in-memory order/position/risk state | W-K3 (ledger state) + Phase-2 engine plan (book/orders) |
+| #2 prebuilt templates, #3 OrderSlot pool | future execution-engine plan (DESIGN §6 悬置); NOT this plan — recorded so the audit sees it deliberately deferred, not lost |
+| #4 warm lanes, #5 per-order RSA-PSS | existing `client.hpp` Lanes + signing path; panic CLI reuses them (W-K2) |
+| #6 no Redis on hot path | W-K3/K4 are in-process pure modules; enforced by their Forbidden-writes |
+| #7 reserve-before-send + five layers + (a)–(d) | **W-K3 (the heart of this plan)** |
+| #8 reconcile loop | W-K5 |
+| #9 client_order_id idempotency | W-K2 (panic reuses ids on retry) + W-K3 (id rule spec + tests) |
+
+## 2. Module architecture
+
+```
+include/kalshi/risk_ledger.hpp   W-K3  five-layer reservation ledger (C++,
+                                       hot-path destined, E7; E4 fixed point)
+tests/test_risk_ledger.cpp       W-K3  the four named tests + property battery
+apps/panic.cpp                   W-K2  standalone kill-switch CLI (S3)
+tests/test_panic_dryrun.py       W-K2  dry-run vs mock exchange
+tools/account_view.py            W-K1  typed read-only endpoints (positions/
+                                       resting orders/balance) — panic's and
+                                       reconcile's data source
+include/kalshi/dead_man.hpp      W-K4  rule engine primitives (dead-man,
+tests/test_rule_engine.cpp             day-loss breaker, rate limiter)
+tools/reconcile.py               W-K5  cold-path exchange-vs-memory diff
+```
+
+C++ for hot-path-destined pieces (E7); Python for cold-path/ops tooling.
+
+---
+
+## 3. Workstreams (seven-field Ws)
+
+### W-K1 — Typed read-only account endpoints
+Purpose:          `tools/account_view.py` + (if needed) C++ typed parsers:
+                  GET portfolio positions, resting orders, balance — typed,
+                  boundary-validated (D3), read-only. This is the data source
+                  for panic (verify-zero-resting), reconcile (W-K5), and the
+                  operator's own eyes. Endpoint paths/fields verified against
+                  docs/vendor spec + live capture (E4-discipline), never from
+                  memory.
+Allowed writes:   `tools/account_view.py`; typed structs/tests;
+                  tests with recorded/mock fixtures; tools.json
+                  (`network_read`).
+Forbidden writes: any order-mutation endpoint code; pipeline; strategy code.
+Acceptance:       mock-server fixtures (real captured response shapes) parse
+                  to typed values byte-exactly (E4 money fields, no floats);
+                  malformed/corrupt responses fail-closed with counted drops
+                  (D3/D2); one read-only live call demonstrated (allowed —
+                  read class) printing the operator's actual balance/orders.
+Rollback:         revert commit.
+Exit evidence:    commit hash; tests green; live read output (redacted ok).
+
+### W-K2 — Panic CLI with dry-run mode (the kill switch, S3)
+Purpose:          `apps/panic.cpp` (or panic.py if the audit accepts cold-path
+                  Python for v1 — decision recorded in the W): a STANDALONE
+                  process, zero strategy dependencies (S3), sequence:
+                  cancel-all → poll until zero resting (W-K1 views) →
+                  reprice-cross liquidation rounds for residual inventory →
+                  final report. DRY-RUN default: full sequence against the
+                  mock exchange, every would-be mutation printed + logged,
+                  nothing transmitted. Real mode: `live_order` class,
+                  console-forbidden (S5/E3), operator-invoked only. Retries
+                  reuse client_order_id (contract #9); post-only NOT used for
+                  liquidation rounds (crossing is the point) — flagged
+                  explicitly so S6's post-only rule is read as maker-quote
+                  scoped, with the operator confirming that reading at audit.
+Allowed writes:   `apps/panic.cpp`; `tests/test_panic_dryrun.py`;
+                  `tests/mock_exchange_panic.py` (mock with seeded resting
+                  orders/positions incl. ack-loss injection); Makefile;
+                  tools.json (dry-run entry `offline`; live entry
+                  `live_order`).
+Forbidden writes: strategy/engine code; ws_shadow/supervisor; pipeline.
+Acceptance:       dry-run against a mock seeded with N resting orders + M
+                  positions: cancels all, verifies zero, plans liquidation
+                  rounds with correct crossing prices (E4 hand-computed),
+                  prints report; ack-loss injection ⇒ re-poll and reissue
+                  with the SAME client_order_id (contract #9 proven); mock
+                  refusing a cancel ⇒ loud partial-failure report, exit
+                  nonzero (S2 — never a false "all clear", D2); registry
+                  check proves the live entry is console-refused.
+Rollback:         revert commit; dry-run has no external effects.
+Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
+
+### W-K3 — Five-layer reservation ledger (contract #7, the heart)
+Purpose:          `include/kalshi/risk_ledger.hpp`: in-process, in-memory
+                  (contracts #1/#6), E4 fixed-point (D5, no floats on money),
+                  atomic five-layer reserve at slot-take:
+                  ① per-market ② per-event ③ per-factor (same underlying /
+                  same outcome direction — same-game alternate lines, all-BTC
+                  brackets) ④ total exposure ⑤ daily loss. ANY layer short ⇒
+                  reject the order. Settlement on ack (actual fill part),
+                  refund on failure/timeout/remainder. Reduce-risk orders
+                  bypass reservation and are ALWAYS admitted (Q8). Factor-key
+                  derivation rule is part of the W (event/series/strike
+                  mapping table + explicit `unknown_factor` fail-closed class
+                  that reserves against the MOST conservative bucket).
+                  client_order_id generation rule (process-monotonic,
+                  slot-indexed) specified + tested here (contract #9).
+Allowed writes:   `include/kalshi/risk_ledger.hpp`;
+                  `tests/test_risk_ledger.cpp`; Makefile; tools.json.
+Forbidden writes: network code of any kind (this module must be linkable
+                  with zero I/O deps — contract #6); strategy code; pipeline.
+Acceptance:       **the four named tests, verbatim from the design doc,
+                  each as its own named test case — absence of any one =
+                  audit REJECT:**
+                  (a) **Eggsy replay** — ten correlated same-event lines
+                      submitted same-millisecond concurrently: the factor
+                      layer admits exactly the first reservation, rejects
+                      the other nine;
+                  (b) **NHL template replay** — one leg threaded into N
+                      different combos: leg-level factor exposure aggregates
+                      across combos and caps out;
+                  (c) **deadlock exemption** — factor layer at cap: a
+                      reduce-direction quote is still admitted;
+                  (d) **refund path** — send-failure / timeout / partial
+                      fill each restore the account EXACTLY (E4 integer
+                      equality, no float anywhere — grep-gate like WP-01).
+                  Plus property battery: five-layer atomicity under a
+                  multi-threaded hammer (no interleaving admits a breach —
+                  the "look then send" bug class proven impossible);
+                  reservation conservation (reserved + refunded + settled ==
+                  initial, always); layer-①④⑤-only configuration reproduces
+                  the roadmap's old Phase-3 list and FAILS tests (a)+(b)
+                  (red-first proof that ②③ are the load-bearing additions).
+Rollback:         revert commit; pure module, imported by nothing yet.
+Exit evidence:    commit hash; all four named tests + hammer green; the
+                  red-first ①④⑤-only run's failure output preserved.
+
+### W-K4 — Rule engine on synthetic scenarios
+Purpose:          the always-on defensive rules as a pure library +
+                  scenario-tape drills: dead-man expiry (every resting order
+                  carries expiry; engine-loss-of-heartbeat ⇒ expiry does the
+                  cancelling), cancel-on-disconnect semantics (S6), day-loss
+                  circuit breaker (ledger layer ⑤ trip ⇒ quote-stop + panic
+                  recommendation), order-rate limiter (write-token budget
+                  hook, roadmap 300/s). Scenario tapes: disconnect
+                  mid-quote, heartbeat loss, day-loss breach mid-burst,
+                  rate-limit saturation. Decisions logged, nothing
+                  transmitted (shadow-style).
+Allowed writes:   `include/kalshi/dead_man.hpp` (or folded into risk_ledger
+                  if the audit prefers one module — recorded either way);
+                  `tests/test_rule_engine.cpp`;
+                  `tests/fixtures/risk_scenarios/`; Makefile; tools.json.
+Forbidden writes: network code; strategy; pipeline.
+Acceptance:       each scenario tape's expected decision sequence
+                  hand-written and asserted; disconnect tape ⇒ all quotes
+                  marked for expiry within the dead-man window; day-loss tape
+                  ⇒ breaker trips BETWEEN book updates (Q8 multi-fill window
+                  honored); saturation tape ⇒ limiter sheds requotes, NEVER
+                  sheds cancels (cancel starvation = classic incident).
+Rollback:         revert commit.
+Exit evidence:    commit hash; tests green; scenario decision logs.
+
+### W-K5 — Reconcile loop (contract #8)
+Purpose:          `tools/reconcile.py`: cold-path, periodic — pull exchange
+                  resting orders + positions (W-K1) and diff against an
+                  engine-state snapshot file; ANY mismatch ⇒ alarm (alert
+                  path from W-A5's alert_notify) + report; policy = exchange
+                  wins, never blind-retry (S2). In this plan it runs against
+                  mock + synthetic snapshots (there is no live engine yet);
+                  its contract is what Phase 2's shadow engine must export.
+Allowed writes:   `tools/reconcile.py`; `tests/test_reconcile.py` (mock
+                  fixtures: ack-loss drift, missed partial fill, disconnect
+                  window); tools.json (`offline` mock mode; `network_read`
+                  live-view mode).
+Forbidden writes: engine state (read-only consumer); pipeline.
+Acceptance:       each seeded drift class detected and classified; zero-drift
+                  fixture reports CLEAN with counts (a green that can lie is
+                  D2-rejected: the report always prints how many orders/
+                  positions were compared); exchange-wins policy asserted
+                  (the report's recommended action never says "resend").
+Rollback:         revert commit.
+Exit evidence:    commit hash; tests green; sample drift report.
+
+### W-K6 — LIVE kill-switch rehearsal (**OPERATOR-GATED, S1/S3**)
+Purpose:          the S3 rehearsal that unlocks any future live order: with
+                  the operator present and confirming per-session (S1), on a
+                  funded account: place ONE tiny far-from-touch post-only
+                  order (operator-typed confirmation), run panic REAL mode:
+                  cancel-all → zero-resting verified via W-K1 → report;
+                  repeat once with a deliberately killed network mid-panic
+                  (resume/idempotency proof, contracts #8/#9).
+Allowed writes:   `docs/RUNBOOK.md` rehearsal section; SESSION_LOG entry;
+                  no new code (this W executes what K1–K5 built).
+Forbidden writes: everything else. NO strategy orders. NO unattended runs.
+Acceptance:       operator-witnessed transcript: order placed → panic →
+                  zero resting → report; the interrupted-panic rerun
+                  completes idempotently (same client_order_ids on retry).
+Rollback:         panic IS the rollback; account ends flat by construction.
+Exit evidence:    transcript + operator sign-off line in SESSION_LOG.
+GATES:            S1 stack (all lifecycle gates green) + funding (Phase-3
+                  operator item, balance today $0.04) + per-session operator
+                  confirmation. This W CANNOT be started by an agent alone;
+                  it is scheduled BY the operator.
+
+Ordering: W-K1 → W-K2 → W-K3 → W-K4 → W-K5 → (gate) → W-K6.
+K3/K4 may swap if a session prefers; K6 strictly last. One W per fresh
+session; independent audit after every W (MASTER_SEQUENCE rule).
+
+---
+
+## 4. Explicitly deferred (recorded so the audit sees intent, not loss)
+
+- OrderSlot pool + `order_json()` allocation-free rewrite, prebuilt template
+  store (contracts #2/#3 engineering) → future execution-engine plan
+  (DESIGN §6 悬置事项).
+- signing p99 / signed-POST RTT p99 measurement → separate task, sampling
+  plan to operator first (W-TL1 handoff; DESIGN §5 先测量再优化).
+- strategy_seen_ns / book_applied_ns hot-path stamps → STEP 6 execution
+  engine plan (BACKLOG).
+- PrivateLink / multi-AZ latency bakeoff → post-scale (DESIGN §5).
+
+## 5. Queue position
+
+MASTER_SEQUENCE STEP 6 queues this plan for post-gate execution alongside
+PLAN_PRICING_MODEL. W-K1..K5 have no data-gate dependency (they are synthetic/
+mock/read-only) — their sequencing against Group-M pricing Ws is an operator
+call. W-K6 is gated by S1 + funding regardless of queue order.
+
+## §6 self-audit (this plan vs GUARDRAILS)
+
+1. Phase/gates (P1, P2): prepares Phase 3 without skipping Phase 2 —
+   nothing live until W-K6, which itself requires the full S1 stack. ✅
+2. Live orders (S1–S6): W-K6 is the only live-touching W; it is
+   operator-scheduled, operator-witnessed, per-session confirmed (S1);
+   kill switch standalone (S3); panic live entry = live_order class,
+   console-forbidden (S5); reserve-before-send + dead-man + pre-send checks
+   are W-K3/K4 admission criteria (S6). ✅
+3. Log-odds + fees (Q1, Q3): n/a to the ledger (money in E4); liquidation
+   round pricing in W-K2 is crossing arithmetic with fees included in the
+   report's cost estimate (Q3 noted in W-K2 acceptance report). ✅
+4. Pessimistic bound (Q2): n/a (no strategy claims); W-K6 makes no PnL
+   claims. ✅
+5. WS trading data (Q5): n/a — no strategy runs here. ✅
+6. Tests incl. behavior (E1, Q9): every W ships tests in-change; the four
+   named tests are red-first anchored (the ①④⑤-only red proof); Q8
+   anti-deadlock is test (c). ✅
+7. Pipeline continuity (P4): no W touches capture/ingest/export; panic and
+   reconcile are separate processes; alert reuse is additive. ✅
+8. Reversible/bounded (P3, P6): dry-run default everywhere; W-K6's rollback
+   is the kill switch itself; every W one commit. ✅
+9. Docs move with code (E5): RUNBOOK rehearsal section in W-K6; tools.json
+   per W; MM_ROADMAP Phase-3 checklist items get their owning W noted at
+   execution time. ✅
+10. Could a green lie (D2): panic partial-failure exits nonzero with the
+    failure list; reconcile CLEAN prints comparison counts; dry-run
+    transcripts show every would-be mutation; ledger conservation property
+    makes silent leakage visible. ✅
+11. **Design-doc completeness (operator requirement for THIS plan):** nine
+    contracts folded verbatim (§1) with an owner per contract (binding map);
+    five layers ①–⑤ all present in W-K3 with atomic-reserve semantics;
+    all four named tests (a)–(d) present, named, and red-first anchored in
+    W-K3 acceptance. Deferred contracts (#2/#3 engineering) are explicitly
+    tabled in §4, not dropped. ✅
+
+Self-audit verdict: PASS. Flagged for the independent audit: (i) the W-K2
+post-only reading (liquidation rounds cross by design — S6's post-only rule
+is maker-quote scoped; operator confirms at audit); (ii) W-K3 language
+choice C++-first (E7 hot-path destiny) — if the audit judges a Python
+reference belongs first (as PLAN_PRICING_MODEL does for math), that is a
+one-line W amendment, not a design change.
