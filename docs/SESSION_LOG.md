@@ -6,6 +6,48 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 18:40 UTC — W-K5 DONE ✅ (reconcile loop, contract #8) — K-track non-live Ws (K1–K5) COMPLETE; only W-K6 live rehearsal remains
+
+- commits: 1a03c2b (W-K5) + 586bd10 (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wK5_audit_2026-07-10.md.
+- delivered: tools/reconcile.py (cold-path, read-only consumer — mutates no
+  engine state, transmits no order) + tests/test_reconcile.py (16 tests).
+- SNAPSHOT CONTRACT defined (what Phase-2 shadow engine must export):
+  resting_orders[{client_order_id(REQUIRED join key), order_id?, ticker,
+  book_side, remaining_count_fp_e4, yes_price_e6?}] + positions[{ticker,
+  position_fp_e4}]. Money E6, counts E4, strict-int (no float coercion).
+- drift taxonomy, exchange-wins remedies (never resend): ORDER_ONLY_AT_EXCHANGE
+  (lost cancel-ack), ORDER_ONLY_IN_ENGINE (missed terminal), ORDER_ATTR_DRIFT
+  (remaining/side/price), POSITION_DRIFT / POSITION_DRIFT_LARGE (>=100
+  contracts ⇒ hard RUN-PANIC recommend). Exchange source: offline fixture or
+  --live via account_view (refuses a field-gate-dropped partial view).
+  CLEAN prints comparison counts (D2); malformed/unreadable side ⇒ exit 2
+  fail-closed; drift ⇒ alarm line + exit 1.
+- AUDIT: ACCEPT-WITH-FINDINGS, 7 findings addressed. THE KEY ONE (N1): orders
+  were joined by order_id — which mis-classifies the exact ack-loss case
+  reconcile exists to catch (engine keys by client_order_id, hasn't learned
+  the exchange order_id yet), splitting ONE live order into a false
+  only-at-exchange + only-in-engine pair AND telling the engine a LIVE order
+  is terminal. Fixed: join on client_order_id (the deterministic id the
+  engine always knows, contract #9). N2 float/bool counts silently coerced →
+  false CLEAN → strict-int reject. N3 price drift now compared. N6 large
+  delta → hard panic recommend. N4 alarm-delivery gap (nothing forwards
+  alerts.log to Telegram) stated honestly + BACKLOG. LESSON: the JOIN KEY
+  between two systems is a correctness decision — pick the id BOTH sides
+  reliably share (here the one WE generate), not the one one side assigns.
+- gates: make check + tests/run_pipeline.sh PASS (60 suites) after
+  remediation.
+- blocked / handoff: **K-track non-live workstreams (K1–K5) are COMPLETE.**
+  The only remaining kill-switch W is **W-K6 — the LIVE rehearsal, which is
+  OPERATOR-SCHEDULED + requires funding (S1/S3); an agent cannot start it.**
+  So the risk/kill-switch plan has no more agent-executable Ws. NEXT
+  agent-executable options for the operator to choose among: resume
+  PLAN_PRICING_MODEL Group M (W-P2 fair value → P3 → P4), OR the Phase-2
+  engine/shadow wiring (World A/B merge, needs its own plan drafted first),
+  OR one of the two env-hardening BACKLOG items (resolve_runtime host / env
+  parse_url userinfo) or the reconcile-alarm-delivery BACKLOG item. Standing:
+  OQ-1 fees; W-A5 24h; W-K6 awaits the operator.
+
 ## 2026-07-10 17:30 UTC — W-K4 DONE ✅ (defensive rule engine) · 4 scenario tapes genuine · audit found 2 dead-man defects, both fixed
 
 - commits: 8be4b9c (W-K4) + 23a4982 (audit remediation) + this exit. Audit
