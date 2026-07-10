@@ -6,6 +6,55 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 14:35 UTC — S1 maker-edge pilot CHECKPOINT ⏸ (operator paused before the HTML step; resume from RESUME.md)
+
+- commits: 3575c41 (PLAN_RESEARCH_CYCLE_1 S1 operator ruling: widen scope to
+  ALL tennis match series, stratified by maker_fee_class × tour_level,
+  per-layer metric no cross-merge, charged layers subtract a NON-GATE
+  maker-fee column) + d55447c (pilot checkpoint: code + vendored ECharts +
+  pre-registration + RESUME.md). This is P8 sandbox-adjacent research under
+  PLAN_RESEARCH_CYCLE_1 (T2 read-only; touches no production, no
+  MASTER_SEQUENCE step).
+- WHY paused: operator halted the vendored-lib download step and asked to
+  checkpoint. Full resume instructions in
+  work/research/maker_edge_pilot/RESUME.md (written for a zero-history session).
+- DONE (this session): fee verification (KXATPMATCH/KXWTAMATCH =
+  quadratic_with_maker_fees = charged; ITF/Challenger = quadratic = zero);
+  PRE_REGISTRATION.md frozen 14:20:55Z SHA 3575c41 BEFORE any metric
+  computation (discipline #1 — the primary metric = per-layer volume-weighted
+  half-spread − 30s mid markout − maker-fee, pessimistic, pre-match);
+  dim_segments builder RAN (2904 markets, _unsegmented 0.24% < 2% ✓, all 1c
+  tick, fee zero 2864/charged 40, 0 dup); pipeline slice + markout stages RAN
+  and materialized parquet checkpoints (book 4.4M, trades 2.04M, markout
+  2.04M scored). **IDENTITY SELF-CHECK (discipline #11) PASSES EXACTLY:
+  |bounce+drift − markout| = 0.00 at all horizons** — the algorithm is
+  correct. Pessimistic fills n = 391,749 (>> 200 gate). DQ fully counted (ok
+  2.01M / stale 27,884 / no-book 298).
+- context capsule: the operator RULING widened the pilot from "zero-maker-fee
+  only" to all tennis match series stratified — because the maker-fee
+  constraint had kicked out ATP/WTA singles (both charge maker fees), and the
+  operator wants both species compared per-layer. So H1 (fee wall) is testable
+  only in the zero-fee layer; charged layers show the fee column for context.
+  markout decomposition (discipline #11): bounce = sign·(p_fill−mid),
+  drift(h) = sign·(mid(t+h)−mid), markout_total ≡ bounce+drift, sign=+1 taker
+  yes / −1 taker no. Primary metric uses HALF-SPREAD (not bounce) − drift(30s)
+  − fee. Phase detector = causal trailing-120s trade-rate onset, τ frozen on
+  train. Parquet checkpoints are on-disk under work/ (gitignored, rebuildable);
+  DO NOT re-run slice/markout unless the window changes (they are the slow
+  stages). PRE_REGISTRATION.md + RESUME.md were force-added to git (work/ is
+  gitignored) for provenance.
+- REMAINING (new session, per RESUME.md): the ONLY missing code is
+  tools/research/html_report_maker_edge.py (7 interactive ECharts charts,
+  honest-chart five rules, fingerprint header) → run `--stage aggregate` →
+  read results.json (per-layer primary metric) → register in tools.json →
+  machine gate + five-eye checklist → exit ritual + independent audit.
+- blocked / handoff: NEW SESSION resumes from
+  work/research/maker_edge_pilot/RESUME.md. The engineering track is
+  unaffected — GROUP M (pricing math) and the K-track remain complete;
+  agent-executable engineering options unchanged (Phase-2 engine/shadow
+  wiring plan; env-hardening BACKLOG). This research is the operator's
+  hand-held S1 and continues on operator cue.
+
 ## 2026-07-10 22:10 UTC — W-P4 DONE ✅ (golden fair→quote scenarios) — GROUP M COMPLETE (lo→fair→quote→golden spec)
 
 - commits: 5b1f4d5 (W-P4) + 7a4d994 (audit remediation) + this exit. Audit
