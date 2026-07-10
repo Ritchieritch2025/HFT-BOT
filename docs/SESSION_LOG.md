@@ -6,6 +6,52 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 22:10 UTC — W-P4 DONE ✅ (golden fair→quote scenarios) — GROUP M COMPLETE (lo→fair→quote→golden spec)
+
+- commits: 5b1f4d5 (W-P4) + 7a4d994 (audit remediation) + this exit. Audit
+  verbatim: docs/plan_audits/wP4_audit_2026-07-10.md — the STRONGEST P-track
+  result: the auditor independently HAND-DERIVED all ~15 fixture quote points
+  and every one matched (a genuine spec, not a code-generated tautology).
+- delivered: tests/test_pricing_pipeline.py (11 tests) + 6 committed fixtures
+  under tests/fixtures/pricing_scenarios/ (calm / buy-pressure trend /
+  imbalanced-wide-book / pre-settlement wind-down / jump event / bracket
+  dislocation). CONSUMER only — drives the FROZEN lo/fair/quote, edits none
+  (git confirms tools/pricing/* untouched, Forbidden-writes intact).
+- the executable spec the Phase-2 C++ port must reproduce number-for-number:
+  emitted E4 quotes asserted EXACTLY, lo intermediates (δ/cap/corr) to 1e-6.
+- the imbalanced-wide-book (10c/30c, 1:3 size) makes the lo-space vs
+  price-space Jensen gap material (bid1100/ask1700 vs 1200/1900); the
+  RED-PROOF monkeypatches a price-space micro-price and asserts the golden
+  goes RED (D2, transient never committed).
+- INCIDENT (fixed in-session): the repo-wide test_all_fixture_files_are_git_tracked
+  guard (test_gold_dtype.py) failed on first pipeline run — new fixtures on
+  disk weren't `git add`ed yet (git ls-files doesn't see unstaged files). That
+  guard is exactly the "gitignore swallowed a fixture" tripwire (2026-07-06
+  rotation-shard lesson); staging the fixtures cleared it. NOTE for future:
+  add + stage new tests/fixtures/ BEFORE running the pipeline.
+- AUDIT: ACCEPT-WITH-FINDINGS, 2 applied. N1 the single price-space red-proof
+  only bit the imbalanced scenario (balanced books have no Jensen gap) →
+  added a per-scenario-class red-proof (each class made RED by a relevant
+  transient mutation). N2 value-pinned wind-down t=400 δ/cap + strict
+  monotonicity. LESSON (mirrors W-P3's): mutating a module CONSTANT does not
+  change a function's DEFAULT-ARG value (bound at def time) — the winddown
+  and jump red-proofs had to monkeypatch the function / pass the knob
+  explicitly, not reassign the constant.
+- gates: make check + tests/run_pipeline.sh PASS (63 suites) after
+  remediation.
+- blocked / handoff: **GROUP M (the Phase-1.5 pricing math: lo core → fair →
+  quote → golden spec) is COMPLETE.** The remaining pricing work is Group C
+  (calibration: λ(δ), toxicity, vol/jump, then the go/no-go backtest), GATED
+  on 7 clean days + LADDER-ERA recv-clock data (PLAN_PRICING_MODEL §4 gate
+  box) — NOT agent-startable until that EC2 data accumulates (realistically
+  ≥ ~2026-07-17). So, like the K-track, the pricing track now has no
+  agent-executable W left. Remaining agent-executable options for the
+  operator: Phase-2 engine/shadow wiring (the World A/B merge — needs its own
+  plan drafted first, per ARCHITECTURE_REVIEW + PLAN_LIVE_VALIDATION); the
+  env-hardening BACKLOG (resolve_runtime host / env parse_url userinfo); the
+  reconcile-alarm-delivery BACKLOG. Operator-gated / -scheduled: W-K6 (live
+  rehearsal), PLAN_RESEARCH_CYCLE_1, OQ-1 fees, W-A5 24h.
+
 ## 2026-07-10 21:00 UTC — W-P3 DONE ✅ (A-S quote generator) — Group-M math pieces (lo→fair→quote) COMPLETE
 
 - commits: 6d593c4 (W-P3) + 6f5e13b (audit remediation) + this exit. Audit
