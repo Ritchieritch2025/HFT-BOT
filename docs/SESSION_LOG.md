@@ -73,6 +73,27 @@ which decisions landed in which files, what the next session must know.
   3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
   Glacier/retention ruling.
 
+## 2026-07-10 ~03:00 UTC — OPERATOR RETRACTION: direction proposal + audit system DELETED; interview research kept as strategy-cornerstone archive
+
+- operator decisions (E2, this entry is the record):
+  (1) PROPOSAL_DIRECTION_ADJUST + its audit + AUDIT_PROTOCOL.md + AGENTS.md
+      — all DELETED ("文件都先删掉 我们还没敲定呢 不要随便加").
+      Nothing from them is in force. Recoverable from git history if ever
+      needed (P6), but treat as void.
+  (2) No complex audit system; the pre-existing workflow (CLAUDE.md +
+      GUARDRAILS, independent audit as practiced) stands unchanged.
+  (3) The podcast-derived research IS archived as strategy cornerstone:
+      five RESEARCH_INTERVIEW_*_2026-07-09.md analyses +
+      RESEARCH_EDGE_HYPOTHESES_2026-07-09.md (H1-H13, hypotheses only,
+      not plans). Direction statements (§4.5 sports-first / no-ML) were
+      REMOVED from the hypotheses doc — direction is NOT decided.
+- state: MM_ROADMAP / MASTER_SEQUENCE never modified by any of this;
+  current queue unchanged (next per MASTER_SEQUENCE + 2026-07-13
+  seven-clean-days gate).
+- blocked / handoff: none. Next session: proceed per MASTER_SEQUENCE;
+  read the research archive for context, execute nothing from it without
+  operator instruction.
+
 ## 2026-07-10 ~02:00 UTC — Cross-agent audit system established (AGENTS.md + AUDIT_PROTOCOL); multi-agent plan-review circuit queued
 
 - commits: this commit (AGENTS.md, docs/AUDIT_PROTOCOL.md, proposal
