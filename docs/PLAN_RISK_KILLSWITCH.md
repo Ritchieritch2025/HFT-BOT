@@ -470,6 +470,31 @@ Acceptance:       each seeded drift class detected and classified; zero-drift
 Rollback:         revert commit.
 Exit evidence:    commit hash; tests green; sample drift report.
 
+#### W-K5 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `tools/reconcile.py` (cold-path, read-only consumer; mutates no
+  engine state, transmits no order) + `tests/test_reconcile.py` (11 tests).
+- Engine-snapshot CONTRACT defined (what Phase-2's shadow engine must export):
+  `{resting_orders:[{order_id,ticker,book_side,remaining_count_fp_e4}],
+    positions:[{ticker,position_fp_e4}]}` — money E6, counts E4, matching
+  account_view's typed output.
+- Drift taxonomy, each with an exchange-wins remedy (NEVER "resend"):
+  ORDER_ONLY_AT_EXCHANGE (lost cancel ack), ORDER_ONLY_IN_ENGINE (missed
+  terminal update), ORDER_ATTR_DRIFT (missed partial fill), POSITION_DRIFT
+  (missed fill). A disconnect-window fixture seeds all three at once.
+- Policy asserted in code + test: recommendations never say resend/retry;
+  the report carries `policy: exchange_wins_never_retry`. D2: comparison
+  COUNTS always printed (CLEAN can't lie). Fail-closed: a malformed/
+  unreadable side exits 2, never CLEAN. Any drift ⇒ alarm appended to
+  work/live/alerts.log (the same dashboard stream W-A5's alert_notify feeds)
+  + exit 1.
+- Exchange source: offline fixture (`--exchange`, tests) or live via
+  account_view (`--live`, network_read, read-only; refuses to reconcile
+  against a field-gate-dropped partial exchange view — fail-closed).
+- Consumes: account_view (W-K1) for the live read; the W-A5 alert stream for
+  the alarm. It is the contract Phase-2's shadow engine's snapshot export
+  must satisfy. **K-track non-live Ws (K1–K5) now complete; only W-K6 (live
+  rehearsal) remains — operator-scheduled + funded (S1/S3).**
+
 ### W-K6 — LIVE kill-switch rehearsal (**OPERATOR-GATED, S1/S3**)
 Purpose:          the S3 rehearsal that unlocks any future live order: with
                   the operator present and confirming per-session (S1), on a

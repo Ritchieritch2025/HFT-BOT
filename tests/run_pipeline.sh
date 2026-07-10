@@ -118,6 +118,7 @@ run_suite "test_account_view" ./tests/run_pytest.sh tests/test_account_view.py
 run_suite "test_panic_dryrun" ./tests/run_pytest.sh tests/test_panic_dryrun.py
 run_suite "test_risk_ledger" ./build/test_risk_ledger "$SCRATCH"
 run_suite "test_rule_engine" ./build/test_rule_engine "$SCRATCH"
+run_suite "test_reconcile" ./tests/run_pytest.sh tests/test_reconcile.py
 run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
 run_suite "test_warehouse_nonuniform_archive" ./tests/run_pytest.sh tests/test_warehouse_nonuniform_archive.py
 run_suite "test_warehouse_event" ./tests/run_pytest.sh tests/test_warehouse_event.py
