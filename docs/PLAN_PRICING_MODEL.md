@@ -282,6 +282,22 @@ Exit evidence:    commit hash; pytest green; all 7 sign tests named in log.
   complete; **W-P4 (golden scenario tapes, the executable spec for the
   Phase-2 C++ port) is the last Group-M W**, then Group C calibration
   (gated on 7 clean days + ladder-era recv data). quote.py freezes for W-P4.
+- Independent audit: ACCEPT-WITH-FINDINGS (no sign error — the reject
+  condition; 9/10 mutations caught; frozen cores untouched). Four addressed:
+  **N2 (Q8 fail-closed)**: a negative/zero cap_max could suppress the EXIT
+  side and TRAP a live position (the rodlaf deadlock) — now cap_max is
+  validated (finite ≥ 0, raises) AND suppression is keyed on the SIGN of
+  inventory so a long only ever loses its bid, a short only its ask, a flat
+  book neither (deadlock structurally impossible regardless of cap). **N1**:
+  the "never trips on trade volume" test was vacuous (the breaker had no
+  volume input to ignore) — jump_breaker now accepts a deliberately-IGNORED
+  trade_volume param + a test passes 1e9 volume and asserts no trip. **N4**:
+  the breaker now FAILS-CLOSED (trips = pulls) on non-finite / degenerate-dt
+  inputs instead of keeping quoting (S2). **N3**: documented that the
+  "spread never narrows" invariant is on δ_lo; the emitted CENT spread can
+  floor at the band edge (correct dump-near-floor behavior), not a
+  regression. +regression tests (8→8, richer). Report:
+  docs/plan_audits/wP3_audit_2026-07-10.md.
 
 ### W-P4 — Synthetic pipeline golden scenarios
 Purpose:          end-to-end fair→quote cycle over hand-built scenario tapes

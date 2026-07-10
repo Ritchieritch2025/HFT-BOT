@@ -92,6 +92,14 @@ def test_q9_jump_breaker_watches_quotes_not_volume():
     assert q.jump_breaker(lb, lb, dt_s=300, book_updates=0, window_s=300) is False
     # a book-update-RATE spike alone also trips (churn without a price move)
     assert q.jump_breaker(lb, lb, dt_s=1, book_updates=100, window_s=1) is True
+    # audit N1: trade volume is accepted but IGNORED — a huge volume with a
+    # still book must NOT trip (a volume-watching breaker would miss BADAMS)
+    assert q.jump_breaker(lb, lb, dt_s=300, book_updates=0, window_s=300,
+                          trade_volume=1e9) is False
+    # audit N4: degenerate/non-finite inputs FAIL-CLOSED (trip = pull)
+    assert q.jump_breaker(lb, la, dt_s=0) is True
+    assert q.jump_breaker(float("nan"), la, dt_s=300) is True
+    assert q.jump_breaker(lb, la, dt_s=300, window_s=0) is True
     # a tripped breaker pulls BOTH sides
     pulled = q.quote(MID, 0, 1800, H, cap_max=25, breaker_tripped=True)
     assert pulled["quoting"] is False
@@ -111,6 +119,24 @@ def test_q9_max_inventory_exit_side_never_suppressed():
     assert short["ask_e4"] is None                 # max short: stop selling
     assert short["bid_e4"] is not None             # exit (buy) STILL emitted
     assert short["reason"] == "max_short_exit_only"
+    # audit N2: a garbage cap can NEVER trap the exit side. cap_max is
+    # validated (negative/non-finite raises); and even at cap==0 (settlement)
+    # a live LONG keeps its ask and a live SHORT keeps its bid.
+    with pytest.raises(ValueError):
+        q.quote(MID, 5, t, H, cap_max=-25)
+    with pytest.raises(ValueError):
+        q.quote(MID, 5, t, H, cap_max=float("inf"))
+    # cap≈0 (q6 stop disabled here to isolate the cap logic): a live LONG
+    # keeps its ask, a live SHORT keeps its bid, a FLAT book keeps both.
+    long0 = q.quote(MID, inventory=5, t_remaining_s=1e-9, horizon_s=H,
+                    cap_max=25, q6_window_s=0)
+    assert long0["ask_e4"] is not None and long0["bid_e4"] is None
+    short0 = q.quote(MID, inventory=-5, t_remaining_s=1e-9, horizon_s=H,
+                     cap_max=25, q6_window_s=0)
+    assert short0["bid_e4"] is not None and short0["ask_e4"] is None
+    flat0 = q.quote(MID, inventory=0, t_remaining_s=1e-9, horizon_s=H,
+                    cap_max=25, q6_window_s=0)
+    assert flat0["bid_e4"] is not None and flat0["ask_e4"] is not None
 
 
 # ── structural: two-sided emission maps to the legal grid ───────────────

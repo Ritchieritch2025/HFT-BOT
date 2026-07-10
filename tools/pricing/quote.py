@@ -22,7 +22,16 @@ emission. Composition:
 All coefficients are NAMED Group-C calibration PLACEHOLDERS (shape here;
 numbers from mm_calibrate). Pure math; imports the FROZEN W-P1 lo core and
 W-P2 fair module; writes neither. Emits quotes only — transmits nothing.
+
+NOTE (audit N3): "spread never narrows as risk grows" is the invariant in
+LO-space (half_width_lo is monotone in |inventory|). The EMITTED cent spread
+can still floor at the legal band edge — e.g. a large long near 2c skews the
+reservation into the 1c floor, collapsing the cent spread. That is the
+economically-correct "dump inventory against the floor" behavior, not a
+regression; the monotone guarantee is on δ_lo, and the emission clamps are
+conservative (bid floors, ask ceils, band-clamped).
 """
+import math
 import os
 import sys
 
@@ -85,14 +94,26 @@ def cap_t(t_remaining_s, horizon_s, cap_max):
 
 
 def jump_breaker(lo_mid_prev, lo_mid_now, dt_s, book_updates=0, window_s=1.0,
-                 lo_vel_thresh=JUMP_LO_VELOCITY_THRESH,
+                 trade_volume=0.0, lo_vel_thresh=JUMP_LO_VELOCITY_THRESH,
                  book_rate_thresh=JUMP_BOOK_RATE_THRESH):
-    """Trips on lo-mid VELOCITY or book-update RATE — NEVER on trade volume
-    (trade count is not even an input). A fast reprice on zero trades (the
-    BADAMS episode) must trip; a trade-only volume spike with a still book
-    must not. Returns True = pull both sides (defense)."""
+    """Trips on lo-mid VELOCITY or book-update RATE. Returns True = pull both
+    sides (defense).
+
+    `trade_volume` is accepted and DELIBERATELY IGNORED (audit N1): it exists
+    only to make the "the breaker never trips on trade volume" contract
+    machine-testable — a caller can pass a huge volume and prove no trip. The
+    BADAMS cricket episode was a 37¢→28¢ reprice on ZERO trades; a
+    volume-watching breaker would miss it entirely.
+
+    FAIL-CLOSED (audit N4): a non-finite input or a degenerate time basis
+    (dt/window <= 0) is an ambiguous market state — a safety breaker's safe
+    action is to PULL (trip), never to keep quoting on data it can't assess."""
+    del trade_volume  # ignored by contract
+    if not all(math.isfinite(v) for v in
+               (lo_mid_prev, lo_mid_now, dt_s, book_updates, window_s)):
+        return True
     if dt_s <= 0 or window_s <= 0:
-        return False
+        return True
     lo_velocity = abs(lo_mid_now - lo_mid_prev) / dt_s
     book_rate = book_updates / window_s
     return lo_velocity >= lo_vel_thresh or book_rate >= book_rate_thresh
@@ -110,6 +131,9 @@ def quote(fair_lo, inventory, t_remaining_s, horizon_s, cap_max,
     quoting=False (both sides None) for a Q6 hard stop or a tripped breaker.
     At/over the inventory cap the RISK-ADDING side is None but the EXIT side is
     always emitted (Q8)."""
+    if not (isinstance(cap_max, (int, float)) and math.isfinite(cap_max)
+            and cap_max >= 0):
+        raise ValueError("cap_max must be finite and >= 0, got %r" % (cap_max,))
     cap = cap_t(t_remaining_s, horizon_s, cap_max)
 
     # Q6: no quoting inside the settlement-convergence window (hard stop).
@@ -128,15 +152,18 @@ def quote(fair_lo, inventory, t_remaining_s, horizon_s, cap_max,
                           delta_base, settle_widen)
     bid_e4, ask_e4 = lo.apply_halfwidth(res, delta, tick_e4)
 
-    # inventory-cap suppression: never ADD beyond the cap, but NEVER suppress
-    # the EXIT side (Q8 anti-deadlock).
+    # inventory-cap suppression, keyed on the SIGN of inventory so the EXIT
+    # side can NEVER be suppressed (audit N2 — a cap comparison alone could
+    # suppress both sides on garbage input and TRAP a live position, the exact
+    # rodlaf deadlock Q8 forbids). A LONG only ever loses its bid (stop adding
+    # long); a SHORT only ever loses its ask; a FLAT book is never suppressed.
     reason = "two_sided"
-    if inventory >= cap:              # at/over max long: stop buying, keep sell
+    if inventory > 0 and inventory >= cap:      # long at/over cap: keep the ask (exit)
         bid_e4 = None
         reason = "max_long_exit_only"
-    if inventory <= -cap:             # at/over max short: stop selling, keep buy
+    elif inventory < 0 and -inventory >= cap:   # short at/over cap: keep the bid (exit)
         ask_e4 = None
-        reason = "max_short_exit_only" if reason == "two_sided" else "flat_capped"
+        reason = "max_short_exit_only"
 
     return {"quoting": bid_e4 is not None or ask_e4 is not None,
             "bid_e4": bid_e4, "ask_e4": ask_e4, "reason": reason,
