@@ -43,10 +43,18 @@ which decisions landed in which files, what the next session must know.
   centicents at ±1 ulp, zero on-grid moves.
 - gates: make check + tests/run_pipeline.sh PASS (55 suites) before AND
   after audit fixes.
-- blocked / handoff: NEXT SESSION = W-P2 (fair value: micro-price in
-  lo-space + taker-flow drift shape + bracket-sum constraint +
-  external_anchor_lo inert slot; PLAN_PRICING_MODEL §3). W-P1 froze
-  tools/pricing/lo.py for W-P2 (defects go back through a filed note).
+- RESEQUENCING RULING (operator, 2026-07-10, after W-P1 exit — verbatim in
+  the MASTER_SEQUENCE amendment): 框架优先,数学后迭代 — W-P2..P4 yield;
+  K1..K5 first, then Phase-2 engine/shadow wiring (World A/B merge per
+  ARCHITECTURE_REVIEW + PLAN_LIVE_VALIDATION, interfaces per
+  DESIGN_HOTPATH §4 + the three terms mapped in the amendment: same-flow
+  three modes / pluggable strategies / zero-allocation acceptance);
+  P2..P4 return as regressions on the shadow chassis; Group C waits for
+  recv data as before. NON-NEGOTIABLE restated: S1–S6, pessimistic bound,
+  shadow 5 green days, W-K6 + all live actions operator-scheduled.
+- blocked / handoff: **NEXT SESSION = W-K1** (typed read-only account
+  endpoints, PLAN_RISK_KILLSWITCH §3). W-P1 froze tools/pricing/lo.py
+  (defects go back through a filed note; W-P2 deferred per ruling).
   Standing: OQ-1 fee ratification (operator); W-A5 24h items; Group C
   gates unchanged.
 

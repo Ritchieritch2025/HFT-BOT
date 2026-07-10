@@ -327,11 +327,14 @@ session; independent audit after every W (MASTER_SEQUENCE rule).
 
 ## 5. Queue position
 
-**OPERATOR SEQUENCING RULING (2026-07-10, recorded in the MASTER_SEQUENCE
-amendment of the same date):** W-K1..K5 interleave AFTER PLAN_PRICING_MODEL
-Group M (W-P1..P4) completes — one W per fresh session, independent audit
-after each. W-K6 stays operator-gated AND operator-scheduled (S1 + funding),
-regardless of queue order.
+**RESEQUENCED (operator ruling 2026-07-10, "框架优先,数学后迭代" — see the
+MASTER_SEQUENCE amendment): W-K1..K5 are now the FRONT of the queue** —
+one W per fresh session, W-K1 → K2 → K3 → K4 → K5, independent audit after
+each; then Phase-2 engine/shadow wiring (World A/B merge, its own plan);
+pricing W-P2..P4 return afterwards as regressions on the shadow chassis.
+W-K6 stays operator-gated AND operator-scheduled (S1 + funding), regardless
+of queue order — restated by the operator as non-negotiable, together with
+S1–S6, the pessimistic bound, and the shadow-5-green-days gate.
 
 ## §6 self-audit (this plan vs GUARDRAILS)
 

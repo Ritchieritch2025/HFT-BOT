@@ -348,11 +348,13 @@ W-C4 last, consumes all three).
 
 ## 5. Queue position & dependencies
 
-- **OPERATOR SEQUENCING RULING (2026-07-10, recorded in the MASTER_SEQUENCE
-  amendment of the same date):** Group M starts ahead of the post-gate
-  default — one W per fresh session, strictly W-P1 → W-P2 → W-P3 → W-P4,
-  independent audit after each. PLAN_RISK_KILLSWITCH W-K1..K5 interleave
-  AFTER Group M completes; W-K6 stays operator-scheduled.
+- **RESEQUENCED (operator ruling 2026-07-10, "框架优先,数学后迭代" — see
+  the MASTER_SEQUENCE amendment):** W-P1 executed and audited before the
+  ruling and stands (lo.py frozen). **W-P2..P4 yield to the framework
+  track** (PLAN_RISK_KILLSWITCH W-K1..K5, then Phase-2 engine/shadow
+  wiring) and return as regressions once the shadow chassis runs — same
+  definitions, same order P2→P3→P4, one W per session, audit each. Group C
+  unchanged: gated on 7 clean days + recv-era data, recv-clock exclusive.
 - Group C additionally consumes: seven-clean-days gate, ladder-era data
   accumulation, OQ-1 fee ratification, and (for honest latency numbers in
   W-C4's model) the separate signing/RTT p99 measurement task (sampling plan

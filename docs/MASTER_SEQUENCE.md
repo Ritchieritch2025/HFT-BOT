@@ -101,3 +101,24 @@ lifecycle gates + per-session operator confirmation (S1).
   operator-gated and operator-scheduled (S1/S3). Group C remains gated
   (7 clean days + recv-clock exclusive; pre-ladder shape-only option
   REFUSED — see the plan's gate box).
+  [SUPERSEDED on ordering by the 2026-07-10 resequencing ruling below;
+  Group-C gates and W-K6 clauses unchanged. W-P1 executed and audited
+  BEFORE the resequencing — it stands.]
+- 2026-07-10 — **RESEQUENCING RULING (operator, verbatim): 框架优先,数学
+  后迭代。① M 组余下 W(P2..P4)让位排后;② 优先执行:K1..K5(风控/
+  kill switch 非实盘部分,含五层预留账本)→ Phase 2 引擎/shadow 接线
+  前置(World A/B merge,按 ARCHITECTURE_REVIEW 与 PLAN_LIVE_VALIDATION
+  既有定义),接口遵守 DESIGN_HOTPATH_EXECUTION §4/§5.5(同流三模式、
+  策略可插拔、零分配验收);③ P2..P4 在 shadow 底盘跑通后穿插回归,
+  校准组照旧等 recv 数据。不变项(重申,非商量):S1-S6、悲观口径、
+  shadow 5 绿日、W-K6 与一切实盘动作由我排期。**
+  Executor's reference mapping (the design doc has no numbered §5.5; the
+  operator's three terms map to): 同流三模式 = one pipeline serving
+  data_collect / shadow / live via KALSHI_MODE (S2 fail-closed defaults);
+  策略可插拔 = the strategy-roster plug interface (test_strategies
+  contract); 零分配验收 = hot-path zero-unbounded-allocation acceptance
+  (E7 + DESIGN §4 contracts #2/#3 OrderSlot/prebuilt-template era).
+  Effective queue: W-K1 → W-K2 → W-K3 → W-K4 → W-K5 → World A/B merge /
+  shadow wiring (its own plan, drafted against ARCHITECTURE_REVIEW +
+  PLAN_LIVE_VALIDATION) → W-P2..P4 interleave as regressions on the
+  running shadow chassis → Group C when recv-era data + gates allow.
