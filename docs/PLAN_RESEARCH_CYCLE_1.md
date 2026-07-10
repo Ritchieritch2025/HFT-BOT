@@ -30,7 +30,8 @@ Group C(正式校准,gated ≥2026-07-13)。
 
 ## S2 · 反应秒表·上半(本地可测,无风险)
 - 目的:回答 Rhys 问题#3 的"我方钟":签名到底多贵。
-- 执行:Claude Code 跑 RSA-PSS 签名本地基准(p50/p99,≥1e4 次),
+- 执行:RSA-PSS 签名基准 **Mac 与 EC2 各跑一份**(生产为 ARM
+  盒子,config 采用 EC2 数字;p50/p99,≥1e4 次),
   结果写进 config/backtest_latency.yaml 替换对应 PLACEHOLDER,
   注明 MEASURED + 日期。纯本地计算,不碰网络。
 - 读数:回 Cowork——签名占整个反应预算的几成,值不值得优化。
@@ -38,7 +39,8 @@ Group C(正式校准,gated ≥2026-07-13)。
 ## S3 · 反应秒表·下半(需操作员批准后执行)
 - 目的:signed-POST 全链 RTT p99(真实往返,不碰真单)。
 - 执行:执行会话先提交采样方案(端点选择、频率、只读性论证)
-  → **操作员过目批准** → EC2 上采样 ≥100 次 → 替换 RTT PLACEHOLDER。
+  → **操作员过目批准** → **从 EC2 发起**,≥3 个时段各采样 ≥100 次
+  (RTT 是分布不是快照)→ 替换 RTT PLACEHOLDER。
 - 读数:回 Cowork——合成 order_effective 总预算,对照 S1 的
   市场心跳表,正式回答"我们比市场快几倍/慢几倍"。
 
@@ -50,8 +52,9 @@ Group C(正式校准,gated ≥2026-07-13)。
 
 ## S5 · EC2 时代重跑(唯一有资格进 go/no-go 的版本)
 - 门:≥2026-07-13 七天净数据 + recv 列积累(实际 ≥07-17 成熟)。
-- 执行:同 S1 的命令在 EC2-era 数据上原样重跑(capture_host=EC2,
-  clock=recv)。产出替换 dev-grade 版本。
+- 执行:同 S1 的命令在 EC2-era 数据上原样重跑(capture_host=EC2);
+  markout 双钟并报(exchange 与 recv),**主判决用 recv**;
+  产出替换 dev-grade 版本,并做 slam-week vs 常规赛跨 regime 对比。
 - 读数:回 Cowork,与 dev-grade 版对比——结论变没变,为什么。
 - 此后接 Group C 正式校准(PLAN_PRICING_MODEL,recv-only,无例外)。
 
@@ -62,6 +65,29 @@ Group C(正式校准,gated ≥2026-07-13)。
   全程 operator-gated(S1/S3)。
 
 ---
+
+## 统计与可信性纪律(2026-07-10 审计后追加,约束 S1/S4/S5 全部分析)
+
+1. **预注册主指标(唯一判决数)**:赛前时段、成交量加权的
+   `半价差 − 30s 中价 markout`(¢/张,悲观口径)。开跑前钉死;
+   其余全部桶为探索性,只产假设不产结论。
+2. **Regime 标签**:07-06..08 = Wimbledon slam-week;所有结论携带
+   `regime=slam-week`,禁止外推常规巡回赛;S5 做跨 regime 对比。
+3. **选样/测量分离**:市场与 series 名单仅用 train 段(07-06/07)
+   冻结;val 段(07-08)只测不选。
+4. **不确定性 = 按比赛整场的块状 bootstrap**(≥1000 次重抽),
+   禁止按笔独立假设算标准误(成交高度聚簇,CV≈6-8)。
+5. **中价卫生**:L1 LOCF 补价带最大陈旧度上限(默认 60s,超限
+   剔除并计数);单边空书(bid≤1¢ 且 ask≥99¢)剔除;locked/crossed
+   剔除并计数。
+6. **tick 一致性**:1¢ 与次美分 series 分开统计,pilot 主表限 1¢。
+7. **因果分界**:赛前/开打探测器只用截至当时的信息,参数在
+   train 段冻结后原样用于 val。
+8. **可复现指纹**:每份产出头部 = code commit SHA + 数据文件
+   manifest md5 清单 + 完整命令行。
+9. **性能纪律**:网球切片一次性物化为 parquet(work/research/
+   下,derived 可重建);一切查询带 category/subcategory/date
+   分区过滤。
 
 ## 附录 A · S1 引文(粘给 Claude Code)
 
@@ -77,7 +103,11 @@ Group C(正式校准,gated ≥2026-07-13)。
 > 按队尾);附盘口级 inter-update 间隔分布(赛前 vs in-play,
 > 按品类)。产出 DQ + 结果表 + HTML 落 work/research/,每个数字
 > 带样本量与分位数;结论三选一。全程只读仓库;Mac-era 数据结论
-> 标注 dev-grade。退出仪式 + 独立审计。
+> 标注 dev-grade(regime=slam-week)。**严格执行本计划
+> 「统计与可信性纪律」全部 9 条**(预注册主指标、选样/测量分离、
+> 按场 bootstrap、中价卫生、tick 分层、因果分界、可复现指纹、
+> parquet 物化 + 分区过滤);主指标未预先声明即开算 = 审计 REJECT。
+> 退出仪式 + 独立审计。
 
 ## 执行台账(操作员勾选)
 - [ ] S0 收官 + TL1 部署
