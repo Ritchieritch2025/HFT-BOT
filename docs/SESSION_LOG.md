@@ -6,6 +6,74 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 04:40 UTC — W-TL1 DONE ✅ (timestamp ladder, local-only): 4 ladder columns on all 3 fact tables · backtest default recv clock + look-ahead demo · jitter tool · audit ACCEPT-WITH-FINDINGS, all applied
+
+- commits: b004ec7 (carry-forward: PRIOR session's uncommitted console/registry
+  work found in the tree — dashboard broken-pipe quiet handler, SSE test,
+  lifecycle primary stages, tools.json autorun/cwd flags + run_tests '<'
+  filter; verified green before committing, kept separate from W-TL1 for
+  audit provenance) · 7495173 (W-TL1 implementation) · 57a7734 (audit
+  findings applied).
+- decisions (each in its file):
+  - Ladder schema + heartbeat contract + ts_utc=legacy-COALESCE →
+    tools/ingest.py (DDL comment) + docs/warehouse_schema.md "Timestamp
+    ladder" section.
+  - Backtest clock policy (recv default, fail-closed exit 3, exchange =
+    diagnostic-only) + minimal active-quote latency model + N3/N4 honesty
+    bounds → tools/mm_backtest.py docstring.
+  - 3 p99 latency params = conservative PLACEHOLDERS (2000/5000/60000 µs) →
+    config/backtest_latency.yaml; real measurement = separate task, sampling
+    plan to operator first.
+  - Operator spec preserved VERBATIM → docs/plan_audits/wTL1_spec_2026-07-10.md;
+    audit report VERBATIM → docs/plan_audits/wTL1_audit_2026-07-10.md.
+  - BACKLOG timestamp-ladder entry annotated with landed/still-open split →
+    docs/BACKLOG.md.
+- context capsule: (1) exchange_ts_us: ts_ms authoritative ×1000; legacy ts
+  fallback number=SECONDS, string=ISO-8601, else NULL, all plausibility-
+  windowed (TS_MIN/MAX_US); recv_wall_ns/recv_mono_ns raw envelope values,
+  local_recv_ts_us = wall//1000; implausible wall nulls both. (2) heartbeats:
+  ts_utc = hour start ALWAYS + all-NULL ladder ALWAYS; consumer-side
+  heartbeat predicate needs the hour-alignment guard (ts_utc % 3600e6 == 0)
+  or legacy price-less first-observations leak past fail-closed (audit N2 —
+  probed 0 such rows in 47.2M staging + 50.3M archive rows, guard added
+  anyway + negative test). (3) look-ahead demo numbers: late-arrival fixture
+  (book exch T recv T+500ms; trades through the touch at T+100/200ms):
+  clock=exchange pessimistic fills=2 pnl=+$0.10; clock=recv+not-before
+  fills=0 (tests/test_backtest_clock.py, runs in pipeline). (4) csv.gz dtype
+  trap: an all-NULL ladder column sniffs VARCHAR and UNION BY NAME would
+  drag BIGINT→VARCHAR; load() introspects (binding-only) and TRY_CASTs
+  present ladder cols back to BIGINT (tools/warehouse.py); read_csv types=
+  errors on absent column names, hence introspection. (5) .gitignore: work/
+  → work/* + !work/research/ + work/research/* + !work/research/jitter_report.py
+  (git cannot re-include under an ignored parent dir); audit verified no
+  data became trackable; nested foo/work/ would no longer auto-ignore (N6).
+  (6) audit measured the additive migration on a COPY of the real 2.6GB/47.2M-row
+  staging: 12 ALTERs in 0.963s ⇒ EC2 restart cost negligible (P4). (7) Dead
+  end ruled out: read_csv types={} cannot pre-pin columns that are absent
+  from old csv files — binder error, don't retry that route. (8) jitter tool
+  residual chains break on file/stream_epoch/missing-field boundaries;
+  out-of-order Δexchange<0 counted never differenced; capture_host is a
+  REQUIRED declared-provenance flag (ec2|mac-precutover|unknown_overlap|
+  fixture), only ec2 feeds go/no-go; ms-granularity footnote is embedded in
+  CSV header comments + stdout.
+- production note (P4): EC2 pipeline untouched this session (Forbidden list
+  honored: no EC2, no S3, no archive rewrite, no backfill). The box adopts
+  the ingest changes at its next deploy+restart — which is already scheduled
+  as tomorrow's deliberate graceful-stop test (W-A5 handoff); migration cost
+  measured negligible, capture continuity preserved (additive ALTER on init,
+  same loop).
+- blocked / handoff: ① W-A5 24h-gate session items still pending (capture_gaps
+  verdict, pmset, Telegram token, CloudWatch alarm, AWS budget — see the
+  2026-07-10 W-A5 entry below, unchanged). ② W-TL2 (historical backfill:
+  rebuild-from-raw facts_v2 + row-count/key-level diff; never join-patch)
+  opens only after operator reviews W-TL1. ③ latency measurement task:
+  sampling plan → operator BEFORE running; signed-POST RTT p99, never GET
+  means. ④ production EC2 jitter report = after deploy. ⑤ NOTE: untracked
+  strays in the tree not mine to adjudicate: tools/rtt_baseline_sampler.sh
+  (unregistered tool in tools/, E3 drift if kept), sandbox/discovery/*,
+  sandbox/research/, 盒子操作卡_BOX_CLI.md — sandbox items are P8-exempt;
+  the tools/ stray needs an owner ruling.
+
 ## 2026-07-10 — W-A5 machinery DONE ✅ (24h gate + operator items open): delta vaulted, sync timers live, alerting built, riders a/b/c live, full-L1 = 11,307/11,307
 
 - commits: 415ac7e (batch 1: riders+SIGTERM+caps+sync+alerting+report-pull+
