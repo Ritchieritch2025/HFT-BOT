@@ -155,6 +155,40 @@ STEP 2-6;W-S2 起须以 operator-approved amendment 进 MASTER_SEQUENCE。
 > (Allowed/Forbidden writes、Acceptance 原文为准)。数据不足七天
 > 则出 INTERIM 版并注明。退出仪式 + 独立审计。
 
+## 附录 D:多 agent 轮审回路(操作员要求 2026-07-10:"每个 agent 都过几遍,把计划细化")
+
+本提案(v1.1)在进入 session A 之前,先走 AUDIT_PROTOCOL §3 的
+计划评审回路。操作员按顺序粘贴以下引文:
+
+**Round 1 → VS Code 里的 Claude Code(可行性评审,只读):**
+> 读 AGENTS.md、docs/GUARDRAILS.md、docs/AUDIT_PROTOCOL.md §3,然后
+> 评审 docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md(含 v1.1 附录)
+> 与 docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md。角度:真机可行性
+> ——附录 A 的每条路径/工具/数据是否存在(实际验证,不猜),EC2 上
+> W-S1 的运行时是否现实,七字段是否有缺口,Acceptance 是否可被
+> 空跑绕过。产出 findings 表写入
+> docs/plan_audits/review_R1_claudecode_<日期>.md,severity 分级,
+> 每条带证据。**不修改提案本身。**退出仪式照做。
+
+**Round 2 → Codex(对抗性评审,只读):**
+> Read AGENTS.md, docs/GUARDRAILS.md, docs/AUDIT_PROTOCOL.md §3. Then
+> adversarially review docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md
+> (incl. v1.1 appendices) and docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md.
+> Hunt for: internal contradictions, GUARDRAILS conflicts beyond the
+> registered Q7 one, acceptance criteria that could pass while wrong,
+> silent-failure surfaces, unstated dependencies, ways W-S1 metrics could
+> mislead (clock, World Cup skew, survivorship). Write findings to
+> docs/plan_audits/review_R2_codex_<date>.md with severity + evidence.
+> Do NOT edit the proposal. Follow the session exit ritual in CLAUDE.md.
+
+**Round 3 → 回到我(网页 Cowork):**
+把两份 review 交给我,我合并 findings、升版 v1.2、列出拒绝采纳的
+条目及理由,然后你批准 → 按附录 B 进 session A。
+
+轮数上限:默认一圈(R1+R2+R3)。若 R3 修订量大(HIGH finding ≥2),
+加一圈快速复核(两个 agent 各半小时,只核对修复)。防止无限轮审
+空转——评审是收敛手段,不是仪式。
+
 ## 附录 C:W-S2 评估标准(审计 F6,呈报模板)
 
 候选 feed 每项五栏:①延迟:同一事件 feed 时戳 vs Kalshi 盘口反应

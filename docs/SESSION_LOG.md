@@ -73,6 +73,31 @@ which decisions landed in which files, what the next session must know.
   3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
   Glacier/retention ruling.
 
+## 2026-07-10 ~02:00 UTC — Cross-agent audit system established (AGENTS.md + AUDIT_PROTOCOL); multi-agent plan-review circuit queued
+
+- commits: this commit (AGENTS.md, docs/AUDIT_PROTOCOL.md, proposal
+  appendix D, this entry).
+- operator decisions (E2): (1) approved creating AGENTS.md + AUDIT_PROTOCOL
+  ("动吧"); (2) the direction/testing plan must be reviewed by EVERY agent
+  surface multiple passes before execution ("每个都过几遍 把计划细化").
+- deliverables:
+  - AGENTS.md (repo root): binds Codex/any agent to CLAUDE.md + GUARDRAILS
+    — closes the gap where Codex operated constitution-blind (it reads
+    AGENTS.md, not CLAUDE.md).
+  - docs/AUDIT_PROTOCOL.md: executor≠auditor, cross-vendor preferred;
+    auditors RUN acceptance (A1); auditors never fix (A2); mutation
+    spot-check for test authenticity (A4); auditor-built independent
+    fixtures (A5); dual audit for strategy/risk/order-path Ws (A6);
+    executed-by/audited-by recorded in SESSION_LOG (A8); plan-review
+    circuit R1 ClaudeCode feasibility → R2 Codex adversarial → R3 Cowork
+    consolidation → operator approval (§3).
+  - Proposal appendix D: paste-ready R1/R2 prompts for the operator;
+    round cap (1 circuit + optional recheck) to prevent review churn.
+- next: operator pastes R1 prompt to Claude Code, R2 to Codex, returns
+  both reviews here for R3 consolidation into proposal v1.2.
+- executed-by: web Claude (Cowork) · audited-by: pending (this is paper;
+  R1/R2 of the circuit double as its audit).
+
 ## 2026-07-10 ~01:30 UTC — Proposal audited (9 findings, 2 HIGH) and fixed to v1.1; now agent-executable
 
 - commits: this commit (audit doc + proposal v1.1 appendices + this entry).
