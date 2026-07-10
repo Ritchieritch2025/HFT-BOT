@@ -29,9 +29,8 @@ Committed to git:
   DOES NOT EXIST YET (the remaining work — see below). WRITTEN, NOT YET RUN.
 - `docs/vendor/js/echarts.min.js` (1.0MB, Apache-2.0, md5
   ef12c5c63df2acdf59f8a86cf0317711) + `docs/vendor/js/VERSION`. Vendored,
-  no CDN. **NOTE: operator halted this download step — confirm the operator
-  wants ECharts (vs Plotly) before proceeding; the vendored file is present
-  and valid, but the ruling to keep it is the operator's.**
+  no CDN. **RESOLVED — operator ruling 2026-07-10: vendored interactive lib
+  = ECharts (the file already in repo); do NOT switch to Plotly.**
 - PLAN_RESEARCH_CYCLE_1.md S1 ruling (commit before this pause).
 
 On-disk parquet checkpoints (under work/, gitignored, rebuildable — DO NOT
@@ -60,9 +59,8 @@ re-run slice/markout unless the window changes; they took the longest):
   selection) grows with horizon, as expected.
 
 ## REMAINING WORK (the new session's job)
-1. **Vendored interactive lib** — ECharts is already in docs/vendor/js/;
-   confirm operator wants it (they halted the download). If Plotly instead,
-   vendor it and swap the HTML module's lib reference.
+1. ~~**Vendored interactive lib**~~ — RESOLVED: operator ruled 2026-07-10
+   ECharts (the vendored copy in docs/vendor/js/); no Plotly swap.
 2. **`tools/research/html_report_maker_edge.py`** — the ONLY missing code.
    Must render the S1 SEVEN charts as INTERACTIVE ECharts (hover value+n,
    dataZoom, legend toggle, filter by tour/price-band/tick/phase), honoring
