@@ -18,6 +18,9 @@ Group C(正式校准,gated ≥2026-07-13)。
 
 ## S1 · Maker-edge pilot 完整版(spread − markout − fees 分解)
 - 目的:H1 第一次开庭——赛前网球的价差收入是否盖得住毒性。
+- 定位(操作员 2026-07-10):**网球 = 滩头,不是疆界**——选它因为
+  比赛密度/样本量最大、常规巡回赛平稳;pilot 产出的是可复用模板,
+  S4 用它横扫全品类出排名表,后续品类扩张照表点名,数据驱动。
 - 执行:操作员在 VSCode 粘给 Claude Code(引文见附录 A)。
 - 产出:DQ 报告 + 分解表(spread capture vs mid-口径 markout,
   含 bounce/drift 拆分)+ 盘口级 burstiness + HTML,落 work/research/。
