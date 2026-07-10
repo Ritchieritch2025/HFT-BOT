@@ -52,6 +52,26 @@ which decisions landed in which files, what the next session must know.
   3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
   Glacier/retention ruling.
 
+## 2026-07-09 ~23:30 UTC — Interview intel #4 (TroyCuban RFQ) + #5 (World Cup risk) committed c088965; hypotheses now H1-H13
+
+- commits: c088965 (analysis docs #4 T=TroyCuban, #5 W=WorldCup, hypotheses
+  update, 2 vendor transcripts). Series complete: 5 interviews analyzed,
+  all mapped into RESEARCH_EDGE_HYPOTHESES_2026-07-09.md.
+- key adds: H13 anchor-manipulability check (verify Kalshi crypto
+  settlement index composition — do NOT assume deep); H4 note: small-size
+  fill quality overestimates production quality ⇒ staged size ramp with
+  re-validation each level (phase 4→5 protocol); H6 note: exposure
+  aggregation by FACTOR not market/event (our brackets = single BTC
+  factor); mm_scan scoring suggestion: edge × capital-turnover (crypto
+  hourly settlement is structural advantage vs sports futures); quote
+  funnel counters to catch silent drops (TroyCuban's silent-API-drop bug
+  cost him 4x volume for a month); phase-4 review metrics: daily PnL
+  skew + worst-day/cumulative-profit ratio; alert tiering (fatigue);
+  underfit-over-overfit principle for 1.5C (adverse selection
+  asymmetrically punishes overfit quotes).
+- blocked / handoff: none; MASTER_SEQUENCE untouched; H7 (rec-flow
+  existence in crypto) remains the recommended first test.
+
 ## 2026-07-09 ~22:00 UTC — Interview intel #2/#3 + edge-hypotheses synthesis (H1-H12) committed 5811f0d
 
 - commits: 5811f0d (analysis docs #2 P=peanutbettor, #3 K=risktakers-ep3,
