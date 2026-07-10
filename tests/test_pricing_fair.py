@@ -11,6 +11,9 @@ import sys
 
 import pytest
 
+INF = float("inf")
+NAN = float("nan")
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from pricing import fair, lo  # noqa: E402
@@ -47,6 +50,16 @@ def test_micro_price_fail_closed_on_bad_books():
     assert fair.micro_price_lo(5000, 5000, 100, 100) is None    # locked
     assert fair.micro_price_lo(0, 6000, 100, 100) is None       # off-band
     assert fair.micro_price_lo(4000, 10000, 100, 100) is None
+
+
+def test_micro_price_nan_inf_fail_closed():
+    # audit B1: NaN <= 0 is False, so a non-finite qty must be rejected
+    # explicitly — never fabricate a nan fair (S2).
+    assert fair.micro_price_lo(4000, 6000, NAN, 100) is None
+    assert fair.micro_price_lo(4000, 6000, 100, INF) is None
+    assert fair.micro_price_lo(NAN, 6000, 100, 100) is None
+    assert fair.micro_price_lo(4000, INF, 100, 100) is None
+    assert fair.fair_lo(4000, 6000, NAN, 100, taker_imbalance=0.5) is None
 
 
 # ───────────────────────────────── (b) Q9 sign #1: taker-flow drift
@@ -102,6 +115,20 @@ def test_q9_bracket_lone_leg_zero_and_consistent_set_zero():
 def test_bracket_zero_depth_rejected():
     with pytest.raises(ValueError):
         fair.bracket_corrections([(0.5, 0), (0.6, 10)])
+
+
+def test_bracket_infeasible_dislocation_fails_closed():
+    # audit D1: a thin leg (depth 1) with a huge excess would need a
+    # correction bigger than its own prob -> corrected prob negative. Refuse
+    # (fail-closed) rather than silently clip to a wrong sum.
+    with pytest.raises(ValueError, match="infeasible"):
+        fair.bracket_corrections([(0.95, 1000), (0.95, 1000), (0.02, 1)])
+    # and a feasible-but-large case still corrects to an exact sum of 1
+    legs = [(0.55, 100), (0.55, 100)]     # sum 1.10, excess 0.10, symmetric
+    corr = fair.bracket_corrections(legs)
+    corrected = [p - c for (p, _), c in zip(legs, corr)]
+    assert sum(corrected) == pytest.approx(1.0, abs=1e-12)
+    assert all(0.01 <= cp <= 0.99 for cp in corrected)
 
 
 def test_apply_bracket_to_fair_lo():

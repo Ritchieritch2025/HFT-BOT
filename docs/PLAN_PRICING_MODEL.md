@@ -208,6 +208,17 @@ Exit evidence:    commit hash; pytest green; the three sign-test names listed.
 - Interface for W-P3: fair_lo(book, taker_imbalance, bracket_correction_prob,
   external_anchor_lo, ...) → lo or None. W-P2 freezes fair.py for W-P3
   (defects go back through a filed note).
+- Independent audit: ACCEPT-WITH-FINDINGS (micro-price math correct, Q9 trio
+  faithful, lo.py confirmed frozen). Two fixed: **B1 (S2)** NaN/inf qty
+  escaped `_valid_book` (`NaN <= 0` is False) → fabricated `nan` fair; now
+  `math.isfinite` rejects non-finite inputs. **D1** a 1/depth bracket
+  redistribution could hand a thin leg a correction bigger than its own
+  probability → negative corrected prob → downstream clip silently broke the
+  sum-to-1 identity; `bracket_corrections` now checks feasibility and
+  fail-closes (raises) on an uncorrectable dislocation rather than masking it.
+  +2 regression tests (12→14). Auditor confirmed the lo-space micro-price
+  Jensen gap is real but exactly what Q1 mandates (not a defect). Report:
+  docs/plan_audits/wP2_audit_2026-07-10.md.
 
 ### W-P3 — A-S quote generator (`tools/pricing/quote.py`)
 Purpose:          quotes = g(fair_lo, inventory, t_remaining, market state):

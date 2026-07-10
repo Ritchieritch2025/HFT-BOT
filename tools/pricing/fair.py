@@ -31,6 +31,7 @@ so a 1c move near the edge carries its true odds weight. Four components:
 Pure math, numpy-free, no I/O, no DuckDB. Imports the W-P1 log-odds core
 (frozen); adds no float on any money path that isn't already a probability.
 """
+import math
 import os
 import sys
 
@@ -46,8 +47,13 @@ DRIFT_CAP_LO = 0.30          # PLACEHOLDER hard bound on |drift| (≈ one odds n
 
 def _valid_book(bid_e4, ask_e4, bid_qty, ask_qty):
     """A two-sided, positive-size, non-crossed book in the legal price range.
-    Anything else is not a quotable market — fail closed."""
+    Anything else is not a quotable market — fail closed. NaN/inf are rejected
+    explicitly (audit B1: `NaN <= 0` is False, so an unguarded NaN qty would
+    fabricate a nan fair — never fail-open on a non-finite input, S2)."""
     if None in (bid_e4, ask_e4, bid_qty, ask_qty):
+        return False
+    if not all(isinstance(v, (int, float)) and math.isfinite(v)
+               for v in (bid_e4, ask_e4, bid_qty, ask_qty)):
         return False
     if bid_qty <= 0 or ask_qty <= 0:
         return False
@@ -94,7 +100,20 @@ def bracket_corrections(legs):
         return [0.0] * n
     weights = [1.0 / d for d in depths]     # thin (small depth) -> big weight
     wsum = sum(weights)
-    return [excess * w / wsum for w in weights]
+    corr = [excess * w / wsum for w in weights]
+    # Feasibility (audit D1): a raw 1/depth redistribution can hand a thin leg
+    # a correction bigger than its own probability, pushing the corrected prob
+    # out of the legal band — and silently clipping it downstream BREAKS the
+    # sum-to-1 identity the constraint exists to enforce. Refuse instead: a
+    # bracket that dislocated is uncorrectable by simple redistribution and
+    # the caller must not trust a fabricated sum (S2 fail-closed).
+    for (p, _), c in zip(legs, corr):
+        if not (lo.P_MIN <= p - c <= lo.P_MAX):
+            raise ValueError(
+                "bracket correction infeasible: leg prob %.4f - correction "
+                "%.4f = %.4f leaves [%.2f, %.2f] — bracket too dislocated to "
+                "redistribute" % (p, c, p - c, lo.P_MIN, lo.P_MAX))
+    return corr
 
 
 def apply_bracket_to_fair_lo(fair_lo_value, correction_prob):
