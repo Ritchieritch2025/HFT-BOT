@@ -46,7 +46,12 @@ RestartPreventExitStatus=78
 # late report, never a dead capture (S2).
 OOMScoreAdjust=-600
 
-TimeoutStopSec=30
+# 90 s, not 30 (W-A5 restart evidence 2026-07-10): the supervisor itself now
+# exits on TERM in <1 s, but ws_shadow's graceful drain and a mid-DuckDB
+# export (python defers signals inside C calls) can legitimately need more
+# than 30 s — at 30 s systemd SIGKILLed them mid-write. SIGKILL stays as the
+# backstop; avoid restarts in the 00:00–00:15 export window when possible.
+TimeoutStopSec=90
 KillMode=control-group
 
 # same log files the Mac used (work/live/, tailed by freshness tooling)
