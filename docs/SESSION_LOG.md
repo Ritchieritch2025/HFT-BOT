@@ -6,6 +6,64 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 07:10 UTC — STEP 6 paper W DONE ✅ (P9): PLAN_PRICING_MODEL + PLAN_RISK_KILLSWITCH drafted · DESIGN_HOTPATH folded byte-verbatim · combined audit ACCEPT-WITH-FINDINGS, all applied
+
+- commits: plan drafts + audit-fix commit (B1+N1..N6,N8 applied; audit
+  verbatim in docs/plan_audits/step6_audit_2026-07-10.md). Paper-only: no
+  code executed, no config changed, no EC2/S3 touched (audit check H
+  confirmed the plan commit touches only the two docs).
+- session note: found the working tree parked on `main` at 92918bb (reflog:
+  a prior session checked out main after committing 331f816/6098584/6da7317
+  on the work branch); switched back to plan-live-validation-p0-p3 — no
+  tracked changes were lost (verified clean status before checkout).
+- decisions (each in its file):
+  - Phase 1.5 decomposition → docs/PLAN_PRICING_MODEL.md: Group M math-now
+    (W-P1 lo-core → W-P2 fair value → W-P3 A-S generator → W-P4 golden
+    scenarios, all synthetic, Q9 batteries named per W) vs Group C
+    calibration (W-C1 λ(δ) → W-C2 toxicity → W-C3 vol/jump → W-C4 go/no-go),
+    gated on 7 clean days (2026-07-13).
+  - **Recv-clock law: Group C is clock=recv EXCLUSIVE for every W** (audit
+    B1 closed the draft's shape-only carve-out; it survives only as an
+    OPTION requiring an operator ruling recorded per E2). Honesty note in
+    the gate box: ladder-era data makes go/no-go realistic ≥ ~2026-07-17;
+    2026-07-13 is the clean-days gate only.
+  - Risk/kill-switch decomposition → docs/PLAN_RISK_KILLSWITCH.md: W-K1
+    typed read-only endpoints → W-K2 panic CLI dry-run (live entry =
+    live_order, console-forbidden) → W-K3 five-layer reservation ledger
+    (C++, E4) with the four NAMED tests (Eggsy replay / NHL template /
+    deadlock exemption / refund exact-restore) + red-first ①④⑤-only proof →
+    W-K4 rule-engine synthetic drills → W-K5 reconcile loop → W-K6 live
+    rehearsal (OPERATOR-GATED S1/S3, operator-scheduled only).
+  - DESIGN_HOTPATH §4–5 folded byte-verbatim (mechanical diff = identical,
+    re-verified after audit edits); every one of the nine contracts has an
+    owner in the binding map; deferred items (#2/#3 OrderSlot/templates,
+    p99 measurement, PrivateLink) recorded as deferred, not lost.
+- context capsule: seven-field W format = Purpose/Allowed writes/Forbidden
+  writes/Acceptance/Rollback/Exit evidence (+gates where relevant; Allowed
+  reads dropped per P7). Key audit-verified facts baked into the plans:
+  mm_calibrate already emits vol_1min_lo/tox_120s_lo; kalshi_facts.yaml fee
+  regime = ceil_to_centicent with fees.verified:false (OQ-1 pending ⇒
+  gate-mode fee math fail-closes by design); FIRST_CLEAN_DAY=2026-07-06 in
+  gate_calc; W-P1 golden lo values 2c→1c≈−0.70 vs 50c→49c≈−0.04; BADAMS
+  zero-trade 37¢→28¢ jump is the breaker's regression anchor (breaker
+  watches quote velocity, never trade volume). Dead end closed: don't let
+  ANY calibration input use exchange-clock data "because it's just shape" —
+  λ(δ) parameters launder look-ahead into a formally-clean recv backtest
+  (audit B1's core argument).
+- blocked / handoff: ① both plans queued for POST-GATE execution per
+  MASTER_SEQUENCE STEP 6 verbatim; pulling Group M or W-K1..K5 earlier =
+  operator sequencing ruling (+amendment). ② operator rulings pending:
+  pre-ladder shape-only OPTION (PLAN_PRICING_MODEL §4 gate box) — default
+  is recv-only if unruled; W-K2 crossing ruling to be recorded at execution
+  (E2). ③ audit N7 for the operator: commit 6da7317 ("Plan live validation
+  rollout for P0-P3", local identity, likely the Cowork/web session that
+  wrote the DESIGN doc) shipped tools/rtt_baseline_sampler.sh — still
+  unregistered in tools.json (E3 drift) and check_registry does NOT catch
+  file-on-disk-not-in-registry drift (gate blind spot; candidate BACKLOG
+  item). ④ STEP 6 of MASTER_SEQUENCE is now satisfied (both plans drafted +
+  audited); the master queue's drafting steps are exhausted — next session
+  consults the operator on which queued execution track opens first.
+
 ## 2026-07-10 — Hot-path execution design notes archived (operator-directed)
 
 - commit: this commit (docs/DESIGN_HOTPATH_EXECUTION_2026-07-10.md).
