@@ -184,8 +184,11 @@ Acceptance:       dry-run against a mock seeded with N resting orders + M
                   prints report; ack-loss injection ⇒ re-poll and reissue
                   with the SAME client_order_id (contract #9 proven); mock
                   refusing a cancel ⇒ loud partial-failure report, exit
-                  nonzero (S2 — never a false "all clear", D2); registry
-                  check proves the live entry is console-refused.
+                  nonzero (S2 — never a false "all clear", D2); panic's OWN
+                  liquidation orders carry dead-man expiry (S6 second
+                  clause: an unfilled cross must not become an orphaned
+                  resting order — audit N4), asserted on the dry-run plan;
+                  registry check proves the live entry is console-refused.
 Rollback:         revert commit; dry-run has no external effects.
 Exit evidence:    commit hash; dry-run transcript in the log; registry proof.
 
@@ -294,6 +297,10 @@ Forbidden writes: everything else. NO strategy orders. NO unattended runs.
 Acceptance:       operator-witnessed transcript: order placed → panic →
                   zero resting → report; the interrupted-panic rerun
                   completes idempotently (same client_order_ids on retry).
+                  Bootstrap reading (audit N5, recorded for S3's letter):
+                  the far-from-touch probe order IS part of the rehearsal —
+                  it exists solely to give the kill switch something to
+                  kill; no strategy order precedes a completed rehearsal.
 Rollback:         panic IS the rollback; account ends flat by construction.
 Exit evidence:    transcript + operator sign-off line in SESSION_LOG.
 GATES:            S1 stack (all lifecycle gates green) + funding (Phase-3
@@ -361,9 +368,14 @@ call. W-K6 is gated by S1 + funding regardless of queue order.
     W-K3 acceptance. Deferred contracts (#2/#3 engineering) are explicitly
     tabled in §4, not dropped. ✅
 
-Self-audit verdict: PASS. Flagged for the independent audit: (i) the W-K2
-post-only reading (liquidation rounds cross by design — S6's post-only rule
-is maker-quote scoped; operator confirms at audit); (ii) W-K3 language
-choice C++-first (E7 hot-path destiny) — if the audit judges a Python
-reference belongs first (as PLAN_PRICING_MODEL does for math), that is a
-one-line W amendment, not a design change.
+Self-audit verdict: PASS. Independent-audit disposition (2026-07-10,
+combined P9 audit — full report in docs/plan_audits/step6_audit_2026-07-10.md):
+(i) the W-K2 crossing/post-only reading is constitutionally sanctioned —
+GUARDRAILS S3 itself prescribes "reprice-cross liquidation rounds"; the
+operator's confirming ruling still gets recorded in a file at W-K2
+execution (E2). S6's dead-man clause now covers panic's own liquidation
+orders (audit N4, W-K2 acceptance). (ii) W-K6's probe order is defined as
+part of the rehearsal (audit N5, W-K6 acceptance). (iii) W-K3 language
+choice C++-first (E7 hot-path destiny) — if a later audit judges a Python
+reference belongs first, that is a one-line W amendment, not a design
+change.
