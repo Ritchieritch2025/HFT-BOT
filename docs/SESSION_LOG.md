@@ -52,6 +52,33 @@ which decisions landed in which files, what the next session must know.
   3e-style L1 backfill from vaulted raw; rider (d) auto-deploy; S3
   Glacier/retention ruling.
 
+## 2026-07-10 ~01:30 UTC — Proposal audited (9 findings, 2 HIGH) and fixed to v1.1; now agent-executable
+
+- commits: this commit (audit doc + proposal v1.1 appendices + this entry).
+- audit: docs/plan_audits/audit_PROPOSAL_DIRECTION_ADJUST_2026-07-10.md.
+  Verdict on v1.0: direction/skeleton sound, no MUST violations, but NOT
+  directly executable. HIGH: (F1) data-plane stale — post-cutover EC2 is
+  sole data owner, Mac archive has only 07-06..08, W-S1 must run on EC2
+  (16GB ⇒ chunked), 7-day gate 2026-07-13 ⇒ INTERIM vs final run;
+  (F2) W-S1 lacked seven-field task card. MED: (F3) W-S2+ needs
+  MASTER_SEQUENCE amendment mechanism; (F4) handoff quote violated
+  one-W-per-session — split into session A (paper, P9) + session B (W-S1);
+  (F5) Q7 conflict registered — RFQ combos are MVE-class, Q7 excludes them
+  from MM candidacy; future RFQ requires formal Q7 revision (operator-
+  approved constitution change). LOW: F6 W-S2 eval criteria, F7 World Cup
+  sample skew (also an upper-bound rec-flow opportunity), F8 rollback
+  story, F9 affected-docs list. All 9 fixed in proposal v1.1 (Appendix A
+  seven-field W-S1 card with metric definitions in log-odds + acceptance
+  as runnable demo; Appendix B corrected two-stage handoff quotes;
+  Appendix C feed evaluation template).
+- evidence gathered: GUARDRAILS read in full; MASTER_SEQUENCE read;
+  mm_scan/mm_backtest/mm_calibrate/mm_research confirmed present in
+  tools/; warehouse partitioning confirmed (category/subcategory columns,
+  taker_side in trades; Sports has 21 subcategories capturing);
+  seven-field template taken from PLAN_EVENT_PACKAGING W-E0..E4.
+- blocked / handoff: awaiting operator approval of v1.1 → then session A
+  (paper plan-change W) per Appendix B quote.
+
 ## 2026-07-10 ~00:30 UTC — OPERATOR DIRECTION SHIFT: sports-first, infra-over-models; adjustment proposal written
 
 - commits: 4ba29ff (sports direction, E2) · e13d51c (no complex predictive

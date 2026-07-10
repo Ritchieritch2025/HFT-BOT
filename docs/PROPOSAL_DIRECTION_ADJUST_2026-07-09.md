@@ -79,3 +79,87 @@
   正是重心所在,但要清醒:买 feed 不构成 edge,只构成入场券。
 - courtside/latency:体育品类 H3 熔断为开仓闸门,W-S1 的毒性
   测量直接为其标定。
+- **Q7 冲突登记(审计 F5)**:GUARDRAILS Q7 将 MVE/combo 排除于
+  MM 候选,而访谈最强收入端(RFQ combos)正是 MVE 类。W-S1 阶段
+  Q7 照常生效;远期走 RFQ 须正式修订 Q7(操作员批准的宪法修改,
+  单独 commit + rationale)。在此登记,防止未来 session 无感违宪。
+
+---
+
+# v1.1 修订(2026-07-10,依据 docs/plan_audits/audit_PROPOSAL_DIRECTION_ADJUST_2026-07-10.md,9 findings 全部修复)
+
+## 附录 A:W-S1 七字段任务卡(品类对比扫描)
+
+**Purpose:** 用既有仓库数据量化 sports vs crypto 的做市适宜度,
+产出带数字的品类/市场排序表,替代 H7,为方向裁决与 feed 预算
+提供数据依据。
+
+**Allowed reads:** EC2 仓库(staging + archive)或 S3 副本;
+dim/catalog;docs/RESEARCH_EDGE_HYPOTHESES_2026-07-09.md。
+**数据面(审计 F1):在 EC2 执行**(cutover 后 EC2 为唯一数据主人;
+Mac 仅存 07-06..08 三天)。16GB 盒子 ⇒ 按 category×date 分块处理,
+禁止全量载入。D6:读者重试,不与 pipeline 写者争锁。
+
+**Allowed writes:** `tools/mm_scan.py`(扩展品类对比模式)、
+`tests/test_mm_scan_categories.py`、输出报告
+`work/research/category_scan_<date>.md` + 伴随 CSV。tools.json 若加
+子命令需登记(E3)。
+
+**Forbidden writes:** pipeline/capture/ingest/export、策略数学
+(Q1/Q3 不动)、MM_ROADMAP/MASTER_SEQUENCE、config/*。
+
+**指标定义(全部 log-odds 空间,交易所时钟,标注"非本地钟"限制):**
+按 category×subcategory×市场:①价差:touch spread 分布(中位/p25);
+②深度:touch 双边挂量;③到达:trades/小时、笔均手数;④毒性:
+成交后 mid 漂移 Δlo(30s / 120s),按 taker_side 符号化;⑤散户特征:
+小额占比(≤10 手)、整手聚集、价格带聚集(W-L799 假设)、时段模式;
+⑥Q6/Q7 过滤后的候选数。输出 = 悲观口径毛利代理:
+中位半价差 − |毒性均值|(120s),按品类排序。
+
+**Acceptance(运行演示,非描述):** 在 EC2 对 ≥3 个完整日运行,
+打印品类对比表(Sports 各 subcategory vs Crypto 至少两行以上),
+每个数字带样本量;`make check` 绿;新测试
+(fixture 数据 → 确定性指标值)绿。**三天数据结论标注 INTERIM;
+七天 gate(2026-07-13)后重跑同一命令出正式版。**
+
+**Risks:** 世界杯扭曲体育样本(审计 F7)——结论按"WC 时段"显式
+标注,同时单列 WC 子样本作为散户流上界估计;交易所时钟测毒性
+只支持品类**相对**比较,绝对延迟结论等 timestamp-ladder。
+
+**Rollback:** revert commit;删除 work/research/ 产物。若结果显示
+体育在悲观口径不优于 crypto ⇒ 决策点回操作员,方向回退成本≈0
+(crypto 管道未停,审计 F8)。
+
+## 附录 B:执行顺序与交接引文(审计 F3/F4 修正)
+
+顺序:操作员批准本提案 → **session A(纯纸面,P9)**:修订
+MM_ROADMAP 1.5A/1.5C + 起草 MASTER_SEQUENCE amendment(W-S2+ 插入
+位置)+ 同步受影响文档(MM_ROADMAP、OPERATOR_PLAYBOOK;审计 F9)
++ 合并独立审计 → **session B**:执行 W-S1(按附录 A,一个 W 一个
+session)→ W-S1 数字出来 → 操作员裁决品类权重 + feed 预算(W-S2)。
+
+W-S1 与 MASTER_SEQUENCE 关系:纯读研究,不占 STEP 序列、不阻塞
+STEP 2-6;W-S2 起须以 operator-approved amendment 进 MASTER_SEQUENCE。
+
+**交接引文(session A,纸面):**
+> 读 docs/GUARDRAILS.md、docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md
+> (含 v1.1 附录)与其审计后,执行纸面计划变更 W:修订 MM_ROADMAP
+> (体育优先、1.5A 锚换 sportsbook feed、1.5 工时重排,保留 crypto
+> 回退注记),起草 MASTER_SEQUENCE amendment(W-S2+ 插入),同步
+> OPERATOR_PLAYBOOK。纯文档,不执行代码。P9 合并独立审计 +
+> 退出仪式。
+
+**交接引文(session B,W-S1):**
+> 读 docs/GUARDRAILS.md 与 docs/PROPOSAL_DIRECTION_ADJUST_2026-07-09.md
+> 附录 A 后,在 EC2 上执行 W-S1 品类对比扫描,严格按七字段任务卡
+> (Allowed/Forbidden writes、Acceptance 原文为准)。数据不足七天
+> 则出 INTERIM 版并注明。退出仪式 + 独立审计。
+
+## 附录 C:W-S2 评估标准(审计 F6,呈报模板)
+
+候选 feed 每项五栏:①延迟:同一事件 feed 时戳 vs Kalshi 盘口反应
+(本地钟,采样 ≥100 事件);②覆盖:Kalshi sports 活跃市场匹配率;
+③价格质量:与 Kalshi 盘口中价偏离分布 + 更新频率;④法务:ToS
+允许用途、转售限制、封禁风险;⑤成本:月费 + 超量计价,预算上限
+由操作员定。爬虫方案同表评估,加"脆性"栏(选择器变更频率、
+反爬对抗成本)。
