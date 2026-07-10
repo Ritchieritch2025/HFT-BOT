@@ -494,6 +494,22 @@ Exit evidence:    commit hash; tests green; sample drift report.
   the alarm. It is the contract Phase-2's shadow engine's snapshot export
   must satisfy. **K-track non-live Ws (K1–K5) now complete; only W-K6 (live
   rehearsal) remains — operator-scheduled + funded (S1/S3).**
+- Independent audit: ACCEPT-WITH-FINDINGS; fail-closed core sound, seven
+  findings addressed. **N1 (correctness): orders joined by order_id would
+  mis-classify the very ack-loss case reconcile exists to catch (one live
+  order split into a false only-at-exchange + only-in-engine pair, telling
+  the engine a LIVE order is terminal) — now joined on client_order_id, the
+  id the engine always knows (contract #9).** N2: float/bool counts were
+  int()-coerced → false CLEAN; now strict-int rejected (D3/D5, like
+  account_view). N3: price drift now compared (when both sides carry it).
+  N6: a LARGE position delta escalates to a hard "RUN PANIC" recommend
+  (threshold, default 100 contracts). N5: no-resend grep broadened to
+  re-send/reissue/resubmit/replace/… N7: reclassed network_read (--live is a
+  real account read). N4 (alarm delivery — no component forwards alerts.log)
+  stated honestly in the docstring + filed to BACKLOG. +5 regression tests
+  (ack-loss join, float/bool reject, price drift, large-delta panic,
+  opposite-sign position); 11→16 tests; both exploit probes re-run
+  fail-closed. Report: docs/plan_audits/wK5_audit_2026-07-10.md.
 
 ### W-K6 — LIVE kill-switch rehearsal (**OPERATOR-GATED, S1/S3**)
 Purpose:          the S3 rehearsal that unlocks any future live order: with

@@ -14,9 +14,22 @@ synthetic snapshots; the engine-snapshot format below is the contract Phase-2's
 shadow engine must export.
 
 Engine snapshot (JSON), the contract:
-  {"resting_orders": [{"order_id": "...", "ticker": "...", "book_side": "bid",
-                       "remaining_count_fp_e4": 50000}, ...],
+  {"resting_orders": [{"client_order_id": "...",  # REQUIRED — the join key
+                       "order_id": "...",         # optional (exchange-assigned)
+                       "ticker": "...", "book_side": "bid",
+                       "remaining_count_fp_e4": 50000,
+                       "yes_price_e6": 560000},    # optional; compared if present
+                      ...],
    "positions":      [{"ticker": "...", "position_fp_e4": -50000}, ...]}
+
+Orders are joined on **client_order_id**, NOT order_id (audit N1): the engine
+generates the client_order_id deterministically (contract #9) and thus ALWAYS
+knows it, while the exchange's order_id is learned from a create-ack — which
+is exactly what is LOST in the ack-loss scenario reconcile exists to catch.
+Joining on order_id would split one physical order into a false
+only-at-exchange + only-in-engine pair, and tell the engine a LIVE order is
+terminal. Money/counts are strict fixed-point integers (floats/bools rejected,
+never coerced — same D3/D5 discipline as account_view).
 
 Exchange state comes from the same typed, byte-exact reader as the panic
 verify path: offline (a fixture JSON, same shape) for tests, or live via
@@ -60,11 +73,17 @@ REMEDY = {
                               "order; never assume it is gone",
     "ORDER_ONLY_IN_ENGINE":   "adopt exchange: order is terminal "
                               "(filled/canceled); update engine, do not resend",
-    "ORDER_ATTR_DRIFT":       "adopt exchange remaining (missed partial fill); "
-                              "do not resend",
-    "POSITION_DRIFT":         "adopt exchange position (missed fill); consider "
-                              "panic if the delta is large",
+    "ORDER_ATTR_DRIFT":       "adopt exchange remaining/price (missed partial "
+                              "fill); do not resend",
+    "POSITION_DRIFT":         "adopt exchange position (missed fill)",
+    "POSITION_DRIFT_LARGE":   "adopt exchange position (LARGE missed fill) — "
+                              "RUN PANIC, do not resend",
 }
+
+# A position delta at or beyond this (E4 contracts, i.e. contracts x 10^4)
+# escalates POSITION_DRIFT to a hard panic recommendation (audit N6). Default
+# = 100 contracts; override with --large-position-delta.
+LARGE_POSITION_DELTA_E4 = 100 * 10000
 
 
 class ReconcileError(RuntimeError):
@@ -79,23 +98,38 @@ def _load_json(path):
         raise ReconcileError("cannot read %s: %s" % (path, e)) from None
 
 
+def _strict_int(v, source, what):
+    """Fixed-point fields are INTEGERS. A float/bool/str is a malformed
+    record (D3/D5) — reject it, never coerce (a coerced float would produce a
+    false CLEAN). bool is an int subclass, so exclude it explicitly."""
+    if type(v) is not int:
+        raise ReconcileError("%s %s not an integer: %r" % (source, what, v))
+    return v
+
+
 def _index_orders(orders, source):
-    """order_id -> normalized order dict; validates the required fields
-    (fail-closed on a malformed record so a bad snapshot never looks clean)."""
+    """client_order_id -> normalized order dict (audit N1: join on the id the
+    engine always knows). Fail-closed on any malformed record."""
     out = {}
     for o in orders:
-        oid = o.get("order_id")
-        if not isinstance(oid, str) or not oid:
-            raise ReconcileError("%s order missing order_id: %r" % (source, o))
+        cid = o.get("client_order_id")
+        if not isinstance(cid, str) or not cid:
+            raise ReconcileError("%s order missing client_order_id: %r"
+                                 % (source, o))
         try:
-            out[oid] = {
-                "order_id": oid,
+            rec = {
+                "client_order_id": cid,
+                "order_id": str(o.get("order_id", "")),
                 "ticker": str(o["ticker"]),
                 "book_side": str(o.get("book_side", "")),
-                "remaining": int(o["remaining_count_fp_e4"]),
+                "remaining": _strict_int(o["remaining_count_fp_e4"], source,
+                                         "remaining_count_fp_e4"),
             }
-        except (KeyError, TypeError, ValueError) as e:
-            raise ReconcileError("%s order %s malformed: %s" % (source, oid, e))
+        except KeyError as e:
+            raise ReconcileError("%s order %s missing %s" % (source, cid, e))
+        if "yes_price_e6" in o:          # optional; compared only if present
+            rec["price"] = _strict_int(o["yes_price_e6"], source, "yes_price_e6")
+        out[cid] = rec
     return out
 
 
@@ -106,15 +140,16 @@ def _index_positions(positions, source):
         if not isinstance(tk, str) or not tk:
             raise ReconcileError("%s position missing ticker: %r" % (source, p))
         try:
-            out[tk] = int(p["position_fp_e4"])
-        except (KeyError, TypeError, ValueError) as e:
-            raise ReconcileError("%s position %s malformed: %s" % (source, tk, e))
+            out[tk] = _strict_int(p["position_fp_e4"], source, "position_fp_e4")
+        except KeyError as e:
+            raise ReconcileError("%s position %s missing %s" % (source, tk, e))
     return out
 
 
-def reconcile(exchange, engine):
-    """Pure diff. Returns (drifts, counts). exchange/engine are dicts with
-    'resting_orders' + 'positions' lists. Exchange is truth."""
+def reconcile(exchange, engine, large_delta=LARGE_POSITION_DELTA_E4):
+    """Pure diff. Returns (drifts, counts). Orders join on client_order_id;
+    the exchange is truth. A position delta >= large_delta escalates to a
+    hard panic recommendation."""
     ex_o = _index_orders(exchange.get("resting_orders", []), "exchange")
     en_o = _index_orders(engine.get("resting_orders", []), "engine")
     ex_p = _index_positions(exchange.get("positions", []), "exchange")
@@ -126,28 +161,39 @@ def reconcile(exchange, engine):
         drifts.append({"class": cls, "key": key, "detail": detail,
                        "recommend": REMEDY[cls]})
 
-    # orders present only at the exchange, or only in the engine, or drifted
-    for oid in sorted(set(ex_o) | set(en_o)):
-        ex, en = ex_o.get(oid), en_o.get(oid)
+    # orders present only at the exchange, or only in the engine, or drifted —
+    # keyed on client_order_id (audit N1)
+    for cid in sorted(set(ex_o) | set(en_o)):
+        ex, en = ex_o.get(cid), en_o.get(cid)
         if ex and not en:
-            drift("ORDER_ONLY_AT_EXCHANGE", oid,
-                  "exchange rests %s %s rem=%d; engine unaware"
-                  % (ex["ticker"], ex["book_side"], ex["remaining"]))
+            drift("ORDER_ONLY_AT_EXCHANGE", cid,
+                  "exchange rests %s %s rem=%d (order_id=%s); engine unaware"
+                  % (ex["ticker"], ex["book_side"], ex["remaining"],
+                     ex["order_id"] or "?"))
         elif en and not ex:
-            drift("ORDER_ONLY_IN_ENGINE", oid,
+            drift("ORDER_ONLY_IN_ENGINE", cid,
                   "engine tracks %s %s rem=%d; not resting at exchange"
                   % (en["ticker"], en["book_side"], en["remaining"]))
-        elif ex["remaining"] != en["remaining"] or ex["book_side"] != en["book_side"]:
-            drift("ORDER_ATTR_DRIFT", oid,
-                  "exchange rem=%d side=%s vs engine rem=%d side=%s"
-                  % (ex["remaining"], ex["book_side"], en["remaining"], en["book_side"]))
+        else:
+            diffs = []
+            if ex["remaining"] != en["remaining"]:
+                diffs.append("rem %d!=%d" % (ex["remaining"], en["remaining"]))
+            if ex["book_side"] != en["book_side"]:
+                diffs.append("side %s!=%s" % (ex["book_side"], en["book_side"]))
+            # price compared only when BOTH sides carry it (audit N3)
+            if "price" in ex and "price" in en and ex["price"] != en["price"]:
+                diffs.append("price %d!=%d" % (ex["price"], en["price"]))
+            if diffs:
+                drift("ORDER_ATTR_DRIFT", cid, "exchange vs engine: " +
+                      ", ".join(diffs))
 
     # positions: any ticker whose signed size differs (0 on a missing side)
     for tk in sorted(set(ex_p) | set(en_p)):
         ev, nv = ex_p.get(tk, 0), en_p.get(tk, 0)
         if ev != nv:
-            drift("POSITION_DRIFT", tk,
-                  "exchange position_fp_e4=%d vs engine=%d (delta=%d)"
+            cls = ("POSITION_DRIFT_LARGE" if abs(ev - nv) >= large_delta
+                   else "POSITION_DRIFT")
+            drift(cls, tk, "exchange position_fp_e4=%d vs engine=%d (delta=%d)"
                   % (ev, nv, ev - nv))
 
     counts = {"orders_compared": len(set(ex_o) | set(en_o)),
@@ -178,9 +224,11 @@ def load_exchange_live():
                              "gates %s — refusing to reconcile against a "
                              "partial exchange view" % (dropped, {**od, **pd}))
     return {
-        "resting_orders": [{"order_id": o["order_id"], "ticker": o["ticker"],
+        "resting_orders": [{"client_order_id": o["client_order_id"],
+                            "order_id": o["order_id"], "ticker": o["ticker"],
                             "book_side": o["book_side"],
-                            "remaining_count_fp_e4": o["remaining_count_fp_e4"]}
+                            "remaining_count_fp_e4": o["remaining_count_fp_e4"],
+                            "yes_price_e6": o["yes_price_e6"]}
                            for o in orders],
         "positions": [{"ticker": p["ticker"],
                        "position_fp_e4": p["position_fp_e4"]} for p in mkt],
@@ -188,8 +236,13 @@ def load_exchange_live():
 
 
 def alarm(msg):
-    """Append one line to the dashboard alert stream (same path W-A5's
-    alert_notify feeds). Best-effort; never raises."""
+    """Append one line to work/live/alerts.log (the same FILE W-A5's
+    alert_notify writes). HONESTY NOTE (audit N4): no component currently
+    FORWARDS reconcile: lines to Telegram/push — alert_notify.sh checks only
+    capture/freshness/disk, and nothing reads this log for delivery. So the
+    operator-facing signal is the EXIT CODE (1 = drift); the log line is a
+    record. Wiring reconcile drift into the delivery path is a BACKLOG item.
+    Best-effort append; never raises."""
     try:
         os.makedirs(os.path.dirname(ALERT_LOG), exist_ok=True)
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -208,12 +261,16 @@ def main(argv):
     src.add_argument("--live", action="store_true",
                      help="pull the exchange live via account_view (read-only)")
     ap.add_argument("--report", default=None, help="write a JSON report here")
+    ap.add_argument("--large-position-delta", type=int,
+                    default=LARGE_POSITION_DELTA_E4,
+                    help="position delta (E4) at/above which drift escalates to "
+                         "a hard panic recommendation (default 100 contracts)")
     args = ap.parse_args(argv[1:])
 
     try:
         engine = _load_json(args.engine)
         exchange = load_exchange_live() if args.live else _load_json(args.exchange)
-        drifts, counts = reconcile(exchange, engine)
+        drifts, counts = reconcile(exchange, engine, args.large_position_delta)
     except ReconcileError as e:
         print("RECONCILE FAIL (closed): %s" % e, file=sys.stderr)
         alarm("READ-ERROR %s" % e)

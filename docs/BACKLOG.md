@@ -24,6 +24,19 @@ noticed-during, observation, suggested owner.
   parse_url, add IPv6 `[..]` handling, regression-test the vectors. Owner:
   a small env-hardening W (touches the shared safety layer ⇒ its own audit;
   out of W-K2 scope). Suggested: fold into the next STEP that touches env.cpp.
+- 2026-07-10 · noticed during W-K5 reconcile audit (N4) · **no component
+  DELIVERS reconcile-drift alarms.** reconcile.py appends `reconcile:DRIFT …`
+  lines to work/live/alerts.log, but deploy/alert_notify.sh only CHECKS
+  capture/freshness/disk (it writes that log, never reads it), and
+  dashboard_server.py has zero references to alerts.log — so a drift line
+  sits unseen; the only operator signal is reconcile's exit code 1. Fine
+  while reconcile is a manual/operator-run tool (autorun:false), but once it
+  is SCHEDULED, drift must reach Telegram/push. Fix options: (a) alert_notify
+  tails alerts.log for `reconcile:` lines and forwards them; (b) reconcile
+  posts directly via the same Telegram env (TELEGRAM_BOT_TOKEN/CHAT_ID).
+  Owner: the session that schedules reconcile (post-Phase-2, when a live
+  engine snapshot exists to reconcile against). Corrected the reconcile
+  docstring + W-K5 RESULT to state this honestly rather than imply delivery.
 - 2026-07-10 · STEP 6 combined audit N7 + operator ruling ③ ·
   **(a) `tools/rtt_baseline_sampler.sh` is unregistered (E3 drift), KEEP:**
   it arrived via commit 6da7317 and is wanted by the upcoming latency
