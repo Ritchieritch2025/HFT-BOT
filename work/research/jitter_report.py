@@ -171,14 +171,14 @@ def build_report(files, capture_host, categories):
                     t_ref / 1e6, tz=datetime.timezone.utc)
                     .strftime("%Y-%m-%dT%H")) if t_ref is not None else "unknown"
                 key = (capture_host, cat, table or "_other", hour)
-                b = bkt(key)
 
                 if is_heartbeat(rec):
-                    b.heartbeats += 1     # excluded from every statistic
+                    bkt(key).heartbeats += 1   # excluded from every statistic
                     continue
                 if table is None or not mt:
-                    bad += 1
+                    bad += 1                   # counted; never a junk bucket (N5)
                     continue
+                b = bkt(key)
                 b.samples += 1
                 if exch is None:
                     b.miss_exch += 1

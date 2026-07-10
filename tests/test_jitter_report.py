@@ -152,6 +152,17 @@ def test_trades_bucket_boundaries_and_missing(report):
     assert r["negative_lag_pct"] == 25.0         # 1 of 4 lag samples
 
 
+def test_unattributable_records_counted_not_bucketed(tmp_path):
+    """Audit N5: unknown-type/no-ticker records are counted in `bad` and never
+    materialize a junk empty bucket row."""
+    fx = tmp_path / "junk.ndjson"
+    fx.write_text(_env({"type": "subscribed", "msg": {}}, mono=1,
+                       wall_us=E0 + 1) + "\n")
+    rows, bad = jr.build_report([str(fx)], "fixture", {})
+    assert bad == 1
+    assert rows == []
+
+
 def test_batch_burst_annotation(tmp_path):
     fx = tmp_path / "batch.ndjson"
     fx.write_text("\n".join(BATCH_LINES) + "\n")

@@ -217,6 +217,22 @@ def test_event_times_heartbeat_and_missing():
     assert ex.t_event.iloc[2] == T + 2
 
 
+def test_legacy_priceless_snapshot_is_not_a_heartbeat():
+    """Audit N2: a pre-TL1 FIRST-OBSERVATION snapshot without a price (all-NULL
+    ladder but ts_utc off the hour boundary) must stay in the fail-closed
+    missing class — never silently replayed at exchange time as a heartbeat."""
+    import pandas as pd
+    df = pd.DataFrame({
+        "ts_utc":           [T + 12_345],       # NOT hour-aligned
+        "is_snapshot":      [True],
+        "price_e4":         [None],
+        "exchange_ts_us":   [None],
+        "local_recv_ts_us": [None],
+    })
+    out, hb, miss = bt.event_times(df, "recv", is_l1=True)
+    assert hb == 0 and miss == 1
+
+
 # ------------------------------------------------------------- config plumbing
 
 def test_latency_config_placeholders_and_override(tmp_path, monkeypatch):

@@ -23,15 +23,22 @@ DECISION CLOCK (W-TL1 — explicit, never implicit):
   --clock recv (DEFAULT)  decisions keyed off local_recv_ts_us — the time WE
       actually saw each message. The only clock a tradable strategy can be
       validated on. Rows missing local_recv_ts_us are counted and the run
-      FAILS CLOSED (exit 1) unless --allow-missing-recv explicitly drops them;
+      FAILS CLOSED (exit 3) unless --allow-missing-recv explicitly drops them;
       silently substituting exchange time is forbidden (look-ahead bias).
   --clock exchange        DIAGNOSTIC ONLY: decisions keyed off the exchange
       timestamp — before the message physically reached us. Exists solely to
       DEMONSTRATE look-ahead bias (compare against clock=recv). Its numbers
       must NEVER feed a go/no-go decision (GUARDRAILS Q2).
-  Scheduled heartbeat rows (is_snapshot, NULL price, all-NULL ladder) are
-  state continuation stamped by OUR hour scheduler: they replay at ts_utc
-  under both clocks, are counted separately, and are never "missing recv".
+  Scheduled heartbeat rows (is_snapshot, NULL price, all-NULL ladder, ts_utc
+  ON an hour boundary — the alignment guard keeps any legacy non-heartbeat
+  row out of this class and inside fail-closed) are state continuation
+  stamped by OUR hour scheduler: they replay at ts_utc under both clocks,
+  are counted separately, and are never "missing recv". KNOWN BOUND (audit
+  N3): a heartbeat carries the book state of the last real tick before the
+  hour-crossing tick; if that source tick was itself a late arrival
+  straddling the boundary, the replay leaks up to that one tick's arrival
+  lag of state at h_start. Inherent to the spec-pinned ts_utc-=-hour-start
+  rule; magnitude ~ms, far under the latency chain.
 
 ACTIVE-QUOTE LATENCY MODEL (W-TL1 — minimal, mechanism over precision):
   a quote generated on a book update at t is NOT instantly live:
@@ -40,6 +47,12 @@ ACTIVE-QUOTE LATENCY MODEL (W-TL1 — minimal, mechanism over precision):
   trades earlier than the quote's effective time cannot fill it. On requote
   the previous quote is dropped immediately (simplification: stale-quote
   fills — favorable AND adverse — are both excluded; documented, minimal).
+  KNOWN BOUND (audit N4): under clock=recv, fill eligibility compares the
+  trade's ARRIVAL time to order_effective_not_before, so a trade that
+  printed at the exchange up to one downlink lag before our order went live
+  can still count as a fill — optimistic by ~ms on the Q2 pessimistic
+  bound. Never look-ahead (no data is used before it arrived); tighten with
+  exchange print time for eligibility-only if calibration shows it matters.
   The three p99 parameters come from config/backtest_latency.yaml and are
   CONSERVATIVE PLACEHOLDERS until the separate measurement task lands.
 
@@ -163,17 +176,24 @@ def run_market(l1_rows, tr_rows, size, max_inv, min_spread_e4, latency_us=0):
     return out
 
 
+HOUR_US = 3_600_000_000
+
+
 def event_times(df, clock, is_l1):
     """Assign each row its decision-clock event time. Returns (df with column
     `t_event`, n_heartbeat, n_missing). Heartbeats (L1 only: is_snapshot, NULL
-    price, all-NULL ladder) replay at ts_utc — they are OUR scheduler's rows,
-    never exchange messages, and never count as missing."""
+    price, all-NULL ladder, hour-aligned ts_utc) replay at ts_utc — they are
+    OUR scheduler's rows, never exchange messages, and never count as missing.
+    The hour-alignment guard (audit N2) keeps legacy price-less first
+    observations out of the heartbeat class: they stay missing-recv and
+    fail closed instead of silently replaying at exchange time."""
     import pandas as pd
     hb = None
     if is_l1:
         hb = (df["is_snapshot"].fillna(False).astype(bool)
               & df["price_e4"].isna() & df["exchange_ts_us"].isna()
-              & df["local_recv_ts_us"].isna())
+              & df["local_recv_ts_us"].isna()
+              & (df["ts_utc"] % HOUR_US == 0))
     else:
         hb = pd.Series(False, index=df.index)
     if clock == "recv":

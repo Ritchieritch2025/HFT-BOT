@@ -135,7 +135,11 @@ messages): `ts_utc` = hour start ALWAYS (export/LOCF/heartbeat detection
 depend on it), all four ladder columns NULL ALWAYS (no fabricated
 timestamps). Heartbeats may seed LOCF continuation but are never a "strategy
 newly saw the market change" trigger, enter no lag/jitter/residual statistic,
-and are counted separately by every consumer.
+and are counted separately by every consumer. Known bound (W-TL1 audit N3):
+a heartbeat replays the last real tick's state at the hour start; if that
+tick was a late arrival straddling the boundary, up to that one tick's
+arrival lag of state leaks to h_start — inherent to the pinned hour-start
+rule, ~ms magnitude.
 
 **History**: existing archive files are NEVER rewritten (write-once, D1);
 pre-TL1 files read back NULL in all four columns via `load()`'s
