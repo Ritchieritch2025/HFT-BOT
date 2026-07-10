@@ -46,8 +46,23 @@ Group C(正式校准,gated ≥2026-07-13)。
   methodology-valid + collect / methodology-flawed(修后重跑);
   trade/reject 判决权只属于 S5**(capture_host 规则,自洽修正)。
 - 注意:Mac-era 数据 → 结论标 dev-grade;方法学在 S5 用 EC2 数据重跑。
-- 选品钉死:零 maker 费 series;查证来源 = kalshi_facts.yaml 费率节
-  + docs/vendor 费率表;series 未列明 = 按未知剔除(fail-closed,Q3)。
+- 选品钉死(操作员 2026-07-10 裁决,取代原"仅零 maker 费"条目):
+  S1 范围 = 全部网球 match 系列(KXATPMATCH / KXWTAMATCH / KXITFMATCH /
+  KXATPCHALLENGERMATCH,及数据实测存在的 KXITFWMATCH / KXWTACHALLENGERMATCH),
+  按 dim_segments 的 maker_fee_class × tour_level 分层。
+  · 主指标(纪律 1)每层各算各报,**禁止跨层合并出单一总数**——零费层
+    与收费层是两个物种。
+  · 收费层的 edge 分解**额外扣一列 maker 费**,按纪律 12 费用预览管道
+    内联计算(taker/maker 公式 + ceil_to_centicent),输出强制带
+    NON-GATE / verified=false 横幅;OQ-1 未批,一切 facts-gated 工具的
+    门禁不动。
+  · H1(费率墙)检验**仅在零费层内成立**,报告写明。
+  · 查证来源不变:kalshi_facts.yaml 费率节 + catalog/series 的 fee_type
+    (live GET /series);series 未列明 = maker_fee_class=unknown,
+    fail-closed 剔除(Q3)。
+  · 本修改发生于预注册冻结之前;预注册按新口径一次写成。其余 12 条
+    纪律、每步验证门、七图、S1 判决限制(methodology-valid+collect /
+    methodology-flawed)全部不变。
 - ✅ **S1 验证(机器门 + 五眼清单)**:
   机器门:make check + run_pipeline 绿;**恒等式自检**——每桶
   bounce+drift 与 markout_total 之差 < 0.01¢(纪律 11 的代数保证,
