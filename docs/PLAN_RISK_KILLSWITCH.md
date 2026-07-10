@@ -338,6 +338,34 @@ Rollback:         revert commit; pure module, imported by nothing yet.
 Exit evidence:    commit hash; all four named tests + hammer green; the
                   red-first ①④⑤-only run's failure output preserved.
 
+#### W-K3 RESULT (2026-07-10 — DONE; audit report in docs/plan_audits/)
+- Delivered: `include/kalshi/risk_ledger.hpp` (header-only, zero-I/O,
+  thread-safe under one mutex — contract #6) + `tests/test_risk_ledger.cpp`
+  (the 4 named tests + property battery + red-first, ALL PASS).
+- **MONEY IS E6 micro-dollars** (`Micros = int64`), a deliberate deviation
+  from the W text's "E4": W-K1 verified live that account money carries six
+  decimals, so E4 would be lossy narrowing (D5). Exposure is EXACT from the
+  repo fixed-point types: `exposure_micros = CountFp(×10²) · PriceE4(×10⁴)`
+  = contracts·dollars·10⁶. No float anywhere (grep-gate on the header).
+- Atomicity: reserve() holds one lock across check-AND-deduct of all five
+  layers, so the "look then send" race is impossible — the 8-thread × 100
+  hammer against a tight total cap admits exactly cap/line, never over.
+- Factor derivation: layer ③ key = same underlying / same outcome direction
+  (Eggsy: all lines of one event+direction share a key; NHL: one leg's key
+  aggregates across combos). EMPTY factor = fail-closed `__unknown_factor__`
+  bucket shared by all unclassifiable orders (they throttle together).
+- Q8: reduce-risk orders bypass reservation, always admitted, reserve 0.
+- ⑤ day-loss is a breaker (realized loss ≥ cap ⇒ refuse new risk; reduce
+  still admitted). Conservation invariant `reserved == settled + refunded`
+  proven per-handle; settle/refund idempotent-guarded (no double refund).
+- client_order_id (contract #9): reservation carries a process-monotonic
+  slot; client_order_id(res,...) is stable across retries reusing the slot,
+  distinct across slots.
+- RED-FIRST preserved: the ①④⑤-only config admits all 10 Eggsy lines (the
+  blowup layers ②③ prevent) — proof the additions are load-bearing.
+- Consumes: nothing yet (pure module). Feeds the Phase-2 engine's
+  reserve-before-send path (S6) and W-K4's day-loss breaker hook.
+
 ### W-K4 — Rule engine on synthetic scenarios
 Purpose:          the always-on defensive rules as a pure library +
                   scenario-tape drills: dead-man expiry (every resting order
