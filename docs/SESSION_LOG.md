@@ -6,6 +6,85 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 15:02 UTC — S1 maker-edge pilot ✅ COMPLETE (dev-grade) — awaiting independent audit + Cowork readout
+
+- commits:
+  - 6056c353 — S1 complete: `tools/research/html_report_maker_edge.py` (NEW,
+    the missing renderer: seven interactive ECharts, offline self-contained
+    HTML, pre-registration verbatim before results, NON-GATE banner,
+    fingerprint header/footer) + `aggregate_maker_edge.py` hardening
+    (identity gate ENFORCED exit-2, crc32 seeds + numpy bootstrap, per-fill
+    charged-layer fee column, CI on exploratory cells, allowed-set layer
+    conclusions) + tools.json registration (build_segments, maker_edge_pilot,
+    both offline/autorun:false, NOT in run_pipeline — no synthetic smoke) +
+    RESUME.md ECharts ruling recorded. Amended in place to fold in the
+    determinism fixes (ORDER BY on all per-match/bucket queries + DuckDB
+    `SET threads TO 1` in the aggregate stage only).
+- decisions (E2 — each lives in a file):
+  - Operator ruling 2026-07-10: vendored interactive lib = ECharts (the
+    already-vendored docs/vendor/js/echarts.min.js), no Plotly swap →
+    recorded in work/research/maker_edge_pilot/RESUME.md (item RESOLVED).
+  - Charged-layer maker fee is computed PER FILL (SQL twin of the
+    ceil_to_centicent formula) and subtracted as its own column — closer to
+    the frozen pre-registration wording than the earlier per-match-vwap
+    approximation; primary metric definition untouched → aggregate_maker_edge.py.
+  - Reproducibility (discipline #8) interpreted as bit-reproducibility:
+    same command + same parquets ⇒ identical results.json except the
+    generated_at timestamp — VERIFIED by running aggregate twice and
+    deep-diffing → aggregate_maker_edge.py (ORDER BY + threads=1 comments).
+- context capsule (for a zero-history session):
+  - Machine gate ALL GREEN: identity self-check max per-bucket gap
+    0.000000¢ (4.4e-16) < 0.01¢ at all 4 horizons × all layers, both the
+    decomposition identity AND the independent markout_chk recompute;
+    make check 0 FAIL; run_pipeline PIPELINE PASS; check_registry ok
+    (144 tools). Fingerprint SHA in results.json = HEAD = 6056c353.
+  - PRIMARY METRIC (val=07-08, pre-match, pessimistic, 30s, ¢/张,
+    per layer, NO merge) — numbers only, interpretation belongs to Cowork:
+    zero/ITF n=10,628 (292 场) net −0.822 CI[−1.133,−0.525];
+    zero/Challenger n=1,312 (63 场) net −1.348 CI[−2.061,−0.543];
+    charged/ATP n=62 <200 AUTO-COLLECT net −0.061 CI[−0.331,+0.065];
+    charged/WTA n=60 <200 AUTO-COLLECT net −0.288 CI[−1.296,−0.147].
+    Components (zero/ITF): half_spread 1.305, drift30 2.127, fee 0.
+    S1 conclusion = methodology-valid+collect (∈ allowed set).
+  - Layer note (audit will ask): only 4 layers exist because win_loss
+    markets only exist in {charged/ATP 20, charged/WTA 20, zero/Challenger
+    526, zero/ITF 1733}; the dim's zero/ATP 312 + zero/WTA 136 markets are
+    totals/handicap/other market_kind, excluded by the pre-registered
+    win_loss main-table scope. Verified against dim_segments directly.
+  - Phase detector τ(train)=32.0 (trailing-120s trade count threshold,
+    median of per-market train peaks). DQ: ok 2,013,410 · stale>60s 27,884 ·
+    no_book_before 298 (sums to the 2,041,592 scored trades; the analysis
+    table `a` further narrows to win_loss/1c/known-fee = 1,914,590, of which
+    pessimistic 369,686 across all splits/phases; the four val+pre-match
+    layer n's sum to 12,062).
+  - Deliverables on disk (gitignored, rebuildable): work/research/
+    maker_edge_pilot/{results.json, index.html (1.2MB self-contained),
+    book/trades/markout.parquet}. HTML verified by headless-Chrome
+    screenshot: all 7 charts render, 0 uncaught JS errors; chart-1 CI
+    ribbons were replaced with colored whiskers after the first screenshot
+    showed 6 overlapping translucent bands smearing into an unreadable
+    polygon (sparse-band CIs are huge and cover the chart).
+  - Dead end ruled out: headless Chrome `--dump-dom` hangs (>2min) on this
+    page; `--headless=new --screenshot` with a background kill-timer works
+    (~45–75s).
+  - Five-eye items all present in the HTML (prereg-before-results / n beside
+    every number incl. tooltips / conclusion in allowed set / regime badge /
+    fingerprint header+footer) — operator still performs the actual five-eye
+    review; this session only verified presence.
+- blocked / handoff:
+  - NEXT: independent audit of S1 (per RESUME §6 the audit must check:
+    metric pre-registered before computation, identity self-check present,
+    per-layer no-merge, fee preview never touched a facts gate, every number
+    has n, conclusion in allowed set). Then Cowork readout of
+    work/research/maker_edge_pilot/index.html — numbers were deliberately
+    NOT interpreted here (operator instruction).
+  - Untracked `outputs/2026-07-10_muchova_gauff/` at repo root predates this
+    session (created 06:29 local) and is NOT this session's artifact — left
+    untouched, needs an owner.
+  - Cowork cross-check hook: results.json is bit-reproducible ex-timestamp;
+    any independent recompute of zero/ITF net −0.822¢ that lands within 5%
+    validates the pipeline (per the cross-check discipline).
+
 ## 2026-07-10 14:35 UTC — S1 maker-edge pilot CHECKPOINT ⏸ (operator paused before the HTML step; resume from RESUME.md)
 
 - commits: 3575c41 (PLAN_RESEARCH_CYCLE_1 S1 operator ruling: widen scope to
