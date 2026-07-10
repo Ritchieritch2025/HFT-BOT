@@ -151,3 +151,20 @@ def test_events_and_markets_crawl_with_raised_cap():
     assert "cap_pages=2000" in ev[:200], "events crawl still default-capped"
     mk = live[live.index('params={"status": "open"}'):]
     assert "cap_pages=2000" in mk[:120], "open-markets crawl still default-capped"
+
+
+def test_write_parquet_raw_mixed_timestamp_precisions(tmp_path):
+    """W-A5 regression (live, 2026-07-10): the 400k-row events crawl mixes
+    second- and microsecond-precision timestamps in one column; head-only
+    schema sampling inferred the narrow format and crashed at row 363,172.
+    write_parquet_raw must survive mixed precisions losslessly."""
+    import duckdb
+    out = str(tmp_path / "events")
+    rows = ([{"t": "2026-01-01T00:00:00Z"}] * 3
+            + [{"t": "2025-12-14T12:19:15.983002Z"}])
+    n = catalog_sync.write_parquet_raw(rows, out)
+    assert n == 4
+    got = duckdb.connect().execute(
+        "SELECT count(*), count(t) FROM read_parquet('%s/part-00000.parquet')"
+        % out).fetchone()
+    assert got == (4, 4)

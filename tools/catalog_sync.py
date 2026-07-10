@@ -105,9 +105,15 @@ def write_parquet_raw(rows, out_dir):
         src = tmp.name.replace("'", "''")
         dst = out.replace("'", "''")
         # union_by_name so heterogeneous objects keep every field they carry.
+        # sample_size=-1 (W-A5, 2026-07-10): schema inference must scan ALL
+        # rows — the 400k-event crawl has second-precision timestamps in the
+        # head and microsecond-precision ones deep in the tail; head-only
+        # sampling inferred "%Y-%m-%dT%H:%M:%SZ" and hard-crashed at row
+        # 363,172. Full sampling makes mixed-format columns fall back to
+        # VARCHAR — lossless, correct for a store-it-raw dim layer.
         con.execute(
             "COPY (SELECT * FROM read_json_auto('%s', format='newline_delimited', "
-            "union_by_name=true, maximum_object_size=1048576)) "
+            "union_by_name=true, maximum_object_size=1048576, sample_size=-1)) "
             "TO '%s' (FORMAT PARQUET)" % (src, dst))
         return len(rows)
     finally:
