@@ -7,6 +7,47 @@
 
 ---
 
+## D-2 · 2026-07-11 — V2.2 canonicalize:唯一正本提示词确立(操作员释放令,原文)
+
+> OPERATOR RELEASE STP-R002-CANONICALIZE-V22 (single session, no phase execution):
+>
+> Verify prerequisites, stop on any failure: V2.2 candidate SHA-256 = 575ea27ae08477bdcc4234a42ad5ff456c4ad45cd32ede79011caec2be3fbe54; an archived independent audit report for V2.2 with verdict PASS exists in docs/plan_audits/ — if it exists only in a chat transcript, stop and ask the operator to paste it for verbatim archival first.
+> Promote V2.2 to CANONICAL per its own release schema (exact path + SHA recorded; V2/V2.1 stay frozen historical candidates).
+> Record ruling D-2 in docs/PLAN_SPORTS_TRADING_DECISIONS.md: V2.2 = sole canonical prompt; D-1's §-references remapped to V2.2 sections (record exact numbers); program branch = plan-sports-market-dynamics-v2 @ base 1c93837; merge-to-main deferred to a future release.
+> This release does NOT authorize BOOTSTRAP-0/P00 or any phase. Save this instruction verbatim to docs/plan_releases/sports_trading_program/STP-R002-CANONICALIZE-V22.md, full exit ritual, report hashes, stop.
+
+### D-2 归档注记(非裁决原文)
+
+- **canonical 正本(release 采纳,两道门齐)**:
+  `active_prompt_path` = `docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_2_CANDIDATE.md`
+  `active_prompt_sha256` = `575ea27ae08477bdcc4234a42ad5ff456c4ad45cd32ede79011caec2be3fbe54`
+  门① 独立审计 PASS:`docs/plan_audits/AUDIT_PROMPT_V2_2_2026-07-11.md`
+  (SHA-256 `d6794bf54b7375b40b1caad82e563eb33a2385a85bb32f8ec244f7f46f6c6164`,
+  零上下文独立代理,零 P0 零 P1);门② 本释放令(operator_text_sha256
+  `e0a91f791a2e979a50ce9b1a77258beac41393e624e7e2d1feb559686df95fa3`)。
+- **横幅声明(审计 P2-1 要求)**:正本文件内的首行横幅
+  "STATUS: CANDIDATE — NOT CANONICAL — NOT EXECUTABLE" 与文件名中的
+  `_CANDIDATE` 是**创建时元数据**,自本 release 起被上述
+  `active_prompt_path`/`active_prompt_sha256` pinning **取代**;后续会话以
+  本条目与 STP-R002 收据为准,不得因横幅字样拒认正本。字节不改(任何
+  字节/路径改动 = 新候选,须重新独立审计)。
+- **D-1 §-引用重映射(操作员令记录精确编号;依据 = V2.2 审计 P1-2 核验)**:
+  D-1 中 "CANONICAL PROMPT §5"(主线定义)→ **V2.2 §2(主假设/主线)+
+  §11.2–§11.4(选品宇宙与 Tracks A/B/C)**;D-1 中 "CANONICAL PROMPT §11"
+  (OPERATOR-TBD 机制)→ **V2.2 §4(冲突规则)+ §10(GUARDRAILS
+  OPERATOR-TBD 提案机制)**。
+- **program branch** = `plan-sports-market-dynamics-v2` @ base `1c93837`;
+  **merge-to-main 延后**至将来单独 release。
+- **D-1 红旗解除**:D-1 归档注记中"CANONICAL PROMPT 尚未入库"的未决依赖
+  自本条目起**解除**——正本已在上述 path/SHA(D-1 条目本身按 append-only
+  规则不改动,以本条为准)。
+- **本 release 未授权**:BOOTSTRAP-0、STP-P00(W01/AUD01)、任何 phase。
+  W01 前硬前置:独立审计通过的 §31.2 test-isolation artifact(未证明隔离
+  ⇒ STP-P00 = BLOCKED,先走独立 engineering W)。V2/V2.1 保持冻结历史
+  候选(SHA `bc2fbf65…f341` / `e83160bd…106c`)。
+- 执行收据:`docs/plan_releases/sports_trading_program/STP-R002-CANONICALIZE-V22.md`
+  (evidence/closure commit 哈希在收据内登记)。
+
 ## D-1.1 · 2026-07-11 — 账户共用与自动化边界(操作员裁决,原文)
 
 > 不用只留给系统 但是后面我们做策略尽量100%自动 但是也给手动留空间
