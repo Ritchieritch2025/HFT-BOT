@@ -267,28 +267,34 @@ class Ingester:
         now_us = int(time.time() * 1_000_000) if now_us is None else now_us
         rows = []
         self._heartbeats(now_us // HOUR_US, rows)
-        self._invalidate_sealed_fact_days(
+        rows, _tr, _full = self._divert_late_facts(
             rows, [], [], source_file="<wall-clock-heartbeat>",
             source_start=None, source_end=None)
         self._insert(rows, [], [])
 
-    def _invalidate_sealed_fact_days(self, l1_rows, tr_rows, full_rows,
-                                     source_file, source_start, source_end):
-        """Fail closed before adding a fact to an already sealed UTC day.
+    def _divert_late_facts(self, l1_rows, tr_rows, full_rows,
+                           source_file, source_start, source_end):
+        """Sealed days are WRITE-ONCE (operator seal ruling 2026-07-11).
 
-        Raw files are partitioned by receipt time while facts use exchange
-        ``ts_utc``.  A delayed/replayed frame can therefore arrive hours after
-        the fixed cross-midnight receipt horizon used to create a day seal.
-        Invalidate the visible seal *before* the database transaction.  A crash
-        can then cause an unnecessary rebuild, but can never leave a known-stale
-        seal authorizing an incomplete archive.
+        A fact whose exchange day already carries an active seal NEVER enters
+        staging (that would eventually demand mutating the sealed archive).
+        It is diverted VERBATIM to the corrections partition
+        (``warehouse_root/corrections/date=D/late_rows.ndjson``), counted in
+        the corrections ledger and alerted.  The seal itself is never touched.
 
-        DuckDB's single-writer lock excludes a concurrent sealer while this
-        ingester connection is open.  ``os.replace`` is same-directory atomic;
-        the displaced seal is retained as incident evidence rather than deleted.
+        Sources in non-canonical receipt partitions for a NOT-yet-sealed day
+        are still recorded as raw dependencies so the future seal binds them
+        (unchanged behaviour).
+
+        Returns the (l1_rows, tr_rows, full_rows) that may enter staging.
+        Corrections are fsynced BEFORE the caller's DuckDB commit advances the
+        byte checkpoint, so a crash can duplicate a correction but never lose
+        one.
         """
+        tables = (("orderbooks_l1", l1_rows), ("trades", tr_rows),
+                  ("orderbooks_full", full_rows))
         dates = sorted({wc.day_of_us(row[0])
-                        for rows in (l1_rows, tr_rows, full_rows)
+                        for _t, rows in tables
                         for row in rows if row and row[0] is not None})
         source = os.path.abspath(source_file) if not source_file.startswith("<") \
             else source_file
@@ -317,55 +323,88 @@ class Ingester:
                 if not canonical:
                     dependency_days.add(day)
 
-        invalidated = []
-        seal_dir = os.path.join(self.warehouse_root, "seals")
-        for day in dates:
-            active = wc.seal_path(self.warehouse_root, day)
-            if not os.path.isfile(active):
-                continue
-            stamp = "%d.%d" % (time.time_ns(), os.getpid())
-            parked = os.path.join(
-                seal_dir, "date=%s.invalidated-late-fact.%s.json" % (day, stamp))
-            os.replace(active, parked)
-            invalidated.append((day, parked))
+        sealed_days = {day for day in dates
+                       if os.path.isfile(wc.seal_path(self.warehouse_root, day))}
+        # A sealed day never re-enters the dependency mechanism: its seal is
+        # final and its late rows live in the corrections partition instead.
+        dependency_days -= sealed_days
 
-        if not invalidated and not dependency_days:
-            return
+        if not sealed_days and not dependency_days:
+            return l1_rows, tr_rows, full_rows
 
-        # The seal disappearance must reach durable storage before a later
-        # DuckDB COMMIT can make the late fact durable.  Fsyncing only the
-        # ledger file does not persist a directory rename across power loss.
-        if invalidated:
-            _fsync_dir(seal_dir)
+        kept, diverted = [], {}
+        observed_at = datetime.datetime.now(
+            datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for tname, rows in tables:
+            keep = []
+            for row in rows:
+                day = wc.day_of_us(row[0]) if (row and row[0] is not None) else None
+                if day in sealed_days:
+                    diverted.setdefault(day, []).append({
+                        "table": tname, "row": list(row),
+                        "observed_at_utc": observed_at,
+                        "source_file": source,
+                        "source_raw_rel": source_rel,
+                        "source_start_offset": source_start,
+                        "source_end_offset": source_end,
+                    })
+                else:
+                    keep.append(row)
+            kept.append(keep)
 
-        ledger = os.path.join(self.warehouse_root, "seal_invalidations.ndjson")
-        os.makedirs(os.path.dirname(ledger), exist_ok=True)
-        parked_by_day = dict(invalidated)
-        with open(ledger, "a", encoding="utf-8") as f:
-            for day in sorted(set(parked_by_day) | dependency_days):
-                parked = parked_by_day.get(day)
-                record = {
-                    "event": ("SEALED_DAY_INVALIDATED_BY_LATE_FACT" if parked else
-                              "LATE_RAW_DEPENDENCY_OBSERVED"),
-                    "exchange_date": day,
-                    "observed_at_utc": datetime.datetime.now(
-                        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "source_file": source,
-                    "source_raw_rel": source_rel,
-                    "source_start_offset": source_start,
-                    "source_end_offset": source_end,
-                    "parked_seal": (os.path.relpath(parked, self.warehouse_root)
-                                    if parked else None),
-                    "action": ("ARCHIVE_ONLY_READS_FAIL_CLOSED_UNTIL_REEXPORT_RESEAL"
-                               if parked else "BIND_SOURCE_IN_ANY_FUTURE_DAY_SEAL"),
-                }
-                f.write(json.dumps(record, sort_keys=True) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        for day, records in sorted(diverted.items()):
+            cdir = os.path.join(self.warehouse_root, "corrections", "date=%s" % day)
+            os.makedirs(cdir, exist_ok=True)
+            cpath = os.path.join(cdir, "late_rows.ndjson")
+            with open(cpath, "a", encoding="utf-8") as f:
+                for rec in records:
+                    f.write(json.dumps(rec, sort_keys=True, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            _fsync_dir(cdir)
+
+        if diverted:
+            cledger = os.path.join(self.warehouse_root, "corrections",
+                                   "ledger.ndjson")
+            os.makedirs(os.path.dirname(cledger), exist_ok=True)
+            with open(cledger, "a", encoding="utf-8") as f:
+                for day, records in sorted(diverted.items()):
+                    f.write(json.dumps({
+                        "event": "LATE_FACT_DIVERTED_TO_CORRECTIONS",
+                        "exchange_date": day,
+                        "n_rows": len(records),
+                        "observed_at_utc": observed_at,
+                        "source_file": source,
+                        "source_raw_rel": source_rel,
+                        "seal_untouched": True,
+                    }, sort_keys=True) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            print("ALERT: %d late fact row(s) for SEALED day(s) %s diverted to "
+                  "corrections partition (seal untouched, write-once)"
+                  % (sum(len(r) for r in diverted.values()),
+                     ",".join(sorted(diverted))), file=sys.stderr)
+
+        if dependency_days:
+            ledger = os.path.join(self.warehouse_root, "seal_invalidations.ndjson")
+            os.makedirs(os.path.dirname(ledger), exist_ok=True)
+            with open(ledger, "a", encoding="utf-8") as f:
+                for day in sorted(dependency_days):
+                    f.write(json.dumps({
+                        "event": "LATE_RAW_DEPENDENCY_OBSERVED",
+                        "exchange_date": day,
+                        "observed_at_utc": observed_at,
+                        "source_file": source,
+                        "source_raw_rel": source_rel,
+                        "source_start_offset": source_start,
+                        "source_end_offset": source_end,
+                        "parked_seal": None,
+                        "action": "BIND_SOURCE_IN_ANY_FUTURE_DAY_SEAL",
+                    }, sort_keys=True) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
         _fsync_dir(self.warehouse_root)
-        if invalidated:
-            print("ALERT: invalidated sealed day(s) after late exchange-time fact: %s"
-                  % ",".join(day for day, _ in invalidated), file=sys.stderr)
+        return tuple(kept)
 
     def process_file(self, path):
         path = os.path.abspath(path)
@@ -396,7 +435,7 @@ class Ingester:
             except (ValueError, KeyError, TypeError):
                 continue
             self._frame(rec, frame, msg, l1_rows, tr_rows, full_rows)
-        self._invalidate_sealed_fact_days(
+        l1_rows, tr_rows, full_rows = self._divert_late_facts(
             l1_rows, tr_rows, full_rows, source_file=path,
             source_start=start, source_end=start + len(chunk))
         # Facts/stats and the byte checkpoint are one atomic unit.  Autocommit

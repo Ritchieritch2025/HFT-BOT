@@ -41,6 +41,8 @@ FULL_CATALOG_EVERY_HOURS="${FULL_CATALOG_EVERY_HOURS:-6}"
 RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-2}"
 
 RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
+WAREHOUSE_ROOT="work/warehouse"
+SEAL_ALARM="$LIVE/seal_alarm.json"
 
 # --- single-instance lock: two supervisors = two ws_shadow writers appending --
 # --- to the SAME hourly raw file = interleaved corrupt lines. Never allow it. --
@@ -57,7 +59,7 @@ cleanup() {
   [ -f "$LIVE/ingest.pid" ] && kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null
   kill "$WATCHDOG_PID" 2>/dev/null
   [ -n "${WS_PID:-}" ] && kill "$WS_PID" 2>/dev/null
-  [ -n "${RESEARCH_PID:-}" ] && kill "$RESEARCH_PID" 2>/dev/null
+  [ -n "${SEAL_PID:-}" ] && kill "$SEAL_PID" 2>/dev/null
   rm -rf "$LOCK"
 }
 # W-A5 (audit finding 3): a signal trap in bash RESUMES execution after the
@@ -94,38 +96,36 @@ stop_ingest_for_export() {
   echo "[supervisor] ingest pid=$ingest_pid did not stop within 120s; export deferred"
   return 1
 }
-stop_research_for_reseal() {
-  [ -n "$RESEARCH_PID" ] || return 0
-  if ! kill -0 "$RESEARCH_PID" 2>/dev/null; then
-    RESEARCH_PID=""
-    return 0
-  fi
-  # Research may have a Python child. Stop child first, then its subshell, and
-  # do not rewrite archives until both are gone; otherwise stale output can
-  # recreate a success receipt after reseal.
-  pkill -TERM -P "$RESEARCH_PID" 2>/dev/null || true
-  kill -TERM "$RESEARCH_PID" 2>/dev/null || true
-  for _research_wait in $(seq 1 30); do
-    if ! kill -0 "$RESEARCH_PID" 2>/dev/null; then
-      wait "$RESEARCH_PID" 2>/dev/null || true
-      RESEARCH_PID=""
-      return 0
-    fi
-    sleep 1
-  done
-  pkill -KILL -P "$RESEARCH_PID" 2>/dev/null || true
-  kill -KILL "$RESEARCH_PID" 2>/dev/null || true
-  for _research_kill_wait in $(seq 1 5); do
-    kill -0 "$RESEARCH_PID" 2>/dev/null || break
-    sleep 1
-  done
-  if kill -0 "$RESEARCH_PID" 2>/dev/null; then
-    return 1
-  fi
-  wait "$RESEARCH_PID" 2>/dev/null || true
-  RESEARCH_PID=""
-  return 0
+write_seal_alarm() {
+  # Durable 02:00-line alarm artifact (operator seal ruling: 02:00 is an
+  # ALARM line, not a scheduling gate). Cleared only by a verified seal.
+  python3 - "$1" "$2" "$SEAL_ALARM" <<'PY'
+import datetime, json, os, sys
+date, kind, path = sys.argv[1:]
+rec = {"date": date, "kind": kind,
+       "observed_at_utc": datetime.datetime.now(datetime.timezone.utc)
+       .strftime("%Y-%m-%dT%H:%M:%SZ")}
+if os.path.exists(path):
+    try:
+        prior = json.load(open(path))
+        rec["first_observed_utc"] = prior.get("first_observed_utc",
+                                              prior.get("observed_at_utc"))
+        rec["occurrences"] = int(prior.get("occurrences", 0)) + 1
+    except Exception:
+        rec["occurrences"] = 1
+else:
+    rec["first_observed_utc"] = rec["observed_at_utc"]
+    rec["occurrences"] = 1
+tmp = path + ".tmp"
+json.dump(rec, open(tmp, "w"), indent=2)
+os.replace(tmp, path)
+PY
 }
+
+seal_chain_active() {
+  [ -n "${SEAL_PID:-}" ] && kill -0 "$SEAL_PID" 2>/dev/null
+}
+
 # Watchdog: the main loop blocks inside hour-long ws_shadow runs, so a crashed
 # ingest daemon must be revived independently (skipped during the export pause).
 ( while true; do
@@ -141,9 +141,7 @@ stop_research_for_reseal() {
 WATCHDOG_PID=$!
 
 hour_cycle=0
-LAST_SEALED=""
-LAST_GAPS=""
-RESEARCH_PID=""
+SEAL_PID=""
 EXPORT_ATTEMPT_LOG="$LIVE/export_attempt.log"
 
 seal_identity() {
@@ -215,12 +213,10 @@ PY
 }
 
 run_daily_research() {
+  # Runs SYNCHRONOUSLY inside the single-instance background seal chain
+  # (SEAL_PID guard): no duplicate launches, no orphaned grandchildren.
   research_date="$1"
   research_done="$LIVE/research_${research_date}.done.json"
-  if [ -n "$RESEARCH_PID" ] && kill -0 "$RESEARCH_PID" 2>/dev/null; then
-    echo "[supervisor] research pid=$RESEARCH_PID still active; duplicate launch blocked"
-    return 0
-  fi
   # These consumers are archive-only by contract.  A failed/missing sealed
   # archive must stop the chain rather than fall back to live staging.
   ( identity_start="$(seal_identity "$research_date")" || exit 1
@@ -254,12 +250,71 @@ run_daily_research() {
       fi
     else
       echo "[supervisor] coverage audit failed for $research_date; research blocked"
-    fi ) &
-  RESEARCH_PID=$!
+    fi )
+}
+
+run_seal_chain() {
+  # One completed day: verify-or-create the WRITE-ONCE seal, then gaps +
+  # research. Runs in the background (capture never waits on seal work, P4).
+  CHAIN_DATE="$1"
+  SEAL_FILE="$WAREHOUSE_ROOT/seals/date=${CHAIN_DATE}.json"
+  if python3 tools/export_day.py --date "$CHAIN_DATE" --verify-seal \
+       >> "$LIVE/export.log" 2>&1; then
+    rm -f "$SEAL_ALARM"
+  elif [ -f "$SEAL_FILE" ]; then
+    # WRITE-ONCE: an existing seal that fails verification is an operator
+    # incident (needs --operator-invalidate-seal + rebuild). Never auto-fixed.
+    echo "[supervisor] SEAL CORRUPT for $CHAIN_DATE — operator remediation required"
+    write_seal_alarm "$CHAIN_DATE" "CORRUPT_SEAL_OPERATOR_REMEDIATION"
+    return 1
+  elif [ "$(date -u +%H)" -ge 2 ]; then
+    : > "$EXPORT_ATTEMPT_LOG"
+    touch "$LIVE/export_pause"
+    chain_ok=0
+    if stop_ingest_for_export; then
+      if python3 tools/export_day.py --date "$CHAIN_DATE" --check-caught-up \
+           >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
+         python3 tools/export_day.py --date "$CHAIN_DATE" --no-prune \
+           >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
+         python3 tools/export_day.py --date "$CHAIN_DATE" --seal \
+           >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
+        chain_ok=1
+      fi
+    fi
+    rm -f "$LIVE/export_pause"
+    ingest_alive || start_ingest
+    cat "$EXPORT_ATTEMPT_LOG" >> "$LIVE/export.log"
+    if [ "$chain_ok" -eq 1 ]; then
+      echo "[supervisor] sealed final archive $CHAIN_DATE"
+      rm -f "$SEAL_ALARM"
+    else
+      echo "[supervisor] daily seal failed for $CHAIN_DATE; research blocked"
+      if [ "$(date -u +%H)" -ge 3 ]; then
+        write_seal_alarm "$CHAIN_DATE" "UNSEALED_PAST_ALARM_LINE"
+      fi
+      return 1
+    fi
+  else
+    return 0
+  fi
+  # Valid seal from here on: capture-gap record + gated research.
+  if [ ! -f "$LIVE/gaps_${CHAIN_DATE}.done" ]; then
+    python3 tools/capture_gaps.py --date "$CHAIN_DATE" \
+      >> "$LIVE/capture_gaps.log" 2>&1 && touch "$LIVE/gaps_${CHAIN_DATE}.done"
+  fi
+  research_done="$LIVE/research_${CHAIN_DATE}.done.json"
+  if [ -f "$research_done" ] && \
+     ! research_receipt_current "$CHAIN_DATE" "$research_done"; then
+    echo "[supervisor] stale research receipt removed for $CHAIN_DATE"
+    rm -f "$research_done"
+  fi
+  if [ ! -f "$research_done" ]; then
+    run_daily_research "$CHAIN_DATE"
+  fi
 }
 
 while true; do
-  ingest_alive || start_ingest
+  [ -f "$LIVE/export_pause" ] || ingest_alive || start_ingest
 
   # --- reference catalog + classification + dim snapshots (background) --------
   # W-A4 single-REST-owner gate: these three tools are this script's ONLY REST
@@ -277,77 +332,18 @@ while true; do
       python3 tools/build_classification.py ) >> "$LIVE/catalog.log" 2>&1 &
   fi
 
-  # --- LAYER 3: seal a completed UTC day after the late-ingest window ----------
-  # There is intentionally NO midnight/provisional export or research.  At/after
-  # 02:00, pause ingest, prove all closed raw bytes are checkpointed, rebuild the
-  # final archive once, prove row CONTENT parity, then atomically seal it.  Any
-  # failed proof leaves research blocked and retries next hour.
+  # --- LAYER 3 (ASYNC): write-once day seal + gated research -------------------
+  # Capture continuity (P4): the seal chain NEVER runs on the ws_shadow launch
+  # path — it runs at most once at a time in the background, and ws_shadow
+  # relaunches immediately regardless of seal work. There is intentionally NO
+  # midnight/provisional export or research; 02:00 is the earliest seal
+  # attempt and 03:00 is the durable ALARM line for a still-unsealed day.
   YESTERDAY="$(date -u -v-1d +%F 2>/dev/null || date -u -d 'yesterday' +%F)"
-  HOUR_NOW="$(date -u +%H)"
-  RESEAL_BLOCKED=0
-  if [ "$LAST_SEALED" = "$YESTERDAY" ]; then
-    if ! python3 tools/export_day.py --date "$YESTERDAY" --verify-seal \
-         >> "$LIVE/export.log" 2>&1; then
-      echo "[supervisor] prior seal became invalid for $YESTERDAY; reseal required"
-      if stop_research_for_reseal; then
-        LAST_SEALED=""
-        rm -f "$LIVE/research_${YESTERDAY}.done.json"
-      else
-        RESEAL_BLOCKED=1
-        echo "[supervisor] active research could not stop; reseal deferred"
-      fi
-    fi
-  fi
-  if [ "$RESEAL_BLOCKED" -eq 0 ] && [ "$LAST_SEALED" != "$YESTERDAY" ] \
-     && [ "$HOUR_NOW" -ge 2 ]; then
-    : > "$EXPORT_ATTEMPT_LOG"
-    if python3 tools/export_day.py --date "$YESTERDAY" --verify-seal \
-         >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
-      LAST_SEALED="$YESTERDAY"
-      echo "[supervisor] reused valid day seal $YESTERDAY"
-    else
-      touch "$LIVE/export_pause"
-      rm -f "$LIVE/research_${YESTERDAY}.done.json"
-      if stop_ingest_for_export; then
-        if python3 tools/export_day.py --date "$YESTERDAY" --check-caught-up \
-             >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
-           python3 tools/export_day.py --date "$YESTERDAY" --force --no-prune \
-             >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
-           python3 tools/export_day.py --date "$YESTERDAY" --seal \
-             >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
-          LAST_SEALED="$YESTERDAY"
-          echo "[supervisor] sealed final archive $YESTERDAY"
-        else
-          echo "[supervisor] daily seal failed for $YESTERDAY; research blocked"
-        fi
-      fi
-      rm -f "$LIVE/export_pause"
-      ingest_alive || start_ingest
-    fi
-    cat "$EXPORT_ATTEMPT_LOG" >> "$LIVE/export.log"
-  fi
-
-  if [ "$LAST_SEALED" = "$YESTERDAY" ]; then
-    # W-C2.1: record the just-completed day's capture gaps into the durable
-    # structured record (event_validate V-EP15's source) BEFORE its raw ages out
-    # of the 3-day retention — an unscanned pruned day loses its gaps forever.
-    # Read-only over raw; writes ONLY the derived work/event_packs/capture_gaps.csv.
-    # Backgrounded + placed AFTER the pause is lifted and ingest is back, so it
-    # extends neither the ingest pause nor the ws_shadow relaunch (P4 preserved).
-    if [ "$LAST_GAPS" != "$YESTERDAY" ]; then
-      python3 tools/capture_gaps.py --date "$YESTERDAY" \
-        >> "$LIVE/capture_gaps.log" 2>&1 &
-      LAST_GAPS="$YESTERDAY"
-    fi
-    research_done="$LIVE/research_${YESTERDAY}.done.json"
-    if [ -f "$research_done" ] && \
-       ! research_receipt_current "$YESTERDAY" "$research_done"; then
-      echo "[supervisor] stale research receipt removed for $YESTERDAY"
-      rm -f "$research_done"
-    fi
-    if [ ! -f "$research_done" ]; then
-      run_daily_research "$YESTERDAY"
-    fi
+  if seal_chain_active; then
+    echo "[supervisor] seal/research chain still active (pid=$SEAL_PID)"
+  else
+    run_seal_chain "$YESTERDAY" &
+    SEAL_PID=$!
   fi
 
   # --- LAYER 1: firehose the rest of this UTC hour into the hourly raw log ----
@@ -375,11 +371,14 @@ while true; do
   fi
   WS_PID=""
 
-  # Raw deletion is deliberately disabled until PIPE-W04's per-file S3
-  # checksum/version receipt gate exists.  A date seal is not a vault receipt.
-  # Alert on pressure; retain source-of-truth bytes rather than deleting on mtime.
-  find "$RAW" -name '*.ndjson*' -type f -mtime +"$RAW_RETENTION_DAYS" -print \
-    > "$LIVE/raw_retention_pending.txt" 2>/dev/null
+  # Seal-gated raw pruning (operator rulings 2026-07-10 retention + 2026-07-11
+  # seals): a receipt day is deletable only when its (and its cross-day
+  # successor's) seals exist; unsealed-dependency files are always retained.
+  # Fail-closed: prune_raw deletes NOTHING on any error and always writes
+  # work/live/raw_retention_alert.json (retained-overdue files + reasons).
+  ( python3 tools/prune_raw.py --retention-days "$RAW_RETENTION_DAYS" \
+      >> "$LIVE/prune_raw.log" 2>&1 \
+      || echo "[supervisor] prune_raw NONZERO (fail-closed, nothing deleted)" ) &
 
   hour_cycle=$((hour_cycle + 1))
 done

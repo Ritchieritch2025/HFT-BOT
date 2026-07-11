@@ -1459,6 +1459,17 @@
       ],
       "description": "PIPE-R001: READ-ONLY EC2 production health snapshot over SSH (service active / research-chain presence / ingest pid liveness / staging mtime / newest raw file / disk / mem / ingest log tail). Fixed command set, no mutation by construction; the operator's plan-A classifier-exempt path for agent sessions — any edit to the script invalidates the grant and requires re-approval",
       "docs": "tools/ec2_health.sh"
+    },
+    {
+      "name": "prune_raw",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/prune_raw.py",
+      "args_template": "--retention-days N [--dry-run] [--raw-root D] [--warehouse-root D]",
+      "needs": [],
+      "description": "PIPE-R001 W02: seal-gated raw pruning — a receipt day is deletable only when its seal (and the cross-day successor's, for hour-00/01 files) exists and no unsealed exchange day lists the file as a late-raw dependency. Fail-closed (any error deletes nothing); always writes work/live/raw_retention_alert.json listing every retained-overdue file with its reason (D2). Reconciles the 2026-07-10 retention ruling with the 2026-07-11 write-once seal ruling",
+      "docs": "tools/prune_raw.py"
     }
   ]
 }
