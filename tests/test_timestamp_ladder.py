@@ -126,7 +126,12 @@ def root(tmp_path):
 
 
 def test_l1_union_old_parquet_reads_null_ladder(root):
-    rel = wh.load("orderbooks_l1", warehouse=root, start=DAY_OLD, end=DAY_NEW)
+    # archive_only=False (explicit diagnostic escape hatch, PIPE-R001): this
+    # test exercises MIXED-mode union dtype mechanics across an unsealed
+    # hand-crafted fixture archive + live staging; seal gating has its own
+    # tests in test_pipeline_contract.py.
+    rel = wh.load("orderbooks_l1", warehouse=root, start=DAY_OLD, end=DAY_NEW,
+                  archive_only=False)
     df = rel.df()
     assert set(LADDER) <= set(df.columns)
     old = df[df.ts_utc == T_OLD].iloc[0]
@@ -140,7 +145,9 @@ def test_l1_union_old_parquet_reads_null_ladder(root):
 
 
 def test_trades_union_old_csv_reads_null_ladder(root):
-    rel = wh.load("trades", warehouse=root, start=DAY_OLD, end=DAY_NEW)
+    # archive_only=False: mixed-mode dtype test (see comment above).
+    rel = wh.load("trades", warehouse=root, start=DAY_OLD, end=DAY_NEW,
+                  archive_only=False)
     df = rel.df()
     assert set(LADDER) <= set(df.columns)
     old = df[df.trade_id == "old-t1"].iloc[0]
@@ -166,7 +173,9 @@ def test_trades_all_null_csv_ladder_column_stays_bigint(root):
            "10000,yes,,,," % (T_NEW + 1, MT))
     with gzip.open(f, "wt") as g:
         g.write(hdr + "\n" + row + "\n")
-    rel = wh.load("trades", warehouse=root, start=DAY_OLD, end=DAY_NEW)
+    # archive_only=False: mixed-mode dtype test (see comment above).
+    rel = wh.load("trades", warehouse=root, start=DAY_OLD, end=DAY_NEW,
+                  archive_only=False)
     types = dict(zip(rel.columns, [str(t) for t in rel.types]))
     for c in LADDER:
         assert types[c] == "BIGINT", (c, types[c])
