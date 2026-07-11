@@ -6,6 +6,47 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 16:20 UTC — 零基审计裁决落盘(部分采纳)— PLAN_SPORTS_TRADING_DECISIONS.md D-1 创建
+
+- commits: (this commit) — docs/PLAN_SPORTS_TRADING_DECISIONS.md (NEW, the
+  decisions ledger; D-1 = the operator's ruling VERBATIM + effect notes);
+  AUDIT_ZERO_BASE_2026-07-10.md header updated 未裁决 → 已裁决(部分采纳),
+  audit body untouched; CLAUDE.md authority pointer rewritten to the
+  engineering/strategy split.
+- decisions (E2 — all operator, 2026-07-10, all in
+  docs/PLAN_SPORTS_TRADING_DECISIONS.md D-1):
+  - Audit PARTIALLY ADOPTED: diagnostics adopted (S1 negative edge, simulator
+    defects, tradingd unwired, L2 insufficient, burstiness mislabel);
+    strategy prescription adopted AS MODIFIED — mainline = 赛前市场动力学
+    价差捕获 (CANONICAL PROMPT §5); Track A = constraint scanning, Track B =
+    RFQ (read-only first), Track C = external-odds anchoring; NO MLB
+    pre-selection (category choice waits for Phase 6 data).
+  - GUARDRAILS Q1/Q2/Q7/H1 NOT rewritten directly — OPERATOR-TBD proposals
+    per CANONICAL PROMPT §11, item-by-item operator approval.
+  - No CURRENT_AUTHORITY.md. Strategy authority = PLAN_SPORTS_TRADING_MASTER
+    (built in Phase 1, not yet existing); MASTER_SEQUENCE keeps
+    engineering/infra authority only.
+  - External tools ALL deferred (OpticOdds / Pinnacle / Betfair / Sportradar
+    / MM Program each needs individual approval when actually needed;
+    Betfair barred from all plans until the operator's account-eligibility
+    legality is verified). First pilot must not depend on external data.
+  - Audit's "suspend existing numeric gates" REJECTED — conservative
+    defaults stay in force, labeled provisional, until power analysis
+    replaces them.
+- context capsule:
+  - RED FLAG / hard dependency: the CANONICAL PROMPT (§5 mainline definition,
+    §11 OPERATOR-TBD mechanism) is NOT in the repo — it exists only in the
+    Cowork conversation. Full-text preservation rule: it must be pasted
+    VERBATIM into docs/ (suggested: docs/CANONICAL_PROMPT_SPORTS_TRADING.md)
+    BEFORE Phase 1 starts; until then no session may interpret §5/§11 from
+    memory or paraphrase.
+  - Phase 1 (build PLAN_SPORTS_TRADING_MASTER) is a separate future session;
+    this session only recorded the ruling and re-pointed authority.
+- blocked / handoff: next session needs (a) the CANONICAL PROMPT full text
+  from the operator, then (b) Phase 1. S1 independent audit + Cowork readout
+  of the S1 HTML still pending (S1 numbers are now also adjudicated evidence
+  via D-1's diagnostics adoption). outputs/ still unowned.
+
 ## 2026-07-10 16:05 UTC — 零基审计全文归档(审计意见,未裁决)
 
 - commits: (this commit) — docs/plan_audits/AUDIT_ZERO_BASE_2026-07-10.md

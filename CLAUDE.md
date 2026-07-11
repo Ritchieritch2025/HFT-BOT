@@ -48,13 +48,21 @@ Key docs: `docs/GUARDRAILS.md` (constitution) · `docs/MM_ROADMAP.md` (phases) �
 merge is the Phase-2 opener) · `docs/RUNBOOK.md` (ops commands) ·
 `docs/warehouse_schema.md` (data layer contract).
 
-**Current execution queue:** `docs/MASTER_SEQUENCE.md` — the FINAL master
-ordering (STEP 0 WS signature fix → STEP 1 AWS migration → … → STEP 6 pricing
-& kill-switch plans); it supersedes all prior orderings. One W per fresh
-session, independent audit after every W, exit ritual always. The prior gold
-contract / EXECUTION_PLAN queue is complete (see SESSION_LOG 2026-07-07 05:56
-UTC). Check `docs/SESSION_LOG.md` (newest entry first) for where the last
-session actually stopped.
+**Authority split (operator ruling 2026-07-10, D-1 in
+`docs/PLAN_SPORTS_TRADING_DECISIONS.md`):**
+- **Engineering/infra queue:** `docs/MASTER_SEQUENCE.md` — still authoritative
+  for engineering ordering (one W per fresh session, independent audit after
+  every W, exit ritual always), but it NO LONGER carries strategy ordering.
+- **Strategy authority:** `PLAN_SPORTS_TRADING_MASTER` (to be built in
+  Phase 1; does not exist yet). Until it exists, the only adjudicated
+  strategy facts live in `docs/PLAN_SPORTS_TRADING_DECISIONS.md` (D-1:
+  mainline = 赛前市场动力学价差捕获; Tracks A/B/C; no MLB pre-selection;
+  external tools all deferred, each needs individual operator approval).
+  The referenced CANONICAL PROMPT is NOT yet in the repo — it must be
+  preserved verbatim into docs/ before Phase 1 starts.
+The prior gold contract / EXECUTION_PLAN queue is complete (see SESSION_LOG
+2026-07-07 05:56 UTC). Check `docs/SESSION_LOG.md` (newest entry first) for
+where the last session actually stopped.
 
 ## Session exit ritual (mandatory — a session that skips this is not done)
 
