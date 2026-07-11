@@ -604,3 +604,12 @@ noticed-during, observation, suggested owner.
   (weather/mentions manipulable-mid trap) (owner: mm_scan). Plus far-future:
   RFQ/combo making (high margin, low competition; requester-ID toxicity
   tiering; 30 resp/s budget is the scarce resource).
+
+## PIPE-R001 W02 audit backlog (2026-07-11, non-blocking per operator)
+- B1: verify_raw_caught_up TOCTOU window handled at seal time only — accepted
+  per ruling ("verify once at seal, trust the seal after"); revisit only if a
+  seal-time race is ever observed (owner: PIPE-W03).
+- B2: corrections partition is ndjson-only; reader/compaction tool = later W
+  (owner: PIPE-W05 research-ingress).
+- B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
+  pending the alerts W (owner: PIPE-W03/W-K alerts).
