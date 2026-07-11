@@ -12,7 +12,8 @@ exec ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=15 "$HOST" '
 cd /home/ubuntu/hft-bot || { echo "REPO_DIR_MISSING"; exit 9; }
 echo "NOW_UTC=$(date -u +%FT%TZ)"
 echo "SERVICE=$(systemctl is-active kalshi-pipeline 2>/dev/null)"
-pgrep -f "mm_calibrate|mm_scan|mm_backtest" >/dev/null 2>&1 \
+# bracket trick: the pattern must not match this scripts own remote cmdline
+pgrep -f "[m]m_calibrate|[m]m_scan|[m]m_backtest" >/dev/null 2>&1 \
   && echo "RESEARCH_CHAIN=RUNNING" || echo "RESEARCH_CHAIN=GONE"
 pid="$(cat work/live/ingest.pid 2>/dev/null || true)"
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
