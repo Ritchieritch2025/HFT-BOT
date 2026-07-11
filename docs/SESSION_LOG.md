@@ -6,6 +6,31 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 13:30 UTC — 动态定价消融 + 报价微结构实验入总计划，独立审计 PASS
+
+- commits: `d1e8432` — `PLAN_MM_TEST_PROGRAM` 新增 F2c/F2d、相关 F3/执行顺序/
+  旧计划绑定修订，以及独立审计归档；closure commit = 本条目。
+- decisions: 操作员原文“加入计划吧”已逐字保存于
+  `docs/PLAN_MM_TEST_PROGRAM.md`；范围仅为纸面测试要求，不授权研究执行、生产、
+  外部服务、shadow、微实盘或 live。V2.2 candidate 未改，SHA-256 仍为
+  `575ea27ae08477bdcc4234a42ad5ff456c4ad45cd32ede79011caec2be3fbe54`。
+- context capsule: F2c 使用唯一 `DP-0`–`DP-6` 编号，避免与 B1–B3 撞号；所有行
+  共用 W-FS1 queue/cancel/fee/terminal/fail-closed 语义；DP-1 独占 toxicity
+  eligibility/exit/re-entry，DP-5 只处理仍 eligible 时的 requote，DP-6 与所有
+  >1-contract 结果仅容量诊断。相邻版本主报配对 event `Delta_e`，common random
+  numbers + calendar-day block bootstrap；逐项增量只在 nested TRAIN OOF，
+  VALIDATION 与 HISTORICAL_CONFIRMATION 各只验证一个冻结策略。F2d 钉住
+  decision-time E4 price bands、官方/实测 tick、post-only/non-crossing、有限 grids、
+  simulated token debit、own-order calibration 边界和 Holm/power 门。
+- audit: 独立初审 FAIL（编号/ownership/配对增量/holdout/1-contract/queue/token 等
+  真问题），全部修复后最终 PASS；归档在
+  `docs/plan_audits/2026-07-11_mm_test_program_dynamic_pricing_addendum.md`。
+- tests: `git diff --check` PASS；`make check` 与 `tests/run_pipeline.sh` NOT RUN（纯文档
+  增补、无运行时行为；避免已知测试派生 operational/dashboard 写入）。
+- blocked / handoff: 本增补完成但不执行；原计划整体仍 PLAN-ONLY。V2.2 prompt 的
+  独立审计/canonicalization/P00 授权状态不变，pipeline W06 Stage 0 状态也不由本次
+  改动改变。`outputs/` 仍为预先存在的无主未跟踪目录，未触碰。
+
 ## 2026-07-11 (night) — 账户对账 + D-1.1 + 假设台账(本分支侧记;部署详情见 pipeline-recovery 分支日志)
 
 - 账户审计(fills/settlements 全量分页,逐分对账残差 $0.0000):账户存在
