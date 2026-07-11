@@ -6,6 +6,53 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 15:55 UTC — 操作员批次落库 + PLAN_MM_TEST_PROGRAM 编号修正 + S1 burstiness erratum + 非沙箱双门真绿
+
+- commits:
+  - e1e4890 — docs batch (another session's work, operator-directed commit):
+    PLAN_MM_TEST_PROGRAM.md + PLAN_FULL_MARKET_RESEARCH.md (both PLAN-ONLY,
+    awaiting independent audit) + PLAN_RESEARCH_CYCLE_1 / PLAN_PRICING_MODEL /
+    PLAN_LIVE_VALIDATION / MM_ROADMAP revisions + their SESSION_LOG entries +
+    CLAUDE.md key-docs pointer lines. NOTE: PLAN_FULL_MARKET_RESEARCH.md was
+    not named in the operator's list but is part of the same batch (the new
+    CLAUDE.md pointer line references it) — included under "全部未提交修改";
+    outputs/ and .claude/ excluded as ordered.
+  - 8d57be0 — PLAN_MM_TEST_PROGRAM subsection renumbering + S1 erratum.
+- decisions (E2):
+  - Subsection codes in PLAN_MM_TEST_PROGRAM collided with project-wide
+    codes (E2/E3/E4 disciplines, G1..G9 gates): E-group → FS-1..FS-5,
+    G-group → SH-1..SH-3, H-group → RK-1..RK-4 (operator ruling 2026-07-10);
+    5 in-file cross-refs synced, each replacement asserted exactly-once;
+    gate numbers G1..G9 + project E4 fixed-point references untouched.
+    Disambiguation notes: "退回 G3/G6" (I-group rollback) and "模拟失配即退回
+    G3" are GATES, kept; "所以 G3 只解锁安全 rehearsal" and "重跑 F4/G3" were
+    the SH-3 subsection, renamed.
+  - S1 ERRATUM (operator-flagged): _burstiness() reads TRADE rows (markout
+    parquet) ⇒ it is a trade-gap distribution, NOT the plan's book-level
+    inter-update heartbeat; HTML label corrected + visible ERRATUM note in
+    the DQ card + results.json burstiness_note; book-level heartbeat left to
+    S4. Primary metric unaffected (zero/ITF net −0.822 unchanged);
+    PRE_REGISTRATION.md untouched → aggregate_maker_edge.py /
+    html_report_maker_edge.py, regenerated report fingerprint = 8d57be0.
+- context capsule:
+  - Machine gates re-run OUTSIDE the sandbox (operator: the 9 localhost-mock
+    suites had not really executed in the sandboxed run): make check 0 FAIL;
+    run_pipeline == PIPELINE PASS with all 63 suite lines pass / 0 skip /
+    0 FAIL, the mock-server suites (test_resp, rest_api, request_executor,
+    ws_smoke, ws_shadow_mock, test_integration, test_account_view,
+    test_panic_dryrun, test_reconcile) all executed with real durations.
+  - S1 report deliverables regenerated at fingerprint 8d57be016d90
+    (= HEAD at regeneration): work/research/maker_edge_pilot/{results.json,
+    index.html}; bit-reproducibility ex-timestamp still holds.
+- blocked / handoff:
+  - PENDING: operator will paste the zero-base audit full text in their next
+    message → save VERBATIM to docs/plan_audits/AUDIT_ZERO_BASE_2026-07-10.md
+    with the header "状态 = 审计意见,未裁决;GUARDRAILS 修订与主线切换等操作
+    员批准", then commit + mirror. NOT yet received at this entry's time.
+  - S1 independent audit still pending (see 15:02 entry for the audit
+    checklist); Cowork readout still pending.
+  - Untracked outputs/2026-07-10_muchova_gauff/ still unowned, untouched.
+
 ## 2026-07-10 15:30 UTC — 全市场研究范围裁决落盘（18类 universe）— 待独立审计与提交
 
 - commits:
