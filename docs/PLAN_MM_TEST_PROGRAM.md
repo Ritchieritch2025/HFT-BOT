@@ -251,7 +251,7 @@ queue position、user_orders、user_fills。
 
 ## 8. E 组 — W-FS1 有状态成交模拟器（G3，W-C4 硬前置）
 
-### E1 · 唯一状态机
+### FS-1 · 唯一状态机
 
 同一状态机服务 backtest、shadow 和 live 观测；至少包含：
 
@@ -263,7 +263,7 @@ desired -> submit_pending -> resting -> partial_fill
 
 旧 quote 在 cancel effective 前继续暴露，禁止 requote 时瞬间消失。
 
-### E2 · 成交规则三轨并报
+### FS-2 · 成交规则三轨并报
 
 1. **悲观下界（gate）：**strict-through；有缺口/顺序歧义则不记盈利成交，但保留
    已在途订单可能产生的不利成交。
@@ -272,7 +272,7 @@ desired -> submit_pending -> resting -> partial_fill
    区间，不假装精确。
 3. **乐观上界（诊断）：**at-touch；永不参与 go/no-go。
 
-### E3 · 必须有的模拟细节
+### FS-3 · 必须有的模拟细节
 
 - create/cancel/amend/decrease 分别使用实测延迟分布，不用单个常量。
 - cancel_pending 期间允许 partial/full fill；ack 丢失进入 unknown→reconcile。
@@ -283,7 +283,7 @@ desired -> submit_pending -> resting -> partial_fill
   event/factor inventory 全入账。
 - missing L2、seq gap、stale book、pause、clock anomaly 全部触发 fail-closed。
 
-### E4 · 红灯测试（缺一即模拟器作废）
+### FS-4 · 红灯测试（缺一即模拟器作废）
 
 - quote 已发撤单、撤单 ACK 前被打：必须成交并产生库存。
 - 10 张挂单前有 100 张 queue，公开成交 20：不得填自己。
@@ -295,14 +295,14 @@ desired -> submit_pending -> resting -> partial_fill
 - gap 窗口零新报价；已有 resting order 的最坏损失仍入账。
 - 同输入重放 bit-reproducible；现金+仓位+预留守恒逐事件成立。
 
-### E5 · 真实校准
+### FS-5 · 真实校准
 
 shadow 没有真实订单，不能校准 queue。G7 后用极小 post-only probe 收集自己的
 queue_position、user_orders、user_fills、cancel timing。按 decile 比较：预测成交率
 区间 vs 实际成交率、预测 fill time vs 实际 fill time、预测 partial-fill 分布 vs 实际。
 
 **PASS：**实际覆盖落在预注册的模拟区间内，悲观轨不得系统性高估 fill/PnL；否则
-退回 E2/E3，所有旧利润报告作废重跑。
+退回 FS-2/FS-3，所有旧利润报告作废重跑。
 
 ## 9. F 组 — Alpha、定价和样本外利润（G4/G5）
 
@@ -360,17 +360,17 @@ queue_position、user_orders、user_fills、cancel timing。按 decile 比较：
 
 ## 10. G 组 — Shadow 与回测/实盘对称（G6）
 
-### G1 · 决策一致性
+### SH-1 · 决策一致性
 
 同一条已记录输入流分别喂 backtest 和 shadow；每个 quote intent、风险拒单、撤单、
 熔断逐事件 diff。除随机数种子已冻结的模拟 fill 外，决策必须逐位一致。
 
-### G2 · 零下单证明
+### SH-2 · 零下单证明
 
 shadow 启动前后账户 resting orders/fills/positions 不变；executor sink 只能是记录器，
 代码层证明没有 HTTP order path。任何 POST 尝试自动 FAIL + 报警。
 
-### G3 · 连续5绿日
+### SH-3 · 连续5绿日
 
 沿 MM_ROADMAP：连续5个完整交易日 shadow 悲观 PnL >0；总最大回撤 < 平均单日
 利润 3×。同时要求：
@@ -380,20 +380,20 @@ shadow 启动前后账户 resting orders/fills/positions 不变；executor sink 
 - quote/requote/cancel 意图在 rate limits 内并留至少预注册 headroom；
 - jump/pause/close-time/库存熔断全部至少在 replay 或实时出现一次并正确动作。
 
-没有真实订单时的 shadow fill 仍是模拟结果，所以 G3 只解锁安全 rehearsal，不证明
+没有真实订单时的 shadow fill 仍是模拟结果，所以 SH-3 只解锁安全 rehearsal，不证明
 真实 fill calibration。
 
 ## 11. H 组 — 风控、故障注入与运行稳定性（G7）
 
 W-K1..K5 已完成不代表系统接线后自动安全；必须在完整引擎上重跑：
 
-### H1 · 五层 reserve-before-send
+### RK-1 · 五层 reserve-before-send
 
 单 market/event/factor/总敞口/日亏五层原子预留；并发十单只允许额度内的单；
 失败、超时、partial fill 精确归还；减风险单在满额时仍放行。现金、仓位、预留
 全程 E4 守恒。
 
-### H2 · 故障矩阵
+### RK-2 · 故障矩阵
 
 逐项自动注入：WS 断线、REST timeout、429、5xx、ACK 丢失、重复/乱序 fill、
 cancel-pending fill、进程崩溃、磁盘满、日志 writer 卡住、时钟跳变、exchange pause、
@@ -402,14 +402,14 @@ cancel-pending fill、进程崩溃、磁盘满、日志 writer 卡住、时钟�
 每项预注册唯一安全动作：撤单、停止新风险、reconcile、panic 或保持减仓通路；
 不允许错误扩大权限。
 
-### H3 · Kill switch 与 reconcile
+### RK-3 · Kill switch 与 reconcile
 
 - mock 中 N resting + M positions：cancel-all→verify zero→分轮退出→报告。
 - 网络中断后重复 panic 幂等；client_order_id 不变，不双成交。
 - engine vs exchange 差异按 class 报警；exchange 为真相，永不盲重发。
 - 独立进程、策略挂死时仍可运行；报警链路端到端送达。
 
-### H4 · Soak 与热路径
+### RK-4 · Soak 与热路径
 
 24h shadow soak；稳态热路径 allocation=0；队列有界无 drop；内存无增长趋势；
 research/export 满载不影响交易 p99；重启恢复后先 reconcile 再允许 intent。
@@ -457,13 +457,13 @@ cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/
   -> 全市场 A3 L2 分波采集（同时 A4 生命周期/结算）
   -> 全市场 B1/B2 立即反应 atlas + C1..C4 我方离线/只读秒表
   -> D1 maker action contract matrix
-  -> W-FS1(E1..E4) + 历史上下界回放
+  -> W-FS1(FS-1..FS-4) + 历史上下界回放
   -> 数据成熟后 F1/F2 校准
   -> F3/F4 未开封样本外利润门
-  -> G1..G3 shadow 5绿日 + H1..H4 安全/soak
+  -> SH-1..SH-3 shadow 5绿日 + RK-1..RK-4 安全/soak
   -> operator 排期 I1
   -> I2/I3 极小实证，回校 W-FS1
-  -> 必要时重跑 F4/G3
+  -> 必要时重跑 F4/SH-3
   -> operator 决定 I4 微实盘
 ```
 

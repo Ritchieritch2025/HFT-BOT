@@ -129,7 +129,10 @@ def _dq_tables(r):
 <div><h3 style='font-size:13px'>mid 陈旧度(dq=ok,秒)</h3>
 <table class='t'><tr><th>p50</th><th>p90</th><th>p99</th><th>max</th></tr>
 <tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr></table>
-<h3 style='font-size:13px'>盘口 inter-update 间隔(Tennis,秒)</h3>
+<h3 style='font-size:13px'>成交间隔 trade-gap(Tennis,秒)</h3>
+<p class='note'><b>ERRATUM 2026-07-10:</b>此表为同一市场相邻两笔<b>成交</b>
+的间隔(trade-gap, not book-update),数据源是成交行;真正的盘口更新间隔
+(book-level heartbeat)需 L1 切片,留给 S4。主指标不受影响。</p>
 <table class='t'><tr><th>phase</th><th>n</th><th>p50</th><th>p90</th>
 <th>p99</th></tr>%s</table></div></div>""" % (
         cls, fill, _fmt(st["p50"], 2), _fmt(st["p90"], 2), _fmt(st["p99"], 2),

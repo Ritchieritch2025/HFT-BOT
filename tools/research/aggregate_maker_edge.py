@@ -222,6 +222,9 @@ def run(con, args, fp):
     result["exploratory"]["time_of_day"] = _time_of_day(con)
     result["exploratory"]["per_match_scatter"] = _per_match_scatter(con, base)
     result["exploratory"]["burstiness"] = _burstiness(con)
+    result["exploratory"]["burstiness_note"] = (
+        "ERRATUM 2026-07-10: trade-gap (inter-trade interval), NOT book-update "
+        "interval — computed over trade rows; book-level heartbeat left to S4")
 
     with open(os.path.join(OUTDIR, "results.json"), "w") as f:
         json.dump(result, f, indent=2, default=str)
@@ -356,7 +359,11 @@ def _per_match_scatter(con, base):
 
 
 def _burstiness(con):
-    """Tennis-only book-level inter-update interval, pre-match vs in-play."""
+    """Tennis-only inter-TRADE gap (time between consecutive trades in the
+    same market), pre-match vs in-play. ERRATUM 2026-07-10: this reads trade
+    rows (the markout parquet), NOT book updates — earlier labels said 盘口/
+    book inter-update, which was wrong. The plan's true book-level heartbeat
+    distribution needs the L1 book slice and is left to S4."""
     out = {}
     for phase in ("pre_match", "in_play"):
         r = con.execute(
