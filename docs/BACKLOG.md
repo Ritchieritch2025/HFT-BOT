@@ -613,3 +613,12 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B4 (2026-07-11 morning-check finding): run_seal_chain does not respect a
+  PRE-EXISTING work/live/export_pause — it unconditionally touches and then
+  `rm -f`s the pause file, deleting an operator-held pause and restarting
+  ingest into the middle of a manual backfill (observed live 11:00Z: chain
+  removed the operator's 10:45Z backfill pause; backfill + respawning daemons
+  then competed for the staging lock for 2h+. DuckDB single-writer lock kept
+  it lossless — waste only). Fix shape: pause-file ownership marker (chain
+  only removes a pause it created) + refuse chain start when a foreign pause
+  exists (owner: PIPE-W03/W04).
