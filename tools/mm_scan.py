@@ -38,17 +38,28 @@ def main(argv):
     ap.add_argument("--archive-only", action="store_true",
                     help="never attach live staging (automatic for past days)")
     args = ap.parse_args(argv[1:])
-    date = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    date = args.date or (datetime.datetime.now(datetime.timezone.utc).date()
+                         - datetime.timedelta(days=1)).isoformat()
     try:
         end_date = datetime.date.fromisoformat(date)
     except ValueError:
         ap.error("--date must be YYYY-MM-DD")
-    archive_only = (args.archive_only or
-                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
+    today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+    if end_date >= today_utc:
+        ap.error("research tools NEVER attach live staging (PIPE-R001, operator "
+                 "ruling 2026-07-11); requested range reaches %s but only sealed "
+                 "past UTC days are readable — pass a completed day" % end_date)
+    archive_only = True  # unconditional; live staging is not reachable from here
     load_kwargs = {"category": args.category, "start": date, "end": date,
                    "archive_only": archive_only}
 
     l1 = load("orderbooks_l1", **load_kwargs)
+    _grades = __import__("warehouse").last_seal_grades()
+    _legacy = sorted(d for d, g in _grades.items() if g.get("method") == "legacy_v0")
+    if _legacy:
+        print("BANNER: range includes legacy_v0-sealed day(s) %s — evidence grade "
+              "is archive-self-consistency only; PERMANENTLY ineligible for "
+              "go/no-go verdicts (operator ruling 2026-07-11)" % ",".join(_legacy))
     tr = load("trades", **load_kwargs)
     con = l1.connection if hasattr(l1, "connection") else None
     import duckdb

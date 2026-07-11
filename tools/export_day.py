@@ -59,6 +59,29 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def _code_commit():
+    """Seal provenance (operator seal ruling step 3). Fail closed: a seal
+    without the producing code commit is not a seal."""
+    import subprocess
+    r = subprocess.run(["git", "-C", os.path.dirname(os.path.abspath(__file__)),
+                        "rev-parse", "HEAD"], capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise RuntimeError("cannot determine code commit for seal")
+    return r.stdout.strip()
+
+
+def _seal_verifies(warehouse_root, archive_root, raw_root, date):
+    """True iff the existing seal for date passes the reader-side gate."""
+    import warehouse
+    try:
+        for table, _ in TABLES:
+            warehouse._require_sealed_dates(
+                warehouse_root, archive_root, raw_root, table, date, date)
+    except Exception:
+        return False
+    return True
+
+
 def archive_root_ok(root):
     """Mounted + writable probe. Never export into a dead path."""
     try:
@@ -360,6 +383,7 @@ def verify_archived_date(con, date, day_lo, day_hi, archive_root, warehouse_root
             "table": key[0], "size": stat_after.st_size,
             "inode": stat_after.st_ino, "mtime_ns": stat_after.st_mtime_ns,
             "ctime_ns": stat_after.st_ctime_ns, "md5": digest,
+            "sha256": sha256_file(expected_path),
         })
     return (len(expected), proof) if return_proof else len(expected)
 
@@ -388,7 +412,11 @@ def write_day_seal(con, date, day_lo, day_hi, cfg):
         raise RuntimeError("manifest changed during seal: %s" % manifest_path)
     digest, rows = wc.manifest_date_sha256(manifest_path, date)
     seal = {
-        "version": 1,
+        "version": 2,
+        "method": "full_v2",
+        "go_no_go_eligible": True,
+        "unverified": [],
+        "code_commit": _code_commit(),
         "status": "SEALED",
         "date": date,
         "sealed_at": datetime.datetime.now(datetime.timezone.utc)
@@ -520,7 +548,17 @@ def main(argv):
     ap.add_argument("--seal", action="store_true",
                     help="after catch-up + exact archive proof, atomically seal the day")
     ap.add_argument("--verify-seal", action="store_true",
-                    help="validate an existing seal/files/raw without opening staging")
+                    help="validate an existing seal/files without opening staging")
+    ap.add_argument("--legacy-seal", action="store_true",
+                    help="seal a PRE-SEAL-SYSTEM historical day from archive "
+                         "self-consistency alone (method=legacy_v0, operator "
+                         "ruling 2026-07-11 option A): manifest/md5/row-count/"
+                         "sha256 verified, raw/staging identity UNVERIFIED, "
+                         "go_no_go_eligible=false forever")
+    ap.add_argument("--operator-invalidate-seal", metavar="REASON", default=None,
+                    help="OPERATOR ONLY: park (never delete) the active seal "
+                         "with a stated reason; the parked seal + ledger entry "
+                         "remain as evidence")
     ap.add_argument("--snapshot", metavar="OUTDIR", default=None,
                     help="NON-FINAL snapshot export of a (possibly current) day into "
                          "OUTDIR: same partition layout + snapshot manifest, no prune, "
@@ -541,7 +579,8 @@ def main(argv):
         return 2
     proof_modes = sum(bool(x) for x in
                       (args.verify_only, args.check_caught_up, args.seal,
-                       args.verify_seal))
+                       args.verify_seal, args.legacy_seal,
+                       args.operator_invalidate_seal is not None))
     if proof_modes > 1 or (proof_modes and
                            (args.snapshot or args.force or args.csv or args.flat)):
         print("proof/seal modes are exclusive and cannot be combined with "
@@ -578,6 +617,124 @@ def main(argv):
             return 1
         print("DAY SEAL VERIFY PASS %s" % date)
         return 0
+    if args.operator_invalidate_seal is not None:
+        reason = args.operator_invalidate_seal.strip()
+        if not reason:
+            print("--operator-invalidate-seal requires a non-empty reason",
+                  file=sys.stderr)
+            return 2
+        active = wc.seal_path(warehouse_root, date)
+        if not os.path.exists(active):
+            print("no active seal for %s; nothing to invalidate" % date,
+                  file=sys.stderr)
+            return 1
+        seal_dir = os.path.dirname(active)
+        stamp = "%d.%d" % (__import__("time").time_ns(), os.getpid())
+        parked = os.path.join(seal_dir,
+                              "date=%s.invalidated-operator.%s.json" % (date, stamp))
+        os.replace(active, parked)
+        dfd = os.open(seal_dir, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+        ledger = os.path.join(warehouse_root, "seal_invalidations.ndjson")
+        with open(ledger, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "event": "SEAL_INVALIDATED_BY_OPERATOR",
+                "exchange_date": date,
+                "observed_at_utc": datetime.datetime.now(datetime.timezone.utc)
+                .strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "reason": reason,
+                "parked_seal": os.path.relpath(parked, warehouse_root),
+            }, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        print("SEAL INVALIDATED (operator) %s -> %s reason=%s"
+              % (date, parked, reason))
+        return 0
+
+    if args.legacy_seal:
+        active = wc.seal_path(warehouse_root, date)
+        if os.path.exists(active):
+            print("REFUSING --legacy-seal: %s already has a seal (write-once)"
+                  % date, file=sys.stderr)
+            return 4
+        if os.path.isdir(wc.raw_day_dir(cfg["raw_root"], date)):
+            print("REFUSING --legacy-seal: raw for %s is still present — use the "
+                  "full --seal path instead of downgrading the evidence grade"
+                  % date, file=sys.stderr)
+            return 2
+        manifest_path = os.path.join(warehouse_root, "manifest.csv")
+        rows = [r for r in read_manifest(manifest_path) if r.get("date") == date]
+        if not rows:
+            print("LEGACY SEAL FAIL %s: no manifest rows for the day" % date,
+                  file=sys.stderr)
+            return 1
+        lcon = duckdb.connect()
+        stats = []
+        try:
+            for row in rows:
+                rel = row.get("file_path", "")
+                fpath = rel if os.path.isabs(rel) else os.path.join(wc.ROOT, rel)
+                fpath = os.path.abspath(fpath)
+                if not os.path.isfile(fpath):
+                    raise RuntimeError("archived file missing: %s" % fpath)
+                if md5_file(fpath) != row.get("file_md5"):
+                    raise RuntimeError("md5 mismatch vs manifest: %s" % fpath)
+                ext = "parquet" if fpath.endswith(".parquet") else "csv.gz"
+                n = _archived_row_count(lcon, fpath, ext)
+                if n != int(row.get("row_count") or -1):
+                    raise RuntimeError("row-count mismatch vs manifest: %s" % fpath)
+                st = os.stat(fpath)
+                stats.append({
+                    "file": os.path.relpath(fpath, archive_root),
+                    "table": row.get("table"), "size": st.st_size,
+                    "inode": st.st_ino, "mtime_ns": st.st_mtime_ns,
+                    "ctime_ns": st.st_ctime_ns, "md5": row.get("file_md5"),
+                    "sha256": sha256_file(fpath),
+                })
+        except Exception as e:
+            lcon.close()
+            print("LEGACY SEAL FAIL %s: %s" % (date, e), file=sys.stderr)
+            return 1
+        lcon.close()
+        digest, _mrows = wc.manifest_date_sha256(manifest_path, date)
+        seal = {
+            "version": 2,
+            "method": "legacy_v0",
+            "go_no_go_eligible": False,
+            "unverified": ["raw_byte_checkpoint",
+                           "staging_archive_content_identity"],
+            "note": "pre-seal-system historical day sealed from archive "
+                    "self-consistency alone (operator ruling 2026-07-11 "
+                    "option A); PERMANENTLY ineligible for go/no-go verdicts",
+            "code_commit": _code_commit(),
+            "status": "SEALED",
+            "date": date,
+            "sealed_at": datetime.datetime.now(datetime.timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "manifest_date_sha256": digest,
+            "archive_files": len(stats),
+            "archive_rows": sum(int(r["size"] >= 0 and 0) or 0 for r in []) or
+                            sum(int(row.get("row_count") or 0) for row in rows),
+            "archive_file_stats": stats,
+            "capture_quality_status": "UNASSESSED_LEGACY",
+            "raw_files": [],
+        }
+        path = wc.seal_path(warehouse_root, date)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp.%d" % os.getpid()
+        with open(tmp, "w") as f:
+            json.dump(seal, f, sort_keys=True, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        print("LEGACY SEAL PASS %s: %d file(s), method=legacy_v0, "
+              "go_no_go_eligible=false" % (date, len(stats)))
+        return 0
+
     if not os.path.exists(staging):
         print("no staging db at %s; nothing to export" % staging, file=sys.stderr)
         return 1
@@ -617,12 +774,21 @@ def main(argv):
         return 0
 
     if args.seal:
-        # A new sealing attempt supersedes the old claim immediately.  If raw
-        # catch-up or exact parity now fails, leaving the old seal in place would
-        # let archive-only readers consume evidence we just proved stale.
-        old_seal = wc.seal_path(warehouse_root, date)
-        if os.path.exists(old_seal):
-            os.unlink(old_seal)
+        # WRITE-ONCE (operator seal ruling 2026-07-11): an existing seal is
+        # never replaced. Valid -> idempotent success; invalid -> operator
+        # remediation, never a silent rewrite.
+        active = wc.seal_path(warehouse_root, date)
+        if os.path.exists(active):
+            con.close()
+            if _seal_verifies(warehouse_root, archive_root, cfg["raw_root"], date):
+                print("DAY SEAL PASS %s: existing seal verifies (write-once no-op)"
+                      % date)
+                return 0
+            print("DAY SEAL FAIL %s: existing seal FAILS verification. Seals are "
+                  "write-once; park it explicitly with "
+                  "--operator-invalidate-seal <reason> (operator only), rebuild, "
+                  "then reseal." % date, file=sys.stderr)
+            return 4
         effective_cfg = dict(cfg)
         effective_cfg.update(staging_db=staging, archive_root=archive_root,
                              warehouse_root=warehouse_root)
@@ -643,6 +809,13 @@ def main(argv):
     # lowered staging_retain_days and the day was already pruned), proceeding
     # would silently shrink the archive. Refuse instead.
     if args.force and not args.snapshot:
+        if os.path.exists(wc.seal_path(warehouse_root, date)):
+            print("REFUSING --force: %s is SEALED and write-once (final). Late "
+                  "data lands in the corrections partition; rebuilding a sealed "
+                  "day requires --operator-invalidate-seal first." % date,
+                  file=sys.stderr)
+            con.close()
+            return 3
         manifest_rows = read_manifest(os.path.join(warehouse_root, "manifest.csv"))
         for table, _ in TABLES:
             certified = sum(int(r["row_count"]) for r in manifest_rows
@@ -657,12 +830,6 @@ def main(argv):
                       % (staged, table, date, certified), file=sys.stderr)
                 con.close()
                 return 3
-        # All non-mutating shrink guards passed.  Invalidate immediately before
-        # the first possible archive write; a refused force leaves a valid seal.
-        old_seal = wc.seal_path(warehouse_root, date)
-        if os.path.exists(old_seal):
-            os.unlink(old_seal)
-
     print("exporting %s -> %s" % (date, archive_root))
     tables = [(t, "csv") for t, _ in TABLES] if args.csv else TABLES
     new_rows = []

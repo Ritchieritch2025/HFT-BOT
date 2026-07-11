@@ -156,8 +156,31 @@ def _md5_file(path):
     return h.hexdigest()
 
 
+class UnsealedDayError(RuntimeError):
+    """A bounded past-window read hit a day without a seal (fail-closed).
+
+    Deliberately NOT FileNotFoundError: several consumers treat
+    FileNotFoundError as "day has no data — skip", which would silently drop
+    unsealed days from reports (green-lying)."""
+
+
+_LAST_SEAL_GRADES = {}
+
+
+def last_seal_grades():
+    """{date: {"method":..., "go_no_go_eligible": bool}} for the most recent
+    load()/seal-gate call in this process. legacy_v0 days are PERMANENTLY
+    ineligible for go/no-go verdicts (operator ruling 2026-07-11)."""
+    return dict(_LAST_SEAL_GRADES)
+
+
 def _require_sealed_dates(warehouse_root, archive_root, raw_root, table, start, end):
-    """Fail closed unless every UTC day in the requested window is sealed."""
+    """Fail closed unless every UTC day in the requested window is sealed.
+
+    Seal semantics (operator ruling 2026-07-11): raw bytes are verified ONCE,
+    at seal time; after sealing, readers verify the ARCHIVE against the seal
+    only. Raw files may be pruned after sealing (retention ruling 2026-07-10)
+    without invalidating the seal. Returns the per-day seal grades."""
     s_us, e_us = _to_us(start), _to_us(end, end=True)
     if s_us is None or e_us is None or e_us <= s_us:
         raise ValueError("archive_only requires a non-empty bounded start/end window")
@@ -166,54 +189,31 @@ def _require_sealed_dates(warehouse_root, archive_root, raw_root, table, start, 
     last = datetime.datetime.fromtimestamp(
         (e_us - 1) / 1_000_000, tz=datetime.timezone.utc).date()
     manifest_path = os.path.join(warehouse_root, "manifest.csv")
+    grades = {}
     day = first
     while day <= last:
         date = day.isoformat()
         path = wc.seal_path(warehouse_root, date)
         if not os.path.isfile(path):
-            raise FileNotFoundError("archive day is not sealed: %s" % date)
+            raise UnsealedDayError("archive day is not sealed: %s" % date)
         try:
             with open(path) as f:
                 seal = json.load(f)
         except (OSError, ValueError) as e:
             raise RuntimeError("invalid archive seal %s: %s" % (path, e))
         digest, manifest_rows = wc.manifest_date_sha256(manifest_path, date)
-        if (seal.get("version") != 1 or seal.get("status") != "SEALED" or
+        if (seal.get("version") != 2 or seal.get("status") != "SEALED" or
+                seal.get("method") not in ("full_v2", "legacy_v0") or
                 seal.get("date") != date or
                 seal.get("manifest_date_sha256") != digest):
             raise RuntimeError("stale or invalid archive seal: %s" % path)
-        raw_rows = seal.get("raw_files")
-        if not isinstance(raw_rows, list) or not raw_rows:
-            raise RuntimeError("sealed raw inventory missing for %s" % date)
-        expected_raw = {}
-        for row in raw_rows:
-            fpath = os.path.abspath(os.path.join(raw_root, row.get("file", "")))
-            expected_raw[fpath] = row
-        disk_raw = {os.path.abspath(p) for p in wc.seal_raw_files(
-            raw_root, date, int(seal.get("receipt_cross_day_hours", 2)),
-            warehouse_root=warehouse_root)}
-        if disk_raw != set(expected_raw):
-            raise RuntimeError("sealed raw file-set mismatch for %s: missing=%s extra=%s"
-                               % (date, sorted(set(expected_raw) - disk_raw),
-                                  sorted(disk_raw - set(expected_raw))))
-        for fpath, row in sorted(expected_raw.items()):
-            st = os.stat(fpath)
-            if (int(row.get("size", -1)) != st.st_size or
-                    int(row.get("checkpoint", -1)) != st.st_size):
-                raise RuntimeError("sealed raw file changed after seal: %s" % fpath)
-            stat_key = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
-            recorded_stat = (int(row.get("inode", -1)), int(row.get("size", -1)),
-                             int(row.get("mtime_ns", -1)),
-                             int(row.get("ctime_ns", -1)))
-            cache_key = (fpath, row.get("sha256"))
-            if stat_key != recorded_stat and _VALIDATED_RAW.get(cache_key) != stat_key:
-                h = hashlib.sha256()
-                with open(fpath, "rb") as f:
-                    for chunk in iter(lambda: f.read(1 << 20), b""):
-                        h.update(chunk)
-                if h.hexdigest() != row.get("sha256"):
-                    raise RuntimeError("sealed raw sha256 mismatch: %s" % fpath)
-                _VALIDATED_RAW[cache_key] = stat_key
+        grades[date] = {"method": seal.get("method"),
+                        "go_no_go_eligible": bool(seal.get("go_no_go_eligible"))}
+        # Raw was verified byte-complete AT SEAL TIME and attested inside the
+        # seal (full_v2). Readers do NOT re-verify local raw: raw is prunable
+        # after sealing (S3-vaulted; operator retention ruling 2026-07-10).
+        if seal.get("method") == "full_v2" and not seal.get("raw_files"):
+            raise RuntimeError("full_v2 seal lacks its raw attestation: %s" % path)
         table_rows = [r for r in manifest_rows if r.get("table") == table]
         sealed_archive_stats = {
             os.path.abspath(os.path.join(archive_root, r.get("file", ""))): r
@@ -255,12 +255,20 @@ def _require_sealed_dates(warehouse_root, archive_root, raw_root, table, start, 
                              int(sealed_stat.get("mtime_ns", -1)),
                              int(sealed_stat.get("ctime_ns", -1)))
             if stat_key != recorded_stat and prior.get(fpath) != stat_key:
-                actual_md5 = _md5_file(fpath)
-                if actual_md5 != recorded_md5:
+                md5h, sha256h = hashlib.md5(), hashlib.sha256()
+                with open(fpath, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        md5h.update(chunk)
+                        sha256h.update(chunk)
+                if md5h.hexdigest() != recorded_md5:
                     raise RuntimeError("sealed archive md5 mismatch: %s" % fpath)
+                sealed_sha = sealed_stat.get("sha256")
+                if not sealed_sha or sha256h.hexdigest() != sealed_sha:
+                    raise RuntimeError("sealed archive sha256 mismatch: %s" % fpath)
             current[fpath] = stat_key
         _VALIDATED_ARCHIVES[cache_key] = current
         day += datetime.timedelta(days=1)
+    return grades
 
 
 def load(table, category=None, subcategory=None, group=None, start=None, end=None,
@@ -317,7 +325,9 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
             _ATTACHED.clear()
         raw_root = cfg["raw_root"] if warehouse == cfg["warehouse_root"] else \
             os.path.join(warehouse, "raw")
-        _require_sealed_dates(warehouse, archive_root, raw_root, table, start, end)
+        global _LAST_SEAL_GRADES
+        _LAST_SEAL_GRADES = _require_sealed_dates(
+            warehouse, archive_root, raw_root, table, start, end)
     con = _conn()  # persistent so the returned relation stays valid
 
     s_us, e_us = _to_us(start), _to_us(end, end=True)

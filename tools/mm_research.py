@@ -672,8 +672,12 @@ def main(argv):
         end_date = datetime.date.fromisoformat(args.end)
     except ValueError:
         ap.error("--end must be YYYY-MM-DD")
-    archive_only = (args.archive_only or
-                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
+    today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+    if end_date >= today_utc:
+        ap.error("research tools NEVER attach live staging (PIPE-R001, operator "
+                 "ruling 2026-07-11); requested range reaches %s but only sealed "
+                 "past UTC days are readable — pass a completed day" % end_date)
+    archive_only = True  # unconditional; live staging is not reachable from here
 
     fees = load_fee_facts()
     print("fees.verified = %s (gate-mode fee math %s)"

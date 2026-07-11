@@ -90,6 +90,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import mm_research as mr  # noqa: E402  (fee fn + pctl live there — reused)
+import warehouse as _wh  # noqa: E402  (UnsealedDayError + seal grades)
 
 FIRST_CLEAN_DAY = "2026-07-06"  # H-3 clean-day clock day 1
 OQ1_POINTER = ("fees.verified=false in config/kalshi_facts.yaml — R must "
@@ -528,19 +529,32 @@ def main(argv):
     days, archived = available_days(args.end)
     days = [d for d in days if d >= args.start]
     results = []
+    unsealed_days = []
+    legacy_days = []
     for d in days:
         try:
             r = scan_day(d, me_map, bracket_events, args.min_edge_c,
                          args.max_quote_age_s, args.min_legs,
                          archive_only=(d < today))
+        except _wh.UnsealedDayError as e:
+            # NEVER silently dropped (D2): an unsealed day is surfaced, counted
+            # and listed in the report; it is not "no data".
+            unsealed_days.append(d)
+            print("%s: UNSEALED — excluded and counted (%s)" % (d, e))
+            continue
         except FileNotFoundError:
             print("%s: no data — skipped" % d)
             continue
+        for _day, _g in _wh.last_seal_grades().items():
+            if _g.get("method") == "legacy_v0":
+                legacy_days.append(_day)
         if r["acct"]["l1_rows"] == 0:
             print("%s: 0 L1 rows — skipped" % d)
             continue
         tag = ("ARCHIVE-SEALED/CAPTURE-UNASSESSED"
                if d in archived else "PARTIAL")
+        if d in legacy_days:
+            tag = "LEGACY_V0/GO-NO-GO-INELIGIBLE"
         a = r["acct"]
         print("%s [%s]: %s L1 rows, %d events, %d brackets evaluated "
               "(excl: %d single-leg, %d ME-unknown, %d not-ME), "
@@ -570,7 +584,23 @@ def main(argv):
                 print("  %s: %s signals, net p50 %sc p90 %sc max %sc, "
                       "%s net>0, sum positive %sc  [NON-GATE]" % row)
 
+    if unsealed_days:
+        print("UNSEALED DAYS EXCLUDED (counted, not silent): %s"
+              % ",".join(unsealed_days))
+    if legacy_days:
+        print("LEGACY_V0 DAYS PRESENT: %s — the three gate numbers below are "
+              "NON-GATE for these days (permanently go/no-go ineligible, "
+              "operator ruling 2026-07-11)" % ",".join(sorted(set(legacy_days))))
     report = build_report(results, archived, fees, args, preview)
+    seal_note = []
+    if unsealed_days:
+        seal_note.append("## UNSEALED DAYS (excluded, counted)\n\n%s\n"
+                         % "\n".join("- %s" % d for d in unsealed_days))
+    if legacy_days:
+        seal_note.append("## LEGACY_V0 DAYS (go/no-go INELIGIBLE forever)\n\n%s\n"
+                         % "\n".join("- %s" % d for d in sorted(set(legacy_days))))
+    if seal_note:
+        report = "\n".join(seal_note) + "\n" + report
     out = args.out or os.path.join(wc.ROOT, "work", "mm",
                                    "gate_report_%s.md" % today)
     os.makedirs(os.path.dirname(out), exist_ok=True)
