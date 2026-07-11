@@ -6,6 +6,8 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 23:06 UTC — P8 free-fire sandbox: `mm_sandbox.py` MVP built (Gold/synthetic deterministic replay, submit/cancel lifecycle, strict/queue/optimistic fills, integer ledger, markouts, static-vs-dynamic comparison); 10 sandbox tests plus the broader pricing/Gold regression set PASS, `make check` PASS, `tests/run_pipeline.sh` 66/66 PASS; synthetic toxic-flow proof static −$0.13 vs guarded dynamic $0.00 is mechanical only, not alpha; no production/network/orders, next = adapt fresh receive-clock+sequence-valid W06 L2 tape; COMMIT BLOCKED because this Codex sandbox cannot create `.git/index.lock` (`Operation not permitted`), so the four intended files remain unstaged for an SSH-capable/local agent to commit explicitly (never include pre-existing `outputs/`); docs mirror also WARN/blocked by this sandbox (`rsync ... Operation not permitted`).
+
 ## 2026-07-11 20:15 UTC — STP-P00-AUD01 独立审计:PASS(0 P0 / 1 P1 / 4 P2)— P01 仍未授权
 
 - **一行裁决:✅ PASS。W01 全部证据经零上下文独立复核成立:身份链/提交链
