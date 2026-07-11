@@ -57,6 +57,11 @@ which decisions landed in which files, what the next session must know.
   采样器排除机制(工程 W)。
   “STP-P00 independently audited and passed; STP-P01 not started and
   requires a new operator release.”
+- 勘误(本会话,修复 commit 即本行所在 commit):上一 commit(f3126a2)写入
+  本条目时误删了下方 W01 条目的标题行(编辑锚点吞行),此处已逐字恢复;
+  W01 条目正文字节未动。审计报告文件未受影响,其 sha256 不变。
+
+## 2026-07-11 19:05 UTC — STP-P00-W01 完成:P00 只读仓库审计全套证据落盘 — IMPLEMENTED_AWAITING_AUDIT
 
 - **一行裁决:✅ W01 实现完成,等待独立审计(STP-P00-AUD01,零上下文新代理,release 已授权)。仓库对提示词的 43 项可验证断言全部证实(0 项矛盾);唯一普查漏洞 = 未注册的可下单文件 apps/live_e2e.cpp(已列 DO_NOT_USE + OPERATOR-TBD)。**
 - commits:evidence A = `380a1971`(11 个证据文件,4,879 行,全部在
