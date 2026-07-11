@@ -6,6 +6,69 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 19:05 UTC — STP-P00-W01 完成:P00 只读仓库审计全套证据落盘 — IMPLEMENTED_AWAITING_AUDIT
+
+- **一行裁决:✅ W01 实现完成,等待独立审计(STP-P00-AUD01,零上下文新代理,release 已授权)。仓库对提示词的 43 项可验证断言全部证实(0 项矛盾);唯一普查漏洞 = 未注册的可下单文件 apps/live_e2e.cpp(已列 DO_NOT_USE + OPERATOR-TBD)。**
+- commits:evidence A = `380a1971`(11 个证据文件,4,879 行,全部在
+  `work/research/sports_trading_program/phase_00/`);closure B = 本条目所在
+  commit(STATE 新建 + SESSION_LOG)。基线 = R004 收据 commit `50018a5`。
+- decisions(均已落文件):
+  - **证据路径按释放令口径**:prompt §31.2 指定 docs/plan_audits/…,release
+    STP-R004-P00 只允许 work/research/sports_trading_program/phase_00/** ——
+    按"release 管写权、prompt 管内容"执行,已登记 C-1(建议操作员在下一
+    释放令追认;见 STP_P00_CONFLICT_RISK_REGISTER.md)。
+  - **"§43 hypotheses" 无对应章节**(prompt 只有 §0–§36;全仓 grep 仅 release
+    自身出现"§43")——按 prompt 自带 verify-item 族解读,枚举 H-01…H-43 逐条
+    带 file:line 引证核验,C-2 请操作员确认指代(REPOSITORY_AUDIT §2)。
+  - STATE 新建于 docs/PLAN_SPORTS_TRADING_STATE.md:
+    current_status=IMPLEMENTED_AWAITING_AUDIT,
+    phase_conclusion=STP_P00_IMPLEMENTED_AWAITING_AUDIT,audit_result=NOT_RUN。
+  - 证据文件位于 gitignore 的 work/* 下,以逐路径 `git add -f` 显式提交
+    (.gitignore 本身不在允许写清单,未动;先例 = work/research/ 下已跟踪的
+    maker_edge_pilot 文档)。
+- context capsule(接手者只需读这里 + 证据目录):
+  - 普查:REGISTRY_COUNT_OBSERVED=144(与隔离跑 `registry ok: 144 tools,
+    48 build targets covered` 一致);安全类 pure 86/offline 34/network_read
+    19/live_order 5;49 个 C++ main(16 apps+33 tests);95 个注册表脚本全部
+    在盘;22 个未被注册表直接引用的脚本已分类(19 库/mock、2 隔离脚本 R4、
+    3 个未注册入口 OPERATOR_TBD)。双向普查唯一漏洞 = apps/live_e2e.cpp
+    (497 行,真实下单能力,无注册/无构建规则,内部 env 门控;C-13)。
+    另一注册表错配:preflight --order 参数模式可下单但条目为 network_read
+    (描述已声明,未按 §26 拆分注册)。
+  - §43 核验:43/43 VERIFIED、0 CONTRADICTED、0 NOT-VERIFIED;要点——
+    tradingd REST 轮询 (tradingd.cpp:621-626)、lane 绕过 executor
+    (:294-305)、post_only 缺省 false (wire.hpp:163)、bus Live 抛异常
+    (gateway.cpp:183-208)、RiskLedger/RuleEngine 已审计但未接线、
+    mm_backtest 全部 9 项缺陷证实(float 账/maker 费 0/无结算/中价挂残仓/
+    即时撤旧价/满额成交/无撤单生命周期/占位延迟/时钟)、maker-edge 4 项
+    (exchange-ASOF/公开成交穿价判成交/无台账/启发式 event id)、
+    build_segments 网球限定 (build_segments.py:49-56,156-159)、GUARDRAILS
+    无 H1 条款、S1/S4 burstiness 勘误已在码内 (aggregate_maker_edge.py:
+    225-227)。
+  - 数据能力(本地实测):raw 90G(07-06..09,含 recv 时钟信封)、facts
+    L1 50.26M 行 + trades 13.30M 行(07-06..08)、Sports ≈44,137 个 market/
+    21 子类(Baseball 16,811、Tennis 2,904…);本地归档为 pre-TL1(无 recv
+    列)⇒ 有 go/no-go 资格的 recv-era 仓库数据只在 EC2;own-order/队列/L2
+    连续史/比分/外部赔率全部 ABSENT(各自阻塞哪一层已写明,主假设本身不被
+    阻塞,姿态 = COLLECT_MORE 等 EC2 ladder-era 积累)。
+  - 测试(只经 §31.2 隔离机制,两次全新根,HEAD 50018a5):四命令全 rc=0,
+    66/66 套件、469/0 断言、23 套 make check;harness 严格判 FAIL_STATE_
+    CHANGED 均逐字节归因——run1 = R2 采样器 + 本会话自身授权证据写入撞上
+    快照窗;run2(静默重跑)= 恰好 R2 采样器一对文件(work/latency_baseline/
+    *),禁改五文件/pytest_cache/git-status 全部不变。证据根
+    /private/tmp/stp-p00-test-isolation.{PEO6fh,y4QAjc}(重启即失,关键哈希
+    已录 HANDOFF)。
+  - 生产/GUARDRAILS 未动:GUARDRAILS sha `9c71a5b3…832b` 始终不变;未碰
+    EC2、未碰本地管道、未读凭据、无网络外联、无下单、无 push/merge;
+    outputs/ 未触碰。
+- blocked / handoff:下一步 = **STP-P00-AUD01**(release 已授权的第 2 个
+  会话,零上下文独立代理):重跑 BOOTSTRAP-0、核 release/branch/base、逐
+  commit 查 diff、先证普查完备再抽样、复跑隔离测试(预期再见 R2 采样器
+  签名)、裁决写 docs/plan_audits/sports_trading_program/STP_P00_AUDIT.md +
+  STATE + SESSION_LOG。**STP-P01 未授权;AUD01 PASS 也不授权 P01。**
+  操作员未决项(不阻塞):C-1 证据路径追认、C-2 §43 指代、C-13
+  live_e2e/preflight--order 注册整改、OQ-1、C-6(P02)。
+
 ## 2026-07-11 18:20 UTC — STP-P00-ISO-AUD01 独立审计完成:裁决 PASS(0 个 P0,1 个 P1,3 个 P2)
 
 - **一行裁决:✅ PASS — §31.2 测试隔离前置工件成立;不授权 STP-P00/BOOTSTRAP-0/任何阶段。**
