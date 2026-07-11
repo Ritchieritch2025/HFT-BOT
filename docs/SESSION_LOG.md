@@ -6,6 +6,37 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 18:20 UTC — STP-P00-ISO-AUD01 独立审计完成:裁决 PASS(0 个 P0,1 个 P1,3 个 P2)
+
+- **一行裁决:✅ PASS — §31.2 测试隔离前置工件成立;不授权 STP-P00/BOOTSTRAP-0/任何阶段。**
+- 审计员:Session 2 零上下文独立代理(未参与实现)。
+- commits:审计 = 本条目所在 commit(仅两个允许文件:
+  `docs/plan_audits/sports_trading_program/STP_P00_TEST_ISOLATION_INDEPENDENT_AUDIT.md`
+  + 本 SESSION_LOG)。
+- 复核结论(全部实测,不信任转述):
+  - 身份链:prompt SHA `575ea27a…`、operator_text `fec0ec99…`、工件 SHA
+    `66549d28…` 逐字节复算相符;commit 链 `17ee487→48d41f0→0dbeb75→770dd0f`
+    每级单亲确认;diff 每个 hunk 读完,全部在释放令允许写清单内。
+  - 无测试被削弱:tests/ diff 删除行数 = 0;run_suite 65→66(纯增)。
+  - 第三新根复跑(root `/private/tmp/stp-p00-test-isolation.SyiOHd`,端口
+    18600,clone HEAD `770dd0f`):四命令全 rc=0;66/66 套件、469/0 断言
+    (由我从原始 test_results.ndjson 重算,非抄 summary);make check 23
+    套件;`registry ok: 144 tools`;操作树四组快照 before==after 逐字节
+    (work manifest `29af16f3…` 1370 文件);symlink 逃逸 0。
+  - 反向控制独立复跑 11/11 PASS(standalone at `770dd0f` + 管道内第 12 次)。
+  - F2/R2 实地验证:rtt-baseline launchd 任务确认在跑,在我的审计窗口内
+    18:13 UTC 恰好追加一次(153203→153411 字节)——落在 harness 快照窗口
+    之外,run3 仍 before==after;跨跑差异经我 diff 确认只有该文件对。
+    披露准确、不掩盖,隔离主张成立,不构成 REVISE。
+- findings:P0 无;P1-1 = 无抓包级断网证明(实现已如实披露为 R1,方法与
+  局限我已独立核对,不阻断);P2-1 = work/** 快照只覆盖普通文件(symlink/
+  空目录盲区);P2-2 = 凭据名扫描 `^KALSHI_|^AWS_` 前缀锚定的防御纵深小
+  缺口(env -i 已基本免疫);P2-3 = 证据在 /private/tmp 重启即失(manifest
+  已固化关键哈希,我已趁在盘核验全部证据文件哈希相符)。
+- blocked / handoff:释放令两个授权会话均已消耗,STP-R003 终态;下一步
+  (BOOTSTRAP-0 / STP-P00)各需新的操作员释放令。审计临时证据在
+  `/private/tmp/stp-p00-test-isolation-audit/` 与 `…SyiOHd/proof/`(重启失)。
+
 ## 2026-07-11 18:05 UTC — STP-P00-ISO-W01 完成:测试隔离机制落地并双跑验证(66/66 绿,操作树逐字节不变)— IMPLEMENTED_AWAITING_AUDIT
 
 - **一行裁决:✅ 实现完成,等待独立审计(STP-P00-ISO-AUD01,Session 2)。**
