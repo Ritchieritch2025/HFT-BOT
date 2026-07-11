@@ -6,6 +6,58 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 — STP-R000-DRAFT-V21 执行完毕:V2.1 CANDIDATE 建成 — V2.1 IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+
+- branch: `plan-sports-market-dynamics-v2` @ base
+  1c93837a4422fe54717224d3ef9fe16bac0d1018 (operator-approved; created
+  non-destructively; no merge/rebase/push; main untouched).
+- commits: evidence commit A = 594603e (release receipt + frozen V2 + audit
+  report + V2.1 candidate); closure commit B = (this commit).
+- artifacts + SHA-256:
+  - docs/plan_releases/sports_trading_program/STP-R000-DRAFT-V21.md —
+    operator release verbatim; operator_text_sha256
+    d1d8d1d271f024146012761a566c5cfbd7e49eafdf2d9716e1c3fbd5176915f6.
+  - docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2.md — FROZEN HISTORICAL
+    CANDIDATE (audited, not accepted, never overwritten), SHA-256
+    bc2fbf6562c19fabbb7ebd7e8c77f88a720d1b6a2a467b39fbffce996bb1f341
+    (matches the release and the audit target hash exactly).
+  - docs/plan_audits/AUDIT_PROMPT_V2_2026-07-10.md — SHA-256
+    53ec7573f675006e60d82cc299f2933f35d534464aa4913f3785f1fda7f8c83f
+    (matches the release's expected hash exactly).
+  - docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_1_CANDIDATE.md — SHA-256
+    e83160bd289dc96fe8e05b6ffdb9ade047c921354733cbcaa210928c7a60106c;
+    header = CANDIDATE — NOT CANONICAL — NOT EXECUTABLE UNTIL INDEPENDENT
+    AUDIT PASS; ALL audit P0-1..P0-4 and P1-1..P1-6 minimal replacement
+    language adopted VERBATIM via 20 anchored exactly-once edits (script-
+    asserted); in-file V2→V2.1 change log maps every edit to its finding;
+    P2 items intentionally NOT applied (outside release scope); the audit's
+    "already strong, must not weaken" list untouched; consequential edits
+    limited to BEGIN/END markers, version header, §6.3 archive-path
+    self-reference.
+- registry count doctrine (operator-required, now also in V2.1 §26/§31):
+  144 is OBSERVED registry count only (check_registry run this session:
+  "registry ok: 144 tools"); STP-P00 will bidirectionally census every
+  runnable, `main()`, Make/CMake target, script entry point and
+  live-capable argument mode; `REGISTRY_COUNT_OBSERVED` recorded
+  dynamically.
+- tests (normal terminal, unsandboxed): `make check` 0 FAIL;
+  `tests/run_pipeline.sh` == PIPELINE PASS (63 suite lines pass, 0 skip);
+  `python3 tools/check_registry.py` ok. Derived artifacts (`build/**`,
+  `work/logs/**`, `work/test_results.ndjson`) NOT staged, NOT committed.
+- explicitly NOT done (per release): BOOTSTRAP-0, STP-P00, STP-P01, D-2,
+  merge to main, push, GUARDRAILS/code/tests/config/production/outputs/
+  changes. DECISIONS ledger untouched (release archived under
+  docs/plan_releases/, per the audit's P1-2 separation).
+- STATE: **V2.1 IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT** — next step is a
+  fresh independent session auditing the V2.1 candidate against the audit's
+  P0/P1 requirements; operator then decides canonicalization (new path/SHA)
+  and any P00 release.
+- handoff: the independent auditor should verify (a) V2 bytes still ==
+  bc2fbf65…, (b) every P0/P1 minimal-language block present verbatim in
+  V2.1, (c) no weakening of the protected list, (d) P2 absence is
+  intentional, (e) evidence/closure commit pair on
+  plan-sports-market-dynamics-v2 with main untouched.
+
 ## 2026-07-10 16:20 UTC — 零基审计裁决落盘(部分采纳)— PLAN_SPORTS_TRADING_DECISIONS.md D-1 创建
 
 - commits: (this commit) — docs/PLAN_SPORTS_TRADING_DECISIONS.md (NEW, the
