@@ -773,9 +773,10 @@ def test_successful_seal_prunes_only_older_staging(exported_day):
     con = duckdb.connect(staging)
     old = today - datetime.timedelta(days=3)
     con.execute(
-        "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [_day_us(old, 12), "KXOLD-TEST-YES", "KXOLD", "KXOLD-TEST",
-         None, None, None, "old-row", 5000, 5000, 10000, "yes"])
+         None, None, None, "old-row", 5000, 5000, 10000, "yes",
+         None, None, None, None])  # W-TL1 ladder columns (nullable)
     con.close()
     inv = subprocess.run(
         [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
