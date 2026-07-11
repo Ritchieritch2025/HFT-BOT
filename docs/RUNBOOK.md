@@ -59,6 +59,12 @@ python3 tools/export_day.py --date 2026-07-06
 python3 tools/export_day.py --date 2026-07-06 --verify-only
 python3 tools/export_day.py --date 2026-07-06 --seal
 python3 tools/export_day.py --date 2026-07-06 --verify-seal
+# WRITE-ONCE:已封印日再跑 --seal = 只验不写;坏印需操作员显式拆印(留档+记账):
+python3 tools/export_day.py --date 2026-07-06 --operator-invalidate-seal "<原因>"
+# 存量历史(seal 系统之前的旧日子)一次性 legacy 封印(永无 go/no-go 判决权):
+python3 tools/export_day.py --date 2026-07-05 --legacy-seal
+# raw 清理:只删已封印日(fail-closed,报告 work/live/raw_retention_alert.json):
+python3 tools/prune_raw.py --retention-days 2 --dry-run
 ```
 
 ## 2. Dashboard(操作台,localhost 只读)

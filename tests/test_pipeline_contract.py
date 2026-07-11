@@ -479,17 +479,15 @@ def test_fact_rows_and_checkpoint_commit_atomically(tmp_path):
     retry.con.close()
 
 
-def test_late_exchange_time_fact_invalidates_visible_day_seal(exported_day):
-    """A D fact received in D+1 hour 02+ cannot leave D archive-authorized.
-
-    Raw partitions follow receipt time, while archive partitions follow the
-    exchange timestamp.  This regression is the exact post-seal silent-omission
-    incident shape: the fixed 00/01 receipt proof cannot see the later file, so
-    ingest must invalidate before committing its row.
-    """
+def test_late_fact_for_sealed_day_diverts_to_corrections(exported_day):
+    """WRITE-ONCE seals (operator ruling 2026-07-11): a D fact received after
+    D was sealed NEVER enters staging and NEVER touches the seal — it lands
+    VERBATIM in the corrections partition with a ledger entry and a counter,
+    and archive-only reads of D keep working."""
     wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
     seal_path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
     assert os.path.isfile(seal_path)
+    seal_before = open(seal_path, "rb").read()
     late_path = os.path.join(wh, "raw", "date=%s" % today.isoformat(),
                              "firehose_02.ndjson")
     with open(late_path, "w") as f:
@@ -499,56 +497,83 @@ def test_late_exchange_time_fact_invalidates_visible_day_seal(exported_day):
     _release_warehouse()
     con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
     ingest.Ingester(con, wh).process_file(late_path)
+    # the late row must NOT be in staging (it would demand mutating the
+    # sealed archive later)
     assert con.execute(
         "SELECT count(*) FROM trades WHERE trade_id='wp04-late-after-seal'"
-    ).fetchone()[0] == 1
+    ).fetchone()[0] == 0
     con.close()
 
-    assert not os.path.exists(seal_path)
-    parked = glob.glob(os.path.join(
-        wh, "seals", "date=%s.invalidated-late-fact.*.json" % yd.isoformat()))
-    assert len(parked) == 1
+    # seal byte-identical (write-once, untouched)
+    assert os.path.isfile(seal_path)
+    assert open(seal_path, "rb").read() == seal_before
+    # row landed verbatim in the corrections partition
+    corr = os.path.join(wh, "corrections", "date=%s" % yd.isoformat(),
+                        "late_rows.ndjson")
+    recs = [json.loads(line) for line in open(corr)]
+    assert any(r["table"] == "trades" and
+               "wp04-late-after-seal" in json.dumps(r["row"]) for r in recs)
+    assert recs[-1]["source_file"] == os.path.abspath(late_path)
+    # counted in the corrections ledger, seal explicitly untouched
     ledger = [json.loads(line) for line in open(
-        os.path.join(wh, "seal_invalidations.ndjson"))]
+        os.path.join(wh, "corrections", "ledger.ndjson"))]
+    assert ledger[-1]["event"] == "LATE_FACT_DIVERTED_TO_CORRECTIONS"
     assert ledger[-1]["exchange_date"] == yd.isoformat()
-    assert ledger[-1]["source_file"] == os.path.abspath(late_path)
-    with pytest.raises(FileNotFoundError, match="archive day is not sealed"):
-        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
-                       warehouse=wh, archive_only=True)
+    assert ledger[-1]["n_rows"] >= 1
+    assert ledger[-1]["seal_untouched"] is True
+    # archive-only reads of the sealed day KEEP working
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
 
 
 def test_supervisor_gates_daily_research_on_current_export_and_archive_only():
-    """Research starts only after raw catch-up, exact export and day seal."""
+    """Research starts only after raw catch-up, exact export and a WRITE-ONCE
+    day seal — and the whole seal chain runs in the BACKGROUND, off the
+    ws_shadow launch path (P4: capture never waits on seal work)."""
     path = os.path.join(ROOT, "tools", "pipeline_supervisor.sh")
     text = open(path).read()
+    live = "\n".join(ln for ln in text.splitlines()
+                     if not ln.lstrip().startswith("#"))
     assert 'grep -q "EXPORT PASS\\|already archived" "$LIVE/export.log"' not in text
-    assert '--check-caught-up' in text
-    assert '--seal' in text
-    assert '--verify-seal' in text
+    # NB: the watchdog also contains an (indented) 'while true; do'; the
+    # main loop is the column-0 one.
+    chain = text[text.index('run_seal_chain()'):text.index('\nwhile true; do')]
+    assert chain.index('--verify-seal') < chain.index('--check-caught-up') \
+        < chain.index('--force --no-prune') \
+        < chain.index('--seal') < chain.index('run_daily_research "$CHAIN_DATE"')
+    assert chain.index('stop_ingest_for_export') < chain.index('--check-caught-up')
+    # WRITE-ONCE: a corrupt existing seal is a durable operator alarm, never
+    # an automatic reseal; the ingest-side reseal mechanism no longer exists.
+    assert 'SEAL CORRUPT' in chain and 'write_seal_alarm' in chain
+    assert 'stop_research_for_reseal' not in text
+    assert 'invalidated-late-fact' not in text
+    # 02:00 earliest seal attempt; 03:00 durable alarm artifact
+    assert '-ge 2 ]' in chain and '-ge 3 ]' in chain
+    assert 'UNSEALED_PAST_ALARM_LINE' in chain
+    assert 'seal_alarm.json' in text
+    # ASYNC + single instance: chain backgrounded before ws_shadow relaunch
+    main = text[text.index('\nwhile true; do'):]
+    assert 'run_seal_chain "$YESTERDAY" &' in main
+    assert 'seal_chain_active' in main
+    assert main.index('run_seal_chain "$YESTERDAY" &') < main.index('./build/ws_shadow')
+    # main loop + watchdog both respect the chain's ingest pause
+    assert '[ -f "$LIVE/export_pause" ] || ingest_alive || start_ingest' in main
     assert ': > "$EXPORT_ATTEMPT_LOG"' in text
-    assert 'grep' not in "\n".join(
-        line for line in text.splitlines() if "$LIVE/export.log" in line)
-    assert '[ "$LAST_SEALED" = "$YESTERDAY" ]' in text
-    assert '[ "$HOUR_NOW" -ge 2 ]' in text
-    assert '[ "$HOUR_NOW" -lt 2 ]' not in text
-    assert text.index('--verify-seal') < text.index('--check-caught-up') \
-        < text.index('--force --no-prune') \
-        < text.index('--seal') < text.index('run_daily_research "$YESTERDAY"')
-    assert text.index('stop_ingest_for_export') < text.index('--check-caught-up')
     assert 'research_${research_date}.done' in text
     assert 'coverage audit failed' in text
-    research = text[text.index('run_daily_research()'):text.index('while true; do')]
+    research = text[text.index('run_daily_research()'):text.index('run_seal_chain()')]
     assert research.index('identity_start=') < research.index('coverage_audit.py')
     assert research.rindex('--verify-seal') > research.index('mm_calibrate.py')
     assert 'identity_start" = "$identity_end' in research
-    assert '"seal_sha256"' in research
-    assert '"manifest_date_sha256"' in research
+    assert ' ) &' not in research  # research is SYNCHRONOUS inside the chain
     assert 'research_receipt_current' in text
-    assert '-delete' not in "\n".join(
-        line for line in text.splitlines()
-        if 'find "$RAW"' in line and not line.lstrip().startswith("#"))
+    # raw pruning is seal-gated (prune_raw.py, fail-closed); no blind find -delete
+    assert 'prune_raw.py --retention-days' in live
+    assert '-delete' not in live
     for tool in ("mm_scan.py", "mm_backtest.py", "mm_calibrate.py"):
-        line = next(x for x in text.splitlines() if tool in x)
+        line = next(x for x in text.splitlines()
+                    if tool in x and not x.lstrip().startswith("#"))
         assert "--archive-only" in line, line
 
 
@@ -594,6 +619,11 @@ def test_archive_verify_detects_same_count_content_change(exported_day):
 
 def test_day_seal_requires_all_closed_raw_bytes_checkpointed(exported_day):
     wh, yd = exported_day["wh"], exported_day["yd"]
+    inv = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal", "test"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert inv.returncode == 0, inv.stdout + inv.stderr
     raw = next(iter(glob.glob(os.path.join(
         wh, "raw", "date=%s" % yd.isoformat(), "*.ndjson*"))))
     with open(raw, "a") as f:
@@ -607,15 +637,24 @@ def test_day_seal_requires_all_closed_raw_bytes_checkpointed(exported_day):
         wh, "seals", "date=%s.json" % yd.isoformat()))
 
 
-def test_archive_only_rejects_raw_append_after_seal(exported_day):
+def test_archive_only_reads_survive_raw_append_and_raw_pruning(exported_day):
+    """Raw is verified ONCE at seal time; afterwards readers verify only the
+    ARCHIVE against the seal (operator ruling 2026-07-11) — so post-seal raw
+    appends do not poison reads, and pruned raw does not brick history."""
     wh, yd = exported_day["wh"], exported_day["yd"]
     raw = next(iter(glob.glob(os.path.join(
         wh, "raw", "date=%s" % yd.isoformat(), "*.ndjson*"))))
     with open(raw, "a") as f:
         f.write(json.dumps({"raw": "{}"}) + "\n")
-    with pytest.raises(RuntimeError, match="raw file changed after seal"):
-        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
-                       warehouse=wh, archive_only=True)
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
+    _release_warehouse()
+    import shutil
+    shutil.rmtree(os.path.join(wh, "raw", "date=%s" % yd.isoformat()))
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
 
 
 def test_day_seal_rejects_uncheckpointed_cross_midnight_receipt(exported_day):
@@ -625,6 +664,13 @@ def test_day_seal_rejects_uncheckpointed_cross_midnight_receipt(exported_day):
     with open(late, "w") as f:
         f.write(ti.trade("KXLATE-TEST-YES", _day_us(yd, 23, 3599),
                          "late-cross-day") + "\n")
+    # the day is already sealed -> --seal is a write-once verify no-op;
+    # park the seal (operator procedure) so a FRESH seal attempt runs
+    inv = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal", "test"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert inv.returncode == 0, inv.stdout + inv.stderr
     cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
            "--date", yd.isoformat(), "--seal"]
     bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
@@ -666,6 +712,11 @@ def test_day_seal_rejects_renamed_archive_column(exported_day):
     assert old_md5 in text
     with open(manifest, "w") as f:
         f.write(text.replace(old_md5, new_md5, 1))
+    inv = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal", "test"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert inv.returncode == 0, inv.stdout + inv.stderr
     cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
            "--date", yd.isoformat(), "--seal"]
     bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
@@ -712,7 +763,7 @@ def test_refused_force_preserves_existing_valid_seal(exported_day):
     cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
            "--date", yd.isoformat(), "--force", "--no-prune"]
     bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
-    assert bad.returncode == 3 and "SHRINK" in bad.stderr
+    assert bad.returncode == 3 and "SEALED" in bad.stderr
     assert open(seal_path, "rb").read() == before
 
 
@@ -726,6 +777,11 @@ def test_successful_seal_prunes_only_older_staging(exported_day):
         [_day_us(old, 12), "KXOLD-TEST-YES", "KXOLD", "KXOLD-TEST",
          None, None, None, "old-row", 5000, 5000, 10000, "yes"])
     con.close()
+    inv = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal", "test"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert inv.returncode == 0, inv.stdout + inv.stderr
     cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
            "--date", yd.isoformat(), "--seal"]
     ok = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
@@ -751,7 +807,19 @@ def test_archive_only_rejects_unknown_seal_version(exported_day):
     wh, yd = exported_day["wh"], exported_day["yd"]
     path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
     seal = json.load(open(path))
-    seal["version"] = 2
+    seal["version"] = 999
+    with open(path, "w") as f:
+        json.dump(seal, f)
+    with pytest.raises(RuntimeError, match="stale or invalid archive seal"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_archive_only_rejects_unknown_seal_method(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    seal = json.load(open(path))
+    seal["method"] = "bogus_method"
     with open(path, "w") as f:
         json.dump(seal, f)
     with pytest.raises(RuntimeError, match="stale or invalid archive seal"):
@@ -909,7 +977,7 @@ def test_event_pack_af5_packs_only_with_sufficient_quiet_horizon(monkeypatch,
     (mm_backtest, ["--markets", "T"]),
     (mm_calibrate, []),
 ])
-@pytest.mark.parametrize("offset,expected", [(-1, True), (0, False)])
+@pytest.mark.parametrize("offset,expected", [(-1, True)])
 def test_mm_tools_select_archive_only_by_range_end(monkeypatch, module, extra,
                                                     offset, expected):
     """Past-day tools cannot accidentally retain the live staging lock."""
@@ -930,7 +998,27 @@ def test_mm_tools_select_archive_only_by_range_end(monkeypatch, module, extra,
     assert calls[0][1]["archive_only"] is expected
 
 
-@pytest.mark.parametrize("offset,expected", [(-1, True), (0, False)])
+@pytest.mark.parametrize("module,extra", [
+    (mm_scan, []),
+    (mm_backtest, ["--markets", "T"]),
+    (mm_calibrate, []),
+])
+def test_mm_tools_refuse_today_entirely(monkeypatch, module, extra):
+    """Operator ruling 2026-07-11: research tools NEVER attach live staging —
+    today (unsealed by definition) is a hard argparse error, and load() is
+    never even reached."""
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+    def forbidden_load(*a, **k):
+        raise AssertionError("load() must not be reached for today")
+
+    monkeypatch.setattr(module, "load", forbidden_load)
+    with pytest.raises(SystemExit) as e:
+        module.main([module.__file__, "--date", today] + extra)
+    assert e.value.code == 2
+
+
+@pytest.mark.parametrize("offset,expected", [(-1, True)])
 def test_mm_research_selects_archive_only_by_range_end(monkeypatch,
                                                        offset, expected):
     day = (datetime.datetime.now(datetime.timezone.utc).date()
@@ -1227,15 +1315,17 @@ def test_supervisor_wires_capture_gaps_daily_and_live():
     # Non-comment lines only, so commenting a call out (not just deleting the
     # text) trips the test — the substring must be on a live line.
     live = [ln for ln in sup.splitlines() if not ln.lstrip().startswith("#")]
-    assert any('capture_gaps.py --date "$YESTERDAY"' in ln for ln in live), \
-        "daily capture-gap record not wired into the supervisor export block"
+    assert any('capture_gaps.py --date "$CHAIN_DATE"' in ln for ln in live), \
+        "daily capture-gap record not wired into the seal chain"
     assert any("capture_gaps.py --live" in ln for ln in live), \
         "live capture-gap alert not wired into the supervisor watchdog loop"
     # next_actions.md item 1: daily coverage audit, non-zero exit surfaced.
     assert any('coverage_audit.py --date "$research_date"' in ln for ln in live), \
         "daily coverage audit not wired into the archive-only research function"
-    assert any('run_daily_research "$YESTERDAY"' in ln for ln in live), \
-        "sealed-day research function not invoked by the supervisor"
+    assert any('run_daily_research "$CHAIN_DATE"' in ln for ln in live), \
+        "sealed-day research function not invoked by the seal chain"
+    assert any('run_seal_chain "$YESTERDAY" &' in ln for ln in live), \
+        "seal chain not launched (backgrounded) from the main loop"
 
 
 def test_supervisor_single_rest_owner_gate():
@@ -1325,3 +1415,160 @@ def test_supervisor_sigterm_graceful():
     assert 'wait "$WS_PID"' in txt, "ws_shadow must be backgrounded + waited"
     assert any("exit 143" in ln and "trap" in ln for ln in live), \
         "INT/TERM trap must exit (143) so the EXIT trap runs cleanup once"
+
+
+# ────────── operator seal ruling 2026-07-11: mandatory red fixtures ──────────
+
+def _rewrite_csv_gz(path, mutate):
+    import gzip
+    with gzip.open(path, "rt") as f:
+        lines = f.read().splitlines()
+    lines = mutate(lines)
+    with gzip.open(path, "wt") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def _flip_last_char(line):
+    return line[:-1] + ("X" if line[-1] != "X" else "Y")
+
+
+@pytest.mark.parametrize("name,mutate", [
+    ("missing_line", lambda ls: ls[:1] + ls[2:]),
+    ("duplicated_line", lambda ls: ls + [ls[-1]]),
+    ("altered_line", lambda ls: ls[:-1] + [_flip_last_char(ls[-1])]),
+    ("reordered_lines", lambda ls: [ls[0]] + list(reversed(ls[1:]))),
+])
+def test_sealed_archive_mutation_is_red(exported_day, name, mutate):
+    """The four ruled red-proofs: a missing, duplicated, altered or REORDERED
+    line inside a sealed archive file MUST break the reader-side seal gate."""
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "trades", "category=*", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.csv.gz"))))
+    _rewrite_csv_gz(victim, mutate)
+    with pytest.raises(RuntimeError, match="mismatch"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_seal_write_once_noop_keeps_bytes(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    seal_path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    before = open(seal_path, "rb").read()
+    ok = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--seal"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0 and "write-once no-op" in ok.stdout, \
+        ok.stdout + ok.stderr
+    assert open(seal_path, "rb").read() == before
+
+
+def test_operator_invalidate_parks_never_deletes(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    seal_path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    before = open(seal_path, "rb").read()
+    ok = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal", "audit drill"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert not os.path.exists(seal_path)
+    parked = glob.glob(os.path.join(
+        wh, "seals", "date=%s.invalidated-operator.*.json" % yd.isoformat()))
+    assert len(parked) == 1
+    assert open(parked[0], "rb").read() == before
+    ledger = [json.loads(line) for line in open(
+        os.path.join(wh, "seal_invalidations.ndjson"))]
+    assert ledger[-1]["event"] == "SEAL_INVALIDATED_BY_OPERATOR"
+    assert ledger[-1]["reason"] == "audit drill"
+
+
+def test_seal_carries_code_commit_and_sha256(exported_day):
+    import re as _re
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    seal = json.load(open(os.path.join(
+        wh, "seals", "date=%s.json" % yd.isoformat())))
+    assert seal["version"] == 2 and seal["method"] == "full_v2"
+    assert seal["go_no_go_eligible"] is True and seal["unverified"] == []
+    assert _re.fullmatch(r"[0-9a-f]{40}", seal["code_commit"])
+    stats = seal["archive_file_stats"]
+    assert stats and all(_re.fullmatch(r"[0-9a-f]{64}", r["sha256"])
+                         for r in stats)
+
+
+def test_legacy_seal_grades_and_permanent_ineligibility(exported_day):
+    """Operator ruling 2026-07-11 option A: pre-seal-system history gets a
+    legacy_v0 seal (archive self-consistency only, unverified items named in
+    the seal) and is PERMANENTLY go/no-go ineligible."""
+    import shutil
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    inv = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--operator-invalidate-seal",
+         "legacy migration test"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert inv.returncode == 0, inv.stdout + inv.stderr
+    # legacy-seal refuses while raw is still present (full seal must be used)
+    early = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--legacy-seal"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert early.returncode != 0 and "raw" in early.stderr
+    shutil.rmtree(os.path.join(wh, "raw", "date=%s" % yd.isoformat()))
+    ok = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--legacy-seal"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0 and "LEGACY SEAL PASS" in ok.stdout, \
+        ok.stdout + ok.stderr
+    seal = json.load(open(os.path.join(
+        wh, "seals", "date=%s.json" % yd.isoformat())))
+    assert seal["method"] == "legacy_v0"
+    assert seal["go_no_go_eligible"] is False
+    assert seal["unverified"] == ["raw_byte_checkpoint",
+                                  "staging_archive_content_identity"]
+    _release_warehouse()
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
+    grades = warehouse.last_seal_grades()
+    assert grades[yd.isoformat()] == {"method": "legacy_v0",
+                                      "go_no_go_eligible": False}
+
+
+def test_prune_raw_is_seal_gated_and_fail_closed(tmp_path):
+    import prune_raw
+    raw = tmp_path / "raw"
+    whr = tmp_path / "wh"
+    (raw / "date=2026-01-01").mkdir(parents=True)
+    (raw / "date=2026-01-02").mkdir(parents=True)
+    (whr / "seals").mkdir(parents=True)
+    f_unsealed = raw / "date=2026-01-01" / "firehose_12.ndjson"
+    f_cross = raw / "date=2026-01-02" / "firehose_01.ndjson"
+    f_prunable = raw / "date=2026-01-02" / "firehose_12.ndjson"
+    for f in (f_unsealed, f_cross, f_prunable):
+        f.write_text("{}\n")
+    (whr / "seals" / "date=2026-01-02.json").write_text(
+        json.dumps({"status": "SEALED", "version": 2, "method": "full_v2"}))
+    alert = tmp_path / "alert.json"
+    argv = ["prune_raw", "--retention-days", "1", "--raw-root", str(raw),
+            "--warehouse-root", str(whr), "--alert-path", str(alert)]
+    # dry-run deletes nothing
+    assert prune_raw.main(argv + ["--dry-run"]) == 0
+    assert f_unsealed.exists() and f_cross.exists() and f_prunable.exists()
+    # real run: only the sealed, non-cross-day file goes
+    assert prune_raw.main(argv) == 0
+    assert not f_prunable.exists()
+    assert f_unsealed.exists(), "unsealed day must never be pruned"
+    assert f_cross.exists(), \
+        "hour-01 file must survive while the PREVIOUS day is unsealed"
+    report = json.loads(alert.read_text())
+    reasons = {r["reason"] for r in report["retained_overdue"]}
+    assert "day_unsealed" in reasons and "cross_day_prev_unsealed" in reasons
+    # fail-closed: a corrupt dependency ledger deletes NOTHING
+    (whr / "seal_invalidations.ndjson").write_text("not json\n")
+    f_new = raw / "date=2026-01-02" / "firehose_13.ndjson"
+    f_new.write_text("{}\n")
+    assert prune_raw.main(argv) == 1
+    assert f_new.exists()

@@ -117,7 +117,7 @@ def test_archive_only_rejects_unsealed_partial_all_market_day(tmp_path):
     _build(root)
     # Sports has an archive partition but Crypto exists only in staging.  The
     # former behavior silently returned a Sports-only "all market" universe.
-    with pytest.raises(FileNotFoundError, match="not sealed"):
+    with pytest.raises(wh.UnsealedDayError, match="not sealed"):
         wh.load("trades", start="2026-07-07", end="2026-07-07",
                 warehouse=root, archive_only=True)
     assert wh._ATTACHED == set()
@@ -126,7 +126,7 @@ def test_archive_only_rejects_unsealed_partial_all_market_day(tmp_path):
 def test_default_past_window_also_rejects_unsealed_partial_day(tmp_path):
     root = str(tmp_path / "wh_auto")
     _build(root)
-    with pytest.raises(FileNotFoundError, match="not sealed"):
+    with pytest.raises(wh.UnsealedDayError, match="not sealed"):
         wh.load("trades", start="2026-07-07", end="2026-07-07",
                 warehouse=root)
     assert wh._ATTACHED == set()
@@ -136,7 +136,7 @@ def test_archive_only_missing_partition_fails_instead_of_falling_back(tmp_path):
     root = str(tmp_path / "wh5")
     _build(root)
     # Crypto day D exists only in staging; a sealed research read must not use it.
-    with pytest.raises(FileNotFoundError, match="not sealed"):
+    with pytest.raises(wh.UnsealedDayError, match="not sealed"):
         wh.load("trades", category="Crypto", start="2026-07-07",
                 end="2026-07-07", warehouse=root, archive_only=True)
     assert wh._ATTACHED == set()
@@ -149,7 +149,7 @@ def test_failed_archive_only_transition_still_releases_live_attach(tmp_path):
                    end="2026-07-07", warehouse=root, archive_only=False)
     assert live.aggregate("count(*)").fetchone()[0] == 2
     assert wh._ATTACHED
-    with pytest.raises(FileNotFoundError, match="not sealed"):
+    with pytest.raises(wh.UnsealedDayError, match="not sealed"):
         wh.load("trades", start="2026-07-07", end="2026-07-07",
                 warehouse=root, archive_only=True)
     assert not wh._ATTACHED

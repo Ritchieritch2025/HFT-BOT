@@ -21,11 +21,23 @@ API field; nothing is invented.
    final partitioned files (sorted, zstd-15 Parquet for orderbooks; csv.gz for
    trades), and an exact `EXCEPT ALL` proof finds zero content differences in
    either direction between staging and every archive partition. `--seal` then
-   atomically writes `seals/date=<D>.json`, binding the dated `manifest.csv`
-   digest to the exact closed-raw inventory and SHA-256 checkpoint proof.
-   Existing raw files are checked by metadata fast path and SHA-256 on restore/
-   metadata change; archive files are checked against the manifest file set and
-   MD5. Write-once files without this seal are
+   atomically writes `seals/date=<D>.json` (version 2, `method=full_v2`),
+   binding the dated `manifest.csv` digest, the producing `code_commit`, the
+   exact closed-raw inventory (SHA-256 + checkpoint, verified ONCE at seal
+   time) and per-archive-file SHA-256+MD5. **Seals are WRITE-ONCE** (operator
+   ruling 2026-07-11): `--seal` on a sealed day is a verify-only no-op; a
+   failing existing seal requires the explicit
+   `--operator-invalidate-seal <reason>` procedure, which PARKS the seal
+   (never deletes) and ledgers the reason. Raw is prunable AFTER sealing
+   (`tools/prune_raw.py`, seal-gated, fail-closed): readers verify the
+   ARCHIVE against the seal only, never local raw. Late facts for a sealed
+   day NEVER enter staging or mutate the day — ingest diverts them verbatim
+   to `corrections/date=<D>/late_rows.ndjson` (+ `corrections/ledger.ndjson`
+   count + ALERT); the seal stays byte-identical. Pre-seal-system history is
+   sealed once via `--legacy-seal` (`method=legacy_v0`): archive
+   self-consistency only, unverified items named in the seal,
+   `go_no_go_eligible=false` FOREVER (operator ruling 2026-07-11 option A).
+   Write-once files without a seal are
    not a complete research source. The archive root (`ARCHIVE_ROOT` in
    `config/warehouse.yaml`, env-overridable) may be an external drive: the
    exporter probes it is mounted/writable first; if not, staging is retained,
@@ -134,8 +146,15 @@ and harmless.
 `tools/warehouse.py::load(table, category, subcategory, group, start, end,
 columns, ffill, archive_only)` routes archive vs staging. `archive_only=True`
 requires every bounded UTC date to have a valid seal whose manifest digest is
-still current; an unsealed/partial all-market day fails instead of silently
-omitting lagging partitions. Entering archive-only mode closes any cached live
+still current; an unsealed/partial all-market day raises `UnsealedDayError`
+(a RuntimeError subclass — deliberately NOT FileNotFoundError, so "no data,
+skip" handlers cannot swallow it) instead of silently omitting lagging
+partitions. `warehouse.last_seal_grades()` exposes per-day seal methods after
+a load: `legacy_v0` days are permanently go/no-go ineligible and every
+consumer must surface them (banner/report label). The four research tools
+(mm_scan/mm_backtest/mm_calibrate/mm_research) are HARD archive-only: any
+range reaching today is refused up front and live staging is unreachable
+from them (PIPE-R001 — the 2026-07-11 ingest-starvation root cause). Entering archive-only mode closes any cached live
 staging attachment before creating the relation. Default mixed mode routes
 today/unexported days through staging transparently. A bounded window ending
 before today's UTC boundary automatically selects sealed archive-only; explicit

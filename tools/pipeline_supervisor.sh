@@ -274,7 +274,7 @@ run_seal_chain() {
     if stop_ingest_for_export; then
       if python3 tools/export_day.py --date "$CHAIN_DATE" --check-caught-up \
            >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
-         python3 tools/export_day.py --date "$CHAIN_DATE" --no-prune \
+         python3 tools/export_day.py --date "$CHAIN_DATE" --force --no-prune \
            >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
          python3 tools/export_day.py --date "$CHAIN_DATE" --seal \
            >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
