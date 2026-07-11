@@ -6,7 +6,57 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
-## 2026-07-11 19:05 UTC — STP-P00-W01 完成:P00 只读仓库审计全套证据落盘 — IMPLEMENTED_AWAITING_AUDIT
+## 2026-07-11 20:15 UTC — STP-P00-AUD01 独立审计:PASS(0 P0 / 1 P1 / 4 P2)— P01 仍未授权
+
+- **一行裁决:✅ PASS。W01 全部证据经零上下文独立复核成立:身份链/提交链
+  精确、diff 只含授权路径、普查双向复算一致(144 注册条目、49 个 C++
+  main、唯一漏洞 live_e2e.cpp 复现)、抽查 19/43 引证全部在引用行命中、
+  隔离重跑 66/66 套件 469/0 断言且状态差异恰为 R2 采样器一对文件。PASS
+  不授权 STP-P01 或任何后续阶段。**
+- commits:本条目所在 commit(审计报告
+  `docs/plan_audits/sports_trading_program/STP_P00_AUDIT.md` + 本 SESSION_LOG
+  条目,两文件,AUD01 唯一允许的仓库写)。被审对象:`380a1971`(证据 A)+
+  `56d1045`(收尾 B),基线 `50018a5`(R004 收据)。
+- decisions(均已落文件,详见审计报告):
+  - **判定 PASS**,发现分级:P0 无;P1 = F-1(C-1 证据路径:release 原文把
+    prompt §31.2 指定路径错述为 work/research/…——实现按 release 执行且全程
+    披露,判"诚实、重要、不阻断",需操作员在下一释放令一句话追认或授权
+    搬迁);P2 = F-2(C-2 "§43" 无指代,解读合理已披露,请操作员确认)、
+    F-3(HANDOFF 内"nine files"笔误,实为 11)、F-4(R2 采样器使隔离
+    harness 永远无法纯 PASS,属继承性已文档化限制)、F-5(审计文件名
+    prompt §32 vs release 分歧,与 C-1 同类,本报告即记录)。
+  - 隔离运行严格判定归因裁定:W01 两次与本次重跑的 FAIL_STATE_CHANGED 均
+    逐字节核实为 R2 采样器(run1 另含 W01 自身授权证据写入撞快照窗,时间戳
+    与已提交字节双重印证)——归因诚实、非事后借口。
+  - **STATE 未按 §8 PASS 映射更新**(AUD01 任务写权仅限报告+SESSION_LOG):
+    `audit_result=PASS / current_status=AWAITING_OPERATOR_RELEASE /
+    phase_conclusion=STP_P00_AUDIT_PASSED_AWAITING_OPERATOR_RELEASE` 由编排
+    会话或下一释放会话引用本审计后落盘——这是刻意留白,不是遗漏(报告 §6)。
+- context capsule(复核实测,零信任重算):prompt sha `575ea27a…3fbe54` =
+  release pin;§31.2 前置工件两哈希逐字节复核(66549d28…、ef58bb36…);
+  提交链 833e535→50018a5→380a1971→56d1045 线性、diff 恰 13 文件全在授权
+  清单、`git add -f` 未夹带、SESSION_LOG 为纯插入;治理四哈希与 W01 记录
+  全等(GUARDRAILS `9c71a5b3…832b` 未动);普查复算:tools.json 144 条无
+  重名、kind/safety 分布全等、五个 live_order 条目一致、preflight --order
+  双类错配复现、live_e2e 497 行有 POST/DELETE 且 Makefile/CMake/注册表全
+  无(registry 中仅 load_db 描述提及);复用矩阵 JSON 144 行与注册表双射、
+  无斜杠分类、分布 89/31/12/7/5;仓库行数复算(L1 50,257,870 / trades
+  13,295,310 / full 103,252)与数据矩阵全等;"§43" 全仓 grep 仅 release 及
+  引用文件命中,prompt 恰 37 节;本审计隔离重跑根
+  `/private/tmp/stp-p00-test-isolation.xZxVDX`(HEAD 56d1045,四命令 rc=0,
+  66/66、469/0,`registry ok: 144 tools, 48 build targets covered`,状态
+  差异=R2 一对文件,pytest_cache/git-status/禁改五文件不变,符号链接逃逸
+  0)。审计报告 sha256 =
+  `79c185bf61757e0b701943d42f89dd74252eab54eb30a84f2c6a2ef02a4efa4d`。
+  凭据未读、无网络外联、无下单、无 push/merge、生产未触碰。
+- blocked / handoff:**下一步 = 操作员**:(1) 编排会话按 §8 映射更新 STATE
+  引用本审计;(2) 下一释放令处理 F-1/C-1 证据路径追认 + F-2/C-2 §43 指代
+  确认(可并入同一句);(3) STP-P01 需全新 durable release——本 PASS 不
+  授权任何阶段。开放工程项(不阻塞):C-13 live_e2e 注册或退役 +
+  preflight --order 模式拆分、OQ-1 费用追认、C-6 切分设计(P02)、F-4
+  采样器排除机制(工程 W)。
+  “STP-P00 independently audited and passed; STP-P01 not started and
+  requires a new operator release.”
 
 - **一行裁决:✅ W01 实现完成,等待独立审计(STP-P00-AUD01,零上下文新代理,release 已授权)。仓库对提示词的 43 项可验证断言全部证实(0 项矛盾);唯一普查漏洞 = 未注册的可下单文件 apps/live_e2e.cpp(已列 DO_NOT_USE + OPERATOR-TBD)。**
 - commits:evidence A = `380a1971`(11 个证据文件,4,879 行,全部在
