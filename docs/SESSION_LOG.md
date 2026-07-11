@@ -6,6 +6,22 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 17:05 UTC — STP-R002 canonicalize 前置 FAIL 停止(本分支侧记;当日管道线详见 recovery 分支日志)
+
+- commit: 9041a39 — 操作员释放令 STP-R002-CANONICALIZE-V22 **逐字**归档
+  (docs/plan_releases/sports_trading_program/STP-R002-CANONICALIZE-V22.md,
+  operator_text sha256 e0a91f79…,status=STOPPED_PREREQ_AUDIT_MISSING)。
+- 校验:V2.2 candidate SHA `575ea27a…3fbe54` ✅ 逐字节相符;V2.2 独立审计
+  ❌ 不在 docs/plan_audits/(仅有 V2、V2.1 两份;候选 SHA 全目录 grep 零
+  命中)⇒ 按释放令自身 stop 条款停止。未 promote、未写 D-2、prompt 未动、
+  main 未动。
+- 恢复路径:操作员粘贴 V2.2 审计全文 → 逐字归档 plan_audits/ → 新会话按
+  收据继续(promote → D-2 → exit ritual);审计若从未做过则先做(只读,
+  对象=candidate 精确 SHA)。
+- 同日其他线(收据/详情在 recovery 分支 docs/):07-10 首封 13:20Z 落地;
+  W06 L2 规格获批(Stage-1 硬门 a/b/c);PIPE-HOTFIX-02(生产自动研究保险
+  丝)部署;EC2 换型 r8g.2xlarge(8 vCPU/64GB)核验完毕。
+
 ## 2026-07-11 13:52 UTC — FA-1 feature admission/decay gate 入总计划，独立审计 PASS
 
 - commits: `8e0d8ab` — `PLAN_MM_TEST_PROGRAM` 增加 FA-1，并接入 SH-3/I4/执行顺序/
