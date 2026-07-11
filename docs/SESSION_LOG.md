@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 — PIPE-R001 W02 REWORK 完成:四步封印法按操作员裁决落地 — IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+
+- branch codex/pipeline-recovery-hardening @ base 32ab4f6 (EC2 production
+  HEAD); relay session took over per operator handover (receipt addendum in
+  docs/plan_releases/pipeline/PIPE-R001-RECOVERY-HARDENING.md).
+- commits: 4fe8a50 (WIP checkpoint, preservation of interrupted Codex work) →
+  dbcc90e (ec2_health plan-A script + handover) → 9ec330d (R4 + seal core v2)
+  → bb4eb04 (R1/R2/R3) → e9bfa53 (R5 tests + docs) → (this closure).
+- what changed vs the interrupted WIP (operator-approved 对/偏/缺 remediation):
+  ① seal semantics = verify-raw-ONCE-at-seal-time; readers verify archive vs
+  seal only → raw prunable post-seal via NEW seal-gated fail-closed
+  tools/prune_raw.py (reconciles 2026-07-10 retention ruling; the WIP had
+  disabled deletion entirely). ② seals WRITE-ONCE: no unlink anywhere;
+  --seal on sealed day = verify no-op; --operator-invalidate-seal <reason>
+  PARKS + ledgers; --force refuses sealed days; late facts divert VERBATIM to
+  corrections/date=D/late_rows.ndjson + ledger + ALERT (ingest), seal stays
+  byte-identical (the WIP resealed-by-mutation — inverted vs ruling, removed).
+  ③ seal chain runs BACKGROUND single-instance; ws_shadow relaunches
+  immediately (the WIP ran the whole chain synchronously before capture
+  relaunch = daily multi-minute capture gap, P4 violation, gone); 02:00
+  earliest attempt, 03:00 durable alarm work/live/seal_alarm.json.
+  ④ mm_scan/backtest/calibrate/research HARD archive-only (today refused
+  up-front; the incident shape is unreachable); gate_calc surfaces UNSEALED
+  days counted-not-skipped (UnsealedDayError, un-swallowable) and marks
+  legacy days. ⑤ legacy_v0 seals for pre-seal history (operator option A):
+  archive self-consistency only, unverified items named in the seal,
+  go_no_go_eligible=false forever, surfaced via warehouse.last_seal_grades()
+  + banners. Seal v2 carries code_commit + per-file SHA-256.
+- tests: 91 pass / 1 known xfail in the six warehouse suites incl. the four
+  MANDATORY-RED fixtures (missing/duplicated/altered/REORDERED line in a
+  sealed archive file each break the reader gate), corrections e2e,
+  write-once/park, legacy grades, prune_raw gating; full gates green in this
+  worktree: make check 0 FAIL, run_pipeline PIPELINE PASS, check_registry ok
+  (123 tools incl. new ec2_health + prune_raw).
+- deliberately NOT done: deploy (operator reviews diff first; folds into the
+  maintenance window with TL1 + apt + restart); W03-W06; fuse-cut hotfix
+  a011fab deployment (operator executing by hand, separate branch).
+- next: Codex INDEPENDENT AUDIT of 32ab4f6..HEAD (roles swapped per
+  handover), then operator diff review, then maintenance-window deploy.
+
 ## 2026-07-10 — W-A5 machinery DONE ✅ (24h gate + operator items open): delta vaulted, sync timers live, alerting built, riders a/b/c live, full-L1 = 11,307/11,307
 
 - commits: 415ac7e (batch 1: riders+SIGTERM+caps+sync+alerting+report-pull+

@@ -125,3 +125,11 @@ ec2_health + project-local permission allow rule. The four-line supervisor
 research chain (mm_scan/mm_backtest/mm_calibrate) is the actual fuse — the
 single-line wording in the ruling maps to that block, recorded here for
 audit fidelity.
+
+## Status addendum 2026-07-11 (relay session)
+
+- PIPE-W01: DONE (recovery; by Codex). PIPE-W02: **IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT**
+  (four-step day-seal per operator ruling; evidence commits 9ec330d, bb4eb04,
+  e9bfa53). PIPE-W03..W06: NOT STARTED. Fuse-cut hotfix a011fab: awaiting
+  operator hand-deploy. Deploy of W02: blocked on independent audit + operator
+  diff review; folds into the TL1+apt+restart maintenance window.
