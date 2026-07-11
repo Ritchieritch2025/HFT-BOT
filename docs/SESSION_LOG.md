@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 (night) — 维护窗口执行完毕:部署成功,07-10 首封未决(新门抓到真实缺数据)
+
+- deploy tip f4769ad live on EC2 (kernel 6.17.0-1019). Report:
+  docs/plan_releases/pipeline/PIPE-R001-DEPLOY-REPORT-2026-07-11.md
+  (gate-rerun quoted; TL1 proven with_recv=30/30; ingest retry code
+  self-proved in prod the same night).
+- OPEN: 07-10 first seal correctly REFUSED — firehose_13.ndjson 268MB was
+  never ingested (old system had green-lit the day; D2 catch #1 for the new
+  gate). Operator backfill was interrupted; command is idempotent — rerun
+  pending (morning). Hourly chain retries + seal_alarm working as designed.
+  prune_raw protects unsealed-day raw automatically.
+- W03 lead: why the daily ingest never discovered the hour-13 segment
+  (rotation-naming suspicion; kin of the 2026-07-06 rotation-shard incident).
+- also this session: ec2_health gained seal/alarm readout + pgrep
+  self-match fix (operator plan-A authorization).
+- NEXT: (a) rerun backfill → 07-10 seals → close alarm; (b) PIPE-W06
+  targeted L2 spec → operator approval → deploy; (c) W03..W05.
+
 ## 2026-07-11 (later) — 审计 PASS(条件)归档;TL1 移植入部署 tip;部署计划待批 — AUDIT_PASSED_AWAITING_OPERATOR_RELEASE
 
 - audit: docs/plan_audits/AUDIT_PIPE_R001_W02_2026-07-11.md archived VERBATIM
