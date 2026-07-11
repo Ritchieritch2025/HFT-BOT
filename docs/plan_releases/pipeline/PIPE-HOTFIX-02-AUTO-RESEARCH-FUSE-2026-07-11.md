@@ -100,3 +100,5 @@ research-model changes, or fabricated completion state.
 
 Still pending before final closure: read-only verification after two UTC hour
 changes.  EC2 resize, L2, S3/IAM split work and trading remain untouched.
+Heartbeat automation `verify-pipe-hotfix-02` is active for exactly two hourly
+read-only checks and is instructed to delete itself after final PASS.

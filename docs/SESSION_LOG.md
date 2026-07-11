@@ -49,8 +49,10 @@ which decisions landed in which files, what the next session must know.
   installation; corrected local/remote SHA-256 equality then passed, with no
   service effect from the typo.
 - pending: two UTC hour-boundary read-only checks remain for final soak.  Do
-  not re-enable production research.  EC2 resize and W06 remain separate
-  operator decisions/work packages.
+  not re-enable production research.  Heartbeat automation
+  `verify-pipe-hotfix-02` will perform exactly two hourly read-only checks and
+  self-delete after PASS.  EC2 resize and W06 remain separate operator
+  decisions/work packages.
 
 ## 2026-07-11 (night) — 维护窗口执行完毕:部署成功,07-10 首封未决(新门抓到真实缺数据)
 
