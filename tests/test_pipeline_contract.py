@@ -577,6 +577,33 @@ def test_supervisor_gates_daily_research_on_current_export_and_archive_only():
         assert "--archive-only" in line, line
 
 
+def test_production_supervisor_defaults_heavy_research_off_fail_closed():
+    """PIPE-HOTFIX-02: production keeps seal/quality work but cannot start
+    the three memory-heavy research tools unless an explicit audited override
+    is present.  Invalid configuration narrows to OFF (S2/D2)."""
+    path = os.path.join(ROOT, "tools", "pipeline_supervisor.sh")
+    text = open(path).read()
+    live = "\n".join(ln for ln in text.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    research = live[live.index("run_daily_research()"):
+                    live.index("run_seal_chain()")]
+
+    requested = 'AUTO_RESEARCH_REQUESTED="${AUTO_RESEARCH:-0}"'
+    restored = 'AUTO_RESEARCH="$AUTO_RESEARCH_REQUESTED"'
+    assert live.index(requested) < live.index('source "$CREDS"') \
+        < live.index(restored)
+    assert '*)' in live and 'AUTO_RESEARCH=0' in live
+    assert research.index("coverage_audit.py") \
+        < research.index('if [ "$AUTO_RESEARCH" != "1" ]') \
+        < research.index("mm_scan.py")
+    assert "AUTO_RESEARCH_DISABLED" in research
+    assert "capture_gaps.py" in live
+
+    service = open(os.path.join(
+        ROOT, "deploy", "kalshi-pipeline.service")).read()
+    assert "Environment=AUTO_RESEARCH=0" in service
+
+
 def test_archive_verify_only_requires_exact_current_day(exported_day):
     """An existing first partition is not proof of a complete daily archive."""
     wh, yd = exported_day["wh"], exported_day["yd"]
