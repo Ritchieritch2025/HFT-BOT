@@ -613,6 +613,18 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B5 (2026-07-11 observed): daily research chain peaks near the memory
+  ceiling — 13:34Z probe read MEM_USED 15,207MB / AVAIL 461MB on the 16G box
+  while RESEARCH_CHAIN=RUNNING (first W02-gated run, mid-day due to the late
+  07-10 seal); fully recovered to 1,983MB used by 13:59Z after完成. Root:
+  DuckDB default memory_limit (~80% RAM) on whole-day research jobs. Risk:
+  OOM near the ceiling could collateral ingest/capture (P4-adjacent), and
+  W06 L2 data growth will raise the peak. Fix (cheap, fold into W03 session):
+  ① explicit DuckDB memory_limit (e.g. 8G, spill-to-disk; 109G free) in
+  research tools; ② cgroup/systemd MemoryMax fence around the research
+  chain so worst-case kills research only; ③ memory-threshold alert in
+  alert_notify (with B3). Bigger instance NOT recommended on current
+  evidence (owner: PIPE-W03).
 - B4 (2026-07-11 morning-check finding): run_seal_chain does not respect a
   PRE-EXISTING work/live/export_pause — it unconditionally touches and then
   `rm -f`s the pause file, deleting an operator-held pause and restarting
