@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 (night) — 账户对账 + D-1.1 + 假设台账(本分支侧记;部署详情见 pipeline-recovery 分支日志)
+
+- 账户审计(fills/settlements 全量分页,逐分对账残差 $0.0000):账户存在
+  操作员本人手动交易,07-02 起可见净额 −$4,256.08(当日 −$4,380,两笔
+  ~$3,000 级:MLB COLSF-SF 与 ITF SHIROB,均为 85–90¢ 重仓热门)。余额
+  $2,599.86 → $34.41,非盗转、非系统行为。fills 端点语义陷阱已记录
+  (side/action 弃用;book_side=ask ⇒ 按 yes_price 收款;settlement 的
+  yes/no_count 为累计口径、fee_cost 为已扣回显)——待工具化为
+  account_view fills 子命令(登记 BACKLOG)。
+- D-1.1(操作员裁决,DECISIONS 台账):共用账户;策略 100% 自动为目标,
+  保留手动空间;四条护栏(台账归属隔离/实时余额 reserve/同市场互斥
+  auto-pause/风控边界诚实)进 P08/P10 设计。
+- docs/research_notes/HYPOTHESIS_LEDGER.md 创建:H-OP-1(=H-14 别名,
+  favorite miscalibration,三维分桶+按场 CI+先预注册)、H-OP-2(in-play
+  erosion)。规矩:唯一假设台账,先查重再编号。
+- NEXT SESSION: PIPE-W06 targeted L2 spec(最优先)+ 晨检(07-10 封印、
+  补灌重跑、capture_gaps 对账、内核版本补记)+ H-OP-1 探索排期。
+
 ## 2026-07-11 06:42 UTC — STP-R001-DRAFT-V22:V2.2 candidate 已生成并提交 — AWAITING INDEPENDENT PROMPT AUDIT
 
 - branch/base: `plan-sports-market-dynamics-v2` from
