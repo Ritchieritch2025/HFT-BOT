@@ -616,7 +616,10 @@ noticed-during, observation, suggested owner.
 - B5 (2026-07-11 observed): daily research chain peaks near the memory
   ceiling — 13:34Z probe read MEM_USED 15,207MB / AVAIL 461MB on the 16G box
   while RESEARCH_CHAIN=RUNNING (first W02-gated run, mid-day due to the late
-  07-10 seal); fully recovered to 1,983MB used by 13:59Z after完成. Root:
+  07-10 seal); 13:59Z read 1,983MB with CHAIN=GONE but that was an
+  inter-stage trough (pgrep only matches mm_calibrate|scan|backtest, not the
+  stages between) — 14:07Z peaked again at 15,313MB/354MB avail, chain still
+  running. Peak-trough cycling, not a leak. Root:
   DuckDB default memory_limit (~80% RAM) on whole-day research jobs. Risk:
   OOM near the ceiling could collateral ingest/capture (P4-adjacent), and
   W06 L2 data growth will raise the peak. Fix (cheap, fold into W03 session):
