@@ -57,3 +57,12 @@ Stage 1 的 release 必须同时满足:
   `cd /home/ubuntu/hft-bot && source ~/.kalshi/env.sh && KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 python3 tools/depth_probe.py --operator-approved --csv work/mm/l2_probe_targets_2026-07-11.csv`
   (与生产自身相同的环境选择;depth_probe 仍强制 data_collect 且双层拒绝
   live。)批准后于 22:30–23:30Z 用既有 CSV 复跑一次 15 分钟。
+
+### 操作员批准(2026-07-11 ~20:5xZ,VERBATIM)
+
+```
+APPROVED — corrected probe command authorized as written (KALSHI_ENV=prod + KALSHI_ALLOW_PROD=1, sourced creds, read-only depth_probe, --operator-approved). Run in the 22:30–23:30Z window, but regenerate the target list immediately before the run (the 20:23Z CSV will be stale). Deliver the per-tier rate table verbatim.
+```
+
+执行修订(按批准):22:25Z 左右**重新生成**当日清单(覆盖同一 CSV 路径),
+22:30Z 起跑;结果表逐字回呈。
