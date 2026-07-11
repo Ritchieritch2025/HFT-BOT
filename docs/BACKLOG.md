@@ -626,8 +626,12 @@ noticed-during, observation, suggested owner.
   ① explicit DuckDB memory_limit (e.g. 8G, spill-to-disk; 109G free) in
   research tools; ② cgroup/systemd MemoryMax fence around the research
   chain so worst-case kills research only; ③ memory-threshold alert in
-  alert_notify (with B3). Bigger instance NOT recommended on current
-  evidence (owner: PIPE-W03).
+  alert_notify (with B3). **Immediate production mitigation deployed**:
+  PIPE-HOTFIX-02 commit `e63b771` defaults `AUTO_RESEARCH=0` in both the
+  supervisor and systemd unit, preserving seal/capture-gaps/coverage while
+  skipping the three `mm_*` tools.  The underlying `.df()`/DuckDB memory
+  bound and future research-worker cgroup remain open W03/research-plane
+  work; an EC2 resize does not close that software defect (owner: PIPE-W03).
 - B4 (2026-07-11 morning-check finding): run_seal_chain does not respect a
   PRE-EXISTING work/live/export_pause — it unconditionally touches and then
   `rm -f`s the pause file, deleting an operator-held pause and restarting

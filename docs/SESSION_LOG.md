@@ -6,6 +6,52 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 16:25 UTC — PIPE-HOTFIX-02 live: production auto-research fused off; immediate gates PASS
+
+- commits: production/runtime `e63b771d6a0bef10fc8c563922a67aad661631ad`
+  (base `f4769ad`); long-lived recovery branch cherry-pick `bc76fa7`; closure
+  commit = this entry.  Independent audit archived at
+  `docs/plan_audits/AUDIT_PIPE_HOTFIX_02_2026-07-11.md` (PASS, no blockers).
+- operator authorization: verbatim “你来修复吧”; bounded scope was terminate
+  the recurring heavy research, implement/test/audit/deploy its permanent
+  production fuse, and perform one short controlled restart.  No resize, L2,
+  trading, S3/IAM split or research-model change was performed.
+- incident evidence: prior PID 21331 was terminated by the operator; the
+  hourly chain relaunched PID 27344 by 16:07Z.  At live inspection only ~349
+  MiB memory remained and ~14 GiB swap was in use.  Root agent TERM'd 27344 at
+  ~16:10Z; raw continued growing and memory recovered.
+- implementation: `AUTO_RESEARCH` is captured before credential sourcing,
+  restored afterwards, defaults/invalid values to 0, and is pinned to 0 by
+  the production unit.  Seal verification, `capture_gaps` and
+  `coverage_audit` remain; only `mm_scan/mm_backtest/mm_calibrate` skip with a
+  loud `AUTO_RESEARCH_DISABLED`; disabled path cannot publish a success
+  receipt.  Full contract test added.
+- gates: `bash -n` PASS; full `tests/test_pipeline_contract.py` PASS with one
+  known xfail; `make check` PASS; final `tests/run_pipeline.sh` all suites
+  PASS; registry 127 tools PASS; `git diff --check` PASS.  The first pipeline
+  attempt in the isolated worktree failed only because build artifacts were
+  absent; after full build, every affected suite and then the entire pipeline
+  passed.
+- deploy: exact local/remote hashes matched; unit verified, installed and
+  daemon-reloaded.  Controlled restart at 16:20:01Z returned active in the
+  same second, without SIGKILL.  Conservative gap bracket ends at first
+  observed raw `recv_wall_ns=1783786801986330281`
+  (16:20:01.986330281Z); append-only quality log records it and next-day
+  `capture_gaps` will reconcile the exact feed gap.  Raw grew continuously in
+  repeated samples; staging advanced at 16:22:52Z and 16:23:34Z; seal alarm
+  absent; no fatal restart event; startup/cycle logs prove
+  `auto_research=0/AUTO_RESEARCH_DISABLED`.
+- context capsule: restart catch-up made ingest itself briefly reach ~12.9
+  GiB RSS (its unbounded tail materialization), then fall to ~0.7 GiB; host
+  available memory recovered to ~13 GiB and swap to ~88 MiB.  This is separate
+  W03 technical debt; it did not relaunch any `mm_*` tool.  A first exact-SHA
+  deploy guard contained a mistyped expected full hash and stopped before unit
+  installation; corrected local/remote SHA-256 equality then passed, with no
+  service effect from the typo.
+- pending: two UTC hour-boundary read-only checks remain for final soak.  Do
+  not re-enable production research.  EC2 resize and W06 remain separate
+  operator decisions/work packages.
+
 ## 2026-07-11 (night) — 维护窗口执行完毕:部署成功,07-10 首封未决(新门抓到真实缺数据)
 
 - deploy tip f4769ad live on EC2 (kernel 6.17.0-1019). Report:
