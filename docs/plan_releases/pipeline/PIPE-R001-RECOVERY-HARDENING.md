@@ -106,3 +106,22 @@ restart.
   with per-file S3 checksum/version receipts before any local raw prune. Until
   then, a seal requires its exact local raw inventory; portable restores are
   accepted when sizes and SHA-256 match even if inode/timestamps differ.
+
+---
+
+## Addendum 2026-07-11 — operator handover ruling (verbatim)
+
+> 交接令批准:PIPE-R001 剩余分包移交你(本会话),Codex 在此轨道停笔、换岗当独立审计员——实现者与审计者换手。此令逐字记入收据。
+> 权限选 A(定向只读健康脚本):脚本 + 注册 + 权限规则现在配好。B(放行整条 SSH)暂不开——最小权限是全项目的宪法,不为省事破例;真不够用再议。
+> 过渡期选"剪引线":批准你先做那个一行 diff(注释掉 supervisor 拉起 mm_calibrate 的那一行),diff 给我过目后由我亲手执行部署——比每几个小时手动拆一次炸弹强,尤其我睡觉的时候。
+>
+> 之后按你说的干:先逐文件审那 2000 行 WIP、列"对/偏/缺"清单,再继续封印四步法;红绿测试、一次一个 W、全套仪式;完成后 Codex 独立审计 + diff 我过目,并入维护窗口(TL1 + apt + 重启)一次部署。
+
+Archival notes (not operator text): handover consumed by the relay session
+(Claude, session of 2026-07-11). Fuse-cut = branch pipe-hotfix-01-disable-daily-research
+commit a011fab (comment-only; operator deploys by hand after diff review).
+Plan-A health script = tools/ec2_health.sh (this commit) + registry entry
+ec2_health + project-local permission allow rule. The four-line supervisor
+research chain (mm_scan/mm_backtest/mm_calibrate) is the actual fuse — the
+single-line wording in the ruling maps to that block, recorded here for
+audit fidelity.

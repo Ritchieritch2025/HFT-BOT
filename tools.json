@@ -1,126 +1,1464 @@
 {
   "$comment": "Machine-readable tool registry (PLAN_PROD_V1 P1). Safety classes drive the ops-console run-button policy: pure=no sockets, offline=localhost mocks only, network_read=real Kalshi read-only, live_order=transmits/mutates (NEVER runnable from the console). Ambiguous rounds UP. pass_token is the display string a run-button greps for; exit code is authoritative. Validated by tools/check_registry.py in `make check`.",
   "tools": [
-    {"name": "test_ring", "kind": "test", "safety": "pure", "cmd": "./build/test_ring", "args_template": "[scratch_dir]", "needs": ["make"], "pass_token": "ALL PASS", "description": "Vyukov MPMC ring unit + concurrency test", "docs": "tests/test_ring.cpp"},
-    {"name": "test_fixedpoint", "kind": "test", "safety": "pure", "cmd": "./build/test_fixedpoint", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "PriceE4/CountFp parsers: range + no-truncate + round-trip", "docs": "tests/test_fixedpoint.cpp"},
-    {"name": "test_ids", "kind": "test", "safety": "pure", "cmd": "./build/test_ids", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Deterministic EntityId hashing + Unknown rejection", "docs": "tests/test_ids.cpp"},
-    {"name": "test_env_safety", "kind": "test", "safety": "pure", "cmd": "./build/test_env_safety", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "resolve_runtime fail-closed + host/WS allowlist cross-validation", "docs": "tests/test_env_safety.cpp"},
-    {"name": "test_bus", "kind": "test", "safety": "pure", "cmd": "./build/test_bus", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "NormalizedEvent bus: registry, trace propagation, ExecDecision", "docs": "tests/test_bus.cpp"},
-    {"name": "test_orderbook", "kind": "test", "safety": "pure", "cmd": "./build/test_orderbook", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "OrderBook apply/invalidate + manager sid-gap resync", "docs": "tests/test_orderbook.cpp"},
-    {"name": "test_recovery", "kind": "test", "safety": "pure", "cmd": "./build/test_recovery", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "RecoveryLadder rung escalation", "docs": "tests/test_recovery.cpp"},
-    {"name": "test_readability", "kind": "test", "safety": "pure", "cmd": "./build/test_readability", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "operator<< / dump_state / enum stringification", "docs": "tests/test_readability.cpp"},
-    {"name": "test_sid_stream", "kind": "test", "safety": "pure", "cmd": "./build/test_sid_stream", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Per-sid sequence gap detection", "docs": "tests/test_sid_stream.cpp"},
-    {"name": "test_token_bucket", "kind": "test", "safety": "pure", "cmd": "./build/test_token_bucket", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "TokenBucketI64: zero-drift refill, reserve/wait, concurrency hammer", "docs": "tests/test_token_bucket.cpp"},
-    {"name": "test_backoff", "kind": "test", "safety": "pure", "cmd": "./build/test_backoff", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Seeded-jitter backoff + F9 retry matrix (reconcile-on-ambiguity)", "docs": "tests/test_backoff.cpp"},
-    {"name": "test_secret_redaction", "kind": "test", "safety": "pure", "cmd": "./build/test_secret_redaction", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Auth-header redaction + telemetry secret-freedom", "docs": "tests/test_secret_redaction.cpp"},
-    {"name": "test_account_limits", "kind": "test", "safety": "pure", "cmd": "./build/test_account_limits", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Nested /account/limits parser + tier-table safeguard + invariants", "docs": "tests/test_account_limits.cpp"},
-    {"name": "test_endpoint_costs", "kind": "test", "safety": "pure", "cmd": "./build/test_endpoint_costs", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Endpoint cost parse + :param/{param}/*glob path matching", "docs": "tests/test_endpoint_costs.cpp"},
-    {"name": "test_request_spec", "kind": "test", "safety": "pure", "cmd": "./build/test_request_spec", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Path normalize/prefix-strip + F6 Read/Write classification", "docs": "tests/test_request_spec.cpp"},
-    {"name": "test_batch_cost", "kind": "test", "safety": "pure", "cmd": "./build/test_batch_cost", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Batch token-cost math + per-item table lookup", "docs": "tests/test_batch_cost.cpp"},
-    {"name": "test_decode", "kind": "test", "safety": "pure", "cmd": "./build/test_decode", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Kalshi WS/REST JSON decode into NormalizedEvent", "docs": "tests/test_decode.cpp"},
-    {"name": "test_storage", "kind": "test", "safety": "pure", "cmd": "./build/test_storage", "args_template": "[scratch_dir]", "needs": ["make"], "pass_token": "ALL PASS", "description": "Raw-log write/read byte-exact + rotation + replay equivalence", "docs": "tests/test_storage.cpp"},
-    {"name": "test_replay", "kind": "test", "safety": "pure", "cmd": "./build/test_replay", "args_template": "[scratch_dir]", "needs": ["make"], "pass_token": "ALL PASS", "description": "Replay checksum equivalence (markers)", "docs": "tests/test_replay.cpp"},
-    {"name": "test_recorder", "kind": "test", "safety": "pure", "cmd": "./build/test_recorder", "args_template": "[scratch_dir]", "needs": ["make"], "pass_token": "ALL PASS", "description": "WsRecorder SPSC ring + loss markers", "docs": "tests/test_recorder.cpp"},
-    {"name": "test_ws_client", "kind": "test", "safety": "pure", "cmd": "./build/test_ws_client", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "KalshiWsClient over MockWebSocketTransport (auth/subscribe/seq)", "docs": "tests/test_ws_client.cpp"},
-    {"name": "test_shadow", "kind": "test", "safety": "pure", "cmd": "./build/test_shadow", "args_template": "[scratch_dir]", "needs": ["make"], "pass_token": "ALL PASS", "description": "Shadow/DataCollect exec decisions (Logged/Rejected, no transmit)", "docs": "tests/test_shadow.cpp"},
-    {"name": "test_strategies", "kind": "test", "safety": "pure", "cmd": "./build/test_strategies", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Strategy roster selection + once_probe emit-once-then-silent (no network, no transmit)", "docs": "tests/test_strategies.cpp"},
-    {"name": "test_market_filter", "kind": "test", "safety": "pure", "cmd": "./build/test_market_filter", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Phase 4 fast in-memory market filter: deterministic evaluate() over fixture market states (no network, no DuckDB)", "docs": "tests/test_market_filter.cpp"},
-    {"name": "test_gold_layout", "kind": "test", "safety": "pure", "cmd": "./build/test_gold_layout", "args_template": "[--dump]", "needs": ["make"], "pass_token": "ALL PASS", "description": "W1: GoldRecord 512B layout contract — offsets, little-endian, byte-exact match vs committed canonical JSON (V11 C++ half)", "docs": "tests/test_gold_layout.cpp"},
-    {"name": "test_gold_dtype", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_dtype.py", "needs": ["make"], "pass_token": "passed", "description": "W1: numpy GOLD_DTYPE parity vs canonical layout JSON + fixture git-tracked assertion (V11 Python half, audit G2)", "docs": "tests/test_gold_dtype.py"},
-    {"name": "test_gold_load", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_load.py", "pass_token": "passed", "description": "W2.1: typed loaders — V1 byte-exact E4 round-trip on real golden rows, no-float-parse grep gate, §2.2 validation gates proven red on seeded-defect fixtures, trade sort+dedupe, quarantine+loader report", "docs": "tests/test_gold_load.py"},
-    {"name": "test_gold_fsm", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_fsm.py", "pass_token": "passed", "description": "W2.2: book FSM — pure per-market state machine (snapshot/delta/invalid/crossed/seq-gap/heartbeat), invalid-until-snapshot no-clamp latch, yes-space transform, DEPTH+rest aggregation, both seq modes; clamp-bug + stale-state-after-invalid seeded fixtures proven red by mutation", "docs": "tests/test_gold_fsm.py"},
-    {"name": "test_gold_merge", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_merge.py", "pass_token": "passed", "description": "W2.3: merge iterator — global k-way total order (ts_us, TRADE<BOOK_DELTA at equal µs, source file order), dense 0-based stream_seq, per-market gap-free book_seq minting, trades reference only already-emitted book state (structural V3/V6 checkers); same-µs ordering + book_seq-gap seeded fixtures proven red by mutation", "docs": "tests/test_gold_merge.py"},
-    {"name": "test_gold_io", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_io.py", "pass_token": "passed", "description": "W2.4: gold writer/reader — merged records -> 512B .bin + markets/trade_ids sidecars + md5 manifest; mmap reader verifies every md5 on open; 10k write->mmap==streamed-parse (V11 runtime half); same-day 1:1 market_id<->ticker = build failure; cross-day access requires ticker (§2.1); fnv1a64 hash<->UUID reconciliation (V8 shape); dup-ticker/dup-id/sidecar-tamper/hash-tamper fixtures proven red by mutation", "docs": "tests/test_gold_io.py"},
-    {"name": "test_gold_validate", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_validate.py", "pass_token": "passed", "description": "W2.5: validator harness — V2/V3/V4/V6/V9/V10 run independently over written gold days (+ V8-shape hash reconciliation wired, never dormant); one committed seeded-defect day per check proven red (green/red matrix); failing day -> quarantine move + nonzero exit", "docs": "tests/test_gold_validate.py"},
-    {"name": "test_kalshi_golden", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_kalshi_golden.py", "pass_token": "passed", "description": "W3.3: golden Kalshi frames — V13 field semantics on REAL captured frames (1 snapshot + 50 deltas + 50 trades, verbatim): per-sid seq scoping incl. trades carrying seq, trade_id UUID dedupe key, byte-exact E4 fixed-point strings via gold_load, taker_side yes/no, per-channel ts encodings; V12 saved-spec gate skips the module loudly when red/stale; doctored dup-trade_id/seq-regression/float-price fixtures proven red", "docs": "tests/test_kalshi_golden.py"},
-    {"name": "gold_validate", "kind": "check", "safety": "offline", "cmd": "python3 tools/gold_validate.py", "args_template": "--root work/gold --date <YYYY-MM-DD> [--no-quarantine]", "pass_token": "DAY GREEN", "description": "W2.5: validate one gold day partition (V2,V3,V4,V6,V8,V9,V10, independent; all violations reported); any failure MOVES the whole partition to <root>/quarantine/date=<D>/ + nonzero exit; derived work/gold data only, never raw/archive", "docs": "tools/gold_validate.py"},
-    {"name": "gold_build", "kind": "tool", "safety": "offline", "cmd": "python3 tools/gold_build.py", "args_template": "--date <YYYY-MM-DD> [--root work/gold] [--spec work/kalshi_spec_alignment.json]", "pass_token": "DAY GREEN", "description": "W2.6: build + validate one gold day — thin composition (V12 saved-spec gate -> warehouse load() read-only -> W2.1 loaders + quarantine report -> per-(channel,market) sorted slices -> W2.2/W2.3 FSM+merge -> W2.4 write_day -> W2.5 validate_day; failed day quarantined + nonzero exit; never auto-runs the network spec sync)", "docs": "tools/gold_build.py"},
-    {"name": "test_gold_v5_delta", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_v5_delta.py", "pass_token": "passed", "description": "W3.1: V5 δ distribution — hand-computed offset fixtures (10/20/…/100 ms => nearest-rank p50/p90/p99/max), fixed scan bound (no CLI widening knob), uncheckable-vs-mismatch honesty split, bad-markets flagging with min-support rule, manifest verdict update leaves certified md5s byte-identical; committed v5_shifted_book price-shifted day proven red (permanent disagreement counted, never absorbed by a wider δ)", "docs": "tests/test_gold_v5_delta.py"},
-    {"name": "gold_v5_delta", "kind": "check", "safety": "offline", "cmd": "python3 tools/gold_v5_delta.py", "args_template": "--date <YYYY-MM-DD> [--root work/gold]", "pass_token": "V5 MEASURED", "description": "W3.1: measure the L1<->book agreement window δ as a DISTRIBUTION over one gold day (covered markets only; L1 views read-only from the warehouse through the W2.1 gates): p50/p90/p99/max delta_ms + mismatch counts by market/ticker/category/subcategory/liquidity tier; fixed scan bound (widening δ to absorb mismatches FORBIDDEN — high-mismatch markets go on a surfaced bad-markets list, exit 1); prints support size, labeled BASELINE SAMPLE; writes v5_delta_report_<D>.json into the day partition + fills the manifest safety_verdicts.V5 without touching certified md5s", "docs": "tools/gold_v5_delta.py"},
-    {"name": "test_gold_v7_race", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gold_v7_race.py", "pass_token": "passed", "description": "W3.2: V7 race/consistency REPORT-ONLY — hand-computed 3-trade day (at-ask clean, inside-spread race, at-bid-with-taker-yes race => rate 2/3), covered_book vs l1_asof populations measured separately, unmeasurable (invalid book/empty side) never a race, nearest-rank p95 proposal math hand-computed, unsafe_for_microstructure marking in report + manifest, grep-proof that no exit-nonzero is tied to race rates, manifest V7 update leaves certified md5s + V5 verdict byte-identical; committed v7_inverted_taker fixture proven red (flipped taker sides flip the measured race rate to 1.0 — measurement failure, not a threshold)", "docs": "tests/test_gold_v7_race.py"},
-    {"name": "gold_v7_race", "kind": "check", "safety": "offline", "cmd": "python3 tools/gold_v7_race.py", "args_template": "--date <YYYY-MM-DD> [--root work/gold]", "pass_token": "V7 MEASURED", "description": "W3.2: V7 economic-consistency (race) report over one gold day, REPORT-ONLY per PLAN_GOLD_DATA_CONTRACT §2.2 point 5 — for every TRADE record, does it print at the as-of touch (taker=yes vs best ask, taker=no vs best bid)? covered_book vs l1_asof populations reported SEPARATELY; race rate per category/subcategory/market/class(A-B)/liquidity tier; PROPOSED thresholds (nearest-rank p95 of per-market rates) printed FOR OPERATOR APPROVAL — not enforced; slices above proposal marked unsafe_for_microstructure in report + manifest verdict field; NO blocking threshold, exit 0 unless the tool itself errors; subcategory joined read-only from warehouse trades (lock-retry)", "docs": "tools/gold_v7_race.py"},
-    {"name": "test_freshness", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_freshness.py", "pass_token": "passed", "description": "WP-03: freshness monitor contract \u2014 staging lag = max(ts_utc) over ALL fact tables (trades newer than L1 fixture rejects an L1-only tool), --threshold alert boundary (exit 1 / STALE, FRESH token absent), missing staging = STALE loud, capture-lag path incl. rotation shards *.ndjson.N and capture-dead-while-staging-fresh; fixture staging built by the production Ingester", "docs": "tests/test_freshness.py"},
-    {"name": "test_pipeline_contract", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_pipeline_contract.py", "pass_token": "passed", "description": "WP-04: permanent acceptance suite (pipeline contract, synthetic fixtures) — every-byte-accounted checkpoints (rotation shard + partial trailing line), league derive_group mapping (known_league vs family_prefix+needs_review), settlements-export contract (xfail: not implemented, BACKLOG), denormalized hierarchy columns on every archived fact row (l1+trades), load() archive-vs-staging routing; folded WP-01 E4 round-trip ('0.0325'->325->presented exactly) + fractional qty ('5119.00'->51190000); folded WP-02 class-policy-from-config + unknown-category-warns; adopted change-only/heartbeat/kill-restart-determinism (row-for-row EXCEPT ALL) on independent fixture values per A1", "docs": "tests/test_pipeline_contract.py"},
-    {"name": "test_research_metrics", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_research_metrics.py", "needs": [], "pass_token": "passed", "description": "WP-06: maker-viability metric contract — pinned plan fixtures (mids [10,12,10,12] -> K=12, z=2, wiggle=4, reversal=1.0; interpretation K=sum sq moves, z=net displacement, wiggle=(K-z^2)/2 mean-reversion harvest, R-confirm in BACKLOG), heartbeat exclusion (is_snapshot AND price NULL; first-obs snapshot kept), nearest-rank interval p50/p90, A2 both-spaces emission (hand-computed logit values, [0.01,0.99] clip), fee guard READS kalshi_facts.yaml (gate_mode + verified!=true raises FeeNotVerifiedError; behavior follows a mutated temp yaml, never hardcoded)", "docs": "tests/test_research_metrics.py"},
-    {"name": "test_gate_metrics", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_gate_metrics.py", "needs": [], "pass_token": "passed", "description": "WP-09: gate-calculator contract — plan fixtures pinned: 3-market bracket asks sum 96c -> ONE BUY episode gross edge 4c; 99/101c band silent (min_edge_c default 2.0, parameterized); no-arb ~100c fixtures -> ZERO signals (anti-fake-green); partial-quote guard (unquoted/one-sided leg blocks evaluation); hand-computed lifespan timeline (15s/10s episodes, nearest-rank p50=10 p90=15); net profit = gross - mm_research.trade_fee sum (hand-computed -0.57c on 30/33/33 @ taker 0.07); gate-mode refusal proven BOTH directions (repo yaml verified=false raises FeeNotVerifiedError, temp verified=true computes)", "docs": "tests/test_gate_metrics.py"},
-    {"name": "freshness", "kind": "check", "safety": "pure", "autorun": false, "cmd": "python3 tools/freshness.py", "args_template": "[--threshold 600] [--json]", "needs": [], "pass_token": "FRESH", "description": "WP-03: ONE number \u2014 seconds since newest staging row (max ts_utc over fact tables) PLUS capture lag (newest raw file mtime under date=<today>); STALE + exit 1 if EITHER exceeds threshold; read-only lock-retry vs the ingest writer; missing staging/raw = STALE fail-closed; --json feeds WP-08", "docs": "tools/freshness.py"},
-    {"name": "test_daily_check", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_daily_check.py", "needs": [], "pass_token": "passed", "description": "WP-08: daily quality check contract \u2014 category row-count drop vs prior day = warning-not-failure (threshold configurable, no-history skip honest), WP-03 freshness consumed via the documented --freshness-json seam (STALE => exit 1, stale_reasons carried verbatim), missing manifest / missing day rows / md5 spot-check mismatch => exit 1 fail-closed, gold day quarantined or QUARANTINE verdict => exit 1 (not-built = report-only), seq-gap scan honest not-instrumented + cumulative ws counters warn, quality_log append schema-exact to a tmp path (real log never touched by tests; env DAILY_CHECK_QUALITY_LOG override covered), 24h window filtering", "docs": "tests/test_daily_check.py"},
-    {"name": "daily_check", "kind": "check", "safety": "offline", "autorun": false, "cmd": "python3 tools/daily_check.py", "args_template": "[--date YYYY-MM-DD] [--json] [--drop-pct 50]", "needs": [], "pass_token": "DAILY GREEN", "description": "WP-08: the two-minute morning ritual (H-2) \u2014 yesterday's health on one screen: WP-03 freshness (subprocessed --json, never reimplemented), manifest per-table row counts + md5 spot check + category drop detection vs prior day (report-only warning), gold day verdict/quarantine, ws_shadow tail gap scan (honest not-instrumented), quality_log last-24h view, ONE appended quality_log line {ts,wp:daily-check,window,finding GREEN|WARNINGS:n|RED:n,action,evidence}; exit 1 on freshness STALE / missing manifest day / md5 mismatch / gold quarantine; safety offline (appends work/quality_log.ndjson), autorun false (runs freshness subprocess + writes the log \u2014 the run is R's deliberate morning act)", "docs": "tools/daily_check.py"},
-    {"name": "test_signing", "kind": "test", "safety": "pure", "cmd": "./build/test_signing", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "RSA-PSS signing correctness", "docs": "tests/test_signing.cpp"},
-    {"name": "fuzz_decode", "kind": "test", "safety": "pure", "cmd": "./build/fuzz_decode", "args_template": "[iters] [dir]", "needs": ["make"], "pass_token": "no crash/UB", "description": "ASan+UBSan fuzzer over JSON decode + NDJSON reader + limits/cost/path parsers", "docs": "tests/fuzz_decode.cpp"},
-    {"name": "test_resp", "kind": "test", "safety": "offline", "cmd": "./build/test_resp", "args_template": "<port>", "needs": ["make", "mini_redis"], "pass_token": "ALL PASS", "description": "RESP2 client vs mini_redis.py", "docs": "tests/test_resp.cpp"},
-    {"name": "test_rest_api", "kind": "test", "safety": "offline", "cmd": "./build/test_rest_api", "args_template": "<base_url>", "needs": ["make", "mock_rest"], "pass_token": "ALL PASS", "description": "Typed REST endpoints vs mock_rest.py (pagination, 429, nested limits)", "docs": "tests/test_rest_api.cpp"},
-    {"name": "test_request_executor", "kind": "test", "safety": "offline", "cmd": "./build/test_request_executor", "args_template": "<base_url>", "needs": ["make", "mock_rest"], "pass_token": "ALL PASS", "description": "Executor reserve-before-send / telemetry / 429 vs mock_rest.py", "docs": "tests/test_request_executor.cpp"},
-    {"name": "test_integration", "kind": "test", "safety": "offline", "cmd": "./build/test_integration", "args_template": "<base_url> <key.pem> <threads> <reqs>", "needs": ["make", "mock_server"], "pass_token": "INTEGRATION PASS", "description": "Threaded signed-request integration vs mock_server.py", "docs": "tests/test_integration.cpp"},
-    {"name": "ws_smoke", "kind": "test", "safety": "offline", "cmd": "./build/ws_smoke", "args_template": "[ws_url]", "needs": ["make", "mock_ws"], "pass_token": "WS SMOKE PASS", "description": "ixwebsocket transport + KalshiWsClient vs mock_ws_exchange.py", "docs": "apps/ws_smoke.cpp"},
-    {"name": "bench_orderbook", "kind": "bench", "safety": "pure", "cmd": "./build/bench_orderbook", "args_template": "[n]", "needs": ["make"], "description": "OrderBook apply throughput (ns/delta)", "docs": "apps/bench_orderbook.cpp"},
-    {"name": "bench_ws_decode", "kind": "bench", "safety": "pure", "cmd": "./build/bench_ws_decode", "args_template": "[n]", "needs": ["make"], "description": "WS decode+apply throughput (ns/msg)", "docs": "apps/bench_ws_decode.cpp"},
-    {"name": "bench_rtt", "kind": "bench", "safety": "network_read", "cmd": "./build/bench_rtt", "args_template": "[n] [base_url]", "needs": ["make", "creds", "prod_env"], "description": "Signed round-trip latency to a real Kalshi host (read-only)", "docs": "apps/bench_rtt.cpp"},
-    {"name": "bench_order", "kind": "bench", "safety": "live_order", "cmd": "./build/bench_order", "args_template": "[n] [ticker] [--prod-ok]", "needs": ["make", "creds", "prod_env"], "description": "Place+cancel real post-only 1c orders to time the order path — TRANSMITS", "docs": "apps/bench_order.cpp"},
-    {"name": "account_info", "kind": "probe", "safety": "network_read", "cmd": "./build/account_info", "args_template": "", "needs": ["make", "creds"], "description": "Read-only: prints tier, read/write buckets, grants, full endpoint-cost table", "docs": "apps/account_info.cpp"},
-    {"name": "probe_batch_cost", "kind": "probe", "safety": "network_read", "cmd": "./build/probe_batch_cost", "args_template": "<seconds> <ticker...>", "needs": ["make", "creds", "prod_env"], "description": "Read-only: batch-orderbook throughput to first throttle (F8 cost probe)", "docs": "apps/probe_batch_cost.cpp"},
-    {"name": "rate_probe", "kind": "probe", "safety": "network_read", "cmd": "./build/rate_probe", "args_template": "[seconds] [threads]", "needs": ["make", "creds"], "description": "Read-only: multithreaded burst to observe server 429s (bypasses local bucket)", "docs": "apps/rate_probe.cpp"},
-    {"name": "depth_probe", "kind": "probe", "safety": "network_read", "autorun": false, "cmd": "python3 tools/depth_probe.py", "args_template": "--operator-approved [--markets 50] [--seconds 900] [--csv <depth_target.csv>] [--dry-run] | --analyze <capture.ndjson>", "needs": ["make", "creds", "prod_env"], "description": "W6 OPERATOR-GATED depth-expansion sizing probe: runs a SECOND read-only ws_shadow (orderbook_delta, top-N of the depth-target list, bounded 900 s) capturing to its OWN work/probe/ path (never work/raw, never work/metrics.ndjson), then prints measured msg rates + bytes/market by liquidity tier; REFUSES without --operator-approved, refuses live mode, spends zero REST tokens; --analyze is the offline analysis on an existing capture", "docs": "docs/PLAN_DEPTH_EXPANSION.md"},
-    {"name": "test_depth_probe", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_depth_probe.py", "pass_token": "passed", "description": "W6: depth_probe contract — analyze_capture on a hand-built fixture capture (known msg/s + exact wire/capture bytes by tier, dead-subscription surfacing, parse-error counting), top-N CSV loading, and the operator gate via subprocess: refusal without --operator-approved, live-mode refusal, work/raw capture-path refusal, dry-run opens no socket + stale-list warning", "docs": "tests/test_depth_probe.py"},
-    {"name": "account_upgrade", "kind": "probe", "safety": "live_order", "cmd": "./build/account_upgrade", "args_template": "", "needs": ["make", "creds"], "description": "MUTATES: POSTs the API tier upgrade (30 Write tokens, permanent) — NOT an order but a real account write; console-forbidden", "docs": "apps/account_upgrade.cpp"},
-    {"name": "ws_shadow", "kind": "probe", "safety": "network_read", "cmd": "./build/ws_shadow", "args_template": "[ws_url]", "needs": ["make", "creds", "prod_env"], "pass_token": "WS SHADOW PASS", "description": "Read-only WS shadow engine + recorder + REST cross-check; never transmits", "docs": "apps/ws_shadow.cpp"},
-    {"name": "preflight", "kind": "probe", "safety": "network_read", "cmd": "./build/preflight", "args_template": "[--orderbook T1,T2] [--order]", "needs": ["make", "creds", "prod_env"], "pass_token": "PREFLIGHT PASS", "description": "Creds/clock/market-data/limits/costs checks (read-only); --orderbook adds top-5 levels + spread. NOTE: --order TRANSMITS a real order (live_order); the console must never pass --order", "docs": "apps/preflight.cpp"},
-    {"name": "exchange_check", "kind": "check", "safety": "network_read", "cmd": "./tools/exchange_check.sh", "args_template": "[--env prod] [--tickers T1,T2] [--ws-seconds 30] [--metrics work/metrics.ndjson]", "needs": ["make", "creds", "prod_env"], "pass_token": "EXCHANGE CHECK PASS", "description": "One-command read-only exchange check: preflight surface + WS capture + dashboard feed metrics validation", "docs": "tools/exchange_check.sh"},
-    {"name": "feed_readiness", "kind": "check", "safety": "pure", "autorun": false, "cmd": "python3 tools/feed_readiness.py", "args_template": "[--metrics work/metrics.ndjson] [--json]", "needs": [], "pass_token": "ALL PASS", "description": "Local no-network market-feed precheck: env presence, key-file presence, ws_shadow build, exchange_check script, and real kalshi_ws metrics status", "docs": "tools/feed_readiness.py"},
-    {"name": "warehouse_status", "kind": "check", "safety": "pure", "autorun": false, "cmd": "./tools/warehouse_status.py", "args_template": "[--warehouse work/warehouse] [--json]", "needs": [], "pass_token": "ALL PASS", "description": "Read-only three-layer warehouse panel data source: staging row counts + checkpoint freshness, archive partitions/manifest, catalog dims, source_kind (covered by test_warehouse_status)", "docs": "tools/warehouse_status.py"},
-    {"name": "verify_ws_capture", "kind": "check", "safety": "pure", "autorun": false, "cmd": "./tools/verify_ws_capture.py", "args_template": "CAPTURE.ndjson [--tickers T1,T2] [--min-span-seconds N]", "needs": [], "pass_token": "ALL PASS", "description": "Structural validator for a ws_shadow capture NDJSON (snapshot coverage, per-sid seq continuity, marker health); needs a capture arg so it is not in the argument-free auto-run set (covered by test_verify_ws_capture)", "docs": "tools/verify_ws_capture.py"},
-    {"name": "verify_feed_metrics", "kind": "check", "safety": "pure", "autorun": false, "cmd": "python3 tools/verify_feed_metrics.py", "args_template": "METRICS.ndjson [--source kalshi_ws] [--capture CAPTURE.ndjson] [--tickers T1,T2] [--max-age-ms N]", "needs": [], "pass_token": "ALL PASS", "description": "Dashboard-feed validator: proves metrics contain fresh non-synthetic kalshi_ws feed + market_data rows (covered by test_verify_feed_metrics)", "docs": "tools/verify_feed_metrics.py"},
-    {"name": "ingest", "kind": "tool", "safety": "offline", "cmd": "python3 tools/ingest.py", "args_template": "CAPTURE.ndjson [...] | --loop [SECONDS]", "needs": [], "description": "LAYER 2: change-only ingester (raw firehose NDJSON -> staging.duckdb) with hourly heartbeats, class policy, join-at-ingest, checkpointed byte offsets", "docs": "tools/ingest.py"},
-    {"name": "export_day", "kind": "tool", "safety": "offline", "cmd": "python3 tools/export_day.py", "args_template": "[--date YYYY-MM-DD] [--force] [--no-prune]", "needs": [], "description": "LAYER 3: day-rollover exporter (staging -> sorted zstd-15 Parquet / csv.gz partitions + manifest.csv + md5 verify + staging prune)", "docs": "tools/export_day.py"},
-    {"name": "warehouse_load", "kind": "tool", "safety": "pure", "cmd": "python3 tools/warehouse.py", "args_template": "TABLE [--category C] [--subcategory S] [--group G] [--start D] [--end D] [--ffill]", "needs": [], "description": "Single analysis entry point: load() routes archive partitions vs live staging automatically; ffill applies the LOCF reconstruction rule", "docs": "tools/warehouse.py"},
-    {"name": "dim_snapshot", "kind": "tool", "safety": "pure", "cmd": "python3 tools/dim_snapshot.py", "args_template": "[--date YYYY-MM-DD]", "needs": [], "description": "Daily dim snapshots (catalog -> dim/snapshots/date=D + dim/latest CSVs) with derived event_structure + bracket_rank", "docs": "tools/dim_snapshot.py"},
-    {"name": "catalog_sync", "kind": "probe", "safety": "network_read", "cmd": "python3 tools/catalog_sync.py", "args_template": "[--skip-markets] [--settled-pages N]", "needs": [], "description": "Fetch Kalshi reference dims (series/events/markets/settlements) into warehouse catalog parquets (public endpoints, read-only)", "docs": "tools/catalog_sync.py"},
-    {"name": "build_classification", "kind": "tool", "safety": "pure", "cmd": "python3 tools/build_classification.py", "args_template": "", "needs": [], "description": "Pin the classification dim (category/subcategory/group/record_class per series) from config/market_classes.yaml + emit review and tags reports", "docs": "tools/build_classification.py"},
-    {"name": "migrate_warehouse", "kind": "tool", "safety": "offline", "cmd": "python3 tools/migrate_warehouse.py", "args_template": "", "needs": [], "description": "One-time migration: re-ingest legacy captures, park Greed-layout partitions, regenerate classification + tags report, export completed days", "docs": "tools/migrate_warehouse.py"},
-    {"name": "pipeline_supervisor", "kind": "daemon", "safety": "network_read", "cmd": "./tools/pipeline_supervisor.sh", "args_template": "", "needs": ["make", "creds", "prod_env"], "description": "24/7 three-layer pipeline: hourly firehose raw logs -> ingest daemon -> UTC-midnight export; read-only (data_collect), never transmits", "docs": "tools/pipeline_supervisor.sh"},
-    {"name": "mm_scan", "kind": "tool", "safety": "pure", "cmd": "python3 tools/mm_scan.py", "args_template": "[--date D] [--archive-only] [--top N] [--min-trades N] [--min-depth N]", "needs": [], "description": "NON-GATE daily market-making candidate scanner: spread x trade-flow score with depth floors; capture quality remains unassessed until PIPE-W03", "docs": "tools/mm_scan.py"},
-    {"name": "mm_backtest", "kind": "tool", "safety": "pure", "cmd": "python3 tools/mm_backtest.py", "args_template": "--date D [--archive-only] [--from-scan N | --markets T1,T2] [--size N] [--max-inv N] [--min-spread $]", "needs": [], "description": "NON-GATE join-the-touch diagnostic with strict-through/optimistic fill bounds; maker fees, queue, settlement and capture quality are not yet validated", "docs": "tools/mm_backtest.py"},
-    {"name": "mm_calibrate", "kind": "tool", "safety": "pure", "cmd": "python3 tools/mm_calibrate.py", "args_template": "[--date D] [--end D] [--archive-only] [--min-trades N]", "needs": [], "description": "NON-GATE warehouse calibration: toxicity, 1-min realized vol and spread; fees/fills/queue/capture quality remain outside this artifact", "docs": "tools/mm_calibrate.py"},
-    {"name": "mm_research", "kind": "tool", "safety": "pure", "cmd": "python3 tools/mm_research.py", "args_template": "[--start D] [--end D] [--archive-only] [--out PATH] [--top N] [--min-updates N]", "needs": [], "description": "WP-06 research notebook: per-market-day K/z/wiggle + reversal rate + update-interval p50/p90 in BOTH price and log-odds space (A2), rollups by category/subcategory/group + hour-of-day, one static HTML page (tables + inline SVG) under work/mm/; sealed archive-only is automatic for past ranges; fee math is banner-only (verified=false refuses gate mode)", "docs": "tools/mm_research.py"},
-    {"name": "gate_calc", "kind": "tool", "safety": "pure", "cmd": "python3 tools/gate_calc.py", "args_template": "[--start D] [--end D] [--min-edge-c F] [--max-quote-age-s F] [--min-legs N] [--out PATH] [--preview-unverified-fees]", "needs": [], "description": "WP-09 gate calculator: buy-all-legs bracket-arb scan over clean days via warehouse load() (read-only) -> the three H-4 gate numbers (signal_count/day, lifespan p50/p90/max, theoretical net profit). Bracket universe: dims event_structure=bracket when present, else event_ticker grouping + mutually_exclusive=true from events dim (ME-unknown excluded fail-closed, KXMVE dropped per Q7). Net profit REFUSES while kalshi_facts.yaml fees.verified=false (mm_research.trade_fee gate mode, OQ-1 pointer); --preview-unverified-fees prints shape under a NON-GATE banner. Writes work/mm/gate_report_<date>.md", "docs": "tools/gate_calc.py"},
-    {"name": "test_ingest", "kind": "test", "safety": "pure", "cmd": "python3 tests/test_ingest.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Change-only + heartbeat + restart/checkpoint + class-policy proofs for tools/ingest.py (synthetic fixtures, no network)", "docs": "tests/test_ingest.py"},
-    {"name": "test_export_day", "kind": "test", "safety": "pure", "cmd": "python3 tests/test_export_day.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Exporter proofs: partition naming, manifest==files, md5, count verify, staging prune, load() archive/staging routing (no network)", "docs": "tests/test_export_day.py"},
-    {"name": "test_warehouse_status", "kind": "test", "safety": "pure", "cmd": "python3 tests/test_warehouse_status.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Offline tests for the warehouse status panel data source (row counts, partitions, schema/idempotency, missing categories)", "docs": "tests/test_warehouse_status.py"},
-    {"name": "fill_test", "kind": "probe", "safety": "live_order", "cmd": "./build/fill_test", "args_template": "<ticker>", "needs": ["make", "creds", "prod_env"], "build": "on_demand", "description": "Places a real order to observe a fill — TRANSMITS. Built on demand (not in BINS)", "docs": "apps/fill_test.cpp"},
-    {"name": "ingestd", "kind": "daemon", "safety": "network_read", "cmd": "./build/ingestd", "args_template": "--poll [interval_ms]", "needs": ["make", "creds"], "description": "Read-only market-tape recorder (REST poll -> Redis/NDJSON). Env-validated", "docs": "apps/ingestd.cpp"},
-    {"name": "tradingd", "kind": "daemon", "safety": "live_order", "cmd": "./build/tradingd", "args_template": "", "needs": ["make", "creds", "prod_env"], "description": "The trading engine — CAN transmit orders when live+allowed. Console-forbidden", "docs": "apps/tradingd.cpp"},
-    {"name": "run_pipeline", "kind": "check", "safety": "offline", "cmd": "./tests/run_pipeline.sh", "args_template": "", "needs": ["make", "mock_rest", "mock_server", "mock_ws", "mini_redis"], "pass_token": "PIPELINE PASS", "description": "Canonical offline suite runner; emits work/test_results.ndjson", "docs": "tests/run_pipeline.sh"},
-    {"name": "run_rest_api", "kind": "test", "safety": "offline", "cmd": "./tests/run_rest_api.sh", "args_template": "[port]", "needs": ["make", "mock_rest"], "pass_token": "ALL PASS", "description": "Wrapper: mock_rest.py + test_rest_api", "docs": "tests/run_rest_api.sh"},
-    {"name": "run_request_executor", "kind": "test", "safety": "offline", "cmd": "./tests/run_request_executor.sh", "args_template": "[port]", "needs": ["make", "mock_rest"], "pass_token": "ALL PASS", "description": "Wrapper: mock_rest.py + test_request_executor", "docs": "tests/run_request_executor.sh"},
-    {"name": "run_ws_smoke", "kind": "test", "safety": "offline", "cmd": "./tests/run_ws_smoke.sh", "args_template": "", "needs": ["make", "mock_ws"], "pass_token": "WS SMOKE PASS", "description": "Wrapper: mock_ws_exchange.py + ws_smoke", "docs": "tests/run_ws_smoke.sh"},
-    {"name": "check_gates", "kind": "check", "safety": "pure", "cmd": "./tools/check_gates.sh", "args_template": "", "needs": [], "pass_token": "gate ok", "description": "Grep safety gates (no demo-sniffing / banned endpoints / secret logging)", "docs": "tools/check_gates.sh"},
-    {"name": "probe_batch_cost_sh", "kind": "probe", "safety": "network_read", "cmd": "./tools/probe_batch_cost.sh", "args_template": "[seconds] [ticker...]", "needs": ["make", "creds", "prod_env"], "description": "Wrapper for the read-only batch-cost probe", "docs": "tools/probe_batch_cost.sh"},
-    {"name": "check_registry", "kind": "check", "safety": "pure", "cmd": "./tools/check_registry.py", "args_template": "[--require-built]", "needs": [], "pass_token": "registry ok", "description": "Validate tools.json schema + Makefile coverage", "docs": "tools/check_registry.py"},
-    {"name": "lifecycle_check", "kind": "check", "safety": "offline", "cmd": "./tools/lifecycle_check.py", "args_template": "[--run-core-tests] [--allow-network]", "needs": [], "pass_token": "LIFECYCLE PASS", "description": "Single readiness source: writes lifecycle status/events; no live_order tools", "docs": "tools/lifecycle_check.py"},
-    {"name": "kalshi_spec_sync", "kind": "check", "safety": "network_read", "cmd": "./tools/kalshi_spec_sync.py --allow-network", "args_template": "[--json]", "needs": [], "pass_token": "KALSHI SPEC ALIGNMENT PASS", "description": "Fetch official Kalshi docs/spec snapshots and report REST/WS implementation drift", "docs": "tools/kalshi_spec_sync.py"},
-    {"name": "kalshi_update_watcher", "kind": "probe", "safety": "network_read", "cmd": "./tools/kalshi_update_watcher.py --allow-network --once", "args_template": "[--watch --interval-seconds N]", "needs": [], "description": "Monitor public Kalshi docs/changelog/spec hashes and append update events", "docs": "tools/kalshi_update_watcher.py"},
-    {"name": "run_pytest", "kind": "tool", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "[pytest args]", "needs": [], "description": "pytest entry for contract suites (WP-00 scaffold; empty collection = green; legacy suites stay under make check per A1)", "docs": "tests/run_pytest.sh"},
-    {"name": "run_tests", "kind": "check", "safety": "offline", "cmd": "./tools/run_tests.py", "args_template": "--list | --tool NAME | --all", "needs": ["make"], "pass_token": "pass", "description": "Ops-console orchestration backend (runs tools, enforces safety policy)", "docs": "tools/run_tests.py"},
-    {"name": "test_console", "kind": "test", "safety": "offline", "cmd": "./tests/test_console.py", "args_template": "", "needs": ["make"], "pass_token": "ALL PASS", "description": "Console backend tests: output parser, safety policy, server 403 enforcement", "docs": "tests/test_console.py"},
-    {"name": "test_feed_readiness", "kind": "test", "safety": "pure", "cmd": "python3 tests/test_feed_readiness.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Offline fixtures for tools/feed_readiness.py (missing creds, local ready, active feed, redaction)", "docs": "tests/test_feed_readiness.py"},
-    {"name": "test_verify_ws_capture", "kind": "test", "safety": "pure", "cmd": "./tests/test_verify_ws_capture.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Offline fixtures for tools/verify_ws_capture.py (snapshot coverage, seq holes, loss/epoch markers)", "docs": "tests/test_verify_ws_capture.py"},
-    {"name": "test_verify_feed_metrics", "kind": "test", "safety": "pure", "cmd": "python3 tests/test_verify_feed_metrics.py", "args_template": "", "needs": [], "pass_token": "ALL PASS", "description": "Offline fixtures for tools/verify_feed_metrics.py (real feed rows, synthetic rejection, freshness, capture/ticker matching)", "docs": "tests/test_verify_feed_metrics.py"},
-    {"name": "dashboard_server", "kind": "daemon", "safety": "offline", "cmd": "./dashboard_server.py", "args_template": "--port 8765 [--allow-network]", "needs": [], "description": "Localhost ops console (Tests/Tools/Live). Read-only wrt trading; live_order always refused", "docs": "dashboard_server.py"},
-    {"name": "coverage_audit", "kind": "check", "safety": "offline", "autorun": false, "cmd": "python3 tools/coverage_audit.py", "args_template": "--date <YYYY-MM-DD> [--declared-list config/depth_watchlist.txt] [--out-dir work/mm]", "needs": [], "pass_token": "COVERAGE AUDIT GREEN", "description": "W4: daily scope proof over one warehouse day (read-only) — S1 universe reconciliation, S2/V14 High+Mid=>100% L1 (violations listed with category+class, report-context), S3 sports completeness, S4 depth-target ranking (volume x spread -> work/mm/depth_target_<D>.csv), V15 depth-set stability (shrinkage vs declared list = ERROR exit 1; missing list documented), V16 unlisted-category => Class B + warning; promotion candidates report-only (Q7 Exotics/MVE excluded); NEVER edits config/market_classes.yaml", "docs": "tools/coverage_audit.py"},
-    {"name": "test_coverage_audit", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_coverage_audit.py", "needs": [], "pass_token": "passed", "description": "W4: coverage auditor — V16 fake-new-category => Class B + surfaced warning, V14 High-tier-without-L1 violation listed with category+class, S3 sports-missing fixture, V15 depth-set shrinkage = error / extras = warning / missing declared list documented, tier parity vs gold_build.liquidity_tiers, Q7 promotion exclusion, CSV writers, lifecycle research stage only ever pass/skipped (never reddens)", "docs": "tests/test_coverage_audit.py"},
-    {"name": "event_measure_split", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/event_measure_split.py", "args_template": "[--category Sports] [--days 7] [--top 20]", "needs": [], "description": "PLAN_EVENT_PACKAGING W-E0: read-only measurement of calendar-split pain — per-event observed span from trades, flags events whose first/last tick fall on different UTC dates with per-day row counts; writes work/event_packs/split_report_<date>.csv. Derived-only; never touches capture/ingest/export", "docs": "tools/event_measure_split.py"},
-    {"name": "test_event_measure_split", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_event_measure_split.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E0: pure split-detection core — cross-midnight flag, calendar-span counting, per-day tick counts, exact day-index boundary math", "docs": "tests/test_event_measure_split.py"},
-    {"name": "event_index", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/event_index.py", "args_template": "--catalog-dir <dir> [--policy config/event_packaging.yaml] [--out work/event_packs/index.parquet] [--now 'YYYY-MM-DD HH:MM:SS']", "needs": [], "description": "PLAN_EVENT_PACKAGING W-E1: build work/event_packs/index.parquet from catalog CSVs — §3.2 window inference (observed + lifecycle, not close_time alone); one row per event|market packaging unit", "docs": "tools/event_index.py"},
-    {"name": "test_event_index", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_event_index.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E1: fixture catalog → deterministic index rows; Q7 exclusions; catalog_incomplete + window_divergence flags; observed padding property; parquet schema roundtrip", "docs": "tests/test_event_index.py"},
-    {"name": "event_pack", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/event_pack.py", "args_template": "[--index work/event_packs/index.parquet] [--unit KEY] [--warehouse DIR] [--refresh] [--now 'YYYY-MM-DD HH:MM:SS']", "needs": [], "description": "PLAN_EVENT_PACKAGING W-E2: materialize per-unit packs (data/unit=.../{trades,orderbooks_l1}.csv + manifest) from an index row. Money-integrity: E4 integer columns byte-exact, no float (AF-1/2/3). Sealed-only + pack-time stale-window refuse/refresh (AF-5). Read-only on warehouse", "docs": "tools/event_pack.py"},
-    {"name": "test_event_pack", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_event_pack.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E2: synthetic 2-day archive → cross-midnight reassembly, market filtering, row counts vs direct SQL, E4 byte-exact money-integrity (sub-penny survives), idempotent rebuild, AF-5 refuse/refresh, sealed-only", "docs": "tests/test_event_pack.py"},
-    {"name": "test_warehouse_nonuniform_archive", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_warehouse_nonuniform_archive.py", "needs": [], "pass_token": "passed", "description": "AF-3: warehouse.load() archive-vs-staging exclusion scoped PER category (not global max-archive-date) — a lagging category's not-yet-archived staging rows survive; an archived category's staging day is still deduped", "docs": "tests/test_warehouse_nonuniform_archive.py"},
-    {"name": "event_validate", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/event_validate.py", "args_template": "--manifest manifests/<key>.json [--warehouse DIR] [--gaps work/event_packs/capture_gaps.csv]", "needs": [], "description": "PLAN_EVENT_PACKAGING W-E3: validate a W-E2 pack vs warehouse + capture-gaps → pass|degraded|fail. V-EP1/3/4/6/7/10/12 + V-EP15 interior-gap (AF-1); dependency checks report skip (honest, D2). Read-only", "docs": "tools/event_validate.py"},
-    {"name": "test_event_validate", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_event_validate.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E3: pack validator — clean pack pass; interior_gap red fixture (AF-1: V-EP15 degrades a pack all blocking checks pass); foreign-market/leaked-ts fail", "docs": "tests/test_event_validate.py"},
-    {"name": "capture_gaps", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/capture_gaps.py", "args_template": "(--date YYYY-MM-DD | --since N | --live) [--min-gap-secs 60]", "needs": [], "description": "PLAN_CAPTURE_HARDENING W-C2: durable structured capture-gap record (work/event_packs/capture_gaps.csv, start_us,end_us) from raw-feed inter-record silence — the authoritative source for event_validate V-EP15. --live writes a dashboard alert + exits 2 on an active gap. Read-only over raw (D1); a hole is always recorded (D2)", "docs": "tools/capture_gaps.py"},
-    {"name": "test_capture_gaps", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_capture_gaps.py", "needs": [], "pass_token": "passed", "description": "PLAN_CAPTURE_HARDENING W-C2: gap detector — seeded silence emits exact [start_us,end_us], dense none, time-overlapping segments (global sort, no false gap), live alert fail-closed, and a raw-built record drives event_validate → degraded (AF-1)", "docs": "tests/test_capture_gaps.py"},
-    {"name": "test_warehouse_event", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_warehouse_event.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E3: warehouse.load(event=...) resolves window+markets from the index and returns only that episode across day partitions; day-mode unchanged; unknown event raises", "docs": "tests/test_warehouse_event.py"},
-    {"name": "event_export", "kind": "tool", "safety": "offline", "autorun": false, "cmd": "python3 tools/event_export.py", "args_template": "(--event K | --market K | --series K) [--status sealed] [--warehouse DIR]", "needs": [], "description": "PLAN_EVENT_PACKAGING W-E7: operator-facing per-event CSV export — three-axis selector, one folder per event under work/event_exports/<series>/<event>/, _event_summary.csv + _manifest.json (completeness=pass ONLY if event_validate passes; degraded on interior gap). Composes W-E2 packer + W-E3 validator; E4 money byte-exact. Read-only on warehouse", "docs": "tools/event_export.py"},
-    {"name": "test_event_export", "kind": "test", "safety": "pure", "cmd": "./tests/run_pytest.sh", "args_template": "tests/test_event_export.py", "needs": [], "pass_token": "passed", "description": "PLAN_EVENT_PACKAGING W-E7: export layout + E4 byte-exact money-integrity (sub-penny survives) + market-axis single-market filter + series resolves events + manifest completeness reflects validator (pass/degraded)", "docs": "tests/test_event_export.py"}
+    {
+      "name": "test_ring",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_ring",
+      "args_template": "[scratch_dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Vyukov MPMC ring unit + concurrency test",
+      "docs": "tests/test_ring.cpp"
+    },
+    {
+      "name": "test_fixedpoint",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_fixedpoint",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "PriceE4/CountFp parsers: range + no-truncate + round-trip",
+      "docs": "tests/test_fixedpoint.cpp"
+    },
+    {
+      "name": "test_ids",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_ids",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Deterministic EntityId hashing + Unknown rejection",
+      "docs": "tests/test_ids.cpp"
+    },
+    {
+      "name": "test_env_safety",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_env_safety",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "resolve_runtime fail-closed + host/WS allowlist cross-validation",
+      "docs": "tests/test_env_safety.cpp"
+    },
+    {
+      "name": "test_bus",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_bus",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "NormalizedEvent bus: registry, trace propagation, ExecDecision",
+      "docs": "tests/test_bus.cpp"
+    },
+    {
+      "name": "test_orderbook",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_orderbook",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "OrderBook apply/invalidate + manager sid-gap resync",
+      "docs": "tests/test_orderbook.cpp"
+    },
+    {
+      "name": "test_recovery",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_recovery",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "RecoveryLadder rung escalation",
+      "docs": "tests/test_recovery.cpp"
+    },
+    {
+      "name": "test_readability",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_readability",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "operator<< / dump_state / enum stringification",
+      "docs": "tests/test_readability.cpp"
+    },
+    {
+      "name": "test_sid_stream",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_sid_stream",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Per-sid sequence gap detection",
+      "docs": "tests/test_sid_stream.cpp"
+    },
+    {
+      "name": "test_token_bucket",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_token_bucket",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "TokenBucketI64: zero-drift refill, reserve/wait, concurrency hammer",
+      "docs": "tests/test_token_bucket.cpp"
+    },
+    {
+      "name": "test_backoff",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_backoff",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Seeded-jitter backoff + F9 retry matrix (reconcile-on-ambiguity)",
+      "docs": "tests/test_backoff.cpp"
+    },
+    {
+      "name": "test_secret_redaction",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_secret_redaction",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Auth-header redaction + telemetry secret-freedom",
+      "docs": "tests/test_secret_redaction.cpp"
+    },
+    {
+      "name": "test_account_limits",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_account_limits",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Nested /account/limits parser + tier-table safeguard + invariants",
+      "docs": "tests/test_account_limits.cpp"
+    },
+    {
+      "name": "test_endpoint_costs",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_endpoint_costs",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Endpoint cost parse + :param/{param}/*glob path matching",
+      "docs": "tests/test_endpoint_costs.cpp"
+    },
+    {
+      "name": "test_request_spec",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_request_spec",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Path normalize/prefix-strip + F6 Read/Write classification",
+      "docs": "tests/test_request_spec.cpp"
+    },
+    {
+      "name": "test_batch_cost",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_batch_cost",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Batch token-cost math + per-item table lookup",
+      "docs": "tests/test_batch_cost.cpp"
+    },
+    {
+      "name": "test_decode",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_decode",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Kalshi WS/REST JSON decode into NormalizedEvent",
+      "docs": "tests/test_decode.cpp"
+    },
+    {
+      "name": "test_storage",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_storage",
+      "args_template": "[scratch_dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Raw-log write/read byte-exact + rotation + replay equivalence",
+      "docs": "tests/test_storage.cpp"
+    },
+    {
+      "name": "test_replay",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_replay",
+      "args_template": "[scratch_dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Replay checksum equivalence (markers)",
+      "docs": "tests/test_replay.cpp"
+    },
+    {
+      "name": "test_recorder",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_recorder",
+      "args_template": "[scratch_dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "WsRecorder SPSC ring + loss markers",
+      "docs": "tests/test_recorder.cpp"
+    },
+    {
+      "name": "test_ws_client",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_ws_client",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "KalshiWsClient over MockWebSocketTransport (auth/subscribe/seq)",
+      "docs": "tests/test_ws_client.cpp"
+    },
+    {
+      "name": "test_shadow",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_shadow",
+      "args_template": "[scratch_dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Shadow/DataCollect exec decisions (Logged/Rejected, no transmit)",
+      "docs": "tests/test_shadow.cpp"
+    },
+    {
+      "name": "test_strategies",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_strategies",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Strategy roster selection + once_probe emit-once-then-silent (no network, no transmit)",
+      "docs": "tests/test_strategies.cpp"
+    },
+    {
+      "name": "test_market_filter",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_market_filter",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Phase 4 fast in-memory market filter: deterministic evaluate() over fixture market states (no network, no DuckDB)",
+      "docs": "tests/test_market_filter.cpp"
+    },
+    {
+      "name": "test_gold_layout",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_gold_layout",
+      "args_template": "[--dump]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "W1: GoldRecord 512B layout contract — offsets, little-endian, byte-exact match vs committed canonical JSON (V11 C++ half)",
+      "docs": "tests/test_gold_layout.cpp"
+    },
+    {
+      "name": "test_gold_dtype",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_dtype.py",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "passed",
+      "description": "W1: numpy GOLD_DTYPE parity vs canonical layout JSON + fixture git-tracked assertion (V11 Python half, audit G2)",
+      "docs": "tests/test_gold_dtype.py"
+    },
+    {
+      "name": "test_gold_load",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_load.py",
+      "pass_token": "passed",
+      "description": "W2.1: typed loaders — V1 byte-exact E4 round-trip on real golden rows, no-float-parse grep gate, §2.2 validation gates proven red on seeded-defect fixtures, trade sort+dedupe, quarantine+loader report",
+      "docs": "tests/test_gold_load.py"
+    },
+    {
+      "name": "test_gold_fsm",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_fsm.py",
+      "pass_token": "passed",
+      "description": "W2.2: book FSM — pure per-market state machine (snapshot/delta/invalid/crossed/seq-gap/heartbeat), invalid-until-snapshot no-clamp latch, yes-space transform, DEPTH+rest aggregation, both seq modes; clamp-bug + stale-state-after-invalid seeded fixtures proven red by mutation",
+      "docs": "tests/test_gold_fsm.py"
+    },
+    {
+      "name": "test_gold_merge",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_merge.py",
+      "pass_token": "passed",
+      "description": "W2.3: merge iterator — global k-way total order (ts_us, TRADE<BOOK_DELTA at equal µs, source file order), dense 0-based stream_seq, per-market gap-free book_seq minting, trades reference only already-emitted book state (structural V3/V6 checkers); same-µs ordering + book_seq-gap seeded fixtures proven red by mutation",
+      "docs": "tests/test_gold_merge.py"
+    },
+    {
+      "name": "test_gold_io",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_io.py",
+      "pass_token": "passed",
+      "description": "W2.4: gold writer/reader — merged records -> 512B .bin + markets/trade_ids sidecars + md5 manifest; mmap reader verifies every md5 on open; 10k write->mmap==streamed-parse (V11 runtime half); same-day 1:1 market_id<->ticker = build failure; cross-day access requires ticker (§2.1); fnv1a64 hash<->UUID reconciliation (V8 shape); dup-ticker/dup-id/sidecar-tamper/hash-tamper fixtures proven red by mutation",
+      "docs": "tests/test_gold_io.py"
+    },
+    {
+      "name": "test_gold_validate",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_validate.py",
+      "pass_token": "passed",
+      "description": "W2.5: validator harness — V2/V3/V4/V6/V9/V10 run independently over written gold days (+ V8-shape hash reconciliation wired, never dormant); one committed seeded-defect day per check proven red (green/red matrix); failing day -> quarantine move + nonzero exit",
+      "docs": "tests/test_gold_validate.py"
+    },
+    {
+      "name": "test_kalshi_golden",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_kalshi_golden.py",
+      "pass_token": "passed",
+      "description": "W3.3: golden Kalshi frames — V13 field semantics on REAL captured frames (1 snapshot + 50 deltas + 50 trades, verbatim): per-sid seq scoping incl. trades carrying seq, trade_id UUID dedupe key, byte-exact E4 fixed-point strings via gold_load, taker_side yes/no, per-channel ts encodings; V12 saved-spec gate skips the module loudly when red/stale; doctored dup-trade_id/seq-regression/float-price fixtures proven red",
+      "docs": "tests/test_kalshi_golden.py"
+    },
+    {
+      "name": "gold_validate",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "python3 tools/gold_validate.py",
+      "args_template": "--root work/gold --date <YYYY-MM-DD> [--no-quarantine]",
+      "pass_token": "DAY GREEN",
+      "description": "W2.5: validate one gold day partition (V2,V3,V4,V6,V8,V9,V10, independent; all violations reported); any failure MOVES the whole partition to <root>/quarantine/date=<D>/ + nonzero exit; derived work/gold data only, never raw/archive",
+      "docs": "tools/gold_validate.py"
+    },
+    {
+      "name": "gold_build",
+      "kind": "tool",
+      "safety": "offline",
+      "cmd": "python3 tools/gold_build.py",
+      "args_template": "--date <YYYY-MM-DD> [--root work/gold] [--spec work/kalshi_spec_alignment.json]",
+      "pass_token": "DAY GREEN",
+      "description": "W2.6: build + validate one gold day — thin composition (V12 saved-spec gate -> warehouse load() read-only -> W2.1 loaders + quarantine report -> per-(channel,market) sorted slices -> W2.2/W2.3 FSM+merge -> W2.4 write_day -> W2.5 validate_day; failed day quarantined + nonzero exit; never auto-runs the network spec sync)",
+      "docs": "tools/gold_build.py"
+    },
+    {
+      "name": "test_gold_v5_delta",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_v5_delta.py",
+      "pass_token": "passed",
+      "description": "W3.1: V5 δ distribution — hand-computed offset fixtures (10/20/…/100 ms => nearest-rank p50/p90/p99/max), fixed scan bound (no CLI widening knob), uncheckable-vs-mismatch honesty split, bad-markets flagging with min-support rule, manifest verdict update leaves certified md5s byte-identical; committed v5_shifted_book price-shifted day proven red (permanent disagreement counted, never absorbed by a wider δ)",
+      "docs": "tests/test_gold_v5_delta.py"
+    },
+    {
+      "name": "gold_v5_delta",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "python3 tools/gold_v5_delta.py",
+      "args_template": "--date <YYYY-MM-DD> [--root work/gold]",
+      "pass_token": "V5 MEASURED",
+      "description": "W3.1: measure the L1<->book agreement window δ as a DISTRIBUTION over one gold day (covered markets only; L1 views read-only from the warehouse through the W2.1 gates): p50/p90/p99/max delta_ms + mismatch counts by market/ticker/category/subcategory/liquidity tier; fixed scan bound (widening δ to absorb mismatches FORBIDDEN — high-mismatch markets go on a surfaced bad-markets list, exit 1); prints support size, labeled BASELINE SAMPLE; writes v5_delta_report_<D>.json into the day partition + fills the manifest safety_verdicts.V5 without touching certified md5s",
+      "docs": "tools/gold_v5_delta.py"
+    },
+    {
+      "name": "test_gold_v7_race",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gold_v7_race.py",
+      "pass_token": "passed",
+      "description": "W3.2: V7 race/consistency REPORT-ONLY — hand-computed 3-trade day (at-ask clean, inside-spread race, at-bid-with-taker-yes race => rate 2/3), covered_book vs l1_asof populations measured separately, unmeasurable (invalid book/empty side) never a race, nearest-rank p95 proposal math hand-computed, unsafe_for_microstructure marking in report + manifest, grep-proof that no exit-nonzero is tied to race rates, manifest V7 update leaves certified md5s + V5 verdict byte-identical; committed v7_inverted_taker fixture proven red (flipped taker sides flip the measured race rate to 1.0 — measurement failure, not a threshold)",
+      "docs": "tests/test_gold_v7_race.py"
+    },
+    {
+      "name": "gold_v7_race",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "python3 tools/gold_v7_race.py",
+      "args_template": "--date <YYYY-MM-DD> [--root work/gold]",
+      "pass_token": "V7 MEASURED",
+      "description": "W3.2: V7 economic-consistency (race) report over one gold day, REPORT-ONLY per PLAN_GOLD_DATA_CONTRACT §2.2 point 5 — for every TRADE record, does it print at the as-of touch (taker=yes vs best ask, taker=no vs best bid)? covered_book vs l1_asof populations reported SEPARATELY; race rate per category/subcategory/market/class(A-B)/liquidity tier; PROPOSED thresholds (nearest-rank p95 of per-market rates) printed FOR OPERATOR APPROVAL — not enforced; slices above proposal marked unsafe_for_microstructure in report + manifest verdict field; NO blocking threshold, exit 0 unless the tool itself errors; subcategory joined read-only from warehouse trades (lock-retry)",
+      "docs": "tools/gold_v7_race.py"
+    },
+    {
+      "name": "test_freshness",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_freshness.py",
+      "pass_token": "passed",
+      "description": "WP-03: freshness monitor contract — staging lag = max(ts_utc) over ALL fact tables (trades newer than L1 fixture rejects an L1-only tool), --threshold alert boundary (exit 1 / STALE, FRESH token absent), missing staging = STALE loud, capture-lag path incl. rotation shards *.ndjson.N and capture-dead-while-staging-fresh; fixture staging built by the production Ingester",
+      "docs": "tests/test_freshness.py"
+    },
+    {
+      "name": "test_pipeline_contract",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_pipeline_contract.py",
+      "pass_token": "passed",
+      "description": "WP-04: permanent acceptance suite (pipeline contract, synthetic fixtures) — every-byte-accounted checkpoints (rotation shard + partial trailing line), league derive_group mapping (known_league vs family_prefix+needs_review), settlements-export contract (xfail: not implemented, BACKLOG), denormalized hierarchy columns on every archived fact row (l1+trades), load() archive-vs-staging routing; folded WP-01 E4 round-trip ('0.0325'->325->presented exactly) + fractional qty ('5119.00'->51190000); folded WP-02 class-policy-from-config + unknown-category-warns; adopted change-only/heartbeat/kill-restart-determinism (row-for-row EXCEPT ALL) on independent fixture values per A1",
+      "docs": "tests/test_pipeline_contract.py"
+    },
+    {
+      "name": "test_research_metrics",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_research_metrics.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "WP-06: maker-viability metric contract — pinned plan fixtures (mids [10,12,10,12] -> K=12, z=2, wiggle=4, reversal=1.0; interpretation K=sum sq moves, z=net displacement, wiggle=(K-z^2)/2 mean-reversion harvest, R-confirm in BACKLOG), heartbeat exclusion (is_snapshot AND price NULL; first-obs snapshot kept), nearest-rank interval p50/p90, A2 both-spaces emission (hand-computed logit values, [0.01,0.99] clip), fee guard READS kalshi_facts.yaml (gate_mode + verified!=true raises FeeNotVerifiedError; behavior follows a mutated temp yaml, never hardcoded)",
+      "docs": "tests/test_research_metrics.py"
+    },
+    {
+      "name": "test_gate_metrics",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_gate_metrics.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "WP-09: gate-calculator contract — plan fixtures pinned: 3-market bracket asks sum 96c -> ONE BUY episode gross edge 4c; 99/101c band silent (min_edge_c default 2.0, parameterized); no-arb ~100c fixtures -> ZERO signals (anti-fake-green); partial-quote guard (unquoted/one-sided leg blocks evaluation); hand-computed lifespan timeline (15s/10s episodes, nearest-rank p50=10 p90=15); net profit = gross - mm_research.trade_fee sum (hand-computed -0.57c on 30/33/33 @ taker 0.07); gate-mode refusal proven BOTH directions (repo yaml verified=false raises FeeNotVerifiedError, temp verified=true computes)",
+      "docs": "tests/test_gate_metrics.py"
+    },
+    {
+      "name": "freshness",
+      "kind": "check",
+      "safety": "pure",
+      "autorun": false,
+      "cmd": "python3 tools/freshness.py",
+      "args_template": "[--threshold 600] [--json]",
+      "needs": [],
+      "pass_token": "FRESH",
+      "description": "WP-03: ONE number — seconds since newest staging row (max ts_utc over fact tables) PLUS capture lag (newest raw file mtime under date=<today>); STALE + exit 1 if EITHER exceeds threshold; read-only lock-retry vs the ingest writer; missing staging/raw = STALE fail-closed; --json feeds WP-08",
+      "docs": "tools/freshness.py"
+    },
+    {
+      "name": "test_daily_check",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_daily_check.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "WP-08: daily quality check contract — category row-count drop vs prior day = warning-not-failure (threshold configurable, no-history skip honest), WP-03 freshness consumed via the documented --freshness-json seam (STALE => exit 1, stale_reasons carried verbatim), missing manifest / missing day rows / md5 spot-check mismatch => exit 1 fail-closed, gold day quarantined or QUARANTINE verdict => exit 1 (not-built = report-only), seq-gap scan honest not-instrumented + cumulative ws counters warn, quality_log append schema-exact to a tmp path (real log never touched by tests; env DAILY_CHECK_QUALITY_LOG override covered), 24h window filtering",
+      "docs": "tests/test_daily_check.py"
+    },
+    {
+      "name": "daily_check",
+      "kind": "check",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/daily_check.py",
+      "args_template": "[--date YYYY-MM-DD] [--json] [--drop-pct 50]",
+      "needs": [],
+      "pass_token": "DAILY GREEN",
+      "description": "WP-08: the two-minute morning ritual (H-2) — yesterday's health on one screen: WP-03 freshness (subprocessed --json, never reimplemented), manifest per-table row counts + md5 spot check + category drop detection vs prior day (report-only warning), gold day verdict/quarantine, ws_shadow tail gap scan (honest not-instrumented), quality_log last-24h view, ONE appended quality_log line {ts,wp:daily-check,window,finding GREEN|WARNINGS:n|RED:n,action,evidence}; exit 1 on freshness STALE / missing manifest day / md5 mismatch / gold quarantine; safety offline (appends work/quality_log.ndjson), autorun false (runs freshness subprocess + writes the log — the run is R's deliberate morning act)",
+      "docs": "tools/daily_check.py"
+    },
+    {
+      "name": "test_signing",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/test_signing",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "RSA-PSS signing correctness",
+      "docs": "tests/test_signing.cpp"
+    },
+    {
+      "name": "fuzz_decode",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./build/fuzz_decode",
+      "args_template": "[iters] [dir]",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "no crash/UB",
+      "description": "ASan+UBSan fuzzer over JSON decode + NDJSON reader + limits/cost/path parsers",
+      "docs": "tests/fuzz_decode.cpp"
+    },
+    {
+      "name": "test_resp",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./build/test_resp",
+      "args_template": "<port>",
+      "needs": [
+        "make",
+        "mini_redis"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "RESP2 client vs mini_redis.py",
+      "docs": "tests/test_resp.cpp"
+    },
+    {
+      "name": "test_rest_api",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./build/test_rest_api",
+      "args_template": "<base_url>",
+      "needs": [
+        "make",
+        "mock_rest"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Typed REST endpoints vs mock_rest.py (pagination, 429, nested limits)",
+      "docs": "tests/test_rest_api.cpp"
+    },
+    {
+      "name": "test_request_executor",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./build/test_request_executor",
+      "args_template": "<base_url>",
+      "needs": [
+        "make",
+        "mock_rest"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Executor reserve-before-send / telemetry / 429 vs mock_rest.py",
+      "docs": "tests/test_request_executor.cpp"
+    },
+    {
+      "name": "test_integration",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./build/test_integration",
+      "args_template": "<base_url> <key.pem> <threads> <reqs>",
+      "needs": [
+        "make",
+        "mock_server"
+      ],
+      "pass_token": "INTEGRATION PASS",
+      "description": "Threaded signed-request integration vs mock_server.py",
+      "docs": "tests/test_integration.cpp"
+    },
+    {
+      "name": "ws_smoke",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./build/ws_smoke",
+      "args_template": "[ws_url]",
+      "needs": [
+        "make",
+        "mock_ws"
+      ],
+      "pass_token": "WS SMOKE PASS",
+      "description": "ixwebsocket transport + KalshiWsClient vs mock_ws_exchange.py",
+      "docs": "apps/ws_smoke.cpp"
+    },
+    {
+      "name": "bench_orderbook",
+      "kind": "bench",
+      "safety": "pure",
+      "cmd": "./build/bench_orderbook",
+      "args_template": "[n]",
+      "needs": [
+        "make"
+      ],
+      "description": "OrderBook apply throughput (ns/delta)",
+      "docs": "apps/bench_orderbook.cpp"
+    },
+    {
+      "name": "bench_ws_decode",
+      "kind": "bench",
+      "safety": "pure",
+      "cmd": "./build/bench_ws_decode",
+      "args_template": "[n]",
+      "needs": [
+        "make"
+      ],
+      "description": "WS decode+apply throughput (ns/msg)",
+      "docs": "apps/bench_ws_decode.cpp"
+    },
+    {
+      "name": "bench_rtt",
+      "kind": "bench",
+      "safety": "network_read",
+      "cmd": "./build/bench_rtt",
+      "args_template": "[n] [base_url]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "Signed round-trip latency to a real Kalshi host (read-only)",
+      "docs": "apps/bench_rtt.cpp"
+    },
+    {
+      "name": "bench_order",
+      "kind": "bench",
+      "safety": "live_order",
+      "cmd": "./build/bench_order",
+      "args_template": "[n] [ticker] [--prod-ok]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "Place+cancel real post-only 1c orders to time the order path — TRANSMITS",
+      "docs": "apps/bench_order.cpp"
+    },
+    {
+      "name": "account_info",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./build/account_info",
+      "args_template": "",
+      "needs": [
+        "make",
+        "creds"
+      ],
+      "description": "Read-only: prints tier, read/write buckets, grants, full endpoint-cost table",
+      "docs": "apps/account_info.cpp"
+    },
+    {
+      "name": "probe_batch_cost",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./build/probe_batch_cost",
+      "args_template": "<seconds> <ticker...>",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "Read-only: batch-orderbook throughput to first throttle (F8 cost probe)",
+      "docs": "apps/probe_batch_cost.cpp"
+    },
+    {
+      "name": "rate_probe",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./build/rate_probe",
+      "args_template": "[seconds] [threads]",
+      "needs": [
+        "make",
+        "creds"
+      ],
+      "description": "Read-only: multithreaded burst to observe server 429s (bypasses local bucket)",
+      "docs": "apps/rate_probe.cpp"
+    },
+    {
+      "name": "depth_probe",
+      "kind": "probe",
+      "safety": "network_read",
+      "autorun": false,
+      "cmd": "python3 tools/depth_probe.py",
+      "args_template": "--operator-approved [--markets 50] [--seconds 900] [--csv <depth_target.csv>] [--dry-run] | --analyze <capture.ndjson>",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "W6 OPERATOR-GATED depth-expansion sizing probe: runs a SECOND read-only ws_shadow (orderbook_delta, top-N of the depth-target list, bounded 900 s) capturing to its OWN work/probe/ path (never work/raw, never work/metrics.ndjson), then prints measured msg rates + bytes/market by liquidity tier; REFUSES without --operator-approved, refuses live mode, spends zero REST tokens; --analyze is the offline analysis on an existing capture",
+      "docs": "docs/PLAN_DEPTH_EXPANSION.md"
+    },
+    {
+      "name": "test_depth_probe",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_depth_probe.py",
+      "pass_token": "passed",
+      "description": "W6: depth_probe contract — analyze_capture on a hand-built fixture capture (known msg/s + exact wire/capture bytes by tier, dead-subscription surfacing, parse-error counting), top-N CSV loading, and the operator gate via subprocess: refusal without --operator-approved, live-mode refusal, work/raw capture-path refusal, dry-run opens no socket + stale-list warning",
+      "docs": "tests/test_depth_probe.py"
+    },
+    {
+      "name": "account_upgrade",
+      "kind": "probe",
+      "safety": "live_order",
+      "cmd": "./build/account_upgrade",
+      "args_template": "",
+      "needs": [
+        "make",
+        "creds"
+      ],
+      "description": "MUTATES: POSTs the API tier upgrade (30 Write tokens, permanent) — NOT an order but a real account write; console-forbidden",
+      "docs": "apps/account_upgrade.cpp"
+    },
+    {
+      "name": "ws_shadow",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./build/ws_shadow",
+      "args_template": "[ws_url]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "pass_token": "WS SHADOW PASS",
+      "description": "Read-only WS shadow engine + recorder + REST cross-check; never transmits",
+      "docs": "apps/ws_shadow.cpp"
+    },
+    {
+      "name": "preflight",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./build/preflight",
+      "args_template": "[--orderbook T1,T2] [--order]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "pass_token": "PREFLIGHT PASS",
+      "description": "Creds/clock/market-data/limits/costs checks (read-only); --orderbook adds top-5 levels + spread. NOTE: --order TRANSMITS a real order (live_order); the console must never pass --order",
+      "docs": "apps/preflight.cpp"
+    },
+    {
+      "name": "exchange_check",
+      "kind": "check",
+      "safety": "network_read",
+      "cmd": "./tools/exchange_check.sh",
+      "args_template": "[--env prod] [--tickers T1,T2] [--ws-seconds 30] [--metrics work/metrics.ndjson]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "pass_token": "EXCHANGE CHECK PASS",
+      "description": "One-command read-only exchange check: preflight surface + WS capture + dashboard feed metrics validation",
+      "docs": "tools/exchange_check.sh"
+    },
+    {
+      "name": "feed_readiness",
+      "kind": "check",
+      "safety": "pure",
+      "autorun": false,
+      "cmd": "python3 tools/feed_readiness.py",
+      "args_template": "[--metrics work/metrics.ndjson] [--json]",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Local no-network market-feed precheck: env presence, key-file presence, ws_shadow build, exchange_check script, and real kalshi_ws metrics status",
+      "docs": "tools/feed_readiness.py"
+    },
+    {
+      "name": "warehouse_status",
+      "kind": "check",
+      "safety": "pure",
+      "autorun": false,
+      "cmd": "./tools/warehouse_status.py",
+      "args_template": "[--warehouse work/warehouse] [--json]",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Read-only three-layer warehouse panel data source: staging row counts + checkpoint freshness, archive partitions/manifest, catalog dims, source_kind (covered by test_warehouse_status)",
+      "docs": "tools/warehouse_status.py"
+    },
+    {
+      "name": "verify_ws_capture",
+      "kind": "check",
+      "safety": "pure",
+      "autorun": false,
+      "cmd": "./tools/verify_ws_capture.py",
+      "args_template": "CAPTURE.ndjson [--tickers T1,T2] [--min-span-seconds N]",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Structural validator for a ws_shadow capture NDJSON (snapshot coverage, per-sid seq continuity, marker health); needs a capture arg so it is not in the argument-free auto-run set (covered by test_verify_ws_capture)",
+      "docs": "tools/verify_ws_capture.py"
+    },
+    {
+      "name": "verify_feed_metrics",
+      "kind": "check",
+      "safety": "pure",
+      "autorun": false,
+      "cmd": "python3 tools/verify_feed_metrics.py",
+      "args_template": "METRICS.ndjson [--source kalshi_ws] [--capture CAPTURE.ndjson] [--tickers T1,T2] [--max-age-ms N]",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Dashboard-feed validator: proves metrics contain fresh non-synthetic kalshi_ws feed + market_data rows (covered by test_verify_feed_metrics)",
+      "docs": "tools/verify_feed_metrics.py"
+    },
+    {
+      "name": "ingest",
+      "kind": "tool",
+      "safety": "offline",
+      "cmd": "python3 tools/ingest.py",
+      "args_template": "CAPTURE.ndjson [...] | --loop [SECONDS]",
+      "needs": [],
+      "description": "LAYER 2: change-only ingester (raw firehose NDJSON -> staging.duckdb) with hourly heartbeats, class policy, join-at-ingest, checkpointed byte offsets",
+      "docs": "tools/ingest.py"
+    },
+    {
+      "name": "export_day",
+      "kind": "tool",
+      "safety": "offline",
+      "cmd": "python3 tools/export_day.py",
+      "args_template": "[--date YYYY-MM-DD] [--force] [--no-prune]",
+      "needs": [],
+      "description": "LAYER 3: day-rollover exporter (staging -> sorted zstd-15 Parquet / csv.gz partitions + manifest.csv + md5 verify + staging prune)",
+      "docs": "tools/export_day.py"
+    },
+    {
+      "name": "warehouse_load",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/warehouse.py",
+      "args_template": "TABLE [--category C] [--subcategory S] [--group G] [--start D] [--end D] [--ffill]",
+      "needs": [],
+      "description": "Single analysis entry point: load() routes archive partitions vs live staging automatically; ffill applies the LOCF reconstruction rule",
+      "docs": "tools/warehouse.py"
+    },
+    {
+      "name": "dim_snapshot",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/dim_snapshot.py",
+      "args_template": "[--date YYYY-MM-DD]",
+      "needs": [],
+      "description": "Daily dim snapshots (catalog -> dim/snapshots/date=D + dim/latest CSVs) with derived event_structure + bracket_rank",
+      "docs": "tools/dim_snapshot.py"
+    },
+    {
+      "name": "catalog_sync",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "python3 tools/catalog_sync.py",
+      "args_template": "[--skip-markets] [--settled-pages N]",
+      "needs": [],
+      "description": "Fetch Kalshi reference dims (series/events/markets/settlements) into warehouse catalog parquets (public endpoints, read-only)",
+      "docs": "tools/catalog_sync.py"
+    },
+    {
+      "name": "build_classification",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/build_classification.py",
+      "args_template": "",
+      "needs": [],
+      "description": "Pin the classification dim (category/subcategory/group/record_class per series) from config/market_classes.yaml + emit review and tags reports",
+      "docs": "tools/build_classification.py"
+    },
+    {
+      "name": "migrate_warehouse",
+      "kind": "tool",
+      "safety": "offline",
+      "cmd": "python3 tools/migrate_warehouse.py",
+      "args_template": "",
+      "needs": [],
+      "description": "One-time migration: re-ingest legacy captures, park Greed-layout partitions, regenerate classification + tags report, export completed days",
+      "docs": "tools/migrate_warehouse.py"
+    },
+    {
+      "name": "pipeline_supervisor",
+      "kind": "daemon",
+      "safety": "network_read",
+      "cmd": "./tools/pipeline_supervisor.sh",
+      "args_template": "",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "24/7 three-layer pipeline: hourly firehose raw logs -> ingest daemon -> UTC-midnight export; read-only (data_collect), never transmits",
+      "docs": "tools/pipeline_supervisor.sh"
+    },
+    {
+      "name": "mm_scan",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/mm_scan.py",
+      "args_template": "[--date D] [--archive-only] [--top N] [--min-trades N] [--min-depth N]",
+      "needs": [],
+      "description": "NON-GATE daily market-making candidate scanner: spread x trade-flow score with depth floors; capture quality remains unassessed until PIPE-W03",
+      "docs": "tools/mm_scan.py"
+    },
+    {
+      "name": "mm_backtest",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/mm_backtest.py",
+      "args_template": "--date D [--archive-only] [--from-scan N | --markets T1,T2] [--size N] [--max-inv N] [--min-spread $]",
+      "needs": [],
+      "description": "NON-GATE join-the-touch diagnostic with strict-through/optimistic fill bounds; maker fees, queue, settlement and capture quality are not yet validated",
+      "docs": "tools/mm_backtest.py"
+    },
+    {
+      "name": "mm_calibrate",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/mm_calibrate.py",
+      "args_template": "[--date D] [--end D] [--archive-only] [--min-trades N]",
+      "needs": [],
+      "description": "NON-GATE warehouse calibration: toxicity, 1-min realized vol and spread; fees/fills/queue/capture quality remain outside this artifact",
+      "docs": "tools/mm_calibrate.py"
+    },
+    {
+      "name": "mm_research",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/mm_research.py",
+      "args_template": "[--start D] [--end D] [--archive-only] [--out PATH] [--top N] [--min-updates N]",
+      "needs": [],
+      "description": "WP-06 research notebook: per-market-day K/z/wiggle + reversal rate + update-interval p50/p90 in BOTH price and log-odds space (A2), rollups by category/subcategory/group + hour-of-day, one static HTML page (tables + inline SVG) under work/mm/; sealed archive-only is automatic for past ranges; fee math is banner-only (verified=false refuses gate mode)",
+      "docs": "tools/mm_research.py"
+    },
+    {
+      "name": "gate_calc",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "python3 tools/gate_calc.py",
+      "args_template": "[--start D] [--end D] [--min-edge-c F] [--max-quote-age-s F] [--min-legs N] [--out PATH] [--preview-unverified-fees]",
+      "needs": [],
+      "description": "WP-09 gate calculator: buy-all-legs bracket-arb scan over clean days via warehouse load() (read-only) -> the three H-4 gate numbers (signal_count/day, lifespan p50/p90/max, theoretical net profit). Bracket universe: dims event_structure=bracket when present, else event_ticker grouping + mutually_exclusive=true from events dim (ME-unknown excluded fail-closed, KXMVE dropped per Q7). Net profit REFUSES while kalshi_facts.yaml fees.verified=false (mm_research.trade_fee gate mode, OQ-1 pointer); --preview-unverified-fees prints shape under a NON-GATE banner. Writes work/mm/gate_report_<date>.md",
+      "docs": "tools/gate_calc.py"
+    },
+    {
+      "name": "test_ingest",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_ingest.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Change-only + heartbeat + restart/checkpoint + class-policy proofs for tools/ingest.py (synthetic fixtures, no network)",
+      "docs": "tests/test_ingest.py"
+    },
+    {
+      "name": "test_export_day",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_export_day.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Exporter proofs: partition naming, manifest==files, md5, count verify, staging prune, load() archive/staging routing (no network)",
+      "docs": "tests/test_export_day.py"
+    },
+    {
+      "name": "test_warehouse_status",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_warehouse_status.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Offline tests for the warehouse status panel data source (row counts, partitions, schema/idempotency, missing categories)",
+      "docs": "tests/test_warehouse_status.py"
+    },
+    {
+      "name": "fill_test",
+      "kind": "probe",
+      "safety": "live_order",
+      "cmd": "./build/fill_test",
+      "args_template": "<ticker>",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "build": "on_demand",
+      "description": "Places a real order to observe a fill — TRANSMITS. Built on demand (not in BINS)",
+      "docs": "apps/fill_test.cpp"
+    },
+    {
+      "name": "ingestd",
+      "kind": "daemon",
+      "safety": "network_read",
+      "cmd": "./build/ingestd",
+      "args_template": "--poll [interval_ms]",
+      "needs": [
+        "make",
+        "creds"
+      ],
+      "description": "Read-only market-tape recorder (REST poll -> Redis/NDJSON). Env-validated",
+      "docs": "apps/ingestd.cpp"
+    },
+    {
+      "name": "tradingd",
+      "kind": "daemon",
+      "safety": "live_order",
+      "cmd": "./build/tradingd",
+      "args_template": "",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "The trading engine — CAN transmit orders when live+allowed. Console-forbidden",
+      "docs": "apps/tradingd.cpp"
+    },
+    {
+      "name": "run_pipeline",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "./tests/run_pipeline.sh",
+      "args_template": "",
+      "needs": [
+        "make",
+        "mock_rest",
+        "mock_server",
+        "mock_ws",
+        "mini_redis"
+      ],
+      "pass_token": "PIPELINE PASS",
+      "description": "Canonical offline suite runner; emits work/test_results.ndjson",
+      "docs": "tests/run_pipeline.sh"
+    },
+    {
+      "name": "run_rest_api",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./tests/run_rest_api.sh",
+      "args_template": "[port]",
+      "needs": [
+        "make",
+        "mock_rest"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Wrapper: mock_rest.py + test_rest_api",
+      "docs": "tests/run_rest_api.sh"
+    },
+    {
+      "name": "run_request_executor",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./tests/run_request_executor.sh",
+      "args_template": "[port]",
+      "needs": [
+        "make",
+        "mock_rest"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Wrapper: mock_rest.py + test_request_executor",
+      "docs": "tests/run_request_executor.sh"
+    },
+    {
+      "name": "run_ws_smoke",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./tests/run_ws_smoke.sh",
+      "args_template": "",
+      "needs": [
+        "make",
+        "mock_ws"
+      ],
+      "pass_token": "WS SMOKE PASS",
+      "description": "Wrapper: mock_ws_exchange.py + ws_smoke",
+      "docs": "tests/run_ws_smoke.sh"
+    },
+    {
+      "name": "check_gates",
+      "kind": "check",
+      "safety": "pure",
+      "cmd": "./tools/check_gates.sh",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "gate ok",
+      "description": "Grep safety gates (no demo-sniffing / banned endpoints / secret logging)",
+      "docs": "tools/check_gates.sh"
+    },
+    {
+      "name": "probe_batch_cost_sh",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./tools/probe_batch_cost.sh",
+      "args_template": "[seconds] [ticker...]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "Wrapper for the read-only batch-cost probe",
+      "docs": "tools/probe_batch_cost.sh"
+    },
+    {
+      "name": "check_registry",
+      "kind": "check",
+      "safety": "pure",
+      "cmd": "./tools/check_registry.py",
+      "args_template": "[--require-built]",
+      "needs": [],
+      "pass_token": "registry ok",
+      "description": "Validate tools.json schema + Makefile coverage",
+      "docs": "tools/check_registry.py"
+    },
+    {
+      "name": "lifecycle_check",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "./tools/lifecycle_check.py",
+      "args_template": "[--run-core-tests] [--allow-network]",
+      "needs": [],
+      "pass_token": "LIFECYCLE PASS",
+      "description": "Single readiness source: writes lifecycle status/events; no live_order tools",
+      "docs": "tools/lifecycle_check.py"
+    },
+    {
+      "name": "kalshi_spec_sync",
+      "kind": "check",
+      "safety": "network_read",
+      "cmd": "./tools/kalshi_spec_sync.py --allow-network",
+      "args_template": "[--json]",
+      "needs": [],
+      "pass_token": "KALSHI SPEC ALIGNMENT PASS",
+      "description": "Fetch official Kalshi docs/spec snapshots and report REST/WS implementation drift",
+      "docs": "tools/kalshi_spec_sync.py"
+    },
+    {
+      "name": "kalshi_update_watcher",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "./tools/kalshi_update_watcher.py --allow-network --once",
+      "args_template": "[--watch --interval-seconds N]",
+      "needs": [],
+      "description": "Monitor public Kalshi docs/changelog/spec hashes and append update events",
+      "docs": "tools/kalshi_update_watcher.py"
+    },
+    {
+      "name": "run_pytest",
+      "kind": "tool",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "[pytest args]",
+      "needs": [],
+      "description": "pytest entry for contract suites (WP-00 scaffold; empty collection = green; legacy suites stay under make check per A1)",
+      "docs": "tests/run_pytest.sh"
+    },
+    {
+      "name": "run_tests",
+      "kind": "check",
+      "safety": "offline",
+      "cmd": "./tools/run_tests.py",
+      "args_template": "--list | --tool NAME | --all",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "pass",
+      "description": "Ops-console orchestration backend (runs tools, enforces safety policy)",
+      "docs": "tools/run_tests.py"
+    },
+    {
+      "name": "test_console",
+      "kind": "test",
+      "safety": "offline",
+      "cmd": "./tests/test_console.py",
+      "args_template": "",
+      "needs": [
+        "make"
+      ],
+      "pass_token": "ALL PASS",
+      "description": "Console backend tests: output parser, safety policy, server 403 enforcement",
+      "docs": "tests/test_console.py"
+    },
+    {
+      "name": "test_feed_readiness",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_feed_readiness.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Offline fixtures for tools/feed_readiness.py (missing creds, local ready, active feed, redaction)",
+      "docs": "tests/test_feed_readiness.py"
+    },
+    {
+      "name": "test_verify_ws_capture",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/test_verify_ws_capture.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Offline fixtures for tools/verify_ws_capture.py (snapshot coverage, seq holes, loss/epoch markers)",
+      "docs": "tests/test_verify_ws_capture.py"
+    },
+    {
+      "name": "test_verify_feed_metrics",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_verify_feed_metrics.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "Offline fixtures for tools/verify_feed_metrics.py (real feed rows, synthetic rejection, freshness, capture/ticker matching)",
+      "docs": "tests/test_verify_feed_metrics.py"
+    },
+    {
+      "name": "dashboard_server",
+      "kind": "daemon",
+      "safety": "offline",
+      "cmd": "./dashboard_server.py",
+      "args_template": "--port 8765 [--allow-network]",
+      "needs": [],
+      "description": "Localhost ops console (Tests/Tools/Live). Read-only wrt trading; live_order always refused",
+      "docs": "dashboard_server.py"
+    },
+    {
+      "name": "coverage_audit",
+      "kind": "check",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/coverage_audit.py",
+      "args_template": "--date <YYYY-MM-DD> [--declared-list config/depth_watchlist.txt] [--out-dir work/mm]",
+      "needs": [],
+      "pass_token": "COVERAGE AUDIT GREEN",
+      "description": "W4: daily scope proof over one warehouse day (read-only) — S1 universe reconciliation, S2/V14 High+Mid=>100% L1 (violations listed with category+class, report-context), S3 sports completeness, S4 depth-target ranking (volume x spread -> work/mm/depth_target_<D>.csv), V15 depth-set stability (shrinkage vs declared list = ERROR exit 1; missing list documented), V16 unlisted-category => Class B + warning; promotion candidates report-only (Q7 Exotics/MVE excluded); NEVER edits config/market_classes.yaml",
+      "docs": "tools/coverage_audit.py"
+    },
+    {
+      "name": "test_coverage_audit",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_coverage_audit.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "W4: coverage auditor — V16 fake-new-category => Class B + surfaced warning, V14 High-tier-without-L1 violation listed with category+class, S3 sports-missing fixture, V15 depth-set shrinkage = error / extras = warning / missing declared list documented, tier parity vs gold_build.liquidity_tiers, Q7 promotion exclusion, CSV writers, lifecycle research stage only ever pass/skipped (never reddens)",
+      "docs": "tests/test_coverage_audit.py"
+    },
+    {
+      "name": "event_measure_split",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/event_measure_split.py",
+      "args_template": "[--category Sports] [--days 7] [--top 20]",
+      "needs": [],
+      "description": "PLAN_EVENT_PACKAGING W-E0: read-only measurement of calendar-split pain — per-event observed span from trades, flags events whose first/last tick fall on different UTC dates with per-day row counts; writes work/event_packs/split_report_<date>.csv. Derived-only; never touches capture/ingest/export",
+      "docs": "tools/event_measure_split.py"
+    },
+    {
+      "name": "test_event_measure_split",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_event_measure_split.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E0: pure split-detection core — cross-midnight flag, calendar-span counting, per-day tick counts, exact day-index boundary math",
+      "docs": "tests/test_event_measure_split.py"
+    },
+    {
+      "name": "event_index",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/event_index.py",
+      "args_template": "--catalog-dir <dir> [--policy config/event_packaging.yaml] [--out work/event_packs/index.parquet] [--now 'YYYY-MM-DD HH:MM:SS']",
+      "needs": [],
+      "description": "PLAN_EVENT_PACKAGING W-E1: build work/event_packs/index.parquet from catalog CSVs — §3.2 window inference (observed + lifecycle, not close_time alone); one row per event|market packaging unit",
+      "docs": "tools/event_index.py"
+    },
+    {
+      "name": "test_event_index",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_event_index.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E1: fixture catalog → deterministic index rows; Q7 exclusions; catalog_incomplete + window_divergence flags; observed padding property; parquet schema roundtrip",
+      "docs": "tests/test_event_index.py"
+    },
+    {
+      "name": "event_pack",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/event_pack.py",
+      "args_template": "[--index work/event_packs/index.parquet] [--unit KEY] [--warehouse DIR] [--refresh] [--now 'YYYY-MM-DD HH:MM:SS']",
+      "needs": [],
+      "description": "PLAN_EVENT_PACKAGING W-E2: materialize per-unit packs (data/unit=.../{trades,orderbooks_l1}.csv + manifest) from an index row. Money-integrity: E4 integer columns byte-exact, no float (AF-1/2/3). Sealed-only + pack-time stale-window refuse/refresh (AF-5). Read-only on warehouse",
+      "docs": "tools/event_pack.py"
+    },
+    {
+      "name": "test_event_pack",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_event_pack.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E2: synthetic 2-day archive → cross-midnight reassembly, market filtering, row counts vs direct SQL, E4 byte-exact money-integrity (sub-penny survives), idempotent rebuild, AF-5 refuse/refresh, sealed-only",
+      "docs": "tests/test_event_pack.py"
+    },
+    {
+      "name": "test_warehouse_nonuniform_archive",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_warehouse_nonuniform_archive.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "AF-3: warehouse.load() archive-vs-staging exclusion scoped PER category (not global max-archive-date) — a lagging category's not-yet-archived staging rows survive; an archived category's staging day is still deduped",
+      "docs": "tests/test_warehouse_nonuniform_archive.py"
+    },
+    {
+      "name": "event_validate",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/event_validate.py",
+      "args_template": "--manifest manifests/<key>.json [--warehouse DIR] [--gaps work/event_packs/capture_gaps.csv]",
+      "needs": [],
+      "description": "PLAN_EVENT_PACKAGING W-E3: validate a W-E2 pack vs warehouse + capture-gaps → pass|degraded|fail. V-EP1/3/4/6/7/10/12 + V-EP15 interior-gap (AF-1); dependency checks report skip (honest, D2). Read-only",
+      "docs": "tools/event_validate.py"
+    },
+    {
+      "name": "test_event_validate",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_event_validate.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E3: pack validator — clean pack pass; interior_gap red fixture (AF-1: V-EP15 degrades a pack all blocking checks pass); foreign-market/leaked-ts fail",
+      "docs": "tests/test_event_validate.py"
+    },
+    {
+      "name": "capture_gaps",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/capture_gaps.py",
+      "args_template": "(--date YYYY-MM-DD | --since N | --live) [--min-gap-secs 60]",
+      "needs": [],
+      "description": "PLAN_CAPTURE_HARDENING W-C2: durable structured capture-gap record (work/event_packs/capture_gaps.csv, start_us,end_us) from raw-feed inter-record silence — the authoritative source for event_validate V-EP15. --live writes a dashboard alert + exits 2 on an active gap. Read-only over raw (D1); a hole is always recorded (D2)",
+      "docs": "tools/capture_gaps.py"
+    },
+    {
+      "name": "test_capture_gaps",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_capture_gaps.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_CAPTURE_HARDENING W-C2: gap detector — seeded silence emits exact [start_us,end_us], dense none, time-overlapping segments (global sort, no false gap), live alert fail-closed, and a raw-built record drives event_validate → degraded (AF-1)",
+      "docs": "tests/test_capture_gaps.py"
+    },
+    {
+      "name": "test_warehouse_event",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_warehouse_event.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E3: warehouse.load(event=...) resolves window+markets from the index and returns only that episode across day partitions; day-mode unchanged; unknown event raises",
+      "docs": "tests/test_warehouse_event.py"
+    },
+    {
+      "name": "event_export",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/event_export.py",
+      "args_template": "(--event K | --market K | --series K) [--status sealed] [--warehouse DIR]",
+      "needs": [],
+      "description": "PLAN_EVENT_PACKAGING W-E7: operator-facing per-event CSV export — three-axis selector, one folder per event under work/event_exports/<series>/<event>/, _event_summary.csv + _manifest.json (completeness=pass ONLY if event_validate passes; degraded on interior gap). Composes W-E2 packer + W-E3 validator; E4 money byte-exact. Read-only on warehouse",
+      "docs": "tools/event_export.py"
+    },
+    {
+      "name": "test_event_export",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_event_export.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PLAN_EVENT_PACKAGING W-E7: export layout + E4 byte-exact money-integrity (sub-penny survives) + market-axis single-market filter + series resolves events + manifest completeness reflects validator (pass/degraded)",
+      "docs": "tests/test_event_export.py"
+    },
+    {
+      "name": "ec2_health",
+      "kind": "tool",
+      "safety": "network_read",
+      "autorun": false,
+      "cmd": "bash tools/ec2_health.sh",
+      "args_template": "",
+      "needs": [
+        "ssh-key"
+      ],
+      "description": "PIPE-R001: READ-ONLY EC2 production health snapshot over SSH (service active / research-chain presence / ingest pid liveness / staging mtime / newest raw file / disk / mem / ingest log tail). Fixed command set, no mutation by construction; the operator's plan-A classifier-exempt path for agent sessions — any edit to the script invalidates the grant and requires re-approval",
+      "docs": "tools/ec2_health.sh"
+    }
   ]
 }
