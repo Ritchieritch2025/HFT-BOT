@@ -1,9 +1,13 @@
-# PIPE-W06 — 定向 L2(全深度订单簿)采集规格 v1.0(呈批)
+# PIPE-W06 — 定向 L2(全深度订单簿)采集规格 v1.0(已批)
 
-**一行裁决:⚠️ 待操作员批准 —— 方案定型、数字有实测出处、三阶段各自放行;
-第一阶段(probe)零生产写入、15 分钟、今天就能跑。批准前不动一行生产代码。**
+**一行裁决:✅ 操作员已批准(2026-07-11)—— Stage 0 今日执行;三阶段路线与
+universe 构成核准;Stage 1 附加三条硬门(见批准收据)。**
 
-状态:SPEC ONLY(纸面 W)。授权来源:PIPE-R001 收据
+状态:APPROVED — 批准原文逐字存于
+`docs/plan_releases/pipeline/PIPE-W06-APPROVAL-2026-07-11.md`(v1.0 @ 46bad42,
+SHA-256 e00782c2…)。Stage 1 release 前置条件(操作员附加):
+(a) 07-10 封印落地且 prune_raw 恢复;(b) W03 轮转命名结论吸收进实现;
+(c) probe 实测替换 30–100× 括号。授权来源:PIPE-R001 收据
 "PIPE-W06: targeted L2/lifecycle collection with bounded rollout"。
 实现与部署各需独立 W + 独立审计 + 操作员逐阶段放行。
 
