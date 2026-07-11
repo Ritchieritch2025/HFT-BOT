@@ -6,6 +6,35 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 16:05 UTC — 零基审计全文归档(审计意见,未裁决)
+
+- commits: (this commit) — docs/plan_audits/AUDIT_ZERO_BASE_2026-07-10.md
+  created, operator's zero-base audit pasted VERBATIM (full-text
+  preservation rule), header fixed as ordered: 状态 = 审计意见,未裁决;
+  GUARDRAILS 修订与主线切换等操作员批准.
+- decisions (E2): NONE ADJUDICATED. The audit recommends a strategy-mainline
+  switch (MLB pre-game totals/spreads external-sharp-odds anchored maker →
+  RFQ/combo maker endgame; naive touch-joining MM rejected by S1's own
+  numbers), Q1/Q2/Q7 GUARDRAILS rewrites, MASTER_SEQUENCE demotion, and a
+  CURRENT_AUTHORITY.md — ALL of it awaits the operator's explicit ruling.
+  The archiving session executed NONE of the audit's recommendations.
+- context capsule:
+  - The audit's factual claims about this repo that were independently
+    produced/confirmed this session: S1 per-layer negatives (zero/ITF
+    −0.822 CI[−1.133,−0.525], zero/Challenger −1.348 CI[−2.061,−0.543],
+    charged layers n<200) and the burstiness trade-gap mis-labeling (already
+    fixed as an erratum in 8d57be0, BEFORE this audit text arrived — the
+    audit cites the pre-fix line number).
+  - Claims NOT verified by this session (cited from the audit's own reading:
+    tradingd.cpp post_only default / REST-poll drive, mm_backtest.py fee=0,
+    gate_report line 64, L2 row counts, RFQ/HVM mechanics, external-vendor
+    facts): treat as audit assertions pending the independent
+    verification pass that a ruling would trigger.
+- blocked / handoff: operator ruling on the audit (adopt / amend / reject,
+  which plans get rewritten, whether CURRENT_AUTHORITY.md is created).
+  Until then MASTER_SEQUENCE + GUARDRAILS remain in force unchanged; all
+  live behavior remains forbidden (unchanged standing rule).
+
 ## 2026-07-10 15:55 UTC — 操作员批次落库 + PLAN_MM_TEST_PROGRAM 编号修正 + S1 burstiness erratum + 非沙箱双门真绿
 
 - commits:
