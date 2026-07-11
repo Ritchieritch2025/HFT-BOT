@@ -78,3 +78,12 @@ deliberate_maintenance 标注 + SESSION_LOG。raw 为追加式文件,停止/回�
 | ff 被拒(EC2 有未知本地改动) | 停手喊我,绝不 force |
 | TL1 迁移在真库上出意外 | 回滚含 staging 重建路径;raw 不受影响 |
 | 封印链首夜异常 | 只影响研究门,不影响采集;seal_alarm.json 会举旗,次日修 |
+
+## 批准记录
+
+> Deploy plan approved. Window released for tonight
+
+- 操作员原文如上,收到于 2026-07-11(会话内);状态:**APPROVED — window
+  released for tonight**。执行分工:步骤 0(审计条件门重跑)由执行会话在
+  开窗时刻当场运行并出具输出;步骤 1–6 由操作员执行;步骤 7(部署报告)
+  由执行会话汇总提交。
