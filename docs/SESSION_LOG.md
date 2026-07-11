@@ -6,6 +6,68 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 06:42 UTC — STP-R001-DRAFT-V22:V2.2 candidate 已生成并提交 — AWAITING INDEPENDENT PROMPT AUDIT
+
+- branch/base: `plan-sports-market-dynamics-v2` from
+  `9952befd73f79195f2d38e2c45110601d8edbbea`; no branch creation, merge,
+  rebase or push. `main` untouched.
+- release: `STP-R001-DRAFT-V22`; operator-text SHA-256
+  `71e546577d98ba28b86375be70374bec8e53a4599bd524e061026039a399625c`;
+  release scope was candidate drafting only and granted no STP phase.
+- commits: evidence commit A =
+  `2f6512840702edff3217c55f69a61b4c393898d4`; closure commit B = this
+  commit. The prior `STP-R000-DRAFT-V21` receipt metadata is now
+  `CONSUMED`, referencing its actual evidence/closure commits; its verbatim
+  operator block is unchanged.
+- artifacts:
+  - `docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_2_CANDIDATE.md` — SHA-256
+    `575ea27ae08477bdcc4234a42ad5ff456c4ad45cd32ede79011caec2be3fbe54`;
+    status = `CANDIDATE / NOT CANONICAL / NOT EXECUTABLE`;
+  - `docs/plan_audits/AUDIT_PROMPT_V2_1_2026-07-11.md` — preserved
+    byte-for-byte, SHA-256
+    `301f2aab9b23f6e684dd0da5228caed23d8cbf5f34c85f5aa9bba0d38c78f791`;
+  - `docs/plan_releases/sports_trading_program/STP-R001-DRAFT-V22.md` —
+    durable receipt with exact allowed paths and candidate SHA.
+- V2.2 closes every V2.1 audit P0/P1 item and all P2 cleanups: two-gate
+  candidate promotion; release-pinned read-only active prompt; truthful
+  provenance; final-active-prompt D-2 mapping; complete durable-release
+  request; separate lifecycle/conclusion/audit fields; verbatim-operator-only
+  DECISIONS rule; exact-one artifact classification; dynamic registry plus
+  filesystem runnable/live-capable census; and saved-spec/CI/read-manifest
+  corrections.
+- test-isolation correction: an independently audited isolation artifact is
+  now a hard start gate before any future W01 BOOTSTRAP-0 or evidence write.
+  Without it, STP-P00 is BLOCKED and requires a separately released/audited
+  engineering W. Known standalone live-capable surfaces include
+  `bench_order`, `fill_test`, `panic --execute`, `preflight --order` and
+  `apps/live_e2e.cpp`, without treating that list as complete.
+- validation performed: exact branch/base and prerequisite hashes; exactly one
+  V2.2 BEGIN/END marker; required/forbidden phrase checks; operator-text hash;
+  staged-path/hash checks; candidate/receipt whitespace checks; 21 protected
+  sections byte-identical to V2.1; Section 20 diff limited to the audited
+  `ci95_lower` field change. A separate read-only pre-commit reviewer returned
+  PASS after four coherence fixes; this is not the required post-commit
+  independent prompt audit.
+- tests: full suites NOT RUN and not authorized. The V2.1 audit proved current
+  tests write operational/dashboard state without demonstrated isolation.
+  The archived V2.1 audit intentionally retains its exact bytes/SHA, including
+  two Markdown hard-break trailing-space lines and its terminal blank line;
+  candidate and receipt diffs themselves pass whitespace checks.
+- ERRATUM to the preceding STP-R000 entry: its test side effects were not
+  limited to `build/**`, `work/logs/**` and `work/test_results.ndjson`.
+  Required tests also wrote `.pytest_cache/**`,
+  `work/lifecycle_status.json`, `work/lifecycle_events.ndjson`,
+  `work/test_results_latest.json` and `work/live/alerts.log`. They were not
+  staged, but the old derived-write summary was incomplete.
+- explicitly not done: BOOTSTRAP-0, STP-P00, STP-P01, D-2,
+  canonicalization, source/test/config/GUARDRAILS/production/outputs changes,
+  external/authenticated action, live order, merge, rebase or push.
+- final state: `V2.2_DRAFTED_AWAITING_INDEPENDENT_PROMPT_AUDIT`. Next action
+  is a fresh, read-only independent audit of the exact candidate path/SHA.
+  Audit PASS alone will not canonicalize or authorize BOOTSTRAP/W01; a later
+  verbatim operator canonicalization release and then a separate W-specific
+  release are still required.
+
 ## 2026-07-11 — STP-R000-DRAFT-V21 执行完毕:V2.1 CANDIDATE 建成 — V2.1 IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
 
 - branch: `plan-sports-market-dynamics-v2` @ base
