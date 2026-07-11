@@ -1,11 +1,20 @@
 # PLAN — 做市系统总测试计划（研究 → 影子 → 微实盘）
 
-**状态：PLAN-ONLY，2026-07-10。等待独立审计。** 这份文档把散落在
+**状态：PLAN-ONLY，2026-07-10；2026-07-11 经操作员批准增加 F2c/F2d，
+本次增补独立审计 PASS；原计划整体执行授权状态不变。** 这份文档把散落在
 `PLAN_RESEARCH_CYCLE_1`、`PLAN_PRICING_MODEL`、`PLAN_DEPTH_EXPANSION`、
 `PLAN_FULL_MARKET_RESEARCH`、`PLAN_RISK_KILLSWITCH`、`PLAN_LIVE_VALIDATION`
 和 `MM_ROADMAP` 里的测试收成
 一张总地图。它推进 MM_ROADMAP Phase 1.5→2→3 的验证工作，**不授权任何实盘
 订单，也不改变 `MASTER_SEQUENCE` 的工程执行权威**。
+
+2026-07-11 操作员增补原文：
+
+> 加入计划吧
+
+范围 = 本文件 F2c 的动态定价消融矩阵 + F2d 的价格带/tick/显示数量/requote
+实验。它只增加纸面测试要求，不授权研究执行、生产变更、外部服务、shadow、
+微实盘或 live；已冻结的 V2.2 candidate 不原地改写。
 
 冲突时，本文件只在以下三项“测试判决语义”上优先：
 
@@ -334,13 +343,124 @@ queue_position、user_orders、user_fills、cancel timing。按 decile 比较：
 
 市场选择本身没有样本外增益，full model 即使单笔 edge 为正也不能通过容量门。
 
+### F2c · 预注册消融矩阵与复杂度门
+
+**目的：**逐项识别动态定价 policy module 的真实增量，禁止一次塞入全部 feature
+后只展示最终赢家。消融使用同一 eligible universe、同一按时间划分的 split、
+同一 W-FS1 状态机/queue/cancel 语义、同一费用/终值/风险规则、同一 1-contract
+binding size 和同一 deterministic seed/common random numbers；除被测 policy
+module 外不得改变任何条件。模块内部多个 signal 另做 TRAIN-only
+leave-one-signal-out 诊断，不冒充累计阶梯的单模块增量。
+DP-0–DP-4 共用一条冻结的 baseline refresh/requote 规则；DP-1 独占 toxicity
+eligibility、exit 与 re-entry，DP-5 只处理仍 eligible 时的 cancel-replace 时机，
+两者 ownership 不得重叠。
+DP-0 的“无动态信号”只表示没有 alpha/policy module；gap、stale、pause、
+lifecycle、expiry、fee、risk、latency、cancel-pending 与终值等强制 fail-closed 门
+从 DP-0 起对所有行完全相同且始终生效。
+
+在 TRAIN 打开前冻结以下累计阶梯，每一行都进入 candidate registry：
+
+| Variant | 相对上一行唯一新增能力 |
+|---|---|
+| DP-0 | 静态 join-touch 基线：固定 size、无动态信号 |
+| DP-1 | + binary burst/toxicity eligibility gate：独占 quote/no-quote、toxicity exit/re-entry，不改变 size |
+| DP-2 | + dynamic spread：按波动、毒性、消息爆发和反应预算在 log-odds 空间调宽度 |
+| DP-3 | + dynamic fair：只用当时可见的 book/order-flow/microprice 调整报价中心 |
+| DP-4 | + inventory skew：在所有行共用的冻结报价截止/终值/退出规则下，只新增 event/factor 库存偏移 |
+| DP-5 | + eligible-state requote policy：仍满足 DP-1 eligibility 时，只新增 fair-change threshold、quote age 与 cooldown cancel-replace；不处理 toxicity exit/re-entry |
+| DP-6 | + dynamic displayed size：仅 DIAGNOSTIC/CAPACITY_ONLY；binding 主轨仍固定 1 contract |
+
+DP 行间增量只在 TRAIN 内用预注册的 nested chronological folds 估计；所有行都计入
+多重比较台账。每个相邻 binding 版本主报配对事件差值
+`Delta_e = NetPnL_e(DP-k) - NetPnL_e(DP-(k-1))`：使用完全相同的 root events、
+历史消息和 common random numbers，未报价/未成交事件以真实零策略 PnL 保留，再按
+完整 calendar-day blocks 对 `Delta_e` 做 bootstrap CI。各行绝对 PnL/CI 同时报，
+但不能代替配对增量检验。DP-6 的 >1-contract 结果不进入该 binding 增量链。
+
+看一次性 VALIDATION 前，必须仅依据 TRAIN folds 和预注册的单一 scalar selection
+rule，冻结至多一个最简单的 DP-0–DP-5 版本及其全部参数。VALIDATION 只打开一次，
+只接受/拒绝该版本，不得逐行挑赢家；一次性 test/HISTORICAL_CONFIRMATION 只测试
+一个最终冻结策略。任何阶段若预注册超过一个正式假设，冻结 family 后用 Holm
+校正；未满足预注册 power/独立 block 门的比较一律 `DESCRIPTIVE/COLLECT_MORE`。
+TRAIN 打开前还必须冻结最小经济增量 `Delta_min`、风险 non-inferiority margin、
+latency/rate-limit headroom 和 exact scalar selection rule；不得看到 fold 结果后补写。
+
+每行至少报告：eligible/quoted/filled root-event 数、零报价/零成交率、strict-through
+与 queue-aware 成交率、spread capture、10ms–120s markout、cancel-pending loss、
+库存/强平成本、逐 event NetPnL 与 block-bootstrap CI、最差日/最大回撤、写请求率、
+决策延迟和容量。模块内 leave-one-signal-out 只用于解释交互，不得替代累计阶梯
+主比较，也不得打开 VALIDATION 重新选择 signal。
+另在 TRAIN 内报告 add-one-to-DP-0 与 full-minus-one 条件效应，说明顺序依赖和模块
+交互；二者均为诊断，不参与 holdout promotion。
+
+**复杂度门：**复杂版本只有在 nested TRAIN folds 上，相对最近的更简单版本产生
+预注册的配对经济增量、风险不恶化且延迟/rate-limit 压力合格，才可进入冻结选择
+规则。若增量不稳定、校正后 CI 覆盖零、只改善乐观轨或只在单一日/event 成立，
+选择较简单版本。任何单行通过都不授权 live；DP-0–DP-5 只为 F3/F4 选择一个
+1-contract 冻结候选，DP-6 只做容量诊断。`DP` 是 dynamic pricing 的唯一前缀，
+避免与本计划 B1–B3 市场反应测试撞号。
+
+### F2d · 价格带 × tick × 显示数量 × requote 微结构实验
+
+**目的：**回答“在哪个价格区域、领先几档、显示多少、何时移动报价”最有利，
+而不是假设 penny-jump、固定 size 或高频重挂天然赚钱。此实验只研究市场微结构，
+不引入比赛方向预测。
+
+预注册四维设计：
+
+1. **价格带：**初始报告 `[1,10)`、`[10,30)`、`[30,70]`、`(70,90]`、
+   `(90,99]` 美分；若 venue 合法价格或样本支持要求调整，只能在 TRAIN 看结果前
+   写入新版本并冻结，禁止 validation 后改带。主分桶字段是 intent 生成时刻、
+   recv-clock 可见的 `yes_equivalent_quote_e4`：YES 侧使用 YES 报价，NO 侧按 D1
+   action matrix 已验证的补数映射转换；maker 实际合约价格另列。每个 intent 恰好
+   落一个 band，映射和边界必须有 economic-sign tests。
+2. **tick/quote offset：**按 series/date 有效的官方规则和实测盘口推导合法 tick，
+   executable preregistration 必须列出有限 offset set 和总 `K_tick`（至少含 touch、
+   改善 1/2 个合法 tick 与预注册的退后档），不得保留 `...` 开放搜索。所有改善
+   报价必须保持 post-only、non-crossing，非法/locked/crossed cell 标 NULL。
+   播客、记忆或旧规则不能作为 tick 事实。每次改价记录 queue priority 是保留、
+   丢失还是 unknown。
+3. **显示数量：**1-contract anchor 是当前唯一 binding 主轨；另设至少三个受风险
+   上限约束的 size 层，只作 `DIAGNOSTIC/CAPACITY_ONLY`，TRAIN 前冻结实际档位。
+   比较整单显示与成交后补挂，partial fill 和 event/factor inventory 必须守恒。
+   >1 contract 要成为 binding，必须另有权威 sweep-volume 证明或 disjoint own-order
+   calibration，并取得新的操作员 authority。
+4. **requote：**只在 DP-1 判定仍 eligible 时联合测试 log-odds fair-change
+   threshold、最大 quote age 和最小 cooldown；burst/toxicity exit/re-entry 归 DP-1
+   独占，不在本维重复调参。不能用无限 cancel/create 假装无延迟。历史 replay 只对
+   version-pinned token-bucket 做模拟 debit，零 API mutation；所有动作仍经过
+   W-FS1 的 cancel-pending 状态。
+
+每个执行 W 在打开 TRAIN 前必须把 tick offsets、size levels、requote grid、总候选
+数 `K_total`、正式 hypothesis families、最小独立 blocks、功效和计算预算全部有限化
+并登记；无界 grid 或跑后扩格自动 FAIL。
+
+每个有效 cell 报：support、time-at-best、queue reset 次数、cancel/create 每分钟、
+write-token headroom、stale exposure、fill/partial-fill、spread capture、立即 markout、
+cancel-race loss、库存/退出成本和逐 event NetPnL。主表必须展示价格带 × tick ×
+size × requote 的交互；样本不足的 cell 标 NULL，不合并成虚假总体平均。
+四维 cell 与 subgroup 默认 `DESCRIPTIVE`；只有预注册 estimand、达到 power/最小
+独立 block 门并对同一 family 的 K>1 正式检验使用 Holm 校正，才可作确认性判断。
+
+**判决：**允许最优规则随价格带/流动性/赛前阶段变化，但所有分段边界必须在 TRAIN
+冻结。晋级 F3/F4 的 1-contract 策略必须在 strict-through 主轨相对静态规则有
+样本外增益；queue-aware 只能解释机制。连续、sequence-valid L2 是必要但非充分：
+没有 disjoint own-order calibration 时，queue-ahead/priority 只能报保守区间和
+`DIAGNOSTIC`，不得声称已找到最优 queue。没有有效 L2 时，本实验最多输出
+markout/quote-availability screen。在 latency ×1.5/×2、cancel p99、模拟
+rate-limit 和强平压力下失效则拒绝。
+
 ### F3 · 同流 modeled-quote backtest
 
 行情输入、策略决策和风险 reserve 使用未来 C++ 引擎同一逻辑；出口在 backtest
 接 W-FS1，在 shadow 接记录器，在 live 接 executor。热循环里不按 mode 分支。
 
-比较组：naive join-touch、no-signal、fair-only、full model；做 ablation 验证每个
-模型项是否真的增加样本外净收益，禁止只比较最终胜者。
+比较组必须包含 F2c 的 DP-0–DP-5 binding 轨、DP-6 容量诊断、no-signal、fair-only
+和冻结的 full model；F2d 的价格带/tick/size/requote 规则作为同一 candidate
+registry 的预注册策略维度。每个模型项的逐项增量只用 nested TRAIN out-of-fold
+结果验证并完整报告，禁止只展示最终胜者；VALIDATION 与
+test/HISTORICAL_CONFIRMATION 只验证预先冻结的一个策略。DP-6 与 >1-contract
+cell 不参与 binding 候选晋级。
 
 ### F4 · 样本外利润硬门（在打开 test 前冻结）
 
@@ -459,6 +579,7 @@ cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/
   -> D1 maker action contract matrix
   -> W-FS1(FS-1..FS-4) + 历史上下界回放
   -> 数据成熟后 F1/F2 校准
+  -> F2c DP-0–DP-6 消融 + F2d 价格带/tick/size/requote 微结构实验（TRAIN only）
   -> F3/F4 未开封样本外利润门
   -> SH-1..SH-3 shadow 5绿日 + RK-1..RK-4 安全/soak
   -> operator 排期 I1
@@ -481,7 +602,9 @@ cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/
 - `PLAN_RESEARCH_CYCLE_1`：S1 结果保留；S4 按 B1 修正；S5 结论改为
   edge-candidate；新增 B2/C3 作为 maker reaction 必修门。
 - `PLAN_PRICING_MODEL`：W-C1 的 λ 只叫 opportunity intensity；W-C4 必须消费
-  W-FS1，不再直接复用旧 `mm_backtest.py` fill semantics。
+  W-FS1，不再直接复用旧 `mm_backtest.py` fill semantics；动态 feature 按 F2c
+  一次只增一项，报价离散化/显示量/requote 必须经过 F2d，不允许直接把 full
+  model 当作唯一比较组。
 - `PLAN_DEPTH_EXPANSION`：A3 复用其独立 shadow-first、probe 和 capture continuity
   纪律；终态覆盖全活跃市场，但按容量分波，不把一次性全订阅变成生产事故。
 - `PLAN_FULL_MARKET_RESEARCH`：定义全18类 universe、daily mart、atlas、假设法庭、
