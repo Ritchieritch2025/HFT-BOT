@@ -6,6 +6,44 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 17:00 UTC — 晨检收官(07-10 封印落地)+ W06 规格获批 + resize 收尾核验
+
+- commits (this session, docs-only on this branch): 46bad42 W06 spec v1.0 ·
+  189f6ec operator approval receipt + sandbox/l2_probe_targets_gen.py ·
+  0dd857b morning-check findings (3175 identified, kernel receipt, B4) ·
+  ca41b09 07-10 seal RESOLVED · ae49c35+e3efe5c BACKLOG B5(+correction) ·
+  (this closure). Main-repo side: 9041a39 STP-R002 receipt (STOPPED).
+- 晨检:07-10 首封 **13:20:10Z 落地**、alarm 清除、双源确认(遗留监视器 +
+  ec2_health)。全程锁竞争根因 = 操作员 10:45Z stdin 补灌(PID 3175,
+  `.venv/bin/python3 -`,heredoc 形态,Ctrl-C 未死),其 export_pause 被
+  11:00Z 封印链 rm——设计缺口登记 B4(pause 所有权标记)。3175 12:59 写毕
+  ~13:10 自退,零丢失零缺口。教训:stdin 脚本对按名 pgrep 隐身,认锁持有
+  者要用 duckdb 报错里的 PID + `ps -p`。
+- 内核回执闭环:`6.17.0-1019-aws`(操作员 uname 原文入部署报告)。
+  capture_gaps↔quality_log 对账 = 结构性等待(07-11 封印后,次日晨检)。
+- **W06:规格 v1.0 一日走完 呈批→批准→收据**(spec @46bad42 sha e00782c2…;
+  receipt PIPE-W06-APPROVAL-2026-07-11.md,Stage-1 硬门 (a)(b)(c) 逐字)。
+  四大类=Tennis/MLB/Soccer/WNBA+对照(07-08 depth_target 实测,四类占当日
+  体育成交 ~84%)。Stage-0 执行包交 Codex:sandbox/l2_probe_targets_gen.py
+  生成**当日**清单(E4 实测修正:status='active'、occurrence_datetime=真实
+  开赛时间、open_interest_fp=活跃度;close_time 是赛后数日的兜底值,勿用),
+  20:30–21:30Z 窗口跑 depth_probe --csv。结果表回来后灌 §4 → 门 (c)。
+- **STP-R002 canonicalize:前置 FAIL 停止**——V2.2 独立审计不在
+  docs/plan_audits/(候选 SHA 校验 PASS);释放令逐字归档 @ 主仓 9041a39,
+  等操作员贴审计(或先做审计)。未 promote、未写 D-2。
+- B5 内存顶棚(15.3G/16G 峰谷循环)登记 → 同日被现实追认:研究链把机器
+  打穿(14G swap),操作员授权另一会话出 HOTFIX-02(见下一条目);操作员
+  随后决定换型 r8g.2xlarge。本会话收尾核验(操作员授权只读):箱上
+  e63b771@f4769ad ✅、nproc=8 ✅、64G ✅;resize 停机 16:32:09→16:36:13Z
+  (journal),quality_log 已按保守括号(→16:45:35Z 首笔实证 raw)入账
+  16:50:26Z,实测待封印后 capture_gaps。
+- blocked/handoff:① 今晚 Stage-0 probe 结果表(Codex)→ 下一会话灌规格
+  §4;② 07-11 封印(07-12 02:00Z 后)= 次日晨检第一项(预期正常盖印;
+  异常则 seal_alarm 03:00Z 举旗),顺带收 capture_gaps 对账(两个维护缺口:
+  10:19 与 16:32)+ prune_raw 恢复验证(门 (a) 后半);③ W03 提前为
+  Stage-1 关键路径(硬门 (b)),W03 场顺带做 B4+B5+ingest 尾部物化债;
+  ④ STP-R002 等审计;⑤ HOTFIX-02 两次整点浸泡自删心跳在跑,勿重复布防。
+
 ## 2026-07-11 16:25 UTC — PIPE-HOTFIX-02 live: production auto-research fused off; immediate gates PASS
 
 - commits: production/runtime `e63b771d6a0bef10fc8c563922a67aad661631ad`
