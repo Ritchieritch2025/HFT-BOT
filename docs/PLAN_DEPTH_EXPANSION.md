@@ -228,5 +228,41 @@ safety=network_read, autorun=false, needs creds+prod_env).
 - [x] Rollout options enumerated, none chosen (§4).
 - [x] Probe tool shipped, refusal path demonstrated, analysis function
       pytest-covered on a fixture capture; registry entries appended.
-- [ ] **PROBE-PENDING:** measured msg rate + bytes/market by tier — awaits the
-      operator running §5 and pasting the table here.
+- [x] **PROBE RUN 2026-07-11 22:44–22:59Z(operator-approved,W06 Stage 0)**
+      — measured table below replaces the 30–100× bracket.
+
+## 8. PROBE RESULTS (2026-07-11, 48 markets, 900 s, in-play evening window)
+
+Command: `KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 python3 tools/depth_probe.py
+--operator-approved --csv work/mm/l2_probe_targets_2026-07-11.csv`(操作员
+逐字批准);list = same-day four-sports+controls,OI-ranked,22:39Z 生成。
+ws_shadow: 591,445 events,0 reconnects,0 errors,0 overflow,recorder
+COMPLETE(0 dropped),transmitted=0。生产 firehose 全程秒级新鲜(4 次
+哨兵检查),SEAL_ALARM=NONE。**L3:48 市场单次 subscribe 成功(无 error
+26);L6:第二连接与生产共存无碍;无 error 25/27。**
+
+Capture analysis (tool output VERBATIM): duration 728.4 s | book msgs
+505,879 | **694.54 msg/s** | parse errors 0
+
+```
+  tier    markets       msgs      msg/s    capture_B          B/s      B/msg
+  Baseball       12     170831     234.54     90659647     124470.8      530.7
+  Basketball        8      29776      40.88     15653768      21491.8      525.7
+  CTRL_BTC15m        1        273       0.37       144144        197.9      528.0
+  CTRL_Esports        4        236       0.32       128825        176.9      545.9
+  CTRL_Golf        3        420       0.58       221028        303.5      526.3
+  Soccer        8     301615     414.10    160182938     219922.6      531.1
+  Tennis       12       2728       3.75      1444370       1983.0      529.5
+```
+
+判读(对照 §2/§3 的括号):
+- **B/msg 实测 526–546,§2.3 的 531 B/msg 估计几乎精确命中。**
+- **总速率 694.5 msg/s 高于 N=50 的"保守峰值" 565/s**——但分布极端偏斜:
+  60% 来自 8 个 Soccer 市场(世界杯 NOR–ENG **赛中**,单市场峰 181.6
+  msg/s),34% 来自 MLB(多场赛中)。**赛中 ≫ 赛前**得到直接证实;D-1
+  主线(赛前窗口)的真实负载远低于本表——本表是"最热窗口"上界。
+- 外推(若全天持续此热度):694.5 × 530 B ≈ 368 KB/s ≈ **31.8 GB/天**
+  ——上界;赛前为主的 Stage 1 选择器实际量级预期显著更低,Stage 1 用
+  真实 48h 采集数据重算 Stage 2 磁盘账。
+- Tennis 夜间静默(3.75 msg/s/12 市场)佐证"清单必须临跑前生成 +
+  选择器要按赛程时区轮动"。

@@ -66,3 +66,17 @@ APPROVED — corrected probe command authorized as written (KALSHI_ENV=prod + KA
 
 执行修订(按批准):22:25Z 左右**重新生成**当日清单(覆盖同一 CSV 路径),
 22:30Z 起跑;结果表逐字回呈。
+
+## Stage 0 执行完毕 ✅(2026-07-11 22:44:31–22:59Z,第二次尝试成功)
+
+- 清单 22:39Z 重生成(48 市场);probe 由主编排会话按操作员逐字批准的
+  命令执行(权限系统正确拒绝了转述授权的子代理——授权在主会话内成立)。
+- **结果:PASS。** 505,879 book msgs / 694.54 msg/s / 0 错误 0 掉线 0 丢包;
+  L3、L6 实测通过;生产采集全程秒级新鲜(哨兵 4/4),SEAL_ALARM=NONE,
+  transmitted=0。完整表:PLAN_DEPTH_EXPANSION §8;规格 §4 已更新。
+- **Stage 1 硬门盘点**:(a) 07-10 封印 ✅ + prune_raw 恢复验证(待下次
+  清理运行);(b) W03 结论吸收(未启动——Stage 1 关键路径);
+  (c) **实测替换括号 ✅(本记录)**。
+- EC2 工件:work/probe/depth_probe_20260711T224431Z.ndjson(~268MB 级
+  capture)+ .metrics.ndjson;capture 不入仓(工具设计隔离,可作 Stage 1
+  ingest 回放测试 fixture)。
