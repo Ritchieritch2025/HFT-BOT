@@ -144,10 +144,14 @@ while true; do
     ( python3 tools/coverage_audit.py --date "$YESTERDAY" >> "$LIVE/coverage_audit.log" 2>&1 \
         || echo "[supervisor] coverage_audit NONZERO for $YESTERDAY (V15 depth shrinkage; see coverage_audit.log)" ) &
     # daily research refresh on the freshly archived day (read-only, background)
-    ( python3 tools/mm_scan.py --date "$YESTERDAY" &&
-      python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&
-      python3 tools/mm_calibrate.py --date "$YESTERDAY" ) \
-      >> "$LIVE/mm_research.log" 2>&1 &
+    # PIPE-HOTFIX-01 (operator-approved 2026-07-11): research chain DISABLED —
+    # 2026-07-11 incident: these tools attach live staging.duckdb via
+    # warehouse.load() and starve the ingest writer (13m45s outage). Re-enable
+    # ONLY after the PIPE-R001 archive-only/day-seal fix is deployed+audited.
+    # ( python3 tools/mm_scan.py --date "$YESTERDAY" &&
+    #   python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&
+    #   python3 tools/mm_calibrate.py --date "$YESTERDAY" ) \
+    #   >> "$LIVE/mm_research.log" 2>&1 &
   fi
 
   # --- second-pass export sweep (2026-07-07 incident): the midnight export can
