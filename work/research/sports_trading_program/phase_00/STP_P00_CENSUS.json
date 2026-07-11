@@ -1,0 +1,1573 @@
+{
+ "census_id": "STP-P00-W01",
+ "head": "50018a55e383fd4f7cb331466da79ef023a42e88",
+ "date_utc": "2026-07-11",
+ "REGISTRY_COUNT_OBSERVED": 144,
+ "registry": [
+  {
+   "name": "test_ring",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_ring",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_fixedpoint",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_fixedpoint",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_ids",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_ids",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_env_safety",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_env_safety",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_bus",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_bus",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_orderbook",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_orderbook",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_recovery",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_recovery",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_readability",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_readability",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_sid_stream",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_sid_stream",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_token_bucket",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_token_bucket",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_backoff",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_backoff",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_secret_redaction",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_secret_redaction",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_account_limits",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_account_limits",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_endpoint_costs",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_endpoint_costs",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_request_spec",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_request_spec",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_batch_cost",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_batch_cost",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_decode",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_decode",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_storage",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_storage",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_replay",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_replay",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_recorder",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_recorder",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_ws_client",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_ws_client",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_shadow",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_shadow",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_strategies",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_strategies",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_market_filter",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_market_filter",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_layout",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_gold_layout",
+   "args_template": "[--dump]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_dtype",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_dtype.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_load",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_load.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_fsm",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_fsm.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_merge",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_merge.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_io",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_io.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_validate",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_validate.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_kalshi_golden",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_kalshi_golden.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "gold_validate",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "python3 tools/gold_validate.py",
+   "args_template": "--root work/gold --date <YYYY-MM-DD> [--no-quarantine]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "gold_build",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/gold_build.py",
+   "args_template": "--date <YYYY-MM-DD> [--root work/gold] [--spec work/kalshi_spec_alignment.json]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gold_v5_delta",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_v5_delta.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "gold_v5_delta",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "python3 tools/gold_v5_delta.py",
+   "args_template": "--date <YYYY-MM-DD> [--root work/gold]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_gold_v7_race",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gold_v7_race.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "gold_v7_race",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "python3 tools/gold_v7_race.py",
+   "args_template": "--date <YYYY-MM-DD> [--root work/gold]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_freshness",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_freshness.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_pipeline_contract",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_pipeline_contract.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_research_metrics",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_research_metrics.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_gate_metrics",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_gate_metrics.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "freshness",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "python3 tools/freshness.py",
+   "args_template": "[--threshold 600] [--json]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_daily_check",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_daily_check.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "daily_check",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "python3 tools/daily_check.py",
+   "args_template": "[--date YYYY-MM-DD] [--json] [--drop-pct 50]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_signing",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_signing",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "fuzz_decode",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/fuzz_decode",
+   "args_template": "[iters] [dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_resp",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./build/test_resp",
+   "args_template": "<port>",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_rest_api",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./build/test_rest_api",
+   "args_template": "<base_url>",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_request_executor",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./build/test_request_executor",
+   "args_template": "<base_url>",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_integration",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./build/test_integration",
+   "args_template": "<base_url> <key.pem> <threads> <reqs>",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "ws_smoke",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./build/ws_smoke",
+   "args_template": "[ws_url]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "bench_orderbook",
+   "kind": "bench",
+   "safety": "pure",
+   "cmd": "./build/bench_orderbook",
+   "args_template": "[n]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "bench_ws_decode",
+   "kind": "bench",
+   "safety": "pure",
+   "cmd": "./build/bench_ws_decode",
+   "args_template": "[n]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "bench_rtt",
+   "kind": "bench",
+   "safety": "network_read",
+   "cmd": "./build/bench_rtt",
+   "args_template": "[n] [base_url]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "bench_order",
+   "kind": "bench",
+   "safety": "live_order",
+   "cmd": "./build/bench_order",
+   "args_template": "[n] [ticker] [--prod-ok]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "account_info",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./build/account_info",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "probe_batch_cost",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./build/probe_batch_cost",
+   "args_template": "<seconds> <ticker...>",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "rate_probe",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./build/rate_probe",
+   "args_template": "[seconds] [threads]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "depth_probe",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "python3 tools/depth_probe.py",
+   "args_template": "--operator-approved [--markets 50] [--seconds 900] [--csv <depth_target.csv>] [--dry-run] | --analyze <capture.ndjson>",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_depth_probe",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_depth_probe.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "account_upgrade",
+   "kind": "probe",
+   "safety": "live_order",
+   "cmd": "./build/account_upgrade",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "ws_shadow",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./build/ws_shadow",
+   "args_template": "[ws_url]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "preflight",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./build/preflight",
+   "args_template": "[--orderbook T1,T2] [--order]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "exchange_check",
+   "kind": "check",
+   "safety": "network_read",
+   "cmd": "./tools/exchange_check.sh",
+   "args_template": "[--env prod] [--tickers T1,T2] [--ws-seconds 30] [--metrics work/metrics.ndjson]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "feed_readiness",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "python3 tools/feed_readiness.py",
+   "args_template": "[--metrics work/metrics.ndjson] [--json]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "warehouse_status",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "./tools/warehouse_status.py",
+   "args_template": "[--warehouse work/warehouse] [--json]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "verify_ws_capture",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "./tools/verify_ws_capture.py",
+   "args_template": "CAPTURE.ndjson [--tickers T1,T2] [--min-span-seconds N]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "verify_feed_metrics",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "python3 tools/verify_feed_metrics.py",
+   "args_template": "METRICS.ndjson [--source kalshi_ws] [--capture CAPTURE.ndjson] [--tickers T1,T2] [--max-age-ms N]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "ingest",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/ingest.py",
+   "args_template": "CAPTURE.ndjson [...] | --loop [SECONDS]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "export_day",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/export_day.py",
+   "args_template": "[--date YYYY-MM-DD] [--force] [--no-prune]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "warehouse_load",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/warehouse.py",
+   "args_template": "TABLE [--category C] [--subcategory S] [--group G] [--start D] [--end D] [--ffill]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "dim_snapshot",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/dim_snapshot.py",
+   "args_template": "[--date YYYY-MM-DD]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "catalog_sync",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "python3 tools/catalog_sync.py",
+   "args_template": "[--skip-markets] [--settled-pages N]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "build_classification",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/build_classification.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "migrate_warehouse",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/migrate_warehouse.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "pipeline_supervisor",
+   "kind": "daemon",
+   "safety": "network_read",
+   "cmd": "./tools/pipeline_supervisor.sh",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "mm_scan",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/mm_scan.py",
+   "args_template": "[--date D] [--top N] [--min-trades N] [--min-depth N]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "mm_backtest",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/mm_backtest.py",
+   "args_template": "--date D [--from-scan N | --markets T1,T2] [--size N] [--max-inv N] [--min-spread $] [--clock recv|exchange] [--allow-missing-recv]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "reconcile",
+   "kind": "tool",
+   "safety": "network_read",
+   "cmd": "python3 tools/reconcile.py",
+   "args_template": "--engine ENGINE.json (--exchange FIXTURE.json | --live) [--report PATH] [--large-position-delta E4]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_reconcile",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_reconcile.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_rule_engine",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_rule_engine",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_risk_ledger",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./build/test_risk_ledger",
+   "args_template": "[scratch_dir]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "panic_dryrun",
+   "kind": "tool",
+   "safety": "network_read",
+   "cmd": "./build/panic",
+   "args_template": "[--rounds N] [--json PATH]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "panic_live",
+   "kind": "tool",
+   "safety": "live_order",
+   "cmd": "./build/panic --execute",
+   "args_template": "[--rounds N] [--json PATH]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_panic_dryrun",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_panic_dryrun.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "account_view",
+   "kind": "tool",
+   "safety": "network_read",
+   "cmd": "python3 tools/account_view.py",
+   "args_template": "[balance|positions|orders|all] [--json] [--assert-zero-resting]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_account_view",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_account_view.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "rtt_baseline_sampler",
+   "kind": "bench",
+   "safety": "network_read",
+   "cmd": "bash tools/rtt_baseline_sampler.sh",
+   "args_template": "",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "rotate_metrics",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "bash tools/rotate_metrics.sh",
+   "args_template": "<path-to-metrics.ndjson>",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "dashboard_net",
+   "kind": "tool",
+   "safety": "network_read",
+   "cmd": "bash tools/dashboard_net.sh",
+   "args_template": "<KALSHI_API_KEY_ID>",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "load_db",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/load_db.py",
+   "args_template": "<run_dir> [more...] [--db market_data.db]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "jitter_report",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 work/research/jitter_report.py",
+   "args_template": "--capture-host ec2|mac-precutover|unknown_overlap|fixture FILES... [--out CSV]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_timestamp_ladder",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_timestamp_ladder.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_backtest_clock",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_backtest_clock.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_jitter_report",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_jitter_report.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_pricing_pipeline",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_pricing_pipeline.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_pricing_quote",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_pricing_quote.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_pricing_fair",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_pricing_fair.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_pricing_lo",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_pricing_lo.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "mm_calibrate",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/mm_calibrate.py",
+   "args_template": "[--date D] [--end D] [--min-trades N]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "mm_research",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/mm_research.py",
+   "args_template": "[--start D] [--end D] [--out PATH] [--top N] [--min-updates N]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "gate_calc",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "python3 tools/gate_calc.py",
+   "args_template": "[--start D] [--end D] [--min-edge-c F] [--max-quote-age-s F] [--min-legs N] [--out PATH] [--preview-unverified-fees]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_ingest",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "python3 tests/test_ingest.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_export_day",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "python3 tests/test_export_day.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_warehouse_status",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "python3 tests/test_warehouse_status.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "fill_test",
+   "kind": "probe",
+   "safety": "live_order",
+   "cmd": "./build/fill_test",
+   "args_template": "<ticker>",
+   "build": "on_demand",
+   "autorun": true
+  },
+  {
+   "name": "ingestd",
+   "kind": "daemon",
+   "safety": "network_read",
+   "cmd": "./build/ingestd",
+   "args_template": "--poll [interval_ms]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "tradingd",
+   "kind": "daemon",
+   "safety": "live_order",
+   "cmd": "./build/tradingd",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_pipeline",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "./tests/run_pipeline.sh",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_rest_api",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./tests/run_rest_api.sh",
+   "args_template": "[port]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_request_executor",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./tests/run_request_executor.sh",
+   "args_template": "[port]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_ws_smoke",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./tests/run_ws_smoke.sh",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "check_gates",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "./tools/check_gates.sh",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "probe_batch_cost_sh",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./tools/probe_batch_cost.sh",
+   "args_template": "[seconds] [ticker...]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "check_registry",
+   "kind": "check",
+   "safety": "pure",
+   "cmd": "./tools/check_registry.py",
+   "args_template": "[--require-built]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "lifecycle_check",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "./tools/lifecycle_check.py",
+   "args_template": "[--run-core-tests] [--allow-network]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "kalshi_spec_sync",
+   "kind": "check",
+   "safety": "network_read",
+   "cmd": "./tools/kalshi_spec_sync.py --allow-network",
+   "args_template": "[--json]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "kalshi_update_watcher",
+   "kind": "probe",
+   "safety": "network_read",
+   "cmd": "./tools/kalshi_update_watcher.py --allow-network --once",
+   "args_template": "[--watch --interval-seconds N]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_pytest",
+   "kind": "tool",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "[pytest args]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "run_tests",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "./tools/run_tests.py",
+   "args_template": "--list | --tool NAME | --all",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_console",
+   "kind": "test",
+   "safety": "offline",
+   "cmd": "./tests/test_console.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_feed_readiness",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "python3 tests/test_feed_readiness.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_verify_ws_capture",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/test_verify_ws_capture.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_verify_feed_metrics",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "python3 tests/test_verify_feed_metrics.py",
+   "args_template": "",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "dashboard_server",
+   "kind": "daemon",
+   "safety": "offline",
+   "cmd": "./dashboard_server.py",
+   "args_template": "--port 8765 [--allow-network]",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "coverage_audit",
+   "kind": "check",
+   "safety": "offline",
+   "cmd": "python3 tools/coverage_audit.py",
+   "args_template": "--date <YYYY-MM-DD> [--declared-list config/depth_watchlist.txt] [--out-dir work/mm]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_coverage_audit",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_coverage_audit.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "event_measure_split",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/event_measure_split.py",
+   "args_template": "[--category Sports] [--days 7] [--top 20]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_event_measure_split",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_event_measure_split.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "event_index",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/event_index.py",
+   "args_template": "--catalog-dir <dir> [--policy config/event_packaging.yaml] [--out work/event_packs/index.parquet] [--now 'YYYY-MM-DD HH:MM:SS']",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_event_index",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_event_index.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "event_pack",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/event_pack.py",
+   "args_template": "[--index work/event_packs/index.parquet] [--unit KEY] [--warehouse DIR] [--refresh] [--now 'YYYY-MM-DD HH:MM:SS']",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_event_pack",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_event_pack.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_warehouse_nonuniform_archive",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_warehouse_nonuniform_archive.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "event_validate",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/event_validate.py",
+   "args_template": "--manifest manifests/<key>.json [--warehouse DIR] [--gaps work/event_packs/capture_gaps.csv]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_event_validate",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_event_validate.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "capture_gaps",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/capture_gaps.py",
+   "args_template": "(--date YYYY-MM-DD | --since N | --live) [--min-gap-secs 60]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_capture_gaps",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_capture_gaps.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "test_warehouse_event",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_warehouse_event.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "event_export",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/event_export.py",
+   "args_template": "(--event K | --market K | --series K) [--status sealed] [--warehouse DIR]",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "test_event_export",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_event_export.py",
+   "build": null,
+   "autorun": true
+  },
+  {
+   "name": "build_segments",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/research/build_segments.py",
+   "args_template": "",
+   "build": null,
+   "autorun": false
+  },
+  {
+   "name": "maker_edge_pilot",
+   "kind": "tool",
+   "safety": "offline",
+   "cmd": "python3 tools/research/maker_edge_pilot.py",
+   "args_template": "[--category Sports] [--subcategory Tennis] [--start D] [--end D] [--train-end D] [--stage all|slice|markout|aggregate]",
+   "build": null,
+   "autorun": false
+  }
+ ],
+ "makefile": {
+  "PURE_TESTS": [
+   "test_backoff",
+   "test_bus",
+   "test_env_safety",
+   "test_fixedpoint",
+   "test_gold_layout",
+   "test_ids",
+   "test_market_filter",
+   "test_orderbook",
+   "test_readability",
+   "test_recovery",
+   "test_ring",
+   "test_risk_ledger",
+   "test_rule_engine",
+   "test_secret_redaction",
+   "test_sid_stream",
+   "test_strategies",
+   "test_token_bucket"
+  ],
+  "BINS_total_incl_pure": [
+   "account_info",
+   "account_upgrade",
+   "bench_order",
+   "bench_orderbook",
+   "bench_rtt",
+   "bench_ws_decode",
+   "fuzz_decode",
+   "ingestd",
+   "panic",
+   "preflight",
+   "probe_batch_cost",
+   "rate_probe",
+   "test_account_limits",
+   "test_backoff",
+   "test_batch_cost",
+   "test_bus",
+   "test_decode",
+   "test_endpoint_costs",
+   "test_env_safety",
+   "test_fixedpoint",
+   "test_gold_layout",
+   "test_ids",
+   "test_integration",
+   "test_market_filter",
+   "test_orderbook",
+   "test_readability",
+   "test_recorder",
+   "test_recovery",
+   "test_replay",
+   "test_request_executor",
+   "test_request_spec",
+   "test_resp",
+   "test_rest_api",
+   "test_ring",
+   "test_risk_ledger",
+   "test_rule_engine",
+   "test_secret_redaction",
+   "test_shadow",
+   "test_sid_stream",
+   "test_signing",
+   "test_storage",
+   "test_strategies",
+   "test_token_bucket",
+   "test_ws_client",
+   "tradingd",
+   "ws_shadow",
+   "ws_smoke"
+  ],
+  "build_rules": [
+   "account_info",
+   "account_upgrade",
+   "bench_order",
+   "bench_orderbook",
+   "bench_rtt",
+   "bench_ws_decode",
+   "fill_test",
+   "fuzz_decode",
+   "ingestd",
+   "ixws",
+   "panic",
+   "preflight",
+   "probe_batch_cost",
+   "rate_probe",
+   "test_account_limits",
+   "test_backoff",
+   "test_batch_cost",
+   "test_bus",
+   "test_decode",
+   "test_endpoint_costs",
+   "test_env_safety",
+   "test_fixedpoint",
+   "test_gold_layout",
+   "test_ids",
+   "test_integration",
+   "test_integration_tsan",
+   "test_market_filter",
+   "test_orderbook",
+   "test_readability",
+   "test_recorder",
+   "test_recorder_tsan",
+   "test_recovery",
+   "test_replay",
+   "test_request_executor",
+   "test_request_spec",
+   "test_resp",
+   "test_rest_api",
+   "test_ring",
+   "test_ring_tsan",
+   "test_risk_ledger",
+   "test_rule_engine",
+   "test_secret_redaction",
+   "test_shadow",
+   "test_sid_stream",
+   "test_signing",
+   "test_storage",
+   "test_strategies",
+   "test_token_bucket",
+   "test_token_bucket_tsan",
+   "test_ws_client",
+   "tradingd",
+   "tradingd_tsan",
+   "ws_shadow",
+   "ws_smoke"
+  ],
+  "named_targets": [
+   "all",
+   "check",
+   "clean",
+   "dashboard",
+   "fuzz",
+   "gate",
+   "san",
+   "test",
+   "tsan"
+  ]
+ },
+ "cmake": {
+  "library": [
+   "kalshi (STATIC)"
+  ],
+  "executables_explicit": [
+   "tradingd",
+   "ingestd",
+   "bench_orderbook",
+   "bench_ws_decode",
+   "fuzz_decode"
+  ],
+  "test_executables_foreach": [
+   "test_account_limits",
+   "test_backoff",
+   "test_batch_cost",
+   "test_bus",
+   "test_decode",
+   "test_endpoint_costs",
+   "test_env_safety",
+   "test_fixedpoint",
+   "test_ids",
+   "test_integration",
+   "test_market_filter",
+   "test_orderbook",
+   "test_readability",
+   "test_recorder",
+   "test_recovery",
+   "test_replay",
+   "test_request_executor",
+   "test_request_spec",
+   "test_resp",
+   "test_rest_api",
+   "test_ring",
+   "test_secret_redaction",
+   "test_shadow",
+   "test_sid_stream",
+   "test_signing",
+   "test_storage",
+   "test_strategies",
+   "test_token_bucket",
+   "test_ws_client"
+  ]
+ },
+ "cpp_main_files": [
+  "apps/account_info.cpp",
+  "apps/account_upgrade.cpp",
+  "apps/bench_order.cpp",
+  "apps/bench_orderbook.cpp",
+  "apps/bench_rtt.cpp",
+  "apps/bench_ws_decode.cpp",
+  "apps/fill_test.cpp",
+  "apps/ingestd.cpp",
+  "apps/live_e2e.cpp",
+  "apps/panic.cpp",
+  "apps/preflight.cpp",
+  "apps/probe_batch_cost.cpp",
+  "apps/rate_probe.cpp",
+  "apps/tradingd.cpp",
+  "apps/ws_shadow.cpp",
+  "apps/ws_smoke.cpp",
+  "tests/fuzz_decode.cpp",
+  "tests/test_account_limits.cpp",
+  "tests/test_backoff.cpp",
+  "tests/test_batch_cost.cpp",
+  "tests/test_bus.cpp",
+  "tests/test_decode.cpp",
+  "tests/test_endpoint_costs.cpp",
+  "tests/test_env_safety.cpp",
+  "tests/test_fixedpoint.cpp",
+  "tests/test_gold_layout.cpp",
+  "tests/test_ids.cpp",
+  "tests/test_integration.cpp",
+  "tests/test_market_filter.cpp",
+  "tests/test_orderbook.cpp",
+  "tests/test_readability.cpp",
+  "tests/test_recorder.cpp",
+  "tests/test_recovery.cpp",
+  "tests/test_replay.cpp",
+  "tests/test_request_executor.cpp",
+  "tests/test_request_spec.cpp",
+  "tests/test_resp.cpp",
+  "tests/test_rest_api.cpp",
+  "tests/test_ring.cpp",
+  "tests/test_risk_ledger.cpp",
+  "tests/test_rule_engine.cpp",
+  "tests/test_secret_redaction.cpp",
+  "tests/test_shadow.cpp",
+  "tests/test_sid_stream.cpp",
+  "tests/test_signing.cpp",
+  "tests/test_storage.cpp",
+  "tests/test_strategies.cpp",
+  "tests/test_token_bucket.cpp",
+  "tests/test_ws_client.cpp"
+ ],
+ "scripts": {
+  "registry_referenced_count": 95,
+  "registry_referenced_missing_on_disk": [],
+  "filesystem_not_registry_referenced": [
+   "tests/analyze_full_chain_latency.py",
+   "tests/conftest.py",
+   "tests/isolated_run.sh",
+   "tests/mini_redis.py",
+   "tests/mock_exchange_panic.py",
+   "tests/mock_rest.py",
+   "tests/mock_server.py",
+   "tests/mock_ws_exchange.py",
+   "tests/run_ws_shadow_mock.sh",
+   "tests/test_alert_notify.py",
+   "tests/test_catalog_sync_pacing.py",
+   "tests/test_dim_snapshot_schema_drift.py",
+   "tests/test_isolation_controls.sh",
+   "tests/verify_captured.py",
+   "tools/gold_dtype.py",
+   "tools/gold_fsm.py",
+   "tools/gold_io.py",
+   "tools/gold_load.py",
+   "tools/gold_merge.py",
+   "tools/research/aggregate_maker_edge.py",
+   "tools/research/html_report_maker_edge.py",
+   "tools/warehouse_common.py"
+  ]
+ },
+ "live_order_registry_entries": [
+  "account_upgrade",
+  "bench_order",
+  "fill_test",
+  "panic_live",
+  "tradingd"
+ ],
+ "apps_without_build_rule_or_registry": [
+  "apps/live_e2e.cpp"
+ ]
+}
