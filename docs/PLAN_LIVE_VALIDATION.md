@@ -1,5 +1,11 @@
 # PLAN_LIVE_VALIDATION — 清理 + 一键交易所检查 + 真实下单链路延迟测试（执行 prompt）
 
+> **安全纠偏（2026-07-10）：** 本文件 Phase 0–2 的清理、mock、只读检查可继续
+> 作为组件使用；Phase 3 的任何真实下单步骤不得独立执行。它们已被
+> `docs/PLAN_MM_TEST_PROGRAM.md` 归入 C5/I1–I3，必须先过 G7、W-K6 排期、
+> 资金门和操作员当次书面确认。任何可能留仓的探针必须有自动退出 + panic，
+> “测完手动平仓”不再是合格的 rollback。
+
 > 放入 `docs/`，按 Phase 顺序执行，每个 Phase 有验收门槛（gate），过了才进下一个。
 > 沿用仓库惯例：新二进制/脚本同时进 Makefile 和 CMakeLists.txt，并在 `tools.json`
 > 注册（`tools/check_registry.py` 会强制检查）；测试输出 `PASS:/FAIL:` + 末行

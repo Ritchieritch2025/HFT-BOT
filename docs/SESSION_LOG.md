@@ -6,6 +6,127 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-10 15:30 UTC — 全市场研究范围裁决落盘（18类 universe）— 待独立审计与提交
+
+- commits:
+  - **NONE — `.git` remains read-only in this Codex workspace** (15:19 entry
+    records the index.lock failure). Docs are complete in the working tree;
+    no retry attempted because the blocking permission is unchanged.
+- decisions (E2 — each lives in a file):
+  - Added `docs/PLAN_FULL_MARKET_RESEARCH.md`: every catalog market in the
+    study window enters the universe, including zero-trade, empty-book,
+    closed/canceled and delisted markets. Tennis is a methodology baseline,
+    never the research boundary.
+  - All 18 exact categories in `config/market_classes.yaml` are named; newly
+    discovered categories enter `_unclassified` and fail the final coverage
+    gate until mapped. Exotics/MVE remain visible in research but Q7-excluded
+    from automated MM candidacy.
+  - Defined two lanes: Universal lane uses current all-market catalog+L1+
+    trades+available fee/lifecycle/settlement; Depth lane rolls L2 across all
+    active markets in capacity-tested waves. Missing L2 does not erase a
+    market from the atlas, but blocks queue-aware W-FS1 profitability.
+  - Defined U0 one-row-per-market universe, U1 incremental market-day mart,
+    U2 interactive atlas, U3 hypothesis families, U4 anti-p-hack screening,
+    U5 stratified L2 expansion, U6 W-FS1 validation/test. Every market gets a
+    visible status/reason; no single “Kalshi overall PnL” is legal.
+  - Multiple-market discipline: train freezes pools/thresholds/top-k;
+    validation uses predeclared family BH-FDR q≤0.05; test opens once and uses
+    event-block bootstrap + pessimistic W-FS1. Raw and shrunk estimates are
+    both shown.
+  - Current tool boundary is explicit: mm_scan is a spread×flow prototype;
+    Tennis `build_segments`/maker-edge semantics cannot be made all-market by
+    changing `--category`; old mm_backtest is NON-GATE before W-FS1.
+  - L2 wave proposal = 70% research-value rank + 30% stratified long-tail
+    coverage, frozen before the first probe and subject to independent plan
+    audit. End state is all active markets; production capture continuity
+    outranks rollout speed.
+  - Synchronized Tennis score/serve data remains a separate information-source
+    branch; its absence does not block all-market microstructure research.
+  - Updated `PLAN_MM_TEST_PROGRAM`, `PLAN_RESEARCH_CYCLE_1`, and `CLAUDE.md`
+    references: full-market U0/U1 now precede atlas/ranking; full-market L2
+    replaces the earlier candidate-Tennis depth wording.
+- context capsule:
+  - EC2 policy already captures all 18 categories L1; trades/settlements are
+    all-market by policy. Continuous all-market L2 remains the missing asset.
+  - New plan is 379 lines, paper-only; no code/config/capture/live change.
+  - `git diff --check` passes, including both new untracked plan files.
+  - `make check` PASS; registry still 144 tools.
+  - `tests/run_pipeline.sh` repeated: same 9 localhost-backed suites fail in
+    this managed sandbox because 127.0.0.1 bind is forbidden; all other suites
+    pass. This matches the 15:19 evidence and is not a new regression.
+  - Unowned `outputs/2026-07-10_muchova_gauff/` remains untouched.
+- blocked / handoff:
+  - NEXT independent audit covers both `PLAN_FULL_MARKET_RESEARCH.md` and
+    `PLAN_MM_TEST_PROGRAM.md`; focus on whether U0 truly prevents survivorship,
+    U4 prevents multiple-testing leakage, and U5 gives all categories fair L2
+    coverage without endangering the firehose.
+  - After audit, first executable paper-approved W is U0/U1: read-only all 18
+    categories, deliver DQ/universe before any leaderboard. S1 audit remains
+    first in the operational sequence.
+  - A normal git-capable session must run the canonical pipeline, stage only
+    intended docs (never unowned outputs), commit, and mirror docs.
+
+## 2026-07-10 15:19 UTC — MM 总测试计划完成（paper-only）— 待独立审计与提交
+
+- commits:
+  - **NONE — current Codex workspace exposes `.git` read-only.** `git add` /
+    commit failed before staging with `Unable to create .git/index.lock:
+    Operation not permitted`. Working-tree docs are complete but uncommitted;
+    a normal git-capable session must review and commit them. Untracked
+    `outputs/2026-07-10_muchova_gauff/` remains untouched and unowned.
+- decisions (E2 — each lives in a file):
+  - Added `docs/PLAN_MM_TEST_PROGRAM.md`: one G0→G9 gate map covering data/
+    clocks/L2, immediate reaction + cancel race, latency, maker action matrix,
+    W-FS1 stateful fill simulation, unopened-test profitability, shadow,
+    fault/risk soak, operator-gated calibration probes and micro-live.
+  - 30s markout is now explicitly an inventory/persistence diagnostic; maker
+    reaction is judged on 10/25/50/100/250/500ms + 1/2/5s, with 10/30/120s
+    retained for persistence. S1's frozen 30s metric/result is NOT rewritten.
+  - S5's allowed set is now `{edge-candidate,reject,collect}`; it cannot say
+    `trade` before W-FS1, one-time test, shadow 5 green days and safety gates.
+  - S4 book burstiness must read raw L1/L2 book messages, channel-separated;
+    markout/trade rows cannot be labeled book inter-update. Lower-tail
+    inter-arrivals + message counts per short window judge speed; p99 mostly
+    measures quiet time.
+  - W-FS1 is a hard prerequisite to W-C4. Old `mm_backtest.py` is diagnostic
+    only because it lacks cancel-pending exposure, bounded partial fills,
+    calibrated queue-ahead and the full order lifecycle. W-C1 λ is renamed in
+    interpretation to public-flow opportunity intensity, not true fill odds.
+  - PLAN_LIVE_VALIDATION Phase-3 real actions are safety-deferred to the new
+    G7/I gates; manual flattening is not an acceptable probe rollback.
+  - Added explicit tennis-score boundary: without synchronized point/game/set,
+    serve side and recv latency, results are market-microstructure-only; a
+    sports-prediction layer needs a separately tested data source and cannot
+    use hindsight score joins.
+  - Cross-references/edits landed in `CLAUDE.md`, `docs/MM_ROADMAP.md`,
+    `docs/PLAN_RESEARCH_CYCLE_1.md`, `docs/PLAN_PRICING_MODEL.md`, and
+    `docs/PLAN_LIVE_VALIDATION.md`.
+- context capsule:
+  - New plan is 500+ lines and test-plan only; no code/config/production/live
+    order change. It does not reorder MASTER_SEQUENCE; it only supersedes the
+    three unsafe test semantics listed at its top.
+  - `make check` PASS: registry 144 tools, all compiled/pure suites green.
+  - `tests/run_pipeline.sh` executed: non-localhost suites green; 9 suites
+    failed because this managed sandbox forbids binding 127.0.0.1
+    (`PermissionError: [Errno 1] Operation not permitted`). Affected:
+    test_console, test_account_view, test_panic_dryrun, test_resp, rest_api,
+    request_executor, ws_smoke, ws_shadow_mock, test_integration. Logs under
+    `work/logs/`; mock_mini_redis and mock_server logs directly show bind
+    PermissionError. This is the same environment limitation as the preceding
+    audit, not a docs-induced functional failure, but the canonical pipeline
+    is honestly FAIL in this sandbox and must be rerun on a normal host.
+  - `git diff --check` passes for tracked changes and the new plan; headings and
+    cross-references were grep-audited.
+- blocked / handoff:
+  - NEXT: independently audit `docs/PLAN_MM_TEST_PROGRAM.md` against
+    GUARDRAILS, especially F4 thresholds, W-FS1 state semantics, G7→I ordering,
+    and whether any existing authoritative plan still conflicts.
+  - Then rerun `make check && tests/run_pipeline.sh` on a host allowed to bind
+    localhost; stage only the six named docs + CLAUDE + this SESSION_LOG (never
+    the unowned `outputs/`), commit, and mirror docs per exit ritual.
+  - After plan acceptance, execution starts with S1 independent audit, then
+    raw-book S4 correction/L2 collection/reaction budget/W-FS1 — no live work.
+
 ## 2026-07-10 15:02 UTC — S1 maker-edge pilot ✅ COMPLETE (dev-grade) — awaiting independent audit + Cowork readout
 
 - commits:

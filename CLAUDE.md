@@ -42,6 +42,8 @@ Hard rules that bind every session (full versions in GUARDRAILS):
 - Credentials live only in `~/.kalshi/env.sh` (never in repo/logs/output).
 
 Key docs: `docs/GUARDRAILS.md` (constitution) · `docs/MM_ROADMAP.md` (phases) ·
+`docs/PLAN_MM_TEST_PROGRAM.md` (研究→影子→微实盘的总测试门) ·
+`docs/PLAN_FULL_MARKET_RESEARCH.md` (全18类别 universe→atlas→深度验证) ·
 `docs/ARCHITECTURE_REVIEW_2026-07-06.md` (verified current state; World A/B
 merge is the Phase-2 opener) · `docs/RUNBOOK.md` (ops commands) ·
 `docs/warehouse_schema.md` (data layer contract).

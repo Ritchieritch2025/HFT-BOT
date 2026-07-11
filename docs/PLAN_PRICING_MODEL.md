@@ -384,9 +384,14 @@ per fresh session; independent audit after each, MASTER_SEQUENCE rule).
 >    calibration parameter or go/no-go — promotion out of sandbox/ goes
 >    through full W discipline.**
 > 3. Fee facts ratified (OQ-1) for any gate-mode expectation number.
+> 4. **W-FS1 成交模拟器是 W-C4 硬前置**（定义见
+>    `docs/PLAN_MM_TEST_PROGRAM.md` E组）。旧 `mm_backtest.py` 的
+>    strict-through/at-touch 双界仍可做诊断，但其即时撤掉旧 quote、固定满额
+>    fill、无 cancel-pending/partial-fill/queue calibration 的语义不得进入
+>    go/no-go。W-FS1 未过独立审计时，所有 PnL 强制标 `NON-GATE`。
 
 ### W-C1 — λ(δ) fill-intensity calibration
-Purpose:          from L1+trades: intensity of being filled vs distance from
+Purpose:          from L1+trades: public-flow **opportunity intensity** vs distance from
                   touch (lo-space bins), pessimistic queue convention (strictly
                   -through only), per category/liquidity tier; output a
                   versioned parameter table `work/mm/lambda_<range>.csv` +
@@ -403,9 +408,14 @@ Rollback:         revert commit; delete derived csvs.
 Exit evidence:    commit hash; pytest green; one real-data table with its
                   sample sizes printed.
 
+Interpretation:   W-C1 单独不声称真实 fill probability；真实成交概率由
+                  W-FS1 的 L2 queue-aware 模型与 operator-gated tiny-probe
+                  calibration 给出。
+
 ### W-C2 — Toxicity surface
 Purpose:          extend `mm_calibrate` output into the model's toxicity
-                  term: post-trade lo-drift at 30s/120s conditioned on
+                  term: post-trade lo-drift at 10/25/50/100/250/500ms,
+                  1/2/5/10/30/120s conditioned on
                   category × time-of-day × spread-state; emitted in lo-space
                   (`tox_*_lo` convention already exists).
 Allowed writes:   `tools/mm_calibrate.py` (additive columns/buckets only);
@@ -434,13 +444,15 @@ Rollback:         revert commit.
 Exit evidence:    commit hash; pytest green; proposal table labeled PROPOSED.
 
 ### W-C4 — Modeled-quote backtest vs naive baseline (**the Phase-1.5 exit**)
-Purpose:          drive mm_backtest with W-P3 quotes (parameters from
-                  W-C1..C3) vs the join-the-touch baseline on identical tapes,
+Purpose:          drive the same strategy/risk loop with W-P3 quotes
+                  (parameters from W-C1..C3) and W-FS1 as the backtest sink,
+                  versus the join-the-touch baseline on identical tapes,
                   `--clock recv`, pessimistic bound; Phase-1.5 exit criterion:
                   modeled quotes ≥ 7 days positive pessimistic expectation AND
-                  strictly better than baseline.
+                  strictly better than baseline. Detailed unopened-test and
+                  stress gates follow PLAN_MM_TEST_PROGRAM F4.
 Allowed writes:   `tools/mm_model_backtest.py` (a driver composing existing
-                  pieces — mm_backtest fill logic is reused, not forked);
+                  pieces — W-FS1 is consumed, not forked);
                   tests; `work/mm/*` reports.
 Forbidden writes: `tools/mm_backtest.py` fill semantics (any change there is
                   its own audited W — the go/no-go instrument must not be
@@ -455,7 +467,8 @@ Rollback:         revert commit; reports are derived files.
 Exit evidence:    commit hash; pytest green; the go/no-go table (or the
                   honest "gate not yet satisfied" statement with dates).
 
-Group-C ordering: W-C1 → W-C2 → W-C3 → W-C4, strictly (audit N3: W-C2 and
+Group-C ordering: W-FS1 must be audited before W-C4; within Group C,
+W-C1 → W-C2 → W-C3 → W-C4, strictly (audit N3: W-C2 and
 W-C3 both touch `mm_calibrate.py`, so they are sequenced, never concurrent;
 W-C4 last, consumes all three).
 
@@ -473,7 +486,8 @@ W-C4 last, consumes all three).
 - Group C additionally consumes: seven-clean-days gate, ladder-era data
   accumulation, OQ-1 fee ratification, and (for honest latency numbers in
   W-C4's model) the separate signing/RTT p99 measurement task (sampling plan
-  → operator first; W-TL1 handoff).
+  → operator first; W-TL1 handoff), plus audited W-FS1 and its latency/
+  queue assumptions.
 - Phase 2 (C++ port, shadow wiring) starts only after W-C4's exit criterion
   is met — and begins with the World A/B merge per GUARDRAILS Q5, not with
   this Python code.

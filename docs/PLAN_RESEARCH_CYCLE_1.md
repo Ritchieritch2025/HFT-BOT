@@ -9,6 +9,14 @@ MASTER_SEQUENCE 既有步骤;悲观口径与全部闸门不变。
 十点规格)、RESEARCH_EDGE_HYPOTHESES(H1-H13)、PLAN_PRICING_MODEL
 Group C(正式校准,gated ≥2026-07-13)。
 
+**上位测试门(2026-07-10):** `docs/PLAN_MM_TEST_PROGRAM.md` 收拢从研究到
+微实盘的总门控。本计划 S1 的冻结指标与结果不变；S4 的 book burstiness
+必须从 raw book messages 计算；S5 最多产生 `edge-candidate/reject/collect`，
+不能绕过 W-FS1 成交模拟、一次性 test、shadow 5绿日和安全门直接判 `trade`。
+**研究范围裁决:** `docs/PLAN_FULL_MARKET_RESEARCH.md` 定义全18类别 universe；
+S1/S5 Tennis 是方法与 regime continuity baseline，不是全项目研究疆界。S4
+横向结果进入全市场 atlas，所有 market 必须显示或给出明确缺数/排除原因。
+
 ---
 
 ## S0 · 前置(日历事件,已排)
@@ -44,7 +52,8 @@ Group C(正式校准,gated ≥2026-07-13)。
   重跑即得 S4/S5,**零代码分叉**。
 - 读数:回 Cowork,逐表讲解。**S1(dev-grade)合法结论仅两种:
   methodology-valid + collect / methodology-flawed(修后重跑);
-  trade/reject 判决权只属于 S5**(capture_host 规则,自洽修正)。
+  edge-candidate/reject/collect 只属于 S5；`trade` 还需通过总测试计划
+  G3..G9**(capture_host 规则,自洽修正)。
 - 注意:Mac-era 数据 → 结论标 dev-grade;方法学在 S5 用 EC2 数据重跑。
 - 选品钉死(操作员 2026-07-10 裁决,取代原"仅零 maker 费"条目):
   S1 范围 = 全部网球 match 系列(KXATPMATCH / KXWTAMATCH / KXITFMATCH /
@@ -89,13 +98,16 @@ Group C(正式校准,gated ≥2026-07-13)。
   先查再录;④ 基准脚本入库并注册 tools.json(E3)。
 
 ## S3 · 反应秒表·下半(需操作员批准后执行)
-- 目的:signed-POST 全链 RTT p99(真实往返,不碰真单)。
-- 执行:执行会话先提交采样方案(端点选择、频率、只读性论证)
+- 目的:先测认证网络 RTT p99；真实 create/cancel/amend/decrease 的
+  order-effective 延迟属于总测试计划 C5/I2，不准用只读 RTT 冒充。
+- 执行:执行会话先提交采样方案(端点选择、频率、零副作用论证)
   → **操作员过目批准** → **从 EC2 发起**,≥3 个时段各采样 ≥100 次
   (RTT 是分布不是快照;全程低频,采样间隔 ≥2s,远低于 rate
-  预算)→ 替换 RTT PLACEHOLDER。
-- 读数:回 Cowork——合成 order_effective 总预算,对照 S1 的
-  市场心跳表,正式回答"我们比市场快几倍/慢几倍"。
+  预算)→ 替换只读网络 RTT PLACEHOLDER。若无法证明端点零副作用，
+  本步停止，不得用真实 order POST 伪装“无风险采样”。
+- 读数:回 Cowork——形成认证网络 RTT 基线,与签名/本地处理组成
+  **preliminary reaction budget**；只有总测试计划 C5 的真实 order-action
+  probe 才能形成 order_effective 预算并正式回答“撤得掉吗”。
 - ✅ **S3 验证**:① 采样日志:≥3 时段 × ≥100 次,时间戳可查,
   QPS ≤0.5;② 零副作用铁证:采样前后各跑一次
   `account_view --assert-zero-resting`(W-K1 工具),两次都 exit 0
@@ -107,12 +119,18 @@ Group C(正式校准,gated ≥2026-07-13)。
 - 目的:Rhys 问题#2 的完整版(quote 更新比成交更密)+ 品类对比
   (sports 各子类 vs crypto)。
 - 执行:**单独一场**(全品类 L1 体量大,16GB 盒子按品类×日期
-  分块;S1 的 burstiness 只含 Tennis,此处才做横向)。
-- 读数:每品类一行:心跳中位/p99、爆发系数、与我方预算的倍数。
+  分块;S1 的 burstiness 只含 Tennis,此处才做横向)。book inter-update
+  必须直接取 raw L1/L2 book messages；禁止从 markout/trade 分析表的行距
+  冒充 book 更新间隔。book、trade、lifecycle 三频道分别报告。
+- 读数:每品类一行:inter-arrival p0.1/p1/p5/p10/p50/p90/p99、
+  每10/25/50/100/250/500ms消息数、burst大小/持续时间、与我方
+  cancel-effective p50/p99预算的关系。判断“追不追得上”看下尾部和短窗
+  消息数；p99 inter-arrival 主要是安静期，不可单独拿来判速度。
 - ✅ **S4 验证**:① 每品类样本量 + 与 manifest 行数对账(抽 2 个
   品类核对,差异 >1% = 数据没读全);② 无 OOM(分块纪律的证明);
-  ③ 指纹头;④ Tennis 行与 S1 内部结果一致(同数据同口径,
-  数字对不上 = 两处算法漂移)。
+  ③ 指纹头;④ Tennis 行与按 raw book 重算的 S1 诊断一致(同数据同口径,
+  数字对不上 = 两处算法漂移);⑤ 报告明确数据源表/频道，不得把 trade-row
+  burstiness 标成 book-level。
 
 ## S5 · EC2 时代重跑(唯一有资格进 go/no-go 的版本)
 - 门:≥2026-07-13 七天净数据 + recv 列积累(实际 ≥07-17 成熟)。
@@ -122,14 +140,16 @@ Group C(正式校准,gated ≥2026-07-13)。
 - 切分:选样冻结于 EC2-era 最早段,val = 中段;**最近 2 天留作
   test,方法在 val 定稿后只开封一次**。
 - 读数:回 Cowork,与 dev-grade 版对比——结论变没变,为什么;
-  **trade/reject 判决只在此步产生**。
+  **本步合法判决仅 {edge-candidate, reject, collect}。** edge-candidate
+  之后还必须通过 PLAN_MM_TEST_PROGRAM 的 W-FS1、未开封 test、shadow、
+  安全与微实盘校准；本步无权单独判 `trade`。
 - 此后接 Group C 正式校准(PLAN_PRICING_MODEL,recv-only,无例外)。
 - ✅ **S5 验证**:① 开跑前门检:按 S0 钉死的 clean 定义逐日核对
   七天 + EC2-era recv 覆盖率 ≥95%(SQL 入报);② test 窗开封
   记录:报告注明开封时刻,且 val 版报告的指纹早于开封时刻
   (只碰一次的可查证据);③ 双钟表并排,主判决标注 clock=recv;
   ④ 与 dev-grade 版逐桶对照表(方向翻转的桶必须逐个解释);
-  ⑤ 结论 ∈ {trade, reject, collect}。
+  ⑤ 结论 ∈ {edge-candidate, reject, collect}。
 
 ## S6 · 订单行为实证(W-K6,操作员排期)
 - 目的:Rhys 问题#4 的收尾——订单类型行为与文档一致性
@@ -244,8 +264,10 @@ Group C(正式校准,gated ≥2026-07-13)。
 **S2 图**:签名耗时直方(log x),p50/p99 竖线,Mac vs EC2 叠画。
 **S3 图**:RTT 分时段 CDF 叠画 + 采样时序散点(看漂移)。
 **S4 图**:品类小倍数(每品类一格:盘口更新间隔 CDF,log x)+
-  "心跳 vs 我方预算"散点:x=品类心跳中位,竖线=order_effective
-  预算 —— 线左边的品类追不上,线右边的能做。
+  "消息爆发 vs 我方预算"散点:x=品类 inter-arrival p1/p10 并附短窗
+  message-count,竖线=preliminary reaction budget；真实 order_effective
+  未测前强制 NON-GATE。线左边表示 burst 可能快过预算,线右边只表示
+  值得继续研究,不等于能做。
 **S5 图**:S1 七图重出(EC2 数据)+ **哑铃图**(每桶一根:dev-grade
   端点 → EC2 端点,看方向翻转)+ slam vs 常规赛 markout 曲线并排。
 **S0 图(可选)**:部署后 recv 覆盖率随时间爬坡线(确认 TL1 活着)。
@@ -266,7 +288,8 @@ Group C(正式校准,gated ≥2026-07-13)。
 > 附盘口级 inter-update 间隔分布(赛前 vs in-play,**限 Tennis**,
 > 全品类横向属 S4 另场)。产出 DQ + 结果表 + HTML 落 work/research/,每个数字
 > 带样本量与分位数;**结论仅允许 methodology-valid+collect 或
-> methodology-flawed(trade/reject 保留给 S5)**。产出仅落
+> methodology-flawed(edge-candidate/reject/collect 保留给 S5，trade
+> 仍需总测试计划后续门)**。产出仅落
 > work/research/;运行过长可按文件断点分两场续跑。Mac-era 数据结论
 > 标注 dev-grade(regime=slam-week)。**严格执行本计划
 > 「统计与可信性纪律」全部 12 条与「每步通用验证」**(预注册
