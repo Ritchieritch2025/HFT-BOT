@@ -55,7 +55,11 @@ Archival metadata (not part of the verbatim operator text):
   - frozen V2 SHA-256
     bc2fbf6562c19fabbb7ebd7e8c77f88a720d1b6a2a467b39fbffce996bb1f341
 - required output status: V2.2_DRAFTED_AWAITING_INDEPENDENT_PROMPT_AUDIT
-- status: ACTIVE
+- status: CONSUMED
+- consumed_by_evidence_commit:
+  2f6512840702edff3217c55f69a61b4c393898d4
+- consumed_by_closure_commit:
+  3088573f7a4e5393ac55d0776b10756820d95835
 
 ---BEGIN OPERATOR TEXT VERBATIM---
 批准你接管并执行 STP-R001-DRAFT-V22；仅生成和提交 V2.2 candidate，再安排独立审计；不得执行 P00、P01、D-2、push、merge、生产或实盘操作。
