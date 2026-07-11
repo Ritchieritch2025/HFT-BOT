@@ -6,6 +6,35 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 17:40 UTC — STP-R002 执行完毕:V2.2 = CANONICAL(审计 PASS 补齐后按原文继续)— NO PHASE AUTHORIZED
+
+- commits: evidence A = `de985c2`(审计归档 + D-2 + 收据执行记录);
+  closure B = 本条目所在 commit(SESSION_LOG + CLAUDE.md 权威指针 +
+  收据哈希回填)。
+- 前置②补齐:独立审计 = **零上下文全新代理**(对本会话历史不可见,
+  严格只读、未跑测试、零仓库变更),verdict **PASS,零 P0 零 P1**,
+  V2.1 审计 5×P0/6×P1 逐条核验真实闭环,"不得削弱"十项完好,新增 5 项
+  P2(均不要求改候选字节)。归档
+  `docs/plan_audits/AUDIT_PROMPT_V2_2_2026-07-11.md`,sha256 `d6794bf5…6164`。
+  归档勘误已在收据诚实记录(一处誊写坏 SHA 提交前修复;一处 HTML 转义还原)。
+- PROMOTION(两道门齐):`active_prompt_path` =
+  `docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_2_CANDIDATE.md`,
+  `active_prompt_sha256` = `575ea27a…3fbe54`,候选字节零改动;文件内
+  CANDIDATE 横幅 = 创建时元数据,被 release pinning 取代(审计 P2-1);
+  V2/V2.1 冻结历史候选不变。
+- D-2 落盘(DECISIONS 台账,操作员释放令原文 + 归档注记):重映射精确
+  编号 旧§5→V2.2 §2+§11.2–11.4、旧§11→V2.2 §4+§10;program branch @
+  base 1c93837;merge-to-main 延后;D-1"正本未入库"红旗解除。CLAUDE.md
+  strategy-authority 指针同步更新。
+- 授权链诚实记录:收据 13:10Z 版曾写"新会话继续";操作员 ~17:10Z 指示
+  "继续按照原计划推进",本会话据此继续(审计独立性由零上下文代理保全)。
+- 明确未做:BOOTSTRAP-0、STP-P00(W01/AUD01)、任何 phase、live/external
+  动作、merge/rebase/push;main 未动。
+- NEXT(体育策略线):① W01 的 W-specific durable release(操作员);
+  ② 其硬前置 = 独立审计通过的 §31.2 test-isolation artifact(独立
+  engineering W,未证明隔离 ⇒ STP-P00 = BLOCKED);③ 审计 P2-2 隔离边界
+  声明进 W01 release 文本;P2-4:P08/P10 W 定义须引入 D-1.1 四护栏。
+
 ## 2026-07-11 17:05 UTC — STP-R002 canonicalize 前置 FAIL 停止(本分支侧记;当日管道线详见 recovery 分支日志)
 
 - commit: 9041a39 — 操作员释放令 STP-R002-CANONICALIZE-V22 **逐字**归档

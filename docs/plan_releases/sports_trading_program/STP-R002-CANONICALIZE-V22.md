@@ -80,6 +80,6 @@ SHA `575ea27a…3fbe54`),审计 PASS 归档后再回到本释放令。
    session"意图得以恢复。
 5. **明确未做**:BOOTSTRAP-0、STP-P00(W01/AUD01)、任何 phase、任何
    live/production/external 动作、merge/rebase/push。main 未动。
-6. commits:evidence commit A = `<EVIDENCE_COMMIT>`(审计归档 + D-2 +
-   本收据执行记录);closure commit B = `<CLOSURE_COMMIT>`(SESSION_LOG +
-   本登记行回填)。
+6. commits:evidence commit A = `de985c2`(审计归档 + D-2 + 本收据执行
+   记录);closure commit B = 本行回填所在 commit(SESSION_LOG + CLAUDE.md
+   权威指针更新 + 本登记行,metadata-only,operator verbatim 块未动)。

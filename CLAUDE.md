@@ -57,9 +57,13 @@ merge is the Phase-2 opener) · `docs/RUNBOOK.md` (ops commands) ·
   Phase 1; does not exist yet). Until it exists, the only adjudicated
   strategy facts live in `docs/PLAN_SPORTS_TRADING_DECISIONS.md` (D-1:
   mainline = 赛前市场动力学价差捕获; Tracks A/B/C; no MLB pre-selection;
-  external tools all deferred, each needs individual operator approval).
-  The referenced CANONICAL PROMPT is NOT yet in the repo — it must be
-  preserved verbatim into docs/ before Phase 1 starts.
+  external tools all deferred, each needs individual operator approval;
+  D-2 2026-07-11: CANONICAL PROMPT = V2.2, release-pinned
+  `active_prompt_path` = docs/PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_2_CANDIDATE.md,
+  sha256 575ea27a… — the in-file CANDIDATE banner is creation-time metadata
+  superseded by the pinning; audit PASS archived; NO phase authorized yet —
+  W01 needs its own release + an independently audited §31.2 test-isolation
+  artifact first, else STP-P00 = BLOCKED).
 The prior gold contract / EXECUTION_PLAN queue is complete (see SESSION_LOG
 2026-07-07 05:56 UTC). Check `docs/SESSION_LOG.md` (newest entry first) for
 where the last session actually stopped.
