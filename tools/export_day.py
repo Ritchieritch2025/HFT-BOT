@@ -178,7 +178,13 @@ def _archived_select(table, path, ext):
     # yes/no-only taker_side file to BOOLEAN, making exact comparison impossible.
     str_cols = ("market_ticker", "series_ticker", "event_ticker", "category",
                 "subcategory", "group", "trade_id", "taker_side")
+    # W-TL1: an all-NULL ladder column sniffs as VARCHAR in csv and would fail
+    # the exact schema comparison against staging's BIGINT — pin them, same as
+    # warehouse.load()'s ladder pin.
+    ladder = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
+              "local_recv_ts_us")
     types = ", ".join("'%s': 'VARCHAR'" % c for c in str_cols)
+    types += ", " + ", ".join("'%s': 'BIGINT'" % c for c in ladder)
     return ("SELECT * FROM read_csv('%s', header=true, hive_partitioning=false, "
             "types={%s})"
             % (src, types))

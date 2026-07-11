@@ -25,6 +25,7 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import ingest  # noqa: E402
+import export_day  # noqa: E402
 import mm_backtest as bt  # noqa: E402
 import warehouse as wh  # noqa: E402
 import warehouse_common as wc  # noqa: E402
@@ -101,12 +102,24 @@ def _build_warehouse(tmp_path, lines):
     return root
 
 
-@pytest.fixture()
-def env_warehouse(tmp_path, monkeypatch):
-    root = _build_warehouse(tmp_path, LATE_ARRIVAL_TAPE)
+def _export_and_legacy_seal(root, monkeypatch, tmp_path):
+    """PIPE-R001: past-day research is sealed-archive-only; this fixture has
+    no raw capture, so it takes the operator-ruled legacy_v0 path (archive
+    self-consistency only — exactly the pre-seal-system-history shape)."""
     monkeypatch.setenv("WAREHOUSE_ROOT", root)
     monkeypatch.setenv("STAGING_DB", os.path.join(root, "staging.duckdb"))
     monkeypatch.setenv("ARCHIVE_ROOT", os.path.join(root, "facts"))
+    raw_empty = tmp_path / "raw_empty"
+    raw_empty.mkdir(exist_ok=True)
+    monkeypatch.setenv("RAW_ROOT", str(raw_empty))
+    assert export_day.main(["export_day", "--date", DAY, "--no-prune"]) == 0
+    assert export_day.main(["export_day", "--date", DAY, "--legacy-seal"]) == 0
+
+
+@pytest.fixture()
+def env_warehouse(tmp_path, monkeypatch):
+    root = _build_warehouse(tmp_path, LATE_ARRIVAL_TAPE)
+    _export_and_legacy_seal(root, monkeypatch, tmp_path)
     return root
 
 
@@ -179,9 +192,7 @@ def test_missing_recv_fails_closed(tmp_path, monkeypatch, capsys):
         "yes_price_dollars": "0.3800", "no_price_dollars": "0.6200",
         "count_fp": "1.00", "taker_side": "no"}})})
     root = _build_warehouse(tmp_path, LATE_ARRIVAL_TAPE + [legacy])
-    monkeypatch.setenv("WAREHOUSE_ROOT", root)
-    monkeypatch.setenv("STAGING_DB", os.path.join(root, "staging.duckdb"))
-    monkeypatch.setenv("ARCHIVE_ROOT", os.path.join(root, "facts"))
+    _export_and_legacy_seal(root, monkeypatch, tmp_path)
 
     rc = bt.main(["mm_backtest", "--date", DAY, "--markets", MT, "--size", "1"]
                  + LAT + ["--clock", "recv"])
