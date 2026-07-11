@@ -1,7 +1,8 @@
 # PLAN — 做市系统总测试计划（研究 → 影子 → 微实盘）
 
 **状态：PLAN-ONLY，2026-07-10；2026-07-11 经操作员批准增加 F2c/F2d，
-本次增补独立审计 PASS；原计划整体执行授权状态不变。** 这份文档把散落在
+该增补独立审计 PASS；同日新增 FA-1 feature admission/decay gate，本次独立审计
+PASS；原计划整体执行授权状态不变。** 这份文档把散落在
 `PLAN_RESEARCH_CYCLE_1`、`PLAN_PRICING_MODEL`、`PLAN_DEPTH_EXPANSION`、
 `PLAN_FULL_MARKET_RESEARCH`、`PLAN_RISK_KILLSWITCH`、`PLAN_LIVE_VALIDATION`
 和 `MM_ROADMAP` 里的测试收成
@@ -15,6 +16,13 @@
 范围 = 本文件 F2c 的动态定价消融矩阵 + F2d 的价格带/tick/显示数量/requote
 实验。它只增加纸面测试要求，不授权研究执行、生产变更、外部服务、shadow、
 微实盘或 live；已冻结的 V2.2 candidate 不原地改写。
+
+2026-07-11 第二次操作员增补原文：
+
+> 加入计划 并且把计划给我
+
+范围 = 在 F2c 内增加 FA-1 feature admission gate，并把 feature decay/drift 接入
+shadow 与微实盘监控。仍为 paper-only，不改变任何执行授权。
 
 冲突时，本文件只在以下三项“测试判决语义”上优先：
 
@@ -358,6 +366,87 @@ DP-0 的“无动态信号”只表示没有 alpha/policy module；gap、stale�
 lifecycle、expiry、fee、risk、latency、cancel-pending 与终值等强制 fail-closed 门
 从 DP-0 起对所有行完全相同且始终生效。
 
+#### FA-1 · Feature admission gate（进入 DP 前的特征准入门）
+
+**目的：**禁止“相关就入模”“回测变好就入模”或把多个同义 signal 一起塞进
+policy。每个候选 feature 在进入任何 DP module 前必须取得唯一 `feature_id`、角色、
+版本和合法结论；同一 feature 改 source/as-of/TTL/window/transform/threshold 即视为
+新 candidate 并进入多重比较台账。
+
+角色先冻结，禁止看到结果后改身份：
+
+| Role | 准入问题 | 可以影响什么 |
+|---|---|---|
+| `ALPHA` | 是否在市场基线之上增加可复现预测力并转化为逐 event 经济增量？ | fair、spread、eligibility |
+| `EXECUTION` | 是否改善 fill/cancel/requote/latency 预测或降低执行损失？ | execution policy；无 own-order calibration 时只诊断 queue |
+| `RISK_SAFETY` | 是否减少尾部/故障风险且不放宽权限？ | cap、pause、kill、fail-closed；不要求赚钱 |
+| `MONITOR_ONLY` | 是否值得观察但不足以驱动订单？ | dashboard/report，不得进入 quote decision |
+
+`ALPHA`/`EXECUTION` feature 逐项过六门：
+
+六门、role/owner 选择、相关性/复杂度诊断、阈值和任何 admission 结论全部只能使用
+nested TRAIN out-of-fold evidence。VALIDATION 与 HISTORICAL_CONFIRMATION 只接受或
+拒绝预先冻结的整套策略，绝不重新准入 feature、调阈值、换 role/owner 或挑 proxy。
+
+1. **语义与 as-of：**冻结 source fields、单位/E4 映射、recv-clock as-of、TTL、
+   warm-up、cadence、missing action、lookback、适用品类/价格带/phase 和计算延迟。
+   normalization/shrinkage 只在 TRAIN 拟合并版本化；同一 root event 的未来
+   markout/fill/outcome 不得回流当前 feature。
+2. **支持与稳定性：**冻结 target horizon、regime 和最小独立 blocks；报告
+   calendar-block rank/linear stability、方向/符号一致率、effect dispersion、
+   cold-start/support 和 shrinkage 后结果。稳定按 feature 的作用 horizon 定义：
+   100ms burst signal 不要求跨赛季常数，但必须在未见过的同类 100ms regime 重现。
+3. **增量预测力：**先冻结目标和 proper loss/score。toxicity/eligibility 默认预测
+   immediate executable adverse markout 或预注册 adverse label；fair/spread 默认预测
+   recv-time future executable value/markout；fill/queue 只有校准 own-order 数据后才可
+   声称 fill probability。主比较是“现有 DP-(k-1) 市场基线” vs “基线 + feature”的
+   nested TRAIN out-of-fold 配对 loss delta；单独漂亮的相关系数/R²/log loss 不算准入。
+4. **经济增量：**把 feature 只接入其唯一 owner module，使用同一事件、W-FS1、
+   common random numbers 和 1-contract strict-through 主轨，报告配对
+   `Delta_e(feature)` 的 calendar-day block-bootstrap CI、费用后逐 event NetPnL、
+   latency/rate headroom、库存/强平和尾部 non-inferiority。预测改善但经济增量不足，
+   不能标 trading edge。
+5. **相关性与复杂度：**按 TRAIN 报 feature correlation/cluster、VIF/condition-number
+   或预注册等价诊断、跨 fold 系数/方向稳定性、add-one、full-minus-one 和代理变量
+   重叠。多个 feature 若主要描述同一 burst/depth/volatility latent state，默认保留
+   最简单、最稳定、最低延迟的代表；黑箱版本必须证明额外样本外增量。
+6. **衰减契约：**在打开 holdout 前冻结参考窗口、rolling window、最小 support、
+   effect/activation/distribution drift 指标、WARN/DEGRADED/DISABLE 阈值、hysteresis、
+   冷却与恢复规则。禁止因两天噪声自动改权重，也禁止等账户 PnL 崩坏后才报警。
+
+衰减状态与动作同时冻结：
+
+| State | 必须动作 |
+|---|---|
+| `OK` | 继续冻结策略；不代表盈利门自动通过 |
+| `WARN` | 告警并继续观察，不自动改权重、不扩大权限 |
+| `DEGRADED` | shadow 绿日作废且禁止升级；若未来处于获批 live，停止受影响的新报价，撤受影响 resting orders，经 `CANCEL_PENDING` 确认 zero-resting/reconcile；只可按预注册 hysteresis 让同版本恢复 |
+| `DISABLE` | 立即停止受影响新单并撤全部受影响 resting orders，经 `CANCEL_PENDING` 确认 zero-resting/reconcile；禁止自动恢复，等待新的审计/操作员 release |
+
+`DEGRADED/DISABLE` 的撤单闭环完成前不得 fallback。fallback 只允许切到本次 release
+明确点名、已版本化且已审计的更简单 policy；否则保持停报。source/as-of/sequence
+invalid 或 required field 语义漂移至少进入 `DEGRADED/PAUSED`，不得降级成 WARN。
+
+每个 feature 的最小证据包：定义/角色/owner module、目标与 baseline、TRAIN 时间段、
+root-event/block 数、稳定性、配对 predictive delta、配对经济 `Delta_e`、相关性家族、
+计算延迟、衰减阈值、代码/数据 SHA 和合法结论。正式 family 与总 K 必须在该
+family 的 outer-TRAIN 检验前冻结；所有 TRAIN 探索逐项登记，完整 candidate registry
+在 VALIDATION 前 hash-seal。K>1 正式检验按本计划 Holm/power 纪律，cell/subgroup
+默认 descriptive。
+
+合法结论仅限：
+
+- `ADMIT_CORE`：稳定、增量预测与经济门均过，可进入冻结 DP candidate；
+- `ADMIT_REGIME_ONLY`：只在预注册 regime/horizon 可靠，作用域外为 missing/关闭；
+- `RISK_SAFETY_ONLY`：只按安全价值进入，不得宣传 alpha；
+- `MONITOR_ONLY`：记录但不能影响订单；
+- `COLLECT_MORE`：方法有效但 support/power 不足；
+- `REJECT`：无稳定增量、重复 proxy、延迟/风险代价过高或存在 leakage。
+
+`RISK_SAFETY` feature 不走“利润必须为正”的错误门；它必须通过 scenario/fault tests、
+权限 non-expansion、风险 non-inferiority 和 fail-closed 验证。任何 admission 结论都不
+授权 VALIDATION、shadow 或 live；它只允许 feature 进入下方 TRAIN-only DP registry。
+
 在 TRAIN 打开前冻结以下累计阶梯，每一行都进入 candidate registry：
 
 | Variant | 相对上一行唯一新增能力 |
@@ -496,6 +585,9 @@ shadow 启动前后账户 resting orders/fills/positions 不变；executor sink 
 利润 3×。同时要求：
 
 - 预测 fill/edge 分布没有日间结构性漂移；
+- 每个已准入 feature 的 activation、missing、effect、配对 predictive delta 与
+  replay/shadow `simulated_counterfactual_Delta_e` 均按 FA-1 冻结窗口监控；它不能
+  冒充真实成交因果增量，任一 `DEGRADED/DISABLE` 不得被总 PnL 绿色掩盖；
 - 无未解释 seq gap、clock anomaly、fee unknown；
 - quote/requote/cancel 意图在 rate limits 内并留至少预注册 headroom；
 - jump/pause/close-time/库存熔断全部至少在 replay 或实时出现一次并正确动作。
@@ -561,6 +653,10 @@ user_orders、user_fills；只为校准 W-FS1，不宣称策略盈利。
 
 仅在 G0..G8 全绿后：单市场、1–5张、总风险 ≤$20、post-only、dead-man、
 cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/fees/cancel race。
+同时运行 FA-1 drift contract；live 报实际 pathwise policy PnL 与 realized feature
+diagnostics，没有预注册随机化/识别设计时不得把反事实 `Delta_e` 写成实际因果增量。
+不允许在线自动重训或自动换权重；`DEGRADED/DISABLE` 严格执行 FA-1 的停止新单、
+撤 resting、zero-resting/reconcile 和 fallback 边界。
 
 升级门：连续两周净 PnL >0，实际成交率 ≥模拟预测的70%，模拟区间覆盖率合格，
 无安全事故。回退门：单日亏损 >$10、任何账本/对账异常、实际 fill 系统性差于
@@ -579,7 +675,8 @@ cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/
   -> D1 maker action contract matrix
   -> W-FS1(FS-1..FS-4) + 历史上下界回放
   -> 数据成熟后 F1/F2 校准
-  -> F2c DP-0–DP-6 消融 + F2d 价格带/tick/size/requote 微结构实验（TRAIN only）
+  -> F2c FA-1 feature admission -> DP-0–DP-6 消融
+  -> F2d 价格带/tick/size/requote 微结构实验（TRAIN only）
   -> F3/F4 未开封样本外利润门
   -> SH-1..SH-3 shadow 5绿日 + RK-1..RK-4 安全/soak
   -> operator 排期 I1
@@ -604,7 +701,12 @@ cancel-on-disconnect、完整 caps。每日对账实际 vs 预测成交率/edge/
 - `PLAN_PRICING_MODEL`：W-C1 的 λ 只叫 opportunity intensity；W-C4 必须消费
   W-FS1，不再直接复用旧 `mm_backtest.py` fill semantics；动态 feature 按 F2c
   一次只增一项，报价离散化/显示量/requote 必须经过 F2d，不允许直接把 full
-  model 当作唯一比较组。
+  model 当作唯一比较组；每个 feature 先过 FA-1 的 role/as-of/stability/incremental/
+  economics/collinearity/decay 准入门。
+- `PLAN_SPORTS_TRADING_PROGRAM_PROMPT_V2_2_CANDIDATE`：本文件不改其冻结 bytes；
+  FA-1 是其 §25 feature contract 与未来 STP-P06/P13 的 supporting detail。只有在
+  candidate 另行 canonicalize 后，由 STP-P00 准备 mapping、P01 消费并按
+  path/commit/section/hash pin；本增补自身不提前授权任何 STP phase。
 - `PLAN_DEPTH_EXPANSION`：A3 复用其独立 shadow-first、probe 和 capture continuity
   纪律；终态覆盖全活跃市场，但按容量分波，不把一次性全订阅变成生产事故。
 - `PLAN_FULL_MARKET_RESEARCH`：定义全18类 universe、daily mart、atlas、假设法庭、
