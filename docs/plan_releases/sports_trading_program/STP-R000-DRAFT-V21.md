@@ -14,7 +14,9 @@ Archival metadata (not part of the verbatim operator text):
 - live_order_permission=false; production_mutation=false; spending_cap=0;
   external_account_actions=false; paid_api_access=false; credential_use=false;
   push_permission=false
-- status: ACTIVE (consumed by this session's evidence + closure commits)
+- status: CONSUMED
+- consumed_by_evidence_commit: 594603e381f372abf415d60aa42089cc60755448
+- consumed_by_closure_commit: 9952befd73f79195f2d38e2c45110601d8edbbea
 
 ---BEGIN OPERATOR TEXT VERBATIM---
 操作员指令 STP-R000-DRAFT-V21，单场只修订候选，不执行研究：
