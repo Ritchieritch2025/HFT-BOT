@@ -1,0 +1,140 @@
+{
+  "release": "STP-R003-TEST-ISOLATION",
+  "w_id": "STP-P00-ISO-W01",
+  "operator_text_sha256": "fec0ec9919d6c94abfbabfb2ddac95a7fe6c2a5f7499803aca0b4d62092d00ce",
+  "implementation_commit": "0dbeb75ceea4b73689480b631b2fc708d3fb3d46",
+  "branch": "plan-sports-market-dynamics-v2",
+  "operational_worktree": "/Users/ritcardo/HFT BOT",
+  "verdict": "PASS",
+  "artifact": {
+    "path": "docs/plan_audits/sports_trading_program/STP_P00_TEST_ISOLATION_ARTIFACT.md",
+    "sha256": "66549d28fc17eacb0adbaca19d8122abb3f6b19b86f2811ccb647b0440e9b5b1",
+    "sha256_note": "hash of the artifact file as finalized for the implementation-artifact commit (house convention: recorded here, not self-referenced inside the artifact)"
+  },
+  "exact_commands": [
+    "make all",
+    "make check",
+    "tests/run_pipeline.sh",
+    "python3 tools/check_registry.py --require-built"
+  ],
+  "isolated_root_strategy": {
+    "prefix": "/private/tmp/stp-p00-test-isolation",
+    "root_creation": "mktemp -d /private/tmp/stp-p00-test-isolation.XXXXXX (fresh, empty, per run)",
+    "repo_copy": "git clone --no-local of the operational worktree at HEAD into <root>/repo; harness asserts clone HEAD == operational HEAD",
+    "state_containment": "all suite writes are repo-root-relative (work/**, build/**, .pytest_cache) and land inside <root>/repo; HOME/TMPDIR inside <root>; symlink-escape scan after each run",
+    "harness": "tests/isolated_run.sh",
+    "negative_controls": "tests/test_isolation_controls.sh (also wired into tests/run_pipeline.sh as suite test_isolation_controls)"
+  },
+  "environment": {
+    "child_allowlist": {
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "HOME": "<root>/home",
+      "TMPDIR": "<root>/tmp",
+      "PYTHONUSERBASE": "/Users/ritcardo/Library/Python/3.9",
+      "LANG": "C",
+      "LC_ALL": "C",
+      "MAKEFLAGS": "-j10",
+      "PIPELINE_PORT_BASE": "18400 (run1) / 18500 (run2)"
+    },
+    "denied": [
+      "everything not in the allowlist (child runs under env -i)",
+      "inherited-environment fail-closed rejects: names matching ^KALSHI_|^AWS_ or containing SECRET|TOKEN|PASSWORD|PRIVATE_KEY|ACCESS_KEY|CREDENTIAL (case-insensitive)",
+      "any value containing kalshi.com, amazonaws.com, or 3.130.232.109",
+      "any value referencing <operational worktree>/work"
+    ],
+    "credential_sources_untouched": ["~/.kalshi/env.sh (never sourced; HOME redirected into the isolated root)"]
+  },
+  "runs": [
+    {
+      "run": 1,
+      "root": "/private/tmp/stp-p00-test-isolation.lo6cHY",
+      "completed_utc": "2026-07-11T17:53:59Z",
+      "head": "0dbeb75ceea4b73689480b631b2fc708d3fb3d46",
+      "port_base": 18400,
+      "steps": [
+        {"cmd": "make all", "rc": 0, "duration_s": 17},
+        {"cmd": "make check", "rc": 0, "duration_s": 7, "suites": 23, "result": "ALL PASS"},
+        {"cmd": "tests/run_pipeline.sh", "rc": 0, "duration_s": 46, "suites": 66, "suites_pass": 66, "suites_fail": 0, "assertions_pass": 469, "assertions_fail": 0},
+        {"cmd": "python3 tools/check_registry.py --require-built", "rc": 0, "duration_s": 0, "output": "registry ok: 144 tools, 48 build targets covered"}
+      ],
+      "operational_snapshots": {
+        "work_manifest_files": 1370,
+        "work_manifest_sha256_before": "82348e5fbff8d2879eb7c04ba9de51ed360bedf663bcdbc59e0ad9fadd519285",
+        "work_manifest_sha256_after": "82348e5fbff8d2879eb7c04ba9de51ed360bedf663bcdbc59e0ad9fadd519285",
+        "pytest_cache_sha256_before": "38d9131174dc813cd984ca5945a3a1e10308a831ff96bf6f84db047776903aa2",
+        "pytest_cache_sha256_after": "38d9131174dc813cd984ca5945a3a1e10308a831ff96bf6f84db047776903aa2",
+        "git_status_sha256_before": "054d50b14ec5f6a83f3153a95153f4420de439359fe9c3e8bc2a41041f1abad5",
+        "git_status_sha256_after": "054d50b14ec5f6a83f3153a95153f4420de439359fe9c3e8bc2a41041f1abad5",
+        "forbidden_files_sha256_before": "46d51d67ab6e91b7b48b3b8b814b3e80bd182fd87b5b074e486412ac1bbde60b",
+        "forbidden_files_sha256_after": "46d51d67ab6e91b7b48b3b8b814b3e80bd182fd87b5b074e486412ac1bbde60b",
+        "symlink_escapes_to_operational": 0,
+        "unchanged": true
+      },
+      "proof_file_hashes": {
+        "RUN_SUMMARY.txt": "f39a8f63c97906536f2def8467f4415abdef99f890b21c9a4fb67b83042d0c7c",
+        "steps.txt": "13041b28f7e04cbaab6c528f58e6221d8ba7c9cca3be713a379af052116d7895"
+      }
+    },
+    {
+      "run": 2,
+      "root": "/private/tmp/stp-p00-test-isolation.jUIDrq",
+      "completed_utc": "2026-07-11T17:58:16Z",
+      "head": "0dbeb75ceea4b73689480b631b2fc708d3fb3d46",
+      "port_base": 18500,
+      "steps": [
+        {"cmd": "make all", "rc": 0, "duration_s": 18},
+        {"cmd": "make check", "rc": 0, "duration_s": 7, "suites": 23, "result": "ALL PASS"},
+        {"cmd": "tests/run_pipeline.sh", "rc": 0, "duration_s": 47, "suites": 66, "suites_pass": 66, "suites_fail": 0, "assertions_pass": 469, "assertions_fail": 0},
+        {"cmd": "python3 tools/check_registry.py --require-built", "rc": 0, "duration_s": 0, "output": "registry ok: 144 tools, 48 build targets covered"}
+      ],
+      "operational_snapshots": {
+        "work_manifest_files": 1370,
+        "work_manifest_sha256_before": "84fdee6f9e324d43a10885b06be9c958f7e0d8c0f784487d6c25e49249423ae0",
+        "work_manifest_sha256_after": "84fdee6f9e324d43a10885b06be9c958f7e0d8c0f784487d6c25e49249423ae0",
+        "pytest_cache_sha256_before": "38d9131174dc813cd984ca5945a3a1e10308a831ff96bf6f84db047776903aa2",
+        "pytest_cache_sha256_after": "38d9131174dc813cd984ca5945a3a1e10308a831ff96bf6f84db047776903aa2",
+        "git_status_sha256_before": "054d50b14ec5f6a83f3153a95153f4420de439359fe9c3e8bc2a41041f1abad5",
+        "git_status_sha256_after": "054d50b14ec5f6a83f3153a95153f4420de439359fe9c3e8bc2a41041f1abad5",
+        "forbidden_files_sha256_before": "46d51d67ab6e91b7b48b3b8b814b3e80bd182fd87b5b074e486412ac1bbde60b",
+        "forbidden_files_sha256_after": "46d51d67ab6e91b7b48b3b8b814b3e80bd182fd87b5b074e486412ac1bbde60b",
+        "symlink_escapes_to_operational": 0,
+        "unchanged": true
+      },
+      "proof_file_hashes": {
+        "RUN_SUMMARY.txt": "7061e0c06de4d2261fd1bcf0f6f450d728a9b7876190e664b47202084601383e",
+        "steps.txt": "239a7d65903a6a988ad21f3ab67fd56f25bf8d28f040481db5d0002229d1d07b"
+      }
+    }
+  ],
+  "forbidden_operational_files_sha256_constant_across_all_four_snapshots": {
+    "work/lifecycle_status.json": "b1881e0a03ad5a7083d1b1739cd3cb1ae0f581e16135c7700d7917c84272d3ba",
+    "work/lifecycle_events.ndjson": "930b28b8d9aadeaf806a642f0de94109d8be8faae8fb95db450ccc126d014c44",
+    "work/test_results_latest.json": "b0bae29497e475c57ff7f759d9c3e1453659c4c47b07f91eff39af848764a1e4",
+    "work/test_results.ndjson": "6ab6cf5ad22111d138e3ad9417d239e05d8ee53ea5afccf257dec86ae835d67a",
+    "work/live/alerts.log": "754d07ebf7533f418767f0ebfda9ce693d472ff37b0580e6c9838a8af31b6d35"
+  },
+  "negative_controls": {
+    "script": "tests/test_isolation_controls.sh",
+    "cases": 11,
+    "result": "11/11 PASS in all three executions (standalone at 0dbeb75; inside run 1 pipeline; inside run 2 pipeline)",
+    "standalone_log": "/private/tmp/stp-p00-test-isolation-controls-standalone.log",
+    "standalone_log_sha256": "61c558a4714c8196125811200f7ab0fd7f784782edee36391edeb0a98608d174",
+    "release_required_controls": {
+      "missing_isolation_root": "PASS (empty arg + nonexistent path, both rejected rc=2)",
+      "root_resolving_to_operational_worktree": "PASS (direct + symlink-under-prefix, both rejected rc=2)",
+      "production_work_path": "PASS (env value referencing <ops>/work/... rejected rc=2)",
+      "inherited_production_credentials_or_api_urls": "PASS (KALSHI_API_KEY_ID, AWS_SECRET_ACCESS_KEY, api.elections.kalshi.com value — all rejected rc=2)"
+    }
+  },
+  "findings": [
+    "F1 (fixed): make all did not build fuzz_decode/account_info/account_upgrade/rate_probe although tools.json requires them built (not on_demand) — check_registry --require-built fails in any fresh checkout; the operational tree passed only via accumulated build/ state. Fixed by adding the four targets to BINS (Makefile, commit 0dbeb75). Preliminary failed-run console log: /private/tmp/stp-p00-iso-run1-console.log.",
+    "F2 (documented, not masked): production launchd job com.ritcardo.rtt-baseline appends to work/latency_baseline/* every ~5 minutes; it changed that file pair BETWEEN the two runs (hence the differing cross-run work-manifest hashes) but WITHIN each run before==after held. Future isolated runs may spuriously FAIL_STATE_CHANGED confined to work/latency_baseline/*."
+  ],
+  "residual_limitations": [
+    "R1: no packet-level network capture; the no-external-network claim rests on env scrub + fail-closed safe-mode defaults + loopback-only mock design",
+    "R2: live production writer (com.ritcardo.rtt-baseline) can make future isolated runs spuriously report FAIL_STATE_CHANGED on work/latency_baseline/*",
+    "R3: proof roots and logs live under /private/tmp (lost on reboot; regenerable via tests/isolated_run.sh --new; all decision-relevant hashes recorded here)",
+    "R4: tools.json entries for the two new test scripts not added (tools.json outside this release's allowed writes; check_registry green because tests/** is not scanned)",
+    "R5: PYTHONUSERBASE=/Users/ritcardo/Library/Python/3.9 is the single HOME-isolation carve-out (user-site pytest/duckdb/pandas; packages only, no credentials)"
+  ]
+}

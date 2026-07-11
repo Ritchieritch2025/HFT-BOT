@@ -6,6 +6,51 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 18:05 UTC — STP-P00-ISO-W01 完成:测试隔离机制落地并双跑验证(66/66 绿,操作树逐字节不变)— IMPLEMENTED_AWAITING_AUDIT
+
+- **一行裁决:✅ 实现完成,等待独立审计(STP-P00-ISO-AUD01,Session 2)。**
+- commits: 实现 = `0dbeb75`(tests/isolated_run.sh 隔离跑批器 +
+  tests/test_isolation_controls.sh 11 项失败即关闭反向控制 + run_pipeline.sh
+  加一行套件 + Makefile 把 fuzz_decode/account_info/account_upgrade/rate_probe
+  加入 BINS);工件 = 本条目所在 commit(ARTIFACT.md + MANIFEST.json +
+  SESSION_LOG)。
+- decisions(均已落文件):
+  - 隔离机制 = 每次 `mktemp -d /private/tmp/stp-p00-test-isolation.XXXXXX`
+    新根 + `git clone --no-local` HEAD 副本 + `env -i` 白名单环境(细节见
+    `docs/plan_audits/sports_trading_program/STP_P00_TEST_ISOLATION_ARTIFACT.md`
+    §2,SHA-256 记录在同目录 MANIFEST.json,值
+    `66549d28fc17eacb0adbaca19d8122abb3f6b19b86f2811ccb647b0440e9b5b1`)。
+  - F1(修复):`make all` 原本不产 fuzz_decode/account_info/account_upgrade/
+    rate_probe 四个 tools.json 要求"必须已构建"的二进制 —— 任何全新 checkout
+    上 `check_registry --require-built` 必挂,操作树以前全靠历史 build/ 残留
+    才绿。已把四目标加入 BINS(Makefile,commit 0dbeb75)。
+  - F2(如实记录,不掩盖):生产 launchd 任务 `com.ritcardo.rtt-baseline`
+    每 ~5 分钟追加 `work/latency_baseline/*`,两次正式跑之间恰好变了这对
+    文件(跨跑 manifest 哈希因此不同),但每次跑的 before==after 均成立;
+    未来隔离跑可能因它误报 FAIL_STATE_CHANGED(工件 §8 R2)。
+- context capsule:
+  - 两次正式跑(根 `/private/tmp/stp-p00-test-isolation.lo6cHY` 18400 端口、
+    `…jUIDrq` 18500 端口,均 clone `0dbeb75`):四命令全 rc=0;
+    run_pipeline 66 套件 66 绿(断言 469/0);make check 23 套件全绿;
+    `registry ok: 144 tools, 48 build targets covered`;操作树 work/**
+    1370 文件全量 SHA-256 清单、.pytest_cache、`git status -uall`、
+    五个禁改文件哈希 —— 每跑 before==after 逐字节相同;symlink 逃逸 0。
+  - 反向控制 11/11 三次全过(独立跑 + 两次隔离跑内):缺根、根=操作树
+    (直接/符号链接)、KALSHI_*/AWS_* 凭据、生产 API URL、生产 work/**
+    路径、越前缀、非空根全部 rc=2 拒绝;合法空根 rc=0 接受。
+  - 证据根仍留在 /private/tmp 供审计员查验(重启即失;全部关键哈希已录入
+    MANIFEST.json;可用 `bash tests/isolated_run.sh --new` 复现,约 10 分钟,
+    大头是 139G work/ 两遍哈希)。
+  - 死胡同已排除:懒得复制 139G 数据 —— clone 即够(third_party 全部已
+    git 跟踪,725 文件;测试夹具有 !tests/fixtures/** 再包含链);pytest/
+    duckdb/pandas 在用户 user-site,需 PYTHONUSERBASE 白名单(工件 §8 R5)。
+- blocked / handoff:Session 2(STP-P00-ISO-AUD01,零上下文独立代理)按
+  释放令审计:验收据/prompt SHA/分支/commit、查全量 diff、确认无测试被
+  削弱、第三个新根复跑四命令、复现零状态变化与反向控制,只写
+  STP_P00_TEST_ISOLATION_INDEPENDENT_AUDIT.md + SESSION_LOG,给出
+  PASS/REVISE/REJECT。注意工件 §8 R2(rtt-baseline 采样器)与 R4
+  (tools.json 不在本释放令可写清单,两个新测试脚本暂无注册表条目)。
+
 ## 2026-07-11 17:40 UTC — STP-R002 执行完毕:V2.2 = CANONICAL(审计 PASS 补齐后按原文继续)— NO PHASE AUTHORIZED
 
 - commits: evidence A = `de985c2`(审计归档 + D-2 + 收据执行记录);
