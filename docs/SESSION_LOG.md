@@ -6,6 +6,34 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 (later) — 审计 PASS(条件)归档;TL1 移植入部署 tip;部署计划待批 — AUDIT_PASSED_AWAITING_OPERATOR_RELEASE
+
+- audit: docs/plan_audits/AUDIT_PIPE_R001_W02_2026-07-11.md archived VERBATIM
+  (sha256 5bd42eed…, single home — untracked main-checkout copy deleted).
+  Verdict PASS conditional on pre-deploy gate re-run; B1-B3 → docs/BACKLOG.md.
+- deploy-tip assembly on this branch: f0e36ab merge of pipe-hotfix-01
+  (-X ours; W02 supervisor supersedes the fuse-cut, EC2@a011fab can now ff)
+  → 99bcb7d + c40f8dd (W-TL1 7495173/57a7734 cherry-picked; conflicts in
+  tools.json/ingest/warehouse/mm_backtest resolved keeping BOTH the W02
+  seal/archive-only semantics AND the TL1 ladder; warehouse.py keeps the
+  archive_only-never-attaches-staging guard TL1 predated) → 97bc577 + 4381acf
+  + e118a27 integration fixes (ladder BIGINT pin in export_day archived-csv
+  schema proof; backtest_clock fixtures export+legacy_v0-seal their fixture
+  day — exercising the operator's option-A path end-to-end; ladder-union
+  tests use the explicit archive_only=False diagnostic hatch; 16-col fixture
+  INSERT) → 7d6935f backlog + deploy plan.
+- gates @ e118a27743d5 (2026-07-11T09:33:56Z, unsandboxed): make check
+  FAIL_count=0 · run_pipeline == PIPELINE PASS · six seal/TL1 test files all
+  pass · check_registry ok (127 tools). Audit condition requires ONE MORE
+  rerun immediately before tonight's window (deploy plan step 0).
+- deploy plan: docs/plan_releases/pipeline/PIPE-R001-DEPLOY-PLAN-2026-07-11.md
+  — W02+TL1 → EC2, apt, graceful reboot, post-checks (incl. TL1 recv
+  non-NULL red-flag check and deliberate-maintenance gap annotation into
+  quality_log), rollback = a011fab checkout + staging rebuild from raw.
+  AWAITING OPERATOR APPROVAL; target tonight.
+- hotfix a011fab: deployed + verified by operator (research chain NONE,
+  ingest ALIVE) before this entry.
+
 ## 2026-07-11 — PIPE-R001 W02 REWORK 完成:四步封印法按操作员裁决落地 — IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
 
 - branch codex/pipeline-recovery-hardening @ base 32ab4f6 (EC2 production
