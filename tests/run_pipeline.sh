@@ -127,6 +127,7 @@ run_suite "test_warehouse_nonuniform_archive" ./tests/run_pytest.sh tests/test_w
 run_suite "test_warehouse_event" ./tests/run_pytest.sh tests/test_warehouse_event.py
 run_suite "test_event_validate" ./tests/run_pytest.sh tests/test_event_validate.py
 run_suite "test_event_export" ./tests/run_pytest.sh tests/test_event_export.py
+run_suite "test_isolation_controls" bash tests/test_isolation_controls.sh
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \

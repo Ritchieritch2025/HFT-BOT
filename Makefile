@@ -37,7 +37,9 @@ BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(BUILD)/panic \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
         $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
-        $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(PURE_TESTS)
+        $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost \
+        $(BUILD)/fuzz_decode $(BUILD)/account_info $(BUILD)/account_upgrade \
+        $(BUILD)/rate_probe $(PURE_TESTS)
 
 all: $(BINS)
 
