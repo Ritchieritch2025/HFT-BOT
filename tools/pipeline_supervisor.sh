@@ -20,7 +20,8 @@
 #   export KALSHI_PRIVATE_KEY_PATH=$HOME/.kalshi/private_key.pem
 #
 # Tunables (env): CATALOG_EVERY_HOURS (default 1), FULL_CATALOG_EVERY_HOURS
-# (default 6), RAW_RETENTION_DAYS (default 2, matches config/warehouse.yaml).
+# (default 6), RAW_RETENTION_DAYS (default 2, matches config/warehouse.yaml),
+# AUTO_RESEARCH (default 0 on the production data plane).
 set -u
 cd "$(dirname "$0")/.."
 
@@ -30,6 +31,9 @@ if [ ! -f "$CREDS" ]; then
   echo "             and KALSHI_PRIVATE_KEY_PATH exports, then reload the LaunchAgent."
   exit 78   # EX_CONFIG
 fi
+# Capture the service/operator setting before sourcing the credential file.
+# A stray variable in ~/.kalshi/env.sh must not widen production behavior.
+AUTO_RESEARCH_REQUESTED="${AUTO_RESEARCH:-0}"
 # shellcheck disable=SC1090
 source "$CREDS"
 export KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 KALSHI_MODE=data_collect
@@ -39,6 +43,19 @@ FULL_CATALOG_EVERY_HOURS="${FULL_CATALOG_EVERY_HOURS:-6}"
 # 3 -> 2: operator ruling 2026-07-10 (audit B3 disk math) — raw is vaulted
 # to S3 hourly since W-A5, so 2 local days is a safe window on the 200GB box.
 RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-2}"
+# PIPE-HOTFIX-02 (operator-approved 2026-07-11): heavy sealed-day research is
+# fail-closed OFF on the production capture box.  A malformed value must never
+# widen permissions.  Seal verification, capture_gaps and coverage_audit stay
+# enabled; only mm_scan/mm_backtest/mm_calibrate are fused off.
+AUTO_RESEARCH="$AUTO_RESEARCH_REQUESTED"
+unset AUTO_RESEARCH_REQUESTED
+case "$AUTO_RESEARCH" in
+  0|1) ;;
+  *)
+    echo "[supervisor] WARN invalid AUTO_RESEARCH=$AUTO_RESEARCH; forcing 0"
+    AUTO_RESEARCH=0
+    ;;
+esac
 
 RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
 WAREHOUSE_ROOT="work/warehouse"
@@ -69,7 +86,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' INT TERM
 
-echo "[supervisor] start pid=$$ raw=$RAW retention=${RAW_RETENTION_DAYS}d"
+echo "[supervisor] start pid=$$ raw=$RAW retention=${RAW_RETENTION_DAYS}d auto_research=$AUTO_RESEARCH"
 
 # --- LAYER 2: one ingest daemon, watched every 60s -----------------------------
 ingest_alive() {
@@ -224,10 +241,12 @@ run_daily_research() {
          >> "$LIVE/mm_research.log" 2>&1 &&
        python3 tools/coverage_audit.py --date "$research_date" \
          >> "$LIVE/coverage_audit.log" 2>&1; then
-      if ( python3 tools/mm_scan.py --date "$research_date" --archive-only &&
-           python3 tools/mm_backtest.py --date "$research_date" --from-scan 15 --archive-only &&
-           python3 tools/mm_calibrate.py --date "$research_date" --archive-only ) \
-           >> "$LIVE/mm_research.log" 2>&1; then
+      if [ "$AUTO_RESEARCH" != "1" ]; then
+        echo "[supervisor] AUTO_RESEARCH_DISABLED date=$research_date; seal verification and coverage audit completed; mm_scan/mm_backtest/mm_calibrate skipped"
+      elif ( python3 tools/mm_scan.py --date "$research_date" --archive-only &&
+             python3 tools/mm_backtest.py --date "$research_date" --from-scan 15 --archive-only &&
+             python3 tools/mm_calibrate.py --date "$research_date" --archive-only ) \
+             >> "$LIVE/mm_research.log" 2>&1; then
         # Bind derived success to the exact source seal.  Verify immediately
         # before publish and require the seal identity to remain unchanged
         # across that verification.  Consumers re-check the binding below.

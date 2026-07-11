@@ -28,6 +28,9 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/hft-bot
 # venv first so python3 = venv python (duckdb/numpy/pandas/pytest live there)
 Environment=PATH=/home/ubuntu/hft-bot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+# Production is the data plane.  Heavy research belongs on the future
+# on-demand research worker and is fail-closed off here (PIPE-HOTFIX-02).
+Environment=AUTO_RESEARCH=0
 ExecStart=/usr/bin/bash tools/pipeline_supervisor.sh
 
 # (c) above: app owns reconnect; systemd only revives a CRASHED supervisor.
