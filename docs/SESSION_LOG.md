@@ -6,6 +6,33 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-11 13:52 UTC — FA-1 feature admission/decay gate 入总计划，独立审计 PASS
+
+- commits: `8e0d8ab` — `PLAN_MM_TEST_PROGRAM` 增加 FA-1，并接入 SH-3/I4/执行顺序/
+  supporting-spec mapping；独立审计归档；closure commit = 本条目。
+- decisions: 操作员原文“加入计划 并且把计划给我”已逐字保存于完整计划；范围只
+  增加 paper-only feature admission/decay 测试要求，不授权研究、生产、外部服务、
+  shadow、微实盘或 live。完整计划路径 = `docs/PLAN_MM_TEST_PROGRAM.md`。
+- context capsule: feature 先冻结为 ALPHA/EXECUTION/RISK_SAFETY/MONITOR_ONLY；
+  alpha/execution 过 as-of、horizon-appropriate stability、相对市场基线的 nested
+  TRAIN OOF predictive delta、1-contract strict-through 配对经济 Delta_e、
+  collinearity/complexity 和 decay 六门。安全 feature 不走利润门但必须 fail-closed；
+  monitor-only 永不影响订单。正式 family/K 在 outer-TRAIN 检验前冻结，全部 TRAIN
+  探索登记，VALIDATION 前 registry hash；holdout 只接受/拒绝冻结整策略。
+- decay safety: OK/WARN/DEGRADED/DISABLE 动作冻结；后两者 stop-new + cancel
+  affected resting，经 CANCEL_PENDING→zero-resting→reconcile，闭环前不得 fallback；
+  fallback 只限当前 release 点名的审计版本。shadow Delta_e 标 simulated
+  counterfactual；live 无识别设计不称 feature-level causal effect。
+- audit: 初审 FAIL（live 已 resting 撤单闭环缺失、holdout 可被 feature admission
+  偷看），全部修复后 FINAL PASS；归档在
+  `docs/plan_audits/2026-07-11_mm_test_program_feature_admission_addendum.md`。
+- tests: `git diff --check` PASS；V2.2 candidate SHA-256 仍为
+  `575ea27ae08477bdcc4234a42ad5ff456c4ad45cd32ede79011caec2be3fbe54`；
+  `make check`/`tests/run_pipeline.sh` NOT RUN（纯文档、无运行时行为）。
+- blocked / handoff: 本增补完成但不执行；原计划仍 PLAN-ONLY。V2.2 prompt 的
+  audit/canonicalization/P00 权限状态和 PIPE-W06 状态均未改变；预先存在的无主
+  `outputs/` 未触碰。
+
 ## 2026-07-11 13:30 UTC — 动态定价消融 + 报价微结构实验入总计划，独立审计 PASS
 
 - commits: `d1e8432` — `PLAN_MM_TEST_PROGRAM` 新增 F2c/F2d、相关 F3/执行顺序/
