@@ -36,11 +36,20 @@ def main(argv):
     ap.add_argument("--date", default=None)
     ap.add_argument("--end", default=None)
     ap.add_argument("--min-trades", type=int, default=50)
+    ap.add_argument("--archive-only", action="store_true",
+                    help="never attach live staging (automatic for past ranges)")
     args = ap.parse_args(argv[1:])
     date = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     end = args.end or date
+    try:
+        end_date = datetime.date.fromisoformat(end)
+    except ValueError:
+        ap.error("--end/--date must be YYYY-MM-DD")
+    archive_only = (args.archive_only or
+                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
+    load_kwargs = {"start": date, "end": end, "archive_only": archive_only}
 
-    l1 = load("orderbooks_l1", start=date, end=end,
+    l1 = load("orderbooks_l1", **load_kwargs,
               columns=["ts_utc", "market_ticker", "category", "subcategory",
                        "yes_bid_e4", "yes_ask_e4"]).df()
     l1 = l1.dropna(subset=["yes_bid_e4", "yes_ask_e4"])
@@ -53,7 +62,7 @@ def main(argv):
     # the odds) — practitioner-confirmed on Kalshi specifically.
     p = np.clip(l1["mid"].values, 0.01, 0.99)
     l1["mid_lo"] = np.log(p / (1 - p))
-    tr = load("trades", start=date, end=end,
+    tr = load("trades", **load_kwargs,
               columns=["ts_utc", "market_ticker", "category", "subcategory",
                        "taker_side"]).df().dropna(subset=["taker_side"])
 
@@ -116,6 +125,9 @@ def main(argv):
         w.writeheader()
         w.writerows(rows)
 
+    print("NON-GATE: source=%s; capture quality UNASSESSED_PENDING_PIPE_W03; "
+          "fees/fills/queue are outside this calibration."
+          % ("ARCHIVE-SEALED" if archive_only else "LIVE/MIXED"))
     print("calibration %s..%s (buckets with >=%d trades)" % (date, end, args.min_trades))
     print("%-22s %-18s %7s %8s %8s %8s %8s %10s" %
           ("category", "subcategory", "trades", "spread", "vol1m",

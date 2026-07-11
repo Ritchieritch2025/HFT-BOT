@@ -13,9 +13,9 @@ an OPTIMISTIC fill bound instead of one flattering number:
       optimistic  = trade AT my price fills me (front of queue)
       pessimistic = only a trade STRICTLY THROUGH my price fills me
                     (back of queue; guaranteed cleared)
-  fees      : maker fee = 0 (standard Kalshi markets). Settlement not modeled;
-              open inventory is marked to the day's last mid (conservative
-              vs holding to settlement, which is where makers often win/lose).
+  fees      : NOT MODELED. Maker fees can be series-specific; the current facts
+              file is not ratified for a gate. Settlement is also not modeled;
+              open inventory is marked to the day's last mid.
   output    : per-market fills / gross spread capture / end inventory /
               marked PnL for both bounds.
 
@@ -111,9 +111,18 @@ def main(argv):
     ap.add_argument("--size", type=float, default=5.0, help="contracts per quote")
     ap.add_argument("--max-inv", type=float, default=25.0)
     ap.add_argument("--min-spread", type=float, default=0.02, help="dollars")
+    ap.add_argument("--archive-only", action="store_true",
+                    help="never attach live staging (automatic for past ranges)")
     args = ap.parse_args(argv[1:])
     date = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     end = args.end or date
+    try:
+        end_date = datetime.date.fromisoformat(end)
+    except ValueError:
+        ap.error("--end/--date must be YYYY-MM-DD")
+    archive_only = (args.archive_only or
+                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
+    load_kwargs = {"start": date, "end": end, "archive_only": archive_only}
 
     markets = []
     if args.markets:
@@ -129,9 +138,9 @@ def main(argv):
         print("pass --markets or --from-scan N", file=sys.stderr)
         return 2
 
-    l1 = load("orderbooks_l1", start=date, end=end,
+    l1 = load("orderbooks_l1", **load_kwargs,
               columns=["ts_utc", "market_ticker", "yes_bid_e4", "yes_ask_e4"]).df()
-    tr = load("trades", start=date, end=end,
+    tr = load("trades", **load_kwargs,
               columns=["ts_utc", "market_ticker", "yes_price_e4", "taker_side"]).df()
     tr = tr.dropna(subset=["yes_price_e4"])
     tr["yes_price_e4"] = tr["yes_price_e4"].astype(int)
@@ -139,6 +148,9 @@ def main(argv):
         {"yes_bid_e4": int, "yes_ask_e4": int})
 
     min_spread_e4 = int(round(args.min_spread * 10000))
+    print("NON-GATE: source=%s; capture quality UNASSESSED_PENDING_PIPE_W03; "
+          "maker fees/queue/settlement are not validated."
+          % ("ARCHIVE-SEALED" if archive_only else "LIVE/MIXED"))
     print("maker backtest %s..%s  size=%g max_inv=%g min_spread=$%.2f" %
           (date, end, args.size, args.max_inv, args.min_spread))
     print("%-44s %5s %8s %6s | %5s %8s %6s" %
@@ -163,7 +175,8 @@ def main(argv):
     print("-" * 96)
     print("TOTAL pessimistic: fills=%d pnl=$%.2f | optimistic: fills=%d pnl=$%.2f" %
           (tot["fillP"], tot["pnlP"], tot["fillO"], tot["pnlO"]))
-    print("(truth lives between the bounds; trust the pessimistic one for go/no-go)")
+    print("(strict-through is a diagnostic fill lower bound; this output is NOT "
+          "eligible for go/no-go)")
     return 0
 
 

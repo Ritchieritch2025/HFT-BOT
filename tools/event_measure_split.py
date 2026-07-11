@@ -84,9 +84,10 @@ def event_spans(per_event_day):
     return out
 
 
-def collect(category, start, end, warehouse=None):
+def collect(category, start, end, warehouse=None, archive_only=None):
     """Aggregate trades per (event, UTC-day) via the read-only warehouse loader."""
     rel = wh.load("trades", category=category, start=start, end=end, warehouse=warehouse,
+                  archive_only=archive_only,
                   columns=["event_ticker", "series_ticker", '"group"', "category",
                            "ts_utc", "count_e4", "yes_price_e4"])
     # notional Σ(price_e4·count_e4) can exceed int64 over a category — sum as

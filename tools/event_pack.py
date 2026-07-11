@@ -63,6 +63,14 @@ _ORDER = {"trades": "market_ticker, ts_utc, trade_id",
                             "yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4, price_e4, "
                             "volume_e4, open_interest_e4, is_snapshot")}
 
+# AF-5 finality contract.  A stale-index check that stops on the same UTC day
+# as the stored window cannot see next-day late activity.  Archive-only packs
+# therefore require one additional *complete sealed UTC day* after the day
+# containing win_end.  This deliberately conservative, finite cutoff replaces
+# the prior false claim that the archive scan had no upper bound.
+AF5_FINALITY_DAYS = 1
+DAY_US = 86_400_000_000
+
 
 def _iso(ts_us):
     if ts_us is None:
@@ -86,19 +94,57 @@ def _mkt_in(markets):
     return ", ".join("'%s'" % m.replace("'", "''") for m in markets)
 
 
-def _load(table, category, start, end, warehouse):
+def _latest_contiguous_seal_end(warehouse, win_start):
+    """Exclusive UTC boundary after the latest contiguous sealed day."""
+    import warehouse_common as wc
+    cfg = wc.load_config()
+    root = warehouse or cfg["warehouse_root"]
+    day = _dt.datetime.fromtimestamp(
+        win_start / 1e6, tz=_dt.timezone.utc).date()
+    today = _dt.datetime.now(_dt.timezone.utc).date()
+    last = None
+    while day < today and os.path.isfile(wc.seal_path(root, day.isoformat())):
+        last = day
+        day += _dt.timedelta(days=1)
+    if last is None:
+        # Let warehouse.load emit the authoritative missing-seal error.
+        return ((win_start // DAY_US) + 1) * DAY_US
+    return int(_dt.datetime(last.year, last.month, last.day,
+                            tzinfo=_dt.timezone.utc).timestamp() * 1e6) + DAY_US
+
+
+def _required_af5_horizon(win_end):
+    """Exclusive cutoff after one full UTC day beyond the window's day."""
+    if win_end is None:
+        raise ValueError("AF-5 finality requires bounded win_end_us")
+    containing_day_end = ((int(win_end) - 1) // DAY_US + 1) * DAY_US
+    return containing_day_end + AF5_FINALITY_DAYS * DAY_US
+
+
+def _load(table, category, start, end, warehouse, archive_only=None):
     try:
-        return wh.load(table, category=category, start=start, end=end, warehouse=warehouse)
-    except FileNotFoundError:
-        return None  # no facts for this table at all
+        return wh.load(table, category=category, start=start, end=end,
+                       warehouse=warehouse, archive_only=archive_only)
+    except FileNotFoundError as e:
+        # Zero rows for one table is legitimate.  Missing seal/raw/archive
+        # evidence is not and must propagate fail-closed.
+        if str(e).startswith("no archive data for") or \
+           str(e).startswith("no staging or archive data for"):
+            return None
+        raise
 
 
-def observed_last_ts(markets, category, win_start, warehouse):
+def observed_last_ts(markets, category, win_start, warehouse, archive_only=None,
+                     scan_end=None):
     """Actual max(ts_utc) across trades+L1 for the unit's markets, from
-    win_start onward with NO upper bound (AF-5 stale-window check)."""
+    win_start through the explicit exclusive ``scan_end`` evidence horizon.
+
+    Live diagnostic mode may pass ``scan_end=None``.  Archive-only mode is
+    bounded by contiguous seals and makes no claim about later activity.
+    """
     last = None
     for table in ("trades", "orderbooks_l1"):
-        rel = _load(table, category, win_start, None, warehouse)
+        rel = _load(table, category, win_start, scan_end, warehouse, archive_only)
         if rel is None:
             continue
         v = rel.query("f", "SELECT max(ts_utc) FROM f WHERE market_ticker IN (%s)"
@@ -108,9 +154,10 @@ def observed_last_ts(markets, category, win_start, warehouse):
     return last
 
 
-def _write_table(table, markets, category, win_start, win_end, out_path, warehouse):
+def _write_table(table, markets, category, win_start, win_end, out_path, warehouse,
+                 archive_only=None):
     header = HEADERS[table]
-    rel = _load(table, category, win_start, win_end, warehouse)
+    rel = _load(table, category, win_start, win_end, warehouse, archive_only)
     rows = []
     if rel is not None:
         q = ("SELECT %s FROM f WHERE market_ticker IN (%s) ORDER BY %s"
@@ -126,7 +173,7 @@ def _write_table(table, markets, category, win_start, win_end, out_path, warehou
     return len(rows)
 
 
-def build_pack(row, warehouse, out_root, now_us, refresh=False):
+def build_pack(row, warehouse, out_root, now_us, refresh=False, archive_only=None):
     """Materialize one unit's pack. Returns a manifest dict (status skipped/
     refused/packed)."""
     uk = row["unit_key"]
@@ -138,8 +185,30 @@ def build_pack(row, warehouse, out_root, now_us, refresh=False):
     category = row.get("category")
     win_start, win_end = row["win_start_us"], row["win_end_us"]
 
+    if archive_only is None:
+        import warehouse_common as wc
+        today_start = wc.day_start_us(_dt.datetime.utcnow().date().isoformat())
+        archive_only = bool(win_end is not None and win_end <= today_start)
+    scan_end = None
+    af5_required_end = None
+    if archive_only:
+        if win_end is None:
+            raise ValueError("archive-only event pack requires bounded win_end_us")
+        scan_end = _latest_contiguous_seal_end(warehouse, win_start)
+        if scan_end < win_end:
+            raise FileNotFoundError("sealed horizon ends before event window")
+        af5_required_end = _required_af5_horizon(win_end)
+        if scan_end < af5_required_end:
+            return {
+                "unit_key": uk, "status": "refused",
+                "reason": "AF-5 finality unavailable: sealed horizon %d is "
+                          "before required post-window horizon %d"
+                          % (scan_end, af5_required_end),
+            }
+
     # AF-5: would the stored window clip real trades?
-    obs_last = observed_last_ts(markets, category, win_start, warehouse)
+    obs_last = observed_last_ts(markets, category, win_start, warehouse,
+                                archive_only, scan_end)
     reinferred = False
     # `>=` not `>`: the extract filters `ts_utc < win_end` (exclusive), so a tick
     # AT win_end would be clipped — refuse it too (audit Defect-1).
@@ -151,7 +220,18 @@ def build_pack(row, warehouse, out_root, now_us, refresh=False):
                               % (obs_last, win_end)}
         # re-inferred window covers the late activity. +1µs because load()'s end
         # filter is exclusive (ts_utc < end) — must include the last tick itself.
-        win_end = obs_last + 1
+        refreshed_end = obs_last + 1
+        if archive_only:
+            refreshed_required = _required_af5_horizon(refreshed_end)
+            if scan_end < refreshed_required:
+                return {
+                    "unit_key": uk, "status": "refused",
+                    "reason": "AF-5 late activity found, but sealed horizon %d "
+                              "does not prove refreshed post-window horizon %d"
+                              % (scan_end, refreshed_required),
+                }
+            af5_required_end = refreshed_required
+        win_end = refreshed_end
         reinferred = True
 
     data_dir = os.path.join(out_root, "data", "unit=%s" % uk.replace("/", "_"))
@@ -161,7 +241,8 @@ def build_pack(row, warehouse, out_root, now_us, refresh=False):
     counts, files = {}, {}
     for table in ("trades", "orderbooks_l1"):
         p = os.path.join(data_dir, table + ".csv")
-        counts[table] = _write_table(table, markets, category, win_start, win_end, p, warehouse)
+        counts[table] = _write_table(table, markets, category, win_start, win_end, p,
+                                     warehouse, archive_only)
         files[table + ".csv"] = _md5(p)
 
     manifest = {
@@ -174,6 +255,9 @@ def build_pack(row, warehouse, out_root, now_us, refresh=False):
         "window_source": row.get("window_source"),
         "crossed_day_boundary": bool(row.get("crossed_day_boundary")),
         "status": "packed", "reinferred_window": reinferred,
+        "af5_scan_end_us": scan_end,
+        "af5_required_horizon_us": af5_required_end,
+        "af5_finality_days": AF5_FINALITY_DAYS if archive_only else None,
         "row_counts": counts,                       # ROW cardinality (AF-3/AF-4)
         "files": files,                             # md5 per data file
         "built_at_us": now_us,

@@ -24,8 +24,10 @@ import datetime
 import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 
 import duckdb
 import pytest
@@ -36,8 +38,13 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, TESTS)
 
 import build_classification as bc  # noqa: E402
+import event_pack  # noqa: E402
 import export_day  # noqa: E402
 import ingest  # noqa: E402
+import mm_backtest  # noqa: E402
+import mm_calibrate  # noqa: E402
+import mm_research  # noqa: E402
+import mm_scan  # noqa: E402
 import test_ingest as ti  # noqa: E402  (helpers only; not collected — conftest)
 import warehouse  # noqa: E402
 
@@ -81,6 +88,8 @@ def _release_warehouse():
             pass
     warehouse._CON = None
     warehouse._ATTACHED.clear()
+    warehouse._VALIDATED_ARCHIVES.clear()
+    warehouse._VALIDATED_RAW.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -128,6 +137,7 @@ def _export_env(wh):
 
 def _ingest_lines(wh, lines, name="cap.ndjson"):
     cap = os.path.join(wh, name)
+    os.makedirs(os.path.dirname(cap), exist_ok=True)
     with open(cap, "w") as f:
         f.write("\n".join(lines) + "\n")
     con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
@@ -144,20 +154,37 @@ def exported_day(tmp_path):
     _cls_parquet(wh, EXPORT_CLS)
     today = datetime.datetime.now(datetime.timezone.utc).date()
     yd = today - datetime.timedelta(days=1)
-    lines = [
+    yesterday_lines = [
         ti.tick("KXBTC-26DEC31-B75", _day_us(yd, 9), 0.0325, 0.0450),
         ti.tick("KXBTC-26DEC31-B75", _day_us(yd, 9, 90), 0.0330, 0.0450),
         ti.trade("KXMLB-26JUL06-BOS", _day_us(yd, 10), "wp04-y1"),
         ti.trade("KXMLB-26JUL06-BOS", _day_us(yd, 10, 30), "wp04-y2"),
         ti.trade("KXACME-26JUL06-YES", _day_us(yd, 11), "wp04-y3"),
+        ti.trade("KXUNKNOWN-26JUL06-YES", _day_us(yd, 12), "wp04-y4"),
+    ]
+    today_lines = [
         ti.tick("KXBTC-26DEC31-B75", _day_us(today, 0, 90), 0.0500, 0.0600),
         ti.trade("KXMLB-26JUL07-CHC", _day_us(today, 0, 95), "wp04-t1"),
     ]
-    _ingest_lines(wh, lines)
+    _ingest_lines(wh, yesterday_lines,
+                  name=os.path.join("raw", "date=%s" % yd.isoformat(),
+                                    "firehose_00.ndjson"))
+    _ingest_lines(wh, today_lines,
+                  name=os.path.join("raw", "date=%s" % today.isoformat(),
+                                    "firehose_00.ndjson"))
+    _ingest_lines(wh, [_raw("subscribed", {}, _day_us(today, 1))],
+                  name=os.path.join("raw", "date=%s" % today.isoformat(),
+                                    "firehose_01.ndjson"))
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
                         "--date", yd.isoformat()], env=_export_env(wh),
                        capture_output=True, text=True)
     assert r.returncode == 0 and "EXPORT PASS" in r.stdout, r.stdout + r.stderr
+    seal = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--seal"], env=_export_env(wh),
+        capture_output=True, text=True)
+    assert seal.returncode == 0 and "DAY SEAL PASS" in seal.stdout, \
+        seal.stdout + seal.stderr
     return {"wh": wh, "yd": yd, "today": today}
 
 
@@ -286,15 +313,19 @@ def test_denormalized_columns_present(exported_day):
 
     seen_cats = set()
     for f in tr_files:
-        rel = ("read_csv('%s', header=true, all_varchar=true)" % f.replace("'", "''"))
+        rel = ("read_csv('%s', header=true, all_varchar=true, "
+               "hive_partitioning=false)" % f.replace("'", "''"))
         n = con.execute("SELECT count(*) FROM %s" % rel).fetchone()[0]
         assert n > 0
         bad = con.execute("SELECT count(*) FROM %s WHERE %s" % (rel, null_any)).fetchone()[0]
-        assert bad == 0, "trade rows missing denormalized columns in %s" % f
+        if "category=_unclassified" in f:
+            assert bad == n  # intentional unknown-series safety-net fixture
+        else:
+            assert bad == 0, "trade rows missing denormalized columns in %s" % f
         seen_cats |= {r[0] for r in con.execute(
             "SELECT DISTINCT category FROM %s" % rel).fetchall()}
-    # both classes exported with full denormalization (trades are for EVERY market)
-    assert seen_cats == {"Sports", "Companies"}
+    # both classes plus the intentional unknown-category safety-net are exported.
+    assert seen_cats == {"Sports", "Companies", None}
 
 
 def test_load_routing(exported_day):
@@ -304,7 +335,7 @@ def test_load_routing(exported_day):
 
     n_yd = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
                           warehouse=wh).count("*").fetchone()[0]
-    assert n_yd == 3  # wp04-y1/y2/y3 from the archive
+    assert n_yd == 4  # wp04-y1/y2/y3 + unknown-category y4 from the archive
 
     # PROOF past reads the ARCHIVE: a late yesterday row ingested into staging
     # AFTER the export must NOT change what load() returns for that day
@@ -314,7 +345,7 @@ def test_load_routing(exported_day):
                   name="late.ndjson")
     n_yd2 = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
                            warehouse=wh).count("*").fetchone()[0]
-    assert n_yd2 == 3
+    assert n_yd2 == 4
 
     # PROOF today reads STAGING: today was never exported, yet it is queryable,
     # and a fresh staged row shows up live.
@@ -330,7 +361,596 @@ def test_load_routing(exported_day):
 
     # no double count across the overlap (yesterday exists in BOTH stores)
     n_all = warehouse.load("trades", warehouse=wh).count("*").fetchone()[0]
-    assert n_all == 3 + 2
+    assert n_all == 4 + 2
+
+
+def test_archive_only_load_never_locks_live_staging(exported_day):
+    """Completed-day research must not ATTACH the live writer database.
+
+    The 2026-07-11 production incident was caused by mm_calibrate retaining a
+    READ_ONLY staging attach for an already-final archived day.  DuckDB then
+    refused the ingest writer and the watchdog crash-looped it.  Archive-only
+    reads must leave the staging path immediately writable while the research
+    relation remains alive.
+    """
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    _release_warehouse()
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
+    assert not warehouse._ATTACHED
+
+    staging = os.path.join(wh, "staging.duckdb")
+    writer = duckdb.connect(staging)
+    writer.execute("CHECKPOINT")
+    writer.close()
+
+
+def test_archive_only_transition_releases_prior_live_attach(exported_day):
+    """Switching a long-lived process to sealed mode releases staging."""
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    live = warehouse.load("trades", start=today.isoformat(), end=today.isoformat(),
+                          warehouse=wh)
+    assert live.count("*").fetchone()[0] == 1
+    assert warehouse._ATTACHED
+    sealed = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                            warehouse=wh, archive_only=True)
+    assert sealed.count("*").fetchone()[0] == 4
+    assert not warehouse._ATTACHED
+    writer = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    writer.close()
+
+
+def test_ingest_entrypoint_waits_out_initial_reader_lock(exported_day, tmp_path):
+    """The CLI's FIRST writer open uses retry, not a bare connect.
+
+    This is intentionally a subprocess test: testing connect_with_retry alone
+    did not catch that ingest.main bypassed it before constructing Ingester.
+    """
+    wh = exported_day["wh"]
+    staging = os.path.join(wh, "staging.duckdb")
+    cap = tmp_path / "empty.ndjson"
+    cap.write_text("\n")
+    _release_warehouse()
+    holder = duckdb.connect(staging, read_only=True)
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(ROOT, "tools", "ingest.py"),
+         "--warehouse", wh, "--staging", staging, str(cap)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(0.35)
+        assert proc.poll() is None, proc.communicate(timeout=2)
+    finally:
+        holder.close()
+    out, err = proc.communicate(timeout=10)
+    assert proc.returncode == 0, out + err
+
+
+def test_ingest_connect_does_not_retry_non_lock_failures(monkeypatch):
+    class BrokenDuckDB:
+        @staticmethod
+        def connect(_path):
+            raise RuntimeError("permission denied")
+
+    monkeypatch.setattr(ingest.time, "sleep",
+                        lambda _s: pytest.fail("non-lock error was retried"))
+    with pytest.raises(RuntimeError, match="permission denied"):
+        ingest.connect_with_retry(BrokenDuckDB, "/bad", attempts=30, sleep_s=5)
+
+
+def test_fact_rows_and_checkpoint_commit_atomically(tmp_path):
+    """Crash-window injection: facts cannot commit before their checkpoint."""
+    tmp = str(tmp_path)
+    wh = ti.make_warehouse(tmp)
+    db_rel = "atomic.duckdb"
+    ing = ti.new_ingester(tmp, wh, db=db_rel)
+    real = ing.con
+
+    class FailCheckpointOnce:
+        def __init__(self, con):
+            self.con, self.armed = con, True
+
+        def execute(self, sql, *args, **kwargs):
+            if self.armed and sql.lstrip().startswith("INSERT INTO checkpoint"):
+                self.armed = False
+                raise RuntimeError("injected crash before checkpoint")
+            return self.con.execute(sql, *args, **kwargs)
+
+        def executemany(self, *args, **kwargs):
+            return self.con.executemany(*args, **kwargs)
+
+    ing.con = FailCheckpointOnce(real)
+    cap = os.path.join(tmp, "atomic.ndjson")
+    with open(cap, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B88", T0, 0.40, 0.50) + "\n")
+        f.write(ti.trade("KXBTC-26DEC31-B88", T0 + 1, "atomic-t1") + "\n")
+    with pytest.raises(RuntimeError, match="injected crash"):
+        ing.process_file(cap)
+    assert real.execute("SELECT count(*) FROM orderbooks_l1").fetchone()[0] == 0
+    assert real.execute("SELECT count(*) FROM trades").fetchone()[0] == 0
+    assert real.execute("SELECT count(*) FROM checkpoint").fetchone()[0] == 0
+    real.close()
+
+    retry = ti.new_ingester(tmp, wh, db=db_rel)
+    retry.process_file(cap)
+    assert retry.con.execute("SELECT count(*) FROM orderbooks_l1").fetchone()[0] == 1
+    assert retry.con.execute("SELECT count(*) FROM trades").fetchone()[0] == 1
+    assert retry.con.execute("SELECT count(*) FROM checkpoint").fetchone()[0] == 1
+    retry.con.close()
+
+
+def test_late_exchange_time_fact_invalidates_visible_day_seal(exported_day):
+    """A D fact received in D+1 hour 02+ cannot leave D archive-authorized.
+
+    Raw partitions follow receipt time, while archive partitions follow the
+    exchange timestamp.  This regression is the exact post-seal silent-omission
+    incident shape: the fixed 00/01 receipt proof cannot see the later file, so
+    ingest must invalidate before committing its row.
+    """
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    seal_path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    assert os.path.isfile(seal_path)
+    late_path = os.path.join(wh, "raw", "date=%s" % today.isoformat(),
+                             "firehose_02.ndjson")
+    with open(late_path, "w") as f:
+        f.write(ti.trade("KXMLB-26JUL06-BOS", _day_us(yd, 23, 3599),
+                         "wp04-late-after-seal") + "\n")
+
+    _release_warehouse()
+    con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    ingest.Ingester(con, wh).process_file(late_path)
+    assert con.execute(
+        "SELECT count(*) FROM trades WHERE trade_id='wp04-late-after-seal'"
+    ).fetchone()[0] == 1
+    con.close()
+
+    assert not os.path.exists(seal_path)
+    parked = glob.glob(os.path.join(
+        wh, "seals", "date=%s.invalidated-late-fact.*.json" % yd.isoformat()))
+    assert len(parked) == 1
+    ledger = [json.loads(line) for line in open(
+        os.path.join(wh, "seal_invalidations.ndjson"))]
+    assert ledger[-1]["exchange_date"] == yd.isoformat()
+    assert ledger[-1]["source_file"] == os.path.abspath(late_path)
+    with pytest.raises(FileNotFoundError, match="archive day is not sealed"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_supervisor_gates_daily_research_on_current_export_and_archive_only():
+    """Research starts only after raw catch-up, exact export and day seal."""
+    path = os.path.join(ROOT, "tools", "pipeline_supervisor.sh")
+    text = open(path).read()
+    assert 'grep -q "EXPORT PASS\\|already archived" "$LIVE/export.log"' not in text
+    assert '--check-caught-up' in text
+    assert '--seal' in text
+    assert '--verify-seal' in text
+    assert ': > "$EXPORT_ATTEMPT_LOG"' in text
+    assert 'grep' not in "\n".join(
+        line for line in text.splitlines() if "$LIVE/export.log" in line)
+    assert '[ "$LAST_SEALED" = "$YESTERDAY" ]' in text
+    assert '[ "$HOUR_NOW" -ge 2 ]' in text
+    assert '[ "$HOUR_NOW" -lt 2 ]' not in text
+    assert text.index('--verify-seal') < text.index('--check-caught-up') \
+        < text.index('--force --no-prune') \
+        < text.index('--seal') < text.index('run_daily_research "$YESTERDAY"')
+    assert text.index('stop_ingest_for_export') < text.index('--check-caught-up')
+    assert 'research_${research_date}.done' in text
+    assert 'coverage audit failed' in text
+    research = text[text.index('run_daily_research()'):text.index('while true; do')]
+    assert research.index('identity_start=') < research.index('coverage_audit.py')
+    assert research.rindex('--verify-seal') > research.index('mm_calibrate.py')
+    assert 'identity_start" = "$identity_end' in research
+    assert '"seal_sha256"' in research
+    assert '"manifest_date_sha256"' in research
+    assert 'research_receipt_current' in text
+    assert '-delete' not in "\n".join(
+        line for line in text.splitlines()
+        if 'find "$RAW"' in line and not line.lstrip().startswith("#"))
+    for tool in ("mm_scan.py", "mm_backtest.py", "mm_calibrate.py"):
+        line = next(x for x in text.splitlines() if tool in x)
+        assert "--archive-only" in line, line
+
+
+def test_archive_verify_only_requires_exact_current_day(exported_day):
+    """An existing first partition is not proof of a complete daily archive."""
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--verify-only"]
+    ok = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0 and "ARCHIVE VERIFY PASS" in ok.stdout, ok.stdout + ok.stderr
+
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "trades", "category=*", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.csv.gz"))))
+    os.unlink(victim)
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode != 0
+    assert "ARCHIVE VERIFY FAIL" in bad.stderr
+
+
+def test_existing_day_seal_verifies_without_opening_staging(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--verify-seal"]
+    ok = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0 and "DAY SEAL VERIFY PASS" in ok.stdout, \
+        ok.stdout + ok.stderr
+
+
+def test_archive_verify_detects_same_count_content_change(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    staging = os.path.join(wh, "staging.duckdb")
+    con = duckdb.connect(staging)
+    con.execute("UPDATE trades SET yes_price_e4 = yes_price_e4 + 1 "
+                "WHERE trade_id = 'wp04-y1'")
+    con.close()
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--verify-only"]
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode != 0
+    assert "content mismatch" in bad.stderr
+
+
+def test_day_seal_requires_all_closed_raw_bytes_checkpointed(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    raw = next(iter(glob.glob(os.path.join(
+        wh, "raw", "date=%s" % yd.isoformat(), "*.ndjson*"))))
+    with open(raw, "a") as f:
+        f.write(json.dumps({"raw": "{}"}) + "\n")
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--seal"]
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode != 0
+    assert "checkpoint behind raw" in bad.stderr
+    assert not os.path.exists(os.path.join(
+        wh, "seals", "date=%s.json" % yd.isoformat()))
+
+
+def test_archive_only_rejects_raw_append_after_seal(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    raw = next(iter(glob.glob(os.path.join(
+        wh, "raw", "date=%s" % yd.isoformat(), "*.ndjson*"))))
+    with open(raw, "a") as f:
+        f.write(json.dumps({"raw": "{}"}) + "\n")
+    with pytest.raises(RuntimeError, match="raw file changed after seal"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_day_seal_rejects_uncheckpointed_cross_midnight_receipt(exported_day):
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    late = os.path.join(wh, "raw", "date=%s" % today.isoformat(),
+                        "firehose_01.ndjson.1")
+    with open(late, "w") as f:
+        f.write(ti.trade("KXLATE-TEST-YES", _day_us(yd, 23, 3599),
+                         "late-cross-day") + "\n")
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--seal"]
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode != 0
+    assert "checkpoint behind raw" in bad.stderr
+
+
+def test_default_past_window_is_sealed_archive_only(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=wh)
+    assert rel.count("*").fetchone()[0] == 4
+    assert not warehouse._ATTACHED
+    unknown = warehouse.load(
+        "trades", start=yd.isoformat(), end=yd.isoformat(), warehouse=wh,
+        columns=["trade_id", "category", "subcategory"]).filter(
+            "trade_id = 'wp04-y4'").fetchone()
+    assert unknown == ("wp04-y4", None, None)
+
+
+def test_day_seal_rejects_renamed_archive_column(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "orderbooks_l1", "category=*", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.parquet"))))
+    old_md5 = export_day.md5_file(victim)
+    tmp = victim + ".renamed"
+    con = duckdb.connect()
+    con.execute(
+        "COPY (SELECT * RENAME (yes_bid_e4 AS wrong_yes_bid) "
+        "FROM read_parquet('%s', hive_partitioning=false)) TO '%s' "
+        "(FORMAT PARQUET, COMPRESSION zstd)"
+        % (victim.replace("'", "''"), tmp.replace("'", "''")))
+    con.close()
+    os.replace(tmp, victim)
+    new_md5 = export_day.md5_file(victim)
+    manifest = os.path.join(wh, "manifest.csv")
+    text = open(manifest).read()
+    assert old_md5 in text
+    with open(manifest, "w") as f:
+        f.write(text.replace(old_md5, new_md5, 1))
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--seal"]
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode != 0
+    assert "schema mismatch" in bad.stderr
+
+
+def test_day_seal_rejects_archive_mutation_after_exact_verify(exported_day,
+                                                               monkeypatch):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "trades", "category=Sports", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.csv.gz"))))
+
+    def mutate_after_verify(_con, _retain):
+        with open(victim, "ab") as f:
+            f.write(b"between-verify-and-seal")
+
+    monkeypatch.setattr(export_day, "prune_staging", mutate_after_verify)
+    con = duckdb.connect()
+    con.execute("ATTACH '%s' AS stg" % os.path.join(
+        wh, "staging.duckdb").replace("'", "''"))
+    cfg = dict(_export_env(wh))
+    effective = {
+        "raw_root": cfg["RAW_ROOT"], "archive_root": cfg["ARCHIVE_ROOT"],
+        "warehouse_root": cfg["WAREHOUSE_ROOT"], "staging_retain_days": 2,
+    }
+    lo = _day_us(yd, 0)
+    with pytest.raises(RuntimeError, match="archive changed during seal"):
+        export_day.write_day_seal(con, yd.isoformat(), lo,
+                                  lo + 86_400_000_000, effective)
+    con.close()
+
+
+def test_refused_force_preserves_existing_valid_seal(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    seal_path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    before = open(seal_path, "rb").read()
+    con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    lo = _day_us(yd, 0)
+    con.execute("DELETE FROM trades WHERE ts_utc >= ? AND ts_utc < ?",
+                [lo, lo + 86_400_000_000])
+    con.close()
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--force", "--no-prune"]
+    bad = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert bad.returncode == 3 and "SHRINK" in bad.stderr
+    assert open(seal_path, "rb").read() == before
+
+
+def test_successful_seal_prunes_only_older_staging(exported_day):
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    staging = os.path.join(wh, "staging.duckdb")
+    con = duckdb.connect(staging)
+    old = today - datetime.timedelta(days=3)
+    con.execute(
+        "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [_day_us(old, 12), "KXOLD-TEST-YES", "KXOLD", "KXOLD-TEST",
+         None, None, None, "old-row", 5000, 5000, 10000, "yes"])
+    con.close()
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+           "--date", yd.isoformat(), "--seal"]
+    ok = subprocess.run(cmd, env=_export_env(wh), capture_output=True, text=True)
+    assert ok.returncode == 0 and "DAY SEAL PASS" in ok.stdout, ok.stdout + ok.stderr
+    con = duckdb.connect(staging, read_only=True)
+    assert con.execute("SELECT count(*) FROM trades WHERE trade_id='old-row'").fetchone()[0] == 0
+    assert con.execute("SELECT count(*) FROM trades WHERE trade_id='wp04-y1'").fetchone()[0] == 1
+    con.close()
+
+
+def test_archive_only_rejects_stale_seal_after_manifest_change(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    manifest = os.path.join(wh, "manifest.csv")
+    text = open(manifest).read()
+    with open(manifest, "w") as f:
+        f.write(text.replace("Crypto", "Crypto_changed", 1))
+    with pytest.raises(RuntimeError, match="stale or invalid archive seal"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_archive_only_rejects_unknown_seal_version(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    path = os.path.join(wh, "seals", "date=%s.json" % yd.isoformat())
+    seal = json.load(open(path))
+    seal["version"] = 2
+    with open(path, "w") as f:
+        json.dump(seal, f)
+    with pytest.raises(RuntimeError, match="stale or invalid archive seal"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_archive_only_rejects_missing_sealed_partition(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "trades", "category=*", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.csv.gz"))))
+    os.unlink(victim)
+    with pytest.raises(RuntimeError, match="file-set mismatch"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_archive_only_rejects_tampered_sealed_partition(exported_day):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    victim = next(iter(glob.glob(os.path.join(
+        wh, "facts", "trades", "category=*", "subcategory=*",
+        "date=%s" % yd.isoformat(), "*.csv.gz"))))
+    with open(victim, "ab") as f:
+        f.write(b"tamper")
+    with pytest.raises(RuntimeError, match="md5 mismatch"):
+        warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                       warehouse=wh, archive_only=True)
+
+
+def test_sealed_warehouse_is_relocatable(exported_day, tmp_path):
+    wh, yd = exported_day["wh"], exported_day["yd"]
+    restored = str(tmp_path / "restored_warehouse")
+    shutil.copytree(wh, restored)
+    rel = warehouse.load("trades", start=yd.isoformat(), end=yd.isoformat(),
+                         warehouse=restored, archive_only=True)
+    assert rel.count("*").fetchone()[0] == 4
+    assert not warehouse._ATTACHED
+
+
+def test_event_pack_archive_only_uses_bounded_sealed_horizon(exported_day,
+                                                              tmp_path):
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    row = {
+        "unit": "event", "unit_key": "KXMLB-26JUL06", "status": "sealed",
+        "category": "Sports", "subcategory": "MLB", "group": "MLB",
+        "event_ticker": "KXMLB-26JUL06", "series_ticker": "KXMLB",
+        "markets": ["KXMLB-26JUL06-BOS"],
+        "win_start_us": _day_us(yd, 0), "win_end_us": _day_us(today, 0),
+        "window_source": "test", "crossed_day_boundary": False,
+    }
+    out = str(tmp_path / "sealed_pack")
+    manifest = event_pack.build_pack(row, wh, out, _day_us(today, 2),
+                                     archive_only=True)
+    assert manifest["status"] == "refused"
+    assert "AF-5 finality unavailable" in manifest["reason"]
+    assert not warehouse._ATTACHED
+
+
+def test_event_pack_stale_scan_uses_latest_contiguous_seal(tmp_path):
+    root = str(tmp_path / "wh_horizon")
+    start = datetime.date(2026, 7, 6)
+    os.makedirs(os.path.join(root, "seals"))
+    for offset in (0, 1):
+        day = start + datetime.timedelta(days=offset)
+        with open(os.path.join(root, "seals", "date=%s.json" % day), "w") as f:
+            f.write("{}")
+    start_us = int(datetime.datetime(2026, 7, 6, tzinfo=datetime.timezone.utc)
+                   .timestamp() * 1_000_000)
+    expected = int(datetime.datetime(2026, 7, 8, tzinfo=datetime.timezone.utc)
+                   .timestamp() * 1_000_000)
+    assert event_pack._latest_contiguous_seal_end(root, start_us) == expected
+
+
+def test_event_pack_af5_requires_next_complete_sealed_day(monkeypatch):
+    """A seal for the window day alone cannot hide D+1 late activity."""
+    day = 86_400_000_000
+    row = {
+        "unit": "event", "unit_key": "EV-LATE", "status": "sealed",
+        "category": "Sports", "markets": ["EV-LATE-YES"],
+        "win_start_us": 10 * day, "win_end_us": 10 * day + 3_600_000_000,
+        "window_source": "test", "crossed_day_boundary": False,
+    }
+    # Only the day containing win_end is sealed.  The required extra complete
+    # day is absent, so no warehouse query or pack write is allowed.
+    monkeypatch.setattr(event_pack, "_latest_contiguous_seal_end",
+                        lambda *_a, **_k: 11 * day)
+    monkeypatch.setattr(event_pack, "observed_last_ts",
+                        lambda *_a, **_k: pytest.fail("scan ran without horizon"))
+    got = event_pack.build_pack(row, "/unused", "/unused", 12 * day,
+                                archive_only=True)
+    assert got["status"] == "refused"
+    assert "required post-window horizon" in got["reason"]
+
+
+def test_event_pack_af5_detects_late_activity_in_next_sealed_day(monkeypatch,
+                                                                 tmp_path):
+    """D+1 activity is refused; refresh also waits for a new quiet horizon."""
+    day = 86_400_000_000
+    stored_end = 10 * day + 3_600_000_000
+    late = 11 * day + 3_600_000_000
+    row = {
+        "unit": "event", "unit_key": "EV-LATE", "status": "sealed",
+        "category": "Sports", "markets": ["EV-LATE-YES"],
+        "win_start_us": 10 * day, "win_end_us": stored_end,
+        "window_source": "test", "crossed_day_boundary": True,
+    }
+    # D and D+1 are sealed (scan_end=D+2).  That satisfies the stored window's
+    # finality horizon and exposes a late D+1 row.  Extending around that row
+    # would require D+2 to be sealed too (scan_end=D+3), so refresh must wait.
+    monkeypatch.setattr(event_pack, "_latest_contiguous_seal_end",
+                        lambda *_a, **_k: 12 * day)
+    monkeypatch.setattr(event_pack, "observed_last_ts",
+                        lambda *_a, **_k: late)
+    refused = event_pack.build_pack(row, "/unused", str(tmp_path), 13 * day,
+                                    archive_only=True)
+    assert refused["status"] == "refused" and "stale index" in refused["reason"]
+    refreshed = event_pack.build_pack(row, "/unused", str(tmp_path), 13 * day,
+                                      refresh=True, archive_only=True)
+    assert refreshed["status"] == "refused"
+    assert "does not prove refreshed post-window horizon" in refreshed["reason"]
+
+
+def test_event_pack_af5_packs_only_with_sufficient_quiet_horizon(monkeypatch,
+                                                                 tmp_path):
+    day = 86_400_000_000
+    row = {
+        "unit": "event", "unit_key": "EV-QUIET", "status": "sealed",
+        "category": "Sports", "markets": ["EV-QUIET-YES"],
+        "win_start_us": 10 * day, "win_end_us": 10 * day + 3_600_000_000,
+        "window_source": "test", "crossed_day_boundary": False,
+    }
+    monkeypatch.setattr(event_pack, "_latest_contiguous_seal_end",
+                        lambda *_a, **_k: 12 * day)
+    monkeypatch.setattr(event_pack, "observed_last_ts",
+                        lambda *_a, **_k: 10 * day + 1_000_000)
+
+    def empty_extract(_table, _markets, _category, _start, _end, path,
+                      _warehouse, _archive_only=None):
+        with open(path, "w") as f:
+            f.write("header\n")
+        return 0
+
+    monkeypatch.setattr(event_pack, "_write_table", empty_extract)
+    got = event_pack.build_pack(row, "/unused", str(tmp_path), 13 * day,
+                                archive_only=True)
+    assert got["status"] == "packed"
+    assert got["af5_scan_end_us"] == 12 * day
+    assert got["af5_required_horizon_us"] == 12 * day
+    assert got["af5_finality_days"] == 1
+
+
+@pytest.mark.parametrize("module,extra", [
+    (mm_scan, []),
+    (mm_backtest, ["--markets", "T"]),
+    (mm_calibrate, []),
+])
+@pytest.mark.parametrize("offset,expected", [(-1, True), (0, False)])
+def test_mm_tools_select_archive_only_by_range_end(monkeypatch, module, extra,
+                                                    offset, expected):
+    """Past-day tools cannot accidentally retain the live staging lock."""
+    day = (datetime.datetime.now(datetime.timezone.utc).date()
+           + datetime.timedelta(days=offset)).isoformat()
+    calls = []
+
+    class StopAfterFirstLoad(Exception):
+        pass
+
+    def fake_load(table, **kwargs):
+        calls.append((table, kwargs))
+        raise StopAfterFirstLoad
+
+    monkeypatch.setattr(module, "load", fake_load)
+    with pytest.raises(StopAfterFirstLoad):
+        module.main([module.__file__, "--date", day] + extra)
+    assert calls[0][1]["archive_only"] is expected
+
+
+@pytest.mark.parametrize("offset,expected", [(-1, True), (0, False)])
+def test_mm_research_selects_archive_only_by_range_end(monkeypatch,
+                                                       offset, expected):
+    day = (datetime.datetime.now(datetime.timezone.utc).date()
+           + datetime.timedelta(days=offset)).isoformat()
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    monkeypatch.setattr(mm_research, "load_fee_facts",
+                        lambda *a, **k: {"verified": False})
+
+    def fake_build(start, end, archive_only=False):
+        seen.append((start, end, archive_only))
+        raise Stop
+
+    monkeypatch.setattr(mm_research, "build_dataset", fake_build)
+    with pytest.raises(Stop):
+        mm_research.main([mm_research.__file__, "--start", day, "--end", day])
+    assert seen == [(day, day, expected)]
 
 
 # ─────────────────── folded from WP-01 (E4 integrity) ───────────────────
@@ -612,8 +1232,10 @@ def test_supervisor_wires_capture_gaps_daily_and_live():
     assert any("capture_gaps.py --live" in ln for ln in live), \
         "live capture-gap alert not wired into the supervisor watchdog loop"
     # next_actions.md item 1: daily coverage audit, non-zero exit surfaced.
-    assert any('coverage_audit.py --date "$YESTERDAY"' in ln for ln in live), \
-        "daily coverage audit not wired into the supervisor export block"
+    assert any('coverage_audit.py --date "$research_date"' in ln for ln in live), \
+        "daily coverage audit not wired into the archive-only research function"
+    assert any('run_daily_research "$YESTERDAY"' in ln for ln in live), \
+        "sealed-day research function not invoked by the supervisor"
 
 
 def test_supervisor_single_rest_owner_gate():

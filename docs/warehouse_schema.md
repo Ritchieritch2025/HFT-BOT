@@ -16,11 +16,17 @@ API field; nothing is invented.
    `checkpoint(file, byte_offset)` table makes restarts gap/dup-free (only
    complete lines are processed; a trailing partial line waits for the next
    cycle). Today is queryable live. Staging retains today + 1 prior day.
-3. **ARCHIVE** — at UTC midnight `tools/export_day.py` exports the completed
-   day to final partitioned files (sorted, zstd-15 Parquet for orderbooks;
-   csv.gz for trades), verifies row counts by re-reading every file, appends
-   `manifest.csv` + `compression_report.csv`, and prunes staging. Write-once,
-   complete and final — no part files. The archive root (`ARCHIVE_ROOT` in
+3. **ARCHIVE** — a completed day is eligible for sealed research only after
+   every closed raw byte has an equal ingest checkpoint, the exporter writes
+   final partitioned files (sorted, zstd-15 Parquet for orderbooks; csv.gz for
+   trades), and an exact `EXCEPT ALL` proof finds zero content differences in
+   either direction between staging and every archive partition. `--seal` then
+   atomically writes `seals/date=<D>.json`, binding the dated `manifest.csv`
+   digest to the exact closed-raw inventory and SHA-256 checkpoint proof.
+   Existing raw files are checked by metadata fast path and SHA-256 on restore/
+   metadata change; archive files are checked against the manifest file set and
+   MD5. Write-once files without this seal are
+   not a complete research source. The archive root (`ARCHIVE_ROOT` in
    `config/warehouse.yaml`, env-overridable) may be an external drive: the
    exporter probes it is mounted/writable first; if not, staging is retained,
    the failure is alerted, and the export retries next cycle.
@@ -126,8 +132,16 @@ and harmless.
 
 ## Access — one entry point
 `tools/warehouse.py::load(table, category, subcategory, group, start, end,
-columns, ffill)` routes archive (past days) vs staging (today / unexported
-days) transparently and never double-counts the overlap day. The archive/staging
+columns, ffill, archive_only)` routes archive vs staging. `archive_only=True`
+requires every bounded UTC date to have a valid seal whose manifest digest is
+still current; an unsealed/partial all-market day fails instead of silently
+omitting lagging partitions. Entering archive-only mode closes any cached live
+staging attachment before creating the relation. Default mixed mode routes
+today/unexported days through staging transparently. A bounded window ending
+before today's UTC boundary automatically selects sealed archive-only; explicit
+`archive_only=False` is a diagnostic/migration escape hatch, not an unattended
+research setting. The loader never double-counts the
+overlap day. The archive/staging
 dedup is PER `(category, subcategory)` partition, not a global max-archive-date
 (AF-3): each partition carries its own max archived date, and a staging row is
 excluded only when its OWN partition archived through its day. This is correct

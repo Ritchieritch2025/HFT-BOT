@@ -92,4 +92,97 @@ def day_start_us(date_str):
     import datetime
     d = datetime.date.fromisoformat(date_str)
     return int(datetime.datetime(d.year, d.month, d.day,
-               tzinfo=datetime.timezone.utc).timestamp() * 1_000_000)
+                   tzinfo=datetime.timezone.utc).timestamp() * 1_000_000)
+
+
+def seal_path(warehouse_root, date):
+    """Authoritative completed-day attestation written only after full proof."""
+    return os.path.join(warehouse_root, "seals", "date=%s.json" % date)
+
+
+def manifest_date_sha256(manifest_path, date):
+    """Stable digest of every manifest field for one UTC date."""
+    import csv
+    import hashlib
+    import json
+    if not os.path.isfile(manifest_path):
+        raise FileNotFoundError("manifest missing: %s" % manifest_path)
+    with open(manifest_path, newline="") as f:
+        rows = [dict(r) for r in csv.DictReader(f) if r.get("date") == date]
+    rows.sort(key=lambda r: (r.get("table", ""), r.get("category", ""),
+                             r.get("subcategory", ""), r.get("file_path", "")))
+    payload = json.dumps(rows, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest(), rows
+
+
+def late_raw_dependency_files(warehouse_root, raw_root, exchange_date):
+    """Raw files that later invalidated/rebuilt an already sealed exchange day.
+
+    The append-only invalidation ledger makes receipt-time files outside the
+    normal D+1 00/01 watermark part of every future seal for D.  Dependencies
+    are stored relative to raw_root so a restored warehouse remains portable.
+    """
+    import json
+    ledger = os.path.join(warehouse_root, "seal_invalidations.ndjson")
+    if not os.path.isfile(ledger):
+        return []
+    out = set()
+    with open(ledger, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            try:
+                row = json.loads(line)
+            except ValueError as e:
+                raise RuntimeError("invalid late-source ledger line %d: %s" %
+                                   (lineno, e))
+            if (row.get("event") not in
+                    ("SEALED_DAY_INVALIDATED_BY_LATE_FACT",
+                     "LATE_RAW_DEPENDENCY_OBSERVED") or
+                    row.get("exchange_date") != exchange_date):
+                continue
+            rel = row.get("source_raw_rel")
+            if not rel:
+                raise RuntimeError(
+                    "sealed day has non-reproducible late fact dependency: %s"
+                    % row.get("source_file"))
+            path = os.path.abspath(os.path.join(raw_root, rel))
+            root = os.path.abspath(raw_root)
+            if os.path.commonpath([root, path]) != root:
+                raise RuntimeError("late raw dependency escapes raw_root: %s" % rel)
+            if not os.path.isfile(path):
+                raise RuntimeError("late raw dependency missing: %s" % path)
+            out.add(path)
+    return sorted(out)
+
+
+def seal_raw_files(raw_root, exchange_date, cross_day_hours=2,
+                   warehouse_root=None):
+    """Closed receipt-time inputs needed to seal one exchange-timestamp day.
+
+    Facts partition on exchange ``ts_utc`` while raw partitions on receipt day.
+    Include all exchange-date raw plus the next receipt day's first N closed
+    hours so a just-after-midnight receipt carrying a just-before-midnight
+    exchange timestamp cannot be omitted.
+    """
+    import datetime
+    import glob
+    d = datetime.date.fromisoformat(exchange_date)
+    next_date = (d + datetime.timedelta(days=1)).isoformat()
+    files = set(glob.glob(os.path.join(raw_day_dir(raw_root, exchange_date),
+                                      "*.ndjson*")))
+    hour_re = re.compile(r"_(\d{2})\.ndjson(?:\.\d+)?$")
+    seen_firehose = set()
+    for path in glob.glob(os.path.join(raw_day_dir(raw_root, next_date), "*.ndjson*")):
+        m = hour_re.search(os.path.basename(path))
+        if m and int(m.group(1)) < cross_day_hours:
+            files.add(path)
+            if os.path.basename(path).startswith("firehose_"):
+                seen_firehose.add(int(m.group(1)))
+    missing = sorted(set(range(cross_day_hours)) - seen_firehose)
+    if missing:
+        raise RuntimeError("missing closed next-day firehose hour(s) for %s: %s"
+                           % (exchange_date, missing))
+    if warehouse_root is not None:
+        files.update(late_raw_dependency_files(
+            warehouse_root, raw_root, exchange_date))
+    return sorted(files)

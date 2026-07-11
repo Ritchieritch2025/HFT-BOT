@@ -236,7 +236,7 @@ def _hist_bucket(sec):
     return len(_HIST_EDGES) - 1
 
 
-def build_dataset(start, end):
+def build_dataset(start, end, archive_only=False):
     """load() L1 for [start, end], compute per-market-day metrics + rollups.
     Pipeline read-only; heavy lifting mirrors mm_calibrate."""
     import numpy as np
@@ -245,7 +245,8 @@ def build_dataset(start, end):
 
     cols = ["ts_utc", "market_ticker", "category", "subcategory", '"group"',
             "yes_bid_e4", "yes_ask_e4", "price_e4", "is_snapshot"]
-    df = load("orderbooks_l1", start=start, end=end, columns=cols).df()
+    df = load("orderbooks_l1", start=start, end=end, columns=cols,
+              archive_only=archive_only).df()
 
     n_raw = len(df)
     df = exclude_heartbeats(df)
@@ -263,11 +264,12 @@ def build_dataset(start, end):
                  tz=datetime.timezone.utc).strftime("%Y-%m-%d") for d in day_idx]
     df["hour"] = ((df["ts_utc"] % DAY_US) // 3_600_000_000).astype("int64")
 
-    # archived days are FINAL; anything only in staging is PARTIAL
+    # Archive sealing proves byte checkpoint + staging/archive parity only;
+    # capture completeness remains a separate PIPE-W03 gate.
     cfg = wc.load_config()
-    archived = {m.split("date=")[1].split(os.sep)[0]
+    archived = {os.path.basename(m)[5:-5]
                 for m in _glob.glob(os.path.join(
-                    cfg["archive_root"], "orderbooks_l1", "*", "*", "date=*"))}
+                    cfg["warehouse_root"], "seals", "date=*.json"))}
 
     recs = []
     hour_updates = [0] * 24
@@ -500,7 +502,9 @@ def _rank_table(rows, space, archived):
 def build_html(ds, top_px, top_lo, changes, n_elig, args, fees):
     recs = ds["records"]
     days = ds["days"]
-    day_tags = ["%s%s" % (d, "" if d in ds["archived_days"] else " (PARTIAL)")
+    day_tags = ["%s%s" %
+                (d, " (ARCHIVE-SEALED / CAPTURE-UNASSESSED)"
+                 if d in ds["archived_days"] else " (PARTIAL)")
                 for d in days]
     gen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -661,21 +665,31 @@ def main(argv):
     ap.add_argument("--out", default=None)
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--min-updates", dest="min_updates", type=int, default=10)
+    ap.add_argument("--archive-only", action="store_true",
+                    help="never attach live staging (automatic for past ranges)")
     args = ap.parse_args(argv[1:])
+    try:
+        end_date = datetime.date.fromisoformat(args.end)
+    except ValueError:
+        ap.error("--end must be YYYY-MM-DD")
+    archive_only = (args.archive_only or
+                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
 
     fees = load_fee_facts()
     print("fees.verified = %s (gate-mode fee math %s)"
           % (fees.get("verified"),
              "ENABLED" if fees.get("verified") is True else "REFUSES — research only"))
 
-    ds = build_dataset(args.start, args.end)
+    ds = build_dataset(args.start, args.end, archive_only=archive_only)
     print("window %s → %s: %s L1 rows, %s heartbeats excluded, %s valid; "
           "%d market-days over days: %s"
           % (args.start, args.end, "{:,}".format(ds["n_raw"]),
              "{:,}".format(ds["n_heartbeats"]), "{:,}".format(ds["n_valid"]),
              len(ds["records"]),
-             ", ".join("%s%s" % (d, "" if d in ds["archived_days"]
-                                 else " (PARTIAL)") for d in ds["days"])))
+             ", ".join("%s%s" %
+                       (d, " (ARCHIVE-SEALED/CAPTURE-UNASSESSED)"
+                        if d in ds["archived_days"] else " (PARTIAL)")
+                       for d in ds["days"])))
 
     top_px, top_lo, changes, n_elig = rankings(ds["records"],
                                                args.min_updates, args.top)

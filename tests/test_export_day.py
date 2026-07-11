@@ -221,7 +221,8 @@ def main():
         # ---- 5. load() routing -------------------------------------------------
         import warehouse
         n_arch = warehouse.load("trades", category="Sports", subcategory="MLB",
-                                start=yd.isoformat(), end=yd.isoformat()
+                                start=yd.isoformat(), end=yd.isoformat(),
+                                archive_only=False
                                 ).count("*").fetchone()[0]
         check("load(trades, Sports/MLB, yesterday) returns the archived slice",
               n_arch == stg_tr_yd, n_arch)
@@ -229,7 +230,7 @@ def main():
         # narrow taker_side to BOOLEAN — values must survive as 'yes'/'no'
         sides = {r[0] for r in warehouse.load(
             "trades", start=yd.isoformat(), end=yd.isoformat(),
-            columns=["taker_side"]).fetchall()}
+            columns=["taker_side"], archive_only=False).fetchall()}
         check("archived taker_side stays 'yes'/'no' strings (no BOOLEAN sniff)",
               sides and sides <= {"yes", "no"}, sides)
         n_today = warehouse.load("trades", start=today.isoformat(),
@@ -260,7 +261,8 @@ def main():
             % (us(d2), old_pq))
         fu = warehouse.load("orderbooks_full", start=d2.isoformat(),
                             end=yd.isoformat(),
-                            columns=["ts_utc", "msg_type", "ws_sid", "ws_seq"]
+                            columns=["ts_utc", "msg_type", "ws_sid", "ws_seq"],
+                            archive_only=False
                             ).fetchall()
         check("old 13-col + new archive union via load() (missing cols -> NULL)",
               len(fu) == 4 and (fu[0][2], fu[0][3]) == (None, None) and
@@ -279,6 +281,8 @@ def main():
                 warehouse._CON.close()
             warehouse._CON = None
             warehouse._ATTACHED.clear()
+            warehouse._VALIDATED_ARCHIVES.clear()
+            warehouse._VALIDATED_RAW.clear()
 
         _release_warehouse_con()
         late_cap = _write_late_capture(tmp, yd)
@@ -296,7 +300,8 @@ def main():
                             env=env, capture_output=True, text=True)
         check("sweep force re-export passes", r4.returncode == 0, r4.stdout + r4.stderr)
         n_after = warehouse.load("trades", start=yd.isoformat(),
-                                 end=yd.isoformat()).count("*").fetchone()[0]
+                                 end=yd.isoformat(),
+                                 archive_only=False).count("*").fetchone()[0]
         check("late-ingested rows reached the archive (sweep semantics)",
               n_after == n_late and n_after > stg_tr_yd,
               "archived=%d staged=%d before=%d" % (n_after, n_late, stg_tr_yd))
@@ -314,7 +319,8 @@ def main():
         check("shrink guard refuses --force when staging < certified archive",
               r5.returncode == 3 and "SHRINK" in r5.stderr, r5.stdout + r5.stderr)
         n_intact = warehouse.load("trades", start=yd.isoformat(),
-                                  end=yd.isoformat()).count("*").fetchone()[0]
+                                  end=yd.isoformat(),
+                                  archive_only=False).count("*").fetchone()[0]
         check("archive intact after refused shrink", n_intact == n_after, n_intact)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

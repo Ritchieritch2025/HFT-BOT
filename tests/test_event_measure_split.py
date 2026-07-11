@@ -137,7 +137,8 @@ def test_collect_sql_path_matches_handcomputed(tmp_path):
         "2026-07-07": [r("2026-07-07 00:30:00", "G1-B", "G1", 20000, 6000),
                        r("2026-07-07 12:00:00", "G2-A", "G2", 30000, 4000)],
     })
-    spans, meta = em.collect("Sports", "2026-07-06", "2026-07-07", warehouse=root)
+    spans, meta = em.collect("Sports", "2026-07-06", "2026-07-07", warehouse=root,
+                             archive_only=False)
     g1, g2 = spans["G1"], spans["G2"]
     # cross-midnight detection from the SQL day-bucketing (// US_PER_DAY)
     assert g1["crossed_day_boundary"] is True and g1["total_ticks"] == 2

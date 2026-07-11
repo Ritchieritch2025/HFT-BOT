@@ -2,7 +2,8 @@
 """Single analysis entry point for the Kalshi warehouse.
 
     load(table, category=None, subcategory=None, group=None,
-         start=None, end=None, columns=None, ffill=False) -> duckdb relation
+         start=None, end=None, columns=None, ffill=False,
+         archive_only=None) -> duckdb relation
 
 Routes transparently: past (archived) dates read the final partition files
 under <ARCHIVE_ROOT>/<table>/category=<C>/subcategory=<S>/date=<D>/, the
@@ -30,7 +31,10 @@ max lookback 1h thanks to hourly heartbeats).
 stdlib + duckdb only.
 """
 import argparse
+import datetime
 import glob as _glob
+import hashlib
+import json
 import os
 import re
 import sys
@@ -60,6 +64,8 @@ def _to_us(v, end=False):
 
 _CON = None
 _ATTACHED = set()
+_VALIDATED_ARCHIVES = {}
+_VALIDATED_RAW = {}
 
 
 def _conn():
@@ -142,10 +148,138 @@ def _resolve_event(event, index_path):
     return cat, list(markets), ws, we
 
 
+def _md5_file(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _require_sealed_dates(warehouse_root, archive_root, raw_root, table, start, end):
+    """Fail closed unless every UTC day in the requested window is sealed."""
+    s_us, e_us = _to_us(start), _to_us(end, end=True)
+    if s_us is None or e_us is None or e_us <= s_us:
+        raise ValueError("archive_only requires a non-empty bounded start/end window")
+    first = datetime.datetime.fromtimestamp(
+        s_us / 1_000_000, tz=datetime.timezone.utc).date()
+    last = datetime.datetime.fromtimestamp(
+        (e_us - 1) / 1_000_000, tz=datetime.timezone.utc).date()
+    manifest_path = os.path.join(warehouse_root, "manifest.csv")
+    day = first
+    while day <= last:
+        date = day.isoformat()
+        path = wc.seal_path(warehouse_root, date)
+        if not os.path.isfile(path):
+            raise FileNotFoundError("archive day is not sealed: %s" % date)
+        try:
+            with open(path) as f:
+                seal = json.load(f)
+        except (OSError, ValueError) as e:
+            raise RuntimeError("invalid archive seal %s: %s" % (path, e))
+        digest, manifest_rows = wc.manifest_date_sha256(manifest_path, date)
+        if (seal.get("version") != 1 or seal.get("status") != "SEALED" or
+                seal.get("date") != date or
+                seal.get("manifest_date_sha256") != digest):
+            raise RuntimeError("stale or invalid archive seal: %s" % path)
+        raw_rows = seal.get("raw_files")
+        if not isinstance(raw_rows, list) or not raw_rows:
+            raise RuntimeError("sealed raw inventory missing for %s" % date)
+        expected_raw = {}
+        for row in raw_rows:
+            fpath = os.path.abspath(os.path.join(raw_root, row.get("file", "")))
+            expected_raw[fpath] = row
+        disk_raw = {os.path.abspath(p) for p in wc.seal_raw_files(
+            raw_root, date, int(seal.get("receipt_cross_day_hours", 2)),
+            warehouse_root=warehouse_root)}
+        if disk_raw != set(expected_raw):
+            raise RuntimeError("sealed raw file-set mismatch for %s: missing=%s extra=%s"
+                               % (date, sorted(set(expected_raw) - disk_raw),
+                                  sorted(disk_raw - set(expected_raw))))
+        for fpath, row in sorted(expected_raw.items()):
+            st = os.stat(fpath)
+            if (int(row.get("size", -1)) != st.st_size or
+                    int(row.get("checkpoint", -1)) != st.st_size):
+                raise RuntimeError("sealed raw file changed after seal: %s" % fpath)
+            stat_key = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+            recorded_stat = (int(row.get("inode", -1)), int(row.get("size", -1)),
+                             int(row.get("mtime_ns", -1)),
+                             int(row.get("ctime_ns", -1)))
+            cache_key = (fpath, row.get("sha256"))
+            if stat_key != recorded_stat and _VALIDATED_RAW.get(cache_key) != stat_key:
+                h = hashlib.sha256()
+                with open(fpath, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                if h.hexdigest() != row.get("sha256"):
+                    raise RuntimeError("sealed raw sha256 mismatch: %s" % fpath)
+                _VALIDATED_RAW[cache_key] = stat_key
+        table_rows = [r for r in manifest_rows if r.get("table") == table]
+        sealed_archive_stats = {
+            os.path.abspath(os.path.join(archive_root, r.get("file", ""))): r
+            for r in seal.get("archive_file_stats", []) if r.get("table") == table
+        }
+        expected = {}
+        for row in table_rows:
+            # Reconstruct from logical partition identity, not manifest's
+            # original-host file_path.  A sealed warehouse copied/restored under
+            # a new root must remain verifiable byte-for-byte.
+            cat, sub = row.get("category"), row.get("subcategory")
+            # Manifest's sentinel represents a SQL NULL; convert it back before
+            # path sanitization or `_unclassified` would lose its underscores.
+            cat = None if cat == "_unclassified" else cat
+            sub = None if sub == "_unclassified" else sub
+            fpath = os.path.abspath(os.path.join(
+                wc.partition_dir(archive_root, table, cat, sub, date),
+                wc.partition_file(table, cat, sub, date, _EXT[table])))
+            if fpath in expected:
+                raise RuntimeError("duplicate sealed archive path: %s" % fpath)
+            expected[fpath] = row.get("file_md5")
+        disk = {os.path.abspath(p) for p in _glob.glob(os.path.join(
+            archive_root, table, "category=*", "subcategory=*", "date=%s" % date,
+            "*.%s" % _EXT[table]))}
+        if disk != set(expected):
+            raise RuntimeError("sealed archive file-set mismatch for %s/%s: "
+                               "missing=%s extra=%s"
+                               % (date, table, sorted(set(expected) - disk),
+                                  sorted(disk - set(expected))))
+        cache_key = (os.path.abspath(warehouse_root), date, table, digest)
+        prior = _VALIDATED_ARCHIVES.get(cache_key, {})
+        current = {}
+        for fpath, recorded_md5 in sorted(expected.items()):
+            st = os.stat(fpath)
+            stat_key = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+            sealed_stat = sealed_archive_stats.get(fpath, {})
+            recorded_stat = (int(sealed_stat.get("inode", -1)),
+                             int(sealed_stat.get("size", -1)),
+                             int(sealed_stat.get("mtime_ns", -1)),
+                             int(sealed_stat.get("ctime_ns", -1)))
+            if stat_key != recorded_stat and prior.get(fpath) != stat_key:
+                actual_md5 = _md5_file(fpath)
+                if actual_md5 != recorded_md5:
+                    raise RuntimeError("sealed archive md5 mismatch: %s" % fpath)
+            current[fpath] = stat_key
+        _VALIDATED_ARCHIVES[cache_key] = current
+        day += datetime.timedelta(days=1)
+
+
 def load(table, category=None, subcategory=None, group=None, start=None, end=None,
-         columns=None, ffill=False, warehouse=None, event=None, index_path=None):
+         columns=None, ffill=False, warehouse=None, event=None, index_path=None,
+         archive_only=None):
+    """Return a relation over archive files and, by default, live staging.
+
+    A fully bounded range ending before the current UTC day automatically uses
+    sealed archive-only mode. ``archive_only=True`` forces that mode;
+    ``archive_only=False`` is the explicit diagnostic/migration escape hatch.
+    Archive-only never
+    opens or ATTACHes ``staging.duckdb``.  This is a correctness and liveness
+    boundary, not just a query optimization.  A long-running read-only ATTACH
+    prevents DuckDB's ingest writer from opening the database.  Missing archive
+    coverage therefore fails loudly instead of falling back to live staging.
+    """
     if table not in TABLES:
         raise ValueError("table must be one of %s" % (TABLES,))
+    global _CON
     cfg = wc.load_config()
     warehouse = warehouse or cfg["warehouse_root"]
     # Three-axis selector: event= resolves its window + market set from the index
@@ -165,6 +299,25 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
         os.path.join(warehouse, "staging.duckdb")
     archive_root = cfg["archive_root"] if warehouse == cfg["warehouse_root"] else \
         os.path.join(warehouse, "facts")
+    if archive_only is None:
+        s_probe, e_probe = _to_us(start), _to_us(end, end=True)
+        today_start = wc.day_start_us(
+            datetime.datetime.now(datetime.timezone.utc).date().isoformat())
+        archive_only = (s_probe is not None and e_probe is not None and
+                        e_probe > s_probe and e_probe <= today_start)
+    if archive_only:
+        # A process that previously performed a live load already holds the
+        # staging reader lock.  Crossing into sealed mode is an explicit source
+        # boundary: close the cached connection (and invalidate its old relation
+        # handles) before constructing the archive-only relation.
+        if _ATTACHED:
+            if _CON is not None:
+                _CON.close()
+            _CON = None
+            _ATTACHED.clear()
+        raw_root = cfg["raw_root"] if warehouse == cfg["warehouse_root"] else \
+            os.path.join(warehouse, "raw")
+        _require_sealed_dates(warehouse, archive_root, raw_root, table, start, end)
     con = _conn()  # persistent so the returned relation stays valid
 
     s_us, e_us = _to_us(start), _to_us(end, end=True)
@@ -174,7 +327,8 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
     if files:
         lst = ", ".join("'%s'" % f.replace("'", "''") for f in files)
         if _EXT[table] == "parquet":
-            parts.append("SELECT * FROM read_parquet([%s], union_by_name=true)" % lst)
+            parts.append("SELECT * FROM read_parquet([%s], union_by_name=true, "
+                         "hive_partitioning=false)" % lst)
         else:
             # Explicit types for string columns: DuckDB's sniffer narrows
             # 'yes'/'no' taker_side to BOOLEAN (caught 2026-07-07 when the
@@ -186,8 +340,8 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
             types = ", ".join("'%s': 'VARCHAR'" % c for c in str_cols)
             parts.append(
                 "SELECT * FROM read_csv([%s], header=true, union_by_name=true, "
-                "types={%s})" % (lst, types))
-    if os.path.exists(staging):
+                "hive_partitioning=false, types={%s})" % (lst, types))
+    if not archive_only and os.path.exists(staging):
         if staging not in _ATTACHED:
             # The ingest daemon holds the write lock briefly each cycle; retry
             # through that window instead of failing the analysis call.
@@ -207,7 +361,8 @@ def load(table, category=None, subcategory=None, group=None, start=None, end=Non
             stg = _staging_dedup_sql(stg, part_max)
         parts.append(stg)
     if not parts:
-        raise FileNotFoundError("no staging or archive data for %s" % table)
+        source = "archive" if archive_only else "staging or archive"
+        raise FileNotFoundError("no %s data for %s" % (source, table))
 
     base = " UNION ALL BY NAME ".join("(%s)" % p for p in parts)
     where = []

@@ -232,8 +232,9 @@ def test_record_from_raw_degrades_overlapping_event(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
     out = str(tmp_path / "out")
-    m = ep.build_pack(_index_row(), wh_root, out, NOW)
+    m = ep.build_pack(_index_row(), wh_root, out, NOW, archive_only=False)
     dd = os.path.join(out, "data", "unit=KX-SPORT-EV1")
-    res = ev.validate_pack(m, dd, warehouse=wh_root, gaps=loaded)
+    res = ev.validate_pack(m, dd, warehouse=wh_root, gaps=loaded,
+                           archive_only=False)
     assert res["verdict"] == "degraded"
     assert res["checks"]["V-EP15"]["status"] == "degraded"

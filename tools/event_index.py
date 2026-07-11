@@ -289,14 +289,15 @@ def _dim_markets(dim_path):
     return out
 
 
-def _observed_by_market(warehouse, start, end):
+def _observed_by_market(warehouse, start, end, archive_only=None):
     """Observed activity per (event, market) aggregated in SQL over trades ∪ L1
     (never materializes ticks): {(event, market): {cat, sr, sub, grp, mn, mx, n}}."""
     import warehouse as wh
     out = {}
     for table in ("trades", "orderbooks_l1"):
         try:
-            rel = wh.load(table, start=start, end=end, warehouse=warehouse)
+            rel = wh.load(table, start=start, end=end, warehouse=warehouse,
+                          archive_only=archive_only)
         except FileNotFoundError:
             continue
         # Exclude rows with a NULL identity (dirty data): a NULL event/market
@@ -319,13 +320,14 @@ def _observed_by_market(warehouse, start, end):
     return out
 
 
-def build_index_from_warehouse(warehouse, start, end, policy_for, now_us, dim_path):
+def build_index_from_warehouse(warehouse, start, end, policy_for, now_us, dim_path,
+                               archive_only=None):
     """Build the index from the REAL warehouse + dim (not a synthetic catalog dir).
     Units are the events/markets with OBSERVED activity in [start,end]; catalog
     bounds (open/close/status/mve) join from the dim by (event, ticker); category/
     series/group come from the observed rows. Lifecycle is Fork-B (None)."""
     from collections import defaultdict
-    obs = _observed_by_market(warehouse, start, end)
+    obs = _observed_by_market(warehouse, start, end, archive_only)
     dim = _dim_markets(dim_path)
     by_event = defaultdict(list)
     for (ev, mk) in obs:

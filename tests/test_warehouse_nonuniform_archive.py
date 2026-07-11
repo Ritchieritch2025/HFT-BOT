@@ -34,6 +34,8 @@ def _reset_wh_conn():
             pass
     wh._CON = None
     wh._ATTACHED.clear()
+    wh._VALIDATED_ARCHIVES.clear()
+    wh._VALIDATED_RAW.clear()
     yield
 
 _DDL = ('ts_utc BIGINT, market_ticker VARCHAR, series_ticker VARCHAR, '
@@ -81,7 +83,7 @@ def _build(root):
 
 def _count(root, category):
     rel = wh.load("trades", category=category, start="2026-07-06", end="2026-07-07",
-                  warehouse=root)
+                  warehouse=root, archive_only=False)
     return rel.aggregate("count(*)").fetchone()[0]
 
 
@@ -108,3 +110,48 @@ def test_all_categories_query_no_undercount(tmp_path):
     # archive: Sports 07-07 (2) + Crypto 07-06 (2) = 4; staging kept: Crypto 07-07 (2);
     # staging dropped: Sports 07-07 (1, archived) -> total 6.
     assert _count(root, None) == 6
+
+
+def test_archive_only_rejects_unsealed_partial_all_market_day(tmp_path):
+    root = str(tmp_path / "wh4")
+    _build(root)
+    # Sports has an archive partition but Crypto exists only in staging.  The
+    # former behavior silently returned a Sports-only "all market" universe.
+    with pytest.raises(FileNotFoundError, match="not sealed"):
+        wh.load("trades", start="2026-07-07", end="2026-07-07",
+                warehouse=root, archive_only=True)
+    assert wh._ATTACHED == set()
+
+
+def test_default_past_window_also_rejects_unsealed_partial_day(tmp_path):
+    root = str(tmp_path / "wh_auto")
+    _build(root)
+    with pytest.raises(FileNotFoundError, match="not sealed"):
+        wh.load("trades", start="2026-07-07", end="2026-07-07",
+                warehouse=root)
+    assert wh._ATTACHED == set()
+
+
+def test_archive_only_missing_partition_fails_instead_of_falling_back(tmp_path):
+    root = str(tmp_path / "wh5")
+    _build(root)
+    # Crypto day D exists only in staging; a sealed research read must not use it.
+    with pytest.raises(FileNotFoundError, match="not sealed"):
+        wh.load("trades", category="Crypto", start="2026-07-07",
+                end="2026-07-07", warehouse=root, archive_only=True)
+    assert wh._ATTACHED == set()
+
+
+def test_failed_archive_only_transition_still_releases_live_attach(tmp_path):
+    root = str(tmp_path / "wh6")
+    _build(root)
+    live = wh.load("trades", category="Crypto", start="2026-07-07",
+                   end="2026-07-07", warehouse=root, archive_only=False)
+    assert live.aggregate("count(*)").fetchone()[0] == 2
+    assert wh._ATTACHED
+    with pytest.raises(FileNotFoundError, match="not sealed"):
+        wh.load("trades", start="2026-07-07", end="2026-07-07",
+                warehouse=root, archive_only=True)
+    assert not wh._ATTACHED
+    writer = duckdb.connect(os.path.join(root, "staging.duckdb"))
+    writer.close()

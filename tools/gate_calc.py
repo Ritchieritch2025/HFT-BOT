@@ -257,13 +257,14 @@ def load_dims():
     return me_map, bracket_events, notes
 
 
-def scan_day(day, me_map, bracket_events, min_edge_c, max_age_s, min_legs):
+def scan_day(day, me_map, bracket_events, min_edge_c, max_age_s, min_legs,
+             archive_only=False):
     """One day's bracket scan through warehouse load() (read-only).
     Returns {day, partial, universe accounting, episodes}."""
     from warehouse import load
     df = load("orderbooks_l1", start=day, end=day,
               columns=["ts_utc", "market_ticker", "event_ticker",
-                       "yes_ask_e4"]).df()
+                       "yes_ask_e4"], archive_only=archive_only).df()
     n_rows = len(df)
 
     # Q7 defense-in-depth: drop MVE/combo legs before any grouping
@@ -298,14 +299,13 @@ def scan_day(day, me_map, bracket_events, min_edge_c, max_age_s, min_legs):
 
 
 def available_days(end_day):
-    """Clean days with data: archived date=* partitions (FINAL) plus any
+    """Days with data: archive-sealed dates plus any
     staging-only days up to end_day (labeled PARTIAL)."""
     import warehouse_common as wc
     cfg = wc.load_config()
-    archived = sorted({m.split("date=")[1].split(os.sep)[0]
+    archived = sorted({os.path.basename(m)[5:-5]
                        for m in _glob.glob(os.path.join(
-                           cfg["archive_root"], "orderbooks_l1",
-                           "*", "*", "date=*"))})
+                           cfg["warehouse_root"], "seals", "date=*.json"))})
     days, d = [], datetime.date.fromisoformat(FIRST_CLEAN_DAY)
     stop = datetime.date.fromisoformat(end_day)
     while d <= stop:
@@ -376,7 +376,8 @@ def build_report(results, archived, fees, args, preview):
         a = r["acct"]
         L.append("| %s | %s | %s | %s | %s | %s / %s / %s | %s | **%d** |"
                  % (r["day"],
-                    "FINAL (archived)" if r["day"] in archived else "PARTIAL (staging)",
+                    "ARCHIVE-SEALED / CAPTURE-UNASSESSED"
+                    if r["day"] in archived else "PARTIAL (staging)",
                     "{:,}".format(a["l1_rows"]), "{:,}".format(a["events_seen"]),
                     a["evaluated"], a["excl_single_leg"], a["excl_me_unknown"],
                     a["excl_not_me"], "{:,}".format(a["mve_rows_dropped"]),
@@ -486,7 +487,10 @@ def build_report(results, archived, fees, args, preview):
              "gross numbers are optimistic/diagnostic (Q2); the fee-net "
              "table is the gate input and refuses until fees are ratified.")
     L.append("- PARTIAL days come from live staging (day incomplete/"
-             "unarchived); FINAL days from write-once archives. Episodes "
+             "unarchived). ARCHIVE-SEALED proves raw-byte checkpoint and "
+             "staging/archive parity only; capture completeness is UNASSESSED "
+             "until PIPE-W03, so this report cannot pass a profitability/live "
+             "gate. Episodes "
              "open at data end are censored and counted as such.")
     L.append("")
     return "\n".join(L)
@@ -527,14 +531,16 @@ def main(argv):
     for d in days:
         try:
             r = scan_day(d, me_map, bracket_events, args.min_edge_c,
-                         args.max_quote_age_s, args.min_legs)
+                         args.max_quote_age_s, args.min_legs,
+                         archive_only=(d < today))
         except FileNotFoundError:
             print("%s: no data — skipped" % d)
             continue
         if r["acct"]["l1_rows"] == 0:
             print("%s: 0 L1 rows — skipped" % d)
             continue
-        tag = "FINAL" if d in archived else "PARTIAL"
+        tag = ("ARCHIVE-SEALED/CAPTURE-UNASSESSED"
+               if d in archived else "PARTIAL")
         a = r["acct"]
         print("%s [%s]: %s L1 rows, %d events, %d brackets evaluated "
               "(excl: %d single-leg, %d ME-unknown, %d not-ME), "

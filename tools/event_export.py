@@ -69,7 +69,8 @@ def resolve_targets(axis, key, index_path):
     return rows, mfilter
 
 
-def export_one(idx_row, mfilter, warehouse, pack_root, out_root, now_us, gaps, gaps_available):
+def export_one(idx_row, mfilter, warehouse, pack_root, out_root, now_us, gaps,
+               gaps_available, archive_only=None):
     """Pack (W-E2) + validate (W-E3) one unit, then write its operator export
     folder. Returns a status dict."""
     (unit_key, event_ticker, series_ticker, markets, category,
@@ -79,12 +80,14 @@ def export_one(idx_row, mfilter, warehouse, pack_root, out_root, now_us, gaps, g
            "series_ticker": series_ticker, "markets": list(markets),
            "category": category, "win_start_us": ws, "win_end_us": we,
            "window_source": wsrc, "crossed_day_boundary": crossed, "status": status}
-    m = ep.build_pack(row, warehouse, pack_root, now_us)
+    m = ep.build_pack(row, warehouse, pack_root, now_us,
+                      archive_only=archive_only)
     if m["status"] != "packed":
         return {"unit_key": unit_key, "status": m["status"], "reason": m.get("reason", "")}
 
     data_dir = os.path.join(pack_root, "data", "unit=%s" % unit_key.replace("/", "_"))
-    res = ev.validate_pack(m, data_dir, warehouse=warehouse, gaps=gaps, gaps_available=gaps_available)
+    res = ev.validate_pack(m, data_dir, warehouse=warehouse, gaps=gaps,
+                           gaps_available=gaps_available, archive_only=archive_only)
 
     # sanitize path components (defense-in-depth: never let an index ticker with
     # a '/' or '..' escape out_root — matches build_pack's unit_key handling).

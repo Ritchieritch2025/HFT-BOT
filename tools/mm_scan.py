@@ -35,11 +35,21 @@ def main(argv):
                     help="min avg displayed contracts on BOTH sides")
     ap.add_argument("--category", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--archive-only", action="store_true",
+                    help="never attach live staging (automatic for past days)")
     args = ap.parse_args(argv[1:])
     date = args.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    try:
+        end_date = datetime.date.fromisoformat(date)
+    except ValueError:
+        ap.error("--date must be YYYY-MM-DD")
+    archive_only = (args.archive_only or
+                    end_date < datetime.datetime.now(datetime.timezone.utc).date())
+    load_kwargs = {"category": args.category, "start": date, "end": date,
+                   "archive_only": archive_only}
 
-    l1 = load("orderbooks_l1", category=args.category, start=date, end=date)
-    tr = load("trades", category=args.category, start=date, end=date)
+    l1 = load("orderbooks_l1", **load_kwargs)
+    tr = load("trades", **load_kwargs)
     con = l1.connection if hasattr(l1, "connection") else None
     import duckdb
     c = duckdb.connect()
@@ -86,6 +96,9 @@ def main(argv):
         w.writerow(cols)
         w.writerows(rows)
 
+    print("NON-GATE: source=%s; capture quality UNASSESSED_PENDING_PIPE_W03; "
+          "ranking is descriptive, not profitability evidence."
+          % ("ARCHIVE-SEALED" if archive_only else "LIVE/MIXED"))
     print("MM candidates for %s (spread x flow, depth-filtered):" % date)
     print("%-44s %-10s %7s %7s %9s %6s" %
           ("market", "category", "spread", "trades", "contracts", "score"))

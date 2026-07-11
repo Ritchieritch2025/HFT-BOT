@@ -97,7 +97,8 @@ def _read_csv(path):
 def test_pack_reassembles_cross_midnight(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
-    m = ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
+    m = ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW,
+                      archive_only=False)
     assert m["status"] == "packed"
     # both days present, other-event market excluded -> 4 trades, 4 L1 (incl. a
     # same-µs pair on KX-SPORT-A).
@@ -111,7 +112,8 @@ def test_pack_reassembles_cross_midnight(tmp_path):
 def test_money_integrity_e4_byte_exact(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
-    ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
+    ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW,
+                  archive_only=False)
     tr = _read_csv(str(tmp_path / "out" / "data" / "unit=KX-SPORT-EV1" / "trades.csv"))
     t1 = next(r for r in tr if r["trade_id"] == "t1")
     # sub-penny price and fractional count survive EXACTLY as E4 integers.
@@ -128,8 +130,8 @@ def test_rebuild_is_idempotent(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
     out = str(tmp_path / "out")
-    m1 = ep.build_pack(_index_row(), wh_root, out, NOW)
-    m2 = ep.build_pack(_index_row(), wh_root, out, NOW)
+    m1 = ep.build_pack(_index_row(), wh_root, out, NOW, archive_only=False)
+    m2 = ep.build_pack(_index_row(), wh_root, out, NOW, archive_only=False)
     assert m1["files"] == m2["files"]  # md5 of every data file is stable
 
 
@@ -138,10 +140,12 @@ def test_af5_refuses_when_window_would_clip(tmp_path):
     _make_warehouse(wh_root)
     # win_end BEFORE the 01:00 trade -> stored window would clip it.
     row = _index_row(win_end_us=_ts("2026-07-07 00:45:00"))
-    refused = ep.build_pack(row, wh_root, str(tmp_path / "o1"), NOW)
+    refused = ep.build_pack(row, wh_root, str(tmp_path / "o1"), NOW,
+                            archive_only=False)
     assert refused["status"] == "refused" and "stale index" in refused["reason"]
     # --refresh re-infers the window and includes the late trade.
-    refreshed = ep.build_pack(row, wh_root, str(tmp_path / "o2"), NOW, refresh=True)
+    refreshed = ep.build_pack(row, wh_root, str(tmp_path / "o2"), NOW, refresh=True,
+                              archive_only=False)
     assert refreshed["status"] == "packed" and refreshed["reinferred_window"] is True
     assert refreshed["row_counts"]["trades"] == 4
 
@@ -151,7 +155,8 @@ def test_l1_same_us_deterministic_order(tmp_path):
     # manifest md5 (idempotency proof) is reproducible.
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
-    ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
+    ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW,
+                  archive_only=False)
     l1 = _read_csv(str(tmp_path / "out" / "data" / "unit=KX-SPORT-EV1" / "orderbooks_l1.csv"))
     same = [r for r in l1 if r["market_ticker"] == "KX-SPORT-A"
             and r["ts_utc"] == str(_ts("2026-07-07 00:10:00"))]
@@ -165,14 +170,16 @@ def test_af5_refuses_at_exact_win_end(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
     row = _index_row(win_end_us=_ts("2026-07-07 01:00:00"))  # == last trade t4's µs
-    m = ep.build_pack(row, wh_root, str(tmp_path / "out"), NOW)
+    m = ep.build_pack(row, wh_root, str(tmp_path / "out"), NOW,
+                      archive_only=False)
     assert m["status"] == "refused"
 
 
 def test_non_sealed_unit_skipped(tmp_path):
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
-    m = ep.build_pack(_index_row(status="active"), wh_root, str(tmp_path / "out"), NOW)
+    m = ep.build_pack(_index_row(status="active"), wh_root, str(tmp_path / "out"), NOW,
+                      archive_only=False)
     assert m["status"] == "skipped"
 
 
@@ -198,7 +205,8 @@ def test_row_counts_match_direct_sql(tmp_path):
     import duckdb
     wh_root = str(tmp_path / "wh")
     _make_warehouse(wh_root)
-    m = ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW)
+    m = ep.build_pack(_index_row(), wh_root, str(tmp_path / "out"), NOW,
+                      archive_only=False)
     # independent count straight off the archive files, same filter.
     g = os.path.join(wh_root, "facts", "trades", "*", "*", "date=*", "*.csv.gz")
     direct = duckdb.sql(

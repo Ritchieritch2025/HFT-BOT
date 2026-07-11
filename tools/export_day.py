@@ -27,6 +27,7 @@ import csv
 import datetime
 import glob
 import hashlib
+import json
 import os
 import sys
 
@@ -44,6 +45,14 @@ MANIFEST_FIELDS = ["date", "table", "category", "subcategory", "row_count",
 
 def md5_file(path):
     h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
@@ -127,6 +136,282 @@ def export_table(con, table, ext, date, day_lo, day_hi, archive_root, force):
         print("  %-16s %-28s %-20s %7d rows -> %s"
               % (table, cat or "_unclassified", sub or "_unclassified", n_src, fname))
     return out
+
+
+def _archived_row_count(con, path, ext):
+    src = path.replace("'", "''")
+    if ext == "parquet":
+        return con.execute("SELECT count(*) FROM read_parquet('%s')" % src).fetchone()[0]
+    return con.execute(
+        "SELECT count(*) FROM read_csv('%s', header=true, all_varchar=true)" % src
+    ).fetchone()[0]
+
+
+def _archived_select(table, path, ext):
+    src = path.replace("'", "''")
+    if ext == "parquet":
+        return "SELECT * FROM read_parquet('%s', hive_partitioning=false)" % src
+    # Keep identity/enumeration fields as strings.  DuckDB otherwise narrows a
+    # yes/no-only taker_side file to BOOLEAN, making exact comparison impossible.
+    str_cols = ("market_ticker", "series_ticker", "event_ticker", "category",
+                "subcategory", "group", "trade_id", "taker_side")
+    types = ", ".join("'%s': 'VARCHAR'" % c for c in str_cols)
+    return ("SELECT * FROM read_csv('%s', header=true, hive_partitioning=false, "
+            "types={%s})"
+            % (src, types))
+
+
+def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
+    """Prove every byte in every closed raw file has an exact checkpoint."""
+    day_dir = wc.raw_day_dir(raw_root, date)
+    files = wc.seal_raw_files(raw_root, date, warehouse_root=warehouse_root)
+    if not files:
+        raise RuntimeError("no raw files for completed day: %s" % day_dir)
+    checkpoints = dict(con.execute(
+        "SELECT file, byte_offset FROM stg.checkpoint").fetchall())
+    proof = []
+    for path in files:
+        path = os.path.abspath(path)
+        before = os.stat(path)
+        size = before.st_size
+        if size <= 0:
+            raise RuntimeError("empty closed raw file: %s" % path)
+        with open(path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                raise RuntimeError("closed raw file has a partial trailing record: %s"
+                                   % path)
+        offset = checkpoints.get(path)
+        if offset != size:
+            raise RuntimeError("ingest checkpoint behind raw: %s checkpoint=%s size=%d"
+                               % (path, offset, size))
+        after = os.stat(path)
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise RuntimeError("raw file changed during catch-up proof: %s" % path)
+        digest = sha256_file(path)
+        final = os.stat(path)
+        if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != \
+           (final.st_size, final.st_mtime_ns, final.st_ctime_ns):
+            raise RuntimeError("raw file changed during sha256 proof: %s" % path)
+        proof.append({"file": os.path.relpath(path, raw_root), "size": size,
+                      "inode": final.st_ino, "mtime_ns": final.st_mtime_ns,
+                      "ctime_ns": final.st_ctime_ns, "checkpoint": int(offset),
+                      "sha256": digest})
+    return proof
+
+
+def verify_raw_proof_still_current(raw_root, date, proof, warehouse_root=None):
+    """Close the inventory TOCTOU window immediately before seal publish."""
+    expected = {os.path.abspath(os.path.join(raw_root, r["file"])): r for r in proof}
+    current = {os.path.abspath(p) for p in wc.seal_raw_files(
+        raw_root, date, warehouse_root=warehouse_root)}
+    if current != set(expected):
+        raise RuntimeError("raw inventory changed during seal: missing=%s extra=%s"
+                           % (sorted(set(expected) - current),
+                              sorted(current - set(expected))))
+    for path, row in expected.items():
+        st = os.stat(path)
+        observed = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        recorded = (int(row["inode"]), int(row["size"]),
+                    int(row["mtime_ns"]), int(row["ctime_ns"]))
+        if observed != recorded:
+            raise RuntimeError("raw file changed during seal: %s" % path)
+
+
+def verify_archive_proof_still_current(archive_root, date, proof):
+    """Close the archive verify-to-seal TOCTOU window before publish."""
+    expected = {os.path.abspath(os.path.join(archive_root, r["file"])): r
+                for r in proof}
+    current = set()
+    for table, ext in TABLES:
+        current.update(os.path.abspath(p) for p in glob.glob(os.path.join(
+            archive_root, table, "category=*", "subcategory=*", "date=%s" % date,
+            "*.%s" % ext)))
+    if current != set(expected):
+        raise RuntimeError("archive inventory changed during seal: missing=%s extra=%s"
+                           % (sorted(set(expected) - current),
+                              sorted(current - set(expected))))
+    for path, row in expected.items():
+        st = os.stat(path)
+        observed = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        recorded = (int(row["inode"]), int(row["size"]),
+                    int(row["mtime_ns"]), int(row["ctime_ns"]))
+        if observed != recorded:
+            raise RuntimeError("archive changed during seal: %s" % path)
+
+
+def _schema_signature(con, sql, integer_family=False):
+    rows = con.execute("DESCRIBE SELECT * FROM (%s)" % sql).fetchall()
+    out = []
+    for name, typ, *_ in rows:
+        norm = typ.upper()
+        if integer_family and "INT" in norm:
+            norm = "INTEGER_FAMILY"
+        out.append((name, norm))
+    return out
+
+
+def verify_archived_date(con, date, day_lo, day_hi, archive_root, warehouse_root,
+                         return_proof=False):
+    """Prove that one final day exactly matches staging, manifest and files.
+
+    This verifier is deliberately read-only.  It is the only safe way for the
+    supervisor to treat a write-once ``already archived`` result as complete:
+    seeing the first existing file says nothing about the remaining partitions.
+    """
+    manifest = [r for r in read_manifest(os.path.join(warehouse_root, "manifest.csv"))
+                if r.get("date") == date]
+    actual_manifest = {}
+    for row in manifest:
+        key = (row.get("table"), row.get("category"), row.get("subcategory"))
+        if key in actual_manifest:
+            raise RuntimeError("duplicate manifest row for %s" % (key,))
+        actual_manifest[key] = row
+
+    expected = {}
+    expected_files = set()
+    for table, ext in TABLES:
+        rows = con.execute(
+            'SELECT category, subcategory, count(*) FROM stg.%s '
+            'WHERE ts_utc >= ? AND ts_utc < ? GROUP BY 1, 2 ORDER BY 1, 2' % table,
+            [day_lo, day_hi]).fetchall()
+        for cat, sub, count in rows:
+            mcat = cat if cat is not None else "_unclassified"
+            msub = sub if sub is not None else "_unclassified"
+            key = (table, mcat, msub)
+            fpath = os.path.abspath(os.path.join(
+                wc.partition_dir(archive_root, table, cat, sub, date),
+                wc.partition_file(table, cat, sub, date, ext)))
+            cat_w = ("category IS NULL" if cat is None else
+                     "category = '%s'" % cat.replace("'", "''"))
+            sub_w = ("subcategory IS NULL" if sub is None else
+                     "subcategory = '%s'" % sub.replace("'", "''"))
+            source_sql = ("SELECT * FROM stg.%s WHERE ts_utc >= %d AND ts_utc < %d "
+                          "AND %s AND %s" %
+                          (table, day_lo, day_hi, cat_w, sub_w))
+            expected[key] = (int(count), fpath, ext, source_sql)
+            expected_files.add(fpath)
+
+    if set(actual_manifest) != set(expected):
+        missing = sorted(set(expected) - set(actual_manifest))
+        extra = sorted(set(actual_manifest) - set(expected))
+        raise RuntimeError("manifest partition mismatch: missing=%s extra=%s"
+                           % (missing, extra))
+
+    disk_files = set()
+    for table, ext in TABLES:
+        disk_files.update(os.path.abspath(p) for p in glob.glob(os.path.join(
+            archive_root, table, "category=*", "subcategory=*", "date=%s" % date,
+            "*.%s" % ext)))
+    if disk_files != expected_files:
+        raise RuntimeError("archive file-set mismatch: missing=%s extra=%s"
+                           % (sorted(expected_files - disk_files),
+                              sorted(disk_files - expected_files)))
+
+    proof = []
+    for key, (staged_count, expected_path, ext, source_sql) in sorted(expected.items()):
+        row = actual_manifest[key]
+        recorded_path = row.get("file_path", "")
+        if not os.path.isabs(recorded_path):
+            recorded_path = os.path.join(wc.ROOT, recorded_path)
+        recorded_path = os.path.abspath(recorded_path)
+        if recorded_path != expected_path:
+            raise RuntimeError("manifest path mismatch for %s: %s != %s"
+                               % (key, recorded_path, expected_path))
+        if not os.path.isfile(expected_path):
+            raise RuntimeError("archive file missing: %s" % expected_path)
+        stat_before = os.stat(expected_path)
+        archived_count = _archived_row_count(con, expected_path, ext)
+        manifest_count = int(row.get("row_count") or -1)
+        if archived_count != staged_count or manifest_count != staged_count:
+            raise RuntimeError(
+                "row-count mismatch for %s: staging=%d file=%d manifest=%d"
+                % (key, staged_count, archived_count, manifest_count))
+        archived_sql = _archived_select(key[0], expected_path, ext)
+        source_schema = _schema_signature(con, source_sql,
+                                          integer_family=(ext != "parquet"))
+        archive_schema = _schema_signature(con, archived_sql,
+                                           integer_family=(ext != "parquet"))
+        if source_schema != archive_schema:
+            raise RuntimeError("schema mismatch for %s: staging=%s archive=%s"
+                               % (key, source_schema, archive_schema))
+        staged_only = con.execute(
+            "SELECT count(*) FROM ((%s) EXCEPT ALL (%s))"
+            % (source_sql, archived_sql)).fetchone()[0]
+        archived_only = con.execute(
+            "SELECT count(*) FROM ((%s) EXCEPT ALL (%s))"
+            % (archived_sql, source_sql)).fetchone()[0]
+        if staged_only or archived_only:
+            raise RuntimeError("content mismatch for %s: staging_only=%d archive_only=%d"
+                               % (key, staged_only, archived_only))
+        digest = md5_file(expected_path)
+        if digest != row.get("file_md5"):
+            raise RuntimeError("md5 mismatch for %s: %s != %s"
+                               % (key, digest, row.get("file_md5")))
+        stat_after = os.stat(expected_path)
+        before_key = (stat_before.st_ino, stat_before.st_size,
+                      stat_before.st_mtime_ns, stat_before.st_ctime_ns)
+        after_key = (stat_after.st_ino, stat_after.st_size,
+                     stat_after.st_mtime_ns, stat_after.st_ctime_ns)
+        if before_key != after_key:
+            raise RuntimeError("archive changed during exact proof: %s" % expected_path)
+        proof.append({
+            "file": os.path.relpath(expected_path, archive_root),
+            "table": key[0], "size": stat_after.st_size,
+            "inode": stat_after.st_ino, "mtime_ns": stat_after.st_mtime_ns,
+            "ctime_ns": stat_after.st_ctime_ns, "md5": digest,
+        })
+    return (len(expected), proof) if return_proof else len(expected)
+
+
+def write_day_seal(con, date, day_lo, day_hi, cfg):
+    """Atomically attest raw->staging->archive completeness for one day."""
+    raw_proof = verify_raw_caught_up(
+        con, cfg["raw_root"], date, cfg["warehouse_root"])
+    manifest_path = os.path.join(cfg["warehouse_root"], "manifest.csv")
+    manifest_before = os.stat(manifest_path)
+    nfiles, archive_stats = verify_archived_date(
+        con, date, day_lo, day_hi, cfg["archive_root"], cfg["warehouse_root"],
+        return_proof=True)
+    # The sealed day (yesterday) remains inside the configured today+prior-day
+    # window; prune only older staging after every proof passes and before the
+    # seal becomes visible.
+    prune_staging(con, cfg["staging_retain_days"])
+    verify_raw_proof_still_current(
+        cfg["raw_root"], date, raw_proof, cfg["warehouse_root"])
+    verify_archive_proof_still_current(cfg["archive_root"], date, archive_stats)
+    manifest_after = os.stat(manifest_path)
+    if (manifest_before.st_ino, manifest_before.st_size, manifest_before.st_mtime_ns,
+            manifest_before.st_ctime_ns) != \
+       (manifest_after.st_ino, manifest_after.st_size, manifest_after.st_mtime_ns,
+            manifest_after.st_ctime_ns):
+        raise RuntimeError("manifest changed during seal: %s" % manifest_path)
+    digest, rows = wc.manifest_date_sha256(manifest_path, date)
+    seal = {
+        "version": 1,
+        "status": "SEALED",
+        "date": date,
+        "sealed_at": datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "manifest_date_sha256": digest,
+        "archive_files": nfiles,
+        "archive_rows": sum(int(r["row_count"]) for r in rows),
+        "archive_file_stats": archive_stats,
+        "capture_quality_status": "UNASSESSED_PENDING_PIPE_W03",
+        "raw_retention_requirement": "LOCAL_OR_VAULT_VERIFIED_RECEIPT",
+        "receipt_cross_day_hours": 2,
+        "raw_files": raw_proof,
+    }
+    path = wc.seal_path(cfg["warehouse_root"], date)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp.%d" % os.getpid()
+    with open(tmp, "w") as f:
+        json.dump(seal, f, sort_keys=True, indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    return path, seal
 
 
 # Human/strategy-friendly projections for --flat --csv exports: ISO time and
@@ -227,6 +512,15 @@ def main(argv):
     ap.add_argument("--archive-root", default=None)
     ap.add_argument("--force", action="store_true", help="replace already-archived files")
     ap.add_argument("--no-prune", action="store_true")
+    ap.add_argument("--verify-only", action="store_true",
+                    help="read-only proof that staging, archive files and manifest "
+                         "match exactly for the completed day")
+    ap.add_argument("--check-caught-up", action="store_true",
+                    help="read-only proof that every closed raw byte is checkpointed")
+    ap.add_argument("--seal", action="store_true",
+                    help="after catch-up + exact archive proof, atomically seal the day")
+    ap.add_argument("--verify-seal", action="store_true",
+                    help="validate an existing seal/files/raw without opening staging")
     ap.add_argument("--snapshot", metavar="OUTDIR", default=None,
                     help="NON-FINAL snapshot export of a (possibly current) day into "
                          "OUTDIR: same partition layout + snapshot manifest, no prune, "
@@ -244,6 +538,15 @@ def main(argv):
     if (args.csv or args.flat) and not args.snapshot:
         print("--csv/--flat are snapshot-only; the final archive format is locked "
               "(partitioned parquet + csv.gz)", file=sys.stderr)
+        return 2
+    proof_modes = sum(bool(x) for x in
+                      (args.verify_only, args.check_caught_up, args.seal,
+                       args.verify_seal))
+    if proof_modes > 1 or (proof_modes and
+                           (args.snapshot or args.force or args.csv or args.flat)):
+        print("proof/seal modes are exclusive and cannot be combined with "
+              "snapshot/force/format options",
+              file=sys.stderr)
         return 2
     import duckdb
 
@@ -264,16 +567,75 @@ def main(argv):
                   "(use --snapshot OUTDIR for a non-final export of today)" % date,
                   file=sys.stderr)
             return 2
+    if args.verify_seal:
+        try:
+            import warehouse
+            for table, _ in TABLES:
+                warehouse._require_sealed_dates(
+                    warehouse_root, archive_root, cfg["raw_root"], table, date, date)
+        except Exception as e:
+            print("DAY SEAL VERIFY FAIL %s: %s" % (date, e), file=sys.stderr)
+            return 1
+        print("DAY SEAL VERIFY PASS %s" % date)
+        return 0
     if not os.path.exists(staging):
         print("no staging db at %s; nothing to export" % staging, file=sys.stderr)
         return 1
-    if not archive_root_ok(archive_root):
+    if not proof_modes and not archive_root_ok(archive_root):
         return 1
 
     day_lo = wc.day_start_us(date)
     day_hi = day_lo + 86_400_000_000
     con = duckdb.connect()
-    con.execute("ATTACH '%s' AS stg" % staging.replace("'", "''"))
+    attach_mode = " (READ_ONLY)" if proof_modes and not args.seal else ""
+    con.execute("ATTACH '%s' AS stg%s" % (staging.replace("'", "''"), attach_mode))
+
+    if args.check_caught_up:
+        try:
+            proof = verify_raw_caught_up(
+                con, cfg["raw_root"], date, cfg["warehouse_root"])
+        except Exception as e:
+            print("INGEST CATCH-UP FAIL %s: %s" % (date, e), file=sys.stderr)
+            con.close()
+            return 1
+        con.close()
+        print("INGEST CATCH-UP PASS %s: %d closed raw file(s), all bytes checkpointed"
+              % (date, len(proof)))
+        return 0
+
+    if args.verify_only:
+        try:
+            nfiles = verify_archived_date(con, date, day_lo, day_hi,
+                                          archive_root, warehouse_root)
+        except Exception as e:
+            print("ARCHIVE VERIFY FAIL %s: %s" % (date, e), file=sys.stderr)
+            con.close()
+            return 1
+        con.close()
+        print("ARCHIVE VERIFY PASS %s: %d file(s), exact staging/manifest/file match"
+              % (date, nfiles))
+        return 0
+
+    if args.seal:
+        # A new sealing attempt supersedes the old claim immediately.  If raw
+        # catch-up or exact parity now fails, leaving the old seal in place would
+        # let archive-only readers consume evidence we just proved stale.
+        old_seal = wc.seal_path(warehouse_root, date)
+        if os.path.exists(old_seal):
+            os.unlink(old_seal)
+        effective_cfg = dict(cfg)
+        effective_cfg.update(staging_db=staging, archive_root=archive_root,
+                             warehouse_root=warehouse_root)
+        try:
+            path, seal = write_day_seal(con, date, day_lo, day_hi, effective_cfg)
+        except Exception as e:
+            print("DAY SEAL FAIL %s: %s" % (date, e), file=sys.stderr)
+            con.close()
+            return 1
+        con.close()
+        print("DAY SEAL PASS %s: raw_files=%d archive_files=%d seal=%s"
+              % (date, len(seal["raw_files"]), seal["archive_files"], path))
+        return 0
 
     # Shrink guard (2026-07-07 audit): a --force re-export replaces write-once
     # archive files from whatever staging still holds. If staging has FEWER
@@ -295,6 +657,11 @@ def main(argv):
                       % (staged, table, date, certified), file=sys.stderr)
                 con.close()
                 return 3
+        # All non-mutating shrink guards passed.  Invalidate immediately before
+        # the first possible archive write; a refused force leaves a valid seal.
+        old_seal = wc.seal_path(warehouse_root, date)
+        if os.path.exists(old_seal):
+            os.unlink(old_seal)
 
     print("exporting %s -> %s" % (date, archive_root))
     tables = [(t, "csv") for t, _ in TABLES] if args.csv else TABLES

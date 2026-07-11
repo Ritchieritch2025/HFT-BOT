@@ -45,7 +45,8 @@ def test_event_export_money_integrity_and_layout(tmp_path):
     root, idx = _setup(tmp_path)
     rows, mfilter = ex.resolve_targets("event", "KX-SPORT-EV1", idx)
     out = ex.export_one(rows[0], mfilter, root, str(tmp_path / "packs"),
-                        str(tmp_path / "exp"), NOW, gaps=[], gaps_available=True)
+                        str(tmp_path / "exp"), NOW, gaps=[], gaps_available=True,
+                        archive_only=False)
     assert out["status"] == "exported" and out["completeness"] == "pass"
     dest = out["dest"]
     # per-event folder layout (§3.6)
@@ -66,13 +67,13 @@ def test_manifest_completeness_reflects_validator(tmp_path):
     rows, mf = ex.resolve_targets("event", "KX-SPORT-EV1", idx)
     # clean -> pass
     out = ex.export_one(rows[0], mf, root, str(tmp_path / "p1"), str(tmp_path / "e1"),
-                        NOW, gaps=[], gaps_available=True)
+                        NOW, gaps=[], gaps_available=True, archive_only=False)
     man = json.load(open(os.path.join(out["dest"], "_manifest.json")))
     assert man["completeness"] == "pass"
     # interior capture gap -> degraded (V-EP15 / AF-1)
     gap = [(_ts("2026-07-07 00:00:00"), _ts("2026-07-07 00:15:00"))]
     out2 = ex.export_one(rows[0], mf, root, str(tmp_path / "p2"), str(tmp_path / "e2"),
-                         NOW, gaps=gap, gaps_available=True)
+                         NOW, gaps=gap, gaps_available=True, archive_only=False)
     man2 = json.load(open(os.path.join(out2["dest"], "_manifest.json")))
     assert man2["completeness"] == "degraded"
 
@@ -82,7 +83,8 @@ def test_market_axis_filters_to_one_market(tmp_path):
     rows, mfilter = ex.resolve_targets("market", "KX-SPORT-A", idx)
     assert mfilter == {"KX-SPORT-A"}
     out = ex.export_one(rows[0], mfilter, root, str(tmp_path / "packs"),
-                        str(tmp_path / "exp"), NOW, gaps=[], gaps_available=True)
+                        str(tmp_path / "exp"), NOW, gaps=[], gaps_available=True,
+                        archive_only=False)
     tr = _read_dest(out["dest"], "trades.csv")
     assert {r["market_ticker"] for r in tr} == {"KX-SPORT-A"}   # single market only
 

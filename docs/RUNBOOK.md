@@ -36,9 +36,10 @@ bash tools/pipeline_supervisor.sh
 
 启动后自动做三件事:①ws_shadow 全市场 firehose 实时写小时级 raw 日志
 `work/raw/date=<日期>/firehose_<小时>.ndjson`;②ingest 守护每 60 秒吸入
-`work/warehouse/staging.duckdb`(变化才记录 + 每小时心跳);③每个 UTC 午夜
-(北京时间早 8 点)把前一天导出成最终文件(trades=csv.gz,订单簿=zstd-15
-Parquet)并写 manifest。
+`work/warehouse/staging.duckdb`(变化才记录 + 每小时心跳);③候选的新封存流程在
+UTC 02:00 后才处理前一天:先证明所有 closed raw 字节都已 checkpoint,再导出、
+逐行核对 staging↔archive、写 day seal,之后历史研究才可运行。该 supervisor
+切换须等 capture 拆分后部署;当前生产 supervisor 仍是旧流程。
 
 ```bash
 # 运行状态检查
@@ -52,8 +53,12 @@ python3 tools/lifecycle_check.py           # 全生命周期就绪度
 # 一次性 30 秒只读交易所体检(不开管道时用)
 source ~/.kalshi/env.sh && tools/exchange_check.sh --env prod --ws-seconds 30
 
-# 手动补导出某一天(平时不需要,supervisor 自动做)
+# 手动验证/封存某一天(必须先停 ingest writer;不触碰 capture)
+python3 tools/export_day.py --date 2026-07-06 --check-caught-up
 python3 tools/export_day.py --date 2026-07-06
+python3 tools/export_day.py --date 2026-07-06 --verify-only
+python3 tools/export_day.py --date 2026-07-06 --seal
+python3 tools/export_day.py --date 2026-07-06 --verify-seal
 ```
 
 ## 2. Dashboard(操作台,localhost 只读)
@@ -86,10 +91,18 @@ python3 tools/warehouse.py orderbooks_l1 --category Crypto --ffill --limit 20
 import sys; sys.path.insert(0, "tools")
 from warehouse import load
 df = load("trades", category="Sports", group="MLB",
-          start="2026-07-06", end="2026-07-06").df()
+          start="2026-07-06", end="2026-07-06",
+          archive_only=True).df()  # requires a valid day seal; never opens staging
 ```
 
 层级:`category → subcategory(=tags[0],如 Baseball) → group(推导联赛/资产,如 MLB)`。
+
+有 start+end 且窗口完全早于今天的 `warehouse.load()` 会自动切换到
+archive-only,并要求每一天的 seal、raw SHA-256/文件清单及 archive
+manifest/文件 MD5 全部仍有效。旧归档没有 seal 时会硬失败,不会退回 live
+staging;迁移/合成 fixture 若确实需要旧混合语义,必须显式传
+`archive_only=False`。seal 的 `capture_quality_status` 在 PIPE-W03 前仍是
+`UNASSESSED`,不能当作盈利或实盘 gate。
 
 ## 4. 全量测试(改代码后)
 

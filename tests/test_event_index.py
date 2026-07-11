@@ -119,7 +119,7 @@ def test_build_from_warehouse_real_dim(tmp_path):
     policy_for = ei.load_policy(POLICY)
     rows = {r["unit_key"]: r for r in ei.build_index_from_warehouse(
         root, "2026-07-06", "2026-07-07", policy_for,
-        ei.parse_dt_us("2026-07-09 00:00:00"), dim)}
+        ei.parse_dt_us("2026-07-09 00:00:00"), dim, archive_only=False)}
     ev = rows["KX-SPORT-EV1"]
     assert ev["unit"] == "event"
     assert ev["category"] == "Sports"                      # from observed rows
@@ -159,7 +159,8 @@ def test_null_identity_rows_excluded(tmp_path):
     wh._CON = None
     wh._ATTACHED.clear()
     rows = {r["unit_key"]: r for r in ei.build_index_from_warehouse(
-        root, "2026-07-06", "2026-07-07", ei.load_policy(POLICY), NOW, str(tmp_path / "no_dim.csv"))}
+        root, "2026-07-06", "2026-07-07", ei.load_policy(POLICY), NOW,
+        str(tmp_path / "no_dim.csv"), archive_only=False)}
     assert "EV-OK" in rows      # valid unit built, no crash
     assert None not in rows     # NULL-identity row dropped
 

@@ -71,7 +71,8 @@ def _build(root):
 def test_event_selector_reassembles_only_that_event(tmp_path):
     root = str(tmp_path / "wh")
     idx = _build(root)
-    rel = wh.load("trades", event="KX-SPORT-EV1", warehouse=root, index_path=idx)
+    rel = wh.load("trades", event="KX-SPORT-EV1", warehouse=root, index_path=idx,
+                  archive_only=False)
     rows = rel.fetchall()
     cols = [c for c in rel.columns]
     mkts = {r[cols.index("market_ticker")] for r in rows}
@@ -84,7 +85,7 @@ def test_day_mode_unchanged(tmp_path):
     root = str(tmp_path / "wh")
     _build(root)
     n = wh.load("trades", category="Sports", start="2026-07-06", end="2026-07-07",
-                warehouse=root).aggregate("count(*)").fetchone()[0]
+                warehouse=root, archive_only=False).aggregate("count(*)").fetchone()[0]
     assert n == 3   # includes the foreign KX-OTHER-1 row
 
 

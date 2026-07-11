@@ -379,9 +379,10 @@ def read_sidecar_tiers(gold_root, date):
 
 
 def gather_day(date):
-    """warehouse.load() aggregates for one day (reader lock-retry inside)."""
+    """Aggregate a final day without ever opening live staging."""
     import warehouse
-    tr = warehouse.load("trades", start=date, end=date)
+    load_kwargs = {"start": date, "end": date, "archive_only": True}
+    tr = warehouse.load("trades", **load_kwargs)
     traded = {}
     for mt, cat, sub, st, vol, n in tr.aggregate(
             "market_ticker, min(category), min(subcategory), "
@@ -389,7 +390,7 @@ def gather_day(date):
             "market_ticker").fetchall():
         traded[mt] = {"category": cat, "subcategory": sub, "series_ticker": st,
                       "volume_e4": int(vol or 0), "n_trades": int(n)}
-    l1 = warehouse.load("orderbooks_l1", start=date, end=date)
+    l1 = warehouse.load("orderbooks_l1", **load_kwargs)
     l1_spreads = {}
     for mt, spread in l1.aggregate(
             "market_ticker, avg(CASE WHEN yes_ask_e4 IS NOT NULL AND "
@@ -397,7 +398,7 @@ def gather_day(date):
             "market_ticker").fetchall():
         l1_spreads[mt] = float(spread) if spread is not None else None
     try:
-        fu = warehouse.load("orderbooks_full", start=date, end=date)
+        fu = warehouse.load("orderbooks_full", **load_kwargs)
         full_set = {r[0] for r in fu.aggregate("market_ticker",
                                                "market_ticker").fetchall()}
     except FileNotFoundError:

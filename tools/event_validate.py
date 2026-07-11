@@ -117,7 +117,8 @@ def _read_csv_lines(path):
     return out
 
 
-def validate_pack(manifest, data_dir, warehouse=None, gaps=None, gaps_available=True):
+def validate_pack(manifest, data_dir, warehouse=None, gaps=None, gaps_available=True,
+                  archive_only=None):
     """Run the §6 checks. Returns {verdict, checks:{id:{status, detail}}}.
 
     gaps_available=False (no capture-gap record) makes V-EP15 fail-closed: it
@@ -148,7 +149,8 @@ def validate_pack(manifest, data_dir, warehouse=None, gaps=None, gaps_available=
     ep1_ok, det = True, []
     for table, rows in per_table.items():
         try:
-            rel = wh.load(table, category=cat, start=ws, end=we, warehouse=warehouse)
+            rel = wh.load(table, category=cat, start=ws, end=we, warehouse=warehouse,
+                          archive_only=archive_only)
             mk = ", ".join("'%s'" % m.replace("'", "''") for m in markets)
             n = rel.query("f", "SELECT count(*) FROM f WHERE market_ticker IN (%s)"
                           % mk).fetchone()[0]

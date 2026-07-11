@@ -38,6 +38,7 @@ Per-day per-category tick counts land in ingest_stats (compression visibility).
 stdlib + duckdb only.
 """
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -49,6 +50,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
 
 HOUR_US = 3_600_000_000
+
+
+def _fsync_dir(path):
+    """Persist same-filesystem rename/create directory entries (POSIX)."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 STAGING_DDL = """
 CREATE TABLE IF NOT EXISTS checkpoint (
@@ -169,8 +179,11 @@ def frame_ts_us(rec, msg):
 
 
 class Ingester:
-    def __init__(self, con, warehouse_root, active_hours=24):
+    def __init__(self, con, warehouse_root, active_hours=24, raw_root=None):
         self.con = con
+        self.warehouse_root = os.path.abspath(warehouse_root)
+        self.raw_root = os.path.abspath(
+            raw_root or os.path.join(os.path.dirname(self.warehouse_root), "raw"))
         self.con.execute(STAGING_DDL)
         self._migrate_full_seq()
         self.classes = self._load_classification(warehouse_root)
@@ -254,7 +267,105 @@ class Ingester:
         now_us = int(time.time() * 1_000_000) if now_us is None else now_us
         rows = []
         self._heartbeats(now_us // HOUR_US, rows)
+        self._invalidate_sealed_fact_days(
+            rows, [], [], source_file="<wall-clock-heartbeat>",
+            source_start=None, source_end=None)
         self._insert(rows, [], [])
+
+    def _invalidate_sealed_fact_days(self, l1_rows, tr_rows, full_rows,
+                                     source_file, source_start, source_end):
+        """Fail closed before adding a fact to an already sealed UTC day.
+
+        Raw files are partitioned by receipt time while facts use exchange
+        ``ts_utc``.  A delayed/replayed frame can therefore arrive hours after
+        the fixed cross-midnight receipt horizon used to create a day seal.
+        Invalidate the visible seal *before* the database transaction.  A crash
+        can then cause an unnecessary rebuild, but can never leave a known-stale
+        seal authorizing an incomplete archive.
+
+        DuckDB's single-writer lock excludes a concurrent sealer while this
+        ingester connection is open.  ``os.replace`` is same-directory atomic;
+        the displaced seal is retained as incident evidence rather than deleted.
+        """
+        dates = sorted({wc.day_of_us(row[0])
+                        for rows in (l1_rows, tr_rows, full_rows)
+                        for row in rows if row and row[0] is not None})
+        source = os.path.abspath(source_file) if not source_file.startswith("<") \
+            else source_file
+        source_rel = None
+        if not source.startswith("<") and \
+           os.path.commonpath([self.raw_root, source]) == self.raw_root:
+            source_rel = os.path.relpath(source, self.raw_root)
+
+        # Record every non-canonical receipt dependency, even when the first
+        # late row already removed the active seal.  Otherwise hour 03/04 files
+        # arriving while D is unsealed would be omitted by the next reseal.
+        dependency_days = set()
+        if source_rel:
+            match = re.search(
+                r"(?:^|/)date=(\d{4}-\d{2}-\d{2})/[^/]*_(\d{2})\.ndjson(?:\.\d+)?$",
+                source_rel)
+            for day in dates:
+                canonical = False
+                if match:
+                    receipt_day = datetime.date.fromisoformat(match.group(1))
+                    receipt_hour = int(match.group(2))
+                    exchange_day = datetime.date.fromisoformat(day)
+                    canonical = (receipt_day == exchange_day or
+                                 (receipt_day == exchange_day + datetime.timedelta(days=1)
+                                  and receipt_hour < 2))
+                if not canonical:
+                    dependency_days.add(day)
+
+        invalidated = []
+        seal_dir = os.path.join(self.warehouse_root, "seals")
+        for day in dates:
+            active = wc.seal_path(self.warehouse_root, day)
+            if not os.path.isfile(active):
+                continue
+            stamp = "%d.%d" % (time.time_ns(), os.getpid())
+            parked = os.path.join(
+                seal_dir, "date=%s.invalidated-late-fact.%s.json" % (day, stamp))
+            os.replace(active, parked)
+            invalidated.append((day, parked))
+
+        if not invalidated and not dependency_days:
+            return
+
+        # The seal disappearance must reach durable storage before a later
+        # DuckDB COMMIT can make the late fact durable.  Fsyncing only the
+        # ledger file does not persist a directory rename across power loss.
+        if invalidated:
+            _fsync_dir(seal_dir)
+
+        ledger = os.path.join(self.warehouse_root, "seal_invalidations.ndjson")
+        os.makedirs(os.path.dirname(ledger), exist_ok=True)
+        parked_by_day = dict(invalidated)
+        with open(ledger, "a", encoding="utf-8") as f:
+            for day in sorted(set(parked_by_day) | dependency_days):
+                parked = parked_by_day.get(day)
+                record = {
+                    "event": ("SEALED_DAY_INVALIDATED_BY_LATE_FACT" if parked else
+                              "LATE_RAW_DEPENDENCY_OBSERVED"),
+                    "exchange_date": day,
+                    "observed_at_utc": datetime.datetime.now(
+                        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "source_file": source,
+                    "source_raw_rel": source_rel,
+                    "source_start_offset": source_start,
+                    "source_end_offset": source_end,
+                    "parked_seal": (os.path.relpath(parked, self.warehouse_root)
+                                    if parked else None),
+                    "action": ("ARCHIVE_ONLY_READS_FAIL_CLOSED_UNTIL_REEXPORT_RESEAL"
+                               if parked else "BIND_SOURCE_IN_ANY_FUTURE_DAY_SEAL"),
+                }
+                f.write(json.dumps(record, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        _fsync_dir(self.warehouse_root)
+        if invalidated:
+            print("ALERT: invalidated sealed day(s) after late exchange-time fact: %s"
+                  % ",".join(day for day, _ in invalidated), file=sys.stderr)
 
     def process_file(self, path):
         path = os.path.abspath(path)
@@ -285,11 +396,23 @@ class Ingester:
             except (ValueError, KeyError, TypeError):
                 continue
             self._frame(rec, frame, msg, l1_rows, tr_rows, full_rows)
-        self._insert(l1_rows, tr_rows, full_rows)
-        self.con.execute(
-            "INSERT INTO checkpoint VALUES (?,?, epoch_us(now())) "
-            "ON CONFLICT (file) DO UPDATE SET byte_offset=excluded.byte_offset, "
-            "updated_us=excluded.updated_us", [path, start + len(chunk)])
+        self._invalidate_sealed_fact_days(
+            l1_rows, tr_rows, full_rows, source_file=path,
+            source_start=start, source_end=start + len(chunk))
+        # Facts/stats and the byte checkpoint are one atomic unit.  Autocommit
+        # here used to leave a crash window: facts committed, checkpoint absent,
+        # then restart replayed the chunk and duplicated every fact row.
+        self.con.execute("BEGIN TRANSACTION")
+        try:
+            self._insert(l1_rows, tr_rows, full_rows)
+            self.con.execute(
+                "INSERT INTO checkpoint VALUES (?,?, epoch_us(now())) "
+                "ON CONFLICT (file) DO UPDATE SET byte_offset=excluded.byte_offset, "
+                "updated_us=excluded.updated_us", [path, start + len(chunk)])
+            self.con.execute("COMMIT")
+        except Exception:
+            self.con.execute("ROLLBACK")
+            raise
         return len(l1_rows), len(tr_rows), len(full_rows)
 
     def _frame(self, rec, frame, msg, l1_rows, tr_rows, full_rows):
@@ -384,10 +507,19 @@ def connect_with_retry(duckdb, path, attempts=30, sleep_s=5.0):
         try:
             return duckdb.connect(path)
         except Exception as e:  # duckdb.IOException has no stable import path
+            msg = str(e).lower()
+            lock_error = any(token in msg for token in
+                             ("conflicting lock", "database is locked",
+                              "could not set lock",
+                              "different configuration than existing connections"))
+            # Permission, corruption and invalid-path failures are not transient
+            # reader locks.  Preserve their real exception and fail immediately.
+            if not lock_error:
+                raise
             last = e
             if i == 0:
-                print("[ingest] staging locked by a reader; retrying up to %ds"
-                      % int(attempts * sleep_s), file=sys.stderr)
+                print("[ingest] staging lock (%s); retrying up to %ds"
+                      % (e, int(attempts * sleep_s)), file=sys.stderr)
             time.sleep(sleep_s)
     raise last
 
@@ -420,8 +552,12 @@ def main(argv):
     staging = args.staging or cfg["staging_db"]
     active_h = args.heartbeat_active_hours or cfg["heartbeat_active_hours"]
     os.makedirs(os.path.dirname(staging), exist_ok=True)
-    con = duckdb.connect(staging)
-    ing = Ingester(con, warehouse, active_hours=active_h)
+    # The initial open must have the same lock tolerance as subsequent daemon
+    # reconnects.  A bare connect here made the watchdog crash-loop whenever a
+    # reader retained a staging ATTACH.
+    con = connect_with_retry(duckdb, staging)
+    ing = Ingester(con, warehouse, active_hours=active_h,
+                   raw_root=cfg["raw_root"])
     print("classes loaded: %d series | staging=%s" % (len(ing.classes), staging))
 
     if args.loop is not None:
