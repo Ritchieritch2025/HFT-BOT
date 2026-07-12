@@ -155,9 +155,12 @@ table.q th{color:var(--dim); font-weight:normal}
 
 <div id="hdr">
   <h1>EVENT <span>INTELLIGENCE</span></h1>
-  <span class="badge" id="archive-badge">LOCAL ARCHIVE</span>
-  <span class="badge warn" id="tl-badge" title="Archived days predate the W-TL1 timestamp ladder: only ts_utc (exchange-or-coarse time) exists. No receive/decision clocks.">PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY</span>
-  <span class="badge warn" id="evi-badge" title="Evidence tier is DERIVED from the day seals under the data root, never asserted.">EVIDENCE: UNSTATED</span>
+  <!-- PIPE-W05 remediation item 8: NO hardcoded status/tier/source
+       statements in markup — these badges render exclusively from artifact
+       data (index payload at boot, episode payload on selection). -->
+  <span class="badge" id="archive-badge" title="archive source renders from artifact data">SOURCE: LOADING…</span>
+  <span class="badge warn" id="tl-badge" title="timestamp tier renders from artifact data (measured from the archived L1 schemas)">TIME BASIS: LOADING…</span>
+  <span class="badge warn" id="evi-badge" title="evidence tier is DERIVED from the day seals under the data root, never asserted">EVIDENCE: LOADING…</span>
   <span class="badge" id="mode-banner" title="Full-window percentiles use future information relative to each marker. Descriptive exploration only; never a tradable signal.">LOOK-AHEAD / EXPLORATORY</span>
   <span class="ctl">mode
     <select id="mode-sel">
@@ -578,6 +581,7 @@ loadArtifact("index", "data/index.js", function(idx){
   if (!idx){ $("loading").textContent = "FAILED: data/index.js missing — run event_intel.py build";
     CS.textContent = "JS-ERROR: index artifact missing"; return; }
   S.index = idx;
+  renderTierBadges();   // item 8: badges populate from artifact data only
   var h = parseHash();
   if (h.mode === "causal"){ S.mode = "causal"; $("mode-sel").value = "causal";
     $("mode-banner").textContent = "CAUSAL REPLAY — PRIOR-HOUR FROZEN THRESHOLDS"; }
@@ -667,32 +671,44 @@ function buildToggles(){
   });
 }
 
-/* ---------- dynamic tier / evidence / source badges (PIPE-W05 fix 7) ------- */
+/* ---------- dynamic tier / evidence / source badges (PIPE-W05 fix 7 +
+   remediation item 8: every statement below is chosen BY artifact data;
+   missing data renders as UNSTATED, never as an asserted tier) ------------ */
+function measuredLadder(){
+  if (S.episode && S.episode.quality && S.episode.quality.timestamp_ladder)
+    return S.episode.quality.timestamp_ladder;
+  if (S.index && S.index.inventory && S.index.inventory.timestamp_ladder)
+    return S.index.inventory.timestamp_ladder.status;
+  return null;
+}
 function timeBasis(){
-  var tl = (S.episode && S.episode.quality &&
-            S.episode.quality.timestamp_ladder) || "PRE-TL1";
+  var tl = measuredLadder();
   return tl==="TL1" ? "TL1 receive-clock archive"
        : tl==="MIXED" ? "MIXED TL1/PRE-TL1 archive"
-       : "PRE-TL1 exchange-or-coarse time";
+       : tl==="PRE-TL1" ? "PRE-TL1 exchange-or-coarse time"
+       : "time basis unstated";
 }
 function renderTierBadges(){
-  var ep = S.episode; if (!ep) return;
-  var tl = (ep.quality && ep.quality.timestamp_ladder) || "PRE-TL1";
+  var ep = S.episode || {};
+  var tl = measuredLadder();
   var b = $("tl-badge");
   b.textContent = tl==="TL1" ? "TL1 · RECEIVE/DECISION CLOCKS PRESENT"
     : tl==="MIXED" ? "MIXED · TL1 + PRE-TL1 DAYS"
-    : "PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY";
-  b.title = ep.time_note || b.title;
+    : tl==="PRE-TL1" ? "PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY"
+    : "TIME BASIS: UNSTATED";
+  b.title = ep.time_note ||
+    (tl ? "measured from the archived L1 schemas"
+        : "no artifact time-basis data loaded");
   b.className = "badge" + (tl==="TL1" ? "" : " warn");
-  var ev = ep.evidence || {};
+  var ev = ep.evidence || (S.index && S.index.evidence) || {};
   var e = $("evi-badge");
   e.textContent = "EVIDENCE: " + (ev.tier || "UNSTATED");
   e.title = ((ev.basis||[]).join("; ")) ||
-    "evidence tier derived from day seals under the data root";
+    "evidence tier derives from day seals under the data root; none stated";
   e.className = "badge" + (ev.tier==="SEALED_CONFIRMATION" ? "" : " warn");
   var s = $("archive-badge");
-  s.textContent = ev.archive_source_label || "LOCAL ARCHIVE";
-  s.title = "archive source: " + (ev.archive_source || "local artifact");
+  s.textContent = ev.archive_source_label || "SOURCE: UNSTATED";
+  s.title = "archive source: " + (ev.archive_source || "unstated");
 }
 
 /* ---------- episode selection --------------------------------------------- */

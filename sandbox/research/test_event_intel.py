@@ -791,15 +791,34 @@ def test_evidence_tier_is_derived_from_day_seals(tmp_path):
 
 
 def test_intel_html_renders_tiers_dynamically():
+    """PIPE-W05 final remediation item 8: ZERO hardcoded status/tier/source
+    statements anywhere outside the data-driven renderer block; markup
+    carries only neutral loading placeholders; unknown data renders as
+    UNSTATED, never as an asserted tier."""
     html = (HERE / "workbench" / "intel.html").read_text(encoding="utf-8")
-    # dynamic badges exist and are re-rendered per episode
     assert 'id="tl-badge"' in html and 'id="evi-badge"' in html
     assert "function renderTierBadges" in html
     assert "function timeBasis" in html
-    assert "renderTierBadges();" in html
-    # the time-basis tooltip literal survives ONLY inside the timeBasis
-    # helper — every render site goes through it (fix 7: dynamic everywhere)
-    assert html.count("PRE-TL1 exchange-or-coarse time") == 1
+    assert html.count("renderTierBadges();") >= 2   # boot + per-episode
+    start = html.index("function measuredLadder")
+    end = html.index("/* ---------- episode selection")
+    renderer = html[start:end]
+    outside = html[:start] + html[end:]
+    for literal in ("PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY",
+                    "PRE-TL1 exchange-or-coarse time",
+                    "TL1 · RECEIVE/DECISION CLOCKS PRESENT",
+                    "MIXED · TL1 + PRE-TL1 DAYS",
+                    "TL1 receive-clock archive",
+                    "MIXED TL1/PRE-TL1 archive"):
+        assert literal in renderer, literal
+        assert literal not in outside, "hardcoded outside renderer: " + literal
+    # the two statements the audit flagged are gone entirely from markup:
+    assert "LOCAL ARCHIVE" not in html
+    assert ">PRE-TL1" not in outside
+    assert "SOURCE: LOADING…" in html and "TIME BASIS: LOADING…" in html
+    assert "EVIDENCE: LOADING…" in html
     # evidence tier + archive source are payload-driven, never hardcoded
     assert "ev.archive_source_label" in html
-    assert html.count("EVIDENCE: UNSTATED") == 1
+    assert "TIME BASIS: UNSTATED" in renderer
+    assert "SOURCE: UNSTATED" in renderer
+    assert 'ev.tier || "UNSTATED"' in renderer
