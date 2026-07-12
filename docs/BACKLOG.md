@@ -613,6 +613,15 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B7 (2026-07-12, operator ruling D-3 Visualize-Everything — main-repo
+  DECISIONS ledger; execution copy docs/DOCTRINE_VISUALIZE_EVERYTHING.md):
+  report generators must ship every statistic with its distribution plot
+  (histogram/ECDF, p50/p99/max/n marked), natural-unit breakdowns or
+  bootstrap CIs for scalars, captions naming bimodality/tails/breaks,
+  definition block + tier banner per chart. Retrofit
+  tools/research/rfq_flow_report.py BEFORE the 48h report窗满; design the
+  L2 Stage-1 24h observation report to it from v1. Non-compliant output
+  may not be marked COMPLETE. Owner: next report-generator W.
 - B6 (2026-07-12, from the W03 diff review — 4 non-blocking P2s): ① no code
   cap on legacy-unsealed-day rescans per ingest cycle (backstop = 03:00 seal
   alarm only); ② acquire_export_pause check-then-write not atomic vs manual
