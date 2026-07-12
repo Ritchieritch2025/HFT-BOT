@@ -7,6 +7,25 @@
 
 ---
 
+## D-3 · 2026-07-12 — Visualize-Everything 全报告证据规则(操作员裁决,原文)
+
+> Operator standing ruling (doctrine ledger, upgrade to Visualize-Everything): NO scalar statistic may be reported alone. Every reported statistic ships with its full distribution plot (histogram or ECDF) marked with p50/p99/max and n. Inherently-scalar quantities (shares, counts) instead show their distribution across the natural unit (per-hour/per-event) or a bootstrap CI plot. Bimodality, long tails, and discontinuities MUST be named and explained in the caption. Definition block (plain meaning + formula + provenance + code location) and tier banner on every chart. Applies to ALL segments, ALL reports, starting with the 24h observation window and the RFQ 48h report.
+
+### D-3 归档注记(非裁决原文)
+
+- **适用范围:**全部 segment、全部研究/回测/影子/实盘校准报告;首批约束对象
+  = 24h observation window 与 RFQ 48h report。任何只报一个数字而没有规定
+  分布或 CI 图的产物,不得标记 COMPLETE。
+- **连续量:**同页展示 histogram 或 ECDF,并在图中标出 p50、p99、max、n。
+- **天然标量:**按自然单位展开成 per-hour/per-event 分布;确实无法展开时展示
+  bootstrap CI plot,不得只放 KPI 数字。
+- **每图必备:**tier banner;definition block(白话含义、公式、数据 provenance、
+  计算代码位置);caption 明说并解释 bimodality、long tail、discontinuity;
+  这些形态一旦出现不得沉默或只留给读者猜。
+- **统计口径不变:**本裁决改变证据呈现与解释门,不替代 chronological split、
+  root-event estimand、day-block bootstrap、pessimistic fill bound 或既有 go/no-go
+  门槛。
+
 ## D-2 · 2026-07-11 — V2.2 canonicalize:唯一正本提示词确立(操作员释放令,原文)
 
 > OPERATOR RELEASE STP-R002-CANONICALIZE-V22 (single session, no phase execution):
