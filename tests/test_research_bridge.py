@@ -86,15 +86,44 @@ def next_day(date):
     return (d + datetime.timedelta(days=1)).isoformat()
 
 
+def write_l2_receipt(quality_dir, date, raw_files, valid=True):
+    """P0-3 residual fixture: the l2_gap_check POSITIVE per-date receipt —
+    exact L2 inventory with byte sizes + scan/seq statistics. valid=False
+    writes a date-bound but header-only receipt (no inventory), which the
+    publisher must reject."""
+    inv = [{"file": r["file"], "bytes": r["size"]} for r in raw_files
+           if r["file"].startswith("date=%s/" % date)
+           and os.path.basename(r["file"]).startswith("l2_")]
+    payload = {"schema_version": "l2-gap-receipt-v1", "date": date,
+               "raw_root": "fixture", "no_l2_files": not inv,
+               "files": [f["file"].split("/")[-1] for f in inv]}
+    if valid:
+        payload.update({"file_inventory": inv, "lines": 1,
+                        "seq_gap_events": 0, "seq_missed_total": 0,
+                        "sids_total": 1, "sids_with_seq_gaps": 0})
+    os.makedirs(quality_dir, exist_ok=True)
+    with open(os.path.join(quality_dir, "l2_gaps_%s.json" % date),
+              "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+
 def write_gap_receipt(quality_dir, date, raw_files, gaps=(),
-                      corrupt_bytes=False):
+                      corrupt_bytes=False, drop_files=False,
+                      extra_file=False):
     """P0-3 fixture: the scanner's affirmative per-date receipt binding the
-    exact firehose inventory (from the day seal's raw_files) + result."""
+    exact firehose inventory (from the day seal's raw_files) + result.
+    corrupt_bytes/drop_files/extra_file build the adversarial variants
+    (byte-size mismatch / missing file / extra file)."""
     files = [{"file": r["file"],
               "bytes": r["size"] + (7 if corrupt_bytes else 0)}
              for r in raw_files
              if r["file"].startswith("date=%s/" % date)
              and os.path.basename(r["file"]).startswith("firehose_")]
+    if drop_files:
+        files = []
+    if extra_file:
+        files.append({"file": "date=%s/firehose_23.ndjson.9" % date,
+                      "bytes": 12345})
     payload = {"schema_version": "capture-gap-scan-receipt-v1",
                "date": date, "raw_root": "fixture", "files": files,
                "n_files": len(files),
@@ -190,6 +219,8 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True, with_l2=False,
         raw_file(date, "rfq_receipts_13.ndjson")
         if cross_day_rfq:
             raw_file(next_day(date), "rfq_00.ndjson")
+    if with_l2:
+        raw_file(date, "l2_13.ndjson")   # sealed l2 raw inventory
     raw_file(date, "firehose_13.ndjson")
 
     stats = [{"file": os.path.relpath(p, facts), "table": t,
@@ -258,14 +289,6 @@ def main():
             w.writerow(["start_us", "end_us"])
             w.writerow([day_us + 1000, day_us + 90_000_000])      # in 07-11
             w.writerow([day_us - 7_200_000_000, day_us - 3_600_000_000])
-        for d in ("2026-07-11", "2026-07-06"):
-            with open(os.path.join(quality, "l2_gaps_%s.json" % d),
-                      "w") as f:
-                json.dump({"date": d, "no_l2_files": d != "2026-07-06",
-                           "seq_gap_events": 0, "seq_missed_total": 0,
-                           "sids_total": 0, "sids_with_seq_gaps": 0,
-                           "lines": 0}, f)
-
         l1_file, _tr, raw_1111 = make_day(tmp, "2026-07-11", tl1=True,
                                           cross_day_rfq=True)
         make_day(tmp, "2026-07-05", tl1=False, with_rfq_raw=False)
@@ -279,9 +302,21 @@ def main():
                                     with_rfq_raw=False, with_l2=True)
         _l, _t, raw_0630 = make_day(tmp, "2026-06-30", tl1=True,
                                     with_rfq_raw=False)
-        # P0-3 affirmative receipts: 07-11 (one in-day gap), 07-06 + 07-02
-        # (clean); 06-30 gets a STALE receipt (wrong byte inventory);
-        # 07-03/07-05 get NONE (absence is not evidence)
+        _l, _t, raw_0629 = make_day(tmp, "2026-06-29", tl1=True,
+                                    with_rfq_raw=False)
+        _l, _t, raw_0628 = make_day(tmp, "2026-06-28", tl1=True,
+                                    with_rfq_raw=False)
+        # P0-3 L2 receipts: 07-11 valid-empty (no l2 raw sealed), 07-06
+        # VALID (exact inventory + stats), 07-02 INVALID (date-bound but
+        # header-only: no inventory/stats)
+        write_l2_receipt(quality, "2026-07-11", raw_1111)
+        write_l2_receipt(quality, "2026-07-06", raw_0706)
+        write_l2_receipt(quality, "2026-07-02", raw_0702, valid=False)
+        # P0-3 affirmative firehose receipts: 07-11 (one in-day gap), 07-06
+        # + 07-02 (clean); the four adversarial variants: 06-30 byte-size
+        # mismatch, 06-29 missing file, 06-28 extra file (the fourth —
+        # L2 facts with invalid receipt — is 07-02); 07-03/07-05 get NONE
+        # (absence is not evidence)
         write_gap_receipt(quality, "2026-07-11", raw_1111,
                           gaps=[{"start_us": day_us + 1000,
                                  "end_us": day_us + 90_000_000}])
@@ -289,6 +324,8 @@ def main():
         write_gap_receipt(quality, "2026-07-02", raw_0702)
         write_gap_receipt(quality, "2026-06-30", raw_0630,
                           corrupt_bytes=True)
+        write_gap_receipt(quality, "2026-06-29", raw_0629, drop_files=True)
+        write_gap_receipt(quality, "2026-06-28", raw_0628, extra_file=True)
         dest = os.path.join(tmp, "dest")
         os.makedirs(dest)
         vault = os.path.join(tmp, "vault")   # ec2/raw stand-in (fix 6)
@@ -786,22 +823,57 @@ def main():
                                     "2026-06-30__seal-*__pub-*",
                                     "MANIFEST.json"))
         man_s = json.load(open(st[0])) if st else {}
-        check("stale receipt (inventory mismatch vs seal) degrades",
+        check("stale receipt (byte-size mismatch vs seal) degrades with "
+              "the named file",
               man_s.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
-              and any("stale/partial" in x for x in man_s.get(
-                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              and any("stale/partial" in x and
+                      "byte-size=['date=2026-06-30/firehose_13.ndjson']"
+                      in x for x in man_s.get(
+                          "evidence_tier_basis", {})
+                      .get("downgrade_reasons", [])),
               man_s.get("evidence_tier_basis"))
+        # P0-3 residual adversarial fixture 1: receipt MISSING a sealed file
+        r = run(pub + ["--date", "2026-06-29", "--no-rfq"], env)
+        check("receipt missing a sealed firehose file degrades",
+              r.returncode == 0)
+        mm = glob.glob(os.path.join(dest, "releases",
+                                    "2026-06-29__seal-*__pub-*",
+                                    "MANIFEST.json"))
+        man_m = json.load(open(mm[0])) if mm else {}
+        check("missing-file mismatch named in the reasons",
+              man_m.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("missing=['date=2026-06-29/firehose_13.ndjson']" in x
+                      for x in man_m.get("evidence_tier_basis", {})
+                      .get("downgrade_reasons", [])),
+              man_m.get("evidence_tier_basis"))
+        # P0-3 residual adversarial fixture 2: receipt with an EXTRA file
+        r = run(pub + ["--date", "2026-06-28", "--no-rfq"], env)
+        check("receipt with an extra unsealed file degrades",
+              r.returncode == 0)
+        ee = glob.glob(os.path.join(dest, "releases",
+                                    "2026-06-28__seal-*__pub-*",
+                                    "MANIFEST.json"))
+        man_e = json.load(open(ee[0])) if ee else {}
+        check("extra-file mismatch named in the reasons",
+              man_e.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("extra=['date=2026-06-28/firehose_23.ndjson.9']" in x
+                      for x in man_e.get("evidence_tier_basis", {})
+                      .get("downgrade_reasons", [])),
+              man_e.get("evidence_tier_basis"))
+        # P0-3 residual adversarial fixture 4: L2 facts present but the L2
+        # receipt is INVALID (date-bound, header-only: no inventory/stats)
         r = run(pub + ["--date", "2026-07-02", "--no-rfq"], env)
-        check("L2-facts day without L2 evidence publishes degraded",
+        check("L2-facts day with INVALID L2 receipt publishes degraded",
               r.returncode == 0)
         l2x = glob.glob(os.path.join(dest, "releases",
                                      "2026-07-02__seal-*__pub-*",
                                      "MANIFEST.json"))
         man_x = json.load(open(l2x[0])) if l2x else {}
-        check("missing MANDATORY L2 seq-quality evidence degrades",
+        check("invalid L2 receipt degrades with the named reason",
               man_x.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
-              and any("seq-quality" in x for x in man_x.get(
-                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              and any("seq-quality" in x and "header-only" in x
+                      for x in man_x.get("evidence_tier_basis", {})
+                      .get("downgrade_reasons", [])),
               man_x.get("evidence_tier_basis"))
         check("confirmation day (07-06: receipt+L2 evidence+assessed) "
               "earns SEALED_CONFIRMATION",

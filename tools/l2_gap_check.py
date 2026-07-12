@@ -106,9 +106,16 @@ def scan_date(date_str, raw_root):
     """Pure scan -> record dict (unit-tested; no writes)."""
     files = _l2_files_for_date(date_str, raw_root)
     record = {
+        "schema_version": "l2-gap-receipt-v1",
         "date": date_str,
         "raw_root": raw_root,
         "files": [os.path.basename(p) for _b, p in files],
+        # PIPE-W05 P0-3 residual: POSITIVE per-date receipt binding — the
+        # exact scanned L2 inventory with byte sizes, matched bidirectionally
+        # against the day seal's l2 raw subset by the release publisher.
+        "file_inventory": [
+            {"file": "date=%s/%s" % (date_str, os.path.basename(p)),
+             "bytes": os.stat(p).st_size} for _b, p in files],
         "no_l2_files": not files,
         "lines": 0,
         "parse_errors": 0,

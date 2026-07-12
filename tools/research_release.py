@@ -510,8 +510,48 @@ def rfq_switch_enabled():
             or os.path.isfile(RFQ_FLAG_FILE))
 
 
+L2_STAT_KEYS = ("lines", "seq_gap_events", "seq_missed_total",
+                "sids_total", "sids_with_seq_gaps")
+
+
+def validate_l2_receipt(lg, seal, date):
+    """P0-3 residual fix 2: POSITIVE per-date L2 receipt binding. Returns
+    (quality_dict, None) only when the receipt binds this date, carries the
+    scan/seq statistics AND its exact file inventory (paths + byte sizes)
+    bidirectionally equals the day seal's l2 raw subset — no missing files,
+    no extra files, no size drift. Anything less returns (None, reason)."""
+    if lg.get("date") != date:
+        return None, "receipt does not bind this date"
+    inv = lg.get("file_inventory")
+    if not isinstance(inv, list):
+        return None, ("receipt carries no positive file inventory with "
+                      "byte sizes (date-only/header-only receipts are "
+                      "invalid)")
+    if any(not isinstance(lg.get(k), int) for k in L2_STAT_KEYS):
+        return None, "receipt is missing scan/seq statistics"
+    want = {r["file"]: r["size"] for r in seal.get("raw_files", [])
+            if r["file"].startswith("date=%s/" % date)
+            and os.path.basename(r["file"]).startswith("l2_")}
+    got = {}
+    for e in inv:
+        if not isinstance(e, dict) or "file" not in e or "bytes" not in e:
+            return None, "receipt file inventory entries are malformed"
+        got[e["file"]] = e["bytes"]
+    if got != want:
+        missing = sorted(set(want) - set(got))
+        extra = sorted(set(got) - set(want))
+        sized = sorted(k for k in set(want) & set(got)
+                       if want[k] != got[k])
+        return None, ("receipt inventory does not reproduce the sealed l2 "
+                      "raw subset EXACTLY (stale: missing=%s extra=%s "
+                      "byte-size=%s)" % (missing[:3], extra[:3], sized[:3]))
+    return {k: lg.get(k) for k in
+            ("no_l2_files",) + L2_STAT_KEYS}, None
+
+
 def derive_evidence_tier(seal, gap_receipt_affirmative, gap_reason=None,
-                         l2_facts_present=False, l2_evidence_ok=True):
+                         l2_facts_present=False, l2_evidence_ok=True,
+                         l2_reason=None):
     """Fix 5 + P0-3: the tier is DERIVED, never assumed.
     SEALED_CONFIRMATION requires ALL of: a full_v2 go-eligible seal, an
     AFFIRMATIVE per-date scan receipt whose inventory reproduces the sealed
@@ -530,9 +570,9 @@ def derive_evidence_tier(seal, gap_receipt_affirmative, gap_reason=None,
                        "the sealed raw inventory (%s)"
                        % (gap_reason or "absence is not evidence"))
     if l2_facts_present and not l2_evidence_ok:
-        reasons.append("orderbooks_full facts present but no matching L2 "
-                       "seq-quality evidence for this date (mandatory, "
-                       "P0-3)")
+        reasons.append("orderbooks_full facts present but no VALID "
+                       "matching per-date L2 seq-quality receipt (%s) "
+                       "(mandatory, P0-3)" % (l2_reason or "absent"))
     cq = str(seal.get("capture_quality_status") or "")
     if (not cq or "UNASSESSED" in cq.upper() or any(
             w in cq.upper()
@@ -735,13 +775,19 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                         .startswith("firehose_")}
                 got = {f["file"]: f["bytes"]
                        for f in receipt.get("files", [])}
-                missing = sorted(k for k, v in want.items()
-                                 if got.get(k) != v)
-                if missing:
+                # P0-3 residual fix 1: EXACT bidirectional binding — the
+                # scanned inventory must equal the sealed firehose subset:
+                # identical paths and byte sizes, no missing OR extra files.
+                if got != want:
+                    missing = sorted(set(want) - set(got))
+                    extra = sorted(set(got) - set(want))
+                    sized = sorted(k for k in set(want) & set(got)
+                                   if want[k] != got[k])
                     gap_reason = ("scan receipt inventory does not "
                                   "reproduce the sealed firehose raw "
-                                  "inventory (stale/partial: %s)"
-                                  % ", ".join(missing[:3]))
+                                  "inventory EXACTLY (stale/partial: "
+                                  "missing=%s extra=%s byte-size=%s)"
+                                  % (missing[:3], extra[:3], sized[:3]))
                 elif receipt.get("unreadable"):
                     gap_reason = "scan receipt marks the day unreadable"
                 else:
@@ -752,23 +798,24 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                   "receipt for %s (%s) — publishing with a DEGRADED "
                   "evidence tier; absence of a gap file is not evidence "
                   "(P0-3)" % (date, gap_reason))
+        # P0-3 residual fix 2: L2 gap evidence is a POSITIVE per-date
+        # receipt — schema/date binding, the EXACT scanned L2 inventory
+        # with byte sizes (bidirectionally equal to the seal's l2 raw
+        # subset), and the scan/seq statistics. Date-only, header-only,
+        # stale, missing-file or extra-file receipts are ALL invalid.
         l2_gaps_src = os.path.join(quality_dir, "l2_gaps_%s.json" % date)
         l2_gap_obj = None
         l2_quality = None
+        l2_reason = "no per-date L2 receipt (l2_gaps_%s.json)" % date
         if os.path.isfile(l2_gaps_src):
             l2_gap_obj = stage_copy("quality/l2_gaps.json", l2_gaps_src)
             with open(os.path.join(stage["dir"],
                                    "quality/l2_gaps.json")) as f:
                 lg = json.load(f)
-            if lg.get("date") == date:
-                l2_quality = {k: lg.get(k) for k in
-                              ("no_l2_files", "seq_gap_events",
-                               "seq_missed_total", "sids_total",
-                               "sids_with_seq_gaps", "lines")}
-            else:
-                print("WARNING [research_release]: l2_gaps_%s.json does "
-                      "not bind this date — treated as ABSENT L2 evidence"
-                      % date)
+            l2_quality, l2_reason = validate_l2_receipt(lg, seal, date)
+        if l2_quality is None:
+            print("WARNING [research_release]: no VALID per-date L2 "
+                  "receipt for %s (%s)" % (date, l2_reason))
 
         publication_state = {
             "seal_sha256": seal_sha,
@@ -938,7 +985,8 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         tier, tier_basis = derive_evidence_tier(
             seal, gap_affirmative, gap_reason,
             l2_facts_present=l2_facts_present,
-            l2_evidence_ok=l2_quality is not None)
+            l2_evidence_ok=l2_quality is not None,
+            l2_reason=l2_reason)
 
         # ---- channel completeness labels (amendment 4 + fix 4) -----------------
         l2_included = l2_facts_present
