@@ -6,6 +6,28 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-12 07:20 UTC — 生产三连:Stage A(W03)+ W07 RFQ 激活 + Stage B(W06 Stage 1)全部部署验收完毕
+
+- 生产 tip:`a755fe5`(=5561115 + 0f8606c RFQ + a755fe5 L2S1);receipts:
+  PIPE-DEPLOY-WINDOW-2026-07-12.md(全程逐字授权链)。commits this session:
+  5561115(窗口收据)、c3cde2e/bdb601d(主仓 RFQ 生产/工作台分立提交,
+  Codex 遗留工作入册)、0f8606c(RFQ 摘取)、2f57178→a755fe5(L2S1 变基)。
+- **Stage A**:重启 258ms 级;07-09 积压自动清完(54 文件 CATCH-UP PASS,
+  内存峰 7.1G 回落 2.9G,swap 0,pid 零换);prune 首删已实证(前日)。
+- **W07 RFQ**:read-scope 子钥匙 API 创建(私钥箱内生成未过网;openssl
+  CLI 签名 POST /api_keys,venv 无 cryptography 的绕行);独立 unit 失败
+  关闭实证(缺 env 拒启 exit 78 不循环);验收 1–8 绿;**真实 RFQ 洪流**
+  (~4.4k 行/分,MVE 体育多场组合 $10 目标成本高频建删——Track B 研究
+  素材);样本 CSV LIVE_KALSHI_PROD 已交付桌面。
+- **Stage B**:LAYER 1b 首周期自证(选择器 50 市场自刷新、l2_07 两分钟
+  11.7MB 零错误);firehose/RFQ 全程不受扰。l2_disable 一键停用在位。
+- 权限系统三次拦截均按纪律停手上报、操作员逐字授权后执行(RFQ env 两行、
+  Stage B 重启)——授权链全部原文入收据。
+- NEXT:①明晨封印看 l2/rfq 家族 discovery 证据 + 三缺口 capture_gaps
+  对账;②rfq/l2 数据量入 S3/磁盘账(rfq 单小时 256MiB 轮转!);③48h RFQ
+  报告到窗后跑正式版;④07-09 补封 = 操作员决定;⑤W06 Stage 2 等 Stage 1
+  48h 实采;⑥STP 线等 P01 释放令。
+
 ## 2026-07-12 00:50 UTC — W06 Stage 0 探针完成(实测 694.5 msg/s)+ PIPE-W03 落地(根因反转)— Stage 1 W 解锁
 
 - commits: 8978c2a(Stage0 批准归档)· 75d05e3(探针实测入档,门(c)闭)·
