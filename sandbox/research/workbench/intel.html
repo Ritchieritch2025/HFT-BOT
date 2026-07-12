@@ -156,7 +156,8 @@ table.q th{color:var(--dim); font-weight:normal}
 <div id="hdr">
   <h1>EVENT <span>INTELLIGENCE</span></h1>
   <span class="badge" id="archive-badge">LOCAL ARCHIVE</span>
-  <span class="badge warn" title="Archived days predate the W-TL1 timestamp ladder: only ts_utc (exchange-or-coarse time) exists. No receive/decision clocks.">PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY</span>
+  <span class="badge warn" id="tl-badge" title="Archived days predate the W-TL1 timestamp ladder: only ts_utc (exchange-or-coarse time) exists. No receive/decision clocks.">PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY</span>
+  <span class="badge warn" id="evi-badge" title="Evidence tier is DERIVED from the day seals under the data root, never asserted.">EVIDENCE: UNSTATED</span>
   <span class="badge" id="mode-banner" title="Full-window percentiles use future information relative to each marker. Descriptive exploration only; never a tradable signal.">LOOK-AHEAD / EXPLORATORY</span>
   <span class="ctl">mode
     <select id="mode-sel">
@@ -666,6 +667,34 @@ function buildToggles(){
   });
 }
 
+/* ---------- dynamic tier / evidence / source badges (PIPE-W05 fix 7) ------- */
+function timeBasis(){
+  var tl = (S.episode && S.episode.quality &&
+            S.episode.quality.timestamp_ladder) || "PRE-TL1";
+  return tl==="TL1" ? "TL1 receive-clock archive"
+       : tl==="MIXED" ? "MIXED TL1/PRE-TL1 archive"
+       : "PRE-TL1 exchange-or-coarse time";
+}
+function renderTierBadges(){
+  var ep = S.episode; if (!ep) return;
+  var tl = (ep.quality && ep.quality.timestamp_ladder) || "PRE-TL1";
+  var b = $("tl-badge");
+  b.textContent = tl==="TL1" ? "TL1 · RECEIVE/DECISION CLOCKS PRESENT"
+    : tl==="MIXED" ? "MIXED · TL1 + PRE-TL1 DAYS"
+    : "PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY";
+  b.title = ep.time_note || b.title;
+  b.className = "badge" + (tl==="TL1" ? "" : " warn");
+  var ev = ep.evidence || {};
+  var e = $("evi-badge");
+  e.textContent = "EVIDENCE: " + (ev.tier || "UNSTATED");
+  e.title = ((ev.basis||[]).join("; ")) ||
+    "evidence tier derived from day seals under the data root";
+  e.className = "badge" + (ev.tier==="SEALED_CONFIRMATION" ? "" : " warn");
+  var s = $("archive-badge");
+  s.textContent = ev.archive_source_label || "LOCAL ARCHIVE";
+  s.title = "archive source: " + (ev.archive_source || "local artifact");
+}
+
 /* ---------- episode selection --------------------------------------------- */
 function selectEpisode(safeKey){
   $("loading").style.display = "flex";
@@ -688,7 +717,7 @@ function selectEpisode(safeKey){
     // touch-band otherwise. The v1 tracks stay one tab away.
     setView(h.view==="tracks" ? "tracks" : "heat", true);
     buildEpisodeList(); buildMarketList(); renderTape();
-    buildDistSelectors(); buildQualityPane();
+    buildDistSelectors(); buildQualityPane(); renderTierBadges();
     $("loading").style.display = "none";
     CS.textContent = jsErrors.length ? CS.textContent : "RENDER-OK "+safeKey;
   }
@@ -719,7 +748,7 @@ function markerTip(m){
   lines.push("<b style='color:"+(meta.color||"#fff")+"'>"+meta.label+"</b>"+
     (m.side? " · "+m.side.toUpperCase():""));
   lines.push(fmtTs(m.t,true)+" <span style='color:#8492ad'>("+
-    (S.tz==="utc"?"UTC":"local")+"; PRE-TL1 exchange-or-coarse time)</span>");
+    (S.tz==="utc"?"UTC":"local")+"; "+timeBasis()+")</span>");
   if (m.market) lines.push("market: "+m.market);
   if (m.price_c!=null) lines.push("price: "+fmtN(m.price_c,2)+"¢");
   if (m.contracts!=null) lines.push("size: "+fmtN(m.contracts,1)+" contracts");
@@ -1542,7 +1571,7 @@ function heatTipMove(e){
   var t0m=art.t0_us/1000, binMs=art.bin_us/1000;
   var bin=Math.floor((t-t0m)/binMs);
   var lines=["<b>"+cent+"¢ row</b> · "+fmtTs(t,true)+
-    " <span style='color:#8492ad'>(PRE-TL1 exchange-or-coarse time)</span>"];
+    " <span style='color:#8492ad'>("+timeBasis()+")</span>"];
   if (S.replayActive && S.replayNow!=null && t0m+(bin+1)*binMs > S.replayNow &&
       bin>=0 && bin<art.n_bins){
     lines.push("<span style='color:#ffe14d'>not yet revealed at the replay clock</span>");

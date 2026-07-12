@@ -42,11 +42,16 @@ python3 sandbox/research/workbench/event_intel.py build \
 
 With `--data-root`, previously hardcoded statuses are DATA-DRIVEN and
 measured, never asserted: `timestamp_ladder` is TL1 / PRE-TL1 / MIXED from
-the archived L1 schemas; the day-seal count comes from `seals/`; RFQ is
-`RAW_PRESENT` (with dates) when verified sealed rfq raw exists under
-`raw/date=*/` — rendering RFQ events still requires the
-`event-intel-rfq-input-v1` adapter input, and dates without RFQ keep the
-honest empty state. Sealed rfq raw reaches the research prefix only when the
+the archived L1 schemas; the evidence tier is DERIVED from the day seals
+under `seals/` (SEALED_CONFIRMATION only when earned; degraded/unsealed
+states keep their reasons visible) and rendered dynamically in the header
+badges together with the archive source; RFQ is `RAW_PRESENT` (with dates)
+when verified sealed rfq raw exists under `raw/date=*/` — rendering RFQ
+events still requires the `event-intel-rfq-input-v1` adapter input, and
+dates without RFQ keep the honest empty state. Release identity upstream is
+`<date>__seal-<8>__pub-<16>` — the publication-state digest — so a later
+correction to a day arrives as a DISTINCT release; the view always reflects
+the newest locally VERIFIED release per date. Sealed rfq raw reaches the research prefix only when the
 operator cost switch on the EC2 box is ON (`RESEARCH_INCLUDE_RFQ=1` or the
 `~/.kalshi/research_include_rfq` flag file — defaults OFF pending the
 operator's cost acknowledgment) and it is fetched only with

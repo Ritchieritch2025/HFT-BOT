@@ -679,3 +679,127 @@ def test_real_archive_l2_heatmap_matches_independent_replay(tmp_path):
     assert _decode_u32(hm["ask_b64"]) == rask
     assert hm["best_bid_e4"] == rbb and hm["best_ask_e4"] == rba
     assert hm["n_bins"] <= ei.HEATMAP_MAX_BINS
+
+
+# ---------------------------------------------------------------------------
+# PIPE-W05 operator correction order fix 7 fixtures: measured TL1/MIXED/
+# PRE-TL1, data-driven RFQ present/absent, L2 present/absent, DERIVED
+# evidence tier, dynamic badge rendering in intel.html
+# ---------------------------------------------------------------------------
+
+def _write_l1_tl1(root: Path, sport: str = "Tennis",
+                  date: str = "2026-07-11") -> None:
+    """One L1 parquet carrying all four W-TL1 ladder columns."""
+    import duckdb
+    d = (root / "work" / "warehouse" / "facts" / "orderbooks_l1"
+         / "category=Sports" / f"subcategory={sport}" / f"date={date}")
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"orderbooks_l1__Sports__{sport}__{date}.parquet"
+    con = duckdb.connect()
+    con.execute("SET memory_limit='1GB'")
+    con.execute(
+        f"""COPY (SELECT CAST({BASE_US} AS BIGINT) AS ts_utc,
+        'KXTLONE-26JUL11XXXYYY-AAA' AS market_ticker,
+        'KXTLONE-26JUL11XXXYYY' AS event_ticker, '{sport}' AS subcategory,
+        4000 AS yes_bid_e4, CAST(1000000 AS BIGINT) AS yes_bid_qty_e4,
+        4200 AS yes_ask_e4, CAST(1000000 AS BIGINT) AS yes_ask_qty_e4,
+        4100 AS price_e4, TRUE AS is_snapshot,
+        CAST(1 AS BIGINT) AS exchange_ts_us,
+        CAST(2 AS BIGINT) AS recv_wall_ns,
+        CAST(3 AS BIGINT) AS recv_mono_ns,
+        CAST(4 AS BIGINT) AS local_recv_ts_us)
+        TO '{out}' (FORMAT PARQUET)""")
+    con.close()
+
+
+def test_tl1_status_is_measured_tl1_mixed_pre(tmp_path):
+    _fixture_root(tmp_path)                       # Soccer = legacy PRE-TL1
+    pre = ei.EventIntelBuilder(repo_root=tmp_path, out_dir=tmp_path / "o1",
+                               sports=("Soccer",))
+    assert pre.tl1_status() == "PRE-TL1"
+    _write_l1_tl1(tmp_path, sport="Tennis")
+    mixed = ei.EventIntelBuilder(repo_root=tmp_path, out_dir=tmp_path / "o2",
+                                 sports=("Soccer", "Tennis"))
+    assert mixed.tl1_status() == "MIXED"
+    tl1 = ei.EventIntelBuilder(repo_root=tmp_path, out_dir=tmp_path / "o3",
+                               sports=("Tennis",))
+    assert tl1.tl1_status() == "TL1"
+
+
+def test_rfq_availability_is_data_driven_present_and_absent(tmp_path):
+    index, _ = _build(_fixture_root(tmp_path))
+    assert index["inventory"]["rfq"]["status"] == "UNAVAILABLE"
+    ep = json.loads(next(iter((tmp_path / "out" / "data" / "episodes")
+                              .glob("*.json"))).read_text())
+    assert ep["rfq"]["available"] is False
+    assert ep["rfq"]["raw_dates_present"] == []
+    # verified rfq raw lands for the fixture date -> RAW_PRESENT + episode
+    # empty state names the covered date; events still never fabricated
+    raw = tmp_path / "work" / "raw" / "date=2026-07-06"
+    raw.mkdir(parents=True)
+    (raw / "rfq_13.ndjson").write_text('{"chan":"rfq"}\n')
+    index2, _ = _build(tmp_path)
+    assert index2["inventory"]["rfq"]["status"] == "RAW_PRESENT"
+    assert index2["inventory"]["rfq"]["dates"] == ["2026-07-06"]
+    ep2 = json.loads(next(iter((tmp_path / "out" / "data" / "episodes")
+                               .glob("*.json"))).read_text())
+    assert "RFQ RAW PRESENT for 2026-07-06" in ep2["rfq"]["status"]
+    assert ep2["rfq"]["available"] is False and ep2["rfq"]["events"] == []
+
+
+def test_l2_channel_status_present_and_absent(tmp_path):
+    import shutil
+    index, _ = _build(_fixture_root(tmp_path / "with_l2"))
+    assert index["inventory"]["orderbooks_full"]["status"] == "REAL"
+    root2 = _fixture_root(tmp_path / "without_l2")
+    shutil.rmtree(root2 / "work" / "warehouse" / "facts"
+                  / "orderbooks_full")
+    index2, _ = _build(root2)
+    assert index2["inventory"]["orderbooks_full"]["status"] == "UNAVAILABLE"
+
+
+def test_evidence_tier_is_derived_from_day_seals(tmp_path):
+    root = _fixture_root(tmp_path)
+    legacy = ei.EventIntelBuilder(repo_root=root, out_dir=root / "o1",
+                                  sports=("Soccer",))
+    ev = legacy.evidence_summary()
+    assert ev["tier"] == "EXPLORATORY_UNSEALED_LEGACY"
+    assert ev["archive_source_label"] == "LOCAL ARCHIVE"
+    seals = root / "work" / "warehouse" / "seals"
+    seals.mkdir(parents=True)
+    (seals / "date=2026-07-06.json").write_text(json.dumps(
+        {"date": "2026-07-06", "status": "SEALED", "version": 2,
+         "method": "full_v2", "go_no_go_eligible": True}))
+    sealed = ei.EventIntelBuilder(repo_root=root, out_dir=root / "o2",
+                                  sports=("Soccer",))
+    assert sealed.evidence_summary()["tier"] == "SEALED_CONFIRMATION"
+    (seals / "date=2026-07-07.json").write_text(json.dumps(
+        {"date": "2026-07-07", "status": "SEALED", "version": 2,
+         "method": "full_v2", "go_no_go_eligible": False}))
+    degraded = ei.EventIntelBuilder(repo_root=root, out_dir=root / "o3",
+                                    sports=("Soccer",))
+    ev2 = degraded.evidence_summary()
+    assert ev2["tier"] == "SEALED_DEGRADED_EVIDENCE"
+    assert any("go_no_go" in r for r in ev2["basis"])
+    # the derived evidence rides in both the index and every episode artifact
+    index, _ = _build(root)
+    assert index["evidence"]["tier"] == "SEALED_DEGRADED_EVIDENCE"
+    ep = json.loads(next(iter((root / "out" / "data" / "episodes")
+                              .glob("*.json"))).read_text())
+    assert ep["evidence"]["tier"] == "SEALED_DEGRADED_EVIDENCE"
+    assert ep["evidence"]["archive_source"]
+
+
+def test_intel_html_renders_tiers_dynamically():
+    html = (HERE / "workbench" / "intel.html").read_text(encoding="utf-8")
+    # dynamic badges exist and are re-rendered per episode
+    assert 'id="tl-badge"' in html and 'id="evi-badge"' in html
+    assert "function renderTierBadges" in html
+    assert "function timeBasis" in html
+    assert "renderTierBadges();" in html
+    # the time-basis tooltip literal survives ONLY inside the timeBasis
+    # helper — every render site goes through it (fix 7: dynamic everywhere)
+    assert html.count("PRE-TL1 exchange-or-coarse time") == 1
+    # evidence tier + archive source are payload-driven, never hardcoded
+    assert "ev.archive_source_label" in html
+    assert html.count("EVIDENCE: UNSTATED") == 1

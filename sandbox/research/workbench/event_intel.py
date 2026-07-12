@@ -746,6 +746,7 @@ class EventIntelBuilder:
         self._event_meta: dict[str, tuple[str, str]] | None = None
         self._tl1_status: str | None = None
         self._rfq_dates: frozenset[str] | None = None
+        self._evidence: dict[str, Any] | None = None
 
     # -- file discovery -----------------------------------------------------
     def _trade_files(self, sport: str) -> list[Path]:
@@ -792,6 +793,59 @@ class EventIntelBuilder:
                         found.add(m.group(1))
             self._rfq_dates = frozenset(found)
         return self._rfq_dates
+
+    def evidence_summary(self) -> dict[str, Any]:
+        """Evidence tier + archive source — DERIVED from the day seals under
+        the data root, never asserted (operator correction order fix 5/7).
+        No seals => honest EXPLORATORY_UNSEALED_LEGACY; degraded seals keep
+        their downgrade reasons visible."""
+        if self._evidence is not None:
+            return self._evidence
+        seal_files = sorted(self.seals_dir.glob("date=*.json")) \
+            if self.seals_dir.is_dir() else []
+        source = (str(self.data_root) if self.data_root is not None
+                  else "local legacy warehouse (work/warehouse)")
+        label = ("RESEARCH DATA ROOT" if self.data_root is not None
+                 else "LOCAL ARCHIVE")
+        if not seal_files:
+            self._evidence = {
+                "tier": "EXPLORATORY_UNSEALED_LEGACY",
+                "basis": ["no day seals under this data root — evidence "
+                          "tier cannot exceed exploratory"],
+                "archive_source": source,
+                "archive_source_label": label,
+                "seals": 0,
+            }
+            return self._evidence
+        reasons: list[str] = []
+        n_ok = 0
+        for p in seal_files:
+            try:
+                seal = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                reasons.append("%s unreadable/unparsable" % p.name)
+                continue
+            if not (seal.get("status") == "SEALED"
+                    and seal.get("version") == 2):
+                reasons.append("%s is not a SEALED v2 seal" % p.name)
+                continue
+            n_ok += 1
+            if seal.get("method") != "full_v2":
+                reasons.append("%s method=%r" % (p.name, seal.get("method")))
+            if seal.get("go_no_go_eligible") is not True:
+                reasons.append("%s not go_no_go_eligible" % p.name)
+        tier = ("SEALED_CONFIRMATION"
+                if n_ok == len(seal_files) and not reasons
+                else "SEALED_DEGRADED_EVIDENCE")
+        self._evidence = {
+            "tier": tier,
+            "basis": reasons or ["derived from %d SEALED v2 day seal(s)"
+                                 % n_ok],
+            "archive_source": source,
+            "archive_source_label": label,
+            "seals": len(seal_files),
+        }
+        return self._evidence
 
     # -- catalog ------------------------------------------------------------
     def event_meta(self) -> dict[str, tuple[str, str]]:
@@ -1062,6 +1116,7 @@ class EventIntelBuilder:
             "tempo": tempo,
             "regimes": regimes,
             "tape": tape,
+            "evidence": self.evidence_summary(),
             "score": load_score_events(inputs_dir, key),
             "rfq": load_rfq_events(
                 inputs_dir, key, self.rfq_raw_dates(),
@@ -1634,6 +1689,7 @@ class EventIntelBuilder:
             "schema_version": INDEX_SCHEMA,
             "generated_at_utc": self.generated_at,
             "inventory": inventory,
+            "evidence": self.evidence_summary(),
             "trade_quality": self.trade_quality,
             "sports": [{"sport": s, "episodes":
                         [e for e in episodes_meta if e["sport"] == s]}
