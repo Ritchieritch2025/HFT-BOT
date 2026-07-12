@@ -11,6 +11,9 @@ Rules:
 - Optional reports must stay under `sandbox/research/reports/`.
 
 Current tool:
+- `workbench/app.py` is the single local entry point for hypothesis-first data
+  processing and visualization. It builds read-only snapshots from the warehouse
+  manifest plus registered experiment artifacts, then serves them on localhost.
 - `strategy_playground.py` scans recent raw firehose files and prints research-only ideas:
   market-making candidates, pair-parity checks, ladder sanity checks, and large moves.
 - `mm_sandbox.py` is the executable market-making replay MVP: deterministic
@@ -25,5 +28,6 @@ Example:
 python3 sandbox/research/strategy_playground.py --date 2026-07-09 --files 2 --top 12
 python3 sandbox/research/strategy_playground.py --date 2026-07-09 --files 3 --focus 'FRAMAR|NICALA'
 python3 sandbox/research/mm_sandbox.py --demo
+python3 sandbox/research/workbench/app.py run --host 127.0.0.1 --port 8791
 python3 -m pytest -q sandbox/research/test_mm_sandbox.py
 ```

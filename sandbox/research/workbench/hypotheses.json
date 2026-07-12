@@ -1,0 +1,77 @@
+{
+  "schema_version": "research-workbench-hypotheses-v1",
+  "hypotheses": [
+    {
+      "hypothesis_id": "ATL-TTS-01",
+      "type": "MECH",
+      "title": "Time-to-start market structure",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Spread, trading intensity, and two-sided availability change systematically as start time approaches.",
+      "h0": "Conditional on market class and price band, market structure does not vary with time-to-start.",
+      "h1": "At least one frozen time-to-start bucket has a pre-specified, repeatable market-structure difference.",
+      "population": "Pregame Basketball, Tennis, and Baseball markets, separated by market type.",
+      "primary_outcome": "Median quoted spread by frozen time-to-start bucket.",
+      "freeze_requirements": ["market taxonomy", "time buckets", "price bands", "minimum effect", "analysis unit", "holdout dates"]
+    },
+    {
+      "hypothesis_id": "ATL-BURST-01",
+      "type": "MECH",
+      "title": "Event-arrival clustering",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Book updates and trades arrive in repeatable bursts whose time scale differs by sport and market type.",
+      "h0": "Frozen burst statistics are indistinguishable from the selected independent-arrival baseline.",
+      "h1": "Frozen burst statistics exceed the baseline by a pre-specified amount in held-out events.",
+      "population": "Basketball, Tennis, and Baseball receive-clock event streams.",
+      "primary_outcome": "Burst frequency and duration under a frozen inter-arrival rule.",
+      "freeze_requirements": ["clock authority", "burst rule", "baseline process", "minimum effect", "analysis unit", "holdout dates"]
+    },
+    {
+      "hypothesis_id": "ATL-TOX-01",
+      "type": "MECH",
+      "title": "Post-burst adverse markout",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Maker-side markout worsens after a frozen burst or toxicity state.",
+      "h0": "Conditional maker-side markout is no worse after the frozen state than outside it.",
+      "h1": "Post-state maker-side markout is worse by at least the frozen minimum effect.",
+      "population": "Eligible Basketball, Tennis, and Baseball markets with valid synchronized quotes and trades.",
+      "primary_outcome": "Maker-side executable markout at frozen horizons.",
+      "freeze_requirements": ["state definition", "markout horizons", "side mapping", "minimum effect", "cluster unit", "holdout dates"]
+    },
+    {
+      "hypothesis_id": "ATL-RES-01",
+      "type": "MECH",
+      "title": "Spread-shock resilience",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Spread shocks have sport- and state-dependent recovery times, and some accompany persistent price moves.",
+      "h0": "Recovery time and permanent price response do not differ across frozen states.",
+      "h1": "At least one frozen state has a repeatable difference exceeding the minimum effect.",
+      "population": "Basketball, Tennis, and Baseball markets with continuous valid L1 coverage.",
+      "primary_outcome": "Time to recover a frozen fraction of the pre-shock spread.",
+      "freeze_requirements": ["shock rule", "recovery rule", "price-move horizon", "minimum effect", "censoring policy", "holdout dates"]
+    },
+    {
+      "hypothesis_id": "ATL-FLOW-01",
+      "type": "MECH",
+      "title": "Signed-flow continuation versus reversal",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Frozen signed trade-flow states predict short-horizon continuation or reversal in selected market regimes.",
+      "h0": "Future price change is conditionally independent of the frozen signed-flow state.",
+      "h1": "The state predicts a pre-specified directional effect that repeats on held-out events.",
+      "population": "Basketball, Tennis, and Baseball markets with defensible trade-side classification.",
+      "primary_outcome": "Signed future executable midpoint change at frozen horizons.",
+      "freeze_requirements": ["side classifier", "flow window", "horizons", "minimum effect", "cluster unit", "holdout dates"]
+    },
+    {
+      "hypothesis_id": "ATL-WINDOW-01",
+      "type": "ECON",
+      "title": "Cost-clearing maker windows",
+      "status": "DRAFT_NEEDS_FREEZE",
+      "claim": "Some recurring states offer quoted spread greater than expected adverse selection, fees, latency loss, and exit cost.",
+      "h0": "Net expected maker edge is not positive after all frozen costs in any eligible state.",
+      "h1": "At least one pre-specified state has positive held-out net expected maker edge above the minimum threshold.",
+      "population": "Pre-specified Basketball, Tennis, and Baseball maker-eligible market states.",
+      "primary_outcome": "Per-opportunity net expected maker edge after frozen costs.",
+      "freeze_requirements": ["eligibility rule", "fill model authority", "fee schedule", "latency and exit costs", "minimum effect", "holdout dates"]
+    }
+  ]
+}

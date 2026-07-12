@@ -34,3 +34,6 @@ warehouse/
 # by build_classification on the production box; git history was pure noise
 config/classification_review.csv
 config/series_tags_report.csv
+
+# local Research Workbench API snapshots (rebuilt from manifest + artifacts)
+sandbox/research/reports/workbench/
