@@ -229,15 +229,19 @@ void write_feed_status(std::FILE* f, const Runtime& rt, std::int64_t freshness_m
                        std::uint64_t trades, std::uint64_t tickers,
                        std::uint64_t telemetry_dropped, const std::string& capture) {
   if (!f) return;
-  const bool connected = client.last_activity_ms() != 0 && freshness_ms >= 0 && freshness_ms < 30000;
-  const bool valid = connected && recorder.dropped() == 0 && client.overflow_events() == 0;
+  const bool connected = client.is_open() && client.last_activity_ms() != 0 &&
+                         freshness_ms >= 0 && freshness_ms < 30000;
+  const bool valid = connected && recorder.dropped() == 0 &&
+                     recorder.write_failures() == 0 && client.overflow_events() == 0;
   std::fprintf(f,
                "{\"type\":\"feed\",\"ts_ms\":%lld,\"synthetic\":false,"
                "\"source\":\"kalshi_ws\",\"connected\":%s,\"valid\":%s,"
                "\"freshness_ms\":%lld,\"age_ms\":%lld,\"msg_rate_hz\":%.3f,"
-               "\"gaps\":%llu,\"reconnects\":%llu,\"messages\":%llu,"
+               "\"gaps\":%llu,\"reconnects\":%llu,\"disconnects\":%llu,"
+               "\"errors\":%llu,\"messages\":%llu,"
                "\"snapshots\":%llu,\"deltas\":%llu,\"trades\":%llu,\"tickers\":%llu,"
                "\"recorder_recorded\":%llu,\"recorder_dropped\":%llu,"
+               "\"recorder_write_failures\":%llu,"
                "\"telemetry_dropped\":%llu,\"capture\":\"%s\","
                "\"mode\":\"%s\",\"env\":\"%s\"}\n",
                static_cast<long long>(trading::wall_ns() / 1'000'000),
@@ -245,6 +249,8 @@ void write_feed_status(std::FILE* f, const Runtime& rt, std::int64_t freshness_m
                static_cast<long long>(freshness_ms), static_cast<long long>(freshness_ms),
                msg_rate_hz, static_cast<unsigned long long>(books.resync_count()),
                static_cast<unsigned long long>(client.reconnects()),
+               static_cast<unsigned long long>(client.disconnects()),
+               static_cast<unsigned long long>(client.errors()),
                static_cast<unsigned long long>(client.messages()),
                static_cast<unsigned long long>(snapshots),
                static_cast<unsigned long long>(deltas),
@@ -252,6 +258,7 @@ void write_feed_status(std::FILE* f, const Runtime& rt, std::int64_t freshness_m
                static_cast<unsigned long long>(tickers),
                static_cast<unsigned long long>(recorder.recorded()),
                static_cast<unsigned long long>(recorder.dropped()),
+               static_cast<unsigned long long>(recorder.write_failures()),
                static_cast<unsigned long long>(telemetry_dropped),
                json_escape(capture).c_str(), to_string(rt.mode), to_string(rt.env));
 }
@@ -445,6 +452,10 @@ int main(int argc, char** argv) {
   cfg.url = ws_url;
   cfg.api_key_id = api_key_id.empty() ? "localmock" : api_key_id;
   cfg.ws_sign_path = rt.ws_sign_path;
+  // Official communications subscription example contains only channels;
+  // use_yes_price is an orderbook-only parameter. Default remains unchanged
+  // for every existing collector; the RFQ wrapper opts out explicitly.
+  cfg.include_use_yes_price = env_int("KALSHI_WS_OMIT_USE_YES_PRICE", 0) == 0;
   KalshiWsClient client(transport, cfg, std::move(signer));
   client.set_book_manager(&books);
   client.set_sink(&sink);
@@ -526,6 +537,13 @@ int main(int argc, char** argv) {
       std::fflush(metrics);
     }
 
+    if (recorder.write_failures() != 0) {
+      std::fprintf(stderr,
+                   "[ws_shadow] FATAL raw recorder write failure count=%llu\n",
+                   (unsigned long long)recorder.write_failures());
+      break;  // fail closed; service supervision owns the retry
+    }
+
     if (++tick % 40 == 0) {  // ~every 10s
       std::fprintf(stderr,
                    "[ws_shadow] events=%llu deltas=%llu reconnects=%llu forced=%llu errors=%llu "
@@ -596,9 +614,11 @@ int main(int argc, char** argv) {
   std::printf("errors / overflow: %llu / %llu (error 25 = buffer-overflow data loss, I7)\n",
               (unsigned long long)client.errors(), (unsigned long long)client.overflow_events());
   std::printf("lifecycle deletes: %llu\n", (unsigned long long)client.lifecycle_deletes());
-  std::printf("recorder         : recorded=%llu dropped=%llu -> %s\n",
+  std::printf("recorder         : recorded=%llu dropped=%llu write_failures=%llu -> %s\n",
               (unsigned long long)recorder.recorded(), (unsigned long long)recorder.dropped(),
-              recorder.dropped() == 0 ? "COMPLETE" : "LOSSY (loss markers written)");
+              (unsigned long long)recorder.write_failures(),
+              recorder.dropped() == 0 && recorder.write_failures() == 0
+                  ? "COMPLETE" : "LOSSY/FAILED");
   std::printf("missed-pong      : %llu disconnect(s)\n",
               (unsigned long long)missed_pong_disconnects);
   std::printf("exec transmitted : %llu (MUST be 0)\n", (unsigned long long)exec.transmitted());
@@ -607,7 +627,8 @@ int main(int argc, char** argv) {
     std::printf("REST xcheck      : compared=%llu diverged=%llu (divergence within staleness OK)\n",
                 (unsigned long long)xcheck_compared, (unsigned long long)xcheck_diverged);
 
-  const bool pass = no_transmit && no_missed_pong;
+  const bool pass = no_transmit && no_missed_pong &&
+                    recorder.dropped() == 0 && recorder.write_failures() == 0;
   std::printf("%s\n", pass ? "WS SHADOW PASS" : "WS SHADOW FAIL");
   return pass ? 0 : 1;
 }

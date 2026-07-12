@@ -238,3 +238,22 @@ def test_rotation_shards_counted_for_capture_lag(tmp_path):
     r, j = run_json("--staging", db, "--raw-root", raw, "--now", repr(now_s))
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert j["capture_lag_s"] == pytest.approx(3.0, abs=0.01)
+
+
+def test_fresh_rfq_file_cannot_mask_dead_firehose(tmp_path):
+    """Independent low-rate channel families never substitute for Layer 1.
+
+    Regression for RFQ rollout: if firehose is two hours stale while a fresh
+    rfq_HH file exists, the primary pipeline verdict must remain STALE.
+    """
+    tmp = str(tmp_path)
+    db = build_staging(tmp)
+    now_s = STAGING_NEWEST_US / 1e6 + 30.0
+    raw = make_raw(tmp, now_s, age_s=7_200.0, name="firehose_03.ndjson")
+    make_raw(tmp, now_s, age_s=1.0, name="rfq_03.ndjson")
+    r, j = run_json("--staging", db, "--raw-root", raw, "--now", repr(now_s),
+                    "--threshold", "600")
+    assert r.returncode == 1
+    assert j["verdict"] == "STALE"
+    assert j["capture_lag_s"] == pytest.approx(7_200.0, abs=0.01)
+    assert j["capture_newest_file"].endswith("firehose_03.ndjson")

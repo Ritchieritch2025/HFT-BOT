@@ -10,9 +10,9 @@ Both were (b)-fresh/(a)-stale, so TWO lags are measured and BOTH are printed:
       ts_utc is epoch MICROSECONDS per docs/warehouse_schema.md)
   (b) capture lag = now − mtime of the newest raw file under
       work/raw/date=<today>/ (yesterday's dir is also scanned so a check in
-      the first seconds after UTC midnight does not false-alarm; the glob is
-      *.ndjson* so rotation shards firehose_HH.ndjson.N count — the exact
-      file class the shard incident missed)
+      the first seconds after UTC midnight does not false-alarm). The glob is
+      firehose_*.ndjson*: rotation shards firehose_HH.ndjson.N count, while
+      independent low-rate RFQ/L2 families can never mask a dead firehose.
 Alert when EITHER lag exceeds the threshold: verdict STALE + exit 1.
 Fresh: verdict FRESH + exit 0 (FRESH is the registry pass_token; the exit
 code is authoritative). Anything unmeasurable — missing staging DB, empty
@@ -93,14 +93,18 @@ def staging_newest(staging_db, attempts, sleep_s):
 
 
 def capture_newest(raw_root, now_s):
-    """(path, mtime, error) — newest *.ndjson* under today's (and, for the
-    midnight boundary, yesterday's) raw day dir."""
+    """Newest firehose file for primary capture health.
+
+    Other channel families have their own liveness contracts.  Looking at an
+    arbitrary ``*.ndjson*`` file would let a healthy RFQ recorder make a dead
+    production firehose look green (GUARDRAILS D2).
+    """
     today = datetime.datetime.fromtimestamp(
         now_s, tz=datetime.timezone.utc).date()
     newest_path, newest_mtime = None, None
     for d in (today, today - datetime.timedelta(days=1)):
         day_dir = wc.raw_day_dir(raw_root, d.isoformat())
-        for p in glob.glob(os.path.join(day_dir, "*.ndjson*")):
+        for p in glob.glob(os.path.join(day_dir, "firehose_*.ndjson*")):
             try:
                 m = os.path.getmtime(p)
             except OSError:
@@ -108,8 +112,8 @@ def capture_newest(raw_root, now_s):
             if newest_mtime is None or m > newest_mtime:
                 newest_path, newest_mtime = p, m
     if newest_path is None:
-        return None, None, ("no raw capture files under %s for %s or the "
-                            "prior day" % (raw_root, today.isoformat()))
+        return None, None, ("no firehose raw capture files under %s for %s "
+                            "or the prior day" % (raw_root, today.isoformat()))
     return newest_path, newest_mtime, None
 
 

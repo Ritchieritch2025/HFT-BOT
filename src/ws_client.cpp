@@ -56,8 +56,10 @@ std::string KalshiWsClient::build_subscribe(int id, const std::vector<std::strin
     j += R"(,"market_tickers":)";
     append_string_array(j, tickers);
   }
-  j += R"(,"use_yes_price":)";
-  j += cfg_.use_yes_price ? "true" : "false";  // I5: always explicit
+  if (cfg_.include_use_yes_price) {
+    j += R"(,"use_yes_price":)";
+    j += cfg_.use_yes_price ? "true" : "false";  // I5: explicit for orderbooks
+  }
   j += "}}";
   return j;
 }
@@ -129,17 +131,35 @@ void KalshiWsClient::refresh_auth() {
 }
 
 void KalshiWsClient::on_message(const WsMessage& m) {
-  // any inbound frame = alive (I6); relaxed store, read by the watchdog thread.
-  last_activity_ms_.store(trading::wall_ns() / 1'000'000, std::memory_order_relaxed);
+  const std::int64_t now_ms = trading::wall_ns() / 1'000'000;
   switch (m.type) {
-    case WsMessage::Type::Open: on_open(); break;
-    case WsMessage::Type::Close: on_close(); break;
-    case WsMessage::Type::Text: ++messages_; on_text(m.data); break;
+    case WsMessage::Type::Open:
+      open_.store(true, std::memory_order_relaxed);
+      last_activity_ms_.store(now_ms, std::memory_order_relaxed);
+      on_open();
+      break;
+    case WsMessage::Type::Close:
+      open_.store(false, std::memory_order_relaxed);
+      ++disconnects_;
+      if (recorder_) recorder_->mark("transport_close", epoch());
+      on_close();
+      break;
+    case WsMessage::Type::Text:
+      if (open_.load(std::memory_order_relaxed))
+        last_activity_ms_.store(now_ms, std::memory_order_relaxed);
+      ++messages_;
+      on_text(m.data);
+      break;
     case WsMessage::Type::Ping:
     case WsMessage::Type::Pong:
+      if (open_.load(std::memory_order_relaxed))
+        last_activity_ms_.store(now_ms, std::memory_order_relaxed);
       break;  // transport auto-pongs (heartbeat echo); we only note liveness
     case WsMessage::Type::Error:
+      open_.store(false, std::memory_order_relaxed);
+      ++disconnects_;
       ++errors_;
+      if (recorder_) recorder_->mark("transport_error", epoch());
       // Surface the transport error reason (no secrets in it) so a failing
       // handshake/subscribe is diagnosable instead of a silent error counter.
       std::fprintf(stderr, "[ws] transport error: %.200s\n", m.data.c_str());
@@ -155,7 +175,7 @@ void KalshiWsClient::on_open() {
   if (opened_once_) {
     ++epoch_;         // reconnect: new stream epoch (I8), drop old-sid state
     ++reconnects_;
-    if (recorder_) recorder_->mark("epoch_change", epoch_);
+    if (recorder_) recorder_->mark("epoch_change", epoch());
   }
   opened_once_ = true;
   resubscribe();
@@ -203,7 +223,7 @@ void KalshiWsClient::on_text(const std::string& text) {
   rec.channel = std::string(type);
   rec.source_ticker = std::string(env_ticker);
   rec.source_stream_id = has_sid ? std::optional<std::uint64_t>(sid) : std::nullopt;
-  rec.stream_epoch = epoch_;
+  rec.stream_epoch = epoch();
   if (has_seq) rec.source_sequence = seq;
   rec.recv_mono_ns = trading::mono_ns();
   rec.recv_wall_ns = trading::wall_ns();
@@ -221,7 +241,7 @@ void KalshiWsClient::on_text(const std::string& text) {
 
   // ok / unsubscribed carry sid+seq and MUST advance the per-sid counter (I1).
   if (type == "ok" || type == "unsubscribed") {
-    if (books_ && has_sid && has_seq) books_->on_control_seq(sid, epoch_, seq);
+    if (books_ && has_sid && has_seq) books_->on_control_seq(sid, epoch(), seq);
     return;
   }
   if (type == "subscribed") return;  // ack only
@@ -247,14 +267,14 @@ void KalshiWsClient::on_text(const std::string& text) {
   // Route orderbook messages into the sid-aware manager.
   if (ev->kind() == trading::Kind::BookSnapshot) {
     const auto& bs = std::get<trading::BookSnapshot>(ev->payload);
-    books_->bind(sid, epoch_, ev->entity_id);
-    books_->on_snapshot(sid, epoch_, ev->entity_id, SnapshotView{bs.yes, bs.no, seq}, seq);
+    books_->bind(sid, epoch(), ev->entity_id);
+    books_->on_snapshot(sid, epoch(), ev->entity_id, SnapshotView{bs.yes, bs.no, seq}, seq);
   } else if (ev->kind() == trading::Kind::BookDelta) {
     const auto& d = std::get<trading::BookDelta>(ev->payload);
-    if (books_->on_delta(sid, epoch_, ev->entity_id, d.side, d.price, d.delta, seq) ==
+    if (books_->on_delta(sid, epoch(), ev->entity_id, d.side, d.price, d.delta, seq) ==
             ApplyResult::NeedResync &&
         recorder_) {
-      recorder_->mark("gap", epoch_, sid);  // stream gap -> marker in the raw log
+      recorder_->mark("gap", epoch(), sid);  // stream gap -> marker in the raw log
     }
   }
 }

@@ -750,6 +750,52 @@
       "docs": "tests/test_depth_probe.py"
     },
     {
+      "name": "rfq_capture",
+      "kind": "daemon",
+      "safety": "network_read",
+      "autorun": false,
+      "cmd": "python3 tools/rfq_capture.py",
+      "args_template": "[--dry-run]",
+      "needs": [
+        "make",
+        "creds",
+        "prod_env"
+      ],
+      "description": "Independent passive authenticated communications recorder: one persistent second ws_shadow connection, TL1 receive-clock hourly rfq_<HH>.ndjson, durable segment receipts, one-touch rfq_disable, dedicated read-only key and fail-closed/no quote-or-order capability; deployment waits for the W03 maintenance window",
+      "docs": "docs/RFQ_CAPTURE_AND_48H_REPORT.md"
+    },
+    {
+      "name": "rfq_flow_report",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/research/rfq_flow_report.py",
+      "args_template": "--raw-root PATH --start RFC3339 [--hours 48] [--out DIR] [--allow-incomplete]",
+      "needs": [],
+      "description": "Exploratory RFQ atlas from sealed raw: requests/day/category, exact separate size distributions, combo/HVM lower bound, delete-joined requester concentration, lifecycle and hourly coverage; mandatory offline charts; never a trading gate",
+      "docs": "docs/RFQ_CAPTURE_AND_48H_REPORT.md"
+    },
+    {
+      "name": "test_rfq_capture",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_rfq_capture.py",
+      "pass_token": "passed",
+      "description": "Offline RFQ collector safety contract: exact communications env, live/prod/credential refusals, UTC rotation, no-socket dry run, running disable flag only terminates its own child, loss promotion, independent service and active-file S3 exclusion",
+      "docs": "tests/test_rfq_capture.py"
+    },
+    {
+      "name": "test_rfq_flow_report",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_rfq_flow_report.py",
+      "pass_token": "passed",
+      "description": "Synthetic official-schema RFQ report fixtures: byte-envelope parse, exact E2 contracts + E6 dollars, dedupe, delete->create requester join, empty-ID exclusion, combo/HVM lower bound, incomplete-window disclosure and eight mandatory SVG charts",
+      "docs": "tests/test_rfq_flow_report.py"
+    },
+    {
       "name": "account_upgrade",
       "kind": "probe",
       "safety": "live_order",

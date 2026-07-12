@@ -35,7 +35,8 @@ struct RawRecord {
   std::optional<std::uint64_t> source_stream_id;   // sid
   std::uint32_t stream_epoch = 0;                   // (re)connection epoch
   // Marker records carry NO payload — they annotate the stream: "gap",
-  // "resync_begin"/"resync_end", "loss", "epoch_change". Reader/replay surface
+  // "resync_begin"/"resync_end", "loss", "epoch_change", "hour_open",
+  // "transport_close"/"transport_error". Reader/replay surface
   // them so replayed state honestly mirrors live blind spots.
   std::optional<std::string> marker;
   std::string raw;            // byte-exact original payload (empty for markers)
@@ -51,17 +52,28 @@ class RawLogWriter {
   RawLogWriter(const RawLogWriter&) = delete;
   RawLogWriter& operator=(const RawLogWriter&) = delete;
 
-  void write(const RawRecord& rec);  // appends one NDJSON line; rotates by size
-  void flush();
+  // {UTC_DATE}/{UTC_HOUR} tokens in path enable receive-clock hourly
+  // partitioning without reconnecting the source.
+  // Returns false on any path/open/write/flush failure. Callers that own a
+  // live feed must surface that failure instead of reporting a healthy socket
+  // whose bytes were never made durable.
+  bool write(const RawRecord& rec);  // appends one NDJSON line; rotates by time/size
+  bool flush();
 
   std::size_t rotations() const { return rotations_; }
   const std::string& current_path() const { return current_path_; }
+  bool time_partitioned() const { return time_partitioned_; }
 
  private:
-  void open_current();
-  void rotate();
+  bool open_current();
+  bool close_current();
+  bool rotate();
+  void select_latest_shard();
+  bool ensure_time_partition(std::int64_t recv_wall_ns);
+  std::string resolve_time_path(std::int64_t recv_wall_ns) const;
 
   std::string base_path_;
+  std::string active_base_path_;
   std::string current_path_;
   std::FILE* f_ = nullptr;
   std::size_t max_bytes_;
@@ -69,6 +81,7 @@ class RawLogWriter {
   std::size_t index_ = 0;
   std::size_t rotations_ = 0;
   bool fsync_each_;
+  bool time_partitioned_ = false;
 };
 
 class RawLogReader {

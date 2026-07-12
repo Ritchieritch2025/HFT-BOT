@@ -84,6 +84,12 @@ the full feed→strategy→ring→submit→ack chain under `TRADINGD_LATENCY_CSV
   `work/warehouse/facts/` + `manifest.csv`. Single analysis entry point:
   `tools/warehouse.py::load()`. Raw NDJSON is the truth source until archived;
   archive files are write-once and final.
+- **Passive RFQ flow** (implemented, not deployed): a separate systemd unit
+  launches a second read-only `ws_shadow` connection subscribed only to
+  `communications`. One persistent socket writes `rfq_<HH>.ndjson` by TL1
+  receive-clock partitioning, without an hourly reconnect. It shares no PID/lock/file with
+  the firehose; `rfq_disable` stops only this connection. The first 48-hour
+  atlas reads sealed raw and makes no trading/profitability claim.
 
 ## Environment variables
 

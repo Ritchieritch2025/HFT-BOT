@@ -4,7 +4,8 @@
 // IWebSocketTransport (ixwebsocket in prod, MockWebSocketTransport in tests):
 //   - builds the signed handshake auth headers (docs/kalshi_ws_protocol.md I10);
 //   - builds subscribe / unsubscribe / update_subscription commands with a
-//     monotonic client `id` and explicit market_tickers + use_yes_price:false (I5);
+//     monotonic client `id` and, for orderbook subscriptions, explicit
+//     market_tickers + use_yes_price:false (I5);
 //   - parses the response envelope (id/type/sid/seq/msg), tracks sid, routes
 //     orderbook snapshots/deltas through the decoder into an OrderBookManager
 //     (per-sid seq handling, I1/I3), and emits NormalizedEvents to a sink;
@@ -48,6 +49,7 @@ struct WsConfig {
   std::string ws_sign_path = "/trade-api/ws/v2";
   std::uint32_t epoch = 1;                     // starting stream epoch
   bool use_yes_price = kUseYesPrice;           // I5: sent explicitly
+  bool include_use_yes_price = true;           // false for non-orderbook channels
 };
 
 class KalshiWsClient {
@@ -94,13 +96,15 @@ class KalshiWsClient {
                                  const std::vector<std::string>& tickers) const;
 
   // --- stats / health ---
-  std::uint32_t epoch() const { return epoch_; }
-  std::uint64_t messages() const { return messages_; }
-  std::uint64_t reconnects() const { return reconnects_; }
-  std::uint64_t forced_reconnects() const { return forced_reconnects_; }  // W-C1 watchdog
-  std::uint64_t errors() const { return errors_; }
-  std::uint64_t overflow_events() const { return overflow_events_; }  // error 25 (I7)
-  std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_; }
+  std::uint32_t epoch() const { return epoch_.load(std::memory_order_relaxed); }
+  std::uint64_t messages() const { return messages_.load(std::memory_order_relaxed); }
+  std::uint64_t reconnects() const { return reconnects_.load(std::memory_order_relaxed); }
+  std::uint64_t forced_reconnects() const { return forced_reconnects_.load(std::memory_order_relaxed); }  // W-C1 watchdog
+  std::uint64_t errors() const { return errors_.load(std::memory_order_relaxed); }
+  std::uint64_t disconnects() const { return disconnects_.load(std::memory_order_relaxed); }
+  bool is_open() const { return open_.load(std::memory_order_relaxed); }
+  std::uint64_t overflow_events() const { return overflow_events_.load(std::memory_order_relaxed); }  // error 25 (I7)
+  std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_.load(std::memory_order_relaxed); }
   std::int64_t last_activity_ms() const {
     return last_activity_ms_.load(std::memory_order_relaxed);
   }
@@ -135,12 +139,14 @@ class KalshiWsClient {
   bool firehose_ = false;
   std::vector<std::string> channels_{"orderbook_delta"};
 
-  std::uint32_t epoch_;
+  std::atomic<std::uint32_t> epoch_;
   bool opened_once_ = false;
   int next_id_ = 1;
-  std::uint64_t messages_ = 0, reconnects_ = 0, errors_ = 0, overflow_events_ = 0;
-  std::uint64_t forced_reconnects_ = 0;  // watchdog-forced reconnects (W-C1)
-  std::uint64_t lifecycle_deletes_ = 0;
+  std::atomic<std::uint64_t> messages_{0}, reconnects_{0}, errors_{0},
+      disconnects_{0}, overflow_events_{0};
+  std::atomic<std::uint64_t> forced_reconnects_{0};  // watchdog-forced reconnects (W-C1)
+  std::atomic<std::uint64_t> lifecycle_deletes_{0};
+  std::atomic<bool> open_{false};
   // Cross-thread (transport writes, watchdog reads to decide force_reconnect).
   std::atomic<std::int64_t> last_activity_ms_{0};
 };

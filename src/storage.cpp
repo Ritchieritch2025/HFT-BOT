@@ -3,6 +3,8 @@
 #include "simdjson.h"
 
 #include <cstring>
+#include <ctime>
+#include <filesystem>
 
 namespace trading {
 
@@ -128,28 +130,115 @@ SourceId source_from_wire(std::string_view s) {
 
 RawLogWriter::RawLogWriter(std::string path, std::size_t max_bytes, bool fsync_each)
     : base_path_(std::move(path)), max_bytes_(max_bytes), fsync_each_(fsync_each) {
-  open_current();
+  time_partitioned_ = base_path_.find("{UTC_DATE}") != std::string::npos ||
+                      base_path_.find("{UTC_HOUR}") != std::string::npos;
+  if (!time_partitioned_) {
+    active_base_path_ = base_path_;
+    select_latest_shard();
+    open_current();
+  }
 }
 
 RawLogWriter::~RawLogWriter() {
   if (f_) std::fclose(f_);
 }
 
-void RawLogWriter::open_current() {
-  current_path_ = index_ == 0 ? base_path_ : base_path_ + "." + std::to_string(index_);
+bool RawLogWriter::close_current() {
+  if (!f_) return true;
+  std::FILE* closing = f_;
+  f_ = nullptr;
+  return std::fclose(closing) == 0;
+}
+
+bool RawLogWriter::open_current() {
+  current_path_ = index_ == 0 ? active_base_path_
+                              : active_base_path_ + "." + std::to_string(index_);
+  std::error_code ec;
+  const auto parent = std::filesystem::path(current_path_).parent_path();
+  if (!parent.empty()) std::filesystem::create_directories(parent, ec);
+  if (ec) {
+    f_ = nullptr;
+    return false;
+  }
   f_ = std::fopen(current_path_.c_str(), "ab");
   bytes_ = 0;
+  if (f_) {
+    if (std::fseek(f_, 0, SEEK_END) != 0) {
+      std::fclose(f_);
+      f_ = nullptr;
+      return false;
+    }
+    const long pos = std::ftell(f_);
+    if (pos < 0) {
+      std::fclose(f_);
+      f_ = nullptr;
+      return false;
+    }
+    bytes_ = static_cast<std::size_t>(pos);
+  }
+  return f_ != nullptr;
 }
 
-void RawLogWriter::rotate() {
-  if (f_) std::fclose(f_);
+void RawLogWriter::select_latest_shard() {
+  index_ = 0;
+  // Rotation creates a contiguous .1, .2, ... sequence. Resuming the highest
+  // existing shard preserves append chronology across process restarts.
+  for (std::size_t candidate = 1;; ++candidate) {
+    std::error_code ec;
+    if (!std::filesystem::exists(
+            active_base_path_ + "." + std::to_string(candidate), ec) || ec) {
+      break;
+    }
+    index_ = candidate;
+  }
+}
+
+std::string RawLogWriter::resolve_time_path(std::int64_t recv_wall_ns) const {
+  if (!time_partitioned_) return base_path_;
+  const std::time_t sec = static_cast<std::time_t>(recv_wall_ns / 1'000'000'000LL);
+  std::tm utc{};
+#if defined(_WIN32)
+  gmtime_s(&utc, &sec);
+#else
+  gmtime_r(&sec, &utc);
+#endif
+  char date[16], hour[4];
+  std::strftime(date, sizeof(date), "%Y-%m-%d", &utc);
+  std::strftime(hour, sizeof(hour), "%H", &utc);
+  std::string out = base_path_;
+  auto replace_all = [&out](const std::string& token, const std::string& value) {
+    std::size_t pos = 0;
+    while ((pos = out.find(token, pos)) != std::string::npos) {
+      out.replace(pos, token.size(), value);
+      pos += value.size();
+    }
+  };
+  replace_all("{UTC_DATE}", date);
+  replace_all("{UTC_HOUR}", hour);
+  return out;
+}
+
+bool RawLogWriter::ensure_time_partition(std::int64_t recv_wall_ns) {
+  if (!time_partitioned_) return f_ != nullptr;
+  const std::string desired = resolve_time_path(recv_wall_ns);
+  if (desired == active_base_path_ && f_) return true;
+  const bool first_open = active_base_path_.empty();
+  if (!close_current()) return false;
+  active_base_path_ = desired;
+  select_latest_shard();
+  if (!first_open) ++rotations_;
+  return open_current();
+}
+
+bool RawLogWriter::rotate() {
+  if (!close_current()) return false;
   ++index_;
   ++rotations_;
-  open_current();
+  return open_current();
 }
 
-void RawLogWriter::write(const RawRecord& rec) {
-  if (!f_) return;
+bool RawLogWriter::write(const RawRecord& rec) {
+  if (!ensure_time_partition(rec.recv_wall_ns) || !f_) return false;
   std::string line;
   line.reserve(rec.raw.size() + 256);
   line += "{\"recv_mono_ns\":";
@@ -192,14 +281,16 @@ void RawLogWriter::write(const RawRecord& rec) {
   }
   line += "}\n";
 
-  if (bytes_ > 0 && bytes_ + line.size() > max_bytes_) rotate();
-  std::fwrite(line.data(), 1, line.size(), f_);
+  if (bytes_ > 0 && bytes_ + line.size() > max_bytes_ && !rotate()) return false;
+  const std::size_t wrote = std::fwrite(line.data(), 1, line.size(), f_);
+  if (wrote != line.size()) return false;
   bytes_ += line.size();
-  if (fsync_each_) std::fflush(f_);
+  if (fsync_each_ && std::fflush(f_) != 0) return false;
+  return true;
 }
 
-void RawLogWriter::flush() {
-  if (f_) std::fflush(f_);
+bool RawLogWriter::flush() {
+  return f_ != nullptr && std::fflush(f_) == 0;
 }
 
 // --- RawLogReader ---

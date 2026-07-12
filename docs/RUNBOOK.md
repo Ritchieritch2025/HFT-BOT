@@ -67,6 +67,19 @@ python3 tools/export_day.py --date 2026-07-05 --legacy-seal
 python3 tools/prune_raw.py --retention-days 2 --dry-run
 ```
 
+### 1b. 被动 RFQ 通讯采集（已实现，尚未部署）
+
+部署必须等 W03 的同一维护窗口；现在不要手动启动。上线后它是独立的
+`kalshi-rfq-capture.service`，写 `rfq_<HH>.ndjson`，不会重启或阻塞主
+firehose。紧急单触停用仅影响 RFQ：
+
+```bash
+touch /home/ubuntu/hft-bot/work/live/rfq_disable
+```
+
+48 小时报告命令、字段口径、恢复方式见
+`docs/RFQ_CAPTURE_AND_48H_REPORT.md`。
+
 ## 2. Dashboard(操作台,localhost 只读)
 
 ```bash

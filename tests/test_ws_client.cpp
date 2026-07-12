@@ -78,6 +78,17 @@ int main() {
     const std::string sub2 = c.build_subscribe(4, {"MKT-A"});
     check(has(sub2, R"("channels":["orderbook_delta","trade","ticker"])"),
           "subscribe cmd can include orderbook_delta + trade + ticker channels");
+    WsConfig communications_cfg = cfg();
+    communications_cfg.include_use_yes_price = false;
+    KalshiWsClient communications(
+        t, communications_cfg,
+        [](std::string_view) { return std::string("s"); });
+    communications.want_channels({"communications"});
+    const std::string communications_sub = communications.build_subscribe(6, {});
+    check(has(communications_sub, R"("channels":["communications"])") &&
+              !has(communications_sub, "market_ticker") &&
+              !has(communications_sub, "use_yes_price"),
+          "communications subscribe is global and omits orderbook-only parameters");
     check(has(c.build_unsubscribe(2, {7}), R"("cmd":"unsubscribe")") &&
               has(c.build_unsubscribe(2, {7}), R"("sids":[7])"),
           "unsubscribe cmd carries sids");
@@ -138,6 +149,24 @@ int main() {
     t.inject_text(R"({"type":"market_lifecycle_v2","sid":7,"msg":{"market_ticker":"MKT-A","event_type":"determined"}})");
     check(books.book(A) == nullptr && c.lifecycle_deletes() == 1,
           "determined lifecycle frees the book");
+  }
+
+  // --- transport health: Close/Error are failures, never liveness ---------
+  {
+    MockWebSocketTransport t;
+    KalshiWsClient c(t, cfg(), [](std::string_view) { return std::string("s"); });
+    c.want_orderbook({"MKT-A"});
+    c.start();
+    t.inject_text(R"({"id":1,"type":"subscribed","msg":{"channel":"orderbook_delta","sid":7}})");
+    const std::int64_t last_good = c.last_activity_ms();
+    check(c.is_open(), "explicit transport state is open after successful Open");
+    t.inject_close();
+    t.inject_error("401", 401);
+    t.inject_error("401", 401);
+    check(!c.is_open() && c.disconnects() == 3 && c.errors() == 2,
+          "Close/repeated Error keep transport closed and increment failure counters");
+    check(c.last_activity_ms() == last_good,
+          "Close/Error callbacks cannot refresh last good inbound activity");
   }
 
   // --- reconnect: drop -> close; reopen -> epoch bump + resubscribe ---

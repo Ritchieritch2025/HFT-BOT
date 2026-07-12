@@ -93,6 +93,19 @@ int main(int argc, char** argv) {
     check(loss == 1 && lost_count == 8, "a loss marker records the 8 dropped frames");
   }
 
+  // --- active capture write failure is visible to the feed health path ---
+  {
+    const std::string blocker_path = dir + "/rec_blocked";
+    if (std::FILE* blocker = std::fopen(blocker_path.c_str(), "wb"))
+      std::fclose(blocker);  // regular file used where a parent directory is required
+    WsRecorder rec(blocker_path + "/capture.ndjson");
+    rec.record(mk(1, "x"));
+    rec.start();
+    rec.stop();
+    check(rec.write_failures() > 0,
+          "unwritable recorder destination increments write_failures");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }
