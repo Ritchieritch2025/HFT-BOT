@@ -23,17 +23,18 @@ HH="$(date -u +%H)"
 # would recreate the W-A3 torn-copy incident even though its volume is small.
 aws s3 sync work/raw "$DST/raw" --no-progress \
   --exclude "*/firehose_${HH}.ndjson*" \
+  --exclude "*/l2_${HH}.ndjson*" \
   --exclude "*/rfq_${HH}.ndjson*" \
   --exclude "*/rfq_receipts_${HH}.ndjson*"
 # reports (may not exist yet — W-R builds the generator)
 [ -d reports ] && aws s3 sync reports "$DST/reports" --no-progress
 
 if [ "$MODE" = daily ]; then
-  for d in facts dim catalog legacy_greed _meta seals; do
+  for d in facts dim catalog legacy_greed _meta seals corrections; do
     [ -d "work/warehouse/$d" ] && \
       aws s3 sync "work/warehouse/$d" "$DST/warehouse/$d" --no-progress
   done
   [ -f work/warehouse/manifest.csv ] && \
     aws s3 cp work/warehouse/manifest.csv "$DST/warehouse/manifest.csv" --no-progress
 fi
-echo "[ec2_s3_sync] $MODE sync complete $(date -u +%FT%TZ) (excluded active firehose/rfq hour $HH)"
+echo "[ec2_s3_sync] $MODE sync complete $(date -u +%FT%TZ) (excluded active firehose/l2/rfq hour $HH)"
