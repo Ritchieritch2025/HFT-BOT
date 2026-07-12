@@ -1600,3 +1600,268 @@ def test_prune_raw_is_seal_gated_and_fail_closed(tmp_path):
     f_new.write_text("{}\n")
     assert prune_raw.main(argv) == 1
     assert f_new.exists()
+
+
+# ─────────────────── PIPE-W03: discovery + pause ownership ───────────────────
+
+def test_unsealed_old_day_rotated_raw_stays_discoverable(tmp_path):
+    """PIPE-W03 regression (2026-07-10 hour-13 incident): raw for a day OLDER
+    than the fixed yesterday+today window — including WsRecorder rotation
+    shards (.ndjson.1) — must still be discovered by the scanner as long as
+    the day is UNSEALED. The pre-W03 scanner globbed only yesterday+today, so
+    a day whose ingestion stalled (staging lock starvation) could leave the
+    scan window with raw bytes never ingested and nothing would ever pick
+    them up again. Sealed old days stay excluded (proven byte-complete)."""
+    tmp = str(tmp_path)
+    wh = ti.make_warehouse(tmp)
+    raw_root = os.path.join(tmp, "raw")
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    old = today - datetime.timedelta(days=3)       # outside the old 2-day window
+    sealed_old = today - datetime.timedelta(days=4)
+    yd = today - datetime.timedelta(days=1)
+
+    old_dir = os.path.join(raw_root, "date=%s" % old.isoformat())
+    os.makedirs(old_dir)
+    base = os.path.join(old_dir, "firehose_13.ndjson")
+    shard = os.path.join(old_dir, "firehose_13.ndjson.1")  # rotation shard
+    t_base, t_shard = _day_us(old, 13, 30), _day_us(old, 13, 930)
+    with open(base, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B71", t_base, 0.30, 0.40) + "\n")
+    with open(shard, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B71", t_shard, 0.31, 0.40) + "\n")
+
+    sealed_dir = os.path.join(raw_root, "date=%s" % sealed_old.isoformat())
+    os.makedirs(sealed_dir)
+    sealed_file = os.path.join(sealed_dir, "firehose_05.ndjson")
+    with open(sealed_file, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B72", _day_us(sealed_old, 5), 0.10, 0.20) + "\n")
+    os.makedirs(os.path.join(wh, "seals"))
+    with open(os.path.join(wh, "seals",
+                           "date=%s.json" % sealed_old.isoformat()), "w") as f:
+        json.dump({"status": "SEALED", "version": 2, "method": "full_v2"}, f)
+
+    yd_dir = os.path.join(raw_root, "date=%s" % yd.isoformat())
+    os.makedirs(yd_dir)
+    yd_file = os.path.join(yd_dir, "firehose_00.ndjson")
+    with open(yd_file, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B73", _day_us(yd, 0), 0.50, 0.60) + "\n")
+
+    # the PRE-W03 production scanner: yesterday+today glob only — it NEVER
+    # returns the old day's base or rotation shard (the incident class)
+    old_window = []
+    for d in (today - datetime.timedelta(days=1), today):
+        old_window.extend(sorted(glob.glob(os.path.join(
+            raw_root, "date=%s" % d.isoformat(), "*.ndjson*"))))
+    assert base not in old_window and shard not in old_window
+
+    cfg = {"raw_root": raw_root, "warehouse_root": wh}
+    files = ingest.raw_files_to_scan(cfg)
+    # new scanner discovers BOTH the base file and the rotation shard...
+    assert base in files and shard in files
+    # ...keeps scanning yesterday, and still excludes the SEALED old day
+    assert yd_file in files
+    assert sealed_file not in files
+
+    # end-to-end: one scan pass ingests the stranded files and checkpoints
+    # them byte-exactly, so a later seal's caught-up gate can pass
+    ing = ti.new_ingester(tmp, wh)
+    for path in files:
+        ing.process_file(path)
+    ck = dict(_q(ing, "SELECT file, byte_offset FROM checkpoint"))
+    assert ck[os.path.abspath(base)] == os.path.getsize(base)
+    assert ck[os.path.abspath(shard)] == os.path.getsize(shard)
+    # both stranded ticks staged (Class-A hourly heartbeats add further rows
+    # at hour boundaries as the ingest clock crosses days; not asserted here)
+    n = _q(ing, "SELECT count(*) FROM orderbooks_l1 "
+                "WHERE market_ticker='KXBTC-26DEC31-B71' "
+                "AND ts_utc IN (%d, %d)" % (t_base, t_shard))[0][0]
+    assert n == 2
+    ing.con.close()
+
+
+def test_caught_up_failure_reports_every_behind_file(tmp_path):
+    """PIPE-W03: the caught-up gate reports ALL undiscovered/behind raw files,
+    not only the first. The 2026-07-10 refusal named a single file
+    (firehose_13.ndjson checkpoint=None) while ~11 further hours were equally
+    missing — the blast radius was invisible until backfill."""
+    tmp = str(tmp_path)
+    wh = ti.make_warehouse(tmp)
+    raw_root = os.path.join(tmp, "raw")
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    yd = today - datetime.timedelta(days=1)
+    yd_dir = os.path.join(raw_root, "date=%s" % yd.isoformat())
+    td_dir = os.path.join(raw_root, "date=%s" % today.isoformat())
+    os.makedirs(yd_dir)
+    os.makedirs(td_dir)
+
+    ingested = os.path.join(yd_dir, "firehose_10.ndjson")
+    missed_base = os.path.join(yd_dir, "firehose_13.ndjson")
+    missed_shard = os.path.join(yd_dir, "firehose_13.ndjson.1")
+    with open(ingested, "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B74", _day_us(yd, 10), 0.20, 0.30) + "\n")
+    for path, sec in ((missed_base, 0), (missed_shard, 900)):
+        with open(path, "w") as f:
+            f.write(ti.tick("KXBTC-26DEC31-B74", _day_us(yd, 13, sec),
+                            0.25, 0.35) + "\n")
+    cross = []
+    for hh in (0, 1):
+        p = os.path.join(td_dir, "firehose_0%d.ndjson" % hh)
+        with open(p, "w") as f:
+            f.write(ti.tick("KXBTC-26DEC31-B74", _day_us(today, hh), 0.40, 0.50) + "\n")
+        cross.append(p)
+
+    ing = ti.new_ingester(tmp, wh)
+    for path in (ingested, *cross):        # hour 13 base+shard NEVER ingested
+        ing.process_file(path)
+    ing.con.close()
+
+    con = duckdb.connect()
+    con.execute("ATTACH '%s' AS stg (READ_ONLY)"
+                % os.path.join(tmp, "staging.duckdb").replace("'", "''"))
+    with pytest.raises(RuntimeError) as e:
+        export_day.verify_raw_caught_up(con, raw_root, yd.isoformat(), wh)
+    con.close()
+    msg = str(e.value)
+    assert "ingest checkpoint behind raw" in msg
+    assert "2 file(s)" in msg
+    assert os.path.abspath(missed_base) in msg
+    assert os.path.abspath(missed_shard) in msg
+    assert "checkpoint=None" in msg
+
+
+def test_seal_evidence_records_per_family_discovery(exported_day):
+    """PIPE-W03 (D2): the seal carries per file-family discovery evidence —
+    hours/shards present on disk vs discovered by ingest, plus exchange-day
+    hours with no file at all — so a never-discovered channel/hour can never
+    again hide behind a green seal."""
+    wh, yd, today = (exported_day[k] for k in ("wh", "yd", "today"))
+    seal = json.load(open(os.path.join(
+        wh, "seals", "date=%s.json" % yd.isoformat())))
+    fams = seal["discovery_completeness"]
+    assert set(fams) == {"firehose"}
+    fam = fams["firehose"]
+    # fixture: yesterday hour 00 + cross-day (today) hours 00/01, all ingested
+    assert fam["files_present"] == 3
+    assert fam["files_discovered"] == 3
+    assert fam["undiscovered_files"] == []
+    assert fam["hours"]["%s/00" % yd.isoformat()] == {"present": 1, "discovered": 1}
+    assert fam["hours"]["%s/00" % today.isoformat()] == {"present": 1, "discovered": 1}
+    assert fam["hours"]["%s/01" % today.isoformat()] == {"present": 1, "discovered": 1}
+    # only hour 00 of the exchange day exists on disk; 01..23 recorded missing
+    assert fam["exchange_day_hours_missing_on_disk"] == list(range(1, 24))
+
+
+def test_discovery_completeness_is_per_family_and_shard_aware(tmp_path):
+    """Forward-compatible with the planned l2_ raw family: families are keyed
+    by filename prefix, shards aggregate into their hour bucket, and an
+    undiscovered file is listed per family."""
+    raw_root = str(tmp_path / "raw")
+    day = "2026-07-10"
+    ddir = os.path.join(raw_root, "date=%s" % day)
+    os.makedirs(ddir)
+    names = ["firehose_13.ndjson", "firehose_13.ndjson.1", "l2_13.ndjson"]
+    files = []
+    for n in names:
+        p = os.path.join(ddir, n)
+        with open(p, "w") as f:
+            f.write("{}\n")
+        files.append(p)
+    ckpts = {os.path.abspath(files[0]): os.path.getsize(files[0]),
+             os.path.abspath(files[1]): os.path.getsize(files[1])}
+    fams = export_day.discovery_completeness(raw_root, day, files, ckpts)
+    assert set(fams) == {"firehose", "l2"}
+    assert fams["firehose"]["hours"]["%s/13" % day] == {"present": 2, "discovered": 2}
+    assert fams["firehose"]["undiscovered_files"] == []
+    assert fams["l2"]["files_present"] == 1
+    assert fams["l2"]["files_discovered"] == 0
+    assert fams["l2"]["undiscovered_files"] == [
+        os.path.join("date=%s" % day, "l2_13.ndjson")]
+    assert 13 not in fams["l2"]["exchange_day_hours_missing_on_disk"]
+    assert 13 not in fams["firehose"]["exchange_day_hours_missing_on_disk"]
+
+
+def _pause_functions_script():
+    """Extract the two pause-ownership functions verbatim from the supervisor
+    so the functional tests exercise the REAL production shell code."""
+    text = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+
+    def block(name):
+        start = text.index("%s() {" % name)
+        end = text.index("\n}", start)
+        return text[start:end + 2]
+
+    return block("acquire_export_pause") + "\n" + block("release_export_pause")
+
+
+def _run_pause_scenario(live_dir, body):
+    script = "set -u\nLIVE='%s'\n%s\n%s" % (live_dir,
+                                            _pause_functions_script(), body)
+    return subprocess.run(["bash", "-c", script],
+                          capture_output=True, text=True)
+
+
+def test_seal_chain_pause_ownership_foreign_pause_refused(tmp_path):
+    """BACKLOG B4: a foreign/operator pause refuses the window and is NEVER
+    deleted or rewritten — token-bearing content and bare `touch` alike."""
+    live = str(tmp_path)
+    for content in ("operator manual backfill hold\n", ""):
+        pause = os.path.join(live, "export_pause")
+        with open(pause, "w") as f:
+            f.write(content)
+        r = _run_pause_scenario(live, "acquire_export_pause")
+        assert r.returncode != 0
+        assert "refused" in r.stdout
+        assert open(pause).read() == content, "foreign pause must be untouched"
+        # release must also leave a foreign pause in place
+        r2 = _run_pause_scenario(live, "release_export_pause")
+        assert r2.returncode == 0
+        assert os.path.exists(pause) and open(pause).read() == content
+        os.unlink(pause)
+
+
+def test_seal_chain_pause_ownership_own_lifecycle_and_stale_reclaim(tmp_path):
+    live = str(tmp_path)
+    pause = os.path.join(live, "export_pause")
+    # normal lifecycle: acquire writes our token, release removes it
+    r = _run_pause_scenario(
+        live, 'acquire_export_pause && grep -qx "seal_chain pid=${BASHPID:-$$}" '
+              '"$LIVE/export_pause" && release_export_pause')
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not os.path.exists(pause)
+    # stale chain pause (dead pid, own token format) is reclaimed loudly
+    r = _run_pause_scenario(
+        live, '( : ) & dead=$!; wait "$dead"; '
+              'echo "seal_chain pid=$dead" > "$LIVE/export_pause"; '
+              'acquire_export_pause')
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "reclaiming stale seal-chain export_pause" in r.stdout
+    assert open(pause).read().startswith("seal_chain pid=")
+    # a LIVE chain's pause is not stolen by another acquire
+    r = _run_pause_scenario(
+        live, 'sleep 5 & live_pid=$!; '
+              'echo "seal_chain pid=$live_pid" > "$LIVE/export_pause"; '
+              'acquire_export_pause; rc=$?; kill "$live_pid"; exit $rc')
+    assert r.returncode != 0
+    assert "held by live seal chain" in r.stdout
+
+
+def test_seal_chain_pause_ownership_static_contract():
+    """The chain acquires/releases ONLY via the ownership helpers; the old
+    unconditional touch/rm of the pause file is gone; on a refused window the
+    chain must not restart a paused ingest daemon."""
+    text = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    live = "\n".join(ln for ln in text.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    assert 'touch "$LIVE/export_pause"' not in live
+    assert 'rm -f "$LIVE/export_pause"' not in live
+    chain = text[text.index("run_seal_chain()"):text.index("\nwhile true; do")]
+    assert "acquire_export_pause" in chain and "release_export_pause" in chain
+    # window structure: acquire gates BOTH the ingest stop and the restart
+    assert chain.index("acquire_export_pause") \
+        < chain.index("stop_ingest_for_export") \
+        < chain.index("release_export_pause") \
+        < chain.index("ingest_alive || start_ingest")
+    # rm -f of the pause appears only inside release_export_pause
+    release = _pause_functions_script()
+    assert 'rm -f "$pause"' in release
+    assert live.count('rm -f "$pause"') == 1

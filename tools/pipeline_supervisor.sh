@@ -143,6 +143,42 @@ seal_chain_active() {
   [ -n "${SEAL_PID:-}" ] && kill -0 "$SEAL_PID" 2>/dev/null
 }
 
+# BACKLOG B4 (2026-07-11 incident): the chain used to `touch`/`rm -f` the
+# export_pause unconditionally and deleted the operator's 10:45Z backfill
+# pause, restarting daemons into a manual backfill. The pause now carries an
+# ownership token; the chain refuses its export window while a FOREIGN pause
+# exists and only ever removes a pause it wrote itself. A stale pause from a
+# dead seal chain (supervisor kill mid-window) is reclaimed loudly; anything
+# else is operator property and is never touched.
+acquire_export_pause() {
+  pause="$LIVE/export_pause"
+  if [ -f "$pause" ]; then
+    owner_pid="$(sed -n 's/^seal_chain pid=\([0-9][0-9]*\)$/\1/p' "$pause" 2>/dev/null)"
+    if [ -z "$owner_pid" ]; then
+      echo "[supervisor] FOREIGN export_pause present (operator/manual); export window refused, pause left in place"
+      return 1
+    fi
+    if kill -0 "$owner_pid" 2>/dev/null; then
+      echo "[supervisor] export_pause held by live seal chain pid=$owner_pid; export window refused"
+      return 1
+    fi
+    echo "[supervisor] reclaiming stale seal-chain export_pause (dead pid=$owner_pid)"
+  fi
+  # BASHPID = this background chain's own pid (bash>=4, production); the $$
+  # fallback (parent pid) only serves bash 3.2 test hosts — ownership match
+  # stays exact either way because release greps the same expansion.
+  echo "seal_chain pid=${BASHPID:-$$}" > "$pause"
+}
+release_export_pause() {
+  pause="$LIVE/export_pause"
+  [ -f "$pause" ] || return 0
+  if grep -qx "seal_chain pid=${BASHPID:-$$}" "$pause" 2>/dev/null; then
+    rm -f "$pause"
+  else
+    echo "[supervisor] export_pause is not ours (foreign/replaced); left in place"
+  fi
+}
+
 # Watchdog: the main loop blocks inside hour-long ws_shadow runs, so a crashed
 # ingest daemon must be revived independently (skipped during the export pause).
 ( while true; do
@@ -288,20 +324,23 @@ run_seal_chain() {
     return 1
   elif [ "$(date -u +%H)" -ge 2 ]; then
     : > "$EXPORT_ATTEMPT_LOG"
-    touch "$LIVE/export_pause"
     chain_ok=0
-    if stop_ingest_for_export; then
-      if python3 tools/export_day.py --date "$CHAIN_DATE" --check-caught-up \
-           >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
-         python3 tools/export_day.py --date "$CHAIN_DATE" --force --no-prune \
-           >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
-         python3 tools/export_day.py --date "$CHAIN_DATE" --seal \
-           >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
-        chain_ok=1
+    # B4: a foreign (operator/manual) pause blocks the window AND stays down —
+    # neither the pause file nor the paused ingest daemon is touched.
+    if acquire_export_pause; then
+      if stop_ingest_for_export; then
+        if python3 tools/export_day.py --date "$CHAIN_DATE" --check-caught-up \
+             >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
+           python3 tools/export_day.py --date "$CHAIN_DATE" --force --no-prune \
+             >> "$EXPORT_ATTEMPT_LOG" 2>&1 &&
+           python3 tools/export_day.py --date "$CHAIN_DATE" --seal \
+             >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
+          chain_ok=1
+        fi
       fi
+      release_export_pause
+      ingest_alive || start_ingest
     fi
-    rm -f "$LIVE/export_pause"
-    ingest_alive || start_ingest
     cat "$EXPORT_ATTEMPT_LOG" >> "$LIVE/export.log"
     if [ "$chain_ok" -eq 1 ]; then
       echo "[supervisor] sealed final archive $CHAIN_DATE"

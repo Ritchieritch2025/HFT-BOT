@@ -100,6 +100,25 @@ def seal_path(warehouse_root, date):
     return os.path.join(warehouse_root, "seals", "date=%s.json" % date)
 
 
+def day_sealed(warehouse_root, date):
+    """True only for a well-formed status=SEALED version-2 day seal.
+
+    Shared by prune_raw (delete gate) and the ingest scanner (PIPE-W03: an
+    UNSEALED day's raw stays scan-eligible no matter how old it is, so a
+    not-yet-ingested day can never age out of discovery). Any parse/IO
+    problem reads as unsealed — fail-closed for both consumers."""
+    import json
+    path = seal_path(warehouse_root, date)
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path) as f:
+            seal = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return seal.get("status") == "SEALED" and seal.get("version") == 2
+
+
 def manifest_date_sha256(manifest_path, date):
     """Stable digest of every manifest field for one UTC date."""
     import csv

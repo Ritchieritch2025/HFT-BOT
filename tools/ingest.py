@@ -678,13 +678,32 @@ def connect_with_retry(duckdb, path, attempts=30, sleep_s=5.0):
 
 def raw_files_to_scan(cfg):
     import datetime
+    import re as _re
     today = datetime.datetime.now(datetime.timezone.utc).date()
+    yesterday = today - datetime.timedelta(days=1)
+    # Always scan yesterday+today (pre-W03 behavior, kept verbatim), PLUS any
+    # older on-disk raw day that has no valid seal (PIPE-W03 root cause: the
+    # 2026-07-10 hour-13 stall showed a day can leave the fixed 2-day window
+    # with raw bytes still un-ingested; an unsealed day must stay discoverable
+    # forever — its files are cheap re-scans once checkpointed, and prune_raw
+    # retains unsealed raw anyway). Sealed days are proven byte-complete at
+    # seal time, so re-scanning them adds nothing.
+    days = {yesterday.isoformat(), today.isoformat()}
+    day_dir_re = _re.compile(r"^date=(\d{4}-\d{2}-\d{2})$")
+    try:
+        entries = os.listdir(cfg["raw_root"])
+    except OSError:
+        entries = []
+    for entry in entries:
+        m = day_dir_re.match(entry)
+        if m and not wc.day_sealed(cfg["warehouse_root"], m.group(1)):
+            days.add(m.group(1))
     files = []
-    for d in (today - datetime.timedelta(days=1), today):
+    for d in sorted(days):
         # *.ndjson* also matches WsRecorder rotation shards (base.ndjson.1, .2, ...)
         # — each shard is its own append-only file, so per-file checkpoints hold.
         files.extend(sorted(glob.glob(
-            os.path.join(wc.raw_day_dir(cfg["raw_root"], d.isoformat()), "*.ndjson*"))))
+            os.path.join(wc.raw_day_dir(cfg["raw_root"], d), "*.ndjson*"))))
     return files
 
 

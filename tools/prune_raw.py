@@ -32,15 +32,8 @@ CROSS_DAY_HOURS = 2
 
 
 def _sealed(warehouse_root, date):
-    path = wc.seal_path(warehouse_root, date)
-    if not os.path.isfile(path):
-        return False
-    try:
-        with open(path) as f:
-            seal = json.load(f)
-    except (OSError, ValueError):
-        return False
-    return seal.get("status") == "SEALED" and seal.get("version") == 2
+    # PIPE-W03: single shared definition (also gates the ingest scanner).
+    return wc.day_sealed(warehouse_root, date)
 
 
 def _unsealed_dependencies(warehouse_root, raw_root):

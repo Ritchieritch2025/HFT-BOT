@@ -632,12 +632,19 @@ noticed-during, observation, suggested owner.
   skipping the three `mm_*` tools.  The underlying `.df()`/DuckDB memory
   bound and future research-worker cgroup remain open W03/research-plane
   work; an EC2 resize does not close that software defect (owner: PIPE-W03).
-- B4 (2026-07-11 morning-check finding): run_seal_chain does not respect a
-  PRE-EXISTING work/live/export_pause — it unconditionally touches and then
-  `rm -f`s the pause file, deleting an operator-held pause and restarting
-  ingest into the middle of a manual backfill (observed live 11:00Z: chain
-  removed the operator's 10:45Z backfill pause; backfill + respawning daemons
-  then competed for the staging lock for 2h+. DuckDB single-writer lock kept
-  it lossless — waste only). Fix shape: pause-file ownership marker (chain
-  only removes a pause it created) + refuse chain start when a foreign pause
-  exists (owner: PIPE-W03/W04).
+- B4 (2026-07-11 morning-check finding) — **FIXED in PIPE-W03** (branch
+  pipe-w03: tools/pipeline_supervisor.sh acquire_export_pause /
+  release_export_pause; contract tests
+  tests/test_pipeline_contract.py::test_seal_chain_pause_ownership_*).
+  Original finding: run_seal_chain did not respect a PRE-EXISTING
+  work/live/export_pause — it unconditionally touched and then `rm -f`ed the
+  pause file, deleting an operator-held pause and restarting ingest into the
+  middle of a manual backfill (observed live 11:00Z: chain removed the
+  operator's 10:45Z backfill pause; backfill + respawning daemons then
+  competed for the staging lock for 2h+. DuckDB single-writer lock kept it
+  lossless — waste only). Implemented fix: the pause file carries an
+  ownership token (`seal_chain pid=<chain pid>`); the chain REFUSES its
+  export window while a foreign (token-less/operator) pause exists and never
+  deletes or overrides it (paused ingest stays paused); it removes only a
+  pause bearing its own token; a stale pause left by a DEAD prior chain is
+  reclaimed with a loud log line.

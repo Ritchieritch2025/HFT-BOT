@@ -29,6 +29,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -190,14 +191,71 @@ def _archived_select(table, path, ext):
             % (src, types))
 
 
+RAW_FAMILY_RE = re.compile(r"^(?P<family>.+)_(?P<hour>\d{2})\.ndjson(?:\.\d+)?$")
+
+
+def discovery_completeness(raw_root, date, files, checkpoints):
+    """Per raw file-family (firehose_, future l2_, ...) discovery evidence.
+
+    PIPE-W03 (D2): records, for every family prefix, the day-hours/shards
+    present on disk vs discovered by ingest (= having a checkpoint row), plus
+    the exchange-day hours with NO file at all — so a never-discovered file or
+    a silent capture hole is visible in the seal evidence itself, per channel.
+    Evidence only: the hard gate remains verify_raw_caught_up."""
+    fams = {}
+    for path in files:
+        path = os.path.abspath(path)
+        name = os.path.basename(path)
+        m = RAW_FAMILY_RE.match(name)
+        family = m.group("family") if m else "_unrecognized"
+        hour = m.group("hour") if m else "_none"
+        # cross-day receipt files (next-day hours 00/01) keep their own bucket
+        day_key = os.path.basename(os.path.dirname(path))[len("date="):]
+        fam = fams.setdefault(family, {"files_present": 0, "files_discovered": 0,
+                                       "undiscovered_files": [], "hours": {}})
+        fam["files_present"] += 1
+        bucket = fam["hours"].setdefault("%s/%s" % (day_key, hour),
+                                         {"present": 0, "discovered": 0})
+        bucket["present"] += 1
+        if checkpoints.get(path) == os.path.getsize(path):
+            fam["files_discovered"] += 1
+            bucket["discovered"] += 1
+        else:
+            fam["undiscovered_files"].append(os.path.relpath(path, raw_root))
+    for family, fam in fams.items():
+        fam["undiscovered_files"].sort()
+        if family == "_unrecognized":
+            continue
+        seen = {int(k.split("/")[1]) for k in fam["hours"]
+                if k.startswith(date + "/")}
+        fam["exchange_day_hours_missing_on_disk"] = sorted(
+            set(range(24)) - seen)
+    return fams
+
+
 def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
-    """Prove every byte in every closed raw file has an exact checkpoint."""
+    """Prove every byte in every closed raw file has an exact checkpoint.
+
+    PIPE-W03: on failure, EVERY behind/undiscovered file is reported — the
+    2026-07-10 incident surfaced only the first offender (hour-13 base) while
+    ~11 more hours were equally missing, understating the blast radius."""
     day_dir = wc.raw_day_dir(raw_root, date)
     files = wc.seal_raw_files(raw_root, date, warehouse_root=warehouse_root)
     if not files:
         raise RuntimeError("no raw files for completed day: %s" % day_dir)
     checkpoints = dict(con.execute(
         "SELECT file, byte_offset FROM stg.checkpoint").fetchall())
+    behind = []
+    for path in files:
+        path = os.path.abspath(path)
+        size = os.path.getsize(path)
+        offset = checkpoints.get(path)
+        if offset != size:
+            behind.append("%s checkpoint=%s size=%d" % (path, offset, size))
+    if behind:
+        raise RuntimeError(
+            "ingest checkpoint behind raw: %d file(s): %s"
+            % (len(behind), "; ".join(behind)))
     proof = []
     for path in files:
         path = os.path.abspath(path)
@@ -398,6 +456,13 @@ def write_day_seal(con, date, day_lo, day_hi, cfg):
     """Atomically attest raw->staging->archive completeness for one day."""
     raw_proof = verify_raw_caught_up(
         con, cfg["raw_root"], date, cfg["warehouse_root"])
+    # PIPE-W03 (D2): per-family discovery evidence, from the SAME inventory
+    # the proof just covered (raw_proof paths are raw_root-relative).
+    proof_files = [os.path.join(cfg["raw_root"], r["file"]) for r in raw_proof]
+    proof_ckpts = {os.path.abspath(os.path.join(cfg["raw_root"], r["file"])):
+                   int(r["checkpoint"]) for r in raw_proof}
+    completeness = discovery_completeness(
+        cfg["raw_root"], date, proof_files, proof_ckpts)
     manifest_path = os.path.join(cfg["warehouse_root"], "manifest.csv")
     manifest_before = os.stat(manifest_path)
     nfiles, archive_stats = verify_archived_date(
@@ -435,6 +500,7 @@ def write_day_seal(con, date, day_lo, day_hi, cfg):
         "raw_retention_requirement": "LOCAL_OR_VAULT_VERIFIED_RECEIPT",
         "receipt_cross_day_hours": 2,
         "raw_files": raw_proof,
+        "discovery_completeness": completeness,
     }
     path = wc.seal_path(cfg["warehouse_root"], date)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -762,6 +828,14 @@ def main(argv):
             con.close()
             return 1
         con.close()
+        pfiles = [os.path.join(cfg["raw_root"], r["file"]) for r in proof]
+        pckpts = {os.path.abspath(os.path.join(cfg["raw_root"], r["file"])):
+                  int(r["checkpoint"]) for r in proof}
+        for family, fam in sorted(discovery_completeness(
+                cfg["raw_root"], date, pfiles, pckpts).items()):
+            print("  discovery[%s]: files=%d discovered=%d hours_missing_on_disk=%s"
+                  % (family, fam["files_present"], fam["files_discovered"],
+                     fam.get("exchange_day_hours_missing_on_disk", [])))
         print("INGEST CATCH-UP PASS %s: %d closed raw file(s), all bytes checkpointed"
               % (date, len(proof)))
         return 0
