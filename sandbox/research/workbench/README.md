@@ -22,6 +22,38 @@ open sandbox/research/reports/event_intel/index.html
 python3 sandbox/research/workbench/app.py serve   # -> http://127.0.0.1:8791/intel
 ```
 
+### Building from the PIPE-W05 research cache (`--data-root`)
+
+The builder accepts an explicit data root shaped like the warehouse
+(`facts/`, `catalog/`, `seals/`, `raw/`). The intended root is the verified
+research-cache **view** maintained by the pipeline repo's
+`tools/research_data.py` (symlinks over sha256-VERIFIED sealed releases only —
+a failed or torn release never appears in it):
+
+```bash
+# in the pipeline repo, once the operator's read-only research S3 key exists
+# in ~/.kalshi/research_s3.env.sh (0600):
+python3 tools/research_data.py inventory
+python3 tools/research_data.py fetch --release <release_id>   # + verify + view
+# then, here:
+python3 sandbox/research/workbench/event_intel.py build \
+  --data-root "<pipeline-repo>/work/research_cache/view"
+```
+
+With `--data-root`, previously hardcoded statuses are DATA-DRIVEN and
+measured, never asserted: `timestamp_ladder` is TL1 / PRE-TL1 / MIXED from
+the archived L1 schemas; the day-seal count comes from `seals/`; RFQ is
+`RAW_PRESENT` (with dates) when verified sealed rfq raw exists under
+`raw/date=*/` — rendering RFQ events still requires the
+`event-intel-rfq-input-v1` adapter input, and dates without RFQ keep the
+honest empty state. Sealed rfq raw reaches the research prefix only when the
+operator cost switch on the EC2 box is ON (`RESEARCH_INCLUDE_RFQ=1` or the
+`~/.kalshi/research_include_rfq` flag file — defaults OFF pending the
+operator's cost acknowledgment) and it is fetched only with
+`fetch --with-rfq` (egress-bearing). L2 is NOT RESEARCH-EXPOSABLE in
+Phase A (no L2 facts extraction exists; generic raw is excluded from the
+research prefix).
+
 Deep links:
 `index.html#sport=Baseball&ep=26JUL05_BOSLAA&mkt=<ticker>&view=heat|tracks`
 (plus `mode=causal` / `thr=p99.5`).

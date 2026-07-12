@@ -153,14 +153,34 @@ def safe_key(key: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "_", key)
 
 
+def _utc_dates_between(t0_us: int, t1_us: int) -> list[str]:
+    """ISO UTC dates spanned by a [t0_us, t1_us] microsecond window."""
+    out = []
+    day = datetime.fromtimestamp(t0_us / 1e6, tz=timezone.utc).date()
+    last = datetime.fromtimestamp(t1_us / 1e6, tz=timezone.utc).date()
+    while day <= last:
+        out.append(day.isoformat())
+        day = day.fromordinal(day.toordinal() + 1)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Channel inventory
 # ---------------------------------------------------------------------------
 
-def build_inventory(repo_root: Path) -> dict[str, Any]:
-    facts = repo_root / "work" / "warehouse" / "facts"
-    catalog = repo_root / "work" / "warehouse" / "catalog"
-    seals = repo_root / "work" / "warehouse" / "seals"
+def build_inventory(repo_root: Path, data_root: Path | None = None,
+                    tl1_status: str | None = None) -> dict[str, Any]:
+    """Channel inventory over the local warehouse or an explicit --data-root
+    (PIPE-W05: e.g. the verified research-cache view with facts/, catalog/,
+    seals/, raw/). RFQ availability is DATA-DRIVEN: present when rfq raw
+    exists under the data root for a date, honest empty state otherwise."""
+    base = data_root if data_root is not None \
+        else repo_root / "work" / "warehouse"
+    facts = base / "facts"
+    catalog = base / "catalog"
+    seals = base / "seals"
+    raw_root = (data_root / "raw") if data_root is not None \
+        else repo_root / "work" / "raw"
 
     def _dates(pattern: str) -> list[str]:
         out = set()
@@ -175,8 +195,11 @@ def build_inventory(repo_root: Path) -> dict[str, Any]:
     l2_files = sorted(facts.glob(
         "orderbooks_full/category=Sports/subcategory=*/date=*/*.parquet"))
     l2_dates = _dates("orderbooks_full/category=Sports/subcategory=*/date=*/*.parquet")
-    rfq_raw = sorted((repo_root / "work" / "raw").glob("date=*/rfq_*.ndjson*")) \
-        if (repo_root / "work" / "raw").is_dir() else []
+    rfq_raw = sorted(raw_root.glob("date=*/rfq_*.ndjson*")) \
+        if raw_root.is_dir() else []
+    rfq_dates = sorted({m.group(1) for p in rfq_raw
+                        for m in [re.search(r"date=(\d{4}-\d{2}-\d{2})",
+                                            str(p))] if m})
     seal_files = sorted(seals.glob("*")) if seals.is_dir() else []
 
     def chan(status: str, note: str, dates: list[str] | None = None,
@@ -201,11 +224,15 @@ def build_inventory(repo_root: Path) -> dict[str, Any]:
             "a small market set", l2_dates,
             {"markets_hint": len(l2_files)}),
         "rfq": chan(
-            "UNAVAILABLE",
-            "RFQ capture exists only on the EC2 production host; no local "
-            "rfq_<HH>.ndjson files"
-            if not rfq_raw else "local rfq raw present",
-            []),
+            "RAW_PRESENT" if rfq_dates else "UNAVAILABLE",
+            "sealed rfq raw present under the data root (verified research "
+            "release); per-episode rendering still requires the "
+            "event-intel-rfq-input-v1 adapter input"
+            if rfq_dates else
+            "no rfq raw under this data root for these dates; honest "
+            "empty state",
+            rfq_dates,
+            {"files": len(rfq_raw)}),
         "score_game_state": chan(
             "UNAVAILABLE",
             "no score/game-state payload captured for this archive; "
@@ -219,7 +246,13 @@ def build_inventory(repo_root: Path) -> dict[str, Any]:
             "no local day seals for these legacy archive days; gap evidence "
             "is inferred from the hourly-heartbeat contract instead"),
         "timestamp_ladder": chan(
-            "PRE-TL1",
+            tl1_status or "PRE-TL1",
+            "all four W-TL1 ladder columns present in the archived facts "
+            "(receive/decision clocks usable)"
+            if tl1_status == "TL1" else
+            "mix of TL1 and pre-TL1 days under this data root; per-day "
+            "status lives in each release manifest"
+            if tl1_status == "MIXED" else
             "archived days predate W-TL1: only ts_utc (exchange-or-coarse "
             "time) exists; no receive/decision clocks"),
     }
@@ -400,13 +433,27 @@ def load_score_events(inputs_dir: Path, key: str) -> dict[str, Any]:
             "input_contract": SCORE_INPUT_SCHEMA}
 
 
-def load_rfq_events(inputs_dir: Path, key: str) -> dict[str, Any]:
+def load_rfq_events(inputs_dir: Path, key: str,
+                    rfq_raw_dates: frozenset[str] = frozenset(),
+                    episode_dates: frozenset[str] = frozenset()
+                    ) -> dict[str, Any]:
     """RFQ input adapter (rfq_created/rfq_deleted, requester as static hash
-    only). Local archive has no RFQ capture; EC2-only for now."""
+    only). Availability is DATA-DRIVEN (PIPE-W05): when verified research
+    rfq raw exists under the data root for the episode's dates, the empty
+    state says so; dates without RFQ keep the honest empty state."""
     path = inputs_dir / "rfq" / f"{safe_key(key)}.json"
     if not path.is_file():
-        return {"status": "RFQ NOT CAPTURED LOCALLY (EC2-only channel)",
+        overlap = sorted(set(rfq_raw_dates) & set(episode_dates))
+        if overlap:
+            status = ("RFQ RAW PRESENT for %s (verified research release) — "
+                      "no %s adapter input built; events not rendered"
+                      % (", ".join(overlap), RFQ_INPUT_SCHEMA))
+        else:
+            status = "RFQ NOT CAPTURED FOR THESE DATES (no rfq raw under " \
+                     "this data root)"
+        return {"status": status,
                 "available": False, "events": [],
+                "raw_dates_present": overlap,
                 "input_contract": RFQ_INPUT_SCHEMA,
                 "input_path": str(path.relative_to(inputs_dir.parent))}
     with path.open(encoding="utf-8") as handle:
@@ -671,12 +718,22 @@ class EventIntelBuilder:
                  out_dir: Path | None = None,
                  sports: tuple[str, ...] = SPORTS,
                  episodes_per_sport: int = EPISODES_PER_SPORT,
-                 markets_per_episode: int = MARKETS_PER_EPISODE):
+                 markets_per_episode: int = MARKETS_PER_EPISODE,
+                 data_root: Path | None = None):
         self.repo_root = Path(repo_root)
+        # PIPE-W05: an explicit data root (e.g. the verified research-cache
+        # view work/research_cache/view with facts/, catalog/, seals/, raw/)
+        # replaces the local warehouse; default behavior is unchanged.
+        self.data_root = Path(data_root) if data_root is not None else None
+        base = self.data_root if self.data_root is not None \
+            else self.repo_root / "work" / "warehouse"
         self.out_dir = out_dir or (
             self.repo_root / "sandbox" / "research" / "reports" / "event_intel")
-        self.facts = self.repo_root / "work" / "warehouse" / "facts"
-        self.catalog = self.repo_root / "work" / "warehouse" / "catalog"
+        self.facts = base / "facts"
+        self.catalog = base / "catalog"
+        self.seals_dir = base / "seals"
+        self.raw_root = (self.data_root / "raw") if self.data_root is not None \
+            else self.repo_root / "work" / "raw"
         self.sports = sports
         self.episodes_per_sport = episodes_per_sport
         self.markets_per_episode = markets_per_episode
@@ -684,7 +741,11 @@ class EventIntelBuilder:
         import duckdb
         self.con = duckdb.connect()
         self.con.execute("SET threads=4")
+        # W05 HYGIENE: explicit DuckDB memory limit on every connection
+        self.con.execute("SET memory_limit='8GB'")
         self._event_meta: dict[str, tuple[str, str]] | None = None
+        self._tl1_status: str | None = None
+        self._rfq_dates: frozenset[str] | None = None
 
     # -- file discovery -----------------------------------------------------
     def _trade_files(self, sport: str) -> list[Path]:
@@ -698,6 +759,39 @@ class EventIntelBuilder:
     def _l2_files(self) -> list[Path]:
         return sorted((self.facts / "orderbooks_full" / "category=Sports")
                       .glob("subcategory=*/date=*/*.parquet"))
+
+    # -- data-truth detection (PIPE-W05: measured, never asserted) -----------
+    LADDER_COLUMNS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
+                      "local_recv_ts_us")
+
+    def tl1_status(self) -> str:
+        """TL1 vs PRE-TL1 measured from the archived L1 schemas (metadata
+        only). TL1 = all four W-TL1 ladder columns in every sampled file;
+        MIXED = both kinds of day under this data root."""
+        if self._tl1_status is None:
+            kinds = set()
+            for sport in self.sports:
+                for f in self._l1_files(sport)[:64]:
+                    cols = {r[0] for r in self.con.execute(
+                        "DESCRIBE SELECT * FROM read_parquet(?)",
+                        [str(f)]).fetchall()}
+                    kinds.add(all(c in cols for c in self.LADDER_COLUMNS))
+            self._tl1_status = ("TL1" if kinds == {True}
+                                else "MIXED" if kinds == {True, False}
+                                else "PRE-TL1")
+        return self._tl1_status
+
+    def rfq_raw_dates(self) -> frozenset[str]:
+        """UTC dates with rfq raw under the data root (empty locally)."""
+        if self._rfq_dates is None:
+            found = set()
+            if self.raw_root.is_dir():
+                for p in self.raw_root.glob("date=*/rfq_*.ndjson*"):
+                    m = re.search(r"date=(\d{4}-\d{2}-\d{2})", str(p))
+                    if m:
+                        found.add(m.group(1))
+            self._rfq_dates = frozenset(found)
+        return self._rfq_dates
 
     # -- catalog ------------------------------------------------------------
     def event_meta(self) -> dict[str, tuple[str, str]]:
@@ -949,10 +1043,18 @@ class EventIntelBuilder:
                        "t0_utc": _iso(group["t0"]), "t1_utc": _iso(group["t1"]),
                        "basis": "observed archived activity (trades+L1), "
                                 "not scheduled times"},
-            "time_note": "PRE-TL1 / EXCHANGE-OR-COARSE TIME ONLY — ts_utc = "
-                         "COALESCE(exchange_ts, coarse receive); no "
-                         "recv_wall/recv_mono/decision clocks exist for "
-                         "these archive days",
+            "time_note": (
+                "TL1 — receive/decision ladder columns present in the "
+                "archived facts (exchange timestamps stay ms-granular)"
+                if self.tl1_status() == "TL1" else
+                "MIXED TL1/PRE-TL1 days under this data root — per-day "
+                "status in the release manifests; pre-TL1 rows carry "
+                "exchange-or-coarse ts_utc only"
+                if self.tl1_status() == "MIXED" else
+                "PRE-TL1 / EXCHANGE-OR-COARSE TIME ONLY — ts_utc = "
+                "COALESCE(exchange_ts, coarse receive); no "
+                "recv_wall/recv_mono/decision clocks exist for "
+                "these archive days"),
             "markets": markets_payload,
             "other_markets": [{"ticker": r[0], "event_ticker": r[1],
                                "n_trades": int(r[2]), "volume": _num(r[3])}
@@ -961,7 +1063,9 @@ class EventIntelBuilder:
             "regimes": regimes,
             "tape": tape,
             "score": load_score_events(inputs_dir, key),
-            "rfq": load_rfq_events(inputs_dir, key),
+            "rfq": load_rfq_events(
+                inputs_dir, key, self.rfq_raw_dates(),
+                frozenset(_utc_dates_between(group["t0"], group["t1"]))),
             "thresholds": {
                 "tiers": THRESHOLD_TIERS,
                 "descriptive": "full-window percentile (cume_dist) — "
@@ -978,8 +1082,13 @@ class EventIntelBuilder:
                 "gap_rule": "hourly heartbeats are guaranteed per active "
                             "market; >65 min without any L1 row = "
                             "DATA GAP / BOOK STATE UNTRUSTED",
-                "seals": "no local day seals for these legacy days",
-                "timestamp_ladder": "PRE-TL1",
+                "seals": ("%d day seal(s) present under the data root"
+                          % len(seal_files)
+                          if (seal_files := sorted(
+                              self.seals_dir.glob("date=*.json"))
+                              if self.seals_dir.is_dir() else [])
+                          else "no local day seals for these legacy days"),
+                "timestamp_ladder": self.tl1_status(),
             },
         }
 
@@ -1494,7 +1603,8 @@ class EventIntelBuilder:
 
     # -- orchestration -----------------------------------------------------------
     def build(self) -> dict[str, Any]:
-        inventory = build_inventory(self.repo_root)
+        inventory = build_inventory(self.repo_root, self.data_root,
+                                    self.tl1_status())
         index_groups = self.build_episode_index()
         data_dir = self.out_dir / "data"
         ep_dir = data_dir / "episodes"
@@ -1571,9 +1681,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["build"])
     parser.add_argument("--episodes-per-sport", type=int,
                         default=EPISODES_PER_SPORT)
+    parser.add_argument(
+        "--data-root", default=None,
+        help="explicit data root with facts/, catalog/, seals/, raw/ — e.g. "
+             "the PIPE-W05 verified research cache view "
+             "(work/research_cache/view built by tools/research_data.py in "
+             "the pipeline repo); default = the local warehouse under the "
+             "repository root")
     args = parser.parse_args(argv)
     builder = EventIntelBuilder(
-        episodes_per_sport=args.episodes_per_sport)
+        episodes_per_sport=args.episodes_per_sport,
+        data_root=Path(args.data_root) if args.data_root else None)
     index = builder.build()
     total = sum(len(s["episodes"]) for s in index["sports"])
     print(json.dumps({
