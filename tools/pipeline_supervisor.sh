@@ -496,6 +496,17 @@ run_seal_chain() {
     python3 tools/l2_gap_check.py --date "$CHAIN_DATE" \
       >> "$LIVE/l2_gap_check.log" 2>&1 && touch "$LIVE/l2_gaps_${CHAIN_DATE}.done"
   fi
+  # PIPE-W05 Phase A: publish the sealed day as an immutable research release
+  # (research/releases/<id>/, MANIFEST last). Same discipline as the two
+  # blocks above: additive, archive-only, inside the async seal chain so
+  # capture never waits (P4); done-file only on success, so a failed publish
+  # retries next cycle; the publisher itself is seal-gated + idempotent and
+  # verifies every byte against the day seal before uploading anything.
+  if [ ! -f "$LIVE/research_release_${CHAIN_DATE}.done" ]; then
+    bash deploy/ec2_s3_sync.sh research_sync "$CHAIN_DATE" \
+      >> "$LIVE/research_release.log" 2>&1 \
+      && touch "$LIVE/research_release_${CHAIN_DATE}.done"
+  fi
   research_done="$LIVE/research_${CHAIN_DATE}.done.json"
   if [ -f "$research_done" ] && \
      ! research_receipt_current "$CHAIN_DATE" "$research_done"; then

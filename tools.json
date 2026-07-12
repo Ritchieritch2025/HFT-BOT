@@ -1550,6 +1550,28 @@
       "docs": "tools/ec2_health.sh"
     },
     {
+      "name": "research_release",
+      "kind": "tool",
+      "safety": "network_read",
+      "autorun": false,
+      "cmd": "python3 tools/research_release.py",
+      "args_template": "publish --date YYYY-MM-DD [--dest ROOT] [--include-rfq|--no-rfq] [--quality-dir D]",
+      "needs": [],
+      "description": "PIPE-W05 Phase A: immutable research release publisher (runs on the EC2 box from the supervisor's post-seal chain). Publishes one SEALED day to research/releases/<date>__seal-<sha12>[-rfq]/ with MANIFEST.json uploaded LAST as the exposure marker; every byte re-verified against the day seal BEFORE upload (fail-closed, nothing published on mismatch); idempotent per release id. Freezes keys/sizes/sha256, seal digest, per-table schema + TL1/ws_sid/ws_seq presence, channel completeness labels (L2 = NOT RESEARCH-EXPOSABLE in Phase A), correction cutoff, day capture-gap intervals, S3-versioning caveat. Sealed-rfq inclusion is an operator cost switch DEFAULTING OFF (RESEARCH_INCLUDE_RFQ=1 or ~/.kalshi/research_include_rfq). Writes only to the research/ S3 prefix; raw hourly vault path and production are never touched. Local-dir dest = offline fixture mode (tests/test_research_bridge.py)",
+      "docs": "tools/research_release.py"
+    },
+    {
+      "name": "research_data",
+      "kind": "tool",
+      "safety": "network_read",
+      "autorun": false,
+      "cmd": "python3 tools/research_data.py",
+      "args_template": "[--root R] [--cache D] inventory | fetch --release ID [--with-rfq] | verify --release ID | view",
+      "needs": [],
+      "description": "PIPE-W05 Phase A: Mac-side research data CLI over the read-only research/ S3 prefix (stdlib SigV4 — no aws CLI/boto3; creds from ~/.kalshi/research_s3.env.sh, 0600, values never printed; works the moment the operator drops the W05 read-only key there). Release-id addressing; a release without MANIFEST.json is torn = never exposed. verify checks every object's size+sha256 vs the frozen manifest, the seal digest, manifest_date_sha256, schema vs frozen (duckdb, explicit memory_limit), and gap evidence — failure removes the marker, writes .FAILED.json, exits 2, day not exposed. Success builds work/research_cache/view/ (warehouse-shaped symlinks over VERIFIED releases only) for the Event Intelligence dashboard --data-root. inventory reports monthly S3 cost estimate + local cache disk (prunable; S3/seals/production never). Local-dir root = offline fixture mode",
+      "docs": "tools/research_data.py"
+    },
+    {
       "name": "prune_raw",
       "kind": "tool",
       "safety": "offline",
