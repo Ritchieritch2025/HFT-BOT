@@ -510,16 +510,24 @@ def rfq_switch_enabled():
             or os.path.isfile(RFQ_FLAG_FILE))
 
 
-L2_STAT_KEYS = ("lines", "seq_gap_events", "seq_missed_total",
-                "sids_total", "sids_with_seq_gaps")
+L2_STAT_KEYS = ("lines", "parse_errors", "seq_gap_events",
+                "seq_missed_total", "sids_total", "sids_with_seq_gaps")
+L2_RECEIPT_SCHEMA = "l2-gap-receipt-v1"
 
 
 def validate_l2_receipt(lg, seal, date):
-    """P0-3 residual fix 2: POSITIVE per-date L2 receipt binding. Returns
-    (quality_dict, None) only when the receipt binds this date, carries the
-    scan/seq statistics AND its exact file inventory (paths + byte sizes)
-    bidirectionally equals the day seal's l2 raw subset — no missing files,
-    no extra files, no size drift. Anything less returns (None, reason)."""
+    """P0-3 residual fix 2 (+ final micro-fix): POSITIVE per-date L2 receipt
+    binding. Returns (quality_dict, None) only when the receipt carries the
+    exact schema_version, binds this date, carries the scan/seq statistics
+    (parse_errors REQUIRED, a non-negative integer, preserved into the
+    quality block), its no_l2_files flag is a real boolean consistent with
+    the sealed L2 inventory, AND its exact file inventory (paths + byte
+    sizes) bidirectionally equals the day seal's l2 raw subset — no missing
+    files, no extra files, no size drift. Anything less returns
+    (None, reason)."""
+    if lg.get("schema_version") != L2_RECEIPT_SCHEMA:
+        return None, ("receipt schema_version %r is not %r"
+                      % (lg.get("schema_version"), L2_RECEIPT_SCHEMA))
     if lg.get("date") != date:
         return None, "receipt does not bind this date"
     inv = lg.get("file_inventory")
@@ -527,11 +535,22 @@ def validate_l2_receipt(lg, seal, date):
         return None, ("receipt carries no positive file inventory with "
                       "byte sizes (date-only/header-only receipts are "
                       "invalid)")
-    if any(not isinstance(lg.get(k), int) for k in L2_STAT_KEYS):
-        return None, "receipt is missing scan/seq statistics"
+    if any(not isinstance(lg.get(k), int) or isinstance(lg.get(k), bool)
+           for k in L2_STAT_KEYS):
+        return None, ("receipt is missing scan/seq statistics "
+                      "(parse_errors and seq counters are required "
+                      "integers)")
+    if lg["parse_errors"] < 0:
+        return None, "parse_errors is negative — not a real scan statistic"
     want = {r["file"]: r["size"] for r in seal.get("raw_files", [])
             if r["file"].startswith("date=%s/" % date)
             and os.path.basename(r["file"]).startswith("l2_")}
+    no_l2 = lg.get("no_l2_files")
+    if not isinstance(no_l2, bool):
+        return None, "no_l2_files is not a boolean"
+    if no_l2 != (not want):
+        return None, ("no_l2_files=%r contradicts the sealed L2 inventory "
+                      "(%d sealed l2 file(s))" % (no_l2, len(want)))
     got = {}
     for e in inv:
         if not isinstance(e, dict) or "file" not in e or "bytes" not in e:

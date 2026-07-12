@@ -99,6 +99,7 @@ def write_l2_receipt(quality_dir, date, raw_files, valid=True):
                "files": [f["file"].split("/")[-1] for f in inv]}
     if valid:
         payload.update({"file_inventory": inv, "lines": 1,
+                        "parse_errors": 0,
                         "seq_gap_events": 0, "seq_missed_total": 0,
                         "sids_total": 1, "sids_with_seq_gaps": 0})
     os.makedirs(quality_dir, exist_ok=True)
@@ -875,6 +876,68 @@ def main():
                       for x in man_x.get("evidence_tier_basis", {})
                       .get("downgrade_reasons", [])),
               man_x.get("evidence_tier_basis"))
+
+        # FINAL MICRO-FIX: the three validate_l2_receipt validations,
+        # proven on the same 07-02 L2-facts day (each mutated receipt is a
+        # distinct publication state => distinct release)
+        def republish_0702(mutate):
+            import re as _re
+            write_l2_receipt(quality, "2026-07-02", raw_0702)  # valid base
+            lp = os.path.join(quality, "l2_gaps_2026-07-02.json")
+            with open(lp) as f:
+                lg = json.load(f)
+            mutate(lg)
+            with open(lp, "w") as f:
+                json.dump(lg, f, indent=2, sort_keys=True)
+            r2 = run(pub + ["--date", "2026-07-02", "--no-rfq"], env)
+            mid = _re.search(r"published (\S+):", r2.stdout)
+            man2 = json.load(open(os.path.join(
+                dest, "releases", mid.group(1), "MANIFEST.json"))) \
+                if mid else {}
+            return r2, man2
+
+        def l2_reasons(man2):
+            return [x for x in man2.get("evidence_tier_basis", {})
+                    .get("downgrade_reasons", []) if "seq-quality" in x]
+
+        _r2, man_v1 = republish_0702(
+            lambda lg: lg.update(schema_version="l2-gap-receipt-v0"))
+        check("micro-1: wrong schema_version invalidates the L2 receipt",
+              man_v1.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("schema_version" in x for x in l2_reasons(man_v1)),
+              l2_reasons(man_v1))
+        _r2, man_v2 = republish_0702(
+            lambda lg: lg.update(parse_errors=-1))
+        check("micro-2: negative parse_errors invalidates the L2 receipt",
+              man_v2.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("parse_errors" in x for x in l2_reasons(man_v2)),
+              l2_reasons(man_v2))
+        _r2, man_v2b = republish_0702(
+            lambda lg: lg.pop("parse_errors"))
+        check("micro-2b: missing parse_errors invalidates the L2 receipt",
+              man_v2b.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("parse_errors" in x for x in l2_reasons(man_v2b)),
+              l2_reasons(man_v2b))
+        _r2, man_v3 = republish_0702(
+            lambda lg: lg.update(no_l2_files=True))
+        check("micro-3: no_l2_files=true while orderbooks_full facts exist "
+              "invalidates the L2 receipt",
+              man_v3.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("contradicts the sealed L2 inventory" in x
+                      for x in l2_reasons(man_v3)), l2_reasons(man_v3))
+        _r2, man_v3b = republish_0702(
+            lambda lg: lg.update(no_l2_files="false"))
+        check("micro-3b: non-boolean no_l2_files invalidates the receipt",
+              man_v3b.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("not a boolean" in x for x in l2_reasons(man_v3b)),
+              l2_reasons(man_v3b))
+        _r2, man_ok = republish_0702(lambda lg: None)
+        check("micro-final: fully valid receipt confirms AND preserves "
+              "parse_errors in the quality block",
+              man_ok.get("evidence_tier") == "SEALED_CONFIRMATION"
+              and man_ok.get("channels", {}).get("orderbooks_l2", {})
+              .get("seq_quality", {}).get("parse_errors") == 0,
+              man_ok.get("channels", {}).get("orderbooks_l2"))
         check("confirmation day (07-06: receipt+L2 evidence+assessed) "
               "earns SEALED_CONFIRMATION",
               man_l2.get("evidence_tier") == "SEALED_CONFIRMATION",
