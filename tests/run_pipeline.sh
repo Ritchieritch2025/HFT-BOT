@@ -101,6 +101,8 @@ run_suite "test_event_measure_split" ./tests/run_pytest.sh tests/test_event_meas
 run_suite "test_event_index" ./tests/run_pytest.sh tests/test_event_index.py
 run_suite "test_event_pack" ./tests/run_pytest.sh tests/test_event_pack.py
 run_suite "test_freshness" ./tests/run_pytest.sh tests/test_freshness.py
+run_suite "test_rfq_capture" ./tests/run_pytest.sh tests/test_rfq_capture.py
+run_suite "test_rfq_flow_report" ./tests/run_pytest.sh tests/test_rfq_flow_report.py
 run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
 run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
 run_suite "test_alert_notify" ./tests/run_pytest.sh tests/test_alert_notify.py

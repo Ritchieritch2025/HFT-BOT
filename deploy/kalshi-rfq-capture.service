@@ -1,0 +1,39 @@
+# Passive Kalshi communications/RFQ recorder.
+#
+# IMPORTANT: installation does not authorize enable/start.  First deployment
+# waits for the operator maintenance window that also carries W03.  This unit
+# is intentionally independent from kalshi-pipeline.service: no PartOf,
+# Requires, shared PID, shared log, or stop propagation.
+
+[Unit]
+Description=Kalshi passive communications/RFQ WebSocket recorder
+Wants=network-online.target
+After=network-online.target chrony.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hft-bot
+Environment=PATH=/home/ubuntu/hft-bot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+# Dedicated API key MUST be created with scopes=["read"] and recorded in this
+# separate 0600 env file; Kalshi defaults omitted scopes to read+write.
+ExecStart=/usr/bin/bash -lc 'test -r "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; source "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; exec python3 tools/rfq_capture.py'
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=78
+TimeoutStopSec=30
+KillMode=control-group
+# RFQ is valuable but recoverable/secondary; under resource pressure it must
+# lose before the primary firehose. The OOM guard recognizes this unit's
+# cgroup and preserves +300 instead of pinning every ws_shadow to -1000.
+OOMScoreAdjust=300
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=10
+MemoryHigh=256M
+MemoryMax=512M
+StandardOutput=append:/home/ubuntu/hft-bot/work/live/rfq_capture.out.log
+StandardError=append:/home/ubuntu/hft-bot/work/live/rfq_capture.err.log
+
+[Install]
+WantedBy=multi-user.target

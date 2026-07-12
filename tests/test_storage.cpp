@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <iostream>
 #include <string>
+#include <vector>
 
 using namespace trading;
 using kalshi::OrderBook;
@@ -134,6 +135,75 @@ int main(int argc, char** argv) {
     // At least a couple rotations should have produced path.1, path.2 ...
     RawLogReader r0(path), r1(path + ".1");
     check(r0.ok() && r1.ok(), "rotation created base + at least one .N file");
+
+    std::size_t highest = 0;
+    while (std::FILE* f = std::fopen(
+               (path + "." + std::to_string(highest + 1)).c_str(), "rb")) {
+      std::fclose(f);
+      ++highest;
+    }
+    std::vector<long> prior_sizes(highest + 1, -1);
+    for (std::size_t i = 0; i <= highest; ++i) {
+      const std::string p = i == 0 ? path : path + "." + std::to_string(i);
+      if (std::FILE* f = std::fopen(p.c_str(), "rb")) {
+        std::fseek(f, 0, SEEK_END);
+        prior_sizes[i] = std::ftell(f);
+        std::fclose(f);
+      }
+    }
+    {
+      RawLogWriter resumed(path, /*max_bytes*/ 200);
+      resumed.write(mk(SourceId::Kalshi, "MKT", 999, std::string(60, 'y')));
+    }
+    bool earlier_unchanged = true;
+    for (std::size_t i = 0; i < highest; ++i) {
+      const std::string p = i == 0 ? path : path + "." + std::to_string(i);
+      if (std::FILE* f = std::fopen(p.c_str(), "rb")) {
+        std::fseek(f, 0, SEEK_END);
+        earlier_unchanged = earlier_unchanged && std::ftell(f) == prior_sizes[i];
+        std::fclose(f);
+      }
+    }
+    check(highest >= 2 && earlier_unchanged,
+          "restart resumes highest existing rotation shard, not an older shard");
+  }
+
+  // --- receive-clock UTC hour partitioning without reconnect -----------
+  {
+    const std::string root = dir + "/hourly/date={UTC_DATE}/rfq_{UTC_HOUR}.ndjson";
+    const std::string p23 = dir + "/hourly/date=2026-07-11/rfq_23.ndjson";
+    const std::string p00 = dir + "/hourly/date=2026-07-12/rfq_00.ndjson";
+    std::remove(p23.c_str()); std::remove(p00.c_str());
+    RawRecord a = mk(SourceId::Kalshi, "", 1, R"({"type":"rfq_created"})");
+    RawRecord b = mk(SourceId::Kalshi, "", 2, R"({"type":"rfq_deleted"})");
+    a.recv_wall_ns = 1783814399000000000LL;  // 2026-07-11T23:59:59Z
+    b.recv_wall_ns = 1783814400000000000LL;  // 2026-07-12T00:00:00Z
+    {
+      RawLogWriter w(root);
+      check(w.write(a) && w.write(b) && w.flush(),
+            "time-partitioned writer persists both boundary records");
+    }
+    RawLogReader r23(p23), r00(p00);
+    auto x = r23.next(), y = r00.next();
+    check(x && x->recv_wall_ns == a.recv_wall_ns && !r23.next(),
+          "time template keeps pre-boundary row in rfq_23");
+    check(y && y->recv_wall_ns == b.recv_wall_ns && !r00.next(),
+          "time template rotates at receive-clock UTC boundary without reconnect");
+  }
+
+  // A live collector must be able to distinguish an unwritable destination
+  // from a healthy empty feed.
+  {
+    RawRecord rec = mk(SourceId::Kalshi, "", 1, R"({"type":"rfq_created"})");
+    // Replace the directory with a regular file so create_directories/open
+    // deterministically fails even when the test user owns the temp root.
+    {
+      std::FILE* blocker = std::fopen((dir + "/blocked").c_str(), "wb");
+      if (blocker) std::fclose(blocker);
+    }
+    RawLogWriter blocked(dir + "/blocked/file.ndjson");
+    check(!blocked.write(rec) && !blocked.flush(),
+          "raw writer surfaces an unwritable capture destination");
   }
 
   // --- truncated final line is skipped, not fatal ---

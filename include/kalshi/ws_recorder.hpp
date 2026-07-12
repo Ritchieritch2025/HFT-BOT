@@ -43,16 +43,20 @@ class WsRecorder {
     if (!running_.exchange(false)) return;
     if (thread_.joinable()) thread_.join();
     drain_once();  // flush anything left after the writer thread exits
-    writer_.flush();
+    if (!writer_.flush()) write_failures_.fetch_add(1, std::memory_order_relaxed);
   }
 
   // Hot path (read/transport thread). Non-blocking: enqueue or drop+count.
   void record(trading::RawRecord&& rec) {
+    const std::int64_t dropped_wall_ns = rec.recv_wall_ns;
     if (ring_.try_push(std::move(rec))) {
       recorded_.fetch_add(1, std::memory_order_relaxed);
     } else {
       dropped_.fetch_add(1, std::memory_order_relaxed);
       pending_loss_.fetch_add(1, std::memory_order_relaxed);
+      std::int64_t empty = 0;
+      pending_loss_wall_ns_.compare_exchange_strong(
+          empty, dropped_wall_ns, std::memory_order_relaxed);
     }
   }
 
@@ -71,6 +75,7 @@ class WsRecorder {
 
   std::uint64_t recorded() const { return recorded_.load(); }
   std::uint64_t dropped() const { return dropped_.load(); }
+  std::uint64_t write_failures() const { return write_failures_.load(); }
 
  private:
   void drain_loop() {
@@ -78,17 +83,25 @@ class WsRecorder {
     while (running_.load(std::memory_order_relaxed)) {
       bool did = false;
       while (ring_.try_pop(rec)) {
-        writer_.write(rec);
+        if (!writer_.write(rec)) write_failures_.fetch_add(1, std::memory_order_relaxed);
         did = true;
       }
       emit_pending_loss();
+      // Emit only after the currently queued receive records have drained.
+      // The wrapper additionally requires old-file size stability before it
+      // hashes a closed hour; together this avoids treating the boundary
+      // marker as a close barrier while pre-boundary rows remain queued.
+      emit_hour_open_if_needed();
       if (!did) std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
   }
   void drain_once() {
     trading::RawRecord rec;
-    while (ring_.try_pop(rec)) writer_.write(rec);
+    while (ring_.try_pop(rec)) {
+      if (!writer_.write(rec)) write_failures_.fetch_add(1, std::memory_order_relaxed);
+    }
     emit_pending_loss();
+    emit_hour_open_if_needed();
   }
   // When the ring has drained, record how many frames were lost during the
   // backlog as a single "loss" marker, then reset.
@@ -99,9 +112,30 @@ class WsRecorder {
     m.source = trading::SourceId::Kalshi;
     m.marker = "loss";
     m.recv_mono_ns = trading::mono_ns();
-    m.recv_wall_ns = trading::wall_ns();
+    m.recv_wall_ns = pending_loss_wall_ns_.exchange(0, std::memory_order_relaxed);
+    if (m.recv_wall_ns <= 0) m.recv_wall_ns = trading::wall_ns();
     m.source_sequence = lost;  // reuse the seq field to carry the lost count
-    writer_.write(m);
+    if (!writer_.write(m)) write_failures_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void emit_hour_open_if_needed() {
+    if (!writer_.time_partitioned()) return;
+    const std::int64_t wall = trading::wall_ns();
+    const std::int64_t hour = wall / 3'600'000'000'000LL;
+    if (hour == last_hour_) return;
+    trading::RawRecord m;
+    m.source = trading::SourceId::Kalshi;
+    m.marker = "hour_open";
+    m.recv_mono_ns = trading::mono_ns();
+    m.recv_wall_ns = wall;
+    bool durable = false;
+    if (!writer_.write(m)) {
+      write_failures_.fetch_add(1, std::memory_order_relaxed);
+    } else if (!writer_.flush()) {
+      write_failures_.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      durable = true;
+    }
+    if (durable) last_hour_ = hour;
   }
 
   Ring<trading::RawRecord> ring_;
@@ -109,6 +143,9 @@ class WsRecorder {
   std::thread thread_;
   std::atomic<bool> running_{false};
   std::atomic<std::uint64_t> recorded_{0}, dropped_{0}, pending_loss_{0};
+  std::atomic<std::int64_t> pending_loss_wall_ns_{0};
+  std::atomic<std::uint64_t> write_failures_{0};
+  std::int64_t last_hour_ = -1;  // writer thread only
 };
 
 }  // namespace kalshi

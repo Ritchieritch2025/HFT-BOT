@@ -10,6 +10,11 @@ API field; nothing is invented.
    the **hourly raw log** `work/raw/date=<YYYY-MM-DD>/firehose_<HH>.ndjson`
    (UTC). Append-only (restarts within an hour keep appending), 3-day
    retention. Channels: `ticker` (L1) + `trade`, no market filter → all markets.
+   An independent passive communications recorder (implemented, deployment
+   pending W03 maintenance window) writes the separate hourly family
+   `rfq_<HH>.ndjson` with the identical RawLogWriter/TL1 envelope. File routing
+   uses `recv_wall_ns` while the second process/connection remains persistent;
+   it never substitutes for firehose freshness.
 2. **STAGING** — `tools/ingest.py --loop` tails the raw logs (~60s cycle),
    resolves the join, applies the class policy + change-only + heartbeats,
    writes typed rows into `work/warehouse/staging.duckdb`. A
@@ -77,6 +82,12 @@ side, price_e4, delta_e4, yes_levels, no_levels, ws_sid, ws_seq` + ladder
 columns.
 **dim** (`catalog/`): `series`, `events`, `markets`, `settlements` (raw, all
 API fields) + `series_classified` (pinned category/subcategory/group/class).
+
+**RFQ raw-only family (initial rollout):** `rfq_created`/`rfq_deleted` remain
+byte-exact inside `rfq_<HH>.ndjson*` and are auto-checkpointed/sealed by the
+existing wildcard. They are not silently coerced into market fact tables.
+`tools/research/rfq_flow_report.py` validates the pinned official schema and
+reads sealed raw directly; see `docs/RFQ_CAPTURE_AND_48H_REPORT.md`.
 
 ### ws_sid / ws_seq (added 2026-07-07, W5 — additive, nullable)
 `orderbook_snapshot` / `orderbook_delta` WS frames carry a top-level `sid`
