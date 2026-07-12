@@ -21,6 +21,10 @@
       --bar-1: #2563a8;
       --bar-2: #6c4eb5;
       --bar-3: #087f68;
+      --cyan: #007f91;
+      --amber: #b66a00;
+      --violet: #6d52b8;
+      --chart-bg: #fbfcfe;
       --shadow: 0 8px 28px rgba(27, 39, 51, .08);
     }
     @media (prefers-color-scheme: dark) {
@@ -39,6 +43,10 @@
         --bar-1: #58a6ff;
         --bar-2: #a78bfa;
         --bar-3: #34d399;
+        --cyan: #4fd1c5;
+        --amber: #f6ad55;
+        --violet: #b794f4;
+        --chart-bg: #111821;
         --shadow: none;
       }
     }
@@ -127,6 +135,58 @@
     .artifact-chart text { fill: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .artifact-table { margin-top: 14px; }
     .experiment { margin-bottom: 12px; }
+    .liquidity-hero {
+      display: flex; justify-content: space-between; gap: 18px; align-items: flex-start;
+      padding: 4px 0 16px; border-bottom: 1px solid var(--border);
+    }
+    .liquidity-hero h2 { font-size: 24px; letter-spacing: -.03em; margin-bottom: 7px; }
+    .kicker { color: var(--accent); letter-spacing: .12em; font-size: 11px; margin-bottom: 8px; }
+    .tier-banner {
+      flex: 0 0 auto; border: 1px solid var(--amber); color: var(--amber);
+      padding: 7px 10px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    }
+    .quality-strip {
+      margin: 14px 0; padding: 10px 12px; border-left: 3px solid var(--amber);
+      background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--muted);
+      line-height: 1.55;
+    }
+    .liquidity-toolbar { border-bottom: 1px solid var(--border); padding-bottom: 13px; }
+    .hour-readout { margin-left: auto; min-width: 190px; text-align: right; align-self: center; }
+    .hour-readout strong { display: block; color: var(--text); font-size: 18px; }
+    .chart-frame {
+      margin-top: 14px; border: 1px solid var(--border); background: var(--panel);
+      padding: 14px; min-width: 0;
+    }
+    .chart-heading { display: flex; gap: 14px; justify-content: space-between; align-items: baseline; }
+    .chart-heading .eyebrow { color: var(--muted); font-size: 11px; }
+    .echart { width: 100%; height: 360px; margin-top: 8px; background: var(--chart-bg); }
+    .echart.large { height: 430px; }
+    .chart-caption { color: var(--muted); line-height: 1.55; margin-top: 10px; }
+    .chart-caption strong { color: var(--text); }
+    .liquidity-grid { display: grid; grid-template-columns: 1.08fr .92fr; gap: 14px; }
+    .definition-grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .definition-block { border-top: 2px solid var(--border); padding: 12px 2px 0; line-height: 1.55; }
+    .definition-block h3 { margin-bottom: 7px; }
+    .definition-block dl { display: grid; grid-template-columns: 82px 1fr; gap: 5px 9px; margin: 0; }
+    .definition-block dt { color: var(--muted); }
+    .definition-block dd { margin: 0; overflow-wrap: anywhere; }
+    .definition-block ul { margin: 7px 0 0; padding-left: 18px; color: var(--muted); }
+    .definition-block li + li { margin-top: 5px; }
+    .no-data-chart { display: grid; place-items: center; color: var(--muted); }
+    .score-strip {
+      display: flex; gap: 12px; align-items: center; justify-content: space-between;
+      margin-top: 14px; padding: 10px 0; border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .score-strip strong { color: var(--amber); }
+    .proxy-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); }
+    .proxy-mark { display: inline-block; width: 10px; height: 10px; margin-right: 5px; }
+    .proxy-mark.trade { border-radius: 50%; background: var(--cyan); }
+    .proxy-mark.bid { background: var(--bar-3); transform: rotate(45deg); }
+    .proxy-mark.ask { background: var(--amber); transform: rotate(45deg); }
+    .tape-table td { font-variant-numeric: tabular-nums; }
+    .tape-table .ticker { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .quality-flag { color: var(--amber); }
     code { color: var(--accent); }
     @media (max-width: 760px) {
       .shell { padding: 14px; }
@@ -136,6 +196,13 @@
       .hypothesis { grid-template-columns: 1fr; gap: 7px; }
       .bar-row { grid-template-columns: 95px minmax(90px, 1fr) 85px; }
       .tabs { overflow-x: auto; }
+      .liquidity-hero { display: block; }
+      .tier-banner { display: inline-block; margin-top: 12px; }
+      .liquidity-grid, .definition-grid { grid-template-columns: 1fr; }
+      .hour-readout { width: 100%; text-align: left; margin-left: 0; }
+      .echart, .echart.large { height: 330px; }
+      .score-strip { display: block; }
+      .score-strip .subtle { margin-top: 6px; }
     }
   </style>
 </head>
@@ -151,13 +218,175 @@
     </header>
 
     <nav class="tabs" aria-label="Workbench sections">
-      <button class="tab" type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
+      <button class="tab" type="button" role="tab" aria-selected="true" data-tab="liquidity">Liquidity Atlas</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-tab="whales">Main Events · Whale Tape</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-tab="overview">Overview</button>
       <button class="tab" type="button" role="tab" aria-selected="false" data-tab="data">Data coverage</button>
       <button class="tab" type="button" role="tab" aria-selected="false" data-tab="hypotheses">Hypotheses</button>
       <button class="tab" type="button" role="tab" aria-selected="false" data-tab="experiments">Experiments</button>
     </nav>
 
-    <section id="overview" class="panel active" role="tabpanel">
+    <section id="liquidity" class="panel active" role="tabpanel">
+      <div class="liquidity-hero">
+        <div>
+          <div class="kicker">MARKET STRUCTURE / FIRST LENS</div>
+          <h2>When is the market actually liquid?</h2>
+          <p class="subtle">Start with clock time. Compare spread, displayed touch depth, quote changes and trading across the markets present in each UTC hour.</p>
+        </div>
+        <div id="liquidity-tier" class="tier-banner">Loading evidence tier…</div>
+      </div>
+
+      <div id="liquidity-quality" class="quality-strip">Loading local archive boundaries…</div>
+
+      <div class="toolbar liquidity-toolbar">
+        <label>Sport
+          <select id="liquidity-sport"></select>
+        </label>
+        <label>Archive date
+          <select id="liquidity-date"></select>
+        </label>
+        <label>Liquidity lens
+          <select id="liquidity-metric"></select>
+        </label>
+        <div class="hour-readout">
+          <span class="subtle">Selected clock window</span>
+          <strong id="liquidity-hour">—</strong>
+        </div>
+      </div>
+
+      <section class="chart-frame">
+        <div class="chart-heading">
+          <div><div class="eyebrow">DISTRIBUTION BY CLOCK WINDOW</div><h3 id="liquidity-time-title">Hourly liquidity</h3></div>
+          <div class="subtle">Click an hour to inspect its ECDF</div>
+        </div>
+        <div id="liquidity-time-chart" class="echart large" role="img" aria-label="Hourly liquidity distribution"></div>
+        <p id="liquidity-time-caption" class="chart-caption"></p>
+      </section>
+
+      <div class="liquidity-grid">
+        <section class="chart-frame">
+          <div class="chart-heading">
+            <div><div class="eyebrow">FULL DISTRIBUTION</div><h3 id="liquidity-ecdf-title">Selected-hour ECDF</h3></div>
+          </div>
+          <div id="liquidity-ecdf-chart" class="echart" role="img" aria-label="Selected hour empirical cumulative distribution"></div>
+          <p id="liquidity-ecdf-caption" class="chart-caption"></p>
+        </section>
+        <section class="chart-frame">
+          <div class="chart-heading">
+            <div><div class="eyebrow">THREE-DAY CLOCK MAP</div><h3 id="liquidity-heatmap-title">Daily pattern</h3></div>
+            <div class="subtle">Click a cell to isolate it</div>
+          </div>
+          <div id="liquidity-heatmap-chart" class="echart" role="img" aria-label="Liquidity by archive date and UTC hour"></div>
+          <p class="chart-caption"><strong>Interpretation boundary:</strong> clock-time structure can reflect the event schedule and market mix. It is not yet a verified pre-game/in-play regime.</p>
+        </section>
+      </div>
+
+      <section class="chart-frame">
+        <div class="chart-heading">
+          <div><div class="eyebrow">MARKET AVAILABILITY</div><h3>How many markets are present—and how many are two-sided?</h3></div>
+        </div>
+        <div id="liquidity-availability-chart" class="echart" role="img" aria-label="Active markets and two sided share by hour"></div>
+        <p class="chart-caption"><strong>Natural unit:</strong> active-market counts and two-sided shares are plotted by UTC hour; with “All dates” selected, p50/p99/max are across archive days rather than reported as one scalar.</p>
+      </section>
+
+      <div class="definition-grid">
+        <section id="liquidity-definition" class="definition-block"></section>
+        <section id="liquidity-boundary" class="definition-block"></section>
+        <section class="definition-block">
+          <h3>Next variables to add</h3>
+          <ul>
+            <li>Verified time-to-event and pre-game/in-play segmentation</li>
+            <li>Real L2 depth, imbalance, depletion and refill</li>
+            <li>RFQ arrivals, lifetimes, size and repeat requester behavior</li>
+            <li>Price jumps, burst regimes, toxicity and executable markouts</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section id="whales" class="panel" role="tabpanel">
+      <div class="liquidity-hero">
+        <div>
+          <div class="kicker">MAIN EVENTS / LARGE-ACTIVITY TAPE</div>
+          <h2>When did unusually large size hit the market?</h2>
+          <p class="subtle">Follow one mainstream game and one contract at a time. Exact large-trade prints and aggregate best-touch additions sit on the same price timeline.</p>
+        </div>
+        <div id="whale-tier" class="tier-banner">Loading evidence tier…</div>
+      </div>
+
+      <div id="whale-quality" class="quality-strip">Loading large-activity boundaries…</div>
+
+      <div class="toolbar liquidity-toolbar">
+        <label>Sport
+          <select id="whale-sport"></select>
+        </label>
+        <label>Main event
+          <select id="whale-event"></select>
+        </label>
+        <label>Market
+          <select id="whale-market"></select>
+        </label>
+        <label>Show candidates above
+          <select id="whale-threshold"></select>
+        </label>
+      </div>
+
+      <div class="score-strip">
+        <div><strong id="score-status">SCORE TRACK NOT CAPTURED</strong> <span id="score-detail">—</span></div>
+        <div class="subtle">Score markers will share this exact time axis after prospective live-data capture.</div>
+      </div>
+
+      <section class="chart-frame">
+        <div class="chart-heading">
+          <div><div class="eyebrow">PRICE + EXACT LARGE-ACTIVITY TIMESTAMPS</div><h3 id="whale-timeline-title">Main-event tape</h3></div>
+          <div id="whale-candidate-count" class="subtle">—</div>
+        </div>
+        <div id="whale-timeline-chart" class="echart large" role="img" aria-label="Market price and large activity timeline"></div>
+        <div class="proxy-legend">
+          <span><i class="proxy-mark trade"></i>large trade print</span>
+          <span><i class="proxy-mark bid"></i>same-price bid size increase</span>
+          <span><i class="proxy-mark ask"></i>same-price ask size increase</span>
+        </div>
+        <p id="whale-timeline-caption" class="chart-caption"></p>
+      </section>
+
+      <div class="liquidity-grid">
+        <section class="chart-frame">
+          <div class="chart-heading"><div><div class="eyebrow">PRINT-SIZE DISTRIBUTION</div><h3>Trade contracts ECDF</h3></div></div>
+          <div id="whale-trade-ecdf" class="echart" role="img" aria-label="Trade size empirical cumulative distribution"></div>
+          <p id="whale-trade-caption" class="chart-caption"></p>
+        </section>
+        <section class="chart-frame">
+          <div class="chart-heading"><div><div class="eyebrow">DISPLAYED-ADD DISTRIBUTION</div><h3>Best-touch addition ECDF</h3></div></div>
+          <div id="whale-touch-ecdf" class="echart" role="img" aria-label="Best touch size addition empirical cumulative distribution"></div>
+          <p id="whale-touch-caption" class="chart-caption"></p>
+        </section>
+      </div>
+
+      <section class="chart-frame">
+        <div class="chart-heading">
+          <div><div class="eyebrow">LARGEST RETAINED CANDIDATES</div><h3>Exact tape</h3></div>
+          <div class="subtle">Sorted by displayed/printed contracts</div>
+        </div>
+        <div id="whale-table" class="table-wrap tape-table"></div>
+      </section>
+
+      <div class="definition-grid">
+        <section id="whale-definition" class="definition-block"></section>
+        <section id="whale-score-boundary" class="definition-block"></section>
+        <section class="definition-block">
+          <h3>What this cannot prove</h3>
+          <ul>
+            <li>A transaction ID is not a trader/account ID</li>
+            <li>An L1 size jump can be several orders or spoofed liquidity</li>
+            <li>Temporal proximity to a price move is not causality</li>
+            <li>Current percentiles use the full archive and are not live strategy thresholds</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section id="overview" class="panel" role="tabpanel">
       <div id="summary" class="grid" aria-live="polite"></div>
       <section class="section card">
         <h2>Coverage at a glance</h2>
@@ -203,8 +432,11 @@
     </section>
   </main>
 
+  <script src="/assets/echarts.min.js"></script>
   <script>
-    const state = { overview: null, hypotheses: [], experiments: [], errors: [] };
+    const state = { overview: null, liquidity: null, whales: null, hypotheses: [], experiments: [], errors: [], selectedHour: null };
+    const liquidityCharts = {};
+    const whaleCharts = {};
     const $ = (id) => document.getElementById(id);
     const fmt = new Intl.NumberFormat('en-US');
 
@@ -273,6 +505,536 @@
       $('coverage-table').innerHTML = list.length ? `<table><thead><tr><th>Date</th><th>Sport</th><th>Table</th><th class="number">Rows</th></tr></thead>` +
         `<tbody>${list.map(r => `<tr><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.sport)}</td><td>${escapeHtml(r.table)}</td><td class="number">${number(r.rows)}</td></tr>`).join('')}</tbody></table>` :
         '<div class="empty">No matching coverage records.</div>';
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function finite(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    function compact(value, digits = 2) {
+      const parsed = finite(value);
+      if (parsed === null) return '—';
+      if (Math.abs(parsed) >= 1e6) return `${(parsed / 1e6).toFixed(1)}m`;
+      if (Math.abs(parsed) >= 1e3) return `${(parsed / 1e3).toFixed(1)}k`;
+      return parsed.toLocaleString('en-US', { maximumFractionDigits: digits });
+    }
+    function metricDefinition() {
+      return state.liquidity?.metrics?.[$('liquidity-metric').value] || {};
+    }
+    function selectedLiquidityRows(dateOverride = null) {
+      const sport = $('liquidity-sport').value;
+      const date = dateOverride || $('liquidity-date').value;
+      return (state.liquidity?.slices || [])
+        .filter(row => row.sport === sport && row.date === date)
+        .sort((a, b) => a.hour_utc - b.hour_utc);
+    }
+    function ensureChart(id) {
+      if (!window.echarts) return null;
+      if (!liquidityCharts[id]) liquidityCharts[id] = echarts.init($(id), null, { renderer: 'canvas' });
+      return liquidityCharts[id];
+    }
+    function fillLiquidityFilters() {
+      const payload = state.liquidity || {};
+      const previousSport = $('liquidity-sport').value;
+      const previousDate = $('liquidity-date').value;
+      const previousMetric = $('liquidity-metric').value;
+      const sports = payload.sports || [];
+      const dates = payload.dates || [];
+      $('liquidity-sport').innerHTML = sports.map(value => `<option>${escapeHtml(value)}</option>`).join('');
+      $('liquidity-date').innerHTML = '<option value="ALL">All archive dates</option>' + dates.map(value => `<option>${escapeHtml(value)}</option>`).join('');
+      $('liquidity-metric').innerHTML = Object.entries(payload.metrics || {}).map(([key, value]) =>
+        `<option value="${escapeHtml(key)}">${escapeHtml(value.label)}</option>`
+      ).join('');
+      $('liquidity-sport').value = sports.includes(previousSport) ? previousSport : (sports.includes('Soccer') ? 'Soccer' : sports[0] || '');
+      $('liquidity-date').value = dates.includes(previousDate) ? previousDate : 'ALL';
+      $('liquidity-metric').value = payload.metrics?.[previousMetric] ? previousMetric : 'spread_cents';
+    }
+    function chooseLiquidityHour(rows) {
+      if (rows.some(row => row.hour_utc === state.selectedHour)) return state.selectedHour;
+      const best = rows.reduce((winner, row) => {
+        const active = finite(row.availability?.active_markets_p50) || 0;
+        const winnerActive = finite(winner?.availability?.active_markets_p50) || -1;
+        return active > winnerActive ? row : winner;
+      }, null);
+      state.selectedHour = best?.hour_utc ?? null;
+      return state.selectedHour;
+    }
+    function median(values) {
+      const clean = values.map(finite).filter(value => value !== null).sort((a,b) => a-b);
+      if (!clean.length) return null;
+      const mid = Math.floor(clean.length / 2);
+      return clean.length % 2 ? clean[mid] : (clean[mid-1] + clean[mid]) / 2;
+    }
+    function shapeDiagnostics(stats, rows, metric) {
+      if (!stats || !stats.n) return 'No valid observations in this clock window.';
+      const p50 = finite(stats.p50), p99 = finite(stats.p99), max = finite(stats.max);
+      const phrases = [];
+      if (p50 === 0 && p99 > 0) {
+        phrases.push('<strong>Zero-inflated:</strong> at least half of market-hours are zero while the upper tail is active.');
+      } else if (p50 !== null && p99 !== null && max !== null && (p99 > Math.max(p50 * 3, p50 + 1) || max > p99 * 1.5)) {
+        phrases.push(`<strong>Long tail:</strong> p50=${escapeHtml(compact(p50))}, p99=${escapeHtml(compact(p99))}, max=${escapeHtml(compact(max))}; the typical market is not representative of the busiest/widest tail.`);
+      } else {
+        phrases.push('<strong>Long tail:</strong> no extreme p99/max separation under the current heuristic.');
+      }
+
+      const central = (stats.ecdf || []).filter(point => point[1] >= .10 && point[1] <= .90).map(point => finite(point[0])).filter(value => value !== null);
+      const gaps = central.slice(1).map((value, index) => value - central[index]).filter(value => value > 0);
+      const typicalGap = median(gaps);
+      const largestGap = gaps.length ? Math.max(...gaps) : 0;
+      if (typicalGap !== null && typicalGap > 0 && largestGap > typicalGap * 6) {
+        phrases.push(`<strong>Apparent multi-clustering:</strong> a central ECDF gap (${escapeHtml(compact(largestGap))} ${escapeHtml(metric.unit || '')}) suggests mixed market families or tick regimes; this is a visual flag, not a formal mode test.`);
+      } else {
+        phrases.push('<strong>Bimodality:</strong> no separated central ECDF cluster is flagged by the v1 gap heuristic.');
+      }
+
+      const timeline = rows.map(row => finite(row.metrics?.[$('liquidity-metric').value]?.p50)).filter(value => value !== null);
+      const jumps = timeline.slice(1).map((value, index) => Math.abs(value - timeline[index]));
+      const typicalJump = median(jumps.filter(value => value > 0));
+      const largestJump = jumps.length ? Math.max(...jumps) : 0;
+      if (typicalJump !== null && typicalJump > 0 && largestJump > typicalJump * 4) {
+        phrases.push(`<strong>Clock discontinuity:</strong> the largest adjacent-hour p50 move is ${escapeHtml(compact(largestJump))}; event scheduling or changing market mix is the first explanation to test.`);
+      } else {
+        phrases.push('<strong>Clock discontinuity:</strong> no single adjacent-hour p50 jump dominates the visible path.');
+      }
+      return phrases.join(' ');
+    }
+    function renderLiquidityTime(rows, metricKey, metric) {
+      const chart = ensureChart('liquidity-time-chart');
+      if (!chart) return;
+      const byHour = new Map(rows.map(row => [row.hour_utc, row]));
+      const hours = Array.from({ length: 24 }, (_, index) => index);
+      const seriesValue = (field) => hours.map(hour => {
+        const stats = byHour.get(hour)?.metrics?.[metricKey];
+        return { value: finite(stats?.[field]), stats, hour };
+      });
+      const textColor = cssVar('--text'), muted = cssVar('--muted'), border = cssVar('--border');
+      chart.setOption({
+        animationDuration: 280,
+        color: [cssVar('--cyan'), cssVar('--violet'), cssVar('--amber')],
+        grid: { left: 70, right: 70, top: 54, bottom: 48 },
+        legend: { top: 8, textStyle: { color: muted }, data: ['p50', 'p99', 'max'] },
+        tooltip: {
+          trigger: 'axis', axisPointer: { type: 'line' },
+          formatter: params => {
+            const item = params.find(entry => entry.data?.stats)?.data;
+            const stats = item?.stats || {};
+            return `<strong>${String(item?.hour ?? '—').padStart(2,'0')}:00–${String(((item?.hour ?? 0)+1)%24).padStart(2,'0')}:00 UTC</strong><br>` +
+              `p50: ${escapeHtml(compact(stats.p50))} ${escapeHtml(metric.unit)}<br>` +
+              `p99: ${escapeHtml(compact(stats.p99))} ${escapeHtml(metric.unit)}<br>` +
+              `max: ${escapeHtml(compact(stats.max))} ${escapeHtml(metric.unit)}<br>` +
+              `n: ${escapeHtml(number(stats.n || 0))} market-hours`;
+          }
+        },
+        xAxis: { type: 'category', data: hours.map(hour => `${String(hour).padStart(2,'0')}Z`), axisLabel: { color: muted }, axisLine: { lineStyle: { color: border } } },
+        yAxis: [
+          { type: 'value', name: metric.unit || '', nameTextStyle: { color: muted }, axisLabel: { color: muted }, splitLine: { lineStyle: { color: border, opacity: .55 } } },
+          { type: 'value', name: 'tail max', nameTextStyle: { color: muted }, axisLabel: { color: muted }, splitLine: { show: false } }
+        ],
+        dataZoom: [{ type: 'inside', xAxisIndex: 0 }],
+        series: [
+          {
+            name: 'p50', type: 'line', smooth: .22, showSymbol: false, connectNulls: false,
+            lineStyle: { width: 3 }, areaStyle: { opacity: .08 }, data: seriesValue('p50'),
+            markLine: state.selectedHour === null ? undefined : {
+              symbol: 'none', label: { formatter: `${String(state.selectedHour).padStart(2,'0')}Z`, color: textColor },
+              lineStyle: { color: textColor, type: 'dotted' }, data: [{ xAxis: `${String(state.selectedHour).padStart(2,'0')}Z` }]
+            }
+          },
+          { name: 'p99', type: 'line', showSymbol: false, connectNulls: false, lineStyle: { width: 1.5, type: 'dashed' }, data: seriesValue('p99') },
+          { name: 'max', type: 'scatter', yAxisIndex: 1, symbol: 'diamond', symbolSize: 6, itemStyle: { color: 'transparent', borderColor: cssVar('--amber'), borderWidth: 1.5 }, data: seriesValue('max') }
+        ]
+      }, true);
+      chart.off('click');
+      chart.on('click', params => {
+        const hour = params.data?.hour ?? params.dataIndex;
+        if (byHour.has(hour)) {
+          state.selectedHour = hour;
+          renderLiquidity();
+        }
+      });
+    }
+    function renderLiquidityEcdf(row, metricKey, metric, rows) {
+      const chart = ensureChart('liquidity-ecdf-chart');
+      if (!chart) return;
+      const stats = row?.metrics?.[metricKey];
+      if (!stats?.n) {
+        chart.clear();
+        chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: 'No valid distribution for this hour.', fill: cssVar('--muted'), font: '13px monospace' } }] }, true);
+        $('liquidity-ecdf-caption').textContent = 'No two-sided hourly state samples are available for the selected metric.';
+        return;
+      }
+      const muted = cssVar('--muted'), border = cssVar('--border');
+      const lines = [
+        { name: 'p50', xAxis: stats.p50, lineStyle: { color: cssVar('--cyan') } },
+        { name: 'p99', xAxis: stats.p99, lineStyle: { color: cssVar('--violet'), type: 'dashed' } },
+        { name: 'max', xAxis: stats.max, lineStyle: { color: cssVar('--amber'), type: 'dotted' } }
+      ].filter(item => finite(item.xAxis) !== null);
+      chart.setOption({
+        animationDuration: 220,
+        grid: { left: 64, right: 28, top: 34, bottom: 64 },
+        tooltip: { trigger: 'axis', formatter: params => `${escapeHtml(metric.label)}: ${escapeHtml(compact(params[0]?.value?.[0]))} ${escapeHtml(metric.unit)}<br>ECDF: ${escapeHtml(compact(params[0]?.value?.[1], 1))}%` },
+        xAxis: { type: 'value', name: metric.unit, nameLocation: 'middle', nameGap: 34, nameTextStyle: { color: muted }, axisLabel: { color: muted }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+        yAxis: { type: 'value', min: 0, max: 100, name: 'cumulative %', nameTextStyle: { color: muted }, axisLabel: { color: muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
+        series: [{
+          type: 'line', name: 'ECDF', step: 'end', showSymbol: false, lineStyle: { width: 2, color: cssVar('--cyan') },
+          data: (stats.ecdf || []).map(point => [point[0], point[1] * 100]),
+          markLine: { silent: true, symbol: 'none', label: { formatter: item => item.name }, data: lines }
+        }]
+      }, true);
+      $('liquidity-ecdf-caption').innerHTML = `<strong>n=${escapeHtml(number(stats.n))} market-hours.</strong> ` + shapeDiagnostics(stats, rows, metric);
+    }
+    function renderLiquidityHeatmap(metricKey, metric) {
+      const chart = ensureChart('liquidity-heatmap-chart');
+      if (!chart) return;
+      const sport = $('liquidity-sport').value;
+      const dates = state.liquidity?.dates || [];
+      const data = (state.liquidity?.slices || [])
+        .filter(row => row.sport === sport && dates.includes(row.date))
+        .map(row => [row.hour_utc, dates.indexOf(row.date), finite(row.metrics?.[metricKey]?.p50), row.metrics?.[metricKey]?.n || 0])
+        .filter(row => row[2] !== null);
+      const values = data.map(row => row[2]);
+      const muted = cssVar('--muted'), border = cssVar('--border');
+      chart.setOption({
+        animationDuration: 220,
+        grid: { left: 88, right: 24, top: 26, bottom: 64 },
+        tooltip: { formatter: params => `${escapeHtml(dates[params.value[1]])} · ${String(params.value[0]).padStart(2,'0')}Z<br>p50: ${escapeHtml(compact(params.value[2]))} ${escapeHtml(metric.unit)}<br>n: ${escapeHtml(number(params.value[3]))}` },
+        xAxis: { type: 'category', data: Array.from({length:24},(_,i)=>`${String(i).padStart(2,'0')}Z`), axisLabel: { color: muted, interval: 2 }, axisLine: { lineStyle: { color: border } } },
+        yAxis: { type: 'category', data: dates, axisLabel: { color: muted }, axisLine: { lineStyle: { color: border } } },
+        visualMap: {
+          min: values.length ? Math.min(...values) : 0, max: values.length ? Math.max(...values) : 1,
+          calculable: true, orient: 'horizontal', left: 'center', bottom: 4,
+          textStyle: { color: muted }, inRange: { color: ['#e8f5f2','#6fc1b8','#1469d2','#3f2b78'] }
+        },
+        series: [{ type: 'heatmap', data, emphasis: { itemStyle: { borderColor: cssVar('--text'), borderWidth: 1 } } }]
+      }, true);
+      chart.off('click');
+      chart.on('click', params => {
+        state.selectedHour = params.value[0];
+        $('liquidity-date').value = dates[params.value[1]];
+        renderLiquidity();
+      });
+    }
+    function renderLiquidityAvailability(rows) {
+      const chart = ensureChart('liquidity-availability-chart');
+      if (!chart) return;
+      const byHour = new Map(rows.map(row => [row.hour_utc, row]));
+      const hours = Array.from({length:24},(_,i)=>i);
+      const get = field => hours.map(hour => ({ value: finite(byHour.get(hour)?.availability?.[field]), row: byHour.get(hour), hour }));
+      const muted = cssVar('--muted'), border = cssVar('--border');
+      chart.setOption({
+        animationDuration: 220,
+        color: [cssVar('--cyan'), cssVar('--violet'), cssVar('--amber')],
+        grid: { left: 70, right: 70, top: 48, bottom: 44 },
+        legend: { top: 7, textStyle: { color: muted } },
+        tooltip: {
+          trigger: 'axis', formatter: params => {
+            const row = params.find(item => item.data?.row)?.data?.row;
+            const a = row?.availability || {};
+            return `<strong>${String(row?.hour_utc ?? '—').padStart(2,'0')}Z</strong><br>` +
+              `Active markets p50/p99/max: ${escapeHtml(compact(a.active_markets_p50))} / ${escapeHtml(compact(a.active_markets_p99))} / ${escapeHtml(compact(a.active_markets_max))}<br>` +
+              `Two-sided share p50/p99/max: ${escapeHtml(compact(a.two_sided_share_p50))}% / ${escapeHtml(compact(a.two_sided_share_p99))}% / ${escapeHtml(compact(a.two_sided_share_max))}%<br>` +
+              `n=${escapeHtml(number(a.n_days || 0))} archive day(s)`;
+          }
+        },
+        xAxis: { type: 'category', data: hours.map(hour=>`${String(hour).padStart(2,'0')}Z`), axisLabel: { color: muted }, axisLine: { lineStyle: { color: border } } },
+        yAxis: [
+          { type: 'value', name: 'markets', nameTextStyle: { color: muted }, axisLabel: { color: muted }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+          { type: 'value', min: 0, max: 100, name: 'two-sided %', nameTextStyle: { color: muted }, axisLabel: { color: muted, formatter: '{value}%' }, splitLine: { show: false } }
+        ],
+        series: [
+          { name: 'active p50', type: 'bar', barMaxWidth: 18, itemStyle: { opacity: .55 }, data: get('active_markets_p50') },
+          { name: 'active p99', type: 'line', showSymbol: false, lineStyle: { type: 'dashed', width: 1.5 }, data: get('active_markets_p99') },
+          { name: 'two-sided p50', type: 'line', yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2.5 }, data: get('two_sided_share_p50') }
+        ]
+      }, true);
+    }
+    function renderLiquidity() {
+      const payload = state.liquidity;
+      if (!payload?.available) {
+        $('liquidity-quality').innerHTML = `<strong>Liquidity snapshot unavailable.</strong> ${escapeHtml(payload?.reason || 'Build the local snapshot first.')}`;
+        ['liquidity-time-chart','liquidity-ecdf-chart','liquidity-heatmap-chart','liquidity-availability-chart'].forEach(id => {
+          $(id).classList.add('no-data-chart'); $(id).textContent = 'No local liquidity snapshot.';
+        });
+        return;
+      }
+      const metricKey = $('liquidity-metric').value;
+      const metric = payload.metrics?.[metricKey] || {};
+      const rows = selectedLiquidityRows();
+      chooseLiquidityHour(rows);
+      const selected = rows.find(row => row.hour_utc === state.selectedHour);
+      const dateLabel = $('liquidity-date').value === 'ALL' ? payload.dates.join(' → ') : $('liquidity-date').value;
+      $('liquidity-tier').textContent = `${payload.tier} · ${payload.quality_label}`;
+      $('liquidity-quality').innerHTML = `<strong>Boundary:</strong> ${escapeHtml(dateLabel)} · ${escapeHtml(payload.time_basis?.label)} · local L1 + deduplicated trades. <strong>No historical L2 or RFQ is used.</strong>`;
+      $('liquidity-hour').textContent = state.selectedHour === null ? '—' : `${String(state.selectedHour).padStart(2,'0')}:00–${String((state.selectedHour+1)%24).padStart(2,'0')}:00 UTC`;
+      $('liquidity-time-title').textContent = `${metric.label} by UTC hour`;
+      $('liquidity-ecdf-title').textContent = `${metric.label} · ${String(state.selectedHour ?? 0).padStart(2,'0')}Z`;
+      $('liquidity-heatmap-title').textContent = `${metric.label} p50 by day/hour`;
+      renderLiquidityTime(rows, metricKey, metric);
+      renderLiquidityEcdf(selected, metricKey, metric, rows);
+      renderLiquidityHeatmap(metricKey, metric);
+      renderLiquidityAvailability(rows);
+      const selectedStats = selected?.metrics?.[metricKey] || {};
+      $('liquidity-time-caption').innerHTML = `<strong>Each point is a distribution—not an average.</strong> p50/p99/max and n are computed across one fixed heartbeat state per market-hour. Selected hour: n=${escapeHtml(number(selectedStats.n || 0))}.`;
+      $('liquidity-definition').innerHTML = `<h3>Definition · ${escapeHtml(metric.label)}</h3><dl>` +
+        `<dt>Meaning</dt><dd>${escapeHtml(metric.plain_meaning)}</dd>` +
+        `<dt>Formula</dt><dd><code>${escapeHtml(metric.formula)}</code></dd>` +
+        `<dt>Unit</dt><dd>${escapeHtml(metric.unit)}</dd>` +
+        `<dt>Direction</dt><dd>${escapeHtml(metric.better)}</dd>` +
+        `<dt>Provenance</dt><dd>${escapeHtml(metric.provenance)}</dd></dl>`;
+      $('liquidity-boundary').innerHTML = `<h3>Evidence boundary</h3><dl>` +
+        `<dt>Tier</dt><dd>${escapeHtml(payload.tier)} · ${escapeHtml(payload.quality_label)}</dd>` +
+        `<dt>Unit</dt><dd>${escapeHtml(payload.analysis_unit)}</dd>` +
+        `<dt>Clock</dt><dd>${escapeHtml(payload.time_basis?.label)}</dd>` +
+        `<dt>Source</dt><dd><code>${escapeHtml(payload.source?.manifest_path)}</code></dd>` +
+        `<dt>Code</dt><dd><code>${escapeHtml(payload.source?.code_location)}</code></dd></dl>` +
+        `<ul>${(payload.limitations || []).slice(0,3).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+    }
+
+    function ensureWhaleChart(id) {
+      if (!window.echarts) return null;
+      if (!whaleCharts[id]) whaleCharts[id] = echarts.init($(id), null, { renderer: 'canvas' });
+      return whaleCharts[id];
+    }
+    function selectedWhaleEpisode() {
+      const sport = $('whale-sport').value;
+      const key = $('whale-event').value;
+      return (state.whales?.episodes || []).find(item => item.sport === sport && item.episode_key === key) || null;
+    }
+    function selectedWhaleMarket() {
+      const episode = selectedWhaleEpisode();
+      return (episode?.markets || []).find(item => item.market_ticker === $('whale-market').value) || null;
+    }
+    function selectedWhaleThreshold() {
+      const quantile = finite($('whale-threshold').value) ?? .99;
+      return (state.whales?.thresholds || []).find(item => finite(item.quantile) === quantile) || {
+        quantile, label: `p${compact(quantile * 100)}`, minimum_cohort_n: 0
+      };
+    }
+    function fillWhaleFilters({ resetEvent = false, resetMarket = false } = {}) {
+      const payload = state.whales || {};
+      const sports = payload.sports || [];
+      const previousSport = $('whale-sport').value;
+      $('whale-sport').innerHTML = sports.map(value => `<option>${escapeHtml(value)}</option>`).join('');
+      $('whale-sport').value = sports.includes(previousSport) ? previousSport : (sports.includes('Soccer') ? 'Soccer' : sports[0] || '');
+
+      const episodes = (payload.episodes || []).filter(item => item.sport === $('whale-sport').value);
+      const previousEpisode = resetEvent ? '' : $('whale-event').value;
+      $('whale-event').innerHTML = episodes.map(item =>
+        `<option value="${escapeHtml(item.episode_key)}">${escapeHtml(item.title)} · ${escapeHtml(item.episode_key)}</option>`
+      ).join('');
+      $('whale-event').value = episodes.some(item => item.episode_key === previousEpisode) ? previousEpisode : (episodes[0]?.episode_key || '');
+
+      const episode = selectedWhaleEpisode();
+      const markets = episode?.markets || [];
+      const previousMarket = resetEvent || resetMarket ? '' : $('whale-market').value;
+      $('whale-market').innerHTML = markets.map(item => {
+        const group = item.market_group ? `${item.market_group} · ` : '';
+        return `<option value="${escapeHtml(item.market_ticker)}">${escapeHtml(group + item.market_ticker)}</option>`;
+      }).join('');
+      $('whale-market').value = markets.some(item => item.market_ticker === previousMarket) ? previousMarket : (markets[0]?.market_ticker || '');
+
+      const previousThreshold = finite($('whale-threshold').value);
+      const thresholds = payload.thresholds || [];
+      $('whale-threshold').innerHTML = thresholds.map(item =>
+        `<option value="${escapeHtml(item.quantile)}">${escapeHtml(item.label)} · cohort n≥${escapeHtml(number(item.minimum_cohort_n))}</option>`
+      ).join('');
+      $('whale-threshold').value = thresholds.some(item => finite(item.quantile) === previousThreshold)
+        ? String(previousThreshold) : String(thresholds[0]?.quantile ?? .99);
+    }
+    function candidateLabel(type) {
+      return type === 'trade' ? 'trade print' : type === 'bid_add' ? 'bid touch add' : type === 'ask_add' ? 'ask touch add' : type;
+    }
+    function candidateColor(type) {
+      return type === 'trade' ? cssVar('--cyan') : type === 'bid_add' ? cssVar('--bar-3') : cssVar('--amber');
+    }
+    function candidateSymbol(type) {
+      return type === 'trade' ? 'circle' : type === 'bid_add' ? 'diamond' : 'triangle';
+    }
+    function markerSize(contracts) {
+      const value = Math.max(0, finite(contracts) || 0);
+      return Math.max(7, Math.min(30, 6 + Math.log10(value + 1) * 6));
+    }
+    function whaleShapeNarrative(stats) {
+      if (!stats?.n) return 'No observations in this market/type cohort.';
+      const p50 = finite(stats.p50), p99 = finite(stats.p99), max = finite(stats.max);
+      const phrases = [];
+      if (p50 !== null && p99 !== null && max !== null && (p99 > Math.max(p50 * 3, p50 + 1) || max > p99 * 1.5)) {
+        phrases.push(`<strong>Long tail:</strong> p50=${escapeHtml(compact(p50))}, p99=${escapeHtml(compact(p99))}, max=${escapeHtml(compact(max))}; the largest activity is not represented by a typical print/add.`);
+      } else {
+        phrases.push('<strong>Long tail:</strong> no extreme p50→p99/max separation under the displayed heuristic.');
+      }
+      const central = (stats.ecdf || []).filter(point => point[1] >= .10 && point[1] <= .90).map(point => finite(point[0])).filter(value => value !== null);
+      const gaps = central.slice(1).map((value, index) => value - central[index]).filter(value => value > 0);
+      const typical = median(gaps);
+      const largest = gaps.length ? Math.max(...gaps) : 0;
+      if (typical !== null && typical > 0 && largest > typical * 6) {
+        phrases.push(`<strong>Possible multi-clustering:</strong> a central quantile gap of ${escapeHtml(compact(largest))} contracts can indicate mixed size regimes; this is a visual flag, not a formal mode test.`);
+      } else {
+        phrases.push('<strong>Bimodality:</strong> no separated central cluster is flagged by the v1 quantile-gap heuristic.');
+      }
+      phrases.push('<strong>Discontinuities:</strong> stepped/flat ECDF regions are expected from discrete contract sizes and 101-point quantile compression; they are not a claim of missing messages.');
+      return phrases.join(' ');
+    }
+    function renderWhaleTimeline(episode, market, candidates) {
+      const chart = ensureWhaleChart('whale-timeline-chart');
+      if (!chart) return;
+      if (!market?.price_points?.length) {
+        chart.clear();
+        chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: 'No price states for this market.', fill: cssVar('--muted'), font: '13px monospace' } }] }, true);
+        return;
+      }
+      const muted = cssVar('--muted'), border = cssVar('--border');
+      const scoreLines = (episode?.score_events || []).map(item => ({
+        xAxis: item.timestamp_ms,
+        name: item.label || item.score || 'game state',
+        label: { formatter: item.label || item.score || 'game state' }
+      }));
+      const markerSeries = ['trade', 'bid_add', 'ask_add'].map(type => ({
+        name: candidateLabel(type),
+        type: 'scatter',
+        symbol: candidateSymbol(type),
+        symbolSize: value => markerSize(value[2]),
+        itemStyle: { color: candidateColor(type), opacity: .78, borderColor: cssVar('--panel'), borderWidth: 1 },
+        data: candidates.filter(item => item.type === type).map(item => ({
+          value: [item.timestamp_ms, item.price_cents, item.contracts], candidate: item
+        })),
+        z: 4
+      }));
+      chart.setOption({
+        animationDuration: 260,
+        grid: { left: 62, right: 28, top: 54, bottom: 76 },
+        legend: { top: 9, textStyle: { color: muted } },
+        tooltip: {
+          trigger: 'item',
+          formatter: params => {
+            const item = params.data?.candidate;
+            if (!item) {
+              const point = params.value || [];
+              return `<strong>${escapeHtml(new Date(point[0]).toISOString())}</strong><br>mid: ${escapeHtml(compact(point[1]))}¢`;
+            }
+            return `<strong>${escapeHtml(item.timestamp_utc)}</strong><br>` +
+              `${escapeHtml(candidateLabel(item.type))} · ${escapeHtml(compact(item.contracts))} contracts<br>` +
+              `YES price: ${escapeHtml(compact(item.price_cents))}¢ · side: ${escapeHtml(item.side)}<br>` +
+              `market percentile: ${escapeHtml((Number(item.percentile) * 100).toFixed(3))}% · cohort n=${escapeHtml(number(item.cohort_n))}<br>` +
+              (item.taker_cash_dollars === null ? '' : `taker cash: $${escapeHtml(compact(item.taker_cash_dollars))}<br>`) +
+              `flags: ${escapeHtml((item.quality_flags || []).join(' · '))}`;
+          }
+        },
+        xAxis: { type: 'time', axisLabel: { color: muted, hideOverlap: true }, axisLine: { lineStyle: { color: border } }, splitLine: { show: false } },
+        yAxis: { type: 'value', min: 0, max: 100, name: 'YES price (¢)', nameTextStyle: { color: muted }, axisLabel: { color: muted, formatter: '{value}¢' }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 22, bottom: 12 }],
+        series: [{
+          name: 'minute mid', type: 'line', showSymbol: false, connectNulls: false,
+          lineStyle: { width: 2, color: cssVar('--text') }, data: market.price_points.map(point => [point[0], point[1], point[2]]),
+          markLine: scoreLines.length ? { silent: true, symbol: 'none', lineStyle: { color: cssVar('--violet'), type: 'dashed' }, label: { color: muted }, data: scoreLines } : undefined,
+          z: 2
+        }, ...markerSeries]
+      }, true);
+    }
+    function renderWhaleEcdf(id, seriesSpecs, captionId) {
+      const chart = ensureWhaleChart(id);
+      if (!chart) return;
+      const available = seriesSpecs.filter(item => item.stats?.n);
+      if (!available.length) {
+        chart.clear();
+        chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: 'No distribution for this market.', fill: cssVar('--muted'), font: '13px monospace' } }] }, true);
+        $(captionId).textContent = 'No qualifying observations are available for this market/type.';
+        return;
+      }
+      const muted = cssVar('--muted'), border = cssVar('--border');
+      chart.setOption({
+        animationDuration: 220,
+        color: available.map(item => item.color),
+        grid: { left: 64, right: 24, top: 44, bottom: 67 },
+        legend: { top: 6, textStyle: { color: muted } },
+        tooltip: { trigger: 'axis', formatter: params => params.map(item => `${escapeHtml(item.seriesName)}: ${escapeHtml(compact(item.value?.[0]))} contracts · ${escapeHtml(compact(item.value?.[1], 1))}%`).join('<br>') },
+        xAxis: { type: 'value', name: 'contracts', nameLocation: 'middle', nameGap: 36, nameTextStyle: { color: muted }, axisLabel: { color: muted }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+        yAxis: { type: 'value', min: 0, max: 100, name: 'cumulative %', nameTextStyle: { color: muted }, axisLabel: { color: muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: border, opacity: .5 } } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
+        series: available.map((item, index) => ({
+          name: item.label, type: 'line', step: 'end', showSymbol: false,
+          lineStyle: { width: 2, type: index ? 'dashed' : 'solid' },
+          data: (item.stats.ecdf || []).map(point => [point[0], point[1] * 100]),
+          markLine: {
+            silent: true, symbol: 'none', label: { formatter: params => `${item.label} ${params.name}` },
+            data: [
+              { name: 'p50', xAxis: item.stats.p50, lineStyle: { color: item.color, opacity: .55 } },
+              { name: 'p99', xAxis: item.stats.p99, lineStyle: { color: item.color, type: 'dashed', opacity: .7 } },
+              { name: 'max', xAxis: item.stats.max, lineStyle: { color: item.color, type: 'dotted', opacity: .8 } }
+            ].filter(line => finite(line.xAxis) !== null)
+          }
+        }))
+      }, true);
+      $(captionId).innerHTML = available.map(item =>
+        `<strong>${escapeHtml(item.label)} · n=${escapeHtml(number(item.stats.n))}.</strong> ${whaleShapeNarrative(item.stats)}`
+      ).join('<br><br>');
+    }
+    function renderWhaleTable(candidates) {
+      const items = [...candidates].sort((a,b) => (finite(b.contracts) || 0) - (finite(a.contracts) || 0)).slice(0, 20);
+      $('whale-table').innerHTML = items.length ? `<table><thead><tr><th>UTC</th><th>Evidence</th><th>Side</th><th class="number">Contracts</th><th class="number">Percentile</th><th class="number">YES price</th><th class="number">Taker cash</th><th>Boundary</th></tr></thead><tbody>` +
+        items.map(item => `<tr><td>${escapeHtml(item.timestamp_utc)}</td><td>${escapeHtml(candidateLabel(item.type))}</td><td>${escapeHtml(item.side)}</td>` +
+          `<td class="number">${escapeHtml(compact(item.contracts))}</td><td class="number">${escapeHtml((Number(item.percentile) * 100).toFixed(3))}%</td>` +
+          `<td class="number">${escapeHtml(compact(item.price_cents))}¢</td><td class="number">${item.taker_cash_dollars === null ? '—' : '$' + escapeHtml(compact(item.taker_cash_dollars))}</td>` +
+          `<td class="quality-flag">${escapeHtml((item.quality_flags || []).join(' · '))}</td></tr>`).join('') + '</tbody></table>' :
+        '<div class="empty">No retained candidate meets this threshold.</div>';
+    }
+    function renderWhales() {
+      const payload = state.whales;
+      if (!payload?.available) {
+        $('whale-quality').innerHTML = `<strong>Main-event tape unavailable.</strong> ${escapeHtml(payload?.reason || 'Build the local snapshot first.')}`;
+        ['whale-timeline-chart','whale-trade-ecdf','whale-touch-ecdf'].forEach(id => {
+          $(id).classList.add('no-data-chart'); $(id).textContent = 'No local main-event snapshot.';
+        });
+        return;
+      }
+      ['whale-timeline-chart','whale-trade-ecdf','whale-touch-ecdf'].forEach(id => $(id).classList.remove('no-data-chart'));
+      const episode = selectedWhaleEpisode();
+      const market = selectedWhaleMarket();
+      const threshold = selectedWhaleThreshold();
+      if (!episode || !market) return;
+      const candidates = (market.candidates || []).filter(item => Number(item.percentile) >= Number(threshold.quantile));
+      const cohortSizes = Object.entries(market.distributions || {}).filter(([, stats]) => stats?.n).map(([type, stats]) => ({ type, n: stats.n }));
+      const weak = cohortSizes.filter(item => item.n < threshold.minimum_cohort_n);
+      const retention = market.retention || {};
+      const retainedTotal = Object.values(retention).reduce((sum, item) => sum + (Number(item.retained_count) || 0), 0);
+      const truncatedTotal = Object.values(retention).reduce((sum, item) => sum + (Number(item.truncated_count) || 0), 0);
+      $('whale-tier').textContent = `${payload.tier} · ${payload.quality_label}`;
+      $('whale-quality').innerHTML = `<strong>Boundary:</strong> ${escapeHtml(episode.sport)} · ${escapeHtml(episode.title)} · ${escapeHtml(market.market_ticker)}. ` +
+        `<strong>“Whale” means unusual size only—not a known actor.</strong> ${escapeHtml(threshold.label)} is full-sample descriptive and has look-ahead.` +
+        (weak.length ? ` <strong>Insufficient tail cohort:</strong> ${weak.map(item => `${escapeHtml(candidateLabel(item.type))} n=${escapeHtml(number(item.n))}`).join(', ')}; below the ${escapeHtml(number(threshold.minimum_cohort_n))} minimum.` : '');
+      $('whale-timeline-title').textContent = `${episode.title} · ${market.market_ticker}`;
+      $('whale-candidate-count').textContent = `${number(candidates.length)} visible · ${number(retainedTotal)} p99 retained${truncatedTotal ? ` · ${number(truncatedTotal)} truncated` : ''}`;
+      const score = payload.score_alignment || {};
+      $('score-status').textContent = score.captured_now ? 'SCORE TRACK CAPTURED' : 'SCORE TRACK NOT CAPTURED';
+      $('score-detail').textContent = score.captured_now ? 'Verified game-state markers share the tape.' : 'Official milestone/live-data endpoints make prospective alignment possible; this historical archive has no score payload.';
+      renderWhaleTimeline(episode, market, candidates);
+      renderWhaleEcdf('whale-trade-ecdf', [
+        { label: 'trade prints', stats: market.distributions?.trade, color: cssVar('--cyan') }
+      ], 'whale-trade-caption');
+      renderWhaleEcdf('whale-touch-ecdf', [
+        { label: 'bid touch adds', stats: market.distributions?.bid_add, color: cssVar('--bar-3') },
+        { label: 'ask touch adds', stats: market.distributions?.ask_add, color: cssVar('--amber') }
+      ], 'whale-touch-caption');
+      renderWhaleTable(candidates);
+      $('whale-timeline-caption').innerHTML = `<strong>Price line:</strong> one latest L1 mid per minute. <strong>Markers:</strong> exact archived timestamps, size-scaled logarithmically. ` +
+        `Trades are actual prints; bid/ask markers are aggregate same-price touch-size increases. n and percentiles are market/type cohorts. ` +
+        `<strong>Time boundary:</strong> pre-TL1 exchange/coarse <code>ts_utc</code>, not stack-receive or decision time.`;
+      const definitions = payload.definitions || {};
+      $('whale-definition').innerHTML = `<h3>Definitions</h3><dl>` + ['trade','bid_add','ask_add'].map(type => {
+        const item = definitions[type] || {};
+        return `<dt>${escapeHtml(item.label || type)}</dt><dd>${escapeHtml(item.meaning)}<br><code>${escapeHtml(item.formula)}</code></dd>`;
+      }).join('') + `</dl><p class="chart-caption"><strong>Provenance:</strong> <code>${escapeHtml(payload.source?.manifest_path)}</code> · <code>${escapeHtml(payload.source?.code_location)}</code></p>`;
+      $('whale-score-boundary').innerHTML = `<h3>Score / game-state alignment</h3><dl>` +
+        `<dt>Current</dt><dd>${escapeHtml(score.captured_now ? 'captured' : 'not captured for these dates')}</dd>` +
+        `<dt>Mapping</dt><dd><code>${escapeHtml(score.mapping)}</code></dd>` +
+        `<dt>Live state</dt><dd><code>${escapeHtml(score.live_state_endpoint)}</code></dd>` +
+        `<dt>Play-by-play</dt><dd><code>${escapeHtml(score.play_by_play_endpoint)}</code></dd>` +
+        `<dt>Backfill</dt><dd>${escapeHtml(score.historical_backfill)}</dd></dl>` +
+        `<p class="chart-caption">Prospective use requires raw payload capture, receive timestamps, per-sport schema validation, correction handling and gap accounting before a score marker is evidence-grade.</p>`;
     }
 
     function field(h, ...keys) {
@@ -385,6 +1147,11 @@
     }
 
     async function loadJson(url) {
+      const key = url.split('/').filter(Boolean).pop();
+      const inlineKey = key.replaceAll('-', '_');
+      if (window.__WORKBENCH_DATA__ && Object.prototype.hasOwnProperty.call(window.__WORKBENCH_DATA__, inlineKey)) {
+        return window.__WORKBENCH_DATA__[inlineKey];
+      }
       const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
       return response.json();
@@ -392,16 +1159,18 @@
     async function refresh() {
       $('statusline').textContent = 'Refreshing local artifacts…';
       try {
-        const [overview, hypotheses, experiments] = await Promise.all([
-          loadJson('/api/overview'), loadJson('/api/hypotheses'), loadJson('/api/experiments')
+        const [overview, liquidity, whales, hypotheses, experiments] = await Promise.all([
+          loadJson('/api/overview'), loadJson('/api/liquidity'), loadJson('/api/main-events'), loadJson('/api/hypotheses'), loadJson('/api/experiments')
         ]);
         state.overview = overview;
+        state.liquidity = liquidity;
+        state.whales = whales;
         state.hypotheses = hypotheses.hypotheses || [];
         state.experiments = experiments.experiments || [];
         state.errors = experiments.validation_errors || [];
         const source = overview.source_manifest?.path || 'local manifest';
         $('statusline').textContent = `Built ${text(overview.generated_at_utc)} · source ${source}`;
-        fillFilters(); renderOverview(); renderCoverage(); renderHypotheses(); renderExperiments();
+        fillFilters(); fillLiquidityFilters(); fillWhaleFilters(); renderLiquidity(); renderWhales(); renderOverview(); renderCoverage(); renderHypotheses(); renderExperiments();
       } catch (error) {
         $('statusline').textContent = `Workbench unavailable: ${error.message}`;
         $('summary').innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
@@ -411,10 +1180,23 @@
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === tab)));
       document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === tab.dataset.tab));
+      if (tab.dataset.tab === 'liquidity') requestAnimationFrame(() => Object.values(liquidityCharts).forEach(chart => chart.resize()));
+      if (tab.dataset.tab === 'whales') requestAnimationFrame(() => Object.values(whaleCharts).forEach(chart => chart.resize()));
     }));
     $('sport-filter').addEventListener('change', renderCoverage);
     $('table-filter').addEventListener('change', renderCoverage);
+    $('liquidity-sport').addEventListener('change', () => { state.selectedHour = null; renderLiquidity(); });
+    $('liquidity-date').addEventListener('change', () => { state.selectedHour = null; renderLiquidity(); });
+    $('liquidity-metric').addEventListener('change', renderLiquidity);
+    $('whale-sport').addEventListener('change', () => { fillWhaleFilters({ resetEvent: true }); renderWhales(); });
+    $('whale-event').addEventListener('change', () => { fillWhaleFilters({ resetMarket: true }); renderWhales(); });
+    $('whale-market').addEventListener('change', renderWhales);
+    $('whale-threshold').addEventListener('change', renderWhales);
     $('refresh').addEventListener('click', refresh);
+    window.addEventListener('resize', () => {
+      Object.values(liquidityCharts).forEach(chart => chart.resize());
+      Object.values(whaleCharts).forEach(chart => chart.resize());
+    });
     refresh();
   </script>
 </body>

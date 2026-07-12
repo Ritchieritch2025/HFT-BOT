@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -58,14 +60,195 @@ def test_build_aggregates_real_manifest_shape_and_only_writes_workbench(tmp_path
         {"date": "2026-07-07", "table": "orderbooks_l1", "rows": 20}
     ]
     assert by_sport["Baseball"]["total_rows"] == 30
+    assert by_sport["Soccer"]["total_rows"] == 999
     assert overview["dates"] == ["2026-07-06", "2026-07-07"]
     assert overview["source_manifest"]["sha256"]
+    assert snapshot["liquidity"]["available"] is False
     written = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*.json"))
     assert written == [
         "sandbox/research/reports/workbench/experiments.json",
         "sandbox/research/reports/workbench/hypotheses.json",
+        "sandbox/research/reports/workbench/liquidity.json",
+        "sandbox/research/reports/workbench/main_events.json",
         "sandbox/research/reports/workbench/overview.json",
     ]
+
+
+def test_liquidity_snapshot_uses_hourly_states_and_safe_deduplicated_trades(tmp_path):
+    import duckdb
+
+    l1_dir = (
+        tmp_path
+        / "work"
+        / "warehouse"
+        / "facts"
+        / "orderbooks_l1"
+        / "category=Sports"
+        / "subcategory=Soccer"
+        / "date=2026-07-06"
+    )
+    l1_dir.mkdir(parents=True)
+    l1_path = l1_dir / "soccer.parquet"
+    base_us = int(datetime(2026, 7, 6, 10, 0, tzinfo=timezone.utc).timestamp() * 1_000_000)
+    connection = duckdb.connect()
+    connection.execute(
+        """
+        CREATE TABLE l1 (
+            ts_utc BIGINT, market_ticker VARCHAR, subcategory VARCHAR, date DATE,
+            yes_bid_e4 INTEGER, yes_bid_qty_e4 BIGINT,
+            yes_ask_e4 INTEGER, yes_ask_qty_e4 BIGINT, is_snapshot BOOLEAN
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO l1 VALUES (?, ?, 'Soccer', '2026-07-06', ?, ?, ?, ?, ?)",
+        [
+            (base_us, "A", 4000, 100000, 4200, 200000, True),
+            (base_us + 1_000_000, "B", 3000, 50000, 3500, 30000, True),
+            (base_us + 2_000_000, "C", 0, 0, 4000, 100000, True),
+            (base_us + 3_000_000, "A", 4100, 100000, 4200, 100000, False),
+        ],
+    )
+    connection.execute(f"COPY l1 TO '{l1_path}' (FORMAT PARQUET)")
+    connection.close()
+
+    trade_dir = (
+        tmp_path
+        / "work"
+        / "warehouse"
+        / "facts"
+        / "trades"
+        / "category=Sports"
+        / "subcategory=Soccer"
+        / "date=2026-07-06"
+    )
+    trade_dir.mkdir(parents=True)
+    trade_path = trade_dir / "soccer.csv.gz"
+    header = "ts_utc,market_ticker,series_ticker,event_ticker,category,subcategory,group,trade_id,yes_price_e4,no_price_e4,count_e4,taker_side\n"
+    rows = [
+        f"{base_us},A,S,E,Sports,Soccer,G,t1,4100,5900,20000,yes\n",
+        f"{base_us},A,S,E,Sports,Soccer,G,t1,4100,5900,20000,yes\n",
+        f"{base_us},B,S,E,Sports,Soccer,G,t2,3300,6700,10000,no\n",
+        f"{base_us},C,S,E,Sports,Soccer,G,t3,4000,6000,10000,yes\n",
+        f"{base_us},C,S,E,Sports,Soccer,G,t3,4000,6000,20000,yes\n",
+    ]
+    with gzip.open(trade_path, "wt", encoding="utf-8", newline="") as handle:
+        handle.write(header)
+        handle.writelines(rows)
+
+    snapshot = wb.build_liquidity_snapshot(tmp_path, "2026-07-12T00:00:00Z")
+    assert snapshot["available"] is True
+    assert snapshot["sports"] == ["Soccer"]
+    assert snapshot["analysis_unit"] == "market × UTC hour × archive date"
+    hour = next(
+        row
+        for row in snapshot["slices"]
+        if row["sport"] == "Soccer" and row["date"] == "2026-07-06" and row["hour_utc"] == 10
+    )
+    assert hour["availability"]["active_markets_p50"] == 3
+    assert round(hour["availability"]["two_sided_share_p50"], 6) == 66.666667
+    assert hour["metrics"]["spread_cents"]["n"] == 2
+    assert hour["metrics"]["spread_cents"]["p50"] == 3.5
+    assert hour["metrics"]["spread_cents"]["max"] == 5.0
+    assert hour["metrics"]["touch_depth_contracts"]["p50"] == 6.5
+    assert hour["metrics"]["l1_changes_per_hour"]["p50"] == 0
+    assert hour["metrics"]["l1_changes_per_hour"]["max"] == 1
+    assert hour["metrics"]["trade_count"]["p50"] == 1
+    assert snapshot["trade_quality"] == {
+        "raw_rows": 5,
+        "safe_unique_trade_ids": 2,
+        "conflicting_trade_ids_excluded": 1,
+    }
+
+
+def test_main_event_tape_separates_real_prints_from_aggregate_l1_adds(tmp_path):
+    import duckdb
+
+    l1_dir = (
+        tmp_path
+        / "work"
+        / "warehouse"
+        / "facts"
+        / "orderbooks_l1"
+        / "category=Sports"
+        / "subcategory=Soccer"
+        / "date=2026-07-06"
+    )
+    l1_dir.mkdir(parents=True)
+    l1_path = l1_dir / "soccer.parquet"
+    base_us = int(datetime(2026, 7, 6, 10, 0, tzinfo=timezone.utc).timestamp() * 1_000_000)
+    event = "KXSOCCER-26JUL06TEST"
+    market = f"{event}-YES"
+    connection = duckdb.connect()
+    connection.execute(
+        """
+        CREATE TABLE l1 (
+            ts_utc BIGINT, market_ticker VARCHAR, event_ticker VARCHAR,
+            subcategory VARCHAR, "group" VARCHAR, date DATE,
+            yes_bid_e4 INTEGER, yes_bid_qty_e4 BIGINT,
+            yes_ask_e4 INTEGER, yes_ask_qty_e4 BIGINT,
+            price_e4 INTEGER, is_snapshot BOOLEAN
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO l1 VALUES (?, ?, ?, 'Soccer', 'Winner', '2026-07-06', ?, ?, ?, ?, ?, ?)",
+        [
+            (base_us, market, event, 4000, 100000, 4200, 200000, 4100, True),
+            (base_us + 1_000_000, market, event, 4000, 300000, 4200, 200000, 4100, False),
+            (base_us + 2_000_000, market, event, 4000, 300000, 4200, 500000, 4100, False),
+        ],
+    )
+    connection.execute(f"COPY l1 TO '{l1_path}' (FORMAT PARQUET)")
+    connection.close()
+
+    trade_dir = (
+        tmp_path
+        / "work"
+        / "warehouse"
+        / "facts"
+        / "trades"
+        / "category=Sports"
+        / "subcategory=Soccer"
+        / "date=2026-07-06"
+    )
+    trade_dir.mkdir(parents=True)
+    trade_path = trade_dir / "soccer.csv.gz"
+    header = "ts_utc,market_ticker,series_ticker,event_ticker,category,subcategory,group,trade_id,yes_price_e4,no_price_e4,count_e4,taker_side\n"
+    rows = [
+        f"{base_us},{market},S,{event},Sports,Soccer,Winner,t1,4100,5900,10000,yes\n",
+        f"{base_us},{market},S,{event},Sports,Soccer,Winner,t1,4100,5900,10000,yes\n",
+        f"{base_us + 1_000_000},{market},S,{event},Sports,Soccer,Winner,t2,4200,5800,1000000,no\n",
+        f"{base_us + 2_000_000},{market},S,{event},Sports,Soccer,Winner,t3,4200,5800,20000,yes\n",
+        f"{base_us + 2_000_000},{market},S,{event},Sports,Soccer,Winner,t3,4200,5800,30000,yes\n",
+    ]
+    with gzip.open(trade_path, "wt", encoding="utf-8", newline="") as handle:
+        handle.write(header)
+        handle.writelines(rows)
+
+    snapshot = wb.build_main_events_snapshot(tmp_path, "2026-07-12T00:00:00Z")
+    assert snapshot["available"] is True
+    assert snapshot["sports"] == ["Soccer"]
+    assert snapshot["trade_quality"] == {
+        "raw_rows": 5,
+        "safe_unique_trade_ids": 2,
+        "conflicting_trade_ids_excluded": 1,
+    }
+    episode = snapshot["episodes"][0]
+    assert episode["episode_key"] == "26JUL06TEST"
+    selected = episode["markets"][0]
+    assert selected["market_ticker"] == market
+    candidates = {item["type"]: item for item in selected["candidates"]}
+    assert set(candidates) == {"trade", "bid_add", "ask_add"}
+    assert candidates["trade"]["reference"] == "t2"
+    assert candidates["trade"]["contracts"] == 100.0
+    assert "AGGREGATE_TOUCH_PROXY" not in candidates["trade"]["quality_flags"]
+    assert candidates["bid_add"]["contracts"] == 20.0
+    assert candidates["ask_add"]["contracts"] == 30.0
+    assert "AGGREGATE_TOUCH_PROXY" in candidates["bid_add"]["quality_flags"]
+    assert snapshot["score_alignment"]["captured_now"] is False
+    assert snapshot["score_alignment"]["possible_prospectively"] is True
+    assert episode["score_events"] == []
 
 
 def test_unknown_and_missing_hypotheses_are_visible_as_invalid(tmp_path):
@@ -104,8 +287,21 @@ def test_non_loopback_hosts_are_rejected():
 def test_frontend_uses_only_local_api_data_without_embedded_results():
     html = (HERE / "workbench" / "index.html").read_text(encoding="utf-8")
     assert all(route in html for route in (
-        "/api/overview", "/api/hypotheses", "/api/experiments"
+        "/api/overview", "/api/liquidity", "/api/main-events",
+        "/api/hypotheses", "/api/experiments"
     ))
+    assert "/assets/echarts.min.js" in html
+    assert all(control in html for control in (
+        "liquidity-sport", "liquidity-date", "liquidity-metric",
+        "liquidity-time-chart", "liquidity-ecdf-chart",
+        "liquidity-heatmap-chart", "liquidity-availability-chart",
+    ))
+    assert all(control in html for control in (
+        "whale-sport", "whale-event", "whale-market", "whale-threshold",
+        "whale-timeline-chart", "whale-trade-ecdf", "whale-touch-ecdf",
+        "whale-table", "score-status",
+    ))
+    assert all(label in html for label in ("p50", "p99", "max", "market-hours"))
     assert "https://" not in html
     assert "http://" not in html
     assert "2,250,301" not in html
