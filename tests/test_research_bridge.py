@@ -86,8 +86,31 @@ def next_day(date):
     return (d + datetime.timedelta(days=1)).isoformat()
 
 
+def write_gap_receipt(quality_dir, date, raw_files, gaps=(),
+                      corrupt_bytes=False):
+    """P0-3 fixture: the scanner's affirmative per-date receipt binding the
+    exact firehose inventory (from the day seal's raw_files) + result."""
+    files = [{"file": r["file"],
+              "bytes": r["size"] + (7 if corrupt_bytes else 0)}
+             for r in raw_files
+             if r["file"].startswith("date=%s/" % date)
+             and os.path.basename(r["file"]).startswith("firehose_")]
+    payload = {"schema_version": "capture-gap-scan-receipt-v1",
+               "date": date, "raw_root": "fixture", "files": files,
+               "n_files": len(files),
+               "total_bytes": sum(f["bytes"] for f in files),
+               "records": 1, "unparsed": 0, "unreadable": False,
+               "gaps": list(gaps),
+               "generated_at_utc": "2026-07-12T05:00:00Z"}
+    os.makedirs(quality_dir, exist_ok=True)
+    with open(os.path.join(quality_dir,
+                           "capture_gap_receipt_%s.json" % date), "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+
 def make_day(tmp, date, tl1=True, with_rfq_raw=True, with_l2=False,
-             go_eligible=True, cross_day_rfq=False):
+             go_eligible=True, cross_day_rfq=False,
+             capture_quality="ASSESSED_OK_FIXTURE"):
     """Synthetic sealed warehouse day: L1 parquet + trades csv.gz
     (+ optional orderbooks_full) + manifest rows + v2 seal (+ sealed rfq raw
     incl. optional cross-day receipt hour + decoy firehose)."""
@@ -180,17 +203,18 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True, with_l2=False,
             "archive_files": len(stats), "archive_rows": 2,
             "archive_file_stats": stats, "raw_files": raw_files,
             "manifest_date_sha256": manifest_sha,
-            "capture_quality_status": "UNASSESSED_PENDING_PIPE_W03",
+            "capture_quality_status": capture_quality,
             "raw_retention_requirement": "LOCAL_OR_VAULT_VERIFIED_RECEIPT",
             "receipt_cross_day_hours": 2, "unverified": [],
             "go_no_go_eligible": go_eligible}
     with open(os.path.join(seals, "date=%s.json" % date), "w") as f:
         json.dump(seal, f, indent=1)
-    return l1, tr
+    return l1, tr, raw_files
 
 
 def main():
-    scratch = sys.argv[1] if len(sys.argv) > 1 else tempfile.gettempdir()
+    scratch = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 \
+        else tempfile.gettempdir()
     tmp = tempfile.mkdtemp(prefix="w05_bridge_", dir=scratch)
     day_us = wc.day_start_us("2026-07-11")
     try:
@@ -234,18 +258,37 @@ def main():
             w.writerow(["start_us", "end_us"])
             w.writerow([day_us + 1000, day_us + 90_000_000])      # in 07-11
             w.writerow([day_us - 7_200_000_000, day_us - 3_600_000_000])
-        with open(os.path.join(quality, "l2_gaps_2026-07-11.json"), "w") as f:
-            json.dump({"no_l2_files": True, "seq_gap_events": 0,
-                       "seq_missed_total": 0, "sids_total": 0,
-                       "sids_with_seq_gaps": 0, "lines": 0}, f)
+        for d in ("2026-07-11", "2026-07-06"):
+            with open(os.path.join(quality, "l2_gaps_%s.json" % d),
+                      "w") as f:
+                json.dump({"date": d, "no_l2_files": d != "2026-07-06",
+                           "seq_gap_events": 0, "seq_missed_total": 0,
+                           "sids_total": 0, "sids_with_seq_gaps": 0,
+                           "lines": 0}, f)
 
-        l1_file, _tr = make_day(tmp, "2026-07-11", tl1=True,
-                                cross_day_rfq=True)
+        l1_file, _tr, raw_1111 = make_day(tmp, "2026-07-11", tl1=True,
+                                          cross_day_rfq=True)
         make_day(tmp, "2026-07-05", tl1=False, with_rfq_raw=False)
-        make_day(tmp, "2026-07-03", tl1=True, with_rfq_raw=False,
-                 go_eligible=False)
-        make_day(tmp, "2026-07-06", tl1=True, with_rfq_raw=False,
-                 with_l2=True)
+        _l, _t, raw_0703 = make_day(tmp, "2026-07-03", tl1=True,
+                                    with_rfq_raw=False, go_eligible=False,
+                                    capture_quality=
+                                    "UNASSESSED_PENDING_PIPE_W03")
+        _l, _t, raw_0706 = make_day(tmp, "2026-07-06", tl1=True,
+                                    with_rfq_raw=False, with_l2=True)
+        _l, _t, raw_0702 = make_day(tmp, "2026-07-02", tl1=True,
+                                    with_rfq_raw=False, with_l2=True)
+        _l, _t, raw_0630 = make_day(tmp, "2026-06-30", tl1=True,
+                                    with_rfq_raw=False)
+        # P0-3 affirmative receipts: 07-11 (one in-day gap), 07-06 + 07-02
+        # (clean); 06-30 gets a STALE receipt (wrong byte inventory);
+        # 07-03/07-05 get NONE (absence is not evidence)
+        write_gap_receipt(quality, "2026-07-11", raw_1111,
+                          gaps=[{"start_us": day_us + 1000,
+                                 "end_us": day_us + 90_000_000}])
+        write_gap_receipt(quality, "2026-07-06", raw_0706)
+        write_gap_receipt(quality, "2026-07-02", raw_0702)
+        write_gap_receipt(quality, "2026-06-30", raw_0630,
+                          corrupt_bytes=True)
         dest = os.path.join(tmp, "dest")
         os.makedirs(dest)
         vault = os.path.join(tmp, "vault")   # ec2/raw stand-in (fix 6)
@@ -306,13 +349,13 @@ def main():
                   "gap_evidence", {}).get("affirmative_receipt") is True
               and man.get("publication_state", {}).get(
                   "gap_evidence", {}).get("gap_receipt_sha256"))
-        check("version binding frozen; unversioned dest = LOUD explicit "
-              "degraded mode (item 1)",
+        check("version binding frozen; fixture dest labeled, never a real "
+              "publication (P0-1)",
               man.get("version_binding", {}).get("mode")
-              == "UNVERSIONED_DEST_DEGRADED"
+              == "LOCAL_FIXTURE_DEST_NO_VERSIONS"
               and man.get("version_binding", {}).get("bindings_sha256")
-              and "UNVERSIONED_DEST_DEGRADED" in r.stdout
-              and "WARNING" in r.stdout, r.stdout[-400:])
+              and "FIXTURE" in r.stdout
+              and "VERSIONING_REQUIRED" in r.stdout, r.stdout[-400:])
         keys = {o["key"] for o in man.get("objects", [])}
         check("gap receipt object shipped",
               "quality/gap_receipt_2026-07-11.json" in keys)
@@ -599,7 +642,7 @@ def main():
 
         print("== 13. version-binding tamper: VERSION_BOUND with null "
               "version ids fails verify (item 1)")
-        vb_rid = "2026-07-02__seal-bbbbbbbb__pub-bbbbbbbbbbbbbbbb"
+        vb_rid = "2026-06-20__seal-bbbbbbbb__pub-bbbbbbbbbbbbbbbb"
         vb_dir = os.path.join(dest, "releases", vb_rid)
         os.makedirs(vb_dir)
         tampered = dict(json.load(open(os.path.join(
@@ -651,7 +694,15 @@ def main():
               lmarker.get("quarantined_legacy_override") is True)
         prov = json.load(open(os.path.join(cache, "view",
                                            ".view_provenance.json")))
-        check("override-only date enters the view BRANDED",
+        check("P0-3: quarantined/non-confirmation stays OUT of the default "
+              "active view",
+              "2026-07-06" not in prov["verified_releases"], prov)
+        r = run(cli + ["view", "--include-non-confirmation"], env)
+        check("explicit non-confirmation view re-includes it, branded",
+              r.returncode == 0)
+        prov = json.load(open(os.path.join(cache, "view",
+                                           ".view_provenance.json")))
+        check("branded provenance in the non-confirmation view",
               prov["verified_releases"].get("2026-07-06") == legacy_rid
               and prov["quarantined_legacy_overrides"].get("2026-07-06")
               == legacy_rid and prov.get("quarantine_brand"), prov)
@@ -661,8 +712,8 @@ def main():
               r.stdout[-300:])
         prov = json.load(open(os.path.join(cache, "view",
                                            ".view_provenance.json")))
-        check("a verified clean release ALWAYS beats the quarantined "
-              "override in the view",
+        check("a verified clean CONFIRMATION release owns the date in the "
+              "default view",
               prov["verified_releases"].get("2026-07-06") == clean_rid
               and "2026-07-06" not in prov["quarantined_legacy_overrides"],
               prov)
@@ -713,6 +764,151 @@ def main():
               "'latest' blindly", cands == ["new", "old"], cands)
         check("no versions -> no candidates (degraded path)",
               rr.pick_candidate_versions({}, 10) == [])
+
+        print("== 17. P0-3 adversarial: receipts are the only evidence")
+        check("UNASSESSED capture quality NEVER earns confirmation",
+              any("UNASSESSED" in x and "never earn" in x.lower()
+                  for x in man_d.get("evidence_tier_basis", {})
+                  .get("downgrade_reasons", [])),
+              man_d.get("evidence_tier_basis"))
+        check("header-only CSV without receipt is NOT evidence (07-03)",
+              any("no per-date scan receipt" in x
+                  for x in man_d.get("evidence_tier_basis", {})
+                  .get("downgrade_reasons", [])))
+        check("no raw + no receipt is NOT evidence (07-05)",
+              any("no per-date scan receipt" in x
+                  for x in man_p.get("evidence_tier_basis", {})
+                  .get("downgrade_reasons", [])))
+        r = run(pub + ["--date", "2026-06-30", "--no-rfq"], env)
+        check("stale-inventory receipt day publishes degraded",
+              r.returncode == 0)
+        st = glob.glob(os.path.join(dest, "releases",
+                                    "2026-06-30__seal-*__pub-*",
+                                    "MANIFEST.json"))
+        man_s = json.load(open(st[0])) if st else {}
+        check("stale receipt (inventory mismatch vs seal) degrades",
+              man_s.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("stale/partial" in x for x in man_s.get(
+                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              man_s.get("evidence_tier_basis"))
+        r = run(pub + ["--date", "2026-07-02", "--no-rfq"], env)
+        check("L2-facts day without L2 evidence publishes degraded",
+              r.returncode == 0)
+        l2x = glob.glob(os.path.join(dest, "releases",
+                                     "2026-07-02__seal-*__pub-*",
+                                     "MANIFEST.json"))
+        man_x = json.load(open(l2x[0])) if l2x else {}
+        check("missing MANDATORY L2 seq-quality evidence degrades",
+              man_x.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("seq-quality" in x for x in man_x.get(
+                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              man_x.get("evidence_tier_basis"))
+        check("confirmation day (07-06: receipt+L2 evidence+assessed) "
+              "earns SEALED_CONFIRMATION",
+              man_l2.get("evidence_tier") == "SEALED_CONFIRMATION",
+              man_l2.get("evidence_tier_basis"))
+
+        print("== 18. P0-4: consumer identity + frozen-state ordering")
+        bogus_rid = "2026-07-11__seal-deadbeef__pub-0123456789abcdef"
+        bdir = os.path.join(dest, "releases", bogus_rid)
+        shutil.copytree(os.path.join(dest, "releases", rid_corr), bdir)
+        r = run(cli + ["fetch", "--release", bogus_rid], env, expect_rc=2)
+        check("manifest under a mismatched rid fails verify", r.returncode == 2)
+        bfail = json.load(open(os.path.join(cache, "releases", bogus_rid,
+                                            ".FAILED.json")))
+        check("identity failures name release_id/prefix/pub-suffix",
+              any("release_id" in x for x in bfail["failures"])
+              and any("seal prefix" in x or "__pub suffix" in x
+                      for x in bfail["failures"]), bfail["failures"])
+        tdir = os.path.join(dest, "releases",
+                            "2026-07-04__seal-cafecafe__pub-cafecafecafecafe")
+        shutil.copytree(os.path.join(dest, "releases", rid_corr), tdir)
+        tman = json.load(open(os.path.join(tdir, "MANIFEST.json")))
+        tman["release_id"] = os.path.basename(tdir)
+        tman["publication_state"]["corrections"]["ledger_day_sha256"] = \
+            "0" * 64   # state tampered; frozen digest no longer recomputes
+        with open(os.path.join(tdir, "MANIFEST.json"), "w") as f:
+            json.dump(tman, f)
+        r = run(cli + ["fetch", "--release", os.path.basename(tdir)], env,
+                expect_rc=2)
+        check("tampered publication_state does not recompute -> reject",
+              r.returncode == 2)
+        # ordering: re-verify the OLDER clean base release AFTER the newer
+        # corrected one — the correction must stay active (frozen state,
+        # never local verified_at)
+        r = run(cli + ["fetch", "--release", rid], env)
+        check("older clean base release verifies", r.returncode == 0,
+              r.stdout[-300:])
+        prov = json.load(open(os.path.join(cache, "view",
+                                           ".view_provenance.json")))
+        check("newer correction stays active after the older clean "
+              "release is re-verified later (P0-4)",
+              prov["verified_releases"].get("2026-07-11")
+              in (rid_corr, rid_rfq)
+              and prov["verified_releases"].get("2026-07-11") != rid, prov)
+
+        print("== 19. FAKE-AWS (P0-1/P0-2): version-bound real-s3 path")
+        fakebin = os.path.join(tmp, "fakebin")
+        os.makedirs(fakebin)
+        with open(os.path.join(fakebin, "aws"), "w") as f:
+            f.write("#!/usr/bin/env python3\nimport sys\n"
+                    "sys.path.insert(0, %r)\nimport fake_aws\n"
+                    "sys.exit(fake_aws.main(sys.argv[1:]))\n"
+                    % os.path.join(ROOT, "tests"))
+        os.chmod(os.path.join(fakebin, "aws"), 0o755)
+
+        def fake_env(root, **extra):
+            e = dict(env, PATH=fakebin + os.pathsep + env.get("PATH", ""),
+                     FAKE_S3_ROOT=root)
+            e.update(extra)
+            return e
+
+        s3pub = ["tools/research_release.py", "publish",
+                 "--date", "2026-07-06", "--dest",
+                 "s3://fakebucket/research", "--operator-approved",
+                 "--quality-dir", quality, "--raw-vault", vault,
+                 "--live-dir", live, "--no-rfq"]
+        rootA = os.path.join(tmp, "fakes3a")
+        r = run(s3pub, fake_env(rootA))
+        check("version-bound publish succeeds on a versioned store",
+              r.returncode == 0 and "binding=VERSION_BOUND" in r.stdout
+              and "manifest_version=V" in r.stdout, r.stdout[-400:])
+        fman = glob.glob(os.path.join(rootA, "fakebucket", "research",
+                                      "releases", "*", "MANIFEST.json",
+                                      "__obj__", "V*"))
+        check("manifest write-once object exists", len(fman) == 1)
+        man_f = json.load(open(fman[0])) if fman else {}
+        check("every object records a non-null VersionId",
+              man_f.get("objects")
+              and all(o.get("version_id") for o in man_f["objects"]))
+        rootB = os.path.join(tmp, "fakes3b")
+        r = run(s3pub, fake_env(rootB, FAKE_S3_UNVERSIONED="1"),
+                expect_rc=None)
+        check("unversioned real-s3 store is NON-PUBLISHABLE (P0-2)",
+              r.returncode != 0
+              and "VERSIONING_REQUIRED" in (r.stdout + r.stderr))
+        check("no manifest exposed on the unversioned store",
+              not glob.glob(os.path.join(rootB, "fakebucket", "research",
+                                         "releases", "*", "MANIFEST.json",
+                                         "__obj__", "V*")))
+        rootC = os.path.join(tmp, "fakes3c")
+        r = run(s3pub, fake_env(rootC, FAKE_S3_RACE_KEY="orderbooks_l1"),
+                expect_rc=None)
+        check("A/B version race: exact-version verification catches the "
+              "concurrent writer and aborts",
+              r.returncode != 0 and not glob.glob(
+                  os.path.join(rootC, "fakebucket", "research", "releases",
+                               "*", "MANIFEST.json", "__obj__", "V*")))
+        rootD = os.path.join(tmp, "fakes3d")
+        r = run(s3pub, fake_env(rootD))
+        check("first publish on store D", r.returncode == 0)
+        r = run(s3pub, fake_env(rootD, FAKE_S3_MANIFEST_RACE="1"),
+                expect_rc=None)
+        check("MANIFEST overwrite attempt refused by conditional create "
+              "(write-once)",
+              r.returncode != 0
+              and "write-once" in (r.stdout + r.stderr).lower(),
+              (r.stdout + r.stderr)[-300:])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

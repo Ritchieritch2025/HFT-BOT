@@ -492,10 +492,11 @@ def cmd_inventory(store, cache):
                   "publication-state/version-binding freeze; fetch/verify "
                   "refuse them without --allow-legacy-quarantined "
                   "(all outputs branded).")
-        if any("UNVERSIONED" in row[2] for row in rows):
-            print("WARNING: releases marked !UNVERSIONED_DEST_DEGRADED were "
-                  "published WITHOUT object-version binding (explicit "
-                  "degraded mode) — freeze authority is size+sha256 only.")
+        if any("LOCAL_FIXTURE" in row[2] for row in rows):
+            print("NOTE: releases marked !LOCAL_FIXTURE_DEST_NO_VERSIONS "
+                  "came from an offline fixture destination — never a real "
+                  "publication (real S3 is VERSION_BOUND or fails closed, "
+                  "P0-1/P0-2 VERSIONING_REQUIRED).")
     # ---- cost + disk (spec HYGIENE) ----------------------------------------
     gb = total_bytes / 1e9
     days = {r.split("__")[0] for r in releases if _RELEASE_RE.match(r)}
@@ -537,10 +538,10 @@ def cmd_fetch(store, cache, rid, with_rfq, allow_legacy=False):
     validate_manifest_keys(manifest, cache, rid)  # item 3: before ANY write
     binding = manifest.get("version_binding") or {}
     if not quarantined and binding.get("mode") != "VERSION_BOUND":
-        sys.stderr.write("WARNING: %s was published in the explicit "
-                         "degraded mode %s — fetches cannot be "
-                         "version-pinned; size+sha256 remain the freeze "
-                         "authority.\n" % (rid, binding.get("mode")))
+        sys.stderr.write("NOTE: %s carries binding mode %s (offline "
+                         "fixture) — a real S3 release is always "
+                         "VERSION_BOUND or it was never published "
+                         "(P0-1/P0-2).\n" % (rid, binding.get("mode")))
     rdir = cache_release_dir(cache, rid)
     fetched = skipped = 0
     for o in _iter_manifest_objects(manifest, with_rfq):
@@ -591,15 +592,17 @@ def cmd_verify(store, cache, rid, allow_legacy=False):
     failures = []
     rfq_status, rfq_present = "ABSENT_FROM_RELEASE", False
 
-    # 0) version binding (remediation item 1): a v2 release must carry a
+    # 0) version binding (item 1 + P0-1): a v2 release must carry a
     # consistent binding block; VERSION_BOUND demands a VersionId on every
-    # object and the recorded binding digest must reproduce.
+    # object and the recorded binding digest must reproduce. The only
+    # versionless mode accepted is the offline FIXTURE destination (loudly
+    # noted); a real S3 release is version-bound or it was never published.
     binding = manifest.get("version_binding") or {}
     if not quarantined:
         mode = binding.get("mode")
-        if mode not in ("VERSION_BOUND", "UNVERSIONED_DEST_DEGRADED"):
-            failures.append("version_binding mode missing/unknown: %r"
-                            % mode)
+        if mode not in ("VERSION_BOUND", "LOCAL_FIXTURE_DEST_NO_VERSIONS"):
+            failures.append("version_binding mode missing/unknown/"
+                            "non-publishable: %r" % mode)
         else:
             got = hashlib.sha256(json.dumps(
                 {o["key"]: o.get("version_id")
@@ -613,10 +616,58 @@ def cmd_verify(store, cache, rid, allow_legacy=False):
                     for o in manifest["objects"]):
                 failures.append("VERSION_BOUND release carries a null "
                                 "version_id")
-            if mode == "UNVERSIONED_DEST_DEGRADED":
-                sys.stderr.write("WARNING: %s is in the explicit degraded "
-                                 "mode UNVERSIONED_DEST_DEGRADED (no object "
-                                 "version binding).\n" % rid)
+            if mode == "LOCAL_FIXTURE_DEST_NO_VERSIONS":
+                sys.stderr.write("NOTE: %s came from an offline FIXTURE "
+                                 "destination (no object versions) — never "
+                                 "a real publication.\n" % rid)
+
+    # 0b) P0-4: consumer-side identity — the manifest must BE the release
+    # it claims. Recompute the publication-state digest from the frozen
+    # state and verify the requested rid's date + seal prefix + __pub
+    # suffix against the RECOMPUTED values; reject inconsistent manifests.
+    if not quarantined:
+        if manifest.get("release_id") != rid:
+            failures.append("manifest.release_id %r != requested %r"
+                            % (manifest.get("release_id"), rid))
+        state = manifest.get("publication_state")
+        if not isinstance(state, dict):
+            failures.append("publication_state missing from v2 manifest")
+        else:
+            recomputed = hashlib.sha256(json.dumps(
+                state, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=True).encode()).hexdigest()
+            if recomputed != manifest.get("publication_state_sha256"):
+                failures.append("publication_state_sha256 does not "
+                                "recompute from the frozen state")
+            m_id = re.match(r"^(\d{4}-\d{2}-\d{2})__seal-([0-9a-f]{8})"
+                            r"__pub-([0-9a-f]{16})$", rid)
+            seal_sha_m = str(manifest.get("seal", {}).get("sha256") or "")
+            if not m_id:
+                failures.append("release id is not the v2 "
+                                "date__seal__pub form")
+            else:
+                if m_id.group(1) != manifest.get("date"):
+                    failures.append("rid date != manifest date")
+                if m_id.group(2) != seal_sha_m[:8]:
+                    failures.append("rid seal prefix != manifest seal "
+                                    "digest")
+                if m_id.group(3) != recomputed[:16]:
+                    failures.append("rid __pub suffix != RECOMPUTED "
+                                    "publication-state digest")
+            if state.get("seal_sha256") != seal_sha_m:
+                failures.append("publication_state seal digest != "
+                                "manifest seal digest")
+            objs = {o["key"]: o["sha256"] for o in manifest["objects"]}
+            ge = state.get("gap_evidence") or {}
+            gr_key = "quality/gap_receipt_%s.json" % manifest.get("date")
+            if (ge.get("gap_receipt_sha256")
+                    and objs.get(gr_key) != ge["gap_receipt_sha256"]):
+                failures.append("gap receipt hash in the state is not "
+                                "bound to the frozen objects")
+            for cf in (state.get("corrections") or {}).get("files", []):
+                if objs.get(cf.get("key")) != cf.get("sha256"):
+                    failures.append("correction state not bound to frozen "
+                                    "objects: %s" % cf.get("key"))
 
     # 1) every frozen object: present + size + sha256 (raw_rfq may be unfetched)
     n_ok = bytes_ok = 0
@@ -726,6 +777,17 @@ def cmd_verify(store, cache, rid, allow_legacy=False):
         "version_binding_mode":
             (manifest.get("version_binding") or {}).get("mode"),
         "quarantined_legacy_override": bool(quarantined),
+        # P0-4: frozen publication/correction state for view ordering —
+        # NEVER local verification time
+        "corrections_total":
+            int((manifest.get("corrections") or {})
+                .get("included_files") or 0)
+            + int((manifest.get("corrections") or {})
+                  .get("ledger_day_entries") or 0),
+        "generated_at_utc": manifest.get("generated_at_utc"),
+        "rfq_included":
+            (manifest.get("channels", {}).get("rfq", {}).get("status")
+             == "INCLUDED_SEALED_RAW"),
         "tl1_status": manifest.get("tl1_status"),
         "seal_sha256": manifest["seal"]["sha256"],
         "objects_verified": n_ok, "bytes_verified": bytes_ok,
@@ -761,14 +823,20 @@ def cmd_verify(store, cache, rid, allow_legacy=False):
     return 0
 
 
-def rebuild_view(cache):
-    """Merged warehouse-shaped symlink view over VERIFIED releases only.
+def rebuild_view(cache, include_non_confirmation=False):
+    """Merged warehouse-shaped symlink view over VERIFIED releases.
+
+    P0-3: by default this is the Phase-A ACTIVE research view — only clean
+    SEALED_CONFIRMATION releases enter it; degraded/quarantined releases are
+    excluded unless include_non_confirmation is passed explicitly (cmd_view
+    --include-non-confirmation), and even then quarantined data stays
+    branded in the provenance. P0-4: per-date selection ranks by the FROZEN
+    publication/correction state (corrections_total, publisher
+    generated_at_utc), never by local verification time.
 
     view/{facts,seals,dim,catalog,raw,quality}/… is what the Event
     Intelligence dashboard consumes via --data-root. Rebuilt from scratch on
-    every call (symlinks only; never deletes cached data). Newest verified
-    release wins per date; catalog comes from the newest verified date.
-    """
+    every call (symlinks only; never deletes cached data)."""
     view = os.path.join(cache, "view")
     contained_remove(view, cache, is_dir=True)
     by_date = {}
@@ -783,11 +851,22 @@ def rebuild_view(cache):
             # item 5: quarantined-legacy data enters the view ONLY via the
             # explicit override marker, and the provenance is branded
             d = m["date"]
-            # clean releases always beat quarantined-legacy overrides;
-            # then newest verified wins; on a same-second tie the legacy
-            # -rfq variant wins (strict superset of its base release)
+            # P0-3: the Phase-A active research view holds ONLY clean
+            # SEALED_CONFIRMATION releases by default
+            if not include_non_confirmation and (
+                    m.get("quarantined_legacy_override")
+                    or m.get("evidence_tier") != "SEALED_CONFIRMATION"):
+                continue
+            # P0-4: ordering uses FROZEN publication/correction state
+            # (corrections monotonically grow; generated_at_utc is the
+            # publisher's frozen clock) — NEVER local verified_at time, so
+            # re-verifying an older clean release can never displace a
+            # newer correction. Legacy -rfq variants break exact ties.
             rank = (not m.get("quarantined_legacy_override"),
-                    m["verified_at_utc"], rid.endswith("-rfq"), rid)
+                    m.get("corrections_total") or 0,
+                    m.get("generated_at_utc") or "",
+                    bool(m.get("rfq_included")) or rid.endswith("-rfq"),
+                    rid)
             if d not in by_date or rank > by_date[d]["_rank"]:
                 by_date[d] = {"rid": rid, "_rank": rank, **m}
     os.makedirs(view, exist_ok=True)
@@ -825,7 +904,9 @@ def rebuild_view(cache):
                     dst = os.path.join(view, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if not os.path.lexists(dst):
-                    os.symlink(src, dst)
+                    # absolute target: a relative cache path must never
+                    # produce dangling view links
+                    os.symlink(os.path.abspath(src), dst)
     branded = {d: v["rid"] for d, v in by_date.items()
                if v.get("quarantined_legacy_override")}
     with open(os.path.join(view, ".view_provenance.json"), "w") as f:
@@ -839,12 +920,16 @@ def rebuild_view(cache):
     return view
 
 
-def cmd_view(cache):
-    view = rebuild_view(cache)
+def cmd_view(cache, include_non_confirmation=False):
+    view = rebuild_view(cache,
+                        include_non_confirmation=include_non_confirmation)
     with open(os.path.join(view, ".view_provenance.json")) as f:
         prov = json.load(f)
-    print("[view] %s — %d verified date(s): %s"
+    print("[view] %s — %d date(s)%s: %s"
           % (view, len(prov["verified_releases"]),
+             " (INCLUDING NON-CONFIRMATION TIERS)"
+             if include_non_confirmation else
+             " (SEALED_CONFIRMATION only — Phase A active view)",
              ", ".join(sorted(prov["verified_releases"])) or "(none)"))
     return 0
 
@@ -871,12 +956,18 @@ def main(argv):
     pv.add_argument("--allow-legacy-quarantined", action="store_true",
                     help="explicit override to read a QUARANTINED legacy "
                          "release (all outputs branded)")
-    sub.add_parser("view")
+    pw = sub.add_parser("view")
+    pw.add_argument("--include-non-confirmation", action="store_true",
+                    help="P0-3: the default view is the Phase-A ACTIVE "
+                         "research view (SEALED_CONFIRMATION only); this "
+                         "flag re-includes degraded/branded releases")
     args = ap.parse_args(argv[1:])
     # remediation item 6: wrong credential mode = refuse before anything
     refuse_production_credentials()
     if args.cmd == "view":
-        return cmd_view(args.cache)
+        return cmd_view(args.cache,
+                        include_non_confirmation=
+                        args.include_non_confirmation)
     store = make_store(args.root)
     if args.cmd == "inventory":
         return cmd_inventory(store, args.cache)

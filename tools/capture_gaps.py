@@ -257,6 +257,41 @@ def _dates_since(n_days):
     return [(today - dt.timedelta(days=i)).isoformat() for i in range(n_days - 1, -1, -1)]
 
 
+def write_scan_receipt(receipt_dir, date_str, raw_root, gaps, stats):
+    """PIPE-W05 P0-3: AFFIRMATIVE per-date scan receipt. Binds the date, the
+    EXACT raw inventory scanned (relative file names + byte sizes) and the
+    result. A done-marker or a bare CSV is never proof of scan coverage —
+    downstream consumers must match this inventory against the day seal.
+    Written only when raw files were actually scanned (absence of raw proves
+    nothing and earns no receipt)."""
+    files = [{"file": os.path.join("date=%s" % date_str,
+                                   os.path.basename(p)).replace(os.sep, "/"),
+              "bytes": os.stat(p).st_size}
+             for p in _raw_files_for_date(date_str, raw_root)]
+    payload = {
+        "schema_version": "capture-gap-scan-receipt-v1",
+        "date": date_str,
+        "raw_root": raw_root,
+        "files": files,
+        "n_files": len(files),
+        "total_bytes": sum(f["bytes"] for f in files),
+        "records": stats["records"],
+        "unparsed": stats["unparsed"],
+        "unreadable": stats["unreadable"],
+        "gaps": [{"start_us": s, "end_us": e} for s, e in gaps],
+        "generated_at_utc":
+            dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    path = os.path.join(receipt_dir,
+                        "capture_gap_receipt_%s.json" % date_str)
+    os.makedirs(receipt_dir or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+    return path
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Capture-gap record builder + live detector (W-C2)")
     ap.add_argument("--date", help="UTC date YYYY-MM-DD to scan and record")
@@ -266,6 +301,9 @@ def main(argv):
     ap.add_argument("--alert-secs", type=float, default=ALERT_SECS_DEFAULT)
     ap.add_argument("--raw-root", default=RAW_ROOT_DEFAULT)
     ap.add_argument("--record", default=RECORD_DEFAULT)
+    ap.add_argument("--receipt-dir", default=None,
+                    help="where per-date scan receipts land (default: the "
+                         "record file's directory)")
     ap.add_argument("--alert", default=ALERT_DEFAULT)
     args = ap.parse_args(argv)
 
@@ -293,6 +331,9 @@ def main(argv):
             print(f"{d}: no raw files (pruned or absent) — existing record preserved (not rescanned)")
             continue
         write_record(args.record, d, gaps, replace_day=True)
+        write_scan_receipt(args.receipt_dir
+                           or (os.path.dirname(args.record) or "."),
+                           d, args.raw_root, gaps, stats)
         total += len(gaps)
         for s, e in gaps:
             dur = (e - s) / 1_000_000

@@ -26,17 +26,20 @@ hash after it is frozen. Only seal-attested write-once files (facts archives,
 sealed rfq raw) are hardlinked, and those are byte-verified against the day
 seal before staging.
 
-POST-UPLOAD VERIFICATION + VERSION BINDING (fix 3 + remediation item 1):
-after the data upload and BEFORE the manifest is written, every actual
-destination object is re-verified — size via HeadObject and content sha256
-via a streamed GetObject — and its VersionId is recorded per object. The
-publication is version-bound end-to-end: the manifest carries a
-`version_binding` block with the binding mode and a sha256 over the
-key->VersionId map. A destination that returns no VersionIds publishes in an
-EXPLICIT, LOUDLY-DECLARED degraded mode (UNVERSIONED_DEST_DEGRADED — printed
-as a WARNING and frozen in the manifest); a destination returning VersionIds
-for only some objects is an inconsistency and aborts. Any mismatch or a
-denied read aborts with no manifest (fail-closed).
+POST-UPLOAD VERIFICATION + VERSION BINDING (fix 3 + P0-1/P0-2): after the
+data upload and BEFORE the manifest is written, every actual destination
+object is verified by its EXACT version: HeadObject -> VersionId A ->
+GetObject --version-id A -> size + sha256 of those exact bytes -> record A.
+Real S3 publication is version-bound OR IT DOES NOT HAPPEN: a missing
+VersionId aborts fail-closed (VERSIONING_REQUIRED — P0-2: vaultWriter is
+denied s3:GetBucketVersioning, so the bucket's versioning status is
+unobservable and object-level VersionIds are the only acceptable proof;
+publication stays stopped pending the operator's console confirmation).
+There is NO degraded real-S3 mode. The MANIFEST itself is a write-once
+conditional create (If-None-Match: *), read back by its exact VersionId and
+sha256-verified. Only the offline local-directory FIXTURE destination is
+versionless, and it is labeled LOCAL_FIXTURE_DEST_NO_VERSIONS — never a
+real publication.
 
 OPERATOR GATE (remediation item 7): publishing to a REAL s3:// destination
 REFUSES to run without --operator-approved (depth_probe pattern; exit 2,
@@ -46,18 +49,21 @@ with vaultWriter; it REFUSES an s3:// publish on any host holding the Mac
 research read-only key file (~/.kalshi/research_s3.env.sh) — the read-only
 namespace and the write namespace never share a host role.
 
-GAP RECEIPTS (remediation item 4): absence of a gap file is NOT evidence.
-Each published day carries an AFFIRMATIVE gap-evidence receipt
-(quality/gap_receipt_<date>.json, its own hash frozen in the manifest and in
-the publication state), produced only when BOTH the day's completed-scan
-marker (work/live/gaps_<date>.done) AND the gap record file exist. A day
-without an affirmative receipt publishes with a degraded evidence tier.
+GAP RECEIPTS (P0-3): absence of a gap file is NOT evidence, and neither is a
+done-marker or a bare CSV. The ONLY affirmative gap evidence is the
+scanner's own per-date receipt (capture_gap_receipt_<date>.json, written by
+tools/capture_gaps.py) binding date + the EXACT scanned raw inventory
+(files + bytes) + result — and that inventory must reproduce the day seal's
+firehose raw inventory byte-for-byte. When orderbooks_full facts exist,
+matching per-date L2 seq-quality evidence is MANDATORY.
 
-EVIDENCE TIER (fix 5) is DERIVED, never assumed: SEALED_CONFIRMATION only for
-a status=SEALED version-2 full_v2 seal with go_no_go_eligible=true, a present
-capture-gap record and no explicit capture-quality failure; anything else
-publishes as SEALED_DEGRADED_EVIDENCE with the downgrade reasons in the
-manifest (evidence_tier_basis).
+EVIDENCE TIER (fix 5 + P0-3) is DERIVED, never assumed: SEALED_CONFIRMATION
+only for a status=SEALED version-2 full_v2 seal with go_no_go_eligible=true,
+an affirmative inventory-matched scan receipt, mandatory L2 evidence when L2
+facts exist, and an EXPLICITLY ASSESSED capture quality —
+UNASSESSED_PENDING_PIPE_W03 can NEVER earn SEALED_CONFIRMATION. Anything
+else publishes as SEALED_DEGRADED_EVIDENCE with the downgrade reasons in
+the manifest (evidence_tier_basis).
 
 L2 (fix 4): orderbooks_full sealed facts are detected from the seal file list
 and exposed as INCLUDED_SEALED_FACTS when present; otherwise the channel is
@@ -178,14 +184,28 @@ class LocalDest:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copyfile(src, dst)
 
-    def upload_file(self, local, key):
+    def upload_manifest(self, local, key):
+        """Write-once (P0-1): O_EXCL create — an existing manifest is a
+        write-once violation and aborts; the written copy is read back and
+        sha256-verified."""
         dst = os.path.join(self.root, key)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(local, dst)
+        try:
+            with open(dst, "xb") as f, open(local, "rb") as src:
+                shutil.copyfileobj(src, f)
+        except FileExistsError:
+            raise SystemExit("ABORT (fail-closed): MANIFEST already exists "
+                             "at %s — write-once violated (concurrent or "
+                             "repeated publisher?)" % key)
+        if sha256_file(dst) != sha256_file(local):
+            raise SystemExit("ABORT (fail-closed): manifest read-back "
+                             "mismatch for %s" % key)
+        return None
 
     def verify_object(self, key, size, sha256):
         """Post-upload verification of the ACTUAL destination object (fix 3).
-        Returns the VersionId (None here — a filesystem has none)."""
+        Returns the VersionId (None here — a filesystem has none; this is
+        FIXTURE mode, clearly labeled, never a real publication)."""
         path = os.path.join(self.root, key)
         if not os.path.isfile(path):
             raise SystemExit("ABORT (fail-closed): uploaded object missing "
@@ -197,6 +217,8 @@ class LocalDest:
             raise SystemExit("ABORT (fail-closed): destination sha256 "
                              "mismatch for %s" % key)
         return None
+
+    binding_mode = "LOCAL_FIXTURE_DEST_NO_VERSIONS"
 
     def describe(self):
         return self.root
@@ -228,9 +250,7 @@ class S3Dest:
                         "--no-progress", "--exclude", "MANIFEST.json"],
                        check=True)
 
-    def upload_file(self, local, key):
-        subprocess.run(["aws", "s3", "cp", local, "%s/%s" % (self.url, key),
-                        "--no-progress"], check=True)
+    binding_mode = "VERSION_BOUND"
 
     def _head(self, key):
         r = subprocess.run(["aws", "s3api", "head-object", "--bucket",
@@ -249,39 +269,88 @@ class S3Dest:
             raise SystemExit("ABORT (fail-closed): unparsable HeadObject "
                              "response for %s" % key)
 
-    def _streamed_sha256(self, key):
-        p = subprocess.Popen(["aws", "s3", "cp",
-                              "%s/%s" % (self.url, key), "-",
-                              "--no-progress"],
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
-        h = hashlib.sha256()
-        n = 0
-        for chunk in iter(lambda: p.stdout.read(1 << 20), b""):
-            h.update(chunk)
-            n += len(chunk)
-        p.stdout.close()
-        err = p.stderr.read().decode("utf-8", "replace")
-        p.stderr.close()
-        if p.wait() != 0:
-            raise SystemExit("ABORT (fail-closed): GetObject stream failed "
-                             "for %s — post-upload verification is "
-                             "mandatory. stderr: %s" % (key, err[:300]))
-        return h.hexdigest(), n
+    def _get_exact_version(self, key, version_id, out_path):
+        r = subprocess.run(["aws", "s3api", "get-object", "--bucket",
+                            self.bucket, "--key", self._key(key),
+                            "--version-id", version_id, out_path],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit("ABORT (fail-closed): GetObject by VersionId "
+                             "%s failed for %s — exact-version verification "
+                             "is mandatory (P0-1). stderr: %s"
+                             % (version_id, key, r.stderr.strip()[:300]))
 
     def verify_object(self, key, size, sha256):
-        """Fix 3: verify the ACTUAL S3 object (HeadObject size + streamed
-        GetObject sha256) and return its VersionId (None if unversioned)."""
+        """P0-1: obtain VersionId A, GET EXACTLY VersionId A, verify
+        size+sha256 of those bytes, record A. A destination that returns no
+        VersionId is fail-closed NON-PUBLISHABLE (P0-2: bucket versioning
+        status is unobservable to vaultWriter — GetBucketVersioning is
+        AccessDenied — so VERSIONING_REQUIRED is enforced at the object
+        level; there is NO degraded real-S3 mode)."""
         head = self._head(key)
+        vid = head.get("VersionId")
+        if not vid:
+            raise SystemExit(
+                "ABORT (fail-closed, VERSIONING_REQUIRED): destination "
+                "returned no VersionId for %s. Real S3 publication is "
+                "version-bound or it does not happen: bucket versioning "
+                "must be confirmed enabled by the operator in the console "
+                "(vaultWriter cannot query it — s3:GetBucketVersioning is "
+                "AccessDenied). Publication stopped." % key)
         if head.get("ContentLength") != size:
             raise SystemExit("ABORT (fail-closed): S3 object size %s != "
                              "frozen %d for %s"
                              % (head.get("ContentLength"), size, key))
-        digest, n = self._streamed_sha256(key)
-        if n != size or digest != sha256:
-            raise SystemExit("ABORT (fail-closed): S3 object sha256/size "
-                             "mismatch for %s" % key)
-        return head.get("VersionId")
+        tmp = os.path.join(wc.ROOT, "work", "research_stage",
+                           ".verify-%d.tmp" % os.getpid())
+        os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        try:
+            self._get_exact_version(key, vid, tmp)
+            if (os.stat(tmp).st_size != size
+                    or sha256_file(tmp) != sha256):
+                raise SystemExit("ABORT (fail-closed): bytes of %s at "
+                                 "VersionId %s do not match the frozen "
+                                 "size/sha256 (concurrent write?)"
+                                 % (key, vid))
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return vid
+
+    def upload_manifest(self, local, key):
+        """P0-1: conditional-create (If-None-Match: *) write-once manifest,
+        then read back BY ITS EXACT VersionId and sha256-verify."""
+        r = subprocess.run(["aws", "s3api", "put-object", "--bucket",
+                            self.bucket, "--key", self._key(key),
+                            "--body", local, "--if-none-match", "*"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(
+                "ABORT (fail-closed): conditional MANIFEST create failed "
+                "for %s — an object already exists (write-once violated / "
+                "concurrent publisher) or the write was rejected. stderr: %s"
+                % (key, r.stderr.strip()[:300]))
+        try:
+            vid = json.loads(r.stdout or "{}").get("VersionId")
+        except ValueError:
+            vid = None
+        if not vid:
+            raise SystemExit(
+                "ABORT (fail-closed, VERSIONING_REQUIRED): MANIFEST put "
+                "returned no VersionId — see P0-2; publication stopped. "
+                "NOTE: the manifest object now exists without version "
+                "binding and must be operator-disposed.")
+        tmp = local + ".readback"
+        try:
+            self._get_exact_version(key, vid, tmp)
+            if sha256_file(tmp) != sha256_file(local):
+                raise SystemExit("ABORT (fail-closed): MANIFEST read-back "
+                                 "at VersionId %s does not match what was "
+                                 "written" % vid)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return vid
 
     def describe(self):
         return self.url
@@ -441,10 +510,15 @@ def rfq_switch_enabled():
             or os.path.isfile(RFQ_FLAG_FILE))
 
 
-def derive_evidence_tier(seal, gap_receipt_affirmative):
-    """Fix 5 + remediation item 4: the tier is DERIVED from the seal plus an
-    AFFIRMATIVE per-day gap receipt, never assumed. Returns
-    (tier, basis_dict)."""
+def derive_evidence_tier(seal, gap_receipt_affirmative, gap_reason=None,
+                         l2_facts_present=False, l2_evidence_ok=True):
+    """Fix 5 + P0-3: the tier is DERIVED, never assumed.
+    SEALED_CONFIRMATION requires ALL of: a full_v2 go-eligible seal, an
+    AFFIRMATIVE per-date scan receipt whose inventory reproduces the sealed
+    raw inventory, matching L2 seq-quality evidence whenever orderbooks_full
+    facts exist, and an EXPLICITLY ASSESSED capture quality —
+    UNASSESSED_PENDING_PIPE_W03 (or any unassessed/failed state) can NEVER
+    earn SEALED_CONFIRMATION. Returns (tier, basis_dict)."""
     reasons = []
     if seal.get("method") != "full_v2":
         reasons.append("seal method=%r (expected full_v2)"
@@ -452,12 +526,20 @@ def derive_evidence_tier(seal, gap_receipt_affirmative):
     if seal.get("go_no_go_eligible") is not True:
         reasons.append("seal not go_no_go_eligible")
     if not gap_receipt_affirmative:
-        reasons.append("no affirmative per-day gap-scan receipt "
-                       "(absence of a gap file is not evidence)")
+        reasons.append("no affirmative per-date gap-scan receipt bound to "
+                       "the sealed raw inventory (%s)"
+                       % (gap_reason or "absence is not evidence"))
+    if l2_facts_present and not l2_evidence_ok:
+        reasons.append("orderbooks_full facts present but no matching L2 "
+                       "seq-quality evidence for this date (mandatory, "
+                       "P0-3)")
     cq = str(seal.get("capture_quality_status") or "")
-    if cq and cq != "UNASSESSED_PENDING_PIPE_W03" and any(
-            w in cq.upper() for w in ("FAIL", "BAD", "DEGRADED", "REJECT")):
-        reasons.append("capture_quality_status=%s" % cq)
+    if (not cq or "UNASSESSED" in cq.upper() or any(
+            w in cq.upper()
+            for w in ("FAIL", "BAD", "DEGRADED", "REJECT"))):
+        reasons.append("capture_quality_status=%r can never earn "
+                       "SEALED_CONFIRMATION (P0-3: unassessed quality is "
+                       "not confirmation)" % cq)
     tier = "SEALED_CONFIRMATION" if not reasons \
         else "SEALED_DEGRADED_EVIDENCE"
     basis = {
@@ -467,6 +549,8 @@ def derive_evidence_tier(seal, gap_receipt_affirmative):
         "go_no_go_eligible": seal.get("go_no_go_eligible"),
         "capture_quality_status": seal.get("capture_quality_status"),
         "gap_receipt_affirmative": bool(gap_receipt_affirmative),
+        "l2_facts_present": bool(l2_facts_present),
+        "l2_evidence_ok": bool(l2_evidence_ok),
         "downgrade_reasons": reasons,
     }
     return tier, basis
@@ -609,54 +693,82 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                 "corrections/ledger_day.ndjson",
                 ("\n".join(ledger_lines) + "\n").encode("utf-8"))
 
-        # remediation item 4: ABSENCE IS NOT EVIDENCE. An affirmative
-        # per-day gap receipt exists only when BOTH the completed-scan
-        # marker (gaps_<date>.done) AND the gap record file exist; the
-        # receipt is its own hashed object and feeds the tier derivation.
+        # P0-3: ABSENCE IS NOT EVIDENCE. The ONLY affirmative gap evidence
+        # is the scanner's own per-date receipt
+        # (capture_gap_receipt_<date>.json, written by tools/capture_gaps.py)
+        # binding date + exact scanned raw inventory + result — and that
+        # inventory must reproduce the day seal's firehose raw inventory
+        # byte-for-byte. Done-markers and bare/header-only CSVs prove
+        # nothing (they are shipped only as auxiliary record snapshots).
         gap_record = os.path.join(quality_dir, "capture_gaps.csv")
-        scan_marker = os.path.join(live_dir, "gaps_%s.done" % date)
-        gaps = day_gap_intervals(gap_record, date)
-        gap_affirmative = bool(gaps is not None
-                               and os.path.isfile(scan_marker))
-        gap_obj = gap_receipt_obj = None
-        if gaps is not None:
+        gaps_csv = day_gap_intervals(gap_record, date)
+        gap_obj = None
+        if gaps_csv is not None:
             buf = ["start_us,end_us"]
-            buf += ["%d,%d" % (g["start_us"], g["end_us"]) for g in gaps]
+            buf += ["%d,%d" % (g["start_us"], g["end_us"])
+                    for g in gaps_csv]
             gap_obj = stage_bytes("quality/capture_gaps_%s.csv" % date,
                                   ("\n".join(buf) + "\n").encode("utf-8"))
-        if gap_affirmative:
-            receipt = {
-                "schema_version": "gap-receipt-v1",
-                "date": date,
-                "affirmative": True,
-                "basis": ["completed-scan marker gaps_%s.done present"
-                          % date,
-                          "gap record file present (day rows extracted)"],
-                "intervals": gaps,
-                "interval_count": len(gaps),
-                "record_day_csv_sha256": gap_obj["sha256"],
-            }
-            gap_receipt_obj = stage_bytes(
-                "quality/gap_receipt_%s.json" % date,
-                (json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-                .encode("utf-8"))
+        receipt_src = os.path.join(quality_dir,
+                                   "capture_gap_receipt_%s.json" % date)
+        gap_receipt_obj = None
+        gap_reason = None
+        receipt_gaps = None
+        if not os.path.isfile(receipt_src):
+            gap_reason = ("no per-date scan receipt "
+                          "(capture_gap_receipt_%s.json)" % date)
         else:
-            print("WARNING [research_release]: NO affirmative gap-scan "
-                  "receipt for %s (marker present=%s, record present=%s) — "
-                  "publishing with a DEGRADED evidence tier; absence of a "
-                  "gap file is not evidence"
-                  % (date, os.path.isfile(scan_marker), gaps is not None))
+            gap_receipt_obj = stage_copy(
+                "quality/gap_receipt_%s.json" % date, receipt_src)
+            with open(os.path.join(stage["dir"], "quality",
+                                   "gap_receipt_%s.json" % date)) as f:
+                receipt = json.load(f)
+            if (receipt.get("schema_version")
+                    != "capture-gap-scan-receipt-v1"
+                    or receipt.get("date") != date):
+                gap_reason = "scan receipt does not bind this date"
+            else:
+                want = {r["file"]: r["size"]
+                        for r in seal.get("raw_files", [])
+                        if r["file"].startswith("date=%s/" % date)
+                        and os.path.basename(r["file"])
+                        .startswith("firehose_")}
+                got = {f["file"]: f["bytes"]
+                       for f in receipt.get("files", [])}
+                missing = sorted(k for k, v in want.items()
+                                 if got.get(k) != v)
+                if missing:
+                    gap_reason = ("scan receipt inventory does not "
+                                  "reproduce the sealed firehose raw "
+                                  "inventory (stale/partial: %s)"
+                                  % ", ".join(missing[:3]))
+                elif receipt.get("unreadable"):
+                    gap_reason = "scan receipt marks the day unreadable"
+                else:
+                    receipt_gaps = receipt.get("gaps", [])
+        gap_affirmative = gap_reason is None and receipt_gaps is not None
+        if not gap_affirmative:
+            print("WARNING [research_release]: no AFFIRMATIVE gap-scan "
+                  "receipt for %s (%s) — publishing with a DEGRADED "
+                  "evidence tier; absence of a gap file is not evidence "
+                  "(P0-3)" % (date, gap_reason))
         l2_gaps_src = os.path.join(quality_dir, "l2_gaps_%s.json" % date)
         l2_gap_obj = None
         l2_quality = None
         if os.path.isfile(l2_gaps_src):
             l2_gap_obj = stage_copy("quality/l2_gaps.json", l2_gaps_src)
-            with open(os.path.join(pending, "quality/l2_gaps.json")) as f:
+            with open(os.path.join(stage["dir"],
+                                   "quality/l2_gaps.json")) as f:
                 lg = json.load(f)
-            l2_quality = {k: lg.get(k) for k in
-                          ("no_l2_files", "seq_gap_events",
-                           "seq_missed_total", "sids_total",
-                           "sids_with_seq_gaps", "lines")}
+            if lg.get("date") == date:
+                l2_quality = {k: lg.get(k) for k in
+                              ("no_l2_files", "seq_gap_events",
+                               "seq_missed_total", "sids_total",
+                               "sids_with_seq_gaps", "lines")}
+            else:
+                print("WARNING [research_release]: l2_gaps_%s.json does "
+                      "not bind this date — treated as ABSENT L2 evidence"
+                      % date)
 
         publication_state = {
             "seal_sha256": seal_sha,
@@ -668,6 +780,8 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
             },
             "gap_evidence": {
                 "affirmative_receipt": gap_affirmative,
+                "receipt_inventory_matched_seal": gap_affirmative,
+                "non_affirmative_reason": gap_reason,
                 "gap_receipt_sha256":
                     gap_receipt_obj["sha256"] if gap_receipt_obj else None,
                 "capture_gaps_sha256":
@@ -819,11 +933,15 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         if rfq_effective:
             rfq_channel["files"] = rfq_files_meta
 
-        # ---- evidence tier: DERIVED (fix 5 + item 4) ---------------------------
-        tier, tier_basis = derive_evidence_tier(seal, gap_affirmative)
+        # ---- evidence tier: DERIVED (fix 5 + P0-3) -----------------------------
+        l2_facts_present = "orderbooks_full" in tables
+        tier, tier_basis = derive_evidence_tier(
+            seal, gap_affirmative, gap_reason,
+            l2_facts_present=l2_facts_present,
+            l2_evidence_ok=l2_quality is not None)
 
         # ---- channel completeness labels (amendment 4 + fix 4) -----------------
-        l2_included = "orderbooks_full" in tables
+        l2_included = l2_facts_present
         channels = {
             "orderbooks_l1": {
                 "status": ("INCLUDED" if "orderbooks_l1" in tables
@@ -834,10 +952,10 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                                 else "NO_AFFIRMATIVE_GAP_RECEIPT"),
                 "gap_receipt_affirmative": gap_affirmative,
                 "gap_evidence": ("quality/capture_gaps_%s.csv" % date
-                                 if gaps is not None
+                                 if gaps_csv is not None
                                  else "ABSENT_NO_CAPTURE_GAP_RECORD"),
                 "gap_intervals_for_date":
-                    len(gaps) if gaps is not None else None,
+                    len(receipt_gaps) if gap_affirmative else None,
             },
             "trades": {
                 "status": ("INCLUDED" if "trades" in tables
@@ -862,26 +980,26 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         # ---- upload: data first ------------------------------------------------
         dest.upload_tree(stage_dir, rel_prefix)
 
-        # ---- fix 3 + item 1: verify EVERY actual destination object (size +
-        # streamed sha256), record VersionIds, and BIND the publication to
-        # them BEFORE the manifest exists ----------------------------------------
+        # ---- fix 3 + P0-1: verify EVERY actual destination object by its
+        # EXACT VersionId (HEAD -> VersionId A -> GET exactly A -> size +
+        # sha256 -> record A) BEFORE the manifest exists. Real S3 without
+        # VersionIds is fail-closed NON-PUBLISHABLE (P0-2:
+        # VERSIONING_REQUIRED — vaultWriter cannot even query the bucket's
+        # versioning status, s3:GetBucketVersioning is AccessDenied, so
+        # object-level VersionIds are the only observable proof) -----------------
         for o in objects:
             o["version_id"] = dest.verify_object(
                 "%s/%s" % (rel_prefix, o["key"]), o["size"], o["sha256"])
         vids = [o["version_id"] for o in objects]
-        if all(v is not None for v in vids) and vids:
-            binding_mode = "VERSION_BOUND"
-        elif all(v is None for v in vids):
-            binding_mode = "UNVERSIONED_DEST_DEGRADED"
-            print("WARNING [research_release]: destination returned NO "
-                  "object VersionIds — publication is NOT version-bound. "
-                  "EXPLICIT DEGRADED MODE (UNVERSIONED_DEST_DEGRADED): the "
-                  "freeze authority is byte size + sha256 per object only. "
-                  "Enable bucket versioning to restore version binding.")
-        else:
-            raise SystemExit("ABORT (fail-closed): destination returned "
-                             "VersionIds for only some objects — "
-                             "inconsistent versioning state")
+        binding_mode = dest.binding_mode
+        if binding_mode == "VERSION_BOUND" and any(v is None for v in vids):
+            raise SystemExit("ABORT (fail-closed): VERSION_BOUND "
+                             "destination yielded a null VersionId")
+        if binding_mode != "VERSION_BOUND":
+            print("NOTE [research_release]: fixture destination has no "
+                  "object versions (%s) — offline FIXTURE mode only; a "
+                  "real S3 publication FAILS CLOSED without VersionIds "
+                  "(P0-1/P0-2 VERSIONING_REQUIRED)" % binding_mode)
         bindings_sha = canonical_digest(
             {o["key"]: o["version_id"] for o in objects})
 
@@ -928,14 +1046,19 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
             "version_binding": {
                 "mode": binding_mode,
                 "bindings_sha256": bindings_sha,
+                "versioning_requirement": "VERSIONING_REQUIRED",
                 "note": ("publication is bound to the recorded per-object "
-                         "VersionIds; consumers MUST fetch those exact "
-                         "versions" if binding_mode == "VERSION_BOUND" else
-                         "EXPLICIT DEGRADED MODE: the destination returned "
-                         "no object VersionIds (unversioned bucket or "
-                         "filesystem fixture); the freeze authority is byte "
-                         "size + sha256 per object only — this is declared "
-                         "loudly, never a silent null"),
+                         "VersionIds (verified by exact-version GET); "
+                         "consumers MUST fetch those exact versions"
+                         if binding_mode == "VERSION_BOUND" else
+                         "OFFLINE FIXTURE destination (no object versions "
+                         "exist on a filesystem); NEVER a real "
+                         "publication — real S3 publishing FAILS CLOSED "
+                         "without VersionIds (P0-2: bucket versioning "
+                         "status is unobservable to vaultWriter, "
+                         "s3:GetBucketVersioning AccessDenied; "
+                         "VERSIONING_REQUIRED pending operator console "
+                         "confirmation)"),
             },
             "objects": objects,
         }
@@ -943,15 +1066,17 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         with open(mpath, "w") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
             f.write("\n")
-        dest.upload_file(mpath, "%s/MANIFEST.json" % rel_prefix)
+        # P0-1: write-once conditional create, read back by exact VersionId
+        manifest_vid = dest.upload_manifest(mpath,
+                                            "%s/MANIFEST.json" % rel_prefix)
         total = sum(o["size"] for o in objects)
         print("[research_release] published %s: %d objects, %.2f MB, "
-              "tier=%s, tl1=%s, l2=%s, rfq=%s, binding=%s, verified=%d "
-              "-> %s/%s"
+              "tier=%s, tl1=%s, l2=%s, rfq=%s, binding=%s, "
+              "manifest_version=%s, verified=%d -> %s/%s"
               % (release_id, len(objects), total / 1e6, tier, tl1_status,
                  channels["orderbooks_l2"]["status"],
-                 channels["rfq"]["status"], binding_mode, len(objects),
-                 dest.describe(), rel_prefix))
+                 channels["rfq"]["status"], binding_mode, manifest_vid,
+                 len(objects), dest.describe(), rel_prefix))
         return 0
     finally:
         shutil.rmtree(stage_dir, ignore_errors=True)
