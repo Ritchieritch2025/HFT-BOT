@@ -4,7 +4,11 @@
 Reads the dedicated research/ S3 prefix (immutable releases published by
 tools/research_release.py as releases/<release_id>/ with MANIFEST.json LAST).
 Release-id addressing only; a release without its MANIFEST.json is treated as
-unpublished (torn) and is never exposed.
+unpublished (torn) and is never exposed. release_id embeds the full
+publication-state digest (<date>__seal-<8>__pub-<16>): a later correction,
+new gap evidence or a flipped rfq switch is a DISTINCT release. Object
+fetches request the exact VersionId the publisher recorded post-upload
+(null on an unversioned bucket — size+sha256 stay the authoritative freeze).
 
     python3 tools/research_data.py inventory
     python3 tools/research_data.py fetch  --release <release_id> [--with-rfq]
@@ -77,7 +81,12 @@ LADDER_COLUMNS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
 PRICE_STORAGE_GB_MO = 0.023
 PRICE_GET_PER_1K = 0.0004
 PRICE_EGRESS_GB = 0.09
-_RELEASE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{12}(-rfq)?$")
+# new form: <date>__seal-<8>__pub-<16>; legacy pre-correction-order forms
+# (<date>__seal-<12>[-rfq]) stay recognized — an already-published release is
+# never touched, only read.
+_RELEASE_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{8}__pub-[0-9a-f]{16}$"
+    r"|^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{12}(-rfq)?$")
 
 
 def sha256_file(path):
@@ -217,10 +226,13 @@ class S3Store:
                 return out
             token = tree.find(ns + "NextContinuationToken").text
 
-    def get_to(self, rel, dest):
+    def get_to(self, rel, dest, version_id=None):
+        """version_id (fix 3): fetch the EXACT object version the release
+        manifest recorded at publish time, when the bucket returned one."""
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         tmp = dest + ".part"
-        with self._signed_request(key=self._full(rel)) as resp, \
+        query = {"versionId": version_id} if version_id else None
+        with self._signed_request(key=self._full(rel), query=query) as resp, \
                 open(tmp, "wb") as f:
             shutil.copyfileobj(resp, f, 1 << 20)
         os.replace(tmp, dest)
@@ -249,7 +261,7 @@ class LocalStore:
                             os.stat(p).st_size))
         return sorted(out)
 
-    def get_to(self, rel, dest):
+    def get_to(self, rel, dest, version_id=None):
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         shutil.copyfile(os.path.join(self.root, rel), dest)
 
@@ -339,25 +351,27 @@ def cmd_inventory(store, cache):
         total_bytes += r["bytes"]
         status = "TORN/UNPUBLISHED (no MANIFEST — not exposed)"
         date = rid.split("__")[0] if _RELEASE_RE.match(rid) else "?"
-        tier = tl1 = rfq = "?"
+        tier = tl1 = rfq = l2 = "?"
         if r["exposed"]:
             m = read_manifest(cache, store, rid)
             tier, tl1 = m.get("evidence_tier", "?"), m.get("tl1_status", "?")
-            rfq = m.get("channels", {}).get("rfq", {}).get("status", "?")
+            ch = m.get("channels", {})
+            rfq = ch.get("rfq", {}).get("status", "?")
+            # fix 4: L2 status comes from the manifest per release — sealed
+            # orderbooks_full facts are exposed when present, honestly
+            # ABSENT_FROM_THIS_RELEASE otherwise.
+            l2 = ch.get("orderbooks_l2", {}).get("status", "?")
             status = "EXPOSED"
             if os.path.isfile(verified_marker(cache, rid)):
                 status = "EXPOSED+VERIFIED_LOCALLY"
         rows.append((rid, date, status, len(r["objects"]),
-                     r["bytes"] / 1e9, tier, tl1, rfq))
+                     r["bytes"] / 1e9, tier, tl1, l2, rfq))
     if rows:
-        print("%-32s %-11s %-28s %6s %9s %-20s %-8s %s"
+        print("%-44s %-11s %-28s %6s %9s %-26s %-8s %-26s %s"
               % ("release_id", "date", "status", "files", "GB", "tier",
-                 "tl1", "rfq"))
+                 "tl1", "l2", "rfq"))
         for row in rows:
-            print("%-32s %-11s %-28s %6d %9.3f %-20s %-8s %s" % row)
-        print("L2: NOT RESEARCH-EXPOSABLE in Phase A — no L2 facts "
-              "extraction exists; generic raw (incl. l2_<HH>) is excluded "
-              "from research/ by W05 addendum amendment 1.")
+            print("%-44s %-11s %-28s %6d %9.3f %-26s %-8s %-26s %s" % row)
     # ---- cost + disk (spec HYGIENE) ----------------------------------------
     gb = total_bytes / 1e9
     days = {r.split("__")[0] for r in releases if _RELEASE_RE.match(r)}
@@ -402,7 +416,9 @@ def cmd_fetch(store, cache, rid, with_rfq):
         if os.path.isfile(dest) and os.stat(dest).st_size == o["size"]:
             skipped += 1
             continue
-        store.get_to("releases/%s/%s" % (rid, o["key"]), dest)
+        # fix 3: request the exact recorded VersionId when present
+        store.get_to("releases/%s/%s" % (rid, o["key"]), dest,
+                     version_id=o.get("version_id"))
         fetched += 1
     print("[fetch] %s: %d objects fetched, %d already cached (rfq %s)"
           % (rid, fetched, skipped,
@@ -543,6 +559,9 @@ def cmd_verify(store, cache, rid):
     marker = {
         "release_id": rid, "date": date, "verified_at_utc": _now(),
         "evidence_tier": manifest.get("evidence_tier"),
+        "evidence_tier_basis": manifest.get("evidence_tier_basis"),
+        "publication_state_sha256":
+            manifest.get("publication_state_sha256"),
         "tl1_status": manifest.get("tl1_status"),
         "seal_sha256": manifest["seal"]["sha256"],
         "objects_verified": n_ok, "bytes_verified": bytes_ok,
@@ -558,6 +577,10 @@ def cmd_verify(store, cache, rid):
     print("[verify] PASS %s — tier=%s tl1=%s objects=%d (%.1f MB)"
           % (rid, marker["evidence_tier"], marker["tl1_status"], n_ok,
              bytes_ok / 1e6))
+    basis = manifest.get("evidence_tier_basis", {})
+    if basis.get("downgrade_reasons"):
+        print("  tier basis (DERIVED, fix 5): %s"
+              % "; ".join(basis["downgrade_reasons"]))
     print("  L1: %s (gap intervals for date: %s)"
           % (ch.get("orderbooks_l1", {}).get("completeness", "?"),
              ch.get("orderbooks_l1", {}).get("gap_intervals_for_date")))
@@ -565,7 +588,9 @@ def cmd_verify(store, cache, rid):
           % ch.get("trades", {}).get("identity", "?"))
     print("  L2: %s — %s"
           % (ch.get("orderbooks_l2", {}).get("status", "?"),
-             ch.get("orderbooks_l2", {}).get("reason", "")))
+             ch.get("orderbooks_l2", {}).get("note",
+                                             ch.get("orderbooks_l2", {})
+                                             .get("reason", ""))))
     print("  RFQ: manifest=%s, local=%s"
           % (ch.get("rfq", {}).get("status", "?"), rfq_status))
     rebuild_view(cache)
@@ -610,7 +635,14 @@ def rebuild_view(cache):
                 if rel.startswith("seal/"):
                     dst = os.path.join(view, "seals", fn)
                 elif rel.startswith("raw_rfq/"):
-                    dst = os.path.join(view, "raw", "date=%s" % d, fn)
+                    # new layout keeps the vault-relative date dir (cross-day
+                    # receipt hours live under the NEXT day's directory);
+                    # legacy releases carried bare basenames
+                    sub = rel[len("raw_rfq/"):]
+                    if sub.startswith("date="):
+                        dst = os.path.join(view, "raw", sub)
+                    else:
+                        dst = os.path.join(view, "raw", "date=%s" % d, fn)
                 elif rel.startswith("quality/"):
                     dst = os.path.join(view, "quality", "date=%s" % d, fn)
                 elif rel.startswith("catalog/"):

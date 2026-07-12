@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
-"""PIPE-W05 Phase A acceptance proofs: research release publisher + Mac CLI.
+"""PIPE-W05 Phase A acceptance proofs: research release publisher + Mac CLI,
+per the operator correction order 2026-07-12 (fixes 1-6 live here; fix 7's UI
+fixtures live in the main repo's sandbox/research/test_event_intel.py).
 
-Fixture-based, no network, no credentials: a tmp directory stands in for the
-S3 research/ prefix (both tools take local roots by design). Demonstrates:
-  1. SEAL GATE: publishing an unsealed day is refused; nothing lands.
-  2. PUBLISH: a sealed day publishes byte-verified objects with MANIFEST.json
-     frozen fields (tier, TL1 status, channel labels incl. L2
-     NOT_RESEARCH_EXPOSABLE_PHASE_A, rfq default EXCLUDED, versioning caveat,
-     day-filtered capture-gap evidence) and is idempotent on re-run.
-  3. FAIL-CLOSED: a tampered archive file aborts the publish with nothing
-     uploaded (manifest absent = not exposed).
-  4. RFQ SWITCH: --include-rfq publishes the sibling "-rfq" release with
-     seal-verified rfq raw only (never firehose/l2); default stays OFF.
-  5. CLI: inventory / fetch / verify / view against the published root —
-     verify PASS writes .VERIFIED.json and builds the warehouse-shaped
-     symlink view; a corrupted cached object fails verify (exit 2, marker
-     removed, .FAILED.json, view drops the day); a torn release (no
-     MANIFEST) is never exposed; PRE-TL1 day is labeled PRE-TL1.
-  6. HYGIENE: both tools set an explicit DuckDB memory_limit on connect.
+Fixture-based, no network, no credentials: tmp directories stand in for the
+S3 research/ prefix AND the ec2/raw vault. Demonstrates:
+  1.  SEAL GATE: an unsealed day is refused; nothing lands.
+  2.  IDENTITY (fix 1): release_id embeds the publication-state digest;
+      manifest freezes the full publication_state; re-publishing the same
+      state is a no-op; a NEW correction publishes a DISTINCT release.
+  3.  STAGING (fix 2): mutable aux is hashed from staged copies (asserted
+      via LocalDest post-upload re-verification passing byte-for-byte).
+  4.  FAIL-CLOSED: a tampered archive aborts with nothing exposed.
+  5.  POST-UPLOAD VERIFY (fix 3): every object re-verified at the
+      destination; version_id recorded per object (null on filesystems);
+      a destination mismatch aborts (unit-tested on LocalDest).
+  6.  L2 HONESTY (fix 4): sealed orderbooks_full facts expose
+      INCLUDED_SEALED_FACTS; otherwise ABSENT_FROM_THIS_RELEASE, and no
+      "no L2 extractor" claim exists anywhere in the manifest.
+  7.  TIER DERIVATION (fix 5): SEALED_CONFIRMATION only when earned;
+      missing gap evidence / not-go-eligible seals publish as
+      SEALED_DEGRADED_EVIDENCE with reasons in evidence_tier_basis.
+  8.  RFQ (fix 6): enumerated from the EXACT seal raw_files list including
+      cross-day receipt hours; a locally-pruned file is reconstructed from
+      the raw vault (byte-verified); pruned+vault-missing aborts; the
+      operator switch defaults OFF.
+  9.  CLI: inventory/fetch/verify/view; corruption => exit 2, not exposed;
+      torn release never exposed; PRE-TL1 labeling; version-pinned fetch
+      plumbing (null version ids offline).
+  10. HYGIENE: explicit DuckDB memory_limit on every connection.
 
 stdlib + duckdb only.  Run: python3 tests/test_research_bridge.py [scratch]
 """
@@ -32,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -69,9 +81,16 @@ LADDER = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
           "local_recv_ts_us")
 
 
-def make_day(tmp, date, tl1=True, with_rfq_raw=True):
-    """Synthetic sealed warehouse day: L1 parquet + trades csv.gz + manifest
-    rows + v2 seal (+ sealed rfq raw & decoy firehose)."""
+def next_day(date):
+    d = datetime.date.fromisoformat(date)
+    return (d + datetime.timedelta(days=1)).isoformat()
+
+
+def make_day(tmp, date, tl1=True, with_rfq_raw=True, with_l2=False,
+             go_eligible=True, cross_day_rfq=False):
+    """Synthetic sealed warehouse day: L1 parquet + trades csv.gz
+    (+ optional orderbooks_full) + manifest rows + v2 seal (+ sealed rfq raw
+    incl. optional cross-day receipt hour + decoy firehose)."""
     import duckdb
     facts = os.path.join(tmp, "warehouse", "facts")
     l1_dir = os.path.join(facts, "orderbooks_l1", "category=Sports",
@@ -92,6 +111,18 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True):
         "COPY (SELECT 'T-%s' AS market_ticker, 1719999990000000 AS ts_utc, "
         "50 AS yes_bid_e4, 52 AS yes_ask_e4, 7 AS ws_sid, 99 AS ws_seq%s) "
         "TO '%s' (FORMAT PARQUET)" % (date, ladder_sql, l1))
+    pairs = [("orderbooks_l1", l1)]
+    if with_l2:
+        l2_dir = os.path.join(facts, "orderbooks_full", "category=Sports",
+                              "subcategory=Baseball", "date=%s" % date)
+        os.makedirs(l2_dir, exist_ok=True)
+        l2 = os.path.join(
+            l2_dir, "orderbooks_full__Sports__Baseball__%s.parquet" % date)
+        conn.execute(
+            "COPY (SELECT 'T-%s' AS market_ticker, 1719999990000000 AS "
+            "ts_utc, 'snapshot' AS msg_type, 7 AS ws_sid, 99 AS ws_seq%s) "
+            "TO '%s' (FORMAT PARQUET)" % (date, ladder_sql, l2))
+        pairs.append(("orderbooks_full", l2))
     conn.close()
     tr = os.path.join(tr_dir, "trades__Sports__Baseball__%s.csv.gz" % date)
     cols = ["trade_id", "market_ticker", "ts_utc", "count"] + \
@@ -101,6 +132,7 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True):
         w.writerow(cols)
         w.writerow(["t1", "T-%s" % date, 1719999991000000, 5] +
                    ([1, 2, 3, 4] if tl1 else []))
+    pairs.append(("trades", tr))
 
     # warehouse manifest rows for the date
     mpath = os.path.join(tmp, "warehouse", "manifest.csv")
@@ -110,30 +142,37 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True):
         if new:
             w.writerow(["date", "table", "category", "subcategory",
                         "row_count", "file_path", "file_md5", "created_ts"])
-        for t, p in (("orderbooks_l1", l1), ("trades", tr)):
+        for t, p in pairs:
             w.writerow([date, t, "Sports", "Baseball", 1, p, "x", "now"])
     manifest_sha, _ = wc.manifest_date_sha256(mpath, date)
 
-    # raw: sealed rfq + receipts + decoy firehose (must never publish)
+    # raw: sealed rfq (+ optional cross-day receipt hour) + decoy firehose
     raw_files = []
-    rawd = os.path.join(tmp, "raw", "date=%s" % date)
-    os.makedirs(rawd, exist_ok=True)
-    names = (["rfq_13.ndjson", "rfq_13.ndjson.1", "rfq_receipts_13.ndjson"]
-             if with_rfq_raw else []) + ["firehose_13.ndjson"]
-    for fn in names:
+
+    def raw_file(day_dir_date, fn):
+        rawd = os.path.join(tmp, "raw", "date=%s" % day_dir_date)
+        os.makedirs(rawd, exist_ok=True)
         p = os.path.join(rawd, fn)
         with open(p, "w") as f:
-            f.write('{"chan":"%s","d":"%s"}\n' % (fn, date))
-        raw_files.append({"file": "date=%s/%s" % (date, fn),
+            f.write('{"chan":"%s","d":"%s"}\n' % (fn, day_dir_date))
+        raw_files.append({"file": "date=%s/%s" % (day_dir_date, fn),
                           "sha256": sha256_file(p),
                           "size": os.stat(p).st_size, "checkpoint": None,
                           "inode": 1, "ctime_ns": 1, "mtime_ns": 1})
+        return p
 
-    stats = []
-    for t, p in (("orderbooks_l1", l1), ("trades", tr)):
-        stats.append({"file": os.path.relpath(p, facts), "table": t,
-                      "size": os.stat(p).st_size, "sha256": sha256_file(p),
-                      "md5": "x", "inode": 1, "ctime_ns": 1, "mtime_ns": 1})
+    if with_rfq_raw:
+        raw_file(date, "rfq_13.ndjson")
+        raw_file(date, "rfq_13.ndjson.1")
+        raw_file(date, "rfq_receipts_13.ndjson")
+        if cross_day_rfq:
+            raw_file(next_day(date), "rfq_00.ndjson")
+    raw_file(date, "firehose_13.ndjson")
+
+    stats = [{"file": os.path.relpath(p, facts), "table": t,
+              "size": os.stat(p).st_size, "sha256": sha256_file(p),
+              "md5": "x", "inode": 1, "ctime_ns": 1, "mtime_ns": 1}
+             for t, p in pairs]
     seals = os.path.join(tmp, "warehouse", "seals")
     os.makedirs(seals, exist_ok=True)
     seal = {"date": date, "status": "SEALED", "version": 2,
@@ -144,7 +183,7 @@ def make_day(tmp, date, tl1=True, with_rfq_raw=True):
             "capture_quality_status": "UNASSESSED_PENDING_PIPE_W03",
             "raw_retention_requirement": "LOCAL_OR_VAULT_VERIFIED_RECEIPT",
             "receipt_cross_day_hours": 2, "unverified": [],
-            "go_no_go_eligible": True}
+            "go_no_go_eligible": go_eligible}
     with open(os.path.join(seals, "date=%s.json" % date), "w") as f:
         json.dump(seal, f, indent=1)
     return l1, tr
@@ -162,7 +201,6 @@ def main():
             "RAW_ROOT": os.path.join(tmp, "raw"),
             "RESEARCH_INCLUDE_RFQ": "0",
         })
-        # shared warehouse extras
         os.makedirs(os.path.join(tmp, "warehouse", "catalog", "events"),
                     exist_ok=True)
         with open(os.path.join(tmp, "warehouse", "catalog", "events",
@@ -174,25 +212,34 @@ def main():
                                "date=2026-07-11", "markets.csv"), "w") as f:
             f.write("ticker\nT-1\n")
         quality = os.path.join(tmp, "quality")
-        os.makedirs(quality, exist_ok=True)
+        empty_quality = os.path.join(tmp, "quality_empty")
+        os.makedirs(quality)
+        os.makedirs(empty_quality)
         with open(os.path.join(quality, "capture_gaps.csv"), "w",
                   newline="") as f:
             w = csv.writer(f)
             w.writerow(["start_us", "end_us"])
-            w.writerow([day_us + 1000, day_us + 90_000_000])      # in-day
+            w.writerow([day_us + 1000, day_us + 90_000_000])      # in 07-11
             w.writerow([day_us - 7_200_000_000, day_us - 3_600_000_000])
         with open(os.path.join(quality, "l2_gaps_2026-07-11.json"), "w") as f:
             json.dump({"no_l2_files": True, "seq_gap_events": 0,
                        "seq_missed_total": 0, "sids_total": 0,
                        "sids_with_seq_gaps": 0, "lines": 0}, f)
 
-        l1_file, _tr = make_day(tmp, "2026-07-11", tl1=True)
+        l1_file, _tr = make_day(tmp, "2026-07-11", tl1=True,
+                                cross_day_rfq=True)
         make_day(tmp, "2026-07-05", tl1=False, with_rfq_raw=False)
+        make_day(tmp, "2026-07-03", tl1=True, with_rfq_raw=False,
+                 go_eligible=False)
+        make_day(tmp, "2026-07-06", tl1=True, with_rfq_raw=False,
+                 with_l2=True)
         dest = os.path.join(tmp, "dest")
-        os.makedirs(dest, exist_ok=True)
+        os.makedirs(dest)
+        vault = os.path.join(tmp, "vault")   # ec2/raw stand-in (fix 6)
+        os.makedirs(vault)
         cache = os.path.join(tmp, "cache")
         pub = ["tools/research_release.py", "publish", "--dest", dest,
-               "--quality-dir", quality]
+               "--quality-dir", quality, "--raw-vault", vault]
         cli = ["tools/research_data.py", "--root", dest, "--cache", cache]
 
         print("== 1. seal gate")
@@ -202,62 +249,96 @@ def main():
         check("nothing published for unsealed day",
               not glob.glob(os.path.join(dest, "releases", "2026-07-04*")))
 
-        print("== 2. publish sealed day (rfq default OFF)")
+        print("== 2. publish sealed day (rfq default OFF) + identity (fix 1)")
         r = run(pub + ["--date", "2026-07-11"], env)
         check("publish rc=0", r.returncode == 0, r.stderr[-300:])
-        rels = glob.glob(os.path.join(dest, "releases", "2026-07-11__seal-*"))
-        check("one release dir", len(rels) == 1, rels)
+        rels = glob.glob(os.path.join(dest, "releases",
+                                      "2026-07-11__seal-*__pub-*"))
+        check("one release, id embeds publication-state digest",
+              len(rels) == 1, rels)
         rid = os.path.basename(rels[0]) if rels else ""
-        check("no -rfq suffix by default", not rid.endswith("-rfq"), rid)
         mpath = os.path.join(dest, "releases", rid, "MANIFEST.json")
         check("MANIFEST.json present", os.path.isfile(mpath))
         man = json.load(open(mpath)) if os.path.isfile(mpath) else {}
-        check("tier SEALED_CONFIRMATION",
-              man.get("evidence_tier") == "SEALED_CONFIRMATION")
-        check("tl1_status TL1", man.get("tl1_status") == "TL1", man.get("tl1_status"))
+        check("manifest schema v2",
+              man.get("schema_version") == "research-release-manifest-v2")
+        check("publication_state frozen in manifest",
+              man.get("publication_state_sha256")
+              and rid.endswith("__pub-%s"
+                               % man["publication_state_sha256"][:16]))
+        check("tier DERIVED = SEALED_CONFIRMATION with basis (fix 5)",
+              man.get("evidence_tier") == "SEALED_CONFIRMATION"
+              and man.get("evidence_tier_basis", {}).get(
+                  "downgrade_reasons") == [],
+              man.get("evidence_tier_basis"))
+        check("tl1_status TL1", man.get("tl1_status") == "TL1")
         ch = man.get("channels", {})
-        check("L2 NOT_RESEARCH_EXPOSABLE_PHASE_A",
+        check("L2 honestly ABSENT_FROM_THIS_RELEASE (fix 4)",
               ch.get("orderbooks_l2", {}).get("status")
-              == "NOT_RESEARCH_EXPOSABLE_PHASE_A")
+              == "ABSENT_FROM_THIS_RELEASE")
+        check("no false 'extractor' claim anywhere (fix 4)",
+              "extractor" not in json.dumps(man).lower())
         check("rfq default EXCLUDED",
               ch.get("rfq", {}).get("status")
-              == "EXCLUDED_PENDING_OPERATOR_COST_ACK", ch.get("rfq"))
-        check("L1 conflation label",
-              ch.get("orderbooks_l1", {}).get("completeness")
-              == "CONFLATED_CHANGE_STREAM_NEVER_LOSSLESS")
+              == "EXCLUDED_PENDING_OPERATOR_COST_ACK")
+        check("rfq enumerated from seal incl. cross-day (fix 6)",
+              ch.get("rfq", {}).get("sealed_rfq_files_in_day_seal") == 4)
         check("gap intervals day-filtered == 1",
               ch.get("orderbooks_l1", {}).get("gap_intervals_for_date") == 1)
-        check("versioning caveat recorded",
-              man.get("s3_versioning", {}).get("bucket_versioning")
-              == "UNKNOWN_TO_WRITER")
         keys = {o["key"] for o in man.get("objects", [])}
         check("no raw published by default",
               not any(k.startswith("raw_rfq/") for k in keys))
         check("firehose never published",
               not any("firehose" in k for k in keys))
-        check("seal+manifest+quality+catalog+dim frozen",
-              {"seal/date=2026-07-11.json", "warehouse_manifest/manifest.csv",
-               "quality/capture_gaps_2026-07-11.csv", "quality/l2_gaps.json",
-               "catalog/events/part-00000.parquet",
-               "dim/snapshots/date=2026-07-11/markets.csv"} <= keys, keys)
+        check("post-upload verification recorded per object (fix 3)",
+              man.get("post_upload_verification", {}).get(
+                  "objects_verified") == len(man.get("objects", []))
+              and all("version_id" in o for o in man.get("objects", [])))
         on_disk = {os.path.relpath(p, rels[0]).replace(os.sep, "/")
                    for p in glob.glob(os.path.join(rels[0], "**", "*"),
                                       recursive=True) if os.path.isfile(p)}
         check("manifest lists exactly the uploaded objects",
               keys == on_disk - {"MANIFEST.json"})
         r = run(pub + ["--date", "2026-07-11"], env)
-        check("republish idempotent no-op", r.returncode == 0
+        check("same-state republish is a no-op", r.returncode == 0
               and "already published" in r.stdout, r.stdout[-200:])
 
-        print("== 3. fail-closed on tamper")
+        print("== 3. a NEW correction creates a DISTINCT release (fix 1)")
+        cdir = os.path.join(tmp, "warehouse", "corrections",
+                            "date=2026-07-11")
+        os.makedirs(cdir)
+        with open(os.path.join(cdir, "late_rows.ndjson"), "w") as f:
+            f.write('{"row":"late"}\n')
+        with open(os.path.join(tmp, "warehouse", "corrections",
+                               "ledger.ndjson"), "w") as f:
+            f.write(json.dumps({"event": "LATE_FACT_DIVERTED_TO_CORRECTIONS",
+                                "exchange_date": "2026-07-11",
+                                "n_rows": 1}) + "\n")
+        r = run(pub + ["--date", "2026-07-11"], env)
+        check("corrected publish rc=0", r.returncode == 0, r.stderr[-300:])
+        rels2 = sorted(glob.glob(os.path.join(dest, "releases",
+                                              "2026-07-11__seal-*__pub-*")))
+        check("distinct release id for the corrected state",
+              len(rels2) == 2, rels2)
+        rid_corr = [os.path.basename(p) for p in rels2
+                    if os.path.basename(p) != rid]
+        rid_corr = rid_corr[0] if rid_corr else ""
+        man_c = json.load(open(os.path.join(dest, "releases", rid_corr,
+                                            "MANIFEST.json")))
+        check("corrections frozen in the new release",
+              man_c["corrections"]["included_files"] == 1
+              and man_c["corrections"]["ledger_day_entries"] == 1
+              and "corrections/date=2026-07-11/late_rows.ndjson"
+              in {o["key"] for o in man_c["objects"]})
+
+        print("== 4. fail-closed on tamper")
         good = open(l1_file, "rb").read()
         with open(l1_file, "ab") as f:
             f.write(b"CORRUPT")
-        shutil.rmtree(os.path.join(dest, "releases2"), ignore_errors=True)
         dest2 = os.path.join(tmp, "dest2")
         r = run(["tools/research_release.py", "publish", "--dest", dest2,
-                 "--quality-dir", quality, "--date", "2026-07-11",
-                 "--no-rfq"], env, expect_rc=None)
+                 "--quality-dir", quality, "--raw-vault", vault,
+                 "--date", "2026-07-11", "--no-rfq"], env, expect_rc=None)
         check("tampered archive aborts", r.returncode != 0)
         check("nothing exposed after abort",
               not glob.glob(os.path.join(dest2, "releases", "*",
@@ -265,34 +346,62 @@ def main():
         with open(l1_file, "wb") as f:
             f.write(good)
 
-        print("== 4. rfq switch -> sibling -rfq release")
+        print("== 5. rfq: seal-list enumeration, pruning + vault "
+              "reconstruction (fix 6)")
+        pruned_local = os.path.join(tmp, "raw", "date=2026-07-11",
+                                    "rfq_13.ndjson.1")
+        pruned_bytes = open(pruned_local, "rb").read()
+        os.remove(pruned_local)   # simulate prune_raw
+        r = run(pub + ["--date", "2026-07-11", "--include-rfq"], env,
+                expect_rc=None)
+        check("pruned + vault-missing aborts", r.returncode != 0)
+        vdst = os.path.join(vault, "date=2026-07-11", "rfq_13.ndjson.1")
+        os.makedirs(os.path.dirname(vdst))
+        with open(vdst, "wb") as f:
+            f.write(pruned_bytes)
         r = run(pub + ["--date", "2026-07-11", "--include-rfq"], env)
-        check("rfq publish rc=0", r.returncode == 0, r.stderr[-300:])
-        rfq_rel = glob.glob(os.path.join(dest, "releases", "*-rfq"))
-        check("-rfq sibling release created", len(rfq_rel) == 1)
-        if rfq_rel:
-            man2 = json.load(open(os.path.join(rfq_rel[0], "MANIFEST.json")))
-            k2 = {o["key"] for o in man2["objects"]}
-            check("rfq objects included (data+receipts only)",
-                  {"raw_rfq/rfq_13.ndjson", "raw_rfq/rfq_13.ndjson.1",
-                   "raw_rfq/rfq_receipts_13.ndjson"}
-                  <= k2 and not any("firehose" in k for k in k2))
-            check("rfq status INCLUDED_SEALED_RAW",
-                  man2["channels"]["rfq"]["status"] == "INCLUDED_SEALED_RAW")
+        check("rfq publish with reconstruction rc=0", r.returncode == 0,
+              r.stderr[-400:])
+        rfq_rels = [p for p in glob.glob(os.path.join(
+            dest, "releases", "2026-07-11__seal-*__pub-*", "MANIFEST.json"))
+            if json.load(open(p))["channels"]["rfq"]["status"]
+            == "INCLUDED_SEALED_RAW"]
+        check("distinct rfq release exposed", len(rfq_rels) == 1)
+        man_r = json.load(open(rfq_rels[0])) if rfq_rels else {}
+        rid_rfq = man_r.get("release_id", "")
+        k_r = {o["key"] for o in man_r.get("objects", [])}
+        check("cross-day receipt-hour file included from seal list",
+              "raw_rfq/date=2026-07-12/rfq_00.ndjson" in k_r)
+        check("all 4 sealed rfq files present, no firehose",
+              {"raw_rfq/date=2026-07-11/rfq_13.ndjson",
+               "raw_rfq/date=2026-07-11/rfq_13.ndjson.1",
+               "raw_rfq/date=2026-07-11/rfq_receipts_13.ndjson",
+               "raw_rfq/date=2026-07-12/rfq_00.ndjson"} <= k_r
+              and not any("firehose" in k for k in k_r))
+        srcs = {f["file"]: f["source"]
+                for f in man_r["channels"]["rfq"]["files"]}
+        check("pruned file provenance = vault_reconstructed",
+              srcs.get("date=2026-07-11/rfq_13.ndjson.1")
+              == "vault_reconstructed"
+              and srcs.get("date=2026-07-11/rfq_13.ndjson") == "local", srcs)
 
-        print("== 5. CLI: inventory / fetch / verify / view")
+        print("== 6. CLI: inventory / fetch / verify / view")
         r = run(cli + ["inventory"], env)
         check("inventory rc=0", r.returncode == 0, r.stderr[-300:])
-        check("inventory shows EXPOSED + cost + cache lines",
-              "EXPOSED" in r.stdout and "monthly cost estimate" in r.stdout
-              and "local cache" in r.stdout, r.stdout[-400:])
-        r = run(cli + ["fetch", "--release", rid], env)
-        check("fetch+verify PASS", r.returncode == 0, r.stdout[-400:])
-        marker = os.path.join(cache, "releases", rid, ".VERIFIED.json")
+        check("inventory shows EXPOSED + L2 column + cost + cache lines",
+              "EXPOSED" in r.stdout
+              and "ABSENT_FROM_THIS_RELEASE" in r.stdout
+              and "monthly cost estimate" in r.stdout
+              and "local cache" in r.stdout, r.stdout[-500:])
+        r = run(cli + ["fetch", "--release", rid_corr], env)
+        check("fetch+verify PASS (corrected release)", r.returncode == 0,
+              r.stdout[-400:])
+        marker = os.path.join(cache, "releases", rid_corr, ".VERIFIED.json")
         check(".VERIFIED.json written", os.path.isfile(marker))
-        check("verify prints channel truth",
-              "NOT_RESEARCH_EXPOSABLE_PHASE_A" in r.stdout
-              and "CONFLATED_CHANGE_STREAM_NEVER_LOSSLESS" in r.stdout)
+        time.sleep(1.1)  # strict verified_at ordering for the view winner
+        r = run(cli + ["fetch", "--release", rid_rfq, "--with-rfq"], env)
+        check("rfq fetch+verify PASS", r.returncode == 0, r.stdout[-400:])
+        check("rfq VERIFIED_SEALED_RAW", "VERIFIED_SEALED_RAW" in r.stdout)
         view = os.path.join(cache, "view")
         check("view has warehouse shape",
               os.path.isfile(os.path.join(
@@ -301,35 +410,32 @@ def main():
                   "orderbooks_l1__Sports__Baseball__2026-07-11.parquet"))
               and os.path.isfile(os.path.join(view, "seals",
                                               "date=2026-07-11.json")))
-        # rfq variant with raw
-        rid2 = os.path.basename(rfq_rel[0]) if rfq_rel else ""
-        r = run(cli + ["fetch", "--release", rid2, "--with-rfq"], env)
-        check("rfq fetch+verify PASS", r.returncode == 0, r.stdout[-400:])
-        check("rfq VERIFIED_SEALED_RAW",
-              "VERIFIED_SEALED_RAW" in r.stdout, r.stdout[-300:])
-        check("view exposes rfq raw under raw/date=D",
+        check("view maps rfq raw incl. cross-day date dirs",
               os.path.isfile(os.path.join(view, "raw", "date=2026-07-11",
-                                          "rfq_13.ndjson")))
+                                          "rfq_13.ndjson"))
+              and os.path.isfile(os.path.join(view, "raw", "date=2026-07-12",
+                                              "rfq_00.ndjson")))
 
-        print("== 6. corruption -> not exposed")
-        cached_l1 = os.path.join(cache, "releases", rid, "facts",
+        print("== 7. corruption -> not exposed")
+        cached_l1 = os.path.join(cache, "releases", rid_rfq, "facts",
                                  "orderbooks_l1", "category=Sports",
                                  "subcategory=Baseball", "date=2026-07-11",
                                  "orderbooks_l1__Sports__Baseball__"
                                  "2026-07-11.parquet")
         with open(cached_l1, "ab") as f:
             f.write(b"X")
-        r = run(cli + ["verify", "--release", rid], env, expect_rc=2)
+        r = run(cli + ["verify", "--release", rid_rfq], env, expect_rc=2)
         check("verify exit 2 on corruption", r.returncode == 2)
-        check("marker removed", not os.path.isfile(marker))
+        check("marker removed", not os.path.isfile(
+            os.path.join(cache, "releases", rid_rfq, ".VERIFIED.json")))
         check(".FAILED.json written", os.path.isfile(
-            os.path.join(cache, "releases", rid, ".FAILED.json")))
+            os.path.join(cache, "releases", rid_rfq, ".FAILED.json")))
         check("loud warning", "NOT exposed" in r.stderr, r.stderr[-300:])
         prov = json.load(open(os.path.join(view, ".view_provenance.json")))
-        check("view keeps date via still-verified -rfq sibling",
-              prov["verified_releases"].get("2026-07-11") == rid2, prov)
+        check("view falls back to the still-verified sibling",
+              prov["verified_releases"].get("2026-07-11") == rid_corr, prov)
 
-        print("== 7. torn release never exposed; PRE-TL1 labeling")
+        print("== 8. torn release never exposed; PRE-TL1 + degraded tiers")
         torn = os.path.join(dest, "releases", "2026-07-05__seal-aaaaaaaaaaaa")
         os.makedirs(os.path.join(torn, "facts"), exist_ok=True)
         with open(os.path.join(torn, "facts", "x.parquet"), "wb") as f:
@@ -340,24 +446,71 @@ def main():
         r = run(cli + ["fetch", "--release",
                        "2026-07-05__seal-aaaaaaaaaaaa"], env, expect_rc=None)
         check("fetch refuses torn release", r.returncode != 0)
-        r = run(pub + ["--date", "2026-07-05", "--no-rfq"], env)
+        # 07-05: no gap record at all -> DERIVED degraded tier (fix 5)
+        r = run(["tools/research_release.py", "publish", "--dest", dest,
+                 "--quality-dir", empty_quality, "--raw-vault", vault,
+                 "--date", "2026-07-05", "--no-rfq"], env)
         check("PRE-TL1 day publishes", r.returncode == 0, r.stderr[-300:])
-        pre = [p for p in glob.glob(os.path.join(dest, "releases",
-                                                 "2026-07-05__seal-*",
-                                                 "MANIFEST.json"))]
-        check("PRE-TL1 labeled", pre and
-              json.load(open(pre[0]))["tl1_status"] == "PRE-TL1")
+        pre = glob.glob(os.path.join(dest, "releases",
+                                     "2026-07-05__seal-*__pub-*",
+                                     "MANIFEST.json"))
+        man_p = json.load(open(pre[0])) if pre else {}
+        check("PRE-TL1 labeled", man_p.get("tl1_status") == "PRE-TL1")
+        check("missing gap evidence downgrades the tier (fix 5)",
+              man_p.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("gap" in x for x in man_p.get(
+                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              man_p.get("evidence_tier_basis"))
+        r = run(pub + ["--date", "2026-07-03", "--no-rfq"], env)
+        check("not-go-eligible day publishes degraded", r.returncode == 0)
+        deg = glob.glob(os.path.join(dest, "releases",
+                                     "2026-07-03__seal-*__pub-*",
+                                     "MANIFEST.json"))
+        man_d = json.load(open(deg[0])) if deg else {}
+        check("go_no_go_eligible=false downgrades the tier (fix 5)",
+              man_d.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
+              and any("go_no_go" in x for x in man_d.get(
+                  "evidence_tier_basis", {}).get("downgrade_reasons", [])))
 
-        print("== 8. duckdb memory_limit hygiene")
+        print("== 9. sealed L2 facts exposed when present (fix 4)")
+        r = run(pub + ["--date", "2026-07-06", "--no-rfq"], env)
+        check("L2 day publishes", r.returncode == 0, r.stderr[-300:])
+        l2m = glob.glob(os.path.join(dest, "releases",
+                                     "2026-07-06__seal-*__pub-*",
+                                     "MANIFEST.json"))
+        man_l2 = json.load(open(l2m[0])) if l2m else {}
+        check("orderbooks_full INCLUDED_SEALED_FACTS",
+              man_l2.get("channels", {}).get("orderbooks_l2", {})
+              .get("status") == "INCLUDED_SEALED_FACTS",
+              man_l2.get("channels", {}).get("orderbooks_l2"))
+        check("l2 facts objects present",
+              any(o["key"].startswith("facts/orderbooks_full/")
+                  for o in man_l2.get("objects", [])))
+
+        print("== 10. post-upload destination verification unit (fix 3)")
+        import research_release as rr
+        vd = os.path.join(tmp, "vdest")
+        os.makedirs(os.path.join(vd, "releases", "x"))
+        with open(os.path.join(vd, "releases", "x", "a.bin"), "wb") as f:
+            f.write(b"payload")
+        ld = rr.LocalDest(vd)
+        ok_sha = hashlib.sha256(b"payload").hexdigest()
+        check("destination verify passes + null version id",
+              ld.verify_object("releases/x/a.bin", 7, ok_sha) is None)
+        try:
+            ld.verify_object("releases/x/a.bin", 7, "0" * 64)
+            check("destination sha mismatch aborts", False)
+        except SystemExit:
+            check("destination sha mismatch aborts", True)
+
+        print("== 11. duckdb memory_limit hygiene")
         import duckdb
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
         import research_data
-        import research_release
         control = duckdb.connect()
         control.execute("SET memory_limit='8GB'")
         want = control.execute(
             "SELECT current_setting('memory_limit')").fetchone()[0]
-        for mod in (research_data, research_release):
+        for mod in (research_data, rr):
             conn = mod.duckdb_connect()
             got = conn.execute(
                 "SELECT current_setting('memory_limit')").fetchone()[0]
