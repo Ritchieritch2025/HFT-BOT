@@ -61,6 +61,26 @@ RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
 WAREHOUSE_ROOT="work/warehouse"
 SEAL_ALARM="$LIVE/seal_alarm.json"
 
+# --- LAYER 1b (PIPE-W06 Stage 1): targeted sports L2 — OPTIONAL layer ---------
+# A SECOND read-only ws_shadow on its own WS connection (orderbook_delta,
+# explicit tickers from the hourly l2_targets selector), capturing to its own
+# raw family work/raw/date=<D>/l2_<HH>.ndjson. Everything about this layer is
+# fail-closed and firehose-independent (P4): it launches backgrounded, all of
+# its failure modes stay inside run_l2_shadow, and one-touch disable is
+# `touch work/live/l2_disable` (checked before each hourly start AND polled
+# mid-segment). orderbook_delta ONLY: ws_shadow sends ONE subscribe command
+# with ONE market filter, so a market-less global market_lifecycle_v2
+# subscription cannot ride this instance (it would be filtered to the target
+# list, not global) — global lifecycle stays a Stage-2 item.
+L2_TARGETS_CSV="$LIVE/l2_targets.csv"
+L2_DISABLE="$LIVE/l2_disable"
+L2_LOG="$LIVE/l2_shadow.log"
+L2_LOCK="$LIVE/l2_shadow.lock"
+L2_ALERT="$LIVE/l2_alert.json"
+L2_TARGETS_MAX_AGE_SECS="${L2_TARGETS_MAX_AGE_SECS:-7200}"
+L2_POLL_SECS="${L2_POLL_SECS:-15}"
+L2_MIN_SEGMENT_SECS="${L2_MIN_SEGMENT_SECS:-60}"
+
 # --- single-instance lock: two supervisors = two ws_shadow writers appending --
 # --- to the SAME hourly raw file = interleaved corrupt lines. Never allow it. --
 LOCK="$LIVE/supervisor.lock"
@@ -77,6 +97,10 @@ cleanup() {
   kill "$WATCHDOG_PID" 2>/dev/null
   [ -n "${WS_PID:-}" ] && kill "$WS_PID" 2>/dev/null
   [ -n "${SEAL_PID:-}" ] && kill "$SEAL_PID" 2>/dev/null
+  # LAYER 1b: stop the l2 runner subshell (its TERM trap kills its ws_shadow)
+  # plus a best-effort direct kill of the l2 ws_shadow via the lock's pid file.
+  [ -n "${L2_PID:-}" ] && kill "$L2_PID" 2>/dev/null
+  [ -f "$L2_LOCK/ws_pid" ] && kill "$(cat "$L2_LOCK/ws_pid")" 2>/dev/null
   rm -rf "$LOCK"
 }
 # W-A5 (audit finding 3): a signal trap in bash RESUMES execution after the
@@ -141,6 +165,110 @@ PY
 
 seal_chain_active() {
   [ -n "${SEAL_PID:-}" ] && kill -0 "$SEAL_PID" 2>/dev/null
+}
+
+# --- LAYER 1b helpers (PIPE-W06 Stage 1) --------------------------------------
+l2_alert() {
+  # Durable LAYER 1b state artifact (D2: a skipped/failed/disabled optional
+  # layer is surfaced on disk, never silent). Overwritten on state change;
+  # removed on a healthy start.
+  printf '{"status":"%s","reason":"%s","ts_utc":"%s"}\n' \
+    "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$L2_ALERT.tmp" \
+    && mv "$L2_ALERT.tmp" "$L2_ALERT"
+}
+
+run_l2_shadow() {
+  # LAYER 1b body — ALWAYS invoked backgrounded from the main loop, never on
+  # the LAYER 1 launch path (P4): selector refresh, freshness gate, lock and
+  # the l2 ws_shadow itself all live inside this subshell, so no L2 failure
+  # mode (REST down, stale targets, crash loop, slow exchange) can delay or
+  # block the firehose. Every refusal is logged AND alerted (D2).
+  trap 'kill "${L2_WS_PID:-}" 2>/dev/null; rm -rf "$L2_LOCK"; exit 143' TERM INT
+  if [ -f "$L2_DISABLE" ]; then
+    echo "[l2_shadow] one-touch disable present ($L2_DISABLE); layer off"
+    l2_alert "disabled" "l2_disable flag present"
+    return 0
+  fi
+  # Hourly selector refresh BEFORE start (spec §2). W-A4 single-REST-owner:
+  # rest_disabled suspends this REST spender too; targets then age past
+  # L2_TARGETS_MAX_AGE_SECS and the gate below stops the layer (fail-closed).
+  if [ -f "$LIVE/rest_disabled" ]; then
+    echo "[l2_shadow] REST disabled ($LIVE/rest_disabled present): selector refresh skipped (stale targets will stop this layer, fail-closed)"
+  else
+    python3 tools/l2_targets.py >> "$LIVE/l2_targets.log" 2>&1 \
+      || echo "[l2_shadow] selector refresh FAILED (previous targets kept; the layer stops once they go stale)"
+  fi
+  # Fail-closed start gate: stale/missing/empty targets => L2 does not start.
+  L2_TICKERS="$(python3 tools/l2_targets.py --check \
+      --max-age-secs "$L2_TARGETS_MAX_AGE_SECS" 2>>"$LIVE/l2_targets.log")" || {
+    echo "[l2_shadow] targets stale/missing/empty; LAYER 1b not started (fail-closed)"
+    l2_alert "no_targets" "l2_targets.csv stale/missing/empty (see l2_targets.log)"
+    return 0
+  }
+  # Single-instance lock: two l2 writers appending to the SAME hourly raw file
+  # would interleave corrupt lines (same failure class as the supervisor lock).
+  if mkdir "$L2_LOCK" 2>/dev/null; then
+    echo "${BASHPID:-$$}" > "$L2_LOCK/pid"
+  elif kill -0 "$(cat "$L2_LOCK/pid" 2>/dev/null)" 2>/dev/null; then
+    echo "[l2_shadow] another instance (pid $(cat "$L2_LOCK/pid")) is running; skipping this start"
+    return 0
+  else
+    rm -rf "$L2_LOCK"; mkdir "$L2_LOCK"; echo "${BASHPID:-$$}" > "$L2_LOCK/pid"
+  fi
+  rm -f "$L2_ALERT"
+  # Own metrics file, own rotation — NEVER work/metrics.ndjson (double-writer
+  # lesson); rotate between segments while the writer is not running.
+  bash tools/rotate_metrics.sh "$LIVE/l2_metrics.ndjson" || true
+  while true; do
+    if [ -f "$L2_DISABLE" ]; then
+      echo "[l2_shadow] disable flag appeared; layer stopping"
+      l2_alert "disabled" "l2_disable flag present"
+      break
+    fi
+    L2_DAY="$(date -u +%F)"; L2_HH="$(date -u +%H)"
+    L2_DAYDIR="$RAW/date=$L2_DAY"; mkdir -p "$L2_DAYDIR"
+    L2_SECS=$(( 3600 - 10#$(date -u +%M) * 60 - 10#$(date -u +%S) ))
+    if [ "$L2_SECS" -lt "$L2_MIN_SEGMENT_SECS" ]; then
+      break  # too close to the hour boundary; the next cycle owns the next hour
+    fi
+    # ws_shadow opens the capture append-only, so a within-hour relaunch keeps
+    # appending to l2_<HH>.ndjson (no truncation — same contract as LAYER 1).
+    KALSHI_WS_FIREHOSE=0 KALSHI_MODE=data_collect \
+      KALSHI_WS_CHANNELS=orderbook_delta \
+      KALSHI_WS_TICKERS="$L2_TICKERS" \
+      KALSHI_SHADOW_SECONDS="$L2_SECS" \
+      KALSHI_SHADOW_CAPTURE="$L2_DAYDIR/l2_$L2_HH.ndjson" \
+      KALSHI_SHADOW_METRICS="$LIVE/l2_metrics.ndjson" \
+      KALSHI_SHADOW_XCHECK=0 \
+      ./build/ws_shadow >> "$L2_LOG" 2>&1 &
+    L2_WS_PID=$!
+    echo "$L2_WS_PID" > "$L2_LOCK/ws_pid"
+    echo "[l2_shadow] segment started pid=$L2_WS_PID capture=$L2_DAYDIR/l2_$L2_HH.ndjson secs=$L2_SECS tickers=$(printf '%s' "$L2_TICKERS" | awk -F, '{print NF}')"
+    # Mid-segment one-touch disable: poll the flag and kill the segment early
+    # (the rest_disabled/RFQ-style flag pattern; ws_shadow shuts down cleanly
+    # on TERM and flushes its recorder).
+    while kill -0 "$L2_WS_PID" 2>/dev/null; do
+      if [ -f "$L2_DISABLE" ]; then
+        echo "[l2_shadow] disable flag appeared mid-segment; stopping pid $L2_WS_PID"
+        kill "$L2_WS_PID" 2>/dev/null
+      fi
+      sleep "$L2_POLL_SECS" & wait $!
+    done
+    wait "$L2_WS_PID" 2>/dev/null; l2_rc=$?
+    L2_WS_PID=""
+    rm -f "$L2_LOCK/ws_pid"
+    if [ -f "$L2_DISABLE" ]; then
+      l2_alert "disabled" "segment stopped mid-hour by l2_disable"
+      break
+    fi
+    if [ "$l2_rc" -eq 0 ]; then
+      break  # clean bounded-session end at the hour boundary
+    fi
+    echo "[l2_shadow] ws_shadow exited rc=$l2_rc; retrying in 15s (bounded to this hour)"
+    l2_alert "retrying" "l2 ws_shadow exited rc=$l2_rc"
+    sleep 15 & wait $!
+  done
+  rm -rf "$L2_LOCK"
 }
 
 # BACKLOG B4 (2026-07-11 incident): the chain used to `touch`/`rm -f` the
@@ -360,6 +488,14 @@ run_seal_chain() {
     python3 tools/capture_gaps.py --date "$CHAIN_DATE" \
       >> "$LIVE/capture_gaps.log" 2>&1 && touch "$LIVE/gaps_${CHAIN_DATE}.done"
   fi
+  # PIPE-W06: per-day L2 seq-continuity/quality record — post-seal EVIDENCE,
+  # non-gating, same posture as capture_gaps (counted-not-hidden, D2).
+  # capture_gaps itself is untouched: it owns firehose market-wide silence;
+  # targeted-L2 quality has different semantics (only subscribed markets emit).
+  if [ ! -f "$LIVE/l2_gaps_${CHAIN_DATE}.done" ]; then
+    python3 tools/l2_gap_check.py --date "$CHAIN_DATE" \
+      >> "$LIVE/l2_gap_check.log" 2>&1 && touch "$LIVE/l2_gaps_${CHAIN_DATE}.done"
+  fi
   research_done="$LIVE/research_${CHAIN_DATE}.done.json"
   if [ -f "$research_done" ] && \
      ! research_receipt_current "$CHAIN_DATE" "$research_done"; then
@@ -403,6 +539,14 @@ while true; do
     run_seal_chain "$YESTERDAY" &
     SEAL_PID=$!
   fi
+
+  # --- LAYER 1b (ASYNC, OPTIONAL): targeted sports L2 for this hour -----------
+  # Fire-and-forget: run_l2_shadow refreshes the selector, applies the
+  # fail-closed freshness gate + l2_disable switch, and (only then) runs the
+  # second ws_shadow — all inside a backgrounded subshell, so NO LAYER 1b
+  # failure or absence can ever delay or block the LAYER 1 firehose below (P4).
+  run_l2_shadow >> "$L2_LOG" 2>&1 &
+  L2_PID=$!
 
   # --- LAYER 1: firehose the rest of this UTC hour into the hourly raw log ----
   DAY="$(date -u +%F)"; HH="$(date -u +%H)"

@@ -85,6 +85,8 @@ run_suite "test_console" python3 tests/test_console.py
 run_suite "test_feed_readiness" python3 tests/test_feed_readiness.py
 run_suite "test_verify_ws_capture" python3 tests/test_verify_ws_capture.py
 run_suite "test_capture_gaps" ./tests/run_pytest.sh tests/test_capture_gaps.py
+run_suite "test_l2_targets" ./tests/run_pytest.sh tests/test_l2_targets.py
+run_suite "test_l2_gap_check" ./tests/run_pytest.sh tests/test_l2_gap_check.py
 run_suite "test_verify_feed_metrics" python3 tests/test_verify_feed_metrics.py
 run_suite "test_gold_layout" ./build/test_gold_layout
 run_suite "test_gold_dtype" ./tests/run_pytest.sh tests/test_gold_dtype.py

@@ -1439,6 +1439,49 @@
       "docs": "tests/test_event_validate.py"
     },
     {
+      "name": "l2_targets",
+      "kind": "probe",
+      "safety": "network_read",
+      "cmd": "python3 tools/l2_targets.py",
+      "args_template": "[--out work/live/l2_targets.csv] [--n 50] [--window-hours 36] [--pregame-hours 24] | --check --max-age-secs 7200",
+      "needs": [],
+      "description": "PIPE-W06 Stage 1: hourly targeted-L2 subscription selector — public read-only REST (no creds, 0.25s pacing + 429 backoff), four majors Tennis/MLB/Soccer/WNBA + controls (Esports/Golf/BTC15m), pre-game-window preference, N=50 cap, ATOMIC write to work/live/l2_targets.csv ONLY on a successful non-empty selection; --check is the supervisor's fail-closed LAYER 1b start gate (stale/missing/empty => nonzero => the L2 layer does not start; the firehose is never affected)",
+      "docs": "docs/plan_releases/pipeline/PIPE-W06-TARGETED-L2-SPEC-2026-07-11.md"
+    },
+    {
+      "name": "test_l2_targets",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_l2_targets.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PIPE-W06 Stage 1: l2_targets contract on mocked REST — quotas + N cap + cross-group dedupe, pre-game preference over OI, BTC15m soonest-window pick, boundary validation (D3), atomic write, fail-closed refresh (failure/empty leaves the previous CSV byte-untouched) and the --check gate's stale/missing/empty refusals",
+      "docs": "tests/test_l2_targets.py"
+    },
+    {
+      "name": "l2_gap_check",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/l2_gap_check.py",
+      "args_template": "--date YYYY-MM-DD [--raw-root work/raw] [--out-dir work/event_packs]",
+      "needs": [],
+      "description": "PIPE-W06 §5: offline per-day L2 quality record over the l2_ raw family — per-sid WS seq continuity (gaps/missed/regressions/stream-restarts as separate counters), WsRecorder marker counts (gap/loss/epoch_change), per-market snapshot re-anchors; writes work/event_packs/l2_gaps_<D>.json + a quality_log line. Post-seal EVIDENCE, non-gating (counted-not-hidden, D2); read-only over raw (D1)",
+      "docs": "docs/plan_releases/pipeline/PIPE-W06-TARGETED-L2-SPEC-2026-07-11.md"
+    },
+    {
+      "name": "test_l2_gap_check",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "./tests/run_pytest.sh",
+      "args_template": "tests/test_l2_gap_check.py",
+      "needs": [],
+      "pass_token": "passed",
+      "description": "PIPE-W06 §5: l2_gap_check contract on synthetic WsRecorder envelopes — exact gap/missed counts, numeric shard ordering (no lexical false gaps), benign stream-restart vs true regression separation, marker + lost-frame accounting, payload-cannot-fake-envelope, honest no-l2-files record, atomic write + quality_log line, gaps still exit 0",
+      "docs": "tests/test_l2_gap_check.py"
+    },
+    {
       "name": "capture_gaps",
       "kind": "tool",
       "safety": "offline",

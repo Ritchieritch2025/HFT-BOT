@@ -1865,3 +1865,284 @@ def test_seal_chain_pause_ownership_static_contract():
     release = _pause_functions_script()
     assert 'rm -f "$pause"' in release
     assert live.count('rm -f "$pause"') == 1
+
+
+# ─────────────── PIPE-W06 Stage 1: targeted sports L2 (LAYER 1b) ───────────────
+
+def _l2_frame(msg_type, mt, ts_us, sid, seq, **msg_extra):
+    """One l2_ raw capture line: WsRecorder envelope (compact, sid/seq/
+    channel/source_ticker before "raw" — src/storage.cpp) around a Kalshi
+    orderbook frame whose TOP-LEVEL sid/seq is what ingest stages into
+    orderbooks_full.ws_sid/ws_seq (W5)."""
+    msg = {"market_ticker": mt, "ts_ms": ts_us // 1000}
+    msg.update(msg_extra)
+    frame = {"type": msg_type, "sid": sid, "seq": seq, "msg": msg}
+    env = {"recv_mono_ns": 1, "recv_wall_ns": ts_us * 1000, "source": "Kalshi",
+           "channel": msg_type, "source_ticker": mt, "source_sequence": seq,
+           "sid": sid, "raw": json.dumps(frame, separators=(",", ":"))}
+    return json.dumps(env, separators=(",", ":"))
+
+
+def test_l2_raw_family_is_discovered_ingested_and_sealed_with_evidence(tmp_path):
+    """PIPE-W06 D4 gate: the NEW capture-side naming family (l2_<HH>.ndjson +
+    rotation shards) flows through the WHOLE ingest side in one pass —
+    (a) discovered by the production scanner, (b) typed into orderbooks_full
+    with ws_sid/ws_seq, (c) byte-exactly checkpointed, and (d) the day seal's
+    discovery_completeness carries an `l2` family entry proving it."""
+    wh = str(tmp_path / "warehouse")
+    _cls_parquet(wh, EXPORT_CLS)
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    yd = today - datetime.timedelta(days=1)
+    raw_root = os.path.join(wh, "raw")
+    mt = "KXMLB-26JUL12-BOS"
+
+    yd_dir = os.path.join(raw_root, "date=%s" % yd.isoformat())
+    td_dir = os.path.join(raw_root, "date=%s" % today.isoformat())
+    os.makedirs(yd_dir)
+    os.makedirs(td_dir)
+    with open(os.path.join(yd_dir, "firehose_00.ndjson"), "w") as f:
+        f.write(ti.tick("KXBTC-26DEC31-B75", _day_us(yd, 0, 30), 0.30, 0.40) + "\n")
+        f.write(ti.trade(mt, _day_us(yd, 0, 40), "w06-l2-t1") + "\n")
+    l2_base = os.path.join(yd_dir, "l2_13.ndjson")
+    l2_shard = os.path.join(yd_dir, "l2_13.ndjson.1")
+    with open(l2_base, "w") as f:
+        f.write(_l2_frame("orderbook_snapshot", mt, _day_us(yd, 13, 5), 7, 1,
+                          yes_dollars_fp=[["0.4000", "100.00"]],
+                          no_dollars_fp=[["0.5900", "80.00"]]) + "\n")
+        f.write(_l2_frame("orderbook_delta", mt, _day_us(yd, 13, 6), 7, 2,
+                          side="yes", price_dollars="0.4100",
+                          delta_fp="25.00") + "\n")
+    with open(l2_shard, "w") as f:  # rotation shard continues the stream
+        f.write(_l2_frame("orderbook_delta", mt, _day_us(yd, 13, 7), 7, 3,
+                          side="no", price_dollars="0.5800",
+                          delta_fp="-10.00") + "\n")
+    for hh in (0, 1):  # closed cross-day receipts the seal requires
+        with open(os.path.join(td_dir, "firehose_0%d.ndjson" % hh), "w") as f:
+            f.write(ti.tick("KXBTC-26DEC31-B75", _day_us(today, hh, 30),
+                            0.50, 0.60) + "\n")
+
+    # (a) the production scanner discovers the l2 family (base AND shard)
+    files = ingest.raw_files_to_scan(
+        {"raw_root": raw_root, "warehouse_root": wh})
+    assert l2_base in files and l2_shard in files
+
+    con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    ing = ingest.Ingester(con, wh, raw_root=raw_root)
+    for path in files:
+        ing.process_file(path)
+
+    # (b) typed rows in orderbooks_full, per-sid seq carried (W5 columns)
+    rows = con.execute(
+        "SELECT msg_type, ws_sid, ws_seq, category FROM orderbooks_full "
+        "WHERE market_ticker=? ORDER BY ws_seq", [mt]).fetchall()
+    assert rows == [("snapshot", 7, 1, "Sports"), ("delta", 7, 2, "Sports"),
+                    ("delta", 7, 3, "Sports")]
+    # (c) byte-exact checkpoints on both l2 segments
+    ck = dict(con.execute("SELECT file, byte_offset FROM checkpoint").fetchall())
+    assert ck[os.path.abspath(l2_base)] == os.path.getsize(l2_base)
+    assert ck[os.path.abspath(l2_shard)] == os.path.getsize(l2_shard)
+    con.close()
+
+    # (d) export + WRITE-ONCE seal; the seal evidence names the l2 family
+    env = _export_env(wh)
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+                        "--date", yd.isoformat()], env=env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "EXPORT PASS" in r.stdout, r.stdout + r.stderr
+    seal_run = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--seal"], env=env,
+        capture_output=True, text=True)
+    assert seal_run.returncode == 0 and "DAY SEAL PASS" in seal_run.stdout, \
+        seal_run.stdout + seal_run.stderr
+    seal = json.load(open(os.path.join(
+        wh, "seals", "date=%s.json" % yd.isoformat())))
+    fams = seal["discovery_completeness"]
+    assert set(fams) == {"firehose", "l2"}
+    l2 = fams["l2"]
+    assert l2["files_present"] == 2 and l2["files_discovered"] == 2
+    assert l2["undiscovered_files"] == []
+    assert l2["hours"]["%s/13" % yd.isoformat()] == {"present": 2, "discovered": 2}
+    assert 13 not in l2["exchange_day_hours_missing_on_disk"]
+
+
+def test_supervisor_layer1b_independence_and_disable_static_contract():
+    """PIPE-W06 hard rules, pinned on live supervisor lines: LAYER 1b is
+    launched backgrounded BEFORE (and never waited on by) the LAYER 1
+    firehose; every L2 failure mode lives inside run_l2_shadow; one-touch
+    disable is checked pre-start AND polled mid-segment; the selector refresh
+    precedes a fail-closed freshness gate which precedes the launch; the l2
+    instance is pinned to orderbook_delta / explicit tickers / its own
+    capture family, metrics file, log and lock; the seal chain records the
+    NON-GATING l2 quality evidence next to capture_gaps."""
+    sup = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+    live = "\n".join(ln for ln in sup.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    # launched fire-and-forget from the main loop, before the firehose launch
+    assert 'run_l2_shadow >> "$L2_LOG" 2>&1 &' in live
+    main = live[live.index("\nwhile true; do"):]
+    assert main.index('run_l2_shadow >> "$L2_LOG" 2>&1 &') \
+        < main.index("./build/ws_shadow")
+    # the firehose waits ONLY on its own pid; L2 is never waited on
+    assert 'wait "$WS_PID"' in live and 'wait "$L2_PID"' not in live
+
+    start = sup.index("run_l2_shadow() {")
+    fn = sup[start:sup.index("\n}", start) + 2]
+    fn_live = "\n".join(ln for ln in fn.splitlines()
+                        if not ln.lstrip().startswith("#"))
+    # one-touch disable: pre-start gate + per-segment gate + mid-segment poll
+    assert fn_live.count('-f "$L2_DISABLE"') >= 3
+    assert 'kill "$L2_WS_PID"' in fn_live
+    # selector refresh -> fail-closed --check gate -> launch, in that order
+    assert fn_live.index("python3 tools/l2_targets.py") \
+        < fn_live.index("--check") < fn_live.index("./build/ws_shadow")
+    assert 'l2_alert "no_targets"' in fn_live      # stale/missing => no start
+    assert 'return 0' in fn_live                    # refusals never propagate
+    # W-A4 single-REST-owner: rest_disabled suspends the selector's REST spend
+    assert '-f "$LIVE/rest_disabled"' in fn_live
+    # pinned launch env: delta channel, explicit tickers, no firehose flag,
+    # own hourly capture family, own metrics (never work/metrics.ndjson),
+    # zero REST cross-check
+    assert "KALSHI_WS_CHANNELS=orderbook_delta" in fn_live
+    assert 'KALSHI_WS_TICKERS="$L2_TICKERS"' in fn_live
+    assert "KALSHI_WS_FIREHOSE=0" in fn_live
+    assert 'KALSHI_SHADOW_CAPTURE="$L2_DAYDIR/l2_$L2_HH.ndjson"' in fn_live
+    assert 'KALSHI_SHADOW_METRICS="$LIVE/l2_metrics.ndjson"' in fn_live
+    assert "KALSHI_SHADOW_XCHECK=0" in fn_live
+    # own single-instance lock, distinct from the supervisor's
+    assert 'L2_LOCK="$LIVE/l2_shadow.lock"' in live
+    assert 'LOCK="$LIVE/supervisor.lock"' in live
+    # crash retry stays inside the hour segment, with backoff
+    assert "retrying in 15s" in fn
+    # supervisor cleanup also reaps the L2 runner + its ws_shadow
+    cleanup = sup[sup.index("cleanup() {"):sup.index("\n}", sup.index("cleanup() {"))]
+    assert '"$L2_PID"' in cleanup and "$L2_LOCK/ws_pid" in cleanup
+    # seal chain: l2_gap_check wired post-seal, non-gating, AFTER capture_gaps
+    # and BEFORE research — with its own done-marker (idempotent per day)
+    chain = live[live.index("run_seal_chain()"):live.index("\nwhile true; do")]
+    assert 'l2_gap_check.py --date "$CHAIN_DATE"' in chain
+    assert "l2_gaps_${CHAIN_DATE}.done" in chain
+    assert chain.index("capture_gaps.py") < chain.index("l2_gap_check.py") \
+        < chain.index('run_daily_research "$CHAIN_DATE"')
+
+
+def _l2_functions_script():
+    """Extract l2_alert + run_l2_shadow VERBATIM from the supervisor so the
+    functional tests below exercise the REAL production shell code (same
+    pattern as _pause_functions_script)."""
+    text = open(os.path.join(ROOT, "tools", "pipeline_supervisor.sh")).read()
+
+    def block(name):
+        start = text.index("%s() {" % name)
+        end = text.index("\n}", start)
+        return text[start:end + 2]
+
+    return block("l2_alert") + "\n" + block("run_l2_shadow")
+
+
+def _run_l2_scenario(tmp, body, timeout=60):
+    """Drive the extracted LAYER 1b functions with stubbed python3/ws_shadow.
+
+    python3 shim: the selector refresh is a no-op; `--check` emits the ticker
+    list only when the scenario planted $LIVE/targets_ok (else exit 3 — the
+    fail-closed gate). ws_shadow stub: records its env + capture path, then
+    exits 0 immediately (or sleeps 60 s when $LIVE/ws_slow exists, for the
+    mid-segment kill scenario)."""
+    live = os.path.join(tmp, "work", "live")
+    os.makedirs(live, exist_ok=True)
+    os.makedirs(os.path.join(tmp, "work", "raw"), exist_ok=True)
+    bindir = os.path.join(tmp, "stub_bin")
+    os.makedirs(bindir, exist_ok=True)
+    os.makedirs(os.path.join(tmp, "build"), exist_ok=True)
+    shim = os.path.join(bindir, "python3")
+    with open(shim, "w") as f:
+        f.write('#!/bin/sh\ncase "$*" in\n'
+                '  *--check*) if [ -f "%s/targets_ok" ]; then '
+                'echo "TICK-A,TICK-B"; exit 0; else exit 3; fi ;;\n'
+                '  *) exit 0 ;;\nesac\n' % live)
+    os.chmod(shim, 0o755)
+    ws = os.path.join(tmp, "build", "ws_shadow")
+    with open(ws, "w") as f:
+        f.write('#!/bin/sh\nprintenv > "%s/ws_env.txt"\n'
+                'echo "$KALSHI_SHADOW_CAPTURE" > "%s/ws_capture.txt"\n'
+                'if [ -f "%s/ws_slow" ]; then sleep 60; fi\nexit 0\n'
+                % (live, live, live))
+    os.chmod(ws, 0o755)
+    script = ("set -u\nexport PATH='%s':\"$PATH\"\ncd '%s'\n"
+              "RAW='work/raw'\nLIVE='work/live'\n"
+              'L2_TARGETS_CSV="$LIVE/l2_targets.csv"\n'
+              'L2_DISABLE="$LIVE/l2_disable"\n'
+              'L2_LOG="$LIVE/l2_shadow.log"\n'
+              'L2_LOCK="$LIVE/l2_shadow.lock"\n'
+              'L2_ALERT="$LIVE/l2_alert.json"\n'
+              "L2_TARGETS_MAX_AGE_SECS=7200\nL2_POLL_SECS=1\n"
+              "L2_MIN_SEGMENT_SECS=0\n%s\n%s\n"
+              % (bindir, tmp, _l2_functions_script(), body))
+    return subprocess.run(["bash", "-c", script],
+                          capture_output=True, text=True, timeout=timeout)
+
+
+def test_l2_shadow_disable_flag_prevents_start(tmp_path):
+    tmp = str(tmp_path)
+    r = _run_l2_scenario(
+        tmp, 'touch "$LIVE/targets_ok"; touch "$LIVE/l2_disable"; run_l2_shadow')
+    assert r.returncode == 0, r.stdout + r.stderr
+    live = os.path.join(tmp, "work", "live")
+    assert not os.path.exists(os.path.join(live, "ws_env.txt")), \
+        "l2 ws_shadow must not launch while l2_disable exists"
+    alert = json.load(open(os.path.join(live, "l2_alert.json")))
+    assert alert["status"] == "disabled"
+
+
+def test_l2_shadow_fails_closed_without_fresh_targets(tmp_path):
+    tmp = str(tmp_path)
+    r = _run_l2_scenario(tmp, "run_l2_shadow")  # no targets_ok => --check fails
+    assert r.returncode == 0, r.stdout + r.stderr  # refusal never propagates (P4)
+    live = os.path.join(tmp, "work", "live")
+    assert not os.path.exists(os.path.join(live, "ws_env.txt"))
+    alert = json.load(open(os.path.join(live, "l2_alert.json")))
+    assert alert["status"] == "no_targets"
+    assert "fail-closed" in r.stdout
+
+
+def test_l2_shadow_launch_env_pins_channel_tickers_and_own_paths(tmp_path):
+    tmp = str(tmp_path)
+    r = _run_l2_scenario(tmp, 'touch "$LIVE/targets_ok"; run_l2_shadow')
+    assert r.returncode == 0, r.stdout + r.stderr
+    live = os.path.join(tmp, "work", "live")
+    env = dict(ln.split("=", 1) for ln in
+               open(os.path.join(live, "ws_env.txt")).read().splitlines()
+               if "=" in ln)
+    assert env["KALSHI_WS_CHANNELS"] == "orderbook_delta"
+    assert env["KALSHI_WS_TICKERS"] == "TICK-A,TICK-B"
+    assert env["KALSHI_WS_FIREHOSE"] == "0"
+    assert env["KALSHI_MODE"] == "data_collect"
+    assert env["KALSHI_SHADOW_XCHECK"] == "0"
+    assert env["KALSHI_SHADOW_METRICS"] == "work/live/l2_metrics.ndjson"
+    cap = open(os.path.join(live, "ws_capture.txt")).read().strip()
+    import re as _re
+    assert _re.fullmatch(
+        r"work/raw/date=\d{4}-\d{2}-\d{2}/l2_\d{2}\.ndjson", cap), cap
+    # healthy run: alert cleared, single-instance lock released
+    assert not os.path.exists(os.path.join(live, "l2_alert.json"))
+    assert not os.path.exists(os.path.join(live, "l2_shadow.lock"))
+
+
+def test_l2_shadow_mid_segment_disable_kills_the_running_segment(tmp_path):
+    tmp = str(tmp_path)
+    body = ('touch "$LIVE/targets_ok"; touch "$LIVE/ws_slow"\n'
+            "run_l2_shadow & rp=$!\n"
+            "for i in $(seq 1 100); do\n"
+            '  [ -f "$LIVE/ws_env.txt" ] && break; sleep 0.2\ndone\n'
+            'touch "$LIVE/l2_disable"\nwait "$rp"\n')
+    start = time.time()
+    r = _run_l2_scenario(tmp, body, timeout=45)
+    elapsed = time.time() - start
+    assert r.returncode == 0, r.stdout + r.stderr
+    # the stub sleeps 60s; a working mid-segment kill returns far sooner
+    assert elapsed < 30, "mid-segment l2_disable did not kill the segment"
+    live = os.path.join(tmp, "work", "live")
+    assert os.path.exists(os.path.join(live, "ws_env.txt"))  # it HAD started
+    alert = json.load(open(os.path.join(live, "l2_alert.json")))
+    assert alert["status"] == "disabled"
+    assert not os.path.exists(os.path.join(live, "l2_shadow.lock"))
