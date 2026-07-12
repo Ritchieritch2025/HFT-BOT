@@ -613,6 +613,13 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B6 (2026-07-12, from the W03 diff review — 4 non-blocking P2s): ① no code
+  cap on legacy-unsealed-day rescans per ingest cycle (backstop = 03:00 seal
+  alarm only); ② acquire_export_pause check-then-write not atomic vs manual
+  operator writes (ms-scale, human-timescale actor); ③ pause stale-reclaim
+  degrades fail-safe on bash<4 — verify EC2 bash>=4 once at next deploy;
+  ④ 2026-07-09 sealing path = open operator decision (no automatic
+  back-date seal). Owner: next pipeline W / Stage-1 deploy checklist.
 - B5 (2026-07-11 observed): daily research chain peaks near the memory
   ceiling — 13:34Z probe read MEM_USED 15,207MB / AVAIL 461MB on the 16G box
   while RESEARCH_CHAIN=RUNNING (first W02-gated run, mid-day due to the late

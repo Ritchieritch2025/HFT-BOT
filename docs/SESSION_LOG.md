@@ -6,6 +6,38 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-12 00:50 UTC — W06 Stage 0 探针完成(实测 694.5 msg/s)+ PIPE-W03 落地(根因反转)— Stage 1 W 解锁
+
+- commits: 8978c2a(Stage0 批准归档)· 75d05e3(探针实测入档,门(c)闭)·
+  7b575e0(W03 释放令收据)· a8e6b4b(W03 实现,ff 合入)· (this closure:
+  diff 审计归档 + B6 + 收据收口)。镜像同步。
+- **W06 Stage 0**:第一次尝试 BLOCKED(批准命令缺 KALSHI_ENV=prod +
+  KALSHI_ALLOW_PROD=1——ws_shadow 默认 local_mock,生产旗标来自 supervisor
+  而非 env.sh;0d3e303 记录);操作员批修正命令后 22:44Z 成功——48 市场
+  900s,505,879 book msgs,**694.5 msg/s,B/msg=530(531 估计命中)**,
+  0 err/0 reconnect/0 drop,L3(48 单订阅)/L6(双连接)过,生产哨兵 4/4
+  新鲜。60% 流量 = 8 个赛中世界杯市场 ⇒ 赛中≫赛前实证,数字是上界。
+  完整表 PLAN_DEPTH_EXPANSION §8。probe capture 留 EC2 work/probe/(Stage1
+  ingest 回放 fixture)。
+- **PIPE-W03**(隔离 worktree,diff 轻审计 PASS 0P0/0P1/4P2→B6):
+  **根因反转**——轮转命名无罪;真凶 = 旧 ingest main() 启动裸
+  duckdb.connect 无重试(a011fab:423),被长锁进程顶死在扫描前,07-10
+  实缺 **57% 行/296 分区** 而旧导出发绿灯(export.log @868 vs @1652+ 对比
+  实证)。修复:①扫描窗改"昨天+今天+一切未封印在盘日"(活救 07-09
+  h18-23 41 文件)②caught-up 全量报告(不再只报首犯)③按频道族
+  discovery_completeness 进封印证据(l2_ 前向兼容)④B4 暂停牌所有权
+  (token+stale 回收+异牌拒启)。7 个新测试(含忠实复刻旧扫描器漏检的
+  回归);make check 0 FAIL,run_pipeline PASS。**未部署**——生产变更等
+  维护窗;部署时新扫描器将一次性补灌 07-09 尾巴 ~10GB(注意 B5 内存)。
+- **prune 恢复实证**(门(a) 后半):07-12 00:00:01Z 首次真删 123 文件,
+  此前 13 次正确 no-op;retained 54 全有理由(41 unsealed 07-09 保护 +
+  13 cross-day)。**Stage-1 三硬门全闭:(a)✅ (b)✅(本 W 吸收)(c)✅。**
+- blocked/handoff:① Stage 1 实现 W = 已解锁,等操作员释放(部署清单带:
+  W03 变更、B6-③ bash 版本一验、07-09 补灌内存注意);② 07-09 是否补封 =
+  操作员决定;③ 07-11 封印今晨 02:00Z 后自动尝试(新扫描器未部署,用
+  现网代码;07-11 数据完整,应正常盖印)+ capture_gaps 两缺口对账 =
+  下次晨检;④ STP 线:P00 PASS 等 P01 释放令 + 四个批复项。
+
 ## 2026-07-11 17:00 UTC — 晨检收官(07-10 封印落地)+ W06 规格获批 + resize 收尾核验
 
 - commits (this session, docs-only on this branch): 46bad42 W06 spec v1.0 ·
