@@ -9,6 +9,10 @@ archive (read-only) and renders an offline dashboard:
         assets/echarts.min.js      repo-vendored copy (no CDN)
         data/index.json|.js        episode index + channel inventory
         data/episodes/<key>.json|.js   one bounded artifact per episode
+        data/heatmaps/<ep>__<mkt>.json|.js   per-market depth-heatmap artifact
+            (v2 primary view: time x price resting-depth matrix from REAL
+            orderbooks_full snapshot+delta replay, or the honest degraded
+            L1 touch-band when no full-book capture exists — never fake depth)
 
 Episode identity (match-level) uses, in priority order:
   1. catalog event relationships (markets -> event_ticker -> catalog titles)
@@ -35,11 +39,14 @@ sandbox/research/reports/event_intel/.
 from __future__ import annotations
 
 import argparse
+import array
+import base64
 import json
 import math
 import os
 import re
 import shutil
+import sys
 from bisect import bisect_left, bisect_right, insort
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -53,6 +60,14 @@ TEMPLATE_PATH = WORKBENCH_DIR / "intel.html"
 
 INDEX_SCHEMA = "event-intel-index-v1"
 EPISODE_SCHEMA = "event-intel-episode-v1"
+HEATMAP_SCHEMA = "event-intel-heatmap-v1"
+
+# Depth-heatmap matrix bounds (operator spec: <= ~99 x ~2000 cells/market).
+HEATMAP_PRICE_ROWS = 99          # whole-cent rows 1..99
+HEATMAP_MAX_BINS = 2000
+HEATMAP_MIN_BIN_US = 1_000_000   # never finer than 1 second
+HEATMAP_TRADE_CAP = 5000
+_UINT32_MAX = 0xFFFFFFFF
 
 SPORTS = ("Soccer", "Baseball", "Tennis", "Basketball")
 EPISODES_PER_SPORT = 5
@@ -409,6 +424,245 @@ def load_rfq_events(inputs_dir: Path, key: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Depth heatmap (v2 primary view) — pure functions, independently testable
+# ---------------------------------------------------------------------------
+
+def heatmap_bins(t0_us: int, t1_us: int,
+                 max_bins: int = HEATMAP_MAX_BINS,
+                 min_bin_us: int = HEATMAP_MIN_BIN_US) -> tuple[int, int]:
+    """Adaptive time binning: bin i covers [t0+i*bin, t0+(i+1)*bin) and the
+    matrix stays <= max_bins columns. Returns (bin_us, n_bins)."""
+    span = max(0, int(t1_us) - int(t0_us))
+    bin_us = max(min_bin_us, span // max(1, max_bins - 1) + 1)
+    return bin_us, span // bin_us + 1
+
+
+def _b64_u32(values: list[int]) -> str:
+    """Little-endian uint32 array as base64 (typed-array friendly)."""
+    arr = array.array("I", values)
+    if arr.itemsize != 4:  # pragma: no cover - platform oddity guard
+        raise RuntimeError("no 4-byte unsigned array type on this platform")
+    if sys.byteorder != "little":  # pragma: no cover
+        arr.byteswap()
+    return base64.b64encode(arr.tobytes()).decode("ascii")
+
+
+def build_l2_heatmap(mrows: list) -> dict[str, Any]:
+    """Full-book depth matrix from REAL orderbooks_full snapshot+delta rows.
+
+    mrows: rows shaped like _build_l2's fetch —
+      (market_ticker, ts_utc, msg_type, side, price_e4, delta_e4,
+       yes_levels, no_levels, ws_seq) — already sorted by ts_utc.
+
+    Definition (documented in the artifact and mirrored by the tests):
+      - price rows are whole cents 1..99; a level's cent row is
+        floor(price_e4/100) — sub-penny levels aggregate into their cent row
+        (E4 sub-penny is real; it is BINNED for the heat grid, never rounded
+        up). YES-side resting depth maps directly; NO-side resting depth is
+        displayed at the equivalent YES ask price (10000 - price_e4).
+      - cell value = resting displayed depth (E4 qty) at that price row at
+        BIN CLOSE: the book state after replaying every row with
+        ts < t0 + (i+1)*bin_us. Delta replay matches the v1 tape rules
+        (snapshot resets the book; a level whose qty reaches <= 0 is
+        removed; a negative overshoot is clamped and counted, never hidden).
+    """
+    t0, t1 = int(mrows[0][1]), int(mrows[-1][1])
+    bin_us, n_bins = heatmap_bins(t0, t1)
+    rows_p = HEATMAP_PRICE_ROWS
+    bid = [0] * (n_bins * rows_p)
+    ask = [0] * (n_bins * rows_p)
+    best_bid_e4 = [0] * n_bins
+    best_ask_e4 = [0] * n_bins
+    book: dict[str, dict[int, int]] = {"yes": {}, "no": {}}
+    anomalies = {"negative_clamps": 0, "out_of_range_price_events": 0,
+                 "uint32_clamped_cells": 0}
+    level_depth_samples: list[float] = []   # per occupied exact level, per bin
+    cur_bin = 0
+
+    def flush_until(idx_end: int) -> None:
+        nonlocal cur_bin
+        idx_end = min(idx_end, n_bins)
+        if idx_end <= cur_bin:
+            return
+        colb = [0] * rows_p
+        cola = [0] * rows_p
+        levels: list[float] = []
+        bb = 0
+        ba = 0
+        for price, qty in book["yes"].items():
+            cent = price // 100
+            if 1 <= cent <= 99:
+                colb[cent - 1] += qty
+            levels.append(qty / 10000.0)
+            if price > bb:
+                bb = price
+        for price, qty in book["no"].items():
+            ask_px = 10000 - price
+            cent = ask_px // 100
+            if 1 <= cent <= 99:
+                cola[cent - 1] += qty
+            levels.append(qty / 10000.0)
+            if ba == 0 or ask_px < ba:
+                ba = ask_px
+        for i, v in enumerate(colb):
+            if v > _UINT32_MAX:
+                colb[i] = _UINT32_MAX
+                anomalies["uint32_clamped_cells"] += 1
+        for i, v in enumerate(cola):
+            if v > _UINT32_MAX:
+                cola[i] = _UINT32_MAX
+                anomalies["uint32_clamped_cells"] += 1
+        for i in range(cur_bin, idx_end):
+            base = i * rows_p
+            bid[base:base + rows_p] = colb
+            ask[base:base + rows_p] = cola
+            best_bid_e4[i] = bb
+            best_ask_e4[i] = ba
+            level_depth_samples.extend(levels)
+        cur_bin = idx_end
+
+    for row in mrows:
+        ts, msg_type, side, price_e4, delta_e4 = \
+            int(row[1]), row[2], row[3], row[4], row[5]
+        flush_until(int((ts - t0) // bin_us))
+        if msg_type == "snapshot":
+            book = {"yes": {}, "no": {}}
+            for side_name, levels_json in (("yes", row[6]), ("no", row[7])):
+                for price, qty in json.loads(levels_json or "[]"):
+                    if qty > 0:
+                        book[side_name][int(price)] = int(qty)
+                        cent = (int(price) if side_name == "yes"
+                                else 10000 - int(price)) // 100
+                        if not 1 <= cent <= 99:
+                            anomalies["out_of_range_price_events"] += 1
+        elif msg_type == "delta" and side in ("yes", "no"):
+            price = int(price_e4)
+            cent = (price if side == "yes" else 10000 - price) // 100
+            if not 1 <= cent <= 99:
+                anomalies["out_of_range_price_events"] += 1
+            prev = book[side].get(price, 0)
+            new = prev + int(delta_e4)
+            if new < 0:
+                anomalies["negative_clamps"] += 1
+            if new <= 0:
+                book[side].pop(price, None)
+            else:
+                book[side][price] = new
+    flush_until(n_bins)
+
+    nonzero_bid = [v / 10000.0 for v in bid if v > 0]
+    nonzero_ask = [v / 10000.0 for v in ask if v > 0]
+    max_cell = max(max(bid, default=0), max(ask, default=0))
+    return {
+        "kind": "l2_full",
+        "t0_us": t0, "t1_us": t1, "bin_us": bin_us, "n_bins": n_bins,
+        "price_rows": rows_p,
+        "bid_b64": _b64_u32(bid), "ask_b64": _b64_u32(ask),
+        "best_bid_e4": best_bid_e4, "best_ask_e4": best_ask_e4,
+        "max_cell_e4": max_cell,
+        "nonzero_cells": len(nonzero_bid) + len(nonzero_ask),
+        "anomalies": anomalies,
+        "dist": {
+            "heat_cell_depth_bid": _distribution(
+                nonzero_bid, "contracts",
+                "nonzero BID heat cells (cent row x time bin, bin-close "
+                "resting depth)", "orderbooks_full snapshot+delta replay"),
+            "heat_cell_depth_ask": _distribution(
+                nonzero_ask, "contracts",
+                "nonzero ASK heat cells (cent row x time bin, bin-close "
+                "resting depth)", "orderbooks_full snapshot+delta replay"),
+            "depth_per_level": _distribution(
+                level_depth_samples, "contracts",
+                "resting depth per occupied EXACT price level (both sides), "
+                "sampled at every bin close",
+                "orderbooks_full snapshot+delta replay"),
+        },
+        "definition": {
+            "price_binning": "whole-cent rows 1..99; cent = "
+                             "floor(price_e4/100) — sub-penny levels are "
+                             "REAL and are aggregated into their cent row; "
+                             "NO-side depth shown at YES-ask price "
+                             "(10000 - price_e4)",
+            "sampling": "cell = resting displayed depth at BIN CLOSE "
+                        "(book state after all rows with ts < bin end)",
+            "replay": "snapshot resets book; delta adds; level removed at "
+                      "qty <= 0; negative overshoot clamped AND counted",
+            "encoding": "uint32 little-endian E4 quantities, base64, "
+                        "row-major [bin][cent-1]",
+        },
+    }
+
+
+def build_l1_touch_heatmap(l1_rows: list, t0_us: int, t1_us: int,
+                           gaps_ms: list[list[int]]) -> dict[str, Any]:
+    """Honest degraded heatmap for markets WITHOUT full-book capture:
+    touch-band heat only (best bid / best ask displayed qty), everything
+    else transparent. NEVER synthesizes depth away from the touch.
+
+    l1_rows: (ts_utc, yes_bid_e4, yes_bid_qty_e4, yes_ask_e4, yes_ask_qty_e4)
+    sorted by ts_utc (rows before t0 seed the carried state). A bin has a
+    value only when the last L1 row is within the 65-min heartbeat contract;
+    beyond that the bin is empty and the range is a DATA GAP.
+    """
+    bin_us, n_bins = heatmap_bins(t0_us, t1_us)
+    bid_price_e4 = [0] * n_bins
+    bid_qty_e4 = [0] * n_bins
+    ask_price_e4 = [0] * n_bins
+    ask_qty_e4 = [0] * n_bins
+    bid_vals: list[float] = []
+    ask_vals: list[float] = []
+    idx = 0
+    last = None
+    for i in range(n_bins):
+        close = t0_us + (i + 1) * bin_us
+        while idx < len(l1_rows) and int(l1_rows[idx][0]) < close:
+            last = l1_rows[idx]
+            idx += 1
+        if last is None or close - int(last[0]) > GAP_THRESHOLD_US:
+            continue  # no trusted book state (pre-capture or DATA GAP)
+        _, b_px, b_q, a_px, a_q = last
+        if b_px and b_px > 0 and b_q and b_q > 0:
+            bid_price_e4[i] = int(b_px)
+            bid_qty_e4[i] = min(int(b_q), _UINT32_MAX)
+            bid_vals.append(b_q / 10000.0)
+        if a_px and 0 < a_px < 10000 and a_q and a_q > 0:
+            ask_price_e4[i] = int(a_px)
+            ask_qty_e4[i] = min(int(a_q), _UINT32_MAX)
+            ask_vals.append(a_q / 10000.0)
+    return {
+        "kind": "l1_touch",
+        "t0_us": int(t0_us), "t1_us": int(t1_us),
+        "bin_us": bin_us, "n_bins": n_bins,
+        "price_rows": HEATMAP_PRICE_ROWS,
+        "touch": {
+            "bid_price_e4": bid_price_e4, "bid_qty_e4": bid_qty_e4,
+            "ask_price_e4": ask_price_e4, "ask_qty_e4": ask_qty_e4,
+        },
+        "gaps_ms": [[int(a), int(b)] for a, b in (gaps_ms or [])],
+        "dist": {
+            "touch_depth_bid": _distribution(
+                bid_vals, "contracts",
+                "displayed qty at best bid per time bin (AGGREGATE L1 "
+                "PROXY, not full book)", "orderbooks_l1 change rows (LOCF "
+                "within the 65-min heartbeat contract)"),
+            "touch_depth_ask": _distribution(
+                ask_vals, "contracts",
+                "displayed qty at best ask per time bin (AGGREGATE L1 "
+                "PROXY, not full book)", "orderbooks_l1 change rows (LOCF "
+                "within the 65-min heartbeat contract)"),
+        },
+        "definition": {
+            "degraded": "AGGREGATE L1 PROXY — touch depth only; NOT full "
+                        "book. Heat exists ONLY on the best-bid/best-ask "
+                        "price rows; no other depth is known, none is drawn.",
+            "sampling": "bin value = last L1 state with ts < bin close, "
+                        "carried at most 65 min (the heartbeat contract); "
+                        "silence beyond that renders as DATA GAP",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # The builder
 # ---------------------------------------------------------------------------
 
@@ -675,6 +929,7 @@ class EventIntelBuilder:
                 mk["l2"] = {"available": False,
                             "note": "no full-depth capture for this market "
                                     "in the local archive"}
+        self._attach_heatmaps(safe_key(key), group, markets_payload)
 
         tape.sort(key=lambda e: e["t"])
         inputs_dir = self.out_dir / "inputs"
@@ -1024,6 +1279,7 @@ class EventIntelBuilder:
 
     # -- real L2 (orderbooks_full) ----------------------------------------------
     def _build_l2(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
+        self._l2_rows: dict[str, list] = {}
         files = self._l2_files()
         if not files or not tickers:
             return {}
@@ -1042,6 +1298,7 @@ class EventIntelBuilder:
         per_market: dict[str, list] = defaultdict(list)
         for r in rows:
             per_market[r[0]].append(r)
+        self._l2_rows = dict(per_market)  # kept for the depth heatmap build
         for ticker, mrows in per_market.items():
             out[ticker] = self._l2_market(ticker, mrows, has_seq)
         return out
@@ -1141,6 +1398,99 @@ class EventIntelBuilder:
             "note": "REAL L2 — full-depth watchlist capture; depth = top-5 "
                     "price levels per side, 1s samples",
         }
+
+    # -- depth heatmap artifacts (v2 primary view) --------------------------------
+    def _heatmap_trades(self, ticker: str, t0_us: int, t1_us: int) -> dict[str, Any]:
+        """Trade prints overlaying the heatmap: dot at (t, yes price), sized
+        by contracts, colored by taker side. taker_side is the ONLY taker
+        attribution in this archive ('yes'/'no'; deprecated fallback field —
+        docs/kalshi_ws_protocol.md I9; the newer taker_outcome_side /
+        taker_book_side fields are not in these archived days). NULL renders
+        neutral with an explicit 'taker side unknown' — never guessed."""
+        rows = self.con.sql(f"""
+            SELECT ts_utc, yes_price_e4/100.0, count_e4/10000.0,
+                   taker_side, trade_id
+            FROM ep_trades WHERE market_ticker={_sql_str(ticker)}
+              AND ts_utc BETWEEN {int(t0_us)} AND {int(t1_us)}
+            ORDER BY ts_utc""").fetchall()
+        truncated = 0
+        if len(rows) > HEATMAP_TRADE_CAP:
+            truncated = len(rows) - HEATMAP_TRADE_CAP
+            rows = sorted(rows, key=lambda r: -(r[2] or 0))[:HEATMAP_TRADE_CAP]
+            rows.sort(key=lambda r: r[0])
+        return {
+            "rows": [[int(r[0]) // 1000, _num(r[1]), _num(r[2]),
+                      r[3] if r[3] in ("yes", "no") else None, r[4]]
+                     for r in rows],
+            "truncated": truncated, "cap": HEATMAP_TRADE_CAP,
+            "columns": ["t_ms", "yes_price_c", "contracts",
+                        "taker_side", "trade_id"],
+            "taker_provenance": "taker_side archive field (deprecated "
+                                "fallback per docs/kalshi_ws_protocol.md I9; "
+                                "taker_outcome_side/taker_book_side absent "
+                                "on these days); null = taker side unknown, "
+                                "shown neutral — never guessed",
+        }
+
+    def _l1_touch_rows(self, ticker: str) -> list:
+        return self.con.sql(f"""
+            SELECT ts_utc, yes_bid_e4, yes_bid_qty_e4, yes_ask_e4,
+                   yes_ask_qty_e4
+            FROM ep_l1 WHERE market_ticker={_sql_str(ticker)}
+            ORDER BY ts_utc""").fetchall()
+
+    def _attach_heatmaps(self, ep_safe: str, group: dict[str, Any],
+                         markets_payload: list[dict[str, Any]]) -> None:
+        """One heatmap artifact per detailed market. Guard: a full-price-grid
+        (l2_full) heatmap is ONLY ever built from that market's own
+        orderbooks_full rows; markets without full-book capture get the
+        degraded touch-band artifact (or an honest 'unavailable')."""
+        hm_dir = self.out_dir / "data" / "heatmaps"
+        hm_dir.mkdir(parents=True, exist_ok=True)
+        l2_rows = getattr(self, "_l2_rows", {})
+        for mk in markets_payload:
+            ticker = mk["ticker"]
+            if l2_rows.get(ticker):
+                hm = build_l2_heatmap(l2_rows[ticker])
+                hm["seq_note"] = mk["l2"]["seq"]["note"] \
+                    if mk.get("l2", {}).get("available") else None
+                hm["label"] = ("REAL L2 FULL BOOK — resting displayed depth "
+                               "(log color scale)")
+            else:
+                rows = self._l1_touch_rows(ticker)
+                if not rows:
+                    mk["heatmap"] = {
+                        "kind": "unavailable",
+                        "note": "no full-book capture AND no L1 archive rows "
+                                "for this market — nothing honest to draw",
+                    }
+                    continue
+                hm = build_l1_touch_heatmap(
+                    rows, group["t0"], group["t1"], mk.get("gaps") or [])
+                hm["label"] = ("AGGREGATE L1 PROXY — touch depth only; "
+                               "NOT full book")
+            hm["schema_version"] = HEATMAP_SCHEMA
+            hm["generated_at_utc"] = self.generated_at
+            hm["market_ticker"] = ticker
+            hm["episode_key"] = group["key"]
+            hm["trades"] = self._heatmap_trades(
+                ticker, hm["t0_us"], hm["t1_us"])
+            dist = hm.pop("dist")
+            name = f"{ep_safe}__{safe_key(ticker)}"
+            _write_json(hm_dir / f"{name}.json", hm)
+            _write_jsonp(hm_dir / f"{name}.js", f"heatmap:{name}", hm)
+            mk["heatmap"] = {
+                "kind": hm["kind"],
+                "name": name,
+                "src": f"data/heatmaps/{name}.js",
+                "bytes": (hm_dir / f"{name}.json").stat().st_size,
+                "label": hm["label"],
+                "t0_us": hm["t0_us"], "t1_us": hm["t1_us"],
+                "bin_us": hm["bin_us"], "n_bins": hm["n_bins"],
+                "price_rows": hm["price_rows"],
+                "dist": dist,
+                "definition": hm["definition"],
+            }
 
     # -- orchestration -----------------------------------------------------------
     def build(self) -> dict[str, Any]:

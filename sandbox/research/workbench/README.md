@@ -22,7 +22,48 @@ open sandbox/research/reports/event_intel/index.html
 python3 sandbox/research/workbench/app.py serve   # -> http://127.0.0.1:8791/intel
 ```
 
-Deep links: `index.html#sport=Baseball&ep=26JUL05_BOSLAA&mode=causal&thr=p99.5`.
+Deep links:
+`index.html#sport=Baseball&ep=26JUL05_BOSLAA&mkt=<ticker>&view=heat|tracks`
+(plus `mode=causal` / `thr=p99.5`).
+
+## Market Heatmap (v2 primary view)
+
+The default landing view is a Bookmap-style **MARKET HEATMAP**: time × price
+(1–99¢), cell color = log-scaled resting displayed depth, reconstructed at
+artifact-build time by replaying `orderbooks_full` snapshot+delta per market
+and sampling the book at each bin close (adaptive bins, ≤ 99 × 2000 cells;
+uint32 little-endian E4 quantities, base64; one lazy-loaded
+`data/heatmaps/<episode>__<market>.js` artifact per market). Whole-cent price
+rows: sub-penny levels are real (E4) and aggregate into their cent row;
+NO-side resting depth is displayed at the equivalent YES ask (100¢ − p).
+Overlays: mid/best-bid/best-ask lines derived from the same replay, trade
+prints as dots sized by contracts and colored by archived `taker_side`
+(yes = green buy, no = red sell, missing = neutral "taker side unknown" —
+never guessed), and the same large-activity candidate markers as the tracks
+view (mode/threshold/toggle rules apply). Heat cells render on a raw
+DPR-aware canvas (offscreen ImageData at 1 px/bin, blitted on zoom/pan)
+under a transparent ECharts layer that provides the crosshair, brush/zoom,
+tooltips and click-to-tape; the v1 six-track view stays one tab away
+(`TRACKS (v1)`).
+
+Honesty: full-grid heat exists ONLY for markets with real full-book capture
+(locally: the three 2026-07-06 BOSLAA watchlist markets). Every other market
+gets the degraded touch-band version — heat only on the best-bid/best-ask
+rows from `orderbooks_l1`, permanently labeled `AGGREGATE L1 PROXY — touch
+depth only; NOT full book`; depth is never fabricated. Outside the watchlist
+capture window the canvas hatches `NO FULL-BOOK CAPTURE`; L1 heartbeat
+violations hatch `DATA GAP / BOOK STATE UNTRUSTED`. The distributions drawer
+adds `heat_cell_depth_bid/ask` + `depth_per_level` (or `touch_depth_*`) for
+the heatmap market, each with n/p50/p99/max/unit/provenance.
+
+The tracks surface opens on the **complete archived event overview**. Its
+optional replay bar provides play/pause, reset, next-event,
+1×–3600× speed, backward/forward scrubbing and an optional rolling follow
+window. All plotted series are progressively revealed at the replay clock;
+minute aggregates wait until bucket close, exact trade/L2 markers reveal at
+their archived timestamp, future tape rows are withheld, and only the latest
+400 revealed candidates remain in the DOM. The source-closed watermark is
+permanent in the UI so animation cannot be mistaken for current market data.
 
 Layout: left sport/episode/market selector (episode identity = catalog titles
 + deterministic `{YYMONDD}:{TEAMS}` ticker-suffix key spanning ALL series of
@@ -32,7 +73,8 @@ large-print bubbles; displayed liquidity — real L2 depth when captured, else
 touch quantity labeled AGGREGATE L1 PROXY; tempo with explainable
 CALM/BUILDING/BURST/DISLOCATION/RECOVERY bands; RFQ; score/game state — the
 last two render honest empty states locally); right exact activity tape synced
-to the visible zoom (row click jumps the crosshair); bottom drawer with
+to the revealed visible range (row click pauses and seeks the replay clock);
+bottom drawer with
 per-metric ECDF/histogram distributions (n, p50, p99, max, unit, provenance),
 channel inventory and definitions.
 
