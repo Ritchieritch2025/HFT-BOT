@@ -688,6 +688,26 @@ function timeBasis(){
        : tl==="PRE-TL1" ? "PRE-TL1 exchange-or-coarse time"
        : "time basis unstated";
 }
+function timeDisciplineText(){
+  // P0-5: the time-discipline definition is a MEASURED statement — it must
+  // never assert that "all archive days predate TL1" when the data root
+  // carries the ladder.
+  var tl = measuredLadder();
+  return tl==="TL1" ?
+      "these archive days carry the W-TL1 receive-clock ladder "+
+      "(exchange_ts_us / recv_wall_ns / recv_mono_ns / local_recv_ts_us); "+
+      "decision-clock analysis is supported on local_recv_ts_us. Kalshi "+
+      "exchange timestamps remain millisecond-granular."
+    : tl==="MIXED" ?
+      "this data root mixes TL1 and pre-TL1 days — per-day status lives in "+
+      "each release manifest; pre-TL1 rows carry only ts_utc "+
+      "(exchange-or-coarse) and support no decision-time claims."
+    : tl==="PRE-TL1" ?
+      "these archive days predate the W-TL1 receive-clock ladder: only "+
+      "ts_utc (exchange-or-coarse) exists. No decision-time claims are "+
+      "supported; Kalshi exchange timestamps are millisecond-granular."
+    : "time basis unstated — no artifact data loaded.";
+}
 function renderTierBadges(){
   var ep = S.episode || {};
   var tl = measuredLadder();
@@ -709,6 +729,7 @@ function renderTierBadges(){
   var s = $("archive-badge");
   s.textContent = ev.archive_source_label || "SOURCE: UNSTATED";
   s.title = "archive source: " + (ev.archive_source || "unstated");
+  buildDefinitions();   // P0-5: the time-discipline definition is measured
 }
 
 /* ---------- episode selection --------------------------------------------- */
@@ -1788,7 +1809,7 @@ function buildDefinitions(){
     ["HEATMAP DEGRADED MODE", "markets without full-book capture render AGGREGATE L1 PROXY touch-band heat only — the best-bid and best-ask price rows; every other cell stays empty because that depth was never captured. Depth is NEVER fabricated or interpolated."],
     ["TRADE DOT TAKER SIDE", "heatmap trade dots: size = contracts, color = archived taker_side ('yes' buy = green, 'no' sell = red; deprecated fallback field per docs/kalshi_ws_protocol.md I9 — taker_outcome_side/taker_book_side do not exist on these archive days). Missing value renders neutral gray with 'taker side unknown' — never guessed."],
     ["Temporal proximity", "an event near a price move is not proof of causation; this dashboard shows coincidence structure only."],
-    ["Time discipline", "these archive days predate the W-TL1 receive-clock ladder: only ts_utc (exchange-or-coarse) exists. No decision-time claims are supported; Kalshi exchange timestamps are millisecond-granular."],
+    ["Time discipline", timeDisciplineText()],
     ["DATA GAP", "the pipeline guarantees hourly heartbeats per active market; >65 minutes without any archived row means capture loss — the book state across the gap is untrusted (hatched red)."],
     ["Tradable?", "everything here is DESCRIPTIVE or UNAVAILABLE; nothing on this page is a tradable signal. Strategy thresholds must be frozen on TRAIN data and applied forward, per the research governance docs."],
   ];

@@ -1695,10 +1695,15 @@ class EventIntelBuilder:
                         [e for e in episodes_meta if e["sport"] == s]}
                        for s in self.sports],
             "thresholds": {"tiers": THRESHOLD_TIERS},
+            # P0-5: provenance notes are DATA-ROOT-DRIVEN — never a
+            # hardcoded claim that every build reads the local Mac mirror.
             "notes": [
-                "All values from real archived local data; no synthetic rows.",
-                "Local archive is the dormant Mac mirror (production moved "
-                "to EC2 2026-07-09); dates reflect what exists locally.",
+                "All values from real archived data; no synthetic rows.",
+                "archive source: %s (%s; %d day seal(s) present); dates "
+                "reflect what exists under this data root."
+                % (self.evidence_summary()["archive_source"],
+                   self.evidence_summary()["archive_source_label"],
+                   self.evidence_summary()["seals"]),
             ],
         }
         _write_json(data_dir / "index.json", index_payload)

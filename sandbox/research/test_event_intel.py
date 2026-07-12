@@ -809,9 +809,16 @@ def test_intel_html_renders_tiers_dynamically():
                     "TL1 · RECEIVE/DECISION CLOCKS PRESENT",
                     "MIXED · TL1 + PRE-TL1 DAYS",
                     "TL1 receive-clock archive",
-                    "MIXED TL1/PRE-TL1 archive"):
+                    "MIXED TL1/PRE-TL1 archive",
+                    # P0-5: the time-discipline semantic statement is
+                    # measured, selected inside the renderer only
+                    "predate the W-TL1"):
         assert literal in renderer, literal
         assert literal not in outside, "hardcoded outside renderer: " + literal
+    # P0-5: the definitions row goes through the measured helper
+    assert '["Time discipline", timeDisciplineText()]' in html
+    assert "function timeDisciplineText" in renderer
+    assert "buildDefinitions();" in renderer
     # the two statements the audit flagged are gone entirely from markup:
     assert "LOCAL ARCHIVE" not in html
     assert ">PRE-TL1" not in outside
@@ -822,3 +829,76 @@ def test_intel_html_renders_tiers_dynamically():
     assert "TIME BASIS: UNSTATED" in renderer
     assert "SOURCE: UNSTATED" in renderer
     assert 'ev.tier || "UNSTATED"' in renderer
+
+
+# ---------------------------------------------------------------------------
+# PIPE-W05 FINAL P0-5: SEMANTIC truth — a TL1 W05 data-root build must not
+# contain either audited false statement ("all archive days predate TL1";
+# "every build is local data from the dormant Mac mirror")
+# ---------------------------------------------------------------------------
+
+def _write_l1_tl1_soccer(facts_root: Path, date: str = "2026-07-06") -> None:
+    """TL1 L1 parquet for the fixture's Soccer market, written directly under
+    a W05 data-root facts/ tree."""
+    import duckdb
+    d = (facts_root / "orderbooks_l1" / "category=Sports"
+         / "subcategory=Soccer" / f"date={date}")
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"orderbooks_l1__Sports__Soccer__{date}.parquet"
+    con = duckdb.connect()
+    con.execute("SET memory_limit='1GB'")
+    con.execute(
+        f"""COPY (SELECT CAST({BASE_US} AS BIGINT) AS ts_utc,
+        '{MKT_A}' AS market_ticker, '{EVENT_A}' AS event_ticker,
+        'Soccer' AS subcategory, 4000 AS yes_bid_e4,
+        CAST(1000000 AS BIGINT) AS yes_bid_qty_e4, 4200 AS yes_ask_e4,
+        CAST(2000000 AS BIGINT) AS yes_ask_qty_e4, 4100 AS price_e4,
+        TRUE AS is_snapshot, CAST({BASE_US} AS BIGINT) AS exchange_ts_us,
+        CAST({BASE_US * 1000} AS BIGINT) AS recv_wall_ns,
+        CAST(42 AS BIGINT) AS recv_mono_ns,
+        CAST({BASE_US} AS BIGINT) AS local_recv_ts_us)
+        TO '{out}' (FORMAT PARQUET)""")
+    con.close()
+
+
+def test_w05_tl1_data_root_has_neither_false_statement(tmp_path):
+    import shutil
+    src = _fixture_root(tmp_path / "legacy")
+    droot = tmp_path / "w05_view"
+    shutil.copytree(src / "work" / "warehouse" / "facts", droot / "facts")
+    shutil.copytree(src / "work" / "warehouse" / "catalog",
+                    droot / "catalog") \
+        if (src / "work" / "warehouse" / "catalog").is_dir() else None
+    shutil.rmtree(droot / "facts" / "orderbooks_l1")
+    _write_l1_tl1_soccer(droot / "facts")
+    (droot / "seals").mkdir()
+    (droot / "seals" / "date=2026-07-06.json").write_text(json.dumps(
+        {"date": "2026-07-06", "status": "SEALED", "version": 2,
+         "method": "full_v2", "go_no_go_eligible": True}))
+    (droot / "raw" / "date=2026-07-06").mkdir(parents=True)
+    (droot / "raw" / "date=2026-07-06" / "rfq_13.ndjson").write_text("{}\n")
+
+    builder = ei.EventIntelBuilder(repo_root=tmp_path / "reporoot",
+                                   out_dir=tmp_path / "out",
+                                   sports=("Soccer",),
+                                   episodes_per_sport=3, data_root=droot)
+    index = builder.build()
+    blob = json.dumps(index)
+    for p in (tmp_path / "out" / "data" / "episodes").glob("*.json"):
+        blob += p.read_text(encoding="utf-8")
+
+    # positive: the build is measured as what it is
+    assert index["inventory"]["timestamp_ladder"]["status"] == "TL1"
+    assert index["evidence"]["archive_source_label"] == "RESEARCH DATA ROOT"
+    assert str(droot) in " ".join(index["notes"])
+    assert index["inventory"]["rfq"]["status"] == "RAW_PRESENT"
+    # SEMANTIC (P0-5): neither audited false statement appears anywhere in
+    # any build output
+    assert "predate" not in blob
+    assert "dormant Mac mirror" not in blob
+    assert "exists locally" not in blob
+    # and the legacy local build still tells its own truth, data-driven
+    legacy_index, _ = _build(src)
+    legacy_notes = " ".join(legacy_index["notes"])
+    assert "local legacy warehouse" in legacy_notes
+    assert "dormant Mac mirror" not in legacy_notes  # provenance is derived
