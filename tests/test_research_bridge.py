@@ -195,12 +195,25 @@ def main():
     day_us = wc.day_start_us("2026-07-11")
     try:
         env = dict(os.environ)
+        # remediation item 6: the bridge runs in the research namespace —
+        # production credentials are never part of its environment, and the
+        # research key file location is pinned away from the real host file
+        for k in ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH"):
+            env.pop(k, None)
         env.update({
             "WAREHOUSE_ROOT": os.path.join(tmp, "warehouse"),
             "ARCHIVE_ROOT": os.path.join(tmp, "warehouse", "facts"),
             "RAW_ROOT": os.path.join(tmp, "raw"),
             "RESEARCH_INCLUDE_RFQ": "0",
+            "KALSHI_RESEARCH_ENV_FILE": os.path.join(tmp, "no_such_env.sh"),
         })
+        live = os.path.join(tmp, "live")   # affirmative gap-scan markers
+        os.makedirs(live)
+        for d in ("2026-07-11", "2026-07-06", "2026-07-05"):
+            open(os.path.join(live, "gaps_%s.done" % d), "w").close()
+        # NOTE: 2026-07-03 deliberately has NO completed-scan marker and
+        # 2026-07-05 has a marker but NO gap record (both must degrade —
+        # absence is not evidence, item 4)
         os.makedirs(os.path.join(tmp, "warehouse", "catalog", "events"),
                     exist_ok=True)
         with open(os.path.join(tmp, "warehouse", "catalog", "events",
@@ -239,7 +252,8 @@ def main():
         os.makedirs(vault)
         cache = os.path.join(tmp, "cache")
         pub = ["tools/research_release.py", "publish", "--dest", dest,
-               "--quality-dir", quality, "--raw-vault", vault]
+               "--quality-dir", quality, "--raw-vault", vault,
+               "--live-dir", live]
         cli = ["tools/research_data.py", "--root", dest, "--cache", cache]
 
         print("== 1. seal gate")
@@ -285,7 +299,23 @@ def main():
               ch.get("rfq", {}).get("sealed_rfq_files_in_day_seal") == 4)
         check("gap intervals day-filtered == 1",
               ch.get("orderbooks_l1", {}).get("gap_intervals_for_date") == 1)
+        check("AFFIRMATIVE gap receipt frozen (item 4)",
+              ch.get("orderbooks_l1", {}).get("gap_receipt_affirmative")
+              is True
+              and man.get("publication_state", {}).get(
+                  "gap_evidence", {}).get("affirmative_receipt") is True
+              and man.get("publication_state", {}).get(
+                  "gap_evidence", {}).get("gap_receipt_sha256"))
+        check("version binding frozen; unversioned dest = LOUD explicit "
+              "degraded mode (item 1)",
+              man.get("version_binding", {}).get("mode")
+              == "UNVERSIONED_DEST_DEGRADED"
+              and man.get("version_binding", {}).get("bindings_sha256")
+              and "UNVERSIONED_DEST_DEGRADED" in r.stdout
+              and "WARNING" in r.stdout, r.stdout[-400:])
         keys = {o["key"] for o in man.get("objects", [])}
+        check("gap receipt object shipped",
+              "quality/gap_receipt_2026-07-11.json" in keys)
         check("no raw published by default",
               not any(k.startswith("raw_rfq/") for k in keys))
         check("firehose never published",
@@ -338,6 +368,7 @@ def main():
         dest2 = os.path.join(tmp, "dest2")
         r = run(["tools/research_release.py", "publish", "--dest", dest2,
                  "--quality-dir", quality, "--raw-vault", vault,
+                 "--live-dir", live,
                  "--date", "2026-07-11", "--no-rfq"], env, expect_rc=None)
         check("tampered archive aborts", r.returncode != 0)
         check("nothing exposed after abort",
@@ -357,6 +388,12 @@ def main():
         check("pruned + vault-missing aborts", r.returncode != 0)
         vdst = os.path.join(vault, "date=2026-07-11", "rfq_13.ndjson.1")
         os.makedirs(os.path.dirname(vdst))
+        with open(vdst, "wb") as f:
+            f.write(b"WRONG BYTES - not the sealed content")
+        r = run(pub + ["--date", "2026-07-11", "--include-rfq"], env,
+                expect_rc=None)
+        check("vault content not matching the seal aborts (item 2)",
+              r.returncode != 0)
         with open(vdst, "wb") as f:
             f.write(pruned_bytes)
         r = run(pub + ["--date", "2026-07-11", "--include-rfq"], env)
@@ -446,9 +483,11 @@ def main():
         r = run(cli + ["fetch", "--release",
                        "2026-07-05__seal-aaaaaaaaaaaa"], env, expect_rc=None)
         check("fetch refuses torn release", r.returncode != 0)
-        # 07-05: no gap record at all -> DERIVED degraded tier (fix 5)
+        # 07-05: marker present but NO gap record -> no affirmative receipt
+        # -> DERIVED degraded tier (fix 5 + item 4)
         r = run(["tools/research_release.py", "publish", "--dest", dest,
                  "--quality-dir", empty_quality, "--raw-vault", vault,
+                 "--live-dir", live,
                  "--date", "2026-07-05", "--no-rfq"], env)
         check("PRE-TL1 day publishes", r.returncode == 0, r.stderr[-300:])
         pre = glob.glob(os.path.join(dest, "releases",
@@ -471,6 +510,11 @@ def main():
               man_d.get("evidence_tier") == "SEALED_DEGRADED_EVIDENCE"
               and any("go_no_go" in x for x in man_d.get(
                   "evidence_tier_basis", {}).get("downgrade_reasons", [])))
+        check("record WITHOUT completed-scan marker is NOT evidence "
+              "(item 4)",
+              any("affirmative" in x for x in man_d.get(
+                  "evidence_tier_basis", {}).get("downgrade_reasons", [])),
+              man_d.get("evidence_tier_basis"))
 
         print("== 9. sealed L2 facts exposed when present (fix 4)")
         r = run(pub + ["--date", "2026-07-06", "--no-rfq"], env)
@@ -518,6 +562,157 @@ def main():
                   (got, want))
             conn.close()
         control.close()
+
+        print("== 12. cache containment: hostile manifest keys (item 3)")
+        hostile_rid = "2026-07-01__seal-aaaaaaaa__pub-aaaaaaaaaaaaaaaa"
+        hdir = os.path.join(dest, "releases", hostile_rid)
+        os.makedirs(hdir)
+        evil_dst = os.path.join(tmp, "evil.txt")
+        with open(os.path.join(hdir, "MANIFEST.json"), "w") as f:
+            json.dump({"schema_version": "research-release-manifest-v2",
+                       "release_id": hostile_rid, "date": "2026-07-01",
+                       "publication_state_sha256": "a" * 64,
+                       "version_binding": {
+                           "mode": "UNVERSIONED_DEST_DEGRADED",
+                           "bindings_sha256": "b" * 64},
+                       "seal": {"sha256": "c" * 64,
+                                "manifest_date_sha256": "d" * 64},
+                       "objects": [
+                           {"key": "../../evil.txt", "size": 4,
+                            "sha256": "e" * 64, "version_id": None},
+                           {"key": "/abs/evil.txt", "size": 4,
+                            "sha256": "e" * 64, "version_id": None}]}, f)
+        r = run(cli + ["fetch", "--release", hostile_rid], env,
+                expect_rc=None)
+        check("hostile manifest keys refused", r.returncode not in (0,),
+              (r.returncode, r.stdout[-200:]))
+        check("containment named as the reason",
+              "containment" in (r.stdout + r.stderr))
+        check("no escape file written", not os.path.exists(evil_dst)
+              and not os.path.exists("/abs/evil.txt"))
+        try:
+            research_data.contained_remove(os.path.join(tmp, "evil2"),
+                                           os.path.join(tmp, "cache"))
+            check("out-of-cache delete refused", False)
+        except SystemExit:
+            check("out-of-cache delete refused", True)
+
+        print("== 13. version-binding tamper: VERSION_BOUND with null "
+              "version ids fails verify (item 1)")
+        vb_rid = "2026-07-02__seal-bbbbbbbb__pub-bbbbbbbbbbbbbbbb"
+        vb_dir = os.path.join(dest, "releases", vb_rid)
+        os.makedirs(vb_dir)
+        tampered = dict(json.load(open(os.path.join(
+            dest, "releases", rid_corr, "MANIFEST.json"))))
+        tampered["release_id"] = vb_rid
+        tampered["version_binding"] = dict(tampered["version_binding"],
+                                           mode="VERSION_BOUND")
+        with open(os.path.join(vb_dir, "MANIFEST.json"), "w") as f:
+            json.dump(tampered, f)
+        for o in tampered["objects"]:
+            src = os.path.join(dest, "releases", rid_corr, o["key"])
+            dst = os.path.join(vb_dir, o["key"])
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
+        r = run(cli + ["fetch", "--release", vb_rid], env, expect_rc=2)
+        check("VERSION_BOUND + null version ids fails verify",
+              r.returncode == 2 and "version" in (r.stdout + r.stderr),
+              (r.returncode, r.stdout[-300:]))
+
+        print("== 14. quarantined legacy releases (item 5)")
+        legacy_rid = "2026-07-06__seal-cccccccccccc"
+        lsrc = glob.glob(os.path.join(dest, "releases",
+                                      "2026-07-06__seal-*__pub-*"))[0]
+        ldir = os.path.join(dest, "releases", legacy_rid)
+        shutil.copytree(lsrc, ldir)
+        lman = json.load(open(os.path.join(ldir, "MANIFEST.json")))
+        lman["schema_version"] = "research-release-manifest-v1"
+        lman.pop("publication_state", None)
+        lman.pop("publication_state_sha256", None)
+        lman.pop("version_binding", None)
+        lman["release_id"] = legacy_rid
+        with open(os.path.join(ldir, "MANIFEST.json"), "w") as f:
+            json.dump(lman, f)
+        r = run(cli + ["inventory"], env)
+        check("inventory shows QUARANTINED_LEGACY",
+              "QUARANTINED_LEGACY" in r.stdout, r.stdout[-400:])
+        r = run(cli + ["fetch", "--release", legacy_rid], env,
+                expect_rc=None)
+        check("quarantined fetch refused without override",
+              r.returncode != 0 and "QUARANTINED" in (r.stdout + r.stderr))
+        r = run(cli + ["fetch", "--release", legacy_rid,
+                       "--allow-legacy-quarantined"], env)
+        check("override fetch works and is BRANDED", r.returncode == 0
+              and "QUARANTINED-LEGACY OVERRIDE" in (r.stdout + r.stderr),
+              r.stdout[-300:] + r.stderr[-300:])
+        lmarker = json.load(open(os.path.join(
+            cache, "releases", legacy_rid, ".VERIFIED.json")))
+        check("override marker branded",
+              lmarker.get("quarantined_legacy_override") is True)
+        prov = json.load(open(os.path.join(cache, "view",
+                                           ".view_provenance.json")))
+        check("override-only date enters the view BRANDED",
+              prov["verified_releases"].get("2026-07-06") == legacy_rid
+              and prov["quarantined_legacy_overrides"].get("2026-07-06")
+              == legacy_rid and prov.get("quarantine_brand"), prov)
+        clean_rid = os.path.basename(lsrc)
+        r = run(cli + ["fetch", "--release", clean_rid], env)
+        check("clean 07-06 release verifies", r.returncode == 0,
+              r.stdout[-300:])
+        prov = json.load(open(os.path.join(cache, "view",
+                                           ".view_provenance.json")))
+        check("a verified clean release ALWAYS beats the quarantined "
+              "override in the view",
+              prov["verified_releases"].get("2026-07-06") == clean_rid
+              and "2026-07-06" not in prov["quarantined_legacy_overrides"],
+              prov)
+
+        print("== 15. credential modes (item 6) + operator gate (item 7)")
+        env_prod = dict(env, KALSHI_API_KEY_ID="not-a-real-key")
+        r = run(cli + ["inventory"], env_prod, expect_rc=None)
+        check("CLI refuses production credentials in env",
+              r.returncode != 0
+              and "credential mode" in (r.stdout + r.stderr))
+        bad_env_file = os.path.join(tmp, "bad_env.sh")
+        with open(bad_env_file, "w") as f:
+            f.write("export AWS_ACCESS_KEY_ID=x\n"
+                    "export AWS_SECRET_ACCESS_KEY=y\n")
+        os.chmod(bad_env_file, 0o644)
+        env_bad = dict(env, KALSHI_RESEARCH_ENV_FILE=bad_env_file)
+        r = run(["tools/research_data.py", "--root", "s3://dummy/research",
+                 "--cache", cache, "inventory"], env_bad, expect_rc=None)
+        check("CLI refuses group/other-readable key file (0600 required)",
+              r.returncode != 0 and "0600" in (r.stdout + r.stderr))
+        r = run(["tools/research_release.py", "publish", "--date",
+                 "2026-07-11", "--dest", "s3://dummy/research",
+                 "--quality-dir", quality, "--live-dir", live], env,
+                expect_rc=2)
+        check("publisher gate: real s3 publish refused without "
+              "--operator-approved", r.returncode == 2
+              and "operator-approved" in (r.stdout + r.stderr))
+        os.chmod(bad_env_file, 0o600)
+        env_mac = dict(env, KALSHI_RESEARCH_ENV_FILE=bad_env_file)
+        r = run(["tools/research_release.py", "publish", "--date",
+                 "2026-07-11", "--dest", "s3://dummy/research",
+                 "--quality-dir", quality, "--live-dir", live,
+                 "--operator-approved"], env_mac, expect_rc=2)
+        check("publisher refuses on a research-key host (namespace split)",
+              r.returncode == 2
+              and "READ-ONLY key" in (r.stdout + r.stderr))
+
+        print("== 16. exact-version candidate selection unit (item 2)")
+        cands = rr.pick_candidate_versions(
+            {"Versions": [
+                {"VersionId": "old", "Size": 10,
+                 "LastModified": "2026-07-10T00:00:00Z"},
+                {"VersionId": "wrong-size", "Size": 11,
+                 "LastModified": "2026-07-12T00:00:00Z"},
+                {"VersionId": "new", "Size": 10,
+                 "LastModified": "2026-07-11T00:00:00Z"}]}, 10)
+        check("candidates size-filtered, newest first, never trusts "
+              "'latest' blindly", cands == ["new", "old"], cands)
+        check("no versions -> no candidates (degraded path)",
+              rr.pick_candidate_versions({}, 10) == [])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

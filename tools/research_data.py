@@ -70,7 +70,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
 
 ROOT_DEFAULT = "s3://kalshi-vault-ritcardo/research"
-ENV_FILE = os.path.expanduser("~/.kalshi/research_s3.env.sh")
+
+
+def env_file_path():
+    """The research read-only key file. KALSHI_RESEARCH_ENV_FILE overrides
+    for tests only."""
+    return os.environ.get("KALSHI_RESEARCH_ENV_FILE") or \
+        os.path.expanduser("~/.kalshi/research_s3.env.sh")
+
+
 POLICY_DOC = ("docs/plan_releases/pipeline/"
               "W05_RESEARCH_READONLY_IAM_POLICY.json")
 CACHE_DEFAULT = os.path.join(wc.ROOT, "work", "research_cache")
@@ -108,10 +116,19 @@ def duckdb_connect():
 # Credentials (never printed) + stores
 # ---------------------------------------------------------------------------
 
-def load_env_file(path=ENV_FILE):
+def load_env_file(path=None):
+    """Parses the research key file. Remediation item 6: the file MUST be
+    0600 — group/other-readable credential files are refused outright."""
+    path = path or env_file_path()
     out = {}
     if not os.path.isfile(path):
         return out
+    mode = os.stat(path).st_mode & 0o777
+    if mode & 0o077:
+        raise SystemExit(
+            "REFUSED (credential hygiene): %s has mode %o — the research "
+            "key file must be 0600 (chmod 600 '%s'). Values were not read."
+            % (path, mode, path))
     with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.split("#", 1)[0].strip()
@@ -139,8 +156,68 @@ def load_creds():
             "  export AWS_DEFAULT_REGION=us-east-2\n"
             "using an IAM user restricted by %s (List+Get on the research/ "
             "prefix only). Values are never printed by this tool." %
-            (ENV_FILE, POLICY_DOC))
+            (env_file_path(), POLICY_DOC))
     return key_id, secret, region
+
+
+def refuse_production_credentials():
+    """Remediation item 6: the research CLI runs in the READ-ONLY research
+    namespace only. Kalshi production credentials in its environment mean
+    the wrong credential mode — refuse before doing anything."""
+    present = [k for k in ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH")
+               if os.environ.get(k)]
+    if present:
+        raise SystemExit(
+            "REFUSED (credential mode): Kalshi PRODUCTION credentials are "
+            "present in this environment (%s). tools/research_data.py is "
+            "the read-only research CLI and must never run with production "
+            "credentials — use a clean shell. Nothing was read or fetched."
+            % ", ".join(present))
+
+
+# ---------------------------------------------------------------------------
+# Cache containment (remediation item 3)
+# ---------------------------------------------------------------------------
+
+def safe_cache_path(base, key):
+    """A manifest-derived key may NEVER escape the cache: absolute paths,
+    backslashes and any '.'/'..' segment are refused, and the resolved path
+    must stay inside the resolved base."""
+    if not key or key.startswith(("/", "\\")) or "\\" in key:
+        raise SystemExit("REFUSED (cache containment): illegal manifest "
+                         "key %r" % key)
+    parts = key.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise SystemExit("REFUSED (cache containment): traversal manifest "
+                         "key %r" % key)
+    base_real = os.path.realpath(base)
+    dst = os.path.realpath(os.path.join(base_real, *parts))
+    if dst != base_real and not dst.startswith(base_real + os.sep):
+        raise SystemExit("REFUSED (cache containment): %r escapes the "
+                         "cache root %s" % (key, base))
+    return os.path.join(base_real, *parts)
+
+
+def contained_remove(path, cache_root, is_dir=False):
+    """Every delete this tool performs is physically confined to the cache
+    root — a delete outside it is refused, never executed."""
+    real, root = os.path.realpath(path), os.path.realpath(cache_root)
+    if real != root and not real.startswith(root + os.sep):
+        raise SystemExit("REFUSED (cache containment): delete of %s is "
+                         "outside the cache root %s" % (path, cache_root))
+    if is_dir:
+        shutil.rmtree(real, ignore_errors=True)
+    elif os.path.isfile(real):
+        os.remove(real)
+
+
+def validate_manifest_keys(manifest, cache_root, rid):
+    """Adversarial-manifest guard: every object key must be containment-safe
+    BEFORE any filesystem operation uses it."""
+    rdir = cache_release_dir(cache_root, rid)
+    os.makedirs(rdir, exist_ok=True)
+    for o in manifest.get("objects", []):
+        safe_cache_path(rdir, o["key"])
 
 
 def _hmac(key, msg):
@@ -305,7 +382,39 @@ def list_releases(store):
 
 
 def cache_release_dir(cache, rid):
+    # rid is externally supplied — containment-check it as a single segment
+    if (not rid or "/" in rid or "\\" in rid
+            or rid in (".", "..") or rid.startswith(".")):
+        raise SystemExit("REFUSED (cache containment): illegal release id "
+                         "%r" % rid)
     return os.path.join(cache, "releases", rid)
+
+
+def is_quarantined_legacy(manifest):
+    """Remediation item 5: releases lacking the v2 publication-state /
+    version-binding freeze (e.g. pre-correction-order legacy releases) are
+    QUARANTINED — readable only with an explicit branded override."""
+    return (manifest.get("schema_version") != "research-release-manifest-v2"
+            or not manifest.get("publication_state_sha256")
+            or not isinstance(manifest.get("version_binding"), dict))
+
+
+QUARANTINE_BRAND = ("QUARANTINED-LEGACY OVERRIDE: this release predates the "
+                    "publication-state/version-binding freeze; treat every "
+                    "derived result as legacy-grade evidence")
+
+
+def quarantine_gate(manifest, rid, allow):
+    if not is_quarantined_legacy(manifest):
+        return False
+    if not allow:
+        raise SystemExit(
+            "REFUSED (quarantined legacy): release %s lacks the "
+            "publication_state/version_binding freeze and is QUARANTINED. "
+            "Re-run with --allow-legacy-quarantined to read it anyway — "
+            "every output will be branded." % rid)
+    sys.stderr.write("!! %s (%s)\n" % (QUARANTINE_BRAND, rid))
+    return True
 
 
 def verified_marker(cache, rid):
@@ -361,9 +470,15 @@ def cmd_inventory(store, cache):
             # orderbooks_full facts are exposed when present, honestly
             # ABSENT_FROM_THIS_RELEASE otherwise.
             l2 = ch.get("orderbooks_l2", {}).get("status", "?")
-            status = "EXPOSED"
-            if os.path.isfile(verified_marker(cache, rid)):
-                status = "EXPOSED+VERIFIED_LOCALLY"
+            if is_quarantined_legacy(m):
+                status = "QUARANTINED_LEGACY"
+            else:
+                status = "EXPOSED"
+                if os.path.isfile(verified_marker(cache, rid)):
+                    status = "EXPOSED+VERIFIED_LOCALLY"
+                bmode = m.get("version_binding", {}).get("mode")
+                if bmode != "VERSION_BOUND":
+                    status += "!" + str(bmode)
         rows.append((rid, date, status, len(r["objects"]),
                      r["bytes"] / 1e9, tier, tl1, l2, rfq))
     if rows:
@@ -372,6 +487,15 @@ def cmd_inventory(store, cache):
                  "tl1", "l2", "rfq"))
         for row in rows:
             print("%-44s %-11s %-28s %6d %9.3f %-26s %-8s %-26s %s" % row)
+        if any("QUARANTINED_LEGACY" in row[2] for row in rows):
+            print("note: QUARANTINED_LEGACY releases lack the "
+                  "publication-state/version-binding freeze; fetch/verify "
+                  "refuse them without --allow-legacy-quarantined "
+                  "(all outputs branded).")
+        if any("UNVERSIONED" in row[2] for row in rows):
+            print("WARNING: releases marked !UNVERSIONED_DEST_DEGRADED were "
+                  "published WITHOUT object-version binding (explicit "
+                  "degraded mode) — freeze authority is size+sha256 only.")
     # ---- cost + disk (spec HYGIENE) ----------------------------------------
     gb = total_bytes / 1e9
     days = {r.split("__")[0] for r in releases if _RELEASE_RE.match(r)}
@@ -401,7 +525,7 @@ def _iter_manifest_objects(manifest, with_rfq):
         yield o
 
 
-def cmd_fetch(store, cache, rid, with_rfq):
+def cmd_fetch(store, cache, rid, with_rfq, allow_legacy=False):
     releases = list_releases(store)
     if rid not in releases:
         raise SystemExit("unknown release_id %r (see inventory)" % rid)
@@ -409,29 +533,37 @@ def cmd_fetch(store, cache, rid, with_rfq):
         raise SystemExit("release %s has no MANIFEST.json — torn/unpublished, "
                          "NOT exposed to research" % rid)
     manifest = read_manifest(cache, store, rid)
+    quarantined = quarantine_gate(manifest, rid, allow_legacy)
+    validate_manifest_keys(manifest, cache, rid)  # item 3: before ANY write
+    binding = manifest.get("version_binding") or {}
+    if not quarantined and binding.get("mode") != "VERSION_BOUND":
+        sys.stderr.write("WARNING: %s was published in the explicit "
+                         "degraded mode %s — fetches cannot be "
+                         "version-pinned; size+sha256 remain the freeze "
+                         "authority.\n" % (rid, binding.get("mode")))
     rdir = cache_release_dir(cache, rid)
     fetched = skipped = 0
     for o in _iter_manifest_objects(manifest, with_rfq):
-        dest = os.path.join(rdir, o["key"])
+        dest = safe_cache_path(rdir, o["key"])
         if os.path.isfile(dest) and os.stat(dest).st_size == o["size"]:
             skipped += 1
             continue
-        # fix 3: request the exact recorded VersionId when present
+        # fix 3 + item 1: request the exact recorded VersionId when present
         store.get_to("releases/%s/%s" % (rid, o["key"]), dest,
                      version_id=o.get("version_id"))
         fetched += 1
-    print("[fetch] %s: %d objects fetched, %d already cached (rfq %s)"
+    print("[fetch] %s: %d objects fetched, %d already cached (rfq %s)%s"
           % (rid, fetched, skipped,
              "included" if with_rfq else "skipped — cost-bearing; use "
-             "--with-rfq"))
-    return cmd_verify(store, cache, rid)
+             "--with-rfq",
+             "  [%s]" % QUARANTINE_BRAND if quarantined else ""))
+    return cmd_verify(store, cache, rid, allow_legacy=allow_legacy)
 
 
 def _fail(cache, rid, failures):
     rdir = cache_release_dir(cache, rid)
     marker = verified_marker(cache, rid)
-    if os.path.isfile(marker):
-        os.remove(marker)
+    contained_remove(marker, cache)  # deletes never escape the cache
     with open(os.path.join(rdir, ".FAILED.json"), "w") as f:
         json.dump({"release_id": rid, "failures": failures,
                    "failed_at_utc": _now()}, f, indent=2)
@@ -450,17 +582,46 @@ def _now():
         .strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def cmd_verify(store, cache, rid):
+def cmd_verify(store, cache, rid, allow_legacy=False):
     manifest = read_manifest(cache, store, rid)
+    quarantined = quarantine_gate(manifest, rid, allow_legacy)
+    validate_manifest_keys(manifest, cache, rid)  # item 3: before ANY read
     rdir = cache_release_dir(cache, rid)
     date = manifest["date"]
     failures = []
     rfq_status, rfq_present = "ABSENT_FROM_RELEASE", False
 
+    # 0) version binding (remediation item 1): a v2 release must carry a
+    # consistent binding block; VERSION_BOUND demands a VersionId on every
+    # object and the recorded binding digest must reproduce.
+    binding = manifest.get("version_binding") or {}
+    if not quarantined:
+        mode = binding.get("mode")
+        if mode not in ("VERSION_BOUND", "UNVERSIONED_DEST_DEGRADED"):
+            failures.append("version_binding mode missing/unknown: %r"
+                            % mode)
+        else:
+            got = hashlib.sha256(json.dumps(
+                {o["key"]: o.get("version_id")
+                 for o in manifest["objects"]},
+                sort_keys=True, separators=(",", ":"),
+                ensure_ascii=True).encode()).hexdigest()
+            if got != binding.get("bindings_sha256"):
+                failures.append("version binding digest mismatch")
+            if mode == "VERSION_BOUND" and any(
+                    o.get("version_id") is None
+                    for o in manifest["objects"]):
+                failures.append("VERSION_BOUND release carries a null "
+                                "version_id")
+            if mode == "UNVERSIONED_DEST_DEGRADED":
+                sys.stderr.write("WARNING: %s is in the explicit degraded "
+                                 "mode UNVERSIONED_DEST_DEGRADED (no object "
+                                 "version binding).\n" % rid)
+
     # 1) every frozen object: present + size + sha256 (raw_rfq may be unfetched)
     n_ok = bytes_ok = 0
     for o in manifest["objects"]:
-        path = os.path.join(rdir, o["key"])
+        path = safe_cache_path(rdir, o["key"])
         is_rfq = o["key"].startswith("raw_rfq/")
         if is_rfq:
             rfq_status = "IN_RELEASE_NOT_FETCHED"
@@ -562,6 +723,9 @@ def cmd_verify(store, cache, rid):
         "evidence_tier_basis": manifest.get("evidence_tier_basis"),
         "publication_state_sha256":
             manifest.get("publication_state_sha256"),
+        "version_binding_mode":
+            (manifest.get("version_binding") or {}).get("mode"),
+        "quarantined_legacy_override": bool(quarantined),
         "tl1_status": manifest.get("tl1_status"),
         "seal_sha256": manifest["seal"]["sha256"],
         "objects_verified": n_ok, "bytes_verified": bytes_ok,
@@ -570,13 +734,13 @@ def cmd_verify(store, cache, rid):
     }
     with open(verified_marker(cache, rid), "w") as f:
         json.dump(marker, f, indent=2, sort_keys=True)
-    failed = os.path.join(rdir, ".FAILED.json")
-    if os.path.isfile(failed):
-        os.remove(failed)
+    contained_remove(os.path.join(rdir, ".FAILED.json"), cache)
     ch = manifest.get("channels", {})
-    print("[verify] PASS %s — tier=%s tl1=%s objects=%d (%.1f MB)"
-          % (rid, marker["evidence_tier"], marker["tl1_status"], n_ok,
-             bytes_ok / 1e6))
+    print("[verify] PASS %s — tier=%s tl1=%s binding=%s objects=%d "
+          "(%.1f MB)%s"
+          % (rid, marker["evidence_tier"], marker["tl1_status"],
+             marker["version_binding_mode"], n_ok, bytes_ok / 1e6,
+             "  [%s]" % QUARANTINE_BRAND if quarantined else ""))
     basis = manifest.get("evidence_tier_basis", {})
     if basis.get("downgrade_reasons"):
         print("  tier basis (DERIVED, fix 5): %s"
@@ -606,7 +770,7 @@ def rebuild_view(cache):
     release wins per date; catalog comes from the newest verified date.
     """
     view = os.path.join(cache, "view")
-    shutil.rmtree(view, ignore_errors=True)
+    contained_remove(view, cache, is_dir=True)
     by_date = {}
     rel_root = os.path.join(cache, "releases")
     if os.path.isdir(rel_root):
@@ -616,10 +780,14 @@ def rebuild_view(cache):
                 continue
             with open(marker) as f:
                 m = json.load(f)
+            # item 5: quarantined-legacy data enters the view ONLY via the
+            # explicit override marker, and the provenance is branded
             d = m["date"]
-            # newest verified wins; on a same-second tie the -rfq variant
-            # wins (it is the strict superset of its base release)
-            rank = (m["verified_at_utc"], rid.endswith("-rfq"), rid)
+            # clean releases always beat quarantined-legacy overrides;
+            # then newest verified wins; on a same-second tie the legacy
+            # -rfq variant wins (strict superset of its base release)
+            rank = (not m.get("quarantined_legacy_override"),
+                    m["verified_at_utc"], rid.endswith("-rfq"), rid)
             if d not in by_date or rank > by_date[d]["_rank"]:
                 by_date[d] = {"rid": rid, "_rank": rank, **m}
     os.makedirs(view, exist_ok=True)
@@ -658,10 +826,14 @@ def rebuild_view(cache):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if not os.path.lexists(dst):
                     os.symlink(src, dst)
+    branded = {d: v["rid"] for d, v in by_date.items()
+               if v.get("quarantined_legacy_override")}
     with open(os.path.join(view, ".view_provenance.json"), "w") as f:
         json.dump({"built_at_utc": _now(),
                    "verified_releases": {d: v["rid"]
                                          for d, v in by_date.items()},
+                   "quarantined_legacy_overrides": branded,
+                   "quarantine_brand": QUARANTINE_BRAND if branded else None,
                    "note": "symlink view over VERIFIED releases only; "
                            "rebuilt by tools/research_data.py"}, f, indent=2)
     return view
@@ -691,18 +863,28 @@ def main(argv):
     pf.add_argument("--release", required=True)
     pf.add_argument("--with-rfq", action="store_true",
                     help="also fetch sealed rfq raw (cost-bearing egress)")
+    pf.add_argument("--allow-legacy-quarantined", action="store_true",
+                    help="explicit override to read a QUARANTINED legacy "
+                         "release (all outputs branded)")
     pv = sub.add_parser("verify")
     pv.add_argument("--release", required=True)
+    pv.add_argument("--allow-legacy-quarantined", action="store_true",
+                    help="explicit override to read a QUARANTINED legacy "
+                         "release (all outputs branded)")
     sub.add_parser("view")
     args = ap.parse_args(argv[1:])
+    # remediation item 6: wrong credential mode = refuse before anything
+    refuse_production_credentials()
     if args.cmd == "view":
         return cmd_view(args.cache)
     store = make_store(args.root)
     if args.cmd == "inventory":
         return cmd_inventory(store, args.cache)
     if args.cmd == "fetch":
-        return cmd_fetch(store, args.cache, args.release, args.with_rfq)
-    return cmd_verify(store, args.cache, args.release)
+        return cmd_fetch(store, args.cache, args.release, args.with_rfq,
+                         allow_legacy=args.allow_legacy_quarantined)
+    return cmd_verify(store, args.cache, args.release,
+                      allow_legacy=args.allow_legacy_quarantined)
 
 
 if __name__ == "__main__":

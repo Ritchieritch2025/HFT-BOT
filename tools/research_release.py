@@ -26,12 +26,32 @@ hash after it is frozen. Only seal-attested write-once files (facts archives,
 sealed rfq raw) are hardlinked, and those are byte-verified against the day
 seal before staging.
 
-POST-UPLOAD VERIFICATION (fix 3): after the data upload and BEFORE the
-manifest is written, every actual destination object is re-verified — size
-via HeadObject and content sha256 via a streamed GetObject — and its
-VersionId (null when the bucket is unversioned) is recorded per object in the
-manifest, so the Mac fetch can request that exact version. Any mismatch or a
+POST-UPLOAD VERIFICATION + VERSION BINDING (fix 3 + remediation item 1):
+after the data upload and BEFORE the manifest is written, every actual
+destination object is re-verified — size via HeadObject and content sha256
+via a streamed GetObject — and its VersionId is recorded per object. The
+publication is version-bound end-to-end: the manifest carries a
+`version_binding` block with the binding mode and a sha256 over the
+key->VersionId map. A destination that returns no VersionIds publishes in an
+EXPLICIT, LOUDLY-DECLARED degraded mode (UNVERSIONED_DEST_DEGRADED — printed
+as a WARNING and frozen in the manifest); a destination returning VersionIds
+for only some objects is an inconsistency and aborts. Any mismatch or a
 denied read aborts with no manifest (fail-closed).
+
+OPERATOR GATE (remediation item 7): publishing to a REAL s3:// destination
+REFUSES to run without --operator-approved (depth_probe pattern; exit 2,
+loud). A local directory destination is offline fixture mode and is exempt.
+CREDENTIAL MODES (remediation item 6): this publisher runs on the EC2 box
+with vaultWriter; it REFUSES an s3:// publish on any host holding the Mac
+research read-only key file (~/.kalshi/research_s3.env.sh) — the read-only
+namespace and the write namespace never share a host role.
+
+GAP RECEIPTS (remediation item 4): absence of a gap file is NOT evidence.
+Each published day carries an AFFIRMATIVE gap-evidence receipt
+(quality/gap_receipt_<date>.json, its own hash frozen in the manifest and in
+the publication state), produced only when BOTH the day's completed-scan
+marker (work/live/gaps_<date>.done) AND the gap record file exist. A day
+without an affirmative receipt publishes with a degraded evidence tier.
 
 EVIDENCE TIER (fix 5) is DERIVED, never assumed: SEALED_CONFIRMATION only for
 a status=SEALED version-2 full_v2 seal with go_no_go_eligible=true, a present
@@ -83,6 +103,30 @@ RFQ_FLAG_FILE = os.path.expanduser("~/.kalshi/research_include_rfq")
 _RFQ_RE = re.compile(r"^rfq(?:_receipts)?_\d{2}\.ndjson(?:\.\d+)?$")
 
 DAY_US = 86_400_000_000
+
+
+def research_env_file():
+    """The Mac research read-only key file. KALSHI_RESEARCH_ENV_FILE
+    overrides for tests only."""
+    return os.environ.get("KALSHI_RESEARCH_ENV_FILE") or \
+        os.path.expanduser("~/.kalshi/research_s3.env.sh")
+
+
+def safe_join(base, key):
+    """Containment-safe join (remediation item 3): a manifest/seal-derived
+    key may NEVER escape its base directory — absolute paths, drive-ish
+    separators and any '..' segment are refused, and the resolved path must
+    stay inside the resolved base."""
+    if not key or key.startswith(("/", "\\")) or "\\" in key:
+        raise SystemExit("ABORT (containment): illegal key %r" % key)
+    parts = key.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise SystemExit("ABORT (containment): traversal key %r" % key)
+    base_real = os.path.realpath(base)
+    dst = os.path.realpath(os.path.join(base_real, *parts))
+    if dst != base_real and not dst.startswith(base_real + os.sep):
+        raise SystemExit("ABORT (containment): %r escapes %s" % (key, base))
+    return os.path.join(base_real, *parts)
 
 
 def sha256_file(path):
@@ -243,23 +287,49 @@ class S3Dest:
         return self.url
 
 
+def pick_candidate_versions(list_versions_json, expected_size):
+    """Remediation item 2 (pure, unit-testable): the candidate VersionIds for
+    an exact-content recovery, size-filtered, newest first. 'Latest' is never
+    trusted by itself — every candidate is downloaded and sha256-verified
+    against the seal before it may be pinned."""
+    versions = list_versions_json.get("Versions") or []
+    out = [v for v in versions if v.get("Size") == expected_size
+           and v.get("VersionId")]
+    out.sort(key=lambda v: v.get("LastModified") or "", reverse=True)
+    return [v["VersionId"] for v in out]
+
+
 class LocalVault:
-    """Directory standing in for the ec2/raw vault (fixture tests)."""
+    """Directory standing in for the ec2/raw vault (fixture tests). A
+    filesystem has no object versions; provenance says so explicitly."""
 
     def __init__(self, root):
         self.root = os.path.abspath(root)
 
-    def fetch(self, rel, dest):
+    def fetch_exact(self, rel, dest, expected_sha256, expected_size):
         src = os.path.join(self.root, rel)
         if not os.path.isfile(src):
             return None
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copyfile(src, dest)
-        return {"source": "vault_reconstructed", "source_version_id": None}
+        if (os.stat(dest).st_size != expected_size
+                or sha256_file(dest) != expected_sha256):
+            raise SystemExit("ABORT (fail-closed): vault copy of %s does "
+                             "not match the seal sha256/size" % rel)
+        return {"source": "vault_reconstructed", "source_version_id": None,
+                "version_pinning": "LOCAL_FIXTURE_VAULT_NO_VERSIONS"}
 
 
 class S3Vault:
-    """The existing version-pinned raw vault (s3://…/ec2/raw), read-only."""
+    """The existing version-pinned raw vault (s3://…/ec2/raw), read-only.
+
+    Remediation item 2: recovery pins the EXACT source object version —
+    candidate versions are enumerated with list-object-versions, each
+    candidate is downloaded BY VersionId and sha256-verified against the
+    seal, and only the matching VersionId is pinned into provenance. An
+    unversioned bucket (or a denied listing) is an explicit, loudly-declared
+    degraded mode: the plain object is fetched and sha256-verified — never
+    silently treated as version-pinned."""
 
     def __init__(self, url):
         m = re.match(r"^s3://([^/]+)/?(.*)$", url)
@@ -267,24 +337,53 @@ class S3Vault:
         self.prefix = m.group(2).rstrip("/")
         self.url = url.rstrip("/")
 
-    def fetch(self, rel, dest):
+    def _key(self, rel):
+        return "%s/%s" % (self.prefix, rel) if self.prefix else rel
+
+    def fetch_exact(self, rel, dest, expected_sha256, expected_size):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
+        lv = subprocess.run(
+            ["aws", "s3api", "list-object-versions", "--bucket", self.bucket,
+             "--prefix", self._key(rel)], capture_output=True, text=True)
+        candidates = []
+        if lv.returncode == 0:
+            try:
+                candidates = pick_candidate_versions(json.loads(lv.stdout),
+                                                     expected_size)
+            except ValueError:
+                candidates = []
+        for vid in candidates:
+            g = subprocess.run(
+                ["aws", "s3api", "get-object", "--bucket", self.bucket,
+                 "--key", self._key(rel), "--version-id", vid, dest],
+                capture_output=True, text=True)
+            if g.returncode != 0:
+                continue
+            if (os.stat(dest).st_size == expected_size
+                    and sha256_file(dest) == expected_sha256):
+                return {"source": "vault_reconstructed",
+                        "source_version_id": vid,
+                        "version_pinning": "EXACT_VERSION_SHA256_MATCHED"}
+            os.remove(dest)
+        if candidates:
+            # versions existed but none reproduced the sealed bytes
+            return None
+        # unversioned bucket or listing denied: explicit degraded recovery
+        print("WARNING [research_release]: vault %s returned no object "
+              "versions for %s — DEGRADED unversioned recovery (content "
+              "still sha256-verified against the seal)"
+              % (self.url, rel))
         r = subprocess.run(["aws", "s3", "cp", "%s/%s" % (self.url, rel),
                             dest, "--no-progress"],
                            capture_output=True, text=True)
         if r.returncode != 0:
             return None
-        key = "%s/%s" % (self.prefix, rel) if self.prefix else rel
-        h = subprocess.run(["aws", "s3api", "head-object", "--bucket",
-                            self.bucket, "--key", key],
-                           capture_output=True, text=True)
-        vid = None
-        if h.returncode == 0:
-            try:
-                vid = json.loads(h.stdout).get("VersionId")
-            except ValueError:
-                vid = None
-        return {"source": "vault_reconstructed", "source_version_id": vid}
+        if (os.stat(dest).st_size != expected_size
+                or sha256_file(dest) != expected_sha256):
+            raise SystemExit("ABORT (fail-closed): vault copy of %s does "
+                             "not match the seal sha256/size" % rel)
+        return {"source": "vault_reconstructed", "source_version_id": None,
+                "version_pinning": "UNVERSIONED_OR_LIST_DENIED_DEGRADED"}
 
 
 def make_dest(url):
@@ -342,17 +441,19 @@ def rfq_switch_enabled():
             or os.path.isfile(RFQ_FLAG_FILE))
 
 
-def derive_evidence_tier(seal, gap_record_present):
-    """Fix 5: the tier is DERIVED from the seal + required evidence, never
-    assumed. Returns (tier, basis_dict)."""
+def derive_evidence_tier(seal, gap_receipt_affirmative):
+    """Fix 5 + remediation item 4: the tier is DERIVED from the seal plus an
+    AFFIRMATIVE per-day gap receipt, never assumed. Returns
+    (tier, basis_dict)."""
     reasons = []
     if seal.get("method") != "full_v2":
         reasons.append("seal method=%r (expected full_v2)"
                        % seal.get("method"))
     if seal.get("go_no_go_eligible") is not True:
         reasons.append("seal not go_no_go_eligible")
-    if not gap_record_present:
-        reasons.append("required capture-gap evidence absent for the date")
+    if not gap_receipt_affirmative:
+        reasons.append("no affirmative per-day gap-scan receipt "
+                       "(absence of a gap file is not evidence)")
     cq = str(seal.get("capture_quality_status") or "")
     if cq and cq != "UNASSESSED_PENDING_PIPE_W03" and any(
             w in cq.upper() for w in ("FAIL", "BAD", "DEGRADED", "REJECT")):
@@ -365,7 +466,7 @@ def derive_evidence_tier(seal, gap_record_present):
         "method": seal.get("method"),
         "go_no_go_eligible": seal.get("go_no_go_eligible"),
         "capture_quality_status": seal.get("capture_quality_status"),
-        "gap_record_present": bool(gap_record_present),
+        "gap_receipt_affirmative": bool(gap_receipt_affirmative),
         "downgrade_reasons": reasons,
     }
     return tier, basis
@@ -398,7 +499,33 @@ def canonical_digest(obj):
         ensure_ascii=True).encode("utf-8")).hexdigest()
 
 
-def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
+def refuse_gate(msg):
+    sys.stderr.write(
+        "\n================================================================\n"
+        "REFUSED: %s\n"
+        "  research_release.py WRITES to the research/ S3 prefix. A real\n"
+        "  s3:// publish requires the operator's explicit approval\n"
+        "  (--operator-approved; on the box the supervisor passes it only\n"
+        "  while the operator's arm-file ~/.kalshi/research_publish_approved\n"
+        "  exists). Local directory destinations are offline fixture mode.\n"
+        "================================================================\n"
+        % msg)
+    return 2
+
+
+def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
+            live_dir, operator_approved):
+    # ---- remediation items 6+7: write gate + credential namespace ------------
+    if dest_url.startswith("s3://"):
+        if not operator_approved:
+            return refuse_gate("--operator-approved flag is missing")
+        if os.path.isfile(research_env_file()):
+            return refuse_gate(
+                "this host holds the Mac research READ-ONLY key (%s); the "
+                "publisher runs only on the EC2 box with vaultWriter — the "
+                "read namespace and the write namespace never share a host "
+                "role" % research_env_file())
+
     cfg = wc.load_config()
     warehouse_root = cfg["warehouse_root"]
     archive_root = cfg["archive_root"]
@@ -432,8 +559,9 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
 
     def stage_copy(key, src):
         """Fix 2: mutable auxiliary files are COPIED first and hashed from
-        the staged copy — a live writer can never invalidate the freeze."""
-        dst = os.path.join(stage["dir"], key)
+        the staged copy — a live writer can never invalidate the freeze.
+        Keys are containment-checked (remediation item 3)."""
+        dst = safe_join(stage["dir"], key)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(src, dst)
         objects.append({"key": key, "size": os.stat(dst).st_size,
@@ -443,7 +571,7 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
     def stage_link_attested(key, src, frozen):
         """Seal-attested write-once files (facts, sealed rfq raw): verified
         against the seal, then hardlinked (copy fallback)."""
-        dst = os.path.join(stage["dir"], key)
+        dst = safe_join(stage["dir"], key)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
             os.link(src, dst)
@@ -453,7 +581,7 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
         return objects[-1]
 
     def stage_bytes(key, payload):
-        dst = os.path.join(stage["dir"], key)
+        dst = safe_join(stage["dir"], key)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as f:
             f.write(payload)
@@ -481,14 +609,43 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
                 "corrections/ledger_day.ndjson",
                 ("\n".join(ledger_lines) + "\n").encode("utf-8"))
 
-        gaps = day_gap_intervals(
-            os.path.join(quality_dir, "capture_gaps.csv"), date)
-        gap_obj = None
+        # remediation item 4: ABSENCE IS NOT EVIDENCE. An affirmative
+        # per-day gap receipt exists only when BOTH the completed-scan
+        # marker (gaps_<date>.done) AND the gap record file exist; the
+        # receipt is its own hashed object and feeds the tier derivation.
+        gap_record = os.path.join(quality_dir, "capture_gaps.csv")
+        scan_marker = os.path.join(live_dir, "gaps_%s.done" % date)
+        gaps = day_gap_intervals(gap_record, date)
+        gap_affirmative = bool(gaps is not None
+                               and os.path.isfile(scan_marker))
+        gap_obj = gap_receipt_obj = None
         if gaps is not None:
             buf = ["start_us,end_us"]
             buf += ["%d,%d" % (g["start_us"], g["end_us"]) for g in gaps]
             gap_obj = stage_bytes("quality/capture_gaps_%s.csv" % date,
                                   ("\n".join(buf) + "\n").encode("utf-8"))
+        if gap_affirmative:
+            receipt = {
+                "schema_version": "gap-receipt-v1",
+                "date": date,
+                "affirmative": True,
+                "basis": ["completed-scan marker gaps_%s.done present"
+                          % date,
+                          "gap record file present (day rows extracted)"],
+                "intervals": gaps,
+                "interval_count": len(gaps),
+                "record_day_csv_sha256": gap_obj["sha256"],
+            }
+            gap_receipt_obj = stage_bytes(
+                "quality/gap_receipt_%s.json" % date,
+                (json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+                .encode("utf-8"))
+        else:
+            print("WARNING [research_release]: NO affirmative gap-scan "
+                  "receipt for %s (marker present=%s, record present=%s) — "
+                  "publishing with a DEGRADED evidence tier; absence of a "
+                  "gap file is not evidence"
+                  % (date, os.path.isfile(scan_marker), gaps is not None))
         l2_gaps_src = os.path.join(quality_dir, "l2_gaps_%s.json" % date)
         l2_gap_obj = None
         l2_quality = None
@@ -510,6 +667,9 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
                     ledger_obj["sha256"] if ledger_obj else None,
             },
             "gap_evidence": {
+                "affirmative_receipt": gap_affirmative,
+                "gap_receipt_sha256":
+                    gap_receipt_obj["sha256"] if gap_receipt_obj else None,
                 "capture_gaps_sha256":
                     gap_obj["sha256"] if gap_obj else None,
                 "l2_gaps_sha256":
@@ -623,15 +783,19 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
                     rfq_files_meta.append(
                         {"file": rel, "size": entry["size"],
                          "sha256": entry["sha256"], "source": "local",
-                         "source_version_id": None})
+                         "source_version_id": None,
+                         "version_pinning":
+                             "LOCAL_SEAL_ATTESTED_NO_VAULT_NEEDED"})
                 else:
-                    dst = os.path.join(stage_dir, key)
-                    prov = vault.fetch(rel, dst)
+                    dst = safe_join(stage_dir, key)
+                    prov = vault.fetch_exact(rel, dst, entry["sha256"],
+                                             entry["size"])
                     if prov is None:
                         raise SystemExit(
                             "ABORT (fail-closed): sealed rfq file %s is "
-                            "pruned locally AND unavailable from the raw "
-                            "vault %s" % (rel, raw_vault_url))
+                            "pruned locally AND no vault object version "
+                            "reproduces the sealed sha256 (%s)"
+                            % (rel, raw_vault_url))
                     frozen = verify_against(entry, dst, "rfq raw (vault)")
                     objects.append({"key": key, "size": frozen[1],
                                     "sha256": frozen[0]})
@@ -655,8 +819,8 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
         if rfq_effective:
             rfq_channel["files"] = rfq_files_meta
 
-        # ---- evidence tier: DERIVED (fix 5) ------------------------------------
-        tier, tier_basis = derive_evidence_tier(seal, gaps is not None)
+        # ---- evidence tier: DERIVED (fix 5 + item 4) ---------------------------
+        tier, tier_basis = derive_evidence_tier(seal, gap_affirmative)
 
         # ---- channel completeness labels (amendment 4 + fix 4) -----------------
         l2_included = "orderbooks_full" in tables
@@ -665,6 +829,10 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
                 "status": ("INCLUDED" if "orderbooks_l1" in tables
                            else "ABSENT_FROM_THIS_RELEASE"),
                 "completeness": "CONFLATED_CHANGE_STREAM_NEVER_LOSSLESS",
+                "gap_receipt": ("quality/gap_receipt_%s.json" % date
+                                if gap_affirmative
+                                else "NO_AFFIRMATIVE_GAP_RECEIPT"),
+                "gap_receipt_affirmative": gap_affirmative,
                 "gap_evidence": ("quality/capture_gaps_%s.csv" % date
                                  if gaps is not None
                                  else "ABSENT_NO_CAPTURE_GAP_RECORD"),
@@ -694,14 +862,28 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
         # ---- upload: data first ------------------------------------------------
         dest.upload_tree(stage_dir, rel_prefix)
 
-        # ---- fix 3: verify EVERY actual destination object (size + streamed
-        # sha256) and record its VersionId BEFORE the manifest exists ------------
-        any_version = False
+        # ---- fix 3 + item 1: verify EVERY actual destination object (size +
+        # streamed sha256), record VersionIds, and BIND the publication to
+        # them BEFORE the manifest exists ----------------------------------------
         for o in objects:
-            vid = dest.verify_object("%s/%s" % (rel_prefix, o["key"]),
-                                     o["size"], o["sha256"])
-            o["version_id"] = vid
-            any_version = any_version or vid is not None
+            o["version_id"] = dest.verify_object(
+                "%s/%s" % (rel_prefix, o["key"]), o["size"], o["sha256"])
+        vids = [o["version_id"] for o in objects]
+        if all(v is not None for v in vids) and vids:
+            binding_mode = "VERSION_BOUND"
+        elif all(v is None for v in vids):
+            binding_mode = "UNVERSIONED_DEST_DEGRADED"
+            print("WARNING [research_release]: destination returned NO "
+                  "object VersionIds — publication is NOT version-bound. "
+                  "EXPLICIT DEGRADED MODE (UNVERSIONED_DEST_DEGRADED): the "
+                  "freeze authority is byte size + sha256 per object only. "
+                  "Enable bucket versioning to restore version binding.")
+        else:
+            raise SystemExit("ABORT (fail-closed): destination returned "
+                             "VersionIds for only some objects — "
+                             "inconsistent versioning state")
+        bindings_sha = canonical_digest(
+            {o["key"]: o["version_id"] for o in objects})
 
         now = datetime.datetime.now(datetime.timezone.utc)\
             .strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -743,14 +925,17 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
                           "object, before the manifest was written",
                 "objects_verified": len(objects),
             },
-            "s3_versioning": {
-                "bucket_versioning": ("VERSIONED" if any_version
-                                      else "UNVERSIONED_OR_UNKNOWN"),
-                "caveat": "per-object version_id is null when the bucket "
-                          "returned none; the authoritative freeze is byte "
-                          "size + sha256 per object (this manifest); "
-                          "consumers fetch the recorded version_id when "
-                          "present",
+            "version_binding": {
+                "mode": binding_mode,
+                "bindings_sha256": bindings_sha,
+                "note": ("publication is bound to the recorded per-object "
+                         "VersionIds; consumers MUST fetch those exact "
+                         "versions" if binding_mode == "VERSION_BOUND" else
+                         "EXPLICIT DEGRADED MODE: the destination returned "
+                         "no object VersionIds (unversioned bucket or "
+                         "filesystem fixture); the freeze authority is byte "
+                         "size + sha256 per object only — this is declared "
+                         "loudly, never a silent null"),
             },
             "objects": objects,
         }
@@ -761,11 +946,12 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url):
         dest.upload_file(mpath, "%s/MANIFEST.json" % rel_prefix)
         total = sum(o["size"] for o in objects)
         print("[research_release] published %s: %d objects, %.2f MB, "
-              "tier=%s, tl1=%s, l2=%s, rfq=%s, verified=%d -> %s/%s"
+              "tier=%s, tl1=%s, l2=%s, rfq=%s, binding=%s, verified=%d "
+              "-> %s/%s"
               % (release_id, len(objects), total / 1e6, tier, tl1_status,
                  channels["orderbooks_l2"]["status"],
-                 channels["rfq"]["status"], len(objects), dest.describe(),
-                 rel_prefix))
+                 channels["rfq"]["status"], binding_mode, len(objects),
+                 dest.describe(), rel_prefix))
         return 0
     finally:
         shutil.rmtree(stage_dir, ignore_errors=True)
@@ -786,16 +972,26 @@ def main(argv):
                    help="force exclusion for this run")
     p.add_argument("--quality-dir",
                    default=os.path.join(wc.ROOT, "work", "event_packs"))
+    p.add_argument("--live-dir",
+                   default=os.path.join(wc.ROOT, "work", "live"),
+                   help="location of the per-day completed-scan markers "
+                        "(gaps_<date>.done) backing the affirmative gap "
+                        "receipts (remediation item 4)")
     p.add_argument("--raw-vault",
                    default=os.environ.get("RESEARCH_RAW_VAULT",
                                           RAW_VAULT_DEFAULT),
-                   help="raw vault source for rfq reconstruction after "
-                        "local pruning (fix 6)")
+                   help="raw vault source for exact-version rfq "
+                        "reconstruction after local pruning (fix 6 + "
+                        "remediation item 2)")
+    p.add_argument("--operator-approved", action="store_true",
+                   help="operator's explicit approval for a REAL s3:// "
+                        "publish (remediation item 7; local fixture "
+                        "destinations do not need it)")
     args = ap.parse_args(argv[1:])
     include_rfq = (rfq_switch_enabled() if args.include_rfq is None
                    else args.include_rfq)
     return publish(args.date, args.dest, include_rfq, args.quality_dir,
-                   args.raw_vault)
+                   args.raw_vault, args.live_dir, args.operator_approved)
 
 
 if __name__ == "__main__":

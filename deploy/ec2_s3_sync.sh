@@ -27,7 +27,14 @@ HH="$(date -u +%H)"
 
 if [ "$MODE" = research_sync ]; then
   RDATE="${2:?usage: ec2_s3_sync.sh research_sync YYYY-MM-DD}"
-  python3 tools/research_release.py publish --date "$RDATE"
+  # research_release.py is an S3-WRITING tool behind an operator gate
+  # (remediation item 7): the supervisor-driven publish passes
+  # --operator-approved ONLY while the operator's arm-file exists on the
+  # box. No arm-file => the publisher refuses loudly and the seal chain
+  # simply retries next cycle once the operator arms it.
+  APPROVE=()
+  [ -f "$HOME/.kalshi/research_publish_approved" ] && APPROVE=(--operator-approved)
+  python3 tools/research_release.py publish --date "$RDATE" "${APPROVE[@]}"
   echo "[ec2_s3_sync] research_sync complete for $RDATE $(date -u +%FT%TZ)"
   exit 0
 fi

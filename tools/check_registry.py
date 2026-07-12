@@ -15,7 +15,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SAFETY = {"pure", "offline", "network_read", "live_order"}
+# network_write (PIPE-W05 remediation item 7): tools that WRITE to remote
+# storage (e.g. the research release publisher). Never auto-run; a real
+# write additionally requires the tool's own --operator-approved gate.
+SAFETY = {"pure", "offline", "network_read", "network_write", "live_order"}
 KIND = {"test", "bench", "probe", "daemon", "check", "example", "tool"}
 REQUIRED = ["name", "kind", "safety", "cmd", "description", "docs"]
 # Makefile $(BUILD)/<x> targets that are NOT standalone tools.
