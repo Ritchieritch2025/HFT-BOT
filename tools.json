@@ -1585,12 +1585,12 @@
     {
       "name": "recover_rfq_seal_2026_07_12",
       "kind": "tool",
-      "safety": "offline",
+      "safety": "network_write",
       "autorun": false,
       "cmd": "python3 tools/recover_rfq_seal_2026-07-12.py",
-      "args_template": "--date 2026-07-12 [--discover-only]",
+      "args_template": "--date 2026-07-12 [--discover-only|--operator-approved]",
       "needs": [],
-      "description": "PIPE-W05 ADDENDUM 8 (operator override, clauses 1-18): ONE-TIME bounded 2026-07-12 RFQ seal recovery. Discovery = seal_raw_files ∩ checkpoint!=size, RFQ-family-only with per-file identity/stability proofs and existing-seal probes (STOP otherwise); single-instance lock + own export_pause token (rfq_recovery pid=<pid>); ingest TERMed only after pidfile+user+cwd+cmdline verification (never pkill/SIGKILL; capture never signalled); deployed RFQ fast-path one-shot on the frozen explicit file array with L1=trades=full=0 required + byte-identity/no-side-effect proofs; then exactly the four export_day subcommands in order, seal_alarm cleared only after exact verify-seal success; cleanup resumes ingest and proves capture health. NEVER run without the operator's explicit per-run approval; --discover-only is the read-only preview (no lock, no pause, no signals, no writes)",
+      "description": "PIPE-W05 ADDENDUM 8: ONE-TIME production maintenance for the 2026-07-12 RFQ checkpoint blockers. Mutation requires --operator-approved. With an owned lock+export_pause it stops exactly the verified ingest daemon, derives the exact RFQ-only blocker set after the DuckDB writer exits, runs the deployed raw-only fast-path on frozen explicit paths, proves exact checkpoints and zero fact changes, restores exactly one ingest while the pause remains held, then releases its token. It NEVER seals, prunes or clears alarms; the normal production lifecycle owns those actions. --discover-only is read-only and fails closed when exact checkpoints are unavailable.",
       "docs": "docs/plan_releases/pipeline/PIPE-W05-SPEC-2026-07-12.md"
     },
     {
@@ -1601,7 +1601,7 @@
       "args_template": "",
       "needs": [],
       "pass_token": "ALL PASS",
-      "description": "ADDENDUM 8 recovery-script proofs on synthetic fixtures: discovery selects exactly behind RFQ+receipts files and STOPs on a behind firehose; family regex rejections; symlink/outside-root/empty/non-newline/unstable-stat rejections; foreign export_pause refused + dead-owner token reclaim; four-subcommand seal order with seal_alarm cleared only after exact verify-seal success; TERM only the verified pidfile PID (never pattern); counts-must-be-zero guard incl. the REAL deployed fast-path one-shot on RFQ fixtures (zero counts, exact checkpoints, bytes untouched)",
+      "description": "ADDENDUM 8 recovery proofs on fixtures: fail-closed exact discovery, RFQ-only selection, hostile path rejection, pause ownership, writer-stop-before-discovery ordering, resume-before-unpause ordering, no seal/prune/alarm capability, exact-PID TERM, and the real raw-only fast-path with zero facts/exact checkpoints/unchanged bytes",
       "docs": "tests/test_recover_rfq_seal.py"
     },
     {

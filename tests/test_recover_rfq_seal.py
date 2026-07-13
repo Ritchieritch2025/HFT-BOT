@@ -20,7 +20,10 @@ Synthetic/fixture data, no network, no production paths. Proves:
 stdlib + duckdb only.
 """
 import datetime
+import contextlib
 import importlib.util
+import inspect
+import io
 import json
 import os
 import shutil
@@ -28,6 +31,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import types
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -140,6 +144,25 @@ def main():
               ["firehose_23.ndjson"] and
               [os.path.basename(p) for p, _c, _s in blk_b] == ["rfq_23.ndjson"],
               (non_rfq_b, blk_b))
+
+        # Read-only preview must never convert an unavailable checkpoint DB
+        # into a guessed target list with a successful exit code.
+        original_connect = rec.connect_ro
+        rec.connect_ro = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("Conflicting lock held by writer"))
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = rec.discover_only(
+                    cfg, types.SimpleNamespace(ro_attempts=1,
+                                               stability_wait=2.0))
+        finally:
+            rec.connect_ro = original_connect
+        text = out.getvalue() + err.getvalue()
+        check("(a) locked discover-only fails closed with no guessed targets",
+              rc == 3 and "exact checkpoint state unavailable" in text and
+              "UNKNOWN(writer lock held)" not in text and
+              "EXPECTED TARGET INVENTORY" not in text, text)
 
         # ---- (b) family regex rejects non-RFQ names ----
         import ingest
@@ -277,44 +300,40 @@ def main():
               os.path.exists(pause))
         os.unlink(pause)
 
-        # ---- (e) seal sequence order + alarm discipline (mock export_day) ----
-        alarm = os.path.join(live, "seal_alarm.json")
+        # ---- (e) checkpoint-only scope + live ordering regression ----
+        source = open(os.path.join(
+            ROOT, "tools", "recover_rfq_seal_2026-07-12.py")).read()
+        check("(e) recovery exposes no custom seal sequence",
+              not hasattr(rec, "SEAL_STEPS") and
+              not hasattr(rec, "run_seal_sequence") and
+              "run_seal_sequence" not in source)
+        check("(e) recovery contains no seal/prune/alarm mutation flags",
+              all(flag not in source for flag in
+                  ("--force", "--no-prune", "--seal", "--legacy-seal")) and
+              "seal_alarm.json" not in source)
 
-        def run_seq(fail_step=None, verify_out="DAY SEAL VERIFY PASS 2026-07-12"):
-            calls = []
+        calls = []
+        original_run = rec.subprocess.run
+        rec.subprocess.run = lambda cmd, **kwargs: (
+            calls.append(cmd) or types.SimpleNamespace(
+                returncode=0, stdout="", stderr=""))
+        try:
+            rec._verify_seal_runner(date="2026-07-10")
+        finally:
+            rec.subprocess.run = original_run
+        check("(e) sole export helper is exact read-only verify-seal",
+              len(calls) == 1 and calls[0][-3:] ==
+              ["--date", "2026-07-10", "--verify-seal"], calls)
 
-            def runner(step, date="2026-07-12"):
-                calls.append(step)
-                if fail_step is not None and step == fail_step:
-                    return 1, ""
-                return 0, verify_out if step == ("--verify-seal",) else "ok"
-
-            open(alarm, "w").write("{}")
-            err = None
-            try:
-                rec.run_seal_sequence(live, runner=runner)
-            except rec.RecoveryError as e:
-                err = e
-            return calls, err
-
-        calls, err = run_seq()
-        check("(e) four subcommands invoked in exact order",
-              calls == [("--check-caught-up",), ("--force", "--no-prune"),
-                        ("--seal",), ("--verify-seal",)], calls)
-        check("(e) seal_alarm cleared after exact verify-seal success",
-              err is None and not os.path.exists(alarm), err)
-
-        calls, err = run_seq(fail_step=("--seal",))
-        check("(e) failed --seal stops the sequence before verify-seal",
-              calls == [("--check-caught-up",), ("--force", "--no-prune"),
-                        ("--seal",)] and err is not None, calls)
-        check("(e) seal_alarm NOT cleared on failure", os.path.exists(alarm))
-        os.unlink(alarm)
-
-        calls, err = run_seq(verify_out="rc0 but no pass line")
-        check("(e) verify-seal rc=0 without the exact PASS line keeps the alarm",
-              err is not None and os.path.exists(alarm), err)
-        os.unlink(alarm)
+        main_source = inspect.getsource(rec.main)
+        check("(e) live lock regression: stop ingest before first exact DB read",
+              main_source.index("stop_ingest(pid)") <
+              main_source.index('con = connect_ro(cfg["staging_db"]'))
+        cleanup_source = main_source[
+            main_source.index("def cleanup():"):main_source.index("def on_signal")]
+        check("(e) cleanup resumes ingest before releasing owned pause",
+              cleanup_source.index("resume_ingest") <
+              cleanup_source.index("release_pause"))
 
         # ---- (f) TERM discipline: exact pidfile PID only, never a pattern ----
         repo = os.path.realpath(tmp)
@@ -361,6 +380,32 @@ def main():
         check("(f) daemon/pidfile mismatch refuses (never pattern-kill)", ok)
         check("(f) ledger recorded no real signals in these tests",
               rec.KILL_LEDGER == [], rec.KILL_LEDGER)
+
+        # Owned-pause resume is a direct, single start; it does not wait for
+        # the watchdog (which is intentionally suppressed by that pause).
+        original_list, original_start, original_alive = (
+            rec._list_procs, rec.start_ingest, rec._pid_alive)
+        started = []
+
+        def fake_start(live_dir, root):
+            started.append(7777)
+            open(os.path.join(live_dir, "ingest.pid"), "w").write("7777")
+            return 7777
+
+        rec._list_procs = lambda: (
+            [] if not started else [(7777, "python3 tools/ingest.py --loop")])
+        rec.start_ingest = fake_start
+        rec._pid_alive = lambda p: p == 7777
+        try:
+            rec.resume_ingest(live, repo, 2, sleep_fn=lambda s: None)
+            ok, msg = started == [7777], started
+        except Exception as e:
+            ok, msg = False, e
+        finally:
+            rec._list_procs, rec.start_ingest, rec._pid_alive = (
+                original_list, original_start, original_alive)
+        check("(f) resume under owned pause starts and proves one daemon",
+              ok, msg)
 
         # ---- (g) counts-must-be-zero guard ----
         ok_out = ("classes loaded: 0 series | staging=x\n"
@@ -429,6 +474,10 @@ def main():
         _inv3, blk3, nr3 = blocking_of(cfg)
         check("(g) discovery drains after the real fast-path",
               blk3 == [] and nr3 == [], (blk3, nr3))
+
+        rc = rec.main(["recover", "--date", "2026-07-12"])
+        check("operator gate: mutation refuses without --operator-approved",
+              rc == 2, rc)
 
         # date guard (clause 1): any other --date refuses
         rc = rec.main(["recover", "--date", "2026-07-11"])

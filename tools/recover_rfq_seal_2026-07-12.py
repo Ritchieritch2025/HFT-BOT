@@ -27,10 +27,10 @@ Phases (clause map):
                      reported counts must be L1=0 trades=0 orderbooks_full=0;
                      byte-identity + no-side-effect proofs; any failure leaves
                      the day unsealed.
-  SEAL       (16-18) exactly the four export_day subcommands, in order;
-                     seal_alarm cleared only after exact --verify-seal success;
-                     cleanup proves one ingest daemon, capture listeners
-                     present, firehose/L2/RFQ raw growing, no capture alarm.
+  FINAL      (16-18) restore exactly one ingest daemon while the owned pause
+                     is still held, then release the pause and prove capture
+                     health. The normal production seal lifecycle runs
+                     separately; this tool never seals or prunes staging.
 
 Modes:
   --date 2026-07-12                  full recovery (requires operator approval)
@@ -39,8 +39,8 @@ Modes:
                                      no writes of any kind.
 
 Exit codes: 0 ok · 1 recovery step failed (day unsealed) · 2 refused to start
-· 3 discovery STOP · 4 environment refused SIGTERM (clause 11) · 5 seal OK
-but post-cleanup environment proof failed.  stdlib + duckdb only.
+· 3 discovery STOP · 4 environment refused SIGTERM (clause 11) · 5 checkpoint
+OK but post-cleanup environment proof failed.  stdlib + duckdb only.
 """
 import argparse
 import datetime
@@ -62,10 +62,6 @@ from export_day import sha256_file     # noqa: E402
 
 TARGET_DATE = "2026-07-12"             # clause 1: this recovery only
 OWNER = "rfq_recovery"                 # our export_pause token family (B4)
-SEAL_STEPS = (("--check-caught-up",),  # clause 16: exactly these, in order
-              ("--force", "--no-prune"),
-              ("--seal",),
-              ("--verify-seal",))
 FACT_TABLES = ("orderbooks_l1", "trades", "orderbooks_full")
 ALL_TABLES = FACT_TABLES + ("ingest_stats", "checkpoint")
 
@@ -274,16 +270,17 @@ def validate_and_capture(blocking, raw_root, wait_s, sleep_fn=time.sleep,
                 "stat": sample2[p][0]} for p in paths}
 
 
-def _export_day_runner(step_args, date=TARGET_DATE):
+def _verify_seal_runner(date=TARGET_DATE):
+    """The recovery's only export_day capability is read-only verification."""
     cmd = [sys.executable, os.path.join(TOOLS, "export_day.py"),
-           "--date", date] + list(step_args)
+           "--date", date, "--verify-seal"]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=wc.ROOT)
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)
     return proc.returncode, proc.stdout
 
 
-def probe_existing_seals(cfg, runner=_export_day_runner):
+def probe_existing_seals(cfg, runner=_verify_seal_runner):
     """Clause 5: every existing day seal must pass the deployed validity probe
     (export_day --verify-seal, read-only) or the recovery STOPs."""
     seal_glob = os.path.join(cfg["warehouse_root"], "seals",
@@ -294,7 +291,7 @@ def probe_existing_seals(cfg, runner=_export_day_runner):
             continue  # target handled separately (write-once pre-flight)
         if not wc.day_sealed(cfg["warehouse_root"], date):
             raise Stop("existing seal is malformed: %s" % path)
-        rc, _out = runner(("--verify-seal",), date=date)
+        rc, _out = runner(date=date)
         if rc != 0:
             raise Stop("existing seal FAILED its validity probe: %s "
                        "(export_day --verify-seal rc=%d)" % (path, rc))
@@ -491,34 +488,38 @@ def start_ingest(live_dir, root):
 
 
 def resume_ingest(live_dir, root, resume_wait, sleep_fn=time.sleep):
-    """Clause 10/18: after our pause is gone, prefer the supervisor watchdog's
-    own restart; start our own daemon only if none returns, and never leave
-    two running (a double-start is resolved by TERMing only OUR child)."""
+    """Restore exactly one ingest while the owned export_pause is still held.
+
+    The pause prevents the supervisor watchdog from racing this restart.  The
+    caller releases it only after this function proves the daemon and pidfile
+    agree.
+    """
     pidfile = os.path.join(live_dir, "ingest.pid")
+    before = _ingest_daemons(_list_procs(), root)
+    if before:
+        raise RecoveryError("ingest unexpectedly present while owned pause is "
+                            "held: %s" % before)
 
-    def alive():
-        try:
-            with open(pidfile) as f:
-                return _pid_alive(int(f.read().strip()))
-        except (OSError, ValueError):
-            return False
-
+    own = start_ingest(live_dir, root)
     deadline = time.time() + resume_wait
     while time.time() < deadline:
-        if alive():
-            print("ingest resumed by supervisor watchdog")
+        daemons = _ingest_daemons(_list_procs(), root)
+        try:
+            with open(pidfile) as f:
+                recorded = int(f.read().strip())
+        except (OSError, ValueError):
+            recorded = None
+        if daemons == [own] and recorded == own and _pid_alive(own):
+            print("ingest resumed under owned pause pid=%d" % own)
             return
-        sleep_fn(2)
-    own = start_ingest(live_dir, root)
-    sleep_fn(3)
-    daemons = _ingest_daemons(_list_procs(), root)
-    if len(daemons) > 1 and own in daemons:
-        print("supervisor also restarted ingest; retiring our own child pid=%d"
-              % own)
-        _term(own)
-        others = [p for p in daemons if p != own]
-        with open(pidfile, "w") as f:
-            f.write(str(others[0]))
+        if len(daemons) > 1:
+            if own in daemons:
+                _term(own)
+            raise RecoveryError("multiple ingest daemons appeared while pause "
+                                "was held: %s" % daemons)
+        sleep_fn(1)
+    raise RecoveryError("ingest pid=%d did not become the single verified "
+                        "daemon within %.0fs" % (own, resume_wait))
 
 
 # ----------------------------------------- targeted checkpoint (clauses 12-15)
@@ -612,25 +613,6 @@ def verify_after_fastpath(con, cfg, capture, baseline):
           "schema/non-target checkpoints/inventory unchanged" % len(capture))
 
 
-# --------------------------------------------------------- seal (clauses 16-18)
-def run_seal_sequence(live_dir, runner=_export_day_runner):
-    """Clause 16/17: the four subcommands in order; alarm cleared only after
-    exact --verify-seal success. No prune/legacy/invalidate/overwrite."""
-    for step in SEAL_STEPS:
-        rc, out = runner(step)
-        if rc != 0:
-            raise RecoveryError("seal step '--date %s %s' failed rc=%d"
-                                % (TARGET_DATE, " ".join(step), rc))
-        if step == ("--verify-seal",) and \
-                ("DAY SEAL VERIFY PASS %s" % TARGET_DATE) not in out:
-            raise RecoveryError("--verify-seal rc=0 but PASS line for %s "
-                                "missing; alarm NOT cleared" % TARGET_DATE)
-    alarm = os.path.join(live_dir, "seal_alarm.json")
-    if os.path.isfile(alarm):
-        os.unlink(alarm)
-        print("seal_alarm cleared (after exact --verify-seal success)")
-
-
 def _newest_family_file(raw_root, family):
     day_dir = wc.raw_day_dir(
         raw_root, datetime.datetime.now(datetime.timezone.utc)
@@ -696,15 +678,9 @@ def discover_only(cfg, args):
         con = connect_ro(cfg["staging_db"], attempts=args.ro_attempts,
                          sleep_s=2.0)
     except Exception as e:
-        # Writer lock persistently held: degrade to the checkpoint-less view.
-        rfq = [(p, "UNKNOWN(writer lock held)", os.path.getsize(p))
-               for p in inventory
-               if ingest.RFQ_FASTPATH_RE.match(os.path.basename(p))]
-        print("staging checkpoint unavailable (%s)" % e)
-        print("EXPECTED PENDING LIVE --discover-only (RFQ files in seal "
-              "inventory; checkpoint diff not yet applied):")
-        print_inventory(inventory, rfq)
-        return 0
+        print("DISCOVERY STOP: exact checkpoint state unavailable: %s" % e,
+              file=sys.stderr)
+        return 3
     try:
         inventory, blocking, non_rfq = compute_blocking(cfg, con)
     finally:
@@ -733,11 +709,13 @@ def main(argv):
                     help="must be exactly %s (clause 1)" % TARGET_DATE)
     ap.add_argument("--discover-only", action="store_true",
                     help="read-only discovery + inventory; touches nothing")
+    ap.add_argument("--operator-approved", action="store_true",
+                    help="required for the one-time production mutation")
     ap.add_argument("--stability-wait", type=float, default=5.0,
                     help="seconds between the two stat/SHA-256 samples")
     ap.add_argument("--resume-wait", type=float, default=90.0,
-                    help="seconds to let the supervisor watchdog restart "
-                         "ingest before starting it ourselves")
+                    help="seconds to prove the directly restored ingest is "
+                         "the single pidfile-owned daemon")
     ap.add_argument("--growth-wait", type=float, default=180.0,
                     help="seconds allowed for each raw family to grow")
     ap.add_argument("--ro-attempts", type=int, default=15,
@@ -749,6 +727,9 @@ def main(argv):
         print("REFUSED: this is the bounded %s recovery only (clause 1); "
               "got --date %s" % (TARGET_DATE, args.date), file=sys.stderr)
         return 2
+    if not args.discover_only and not args.operator_approved:
+        print("REFUSED: mutation requires --operator-approved", file=sys.stderr)
+        return 2
     args.stability_wait = max(args.stability_wait, 2.0)
 
     cfg = wc.load_config()
@@ -758,12 +739,8 @@ def main(argv):
 
     # Pre-flight: write-once seal state for the target day itself.
     if os.path.exists(wc.seal_path(cfg["warehouse_root"], TARGET_DATE)):
-        rc, out = _export_day_runner(("--verify-seal",))
+        rc, out = _verify_seal_runner()
         if rc == 0 and ("DAY SEAL VERIFY PASS %s" % TARGET_DATE) in out:
-            alarm = os.path.join(live_dir, "seal_alarm.json")
-            if os.path.isfile(alarm):
-                os.unlink(alarm)
-                print("seal_alarm cleared (existing seal verified)")
             print("%s is already SEALED and verifies; nothing to recover"
                   % TARGET_DATE)
             return 0
@@ -787,17 +764,22 @@ def main(argv):
         OWNER, os.getpid(),
         datetime.datetime.now(datetime.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"))
-    state = {"lock": False, "pause": False, "stopped": None, "resumed": False}
+    state = {"lock": False, "pause": False, "stopped": None,
+             "resumed": False, "cleanup_error": None}
 
     def cleanup():
-        # EXIT/INT/TERM path (clause 10): release only our token, then make
-        # sure ingest is back (prefer the supervisor's own restart).
+        # Restore ingest while our pause still excludes the watchdog. Release
+        # the token only after the single daemon is proven.
+        if state["stopped"] is not None and not state["resumed"]:
+            try:
+                resume_ingest(live_dir, wc.ROOT, args.resume_wait)
+                state["resumed"] = True
+            except Exception as e:
+                state["cleanup_error"] = str(e)
+                print("CLEANUP ERROR: %s" % e, file=sys.stderr)
         if state["pause"]:
             release_pause(pause_path, token)
             state["pause"] = False
-        if state["stopped"] is not None and not state["resumed"]:
-            resume_ingest(live_dir, wc.ROOT, args.resume_wait)
-            state["resumed"] = True
         if state["lock"]:
             release_lock(lock_dir)
             state["lock"] = False
@@ -815,7 +797,18 @@ def main(argv):
         state["pause"] = True
         print("export_pause acquired: %s" % token)
 
-        # ---- DISCOVERY under our pause (clauses 2-5) ----
+        # Stop the verified writer BEFORE exact discovery. The live failure
+        # proved that reading DuckDB first can starve behind a continuous
+        # writer even though export_pause correctly blocks respawn.
+        pid = identify_ingest(live_dir, wc.ROOT)
+        if pid is None:
+            raise Refuse("expected exactly one ingest daemon before recovery")
+        print("verified ingest daemon pid=%d (pidfile+user+cwd+cmdline); "
+              "sending SIGTERM to that PID only" % pid)
+        state["stopped"] = pid       # register restore responsibility pre-TERM
+        stop_ingest(pid)
+
+        # ---- EXACT DISCOVERY after writer exit (clauses 2-5) ----
         con = connect_ro(cfg["staging_db"], attempts=args.ro_attempts)
         try:
             inventory, blocking, non_rfq = compute_blocking(cfg, con)
@@ -829,16 +822,6 @@ def main(argv):
         capture = validate_and_capture(blocking, cfg["raw_root"],
                                        args.stability_wait)
         print_inventory(inventory, blocking, capture)
-
-        # ---- PROCESS SAFETY: stop the verified ingest daemon (clause 8) ----
-        pid = identify_ingest(live_dir, wc.ROOT)
-        if pid is not None:
-            print("verified ingest daemon pid=%d (pidfile+user+cwd+cmdline); "
-                  "sending SIGTERM to that PID only" % pid)
-            state["stopped"] = pid
-            stop_ingest(pid)
-        else:
-            print("no ingest daemon running (pause holds the watchdog off)")
 
         # ---- set-stability recheck + baseline (clauses 5, 15) ----
         con = connect_ro(cfg["staging_db"], attempts=args.ro_attempts)
@@ -863,27 +846,26 @@ def main(argv):
             finally:
                 con.close()
         else:
-            print("no blocking RFQ file remains; proceeding to the seal "
-                  "sequence directly")
-
-        # ---- SEAL (clauses 16-17), pause still held ----
-        run_seal_sequence(live_dir)
+            print("no blocking RFQ file remains; checkpoint recovery is "
+                  "already complete")
 
         # ---- CLEANUP + environment proofs (clause 18) ----
         cleanup()
+        if state["cleanup_error"]:
+            print("CHECKPOINT SUCCEEDED but ingest restore FAILED: %s" %
+                  state["cleanup_error"], file=sys.stderr)
+            return 5
         fails = verify_environment(cfg, live_dir, wc.ROOT, args.growth_wait)
         if fails:
-            print("SEAL SUCCEEDED but cleanup verification FAILED:",
+            print("CHECKPOINT SUCCEEDED but cleanup verification FAILED:",
                   file=sys.stderr)
             for f in fails:
                 print("  " + f, file=sys.stderr)
             return 5
-        print("RECOVERY COMPLETE: %s sealed, verified, alarm cleared, "
-              "pipeline healthy." % TARGET_DATE)
-        print("NOTE (clauses 19-20, NOT this script): W05 version-bound "
-              "publication + Mac no-SSH acceptance now run separately — the "
-              "supervisor seal chain's `deploy/ec2_s3_sync.sh research_sync "
-              "%s` publishes the sealed release on its next cycle."
+        print("CHECKPOINT_RECOVERY_COMPLETE: exact RFQ blockers drained; "
+              "one ingest daemon restored; capture healthy.")
+        print("No export/seal/prune/alarm mutation was performed. The normal "
+              "production lifecycle now owns the %s seal and W05 publish."
               % TARGET_DATE)
         return 0
     except Refuse as e:
@@ -897,7 +879,7 @@ def main(argv):
         print("Not improvising (clause 11). Operator: run exactly this on "
               "the pipeline host, from the repo root:", file=sys.stderr)
         print("  python3 tools/recover_rfq_seal_2026-07-12.py --date "
-              "2026-07-12", file=sys.stderr)
+              "2026-07-12 --operator-approved", file=sys.stderr)
         return 4
     except RecoveryError as e:
         print("RECOVERY FAILED (day left unsealed): %s" % e, file=sys.stderr)
