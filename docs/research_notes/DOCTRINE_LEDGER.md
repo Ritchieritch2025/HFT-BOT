@@ -18,3 +18,12 @@ bootstrap CI;双峰/长尾/断点必须图注点名(未观察到也须写明);�
 执行副本(管道分支,供 rfq_flow_report / L2 观察报告生成器遵循):
 recovery 分支 `docs/DOCTRINE_VISUALIZE_EVERYTHING.md`;工程改造项 =
 recovery BACKLOG B7。
+
+## DOC-2 · 2026-07-13 — 凭证零回显硬规则(操作员裁决,原文)
+
+> HARD RULE going forward: never print/echo/cat/awk any credential value — source-and-use only, connectivity checks report pass/fail only.
+
+归档注记:背景 = W05 Step-0 期间编排会话修复 env 文件时经 awk 将
+researchReader 双值回显进会话转录(S4 违规,已如实上报);操作员裁决
+接受该只读研究前缀密钥的残余暴露风险、暂不轮换,并立此硬规则。
+轮换已排入下次控制台会话(recovery BACKLOG B8,非阻塞)。
