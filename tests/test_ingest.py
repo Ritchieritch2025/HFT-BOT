@@ -439,6 +439,168 @@ def main():
         check("TL1 migration: legacy rows read back all-NULL ladder",
               old_row == (None, None, None, None), old_row)
         pre_con.close()
+
+        # ---- 11. RFQ FAST-PATH (PIPE-W05 addendum 7, 2026-07-13) --------------
+        # rfq_<HH>.ndjson* / rfq_receipts_<HH>.ndjson* are checkpoint-only:
+        # raw bytes untouched, no JSON parse, no facts; the byte checkpoint
+        # advances through the final COMPLETE newline via the existing atomic
+        # transaction. Non-RFQ families are provably unchanged.
+        import hashlib
+        import warehouse_common as wc
+
+        def sha(p):
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                h.update(f.read())
+            return h.hexdigest()
+
+        def ck(ing, path):
+            r = ing.con.execute("SELECT byte_offset FROM checkpoint WHERE file=?",
+                                [os.path.abspath(path)]).fetchone()
+            return r[0] if r else None
+
+        # dispatch regex classifies families correctly, rejects generic raw.
+        m = ingest.RFQ_FASTPATH_RE.match
+        check("RFQ regex: matches rfq_/rfq_receipts_ families + shards only",
+              all(m(b) for b in ("rfq_00.ndjson", "rfq_23.ndjson.1",
+                                 "rfq_receipts_09.ndjson", "rfq_receipts_09.ndjson.2"))
+              and not any(m(b) for b in ("firehose_00.ndjson", "l2_00.ndjson",
+                                         "trades_00.ndjson", "rfq_metrics.ndjson",
+                                         "rfq_segments.ndjson", "capture.ndjson")))
+
+        rfq_dir = os.path.join(tmp, "rfqraw", "date=2026-07-12")
+        os.makedirs(rfq_dir)
+        # Content is deliberately TICKER-SHAPED for the quiet Class A market:
+        # if the fast-path parsed it, orderbooks_l1 would gain rows. It must not.
+        rfq_lines = [tick(mt_a, T0 + 300 * 1_000_000 + i * 1_000_000, 0.44, 0.46)
+                     for i in range(5)]
+        rfq0 = os.path.join(rfq_dir, "rfq_00.ndjson")
+        open(rfq0, "w").write("\n".join(rfq_lines) + "\n")
+        sha0, size0 = sha(rfq0), os.path.getsize(rfq0)
+
+        ing_rfq = new_ingester(tmp, wh, "rfq.duckdb")
+        counts0 = ing_rfq.process_file(rfq0)
+        # (a) raw bytes byte-for-byte unchanged
+        check("RFQ (a): raw SHA-256 + size byte-identical before vs after",
+              sha(rfq0) == sha0 and os.path.getsize(rfq0) == size0)
+        # fast-path yields ZERO facts despite parseable ticker content
+        check("RFQ: ticker-shaped rfq_ file materializes ZERO facts (no parse)",
+              counts0 == (0, 0, 0)
+              and q(ing_rfq, "SELECT count(*) FROM orderbooks_l1")[0][0] == 0
+              and q(ing_rfq, "SELECT count(*) FROM trades")[0][0] == 0
+              and q(ing_rfq, "SELECT count(*) FROM orderbooks_full")[0][0] == 0,
+              counts0)
+        # closed file: checkpoint reaches exact size -> unblocks the seal
+        check("RFQ: closed rfq_ file checkpoint == size (seal-ready)",
+              ck(ing_rfq, rfq0) == size0, ck(ing_rfq, rfq0))
+
+        # (b) rotated shards each carry their own independent byte checkpoint
+        r1 = os.path.join(rfq_dir, "rfq_00.ndjson.1")
+        r2 = os.path.join(rfq_dir, "rfq_00.ndjson.2")
+        open(r1, "w").write("\n".join(rfq_lines[:3]) + "\n")
+        open(r2, "w").write("\n".join(rfq_lines[:2]) + "\n")
+        ing_rfq.process_file(r1)
+        ing_rfq.process_file(r2)
+        check("RFQ (b): rotated shards .1/.2 get independent size checkpoints",
+              ck(ing_rfq, r1) == os.path.getsize(r1)
+              and ck(ing_rfq, r2) == os.path.getsize(r2)
+              and os.path.getsize(r1) != os.path.getsize(r2),
+              (ck(ing_rfq, r1), os.path.getsize(r1),
+               ck(ing_rfq, r2), os.path.getsize(r2)))
+
+        # (c) partial trailing record stays UN-checkpointed; a later append that
+        #     completes the line advances correctly on the next pass.
+        rp = os.path.join(rfq_dir, "rfq_01.ndjson")
+        complete = ("\n".join(rfq_lines) + "\n")
+        complete_bytes = len(complete.encode())
+        open(rp, "w").write(complete + '{"partial":true, no newline yet')
+        ing_rfq.process_file(rp)
+        check("RFQ (c): partial trailing record left UN-checkpointed",
+              ck(ing_rfq, rp) == complete_bytes, (ck(ing_rfq, rp), complete_bytes))
+        open(rp, "a").write("}\n")            # capture completes the line
+        ing_rfq.process_file(rp)
+        check("RFQ (c): completing the line advances checkpoint next pass",
+              ck(ing_rfq, rp) == os.path.getsize(rp),
+              (ck(ing_rfq, rp), os.path.getsize(rp)))
+
+        # (d) rfq_receipts_<HH> uses the same fast path
+        rr = os.path.join(rfq_dir, "rfq_receipts_00.ndjson")
+        open(rr, "w").write("\n".join(rfq_lines[:4]) + "\n")
+        sha_rr = sha(rr)
+        counts_rr = ing_rfq.process_file(rr)
+        check("RFQ (d): rfq_receipts_<HH> fast path (0 facts, ckpt==size, bytes intact)",
+              counts_rr == (0, 0, 0) and ck(ing_rfq, rr) == os.path.getsize(rr)
+              and sha(rr) == sha_rr, (counts_rr, ck(ing_rfq, rr)))
+
+        # (e) mixed run: a non-RFQ (firehose) file yields IDENTICAL facts +
+        #     checkpoint whether or not RFQ files share the run (regression guard).
+        fh = os.path.join(rfq_dir, "firehose_09.ndjson")
+        open(fh, "w").write("\n".join([
+            tick(mt_a, T0 + 400 * 1_000_000, 0.30, 0.32),
+            tick(mt_a, T0 + 401 * 1_000_000, 0.31, 0.32),
+            trade(mt_a, T0 + 402 * 1_000_000, "rt1")]) + "\n")
+        fh_cols = ("SELECT ts_utc, market_ticker, yes_bid_e4, is_snapshot "
+                   "FROM orderbooks_l1 ORDER BY ts_utc, yes_bid_e4")
+        ing_ref = new_ingester(tmp, wh, "ref.duckdb")   # firehose ALONE
+        ing_ref.process_file(fh)
+        ref = (q(ing_ref, fh_cols),
+               q(ing_ref, "SELECT count(*) FROM trades")[0][0], ck(ing_ref, fh))
+        ing_mix = new_ingester(tmp, wh, "mix.duckdb")   # RFQ files + same firehose
+        for p in (rfq0, r1, rr, fh, rp):
+            ing_mix.process_file(p)
+        mix = (q(ing_mix, fh_cols),
+               q(ing_mix, "SELECT count(*) FROM trades")[0][0], ck(ing_mix, fh))
+        check("RFQ (e): non-RFQ firehose facts + checkpoint identical with/without RFQ",
+              mix == ref and ref[2] == os.path.getsize(fh), (mix, ref))
+
+        # (f) a file already fully-parse-ingested to offset N (old behavior) is
+        #     not re-processed; checkpoint is monotonic (no double count).
+        old = os.path.join(rfq_dir, "rfq_02.ndjson")
+        open(old, "w").write("\n".join(rfq_lines) + "\n")
+        N = os.path.getsize(old)
+        ing_mono = new_ingester(tmp, wh, "mono.duckdb")
+        ing_mono.con.execute(                            # emulate old full-parse ckpt
+            "INSERT INTO checkpoint VALUES (?,?, epoch_us(now()))",
+            [os.path.abspath(old), N])
+        before = (q(ing_mono, "SELECT count(*) FROM orderbooks_l1")[0][0],
+                  q(ing_mono, "SELECT count(*) FROM trades")[0][0])
+        ing_mono.process_file(old)
+        after = (q(ing_mono, "SELECT count(*) FROM orderbooks_l1")[0][0],
+                 q(ing_mono, "SELECT count(*) FROM trades")[0][0])
+        check("RFQ (f): file checkpointed to N is not re-processed (monotonic, no dup)",
+              ck(ing_mono, old) == N and before == after == (0, 0),
+              (ck(ing_mono, old), before, after))
+        open(old, "a").write("\n".join(rfq_lines) + "\n")   # later append
+        ing_mono.process_file(old)
+        check("RFQ (f): later append advances checkpoint forward from N to new size",
+              ck(ing_mono, old) == os.path.getsize(old) and os.path.getsize(old) > N,
+              (ck(ing_mono, old), os.path.getsize(old)))
+
+        # seal inventory is pure disk enumeration -> unchanged by the fast path,
+        # and still lists the RFQ raw files (they stay sealable).
+        seal_root = os.path.join(tmp, "sealraw")
+        d12 = os.path.join(seal_root, "date=2026-07-12")
+        d13 = os.path.join(seal_root, "date=2026-07-13")
+        os.makedirs(d12); os.makedirs(d13)
+        for name in ("firehose_23.ndjson", "rfq_23.ndjson",
+                     "rfq_receipts_23.ndjson", "l2_23.ndjson"):
+            open(os.path.join(d12, name), "w").write("x\n")
+        for h in ("00", "01"):                           # next-day cross-hours req.
+            open(os.path.join(d13, "firehose_%s.ndjson" % h), "w").write("x\n")
+            open(os.path.join(d13, "rfq_%s.ndjson" % h), "w").write("x\n")
+        inv_before = wc.seal_raw_files(seal_root, "2026-07-12")
+        ing_seal = new_ingester(tmp, wh, "seal.duckdb")
+        for p in (os.path.join(d12, "rfq_23.ndjson"),
+                  os.path.join(d12, "rfq_receipts_23.ndjson"),
+                  os.path.join(d13, "rfq_00.ndjson"),
+                  os.path.join(d13, "rfq_01.ndjson")):
+            ing_seal.process_file(p)
+        inv_after = wc.seal_raw_files(seal_root, "2026-07-12")
+        bn = {os.path.basename(p) for p in inv_after}
+        check("RFQ: seal inventory unchanged by fast-path + still lists RFQ files",
+              inv_before == inv_after
+              and {"rfq_23.ndjson", "rfq_receipts_23.ndjson"} <= bn,
+              (len(inv_before), len(inv_after)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -139,6 +139,21 @@ FULL_INSERT = "INSERT INTO orderbooks_full (%s) VALUES (%s)" % (
     ", ".join(FULL_COLS), ", ".join(["?"] * len(FULL_COLS)))
 
 
+# RFQ ingest fast-path (PIPE-W05 addendum 7, 2026-07-13). rfq_<HH>.ndjson* and
+# rfq_receipts_<HH>.ndjson* produce ZERO facts rows — the warehouse materializes
+# only ticker/trade/orderbook content — yet a full per-line JSON parse of these
+# families costs ~40% of daily ingest bytes and stalls cross-day seals (the
+# 07-12 seal blocked on 12 next-day RFQ files at checkpoint=None). These two
+# families take the checkpoint-only path in process_file: raw bytes are read
+# only (never rewritten), no JSON is parsed, no facts are materialized, and the
+# EXISTING byte checkpoint is advanced through the final COMPLETE newline using
+# the SAME atomic transaction discipline as the normal path. Rotated shards
+# (base.ndjson.1/.2/...) each match and carry their own checkpoint exactly like
+# today; the (?:\.\d+)? suffix mirrors export_day.RAW_FAMILY_RE /
+# l2_gap_check._SHARD_RE. Generic raw is NOT matched — only these two families.
+RFQ_FASTPATH_RE = re.compile(r"^rfq(?:_receipts)?_\d{2}\.ndjson(?:\.\d+)?$")
+
+
 def ws_int(v):
     """Frame-level sid/seq: a real int passes through; anything else -> NULL
     (boundary validation, D3 — additive column, never required)."""
@@ -514,8 +529,57 @@ class Ingester:
         _fsync_dir(self.warehouse_root)
         return tuple(kept)
 
+    def _checkpoint_only(self, path):
+        """RFQ fast-path (see RFQ_FASTPATH_RE): advance the byte checkpoint
+        through the final COMPLETE newline WITHOUT parsing JSON or materializing
+        any facts. Returns (0, 0, 0) — these families yield no fact rows.
+
+        Identical to process_file except the parse + fact inserts are skipped:
+        same shrink guard, same rfind-based complete-line boundary (a partial
+        trailing record still being written stays UN-checkpointed until a later
+        pass finds its closing newline), and the same single-committed-
+        transaction INSERT-OR-REPLACE checkpoint write, so a crash can never
+        leave a half-advanced offset. Raw bytes are read-only (opened 'rb',
+        never rewritten). new_offset == start + len(complete-line chunk), so a
+        checkpoint set here — or by prior full-parse ingest — only ever advances
+        (monotonic; no re-processing, no double count).
+        """
+        off = self.con.execute("SELECT byte_offset FROM checkpoint WHERE file=?",
+                               [path]).fetchone()
+        start = off[0] if off else 0
+        size = os.path.getsize(path)
+        if size < start:
+            print("WARN: %s shrank below checkpoint (%d < %d); skipping" %
+                  (path, size, start), file=sys.stderr)
+            return 0, 0, 0
+        with open(path, "rb") as f:
+            f.seek(start)
+            data = f.read()
+        # Only checkpoint through complete lines; a trailing partial line waits
+        # for the next cycle — the checkpoint MUST NOT advance past an
+        # incomplete final record.
+        end = data.rfind(b"\n")
+        if end < 0:
+            return 0, 0, 0
+        new_offset = start + end + 1
+        self.con.execute("BEGIN TRANSACTION")
+        try:
+            self.con.execute(
+                "INSERT INTO checkpoint VALUES (?,?, epoch_us(now())) "
+                "ON CONFLICT (file) DO UPDATE SET byte_offset=excluded.byte_offset, "
+                "updated_us=excluded.updated_us", [path, new_offset])
+            self.con.execute("COMMIT")
+        except Exception:
+            self.con.execute("ROLLBACK")
+            raise
+        return 0, 0, 0
+
     def process_file(self, path):
         path = os.path.abspath(path)
+        # RFQ fast-path: these families materialize no facts; skip the parse and
+        # only advance the byte checkpoint (unblocks seals; ~40% byte saving).
+        if RFQ_FASTPATH_RE.match(os.path.basename(path)):
+            return self._checkpoint_only(path)
         off = self.con.execute("SELECT byte_offset FROM checkpoint WHERE file=?",
                                [path]).fetchone()
         start = off[0] if off else 0
