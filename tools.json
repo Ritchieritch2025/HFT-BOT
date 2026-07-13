@@ -1583,6 +1583,28 @@
       "docs": "tools/prune_raw.py"
     },
     {
+      "name": "recover_rfq_seal_2026_07_12",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/recover_rfq_seal_2026-07-12.py",
+      "args_template": "--date 2026-07-12 [--discover-only]",
+      "needs": [],
+      "description": "PIPE-W05 ADDENDUM 8 (operator override, clauses 1-18): ONE-TIME bounded 2026-07-12 RFQ seal recovery. Discovery = seal_raw_files ∩ checkpoint!=size, RFQ-family-only with per-file identity/stability proofs and existing-seal probes (STOP otherwise); single-instance lock + own export_pause token (rfq_recovery pid=<pid>); ingest TERMed only after pidfile+user+cwd+cmdline verification (never pkill/SIGKILL; capture never signalled); deployed RFQ fast-path one-shot on the frozen explicit file array with L1=trades=full=0 required + byte-identity/no-side-effect proofs; then exactly the four export_day subcommands in order, seal_alarm cleared only after exact verify-seal success; cleanup resumes ingest and proves capture health. NEVER run without the operator's explicit per-run approval; --discover-only is the read-only preview (no lock, no pause, no signals, no writes)",
+      "docs": "docs/plan_releases/pipeline/PIPE-W05-SPEC-2026-07-12.md"
+    },
+    {
+      "name": "test_recover_rfq_seal",
+      "kind": "test",
+      "safety": "pure",
+      "cmd": "python3 tests/test_recover_rfq_seal.py",
+      "args_template": "",
+      "needs": [],
+      "pass_token": "ALL PASS",
+      "description": "ADDENDUM 8 recovery-script proofs on synthetic fixtures: discovery selects exactly behind RFQ+receipts files and STOPs on a behind firehose; family regex rejections; symlink/outside-root/empty/non-newline/unstable-stat rejections; foreign export_pause refused + dead-owner token reclaim; four-subcommand seal order with seal_alarm cleared only after exact verify-seal success; TERM only the verified pidfile PID (never pattern); counts-must-be-zero guard incl. the REAL deployed fast-path one-shot on RFQ fixtures (zero counts, exact checkpoints, bytes untouched)",
+      "docs": "tests/test_recover_rfq_seal.py"
+    },
+    {
       "name": "jitter_report",
       "kind": "tool",
       "safety": "offline",

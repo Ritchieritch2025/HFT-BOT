@@ -348,7 +348,8 @@ gate:
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
                  $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
-PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py tests/test_research_bridge.py tests/test_recover_seal_20260712.py
+PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py tests/test_research_bridge.py \
+                      tests/test_recover_rfq_seal.py
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 # Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest
