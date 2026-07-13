@@ -613,6 +613,16 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B9 (2026-07-13, CAPACITY — upgrade from note to ENGINEERING ITEM after live
+  observation): ingest parse throughput is now within ~1.2x of capture
+  generation (capture 30->~80GB/day after L2+RFQ launch). Observed: 07-12
+  seal delayed ~13h (T+1.5) — daemon at 159% CPU for 7h grinding the RFQ
+  backlog (~4x268MB files/hour), zero facts produced from RFQ lines (pure
+  parse tax, ~40% of daily bytes). Fix menu: (a) RFQ fast-path — checkpoint
+  rfq_* files by byte length with a cheap prefix/channel sniff instead of
+  full per-line JSON parse (biggest win, smallest change); (b) parallel
+  ingest by file family; (c) accept T+1.5 sealing formally. Owner: next
+  pipeline engineering W, BEFORE W06 Stage 2 raises L2 volume further.
 - B8 (2026-07-13, hygiene, NON-BLOCKING): rotate researchReader access key at the next operator console session — current key value entered the session transcript during the W05 step-0 env-file repair (operator accepted residual risk for this read-only research-prefix key; DOC-2 zero-echo hard rule registered in the main-repo doctrine ledger).
 - B7 (2026-07-12, operator ruling D-3 Visualize-Everything — main-repo
   DECISIONS ledger; execution copy docs/DOCTRINE_VISUALIZE_EVERYTHING.md):
