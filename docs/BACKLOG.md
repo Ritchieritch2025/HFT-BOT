@@ -613,7 +613,27 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
-- B10 (2026-07-13, found while baseline-verifying the RFQ fast-path): the
+- B12 (2026-07-13, W05 publish IAM gap — BLOCKS 07-12 research release): the
+  P0-1-hardened research_release.py mandates post-upload GetObjectVersion
+  verification, but the box vaultWriter key has PutObject on research/ WITHOUT
+  s3:GetObjectVersion, so a real publish fail-closes at verification
+  (AccessDenied on GetObjectVersion). 07-12 seal is done+verified but its
+  version-bound release cannot finalize. Fix (operator console): add
+  s3:GetObjectVersion (+s3:GetObject) on research/* to vaultWriter IAM policy,
+  OR verify with a GetObjectVersion-capable credential. A partial 07-12 upload
+  (no MANIFEST = not exposed) may need cleanup. Owner: operator IAM + next W.
+- B11 (2026-07-13, ROOT CAUSE of the all-day 07-12 seal block; sibling of B9):
+  the seal chain loses the staging writer-lock race to the ingest daemon at
+  the --force export step. stop_ingest_for_export TERMs ingest, but under
+  heavy backlog ingest restarts/re-locks before export_day --force can ATTACH
+  staging, so --force fails with a Conflicting-lock IOException cycle after
+  cycle (supervisor "daily seal failed; research blocked" ~all day). 07-12
+  only sealed when a seal-chain attempt finally won the race at 18:31Z. Fix:
+  seal chain must HARD-HOLD ingest stopped for the whole export+seal duration
+  (own-pause + verified-stop, like recover_rfq_seal clauses 16-18). This + B9
+  are the two capacity defects that made 07-12 a day-long incident. Owner:
+  next pipeline engineering W, before W06 Stage 2.
+- B10 (2026-07-13- B10 (2026-07-13, found while baseline-verifying the RFQ fast-path): the
   deployed W06 Stage 1 selector test tests/test_l2_targets.py::
   test_main_refresh_fail_closed_leaves_previous_file_untouched FAILS on the
   clean base 6de2573 (assert 1==0) — a real pre-existing defect in LIVE code
