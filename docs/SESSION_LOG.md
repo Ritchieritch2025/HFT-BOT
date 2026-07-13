@@ -6,6 +6,38 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-13 17:25 UTC — SPORTS-AUTORESEARCH-01 启动尝试:GATE A 实测 FAIL ⇒ DATA_PLANE_GATE 停止(零分析、零开销)
+
+- **一行裁决:❌ 任务在 GATE A(数据面)按任务书 fail-closed 停止。与下方
+  审计条目的 B-1 预测一致,本会话补上了实测证据链。**
+- commits:本条目所在 commit(仅本文件)+ docs mirror rsync 补同步
+  (含上一条目欠下的 WARN)。
+- decisions:
+  - GATE A 判 FAIL 的唯一精确条件:**默认 confirmation-only 研究视图为空
+    (零个 VERSION_BOUND SEALED_CONFIRMATION release)**。实测(本 Mac,
+    no-SSH,stdlib SigV4 只读,`sandbox/w05-recovery-fix/tools/
+    research_data.py inventory`,2026-07-13 17:0x UTC):
+    `s3://kalshi-vault-ritcardo/research` 仅含 1 个 release
+    `2026-07-11__seal-de2e77c86c66`,状态 `QUARANTINED_LEGACY`(缺
+    publication-state/version-binding 冻结,fetch/verify 默认拒绝)、
+    `NO_RFQ_CAPTURE_THIS_DAY`、L2 `NOT_RESEARCH_EXPOSABLE_PHASE_A`;
+    全仓 grep(含 sandbox 副本)无任何 `DATA_PLANE_ACCEPTED` 验收凭据。
+  - 按任务书 §1:GATE A 未过 ⇒ 只返回 DATA_PLANE_GATE;未回退本地
+    warehouse、未直读 EC2、未触 W09(GATE B/C 因 A 停而未消耗)。
+  - /goal 注册失败(条件 47,360 字符 > 4,000 上限),不影响裁决;正式
+    重发若用 goal 机制需一句话级短条件。
+- context capsule:研究凭据 `~/.kalshi/research_s3.env.sh` 在位(600,
+  内容未回显,DOC-2 遵守;B8 换钥匙提醒仍开放)。W05 修复以未部署
+  handoff patch 存在(`sandbox/w05-recovery-handoff/0001-…lock-safe.patch`,
+  2026-07-13 16:36Z)。S3 研究前缀现量 2.80 GB / 1 release(inventory
+  自报,存储 ≈$0.06/月)。本会话零代码/数据变更,未跑 make check
+  (纯日志条目)。
+- blocked / handoff:**等操作员走审计 §7 顺序**:修 P1(F-1…F-4)→ W05
+  ADDENDUM-8 恢复脚本获批执行 → 07-12 印落 → 版本绑定 publication →
+  Phase-A 验收(DATA_PLANE_ACCEPTED)→ W09_SPEND_GATE 批钱开机 → 钉
+  基线正式重发本任务。下个会话在 S3 出现 VERSION_BOUND 新 release 或
+  验收凭据落盘之前,不必重跑 GATE A。
+
 ## 2026-07-13 17:20 UTC — SPORTS-AUTORESEARCH-01 任务草案审计:⚠️ ACCEPT-WITH-FINDINGS;顺手补交上会话遗留的 D-3 日志条目
 
 - commits:`2575dcf`(补交 2026-07-12 会话被沙箱卡住的 D-3 SESSION_LOG
