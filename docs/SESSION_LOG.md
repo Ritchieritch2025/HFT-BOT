@@ -6,6 +6,24 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-12 08:19 UTC — D-3 Visualize-Everything standing ruling 入裁决台账
+
+- commits:本会话环境不能写 `.git/index.lock`,因此此 doc-only 变更待有本地
+  git 写权限的会话提交;不得把预先存在的 `outputs/` 或 `__pycache__/` 带入。
+- decisions:`docs/PLAN_SPORTS_TRADING_DECISIONS.md` 新增 D-3,逐字保存操作员
+  原文。自 24h observation 与 RFQ 48h report 起,全部 segment/报告禁止孤立
+  scalar:连续量必须配 histogram/ECDF+p50/p99/max/n;天然标量必须按
+  per-hour/per-event 展开或配 bootstrap CI;每图必须有 definition block、
+  provenance/code location、tier banner,caption 必须解释 bimodality/long tail/
+  discontinuity。
+- context capsule:本场只改 doctrine ledger 与本 SESSION_LOG,未改 canonical
+  prompt、GUARDRAILS、研究/生产代码、配置或任何数据;未运行代码测试(纯文档
+  裁决,无可执行行为变化)。D-3 是 evidence-presentation 门,不替代既有统计
+  切分、bootstrap、悲观成交或 go/no-go 门。
+- blocked / handoff:下一位有 git 写权限的 agent 只提交上述两个文件并同步
+  docs mirror。24h/RFQ 报告生成器在出首份报告前必须落实 D-3;不新建审计或
+  治理阶段。
+
 ## 2026-07-11 23:06 UTC — P8 free-fire sandbox: `mm_sandbox.py` MVP built (Gold/synthetic deterministic replay, submit/cancel lifecycle, strict/queue/optimistic fills, integer ledger, markouts, static-vs-dynamic comparison); 10 sandbox tests plus the broader pricing/Gold regression set PASS, `make check` PASS, `tests/run_pipeline.sh` 66/66 PASS; synthetic toxic-flow proof static −$0.13 vs guarded dynamic $0.00 is mechanical only, not alpha; no production/network/orders, next = adapt fresh receive-clock+sequence-valid W06 L2 tape; COMMIT BLOCKED because this Codex sandbox cannot create `.git/index.lock` (`Operation not permitted`), so the four intended files remain unstaged for an SSH-capable/local agent to commit explicitly (never include pre-existing `outputs/`); docs mirror also WARN/blocked by this sandbox (`rsync ... Operation not permitted`).
 
 ## 2026-07-11 20:15 UTC — STP-P00-AUD01 独立审计:PASS(0 P0 / 1 P1 / 4 P2)— P01 仍未授权
