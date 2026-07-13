@@ -613,6 +613,13 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B10 (2026-07-13, found while baseline-verifying the RFQ fast-path): the
+  deployed W06 Stage 1 selector test tests/test_l2_targets.py::
+  test_main_refresh_fail_closed_leaves_previous_file_untouched FAILS on the
+  clean base 6de2573 (assert 1==0) — a real pre-existing defect in LIVE code
+  (the fail-closed refresh path may not leave the prior l2_targets.csv
+  untouched on failure). Not RFQ-related, not introduced tonight; unblocks
+  nothing tonight but must be triaged. Owner: next pipeline W.
 - B9 (2026-07-13, CAPACITY — upgrade from note to ENGINEERING ITEM after live
   observation): ingest parse throughput is now within ~1.2x of capture
   generation (capture 30->~80GB/day after L2+RFQ launch). Observed: 07-12
