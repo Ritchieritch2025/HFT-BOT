@@ -6,6 +6,40 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-13 17:20 UTC — SPORTS-AUTORESEARCH-01 任务草案审计:⚠️ ACCEPT-WITH-FINDINGS;顺手补交上会话遗留的 D-3 日志条目
+
+- commits:`2575dcf`(补交 2026-07-12 会话被沙箱卡住的 D-3 SESSION_LOG
+  条目,交接授权,仅该文件)+ 本条目所在 commit(任务原文逐字归档 +
+  审计报告 + 本条目)。
+- decisions(均已落文件):
+  - 审计裁决 **ACCEPT-WITH-FINDINGS**,全文见
+    `docs/plan_audits/AUDIT_SPORTS_AUTORESEARCH_01_2026-07-13.md`;
+    任务原文逐字归档于
+    `docs/plan_audits/SPORTS_AUTORESEARCH_01_MISSION_TEXT_2026-07-13.md`
+    (状态 DRAFT — UNDER AUDIT,未发布,不授权任何工作)。
+  - 4 项 P1:F-1 无 holdout 数据保留规则;F-2 缺 Q1 log-odds 条款;
+    F-3 §25 与退出仪式冲突且无断点续跑协议;F-4 写权限未逐路径枚举。
+    6 项 P2(F-5…F-10)见报告。
+- context capsule:启动阻断三事实(零信任核验)——(1) PIPE-W05 最新已提交
+  状态 = ADDENDUM 4 DATA-INTEGRITY P0 NO-GO(2026-07-12),ADDENDUM 8
+  恢复脚本 approval-gated 未跑,Phase-A 验收工件全仓不存在(出处:
+  PIPE-W05-SPEC-2026-07-12.md @ codex/pipeline-recovery-hardening);
+  (2) W09 仅注册令,明令 W05 final GO + Phase-A 验收前不得实现/开机
+  (同文件 l.211);(3) STATE = AWAITING_OPERATOR_RELEASE ⇒ 任务只能
+  MODE 1,VERDICT_PASS 恒为 0。引用核验:HYPOTHESIS_LEDGER(H-OP-1/2)
+  与 workbench hypotheses.json(ATL-* 六卡)均在;Belgium pilot
+  "103–104¢/~9%" 数字只存在于未提交的
+  sandbox/research/reports/event_intel/data/episodes/26JUL06_USABEL.json。
+  本会话另发现并清除了 .git/index.lock + next-index-6.lock 残留(本沙箱
+  git 首试留下,经桌面端删除授权清掉)。未跑 make check(纯文档变更,
+  无代码/配置改动)。
+- blocked / handoff:任务发布前置顺序 = 修 P1 → W05 收尾+Phase-A 验收 →
+  W09 spend gate 批准 → 钉基线 commit 后正式发布并在 DECISIONS 记裁决。
+  sandbox/ 下若干未跟踪研究文件(engine_proof.cpp、reports/、w05-recovery-*)
+  去留待操作员定,本会话未动。
+  WARN:docs mirror(Desktop/TradingSys Report)不在本会话挂载范围,
+  rsync 未执行——下个有本地权限的会话补同步。
+
 ## 2026-07-12 08:19 UTC — D-3 Visualize-Everything standing ruling 入裁决台账
 
 - commits:本会话环境不能写 `.git/index.lock`,因此此 doc-only 变更待有本地
