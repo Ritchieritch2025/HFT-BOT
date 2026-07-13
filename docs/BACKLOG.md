@@ -613,6 +613,7 @@ noticed-during, observation, suggested owner.
   (owner: PIPE-W05 research-ingress).
 - B3: seal_alarm.json + raw_retention_alert.json consumers (Telegram/dashboard)
   pending the alerts W (owner: PIPE-W03/W-K alerts).
+- B8 (2026-07-13, hygiene, NON-BLOCKING): rotate researchReader access key at the next operator console session — current key value entered the session transcript during the W05 step-0 env-file repair (operator accepted residual risk for this read-only research-prefix key; DOC-2 zero-echo hard rule registered in the main-repo doctrine ledger).
 - B7 (2026-07-12, operator ruling D-3 Visualize-Everything — main-repo
   DECISIONS ledger; execution copy docs/DOCTRINE_VISUALIZE_EVERYTHING.md):
   report generators must ship every statistic with its distribution plot
