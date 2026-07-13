@@ -1550,6 +1550,17 @@
       "docs": "tools/ec2_health.sh"
     },
     {
+      "name": "recover_seal_20260712",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/recover_seal_20260712.py",
+      "args_template": "--discover-only | --operator-approved",
+      "needs": [],
+      "description": "ONE-TIME bounded 2026-07-12 RFQ seal recovery (W05 ADDENDUM 8, operator override archived verbatim in docs/plan_releases/pipeline/PIPE-W05-SPEC-2026-07-12.md). OPERATOR-APPROVAL-GATED: the operator sees the complete committed script before any execution; --discover-only is read-only (prints the mechanically-derived blocking set + any blocker); --operator-approved runs the bounded recovery — strict RFQ-family-only discovery vs the day seal inventory x staging checkpoints, two-sample stability, single-instance lock + owned export_pause token, uid/cwd/cmdline-verified single SIGTERM of the ingest daemon (never pkill/SIGKILL; capture never signalled), frozen-list one-shot via the deployed RFQ fast-path requiring zero facts rows, checkpoint==size + facts/stats/schema/non-target/seal-inventory invariance proofs, the four export_day seal commands only, alarm cleared only after verify-seal, exact-supervisor-line ingest resume + capture-growth/single-daemon proofs. Any deviation exits 2 with the exact blocker; a refused TERM exits 3 with the exact operator invocation. Never run by an agent or console button",
+      "docs": "tools/recover_seal_20260712.py"
+    },
+    {
       "name": "research_release",
       "kind": "tool",
       "safety": "network_write",
