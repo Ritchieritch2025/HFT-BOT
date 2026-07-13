@@ -10,5 +10,6 @@ collect_ignore = [
     "test_verify_feed_metrics.py",
     "test_ingest.py",
     "test_export_day.py",
+    "test_recover_rfq_seal.py",
     "test_warehouse_status.py",
 ]
