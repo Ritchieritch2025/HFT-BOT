@@ -6,6 +6,33 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-14 12:05 UTC — 工程状态评审归档 + CURRENT_ENGINEERING_STATE 台账建立;L1×L2 对齐口径裁定(设计保证≠验收事实)
+
+- commits:本条目所在 commit(评审逐字归档 + 新台账 + 本条目)。
+- decisions(均已落文件):
+  - 建立 `docs/CURRENT_ENGINEERING_STATE.md` 为全系统唯一状态台账
+    (BUILT/DEPLOYED/ACCEPTED/BLOCKED 四态;E5 同变更同提交维护),内含
+    生产分支指定(PROPOSED,待操作员追认:生产谱系 =
+    codex/pipeline-recovery-hardening 后代,策略分支禁部署)、退役台账
+    (P6 attic 方法,live_e2e/tradingd/Mac 回退宿主等 10 项)、操作员
+    待批清单(B12 居首)。
+  - L1×L2 对齐口径:结构上可精准配对(同机 TL1 接收时钟 + ws_sid/ws_seq
+    + SidStream 在线断档作废 + l2_gap_check 离线复核,出处
+    warehouse_schema + PIPE-W06 spec §5),但①仅覆盖被选中约 50 市场、
+    ②精度=接收时钟而非交易所侧真实先后、③缺正式跨通道对齐验收报告
+    ——该报告列为 W05 验收后第一个研究工件。
+  - 07-14 评审(另一会话产出)逐字归档于
+    `docs/ENGINEERING_STATE_REVIEW_2026-07-14.md`;本会话抽查核验一致项
+    与未核验项(EC2 64G、RFQ 4,400 行/分等)已在档头声明。
+- context capsule:评审新事实——B11 根因解释与 supervisor pause 代码不
+  吻合,待 PID journal+部署 SHA 复证;B10(L2 selector fail-closed)
+  在册;W05-aware UI 在 pipe-w05-ui-data-root@34e3a38 未合并;策略分支
+  supervisor 是旧版。四优先级建议(W05 收尾→W09→首轮研究→按候选补
+  执行)与本会话审计 §7 一致,无冲突。
+- blocked / handoff:等操作员:B12 IAM、生产分支追认、AUTORESEARCH 4 项
+  P1 批复。下个工程会话:统一集成 tip 立项(生产谱系 ← W05-UI ← 策略
+  docs)。mirror 同步本会话仍不可达(WARN,由有本地权限会话执行)。
+
 ## 2026-07-13 18:45 UTC — 收到 07-12 封印收口转达;审计 ADDENDUM 1:GATE A 剩 B12 IAM + publication + Phase-A 验收
 
 - commits:本条目所在 commit(转达原文逐字归档 + 审计 ADDENDUM 1 + 本条目)。
