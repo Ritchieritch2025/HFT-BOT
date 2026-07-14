@@ -264,6 +264,50 @@ def main():
         check("checkpoint advances through the COMPLETE overflow file",
               bool(ck) and ck[0][0] == fsz, "ckpt=%s size=%d" % (ck, fsz))
 
+        # ---- 5d. out-of-range recv_mono_ns (2026-07-14 ACTUAL full-depth crash) --
+        # L2 orderbook_delta frames carried a garbage capture monotonic clock
+        # (recv_mono_ns ~2e19..2e24, far past INT64) that overflowed the
+        # recv_mono_ns BIGINT column and crash-looped FULL_INSERT, blocking the
+        # 07-13 seal. recv_ladder must NULL an out-of-range mono (a nullable
+        # additive clock) -- the frame still ingests, just without that clock;
+        # no crash; checkpoint advances.
+        check("recv_ladder nulls an out-of-INT64 recv_mono_ns",
+              ingest.recv_ladder({"recv_wall_ns": 1783987242925506127,
+                                  "recv_mono_ns": 19943987240267566132})[1] is None)
+        check("recv_ladder keeps a normal recv_mono_ns",
+              ingest.recv_ladder({"recv_mono_ns": 123456789})[1] == 123456789)
+
+        def mono_delta_line(mt, ts_us, mono):
+            m = {"market_ticker": mt, "ts_ms": ts_us // 1000, "side": "yes",
+                 "price_dollars": "0.40", "delta_fp": "3.00"}
+            return json.dumps({"recv_wall_ns": ts_us * 1000, "recv_mono_ns": mono,
+                "raw": json.dumps({"type": "orderbook_delta",
+                                   "sid": 1, "seq": 9334, "msg": m})})
+        mt_m = "KXBTC-25DEC31-MONO"
+        Tm = T0 + 700 * 1_000_000
+        cap_mono = os.path.join(tmp, "cap_mono.ndjson")
+        open(cap_mono, "w").write(
+            mono_delta_line(mt_m, Tm, 19943987240267566132) + "\n" +      # garbage mono
+            mono_delta_line(mt_m, Tm + 1_000_000, 555000111) + "\n")      # valid mono
+        ing_m = new_ingester(tmp, wh, "mono.duckdb")
+        crashed_m = None
+        try:
+            ing_m.process_file(cap_mono)
+        except Exception as e:      # recv_mono_ns overflow previously crashed the batch
+            crashed_m = e
+        check("out-of-range recv_mono_ns does NOT crash ingest",
+              crashed_m is None, repr(crashed_m))
+        rows_m = q(ing_m, "SELECT recv_mono_ns FROM orderbooks_full "
+                          "WHERE market_ticker='%s' ORDER BY ts_utc" % mt_m)
+        check("both delta frames ingested (garbage mono kept as NULL, not dropped)",
+              len(rows_m) == 2, len(rows_m))
+        check("garbage recv_mono_ns nulled, valid one kept",
+              rows_m == [(None,), (555000111,)], rows_m)
+        fszm = os.path.getsize(cap_mono)
+        ckm = q(ing_m, "SELECT byte_offset FROM checkpoint WHERE file='%s'" % cap_mono)
+        check("checkpoint advances through the COMPLETE mono-overflow file",
+              bool(ckm) and ckm[0][0] == fszm, "ckpt=%s size=%d" % (ckm, fszm))
+
         # ---- 7. writer connect survives a reader-held lock (2026-07-07) -------
         import duckdb as _duckdb
         lockdb = os.path.join(tmp, "lock.duckdb")

@@ -155,9 +155,11 @@ RFQ_FASTPATH_RE = re.compile(r"^rfq(?:_receipts)?_\d{2}\.ndjson(?:\.\d+)?$")
 
 
 def ws_int(v):
-    """Frame-level sid/seq: a real int passes through; anything else -> NULL
-    (boundary validation, D3 — additive column, never required)."""
-    return v if type(v) is int else None
+    """Frame-level sid/seq: a real int WITHIN the BIGINT range passes through; a
+    non-int OR an out-of-INT64 value -> NULL (boundary validation, D3 -- additive
+    column, never required). A garbage huge sid/seq must not overflow the
+    ws_sid/ws_seq BIGINT columns (2026-07-14 full-depth insert crash)."""
+    return v if (type(v) is int and INT64_MIN <= v <= INT64_MAX) else None
 
 
 INT32_MIN, INT32_MAX = -2147483648, 2147483647
@@ -294,7 +296,7 @@ def recv_ladder(rec):
     wall = rec.get("recv_wall_ns")
     wall = wall if type(wall) is int else None
     mono = rec.get("recv_mono_ns")
-    mono = mono if (type(mono) is int and mono >= 0) else None
+    mono = mono if (type(mono) is int and 0 <= mono <= INT64_MAX) else None
     local_us = _plaus(wall // 1000) if wall is not None else None
     if wall is not None and local_us is None:
         wall = None
