@@ -126,3 +126,25 @@ D-1 与操作员"一个任务,不建王国"的意图。
 4. 届时以定稿文本+钉定基线 commit 正式发布本任务,并在
    `docs/PLAN_SPORTS_TRADING_DECISIONS.md` 记一条裁决(保持 D-1 单一
    权威链:本任务=探索供料,不动 STP phase 门)。
+
+---
+
+## ADDENDUM 1(2026-07-13 晚)— B-1 事实更新:07-12 封印已落,GATE A 剩两步
+
+出处:操作员转达的 EC2 侧收口报告,逐字归档于
+`SPORTS_AUTORESEARCH_01_STATUS_RELAY_2026-07-13.md`(本会话无法独立核验,
+数字以生产侧归档为准)。
+
+- **已清:** 07-12 SEALED + verify PASS(18:31Z,322 文件 / 1.0914 亿行 /
+  go_no_go=True / 印 sha bc37de4c…)。§1 B-1 中"07-12 印被 12 个
+  checkpoint=None 文件卡住"一条不再成立。
+- **GATE A 仍未通,剩余链条 =** (a) **B12**:vaultWriter 缺
+  `s3:GetObjectVersion`(+GetObject)on research/*,07-12 研究 release
+  发布失败关闭——**操作员控制台 IAM 动作**,任何 agent 无权代办(与本
+  任务 §0 禁 IAM 变更一致);(b) 版本绑定 publication 完成;
+  (c) Mac no-SSH **Phase-A 验收**。
+- **GATE B(B-2)与 MODE(B-3)判断不变**;两个新登记的容量债
+  B11(封印链 vs ingest 写锁竞争)与 B9(RFQ 解析税)属 W06 Stage 2
+  前置工程,不阻塞本任务发布。
+- §7 发布顺序更新:第 2 步现余「B12 IAM → publication → Phase-A 验收」。
+  P1 修文本(F-1…F-4)仍是第 1 步,未动。

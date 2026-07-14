@@ -6,6 +6,25 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-13 18:45 UTC — 收到 07-12 封印收口转达;审计 ADDENDUM 1:GATE A 剩 B12 IAM + publication + Phase-A 验收
+
+- commits:本条目所在 commit(转达原文逐字归档 + 审计 ADDENDUM 1 + 本条目)。
+- decisions(均已落文件):审计 B-1 事实更新见
+  `docs/plan_audits/AUDIT_SPORTS_AUTORESEARCH_01_2026-07-13.md` ADDENDUM 1;
+  转达原文逐字归档于
+  `docs/plan_audits/SPORTS_AUTORESEARCH_01_STATUS_RELAY_2026-07-13.md`。
+  GATE B / MODE 1 判断不变;4 项 P1 文本修补仍是发布第一步。
+- context capsule:07-12 SEALED + verify PASS 18:31Z(操作员转达 EC2 侧
+  报告,本会话未独立核验,数字以生产侧归档为准);新容量债 B11(封印
+  导出 vs ingest 写锁竞争,W06 Stage 2 前须修)、B12(vaultWriter 缺
+  s3:GetObjectVersion on research/*,07-12 研究 release 发布失败关闭)。
+  B12 是操作员控制台 IAM 动作,agent 无权代办(与任务 §0 禁 IAM 一致)。
+  与下方 17:25 条目合读:S3 桥上仍只有 QUARANTINED_LEGACY 的 07-11
+  release,07-12 发布要等 B12 修复后才会出现 VERSION_BOUND release。
+- blocked / handoff:操作员待办 = 控制台加 IAM 权限;之后 EC2 侧完成
+  07-12 publication → Phase-A 验收(DATA_PLANE_ACCEPTED 落盘)→
+  W09_SPEND_GATE → 修 P1 后钉基线重发任务。mirror 已由 17:25 会话补同步。
+
 ## 2026-07-13 17:25 UTC — SPORTS-AUTORESEARCH-01 启动尝试:GATE A 实测 FAIL ⇒ DATA_PLANE_GATE 停止(零分析、零开销)
 
 - **一行裁决:❌ 任务在 GATE A(数据面)按任务书 fail-closed 停止。与下方
