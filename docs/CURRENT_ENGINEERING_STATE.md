@@ -1,22 +1,26 @@
-# CURRENT_ENGINEERING_STATE — 全系统唯一状态台账
+# CURRENT_ENGINEERING_STATE — 工程状态参考快照(非规则)
 
 - created: 2026-07-14(依据 `docs/ENGINEERING_STATE_REVIEW_2026-07-14.md`
   评审 + 本仓库逐项核验)
-- **维护纪律(E5):任何改变某行状态的变更,必须在同一提交里更新本文件。**
-  状态只有四种:**BUILT**(代码在、测过)/ **DEPLOYED**(真的在 EC2 上跑)/
-  **ACCEPTED**(有生产数据+验收证据)/ **BLOCKED**(整条链还不能用)。
-  "已写代码"永远不等于"已完成"。
+- **性质(操作员裁定 2026-07-14):本文件是描述性参考快照,不是规则,
+  不对任何 agent/会话新增任何义务或流程。** 项目的约束权威不变,仍然
+  只有:GUARDRAILS(宪法)、MASTER_SEQUENCE(工程队列)、
+  PLAN_SPORTS_TRADING_DECISIONS(策略裁决)。本文件可能过期;与档案
+  证据冲突时以证据为准。更新它是自愿的好习惯,不是门槛。
+- 状态词汇(仅为读图方便):**BUILT**(代码在、测过)/ **DEPLOYED**
+  (真的在 EC2 上跑)/ **ACCEPTED**(有生产数据+验收证据)/
+  **BLOCKED**(整条链还不能用)。"已写代码"不等于"已完成"。
 - 分支注记:EC2 侧事实(部署/验收)以生产谱系分支与 EC2 档案为准,本文件
   在策略分支维护,标注证据出处。
 
-## 0. 生产分支指定(PROPOSED — 待操作员一句话追认)
+## 0. 生产分支现状(观察 + 建议,非指定)
 
-- **生产谱系 = `codex/pipeline-recovery-hardening` 及其后代**(含 W03/W05/
-  W06/W07/HOTFIX-02/新 seal 行为)。
-- 本策略分支(`plan-sports-market-dynamics-v2`)的 supervisor 是旧版,
-  **禁止从本分支部署生产**。
-- 目标:尽快建统一集成 tip(生产谱系 ← 合并 W05-UI@34e3a38 与策略分支
-  文档),在其上跑全量测试。在追认与合并之前,以本节为准。
+- 观察:最新生产能力(W03/W05/W06/W07/HOTFIX-02/新 seal 行为)都在
+  `codex/pipeline-recovery-hardening` 谱系上;本策略分支
+  (`plan-sports-market-dynamics-v2`)的 supervisor 是旧版。
+- 建议(非规则):下次生产部署从 pipeline-recovery 谱系出发,避免回滚
+  生产能力;并择机建统一集成 tip(生产谱系 ← 合并 W05-UI@34e3a38 与
+  策略分支文档)跑全量测试。是否采纳、何时做,由操作员按需决定。
 
 ## 1. 子系统台账
 
@@ -57,11 +61,12 @@
   L2→回测器 tape adapter。在此之前,任何"精确队列/微观结构"结论只能标
   DIAGNOSTIC。
 
-## 3. 退役台账(怎么"安全地去掉旧零件")
+## 3. 退役参考清单(怎么"安全地去掉旧零件")
 
-方法 = 宪法 P6:**attic 不 rm**(移入 attic/ 或打 SUPERSEDED 横幅,永不
-直接删除)、一次退役一件、同一提交里测试绿 + `check_registry` 过 + 更新
-本台账。原始数据/seal/S3 永远不在退役范围。
+建议做法(引用既有宪法 P6,不新增规则):**attic 不 rm**(移入 attic/
+或打 SUPERSEDED 横幅,不直接删除)、一次退役一件、测试绿 +
+`check_registry` 过。原始数据/seal/S3 永远不在退役范围。下表是参考
+清单,每项动不动、何时动,由操作员决定。
 
 | 零件 | 现状 | 先决条件 | 动作 |
 |---|---|---|---|

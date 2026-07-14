@@ -10,12 +10,13 @@ which decisions landed in which files, what the next session must know.
 
 - commits:本条目所在 commit(评审逐字归档 + 新台账 + 本条目)。
 - decisions(均已落文件):
-  - 建立 `docs/CURRENT_ENGINEERING_STATE.md` 为全系统唯一状态台账
-    (BUILT/DEPLOYED/ACCEPTED/BLOCKED 四态;E5 同变更同提交维护),内含
-    生产分支指定(PROPOSED,待操作员追认:生产谱系 =
-    codex/pipeline-recovery-hardening 后代,策略分支禁部署)、退役台账
-    (P6 attic 方法,live_e2e/tradingd/Mac 回退宿主等 10 项)、操作员
-    待批清单(B12 居首)。
+  - 建立 `docs/CURRENT_ENGINEERING_STATE.md`。**操作员裁定(2026-07-14,
+    紧随创建):该文件是描述性参考快照,不是规则,不对任何 agent 新增
+    义务;约束权威仍只有 GUARDRAILS / MASTER_SEQUENCE / DECISIONS。**
+    文件头已按此改写(强制维护条款删除;生产分支一节降为"观察+建议";
+    退役台账降为"参考清单",每项由操作员决定)。内容:四态快照
+    (BUILT/DEPLOYED/ACCEPTED/BLOCKED)、退役参考清单(live_e2e/
+    tradingd/Mac 回退宿主等 10 项)、操作员待批清单(B12 居首)。
   - L1×L2 对齐口径:结构上可精准配对(同机 TL1 接收时钟 + ws_sid/ws_seq
     + SidStream 在线断档作废 + l2_gap_check 离线复核,出处
     warehouse_schema + PIPE-W06 spec §5),但①仅覆盖被选中约 50 市场、
