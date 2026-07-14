@@ -176,6 +176,48 @@ def main():
         check("corrupt-timestamp frame dropped (no crash, no row)",
               after == before and ing.bad_ts == 1,
               "rows %d->%d bad_ts=%d" % (before, after, ing.bad_ts))
+
+        # ---- 5b. malformed NON-STR ticker (2026-07-14 firehose_23 incident) ----
+        # A numeric market_ticker must be rejected BY TYPE (never coerced into a
+        # valid identity), must NOT crash ingest ("-" not in <int> raised
+        # TypeError and crash-looped the daemon), the checkpoint must still
+        # advance through the COMPLETE file, and the VALID record right after the
+        # malformed one must still ingest.
+        cap_bad = os.path.join(tmp, "cap_badticker.ndjson")
+        Tbt = T0 + 500 * 1_000_000
+        mt_good = "KXBTC-25DEC31-B99"            # fresh Class-A ticker, never seen
+        numeric_line = tick(1784030893, Tbt, 0.40, 0.42)          # int ticker
+        good_line = tick(mt_good, Tbt + 1_000_000, 0.30, 0.33)    # valid, right after
+        open(cap_bad, "w").write(numeric_line + "\n" + good_line + "\n")
+        bt_before = ing.bad_ticker
+        crashed = None
+        try:
+            ing.process_file(cap_bad)
+        except Exception as e:      # non-str ticker previously raised TypeError here
+            crashed = e
+        check("malformed non-str ticker does NOT crash ingest",
+              crashed is None, repr(crashed))
+        check("numeric ticker rejected and counted (bad_ticker +1)",
+              ing.bad_ticker == bt_before + 1,
+              "bad_ticker %d->%d" % (bt_before, ing.bad_ticker))
+        bad_facts = (q(ing, "SELECT count(*) FROM orderbooks_l1 "
+                            "WHERE market_ticker='1784030893'")[0][0]
+                     + q(ing, "SELECT count(*) FROM trades "
+                            "WHERE market_ticker='1784030893'")[0][0]
+                     + q(ing, "SELECT count(*) FROM orderbooks_full "
+                            "WHERE market_ticker='1784030893'")[0][0])
+        check("no malformed fact written for the numeric ticker",
+              bad_facts == 0, bad_facts)
+        good_rows = q(ing, "SELECT count(*) FROM orderbooks_l1 "
+                           "WHERE market_ticker='%s'" % mt_good)[0][0]
+        check("valid record immediately after the malformed one is ingested",
+              good_rows == 1, good_rows)
+        fsize = os.path.getsize(cap_bad)
+        ckpt = q(ing, "SELECT byte_offset FROM checkpoint WHERE file='%s'" % cap_bad)
+        check("checkpoint advances through the COMPLETE malformed-ticker file",
+              bool(ckpt) and ckpt[0][0] == fsize,
+              "ckpt=%s size=%d" % (ckpt, fsize))
+
         # ---- 7. writer connect survives a reader-held lock (2026-07-07) -------
         import duckdb as _duckdb
         lockdb = os.path.join(tmp, "lock.duckdb")

@@ -632,9 +632,12 @@ class Ingester:
         if not mt or typ not in ("ticker", "trade", "orderbook_snapshot", "orderbook_delta"):
             return
         # Real market tickers are {event}-{outcome}, so a dash is structural.
-        if not TICKER_RE.match(str(mt)) or "-" not in mt:
+        # A non-str ticker (e.g. a numeric market_ticker) is rejected by TYPE, not
+        # coerced into a valid identity: `"-" not in mt` on an int raised TypeError
+        # and crash-looped ingest (2026-07-14 firehose_23 incident).
+        if not isinstance(mt, str) or not TICKER_RE.match(mt) or "-" not in mt:
             self.bad_ticker += 1
-            return  # spliced/corrupt ticker never enters staging
+            return  # spliced/corrupt/non-str ticker never enters staging
         series, event = split_ticker(mt)
         cat, sub, grp, klass = self.classes.get(series, (None, None, None, "B"))
         # W-TL1 timestamp ladder: exchange + receive clocks carried as separate
