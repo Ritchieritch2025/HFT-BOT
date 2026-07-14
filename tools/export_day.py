@@ -233,8 +233,40 @@ def discovery_completeness(raw_root, date, files, checkpoints):
     return fams
 
 
+def _behind_reason(path, offset, size):
+    """None if the file is caught up, else a reason string.
+
+    Caught up iff every COMPLETE record (a line ending in '\\n') is consumed,
+    i.e. there is no '\\n' in the raw bytes AFTER the checkpoint. A 0-byte closed
+    file, or a trailing PARTIAL record (bytes after the file's last '\\n', never
+    terminated — e.g. capture cut mid-write during the 2026-07-14 disk-full
+    incident), is caught up: those are not ingestable complete records and never
+    will be. A '\\n' beyond the checkpoint means a real complete record is
+    unconsumed => genuinely behind."""
+    if size == 0:
+        return None  # empty closed file: nothing to ingest
+    start = 0 if offset is None else int(offset)
+    if start > size:
+        return "checkpoint=%s beyond size=%d" % (offset, size)
+    if start == size:
+        return None  # every byte consumed
+    with open(path, "rb") as f:
+        f.seek(start)
+        while True:
+            chunk = f.read(1 << 20)
+            if not chunk:
+                break
+            if b"\n" in chunk:  # an unconsumed COMPLETE record remains
+                return ("checkpoint=%s size=%d (unconsumed complete record)"
+                        % (offset, size))
+    return None  # only a partial trailing record (or nothing) remains
+
+
 def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
-    """Prove every byte in every closed raw file has an exact checkpoint.
+    """Prove every COMPLETE record in every closed raw file has an exact
+    checkpoint. A trailing PARTIAL record (bytes after the last '\\n', never
+    terminated) is not ingestable and does NOT count as behind; a 0-byte closed
+    file is caught up (nothing to ingest). See _behind_reason.
 
     PIPE-W03: on failure, EVERY behind/undiscovered file is reported — the
     2026-07-10 incident surfaced only the first offender (hour-13 base) while
@@ -250,8 +282,9 @@ def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
         path = os.path.abspath(path)
         size = os.path.getsize(path)
         offset = checkpoints.get(path)
-        if offset != size:
-            behind.append("%s checkpoint=%s size=%d" % (path, offset, size))
+        reason = _behind_reason(path, offset, size)
+        if reason is not None:
+            behind.append("%s %s" % (path, reason))
     if behind:
         raise RuntimeError(
             "ingest checkpoint behind raw: %d file(s): %s"
@@ -261,17 +294,10 @@ def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
         path = os.path.abspath(path)
         before = os.stat(path)
         size = before.st_size
-        if size <= 0:
-            raise RuntimeError("empty closed raw file: %s" % path)
-        with open(path, "rb") as f:
-            f.seek(-1, os.SEEK_END)
-            if f.read(1) != b"\n":
-                raise RuntimeError("closed raw file has a partial trailing record: %s"
-                                   % path)
         offset = checkpoints.get(path)
-        if offset != size:
-            raise RuntimeError("ingest checkpoint behind raw: %s checkpoint=%s size=%d"
-                               % (path, offset, size))
+        # _behind_reason already proved caught-up; consumed bytes = full size for
+        # a 0-byte file, else the checkpoint (at the last complete newline).
+        consumed = 0 if size == 0 else (int(offset) if offset is not None else 0)
         after = os.stat(path)
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
             raise RuntimeError("raw file changed during catch-up proof: %s" % path)
@@ -282,7 +308,7 @@ def verify_raw_caught_up(con, raw_root, date, warehouse_root=None):
             raise RuntimeError("raw file changed during sha256 proof: %s" % path)
         proof.append({"file": os.path.relpath(path, raw_root), "size": size,
                       "inode": final.st_ino, "mtime_ns": final.st_mtime_ns,
-                      "ctime_ns": final.st_ctime_ns, "checkpoint": int(offset),
+                      "ctime_ns": final.st_ctime_ns, "checkpoint": consumed,
                       "sha256": digest})
     return proof
 

@@ -322,6 +322,31 @@ def main():
                                   end=yd.isoformat(),
                                   archive_only=False).count("*").fetchone()[0]
         check("archive intact after refused shrink", n_intact == n_after, n_intact)
+
+        # ---- caught-up: partial trailing record PASSES, real gap FAILS --------
+        # (2026-07-14) A closed raw file whose last record was cut mid-write
+        # (bytes after the last '\n') is caught up once the checkpoint reaches
+        # that last complete newline; a checkpoint before an unconsumed COMPLETE
+        # record is genuinely behind; a 0-byte closed file is caught up.
+        import export_day
+        cu = tempfile.mkdtemp(prefix="caughtup_")
+        p = os.path.join(cu, "firehose_23.ndjson")
+        body = b'{"a":1}\n{"a":2}\n'          # two COMPLETE records
+        partial = b'{"a":3,"cut'               # unterminated trailing record (no \n)
+        open(p, "wb").write(body + partial)
+        sz = len(body) + len(partial)
+        check("caught-up: checkpoint at last newline + partial trailing record PASSES",
+              export_day._behind_reason(p, len(body), sz) is None,
+              export_day._behind_reason(p, len(body), sz))
+        check("caught-up: checkpoint before an unconsumed complete record FAILS",
+              export_day._behind_reason(p, len(b'{"a":1}\n'), sz) is not None)
+        check("caught-up: checkpoint == size PASSES",
+              export_day._behind_reason(p, sz, sz) is None)
+        pe = os.path.join(cu, "rfq_receipts_00.ndjson")
+        open(pe, "wb").close()
+        check("caught-up: 0-byte closed file (checkpoint=None) PASSES",
+              export_day._behind_reason(pe, None, 0) is None)
+        shutil.rmtree(cu, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         for k in ("WAREHOUSE_ROOT", "STAGING_DB", "ARCHIVE_ROOT", "RAW_ROOT"):
