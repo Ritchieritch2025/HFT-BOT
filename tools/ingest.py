@@ -361,13 +361,33 @@ class Ingester:
         return m
 
     def _rebuild_state(self):
-        """Restart-safe: last written L1 state + meta + snapshot hour per market."""
+        """Restart-safe: last written L1 state + meta + snapshot hour per market.
+
+        B15 (W-A 2026-07-14): the window scan is BOUNDED to the trailing
+        active_us (24h) behind max(ts_utc) instead of the whole table — on the
+        07-14 bloated staging (195M rows, multiple stuck days) the unbounded
+        version took 45+ min per restart and OOM'd before the memory cap.
+        State only needs the newest value per market, and _heartbeats already
+        retires any market silent longer than active_us, so state older than
+        that is dead weight. A market that returns after >active_us starts
+        stateless: its first tick is written as a snapshot row
+        (is_snapshot=true) — the same contract as INGEST_SKIP_REBUILD."""
+        try:
+            mx = self.con.execute(
+                "SELECT max(ts_utc) FROM orderbooks_l1").fetchone()[0]
+        except Exception:
+            mx = None
+        if mx is None:
+            self.global_hour = None
+            return
         try:
             rows = self.con.execute("""
               SELECT market_ticker, series_ticker, event_ticker, category, subcategory,
                      "group", record_class, yes_bid_e4, yes_bid_qty_e4, yes_ask_e4,
-                     yes_ask_qty_e4, ts_utc FROM orderbooks_l1 QUALIFY row_number() OVER
-                     (PARTITION BY market_ticker ORDER BY ts_utc DESC)=1""").fetchall()
+                     yes_ask_qty_e4, ts_utc FROM orderbooks_l1
+                     WHERE ts_utc >= ? QUALIFY row_number() OVER
+                     (PARTITION BY market_ticker ORDER BY ts_utc DESC)=1""",
+                [mx - self.active_us]).fetchall()
         except Exception:
             rows = []
         for mt, se, ev, cat, sub, grp, kl, yb, bq, ya, aq, ts in rows:
@@ -375,8 +395,7 @@ class Ingester:
             self.meta[mt] = (se, ev, cat, sub, grp, kl)
             self.last_seen[mt] = ts
             self.hb_hour[mt] = ts // HOUR_US
-        mx = self.con.execute("SELECT max(ts_utc) FROM orderbooks_l1").fetchone()[0]
-        self.global_hour = (mx // HOUR_US) if mx else None
+        self.global_hour = mx // HOUR_US
 
     def _stat(self, ts_us, category, ticks=0, l1=0, trades=0):
         k = (wc.day_of_us(ts_us), category or "_unclassified")

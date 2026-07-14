@@ -647,6 +647,12 @@ def main(argv):
                     help="after catch-up + exact archive proof, atomically seal the day")
     ap.add_argument("--verify-seal", action="store_true",
                     help="validate an existing seal/files without opening staging")
+    ap.add_argument("--prune-sealed", action="store_true",
+                    help="delete SEALED past days' fact rows from staging (the "
+                         "sealed+verified archive is authoritative; W-A B16 — "
+                         "run inside the seal window while ingest is stopped). "
+                         "Every staged day before today is checked; only days "
+                         "whose seal verifies are pruned. Checkpoints stay.")
     ap.add_argument("--legacy-seal", action="store_true",
                     help="seal a PRE-SEAL-SYSTEM historical day from archive "
                          "self-consistency alone (method=legacy_v0, operator "
@@ -677,7 +683,7 @@ def main(argv):
         return 2
     proof_modes = sum(bool(x) for x in
                       (args.verify_only, args.check_caught_up, args.seal,
-                       args.verify_seal, args.legacy_seal,
+                       args.verify_seal, args.legacy_seal, args.prune_sealed,
                        args.operator_invalidate_seal is not None))
     if proof_modes > 1 or (proof_modes and
                            (args.snapshot or args.force or args.csv or args.flat)):
@@ -848,8 +854,61 @@ def main(argv):
         con.execute("PRAGMA memory_limit='32GB'")
     except Exception:
         pass
-    attach_mode = " (READ_ONLY)" if proof_modes and not args.seal else ""
+    attach_mode = (" (READ_ONLY)"
+                   if proof_modes and not (args.seal or args.prune_sealed)
+                   else "")
     con.execute("ATTACH '%s' AS stg%s" % (staging.replace("'", "''"), attach_mode))
+
+    if args.prune_sealed:
+        # B16 (W-A): a sealed+verified day's staging rows are redundant — the
+        # write-once archive is authoritative. Pruning them in the SAME seal
+        # window (ingest stopped, no lock contention) is what keeps staging
+        # from bloating when seals lag (07-14: 12 GB / 195M-row staging was
+        # this debt compounding). Sweeps EVERY staged past day, so a day that
+        # missed its own window (chain died mid-run) is healed next window.
+        import warehouse
+        today_lo = wc.day_start_us(
+            datetime.datetime.now(datetime.timezone.utc).date().isoformat())
+        bounds = [con.execute("SELECT min(ts_utc) FROM stg.%s" % t).fetchone()[0]
+                  for t, _ in TABLES]
+        bounds = [b for b in bounds if b is not None]
+        if not bounds:
+            print("PRUNE-SEALED PASS: staging empty")
+            con.close()
+            return 0
+        d = datetime.datetime.fromtimestamp(
+            min(bounds) / 1e6, tz=datetime.timezone.utc).date()
+        today_d = datetime.datetime.now(datetime.timezone.utc).date()
+        pruned = kept = 0
+        while d < today_d:
+            dlo = wc.day_start_us(d.isoformat())
+            dhi = dlo + 86_400_000_000
+            n = sum(con.execute(
+                "SELECT count(*) FROM stg.%s WHERE ts_utc >= %d AND ts_utc < %d"
+                % (t, dlo, dhi)).fetchone()[0] for t, _ in TABLES)
+            if n:
+                try:
+                    for table, _ in TABLES:
+                        warehouse._require_sealed_dates(
+                            warehouse_root, archive_root, cfg["raw_root"],
+                            table, d.isoformat(), d.isoformat())
+                except Exception as e:
+                    print("  prune-sealed: %s NOT sealed/verified — %d rows kept (%s)"
+                          % (d, n, e))
+                    kept += n
+                else:
+                    for table, _ in TABLES:
+                        con.execute(
+                            "DELETE FROM stg.%s WHERE ts_utc >= %d AND ts_utc < %d"
+                            % (table, dlo, dhi))
+                    print("  prune-sealed: %s removed %d staged rows "
+                          "(sealed archive is authoritative)" % (d, n))
+                    pruned += n
+            d += datetime.timedelta(days=1)
+        con.close()
+        print("PRUNE-SEALED PASS: %d rows pruned, %d rows kept (unsealed days)"
+              % (pruned, kept))
+        return 0
 
     if args.check_caught_up:
         try:

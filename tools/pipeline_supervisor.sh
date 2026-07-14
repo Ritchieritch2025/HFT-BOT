@@ -94,6 +94,11 @@ else
 fi
 cleanup() {
   [ -f "$LIVE/ingest.pid" ] && kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null
+  # B11: also TERM any ingest daemon the pidfile lost track of (orphans held
+  # the staging lock through supervisor restarts before W-A).
+  if command -v ingest_procs >/dev/null 2>&1; then
+    for _p in $(ingest_procs); do kill "$_p" 2>/dev/null; done
+  fi
   kill "$WATCHDOG_PID" 2>/dev/null
   [ -n "${WS_PID:-}" ] && kill "$WS_PID" 2>/dev/null
   [ -n "${SEAL_PID:-}" ] && kill "$SEAL_PID" 2>/dev/null
@@ -113,30 +118,11 @@ trap 'exit 143' INT TERM
 echo "[supervisor] start pid=$$ raw=$RAW retention=${RAW_RETENTION_DAYS}d auto_research=$AUTO_RESEARCH"
 
 # --- LAYER 2: one ingest daemon, watched every 60s -----------------------------
-ingest_alive() {
-  [ -f "$LIVE/ingest.pid" ] && kill -0 "$(cat "$LIVE/ingest.pid")" 2>/dev/null
-}
-start_ingest() {
-  python3 tools/ingest.py --loop >> "$LIVE/ingest.log" 2>&1 &
-  echo $! > "$LIVE/ingest.pid"
-  echo "[supervisor] ingest daemon started pid=$(cat "$LIVE/ingest.pid")"
-}
-stop_ingest_for_export() {
-  ingest_alive || return 0
-  ingest_pid="$(cat "$LIVE/ingest.pid")"
-  kill "$ingest_pid" 2>/dev/null || true
-  # Do not race DuckDB's writer teardown.  If it cannot exit, fail this export
-  # attempt and let capture continue; never open the DB after an arbitrary sleep.
-  for _wait_i in $(seq 1 120); do
-    if ! kill -0 "$ingest_pid" 2>/dev/null; then
-      rm -f "$LIVE/ingest.pid"
-      return 0
-    fi
-    sleep 1
-  done
-  echo "[supervisor] ingest pid=$ingest_pid did not stop within 120s; export deferred"
-  return 1
-}
+# B11 (W-A): ingest_procs / ingest_alive / start_ingest / stop_ingest_for_export
+# live in tools/ingest_guard.sh — process-table-verified single-writer
+# lifecycle (the pidfile is only a hint), shared with the contract tests.
+# shellcheck disable=SC1091
+. tools/ingest_guard.sh
 write_seal_alarm() {
   # Durable 02:00-line alarm artifact (operator seal ruling: 02:00 is an
   # ALARM line, not a scheduling gate). Cleared only by a verified seal.
@@ -464,6 +450,14 @@ run_seal_chain() {
            python3 tools/export_day.py --date "$CHAIN_DATE" --seal \
              >> "$EXPORT_ATTEMPT_LOG" 2>&1; then
           chain_ok=1
+          # B16 (W-A): the just-sealed day (and any sealed backlog day that
+          # missed its own window) leaves staging NOW, in this same pause —
+          # ingest is stopped, so there is no lock contention. Non-gating:
+          # the seal above is already durable; a prune failure is retried
+          # next window by the same sweep.
+          python3 tools/export_day.py --date "$CHAIN_DATE" --prune-sealed \
+            >> "$EXPORT_ATTEMPT_LOG" 2>&1 \
+            || echo "[supervisor] prune-sealed failed for $CHAIN_DATE (non-gating; next window's sweep retries)"
         fi
       fi
       release_export_pause

@@ -2146,3 +2146,113 @@ def test_l2_shadow_mid_segment_disable_kills_the_running_segment(tmp_path):
     alert = json.load(open(os.path.join(live, "l2_alert.json")))
     assert alert["status"] == "disabled"
     assert not os.path.exists(os.path.join(live, "l2_shadow.lock"))
+
+
+# ───────────────────────── W-A (B15 + B16) ─────────────────────────
+
+
+def test_rebuild_state_bounded_to_active_window(tmp_path):
+    """B15: a fresh Ingester rebuilds last-L1-state from the trailing
+    active_us window behind max(ts_utc) only. Every heartbeat-eligible market
+    (last_seen within active_us of the newest tick) is restored with values
+    identical to the old full-table window scan; a market silent longer than
+    that (its heartbeats exhausted too) starts stateless — the documented
+    INGEST_SKIP_REBUILD snapshot contract."""
+    wh = str(tmp_path / "warehouse")
+    _cls_parquet(wh, EXPORT_CLS)
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    d3 = today - datetime.timedelta(days=3)
+    fresh, stale = "KXBTC-26DEC31-FRESH", "KXBTC-26DEC31-STALE"
+    _ingest_lines(wh, [
+        ti.tick(stale, _day_us(d3, 12), 0.0400, 0.0500),
+        ti.tick(fresh, _day_us(d3, 12), 0.0100, 0.0200),
+    ], name=os.path.join("raw", "date=%s" % d3.isoformat(),
+                         "firehose_12.ndjson"))
+    _ingest_lines(wh, [
+        ti.tick(fresh, _day_us(today, 0, 30), 0.0325, 0.0450),
+    ], name=os.path.join("raw", "date=%s" % today.isoformat(),
+                         "firehose_00.ndjson"))
+    con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    try:
+        ing = ingest.Ingester(con, wh)
+        assert fresh in ing.state, sorted(ing.state)
+        assert stale not in ing.state, sorted(ing.state)
+        # bounded result == unbounded full-table scan for the restored market
+        full = {r[0]: r[1:] for r in con.execute("""
+            SELECT market_ticker, yes_bid_e4, yes_bid_qty_e4, yes_ask_e4,
+                   yes_ask_qty_e4, ts_utc FROM orderbooks_l1
+            QUALIFY row_number() OVER
+              (PARTITION BY market_ticker ORDER BY ts_utc DESC)=1""").fetchall()}
+        assert ing.state[fresh] == full[fresh][:4]
+        assert ing.last_seen[fresh] == full[fresh][4]
+        # stale WAS in the full-table result — that is exactly the dead
+        # weight the bound drops
+        assert stale in full
+        mx = con.execute("SELECT max(ts_utc) FROM orderbooks_l1").fetchone()[0]
+        assert ing.global_hour == mx // ingest.HOUR_US
+    finally:
+        con.close()
+
+
+def test_rebuild_state_empty_staging(tmp_path):
+    """B15 edge: empty staging rebuilds to empty state, global_hour=None."""
+    wh = str(tmp_path / "warehouse")
+    _cls_parquet(wh, EXPORT_CLS)
+    con = duckdb.connect(os.path.join(wh, "staging.duckdb"))
+    try:
+        ing = ingest.Ingester(con, wh)
+        assert ing.state == {} and ing.global_hour is None
+    finally:
+        con.close()
+
+
+def test_prune_sealed_removes_sealed_day_keeps_unsealed(exported_day):
+    """B16: --prune-sealed deletes the SEALED day's staging rows in the same
+    window (archive is authoritative), keeps today and any UNSEALED past day,
+    and leaves the checkpoint table alone (seal caught-up proofs read it)."""
+    wh, yd, today = (exported_day["wh"], exported_day["yd"],
+                     exported_day["today"])
+    staging = os.path.join(wh, "staging.duckdb")
+    yd_lo = int(datetime.datetime(yd.year, yd.month, yd.day,
+                tzinfo=datetime.timezone.utc).timestamp() * 1_000_000)
+    yd_hi = yd_lo + 86_400_000_000
+    con = duckdb.connect(staging)
+    n_yd_before = sum(con.execute(
+        "SELECT count(*) FROM %s WHERE ts_utc >= ? AND ts_utc < ?" % t,
+        [yd_lo, yd_hi]).fetchone()[0]
+        for t in ("orderbooks_l1", "orderbooks_full", "trades"))
+    assert n_yd_before > 0  # sealed day still staged (old retain window)
+    n_today_before = con.execute(
+        "SELECT count(*) FROM trades WHERE ts_utc >= ?",
+        [yd_hi]).fetchone()[0]
+    # inject an UNSEALED older-day row (simulates a stuck unsealed backlog)
+    con.execute("INSERT INTO trades SELECT * REPLACE "
+                "(ts_utc - 2*86400000000 AS ts_utc, "
+                "'wa-unsealed' AS trade_id) FROM trades LIMIT 1")
+    n_ckpt = con.execute("SELECT count(*) FROM checkpoint").fetchone()[0]
+    assert n_ckpt > 0
+    con.close()
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "export_day.py"),
+         "--date", yd.isoformat(), "--prune-sealed"],
+        env=_export_env(wh), capture_output=True, text=True)
+    assert r.returncode == 0 and "PRUNE-SEALED PASS" in r.stdout, \
+        r.stdout + r.stderr
+    assert "removed" in r.stdout and "NOT sealed" in r.stdout, r.stdout
+    con = duckdb.connect(staging, read_only=True)
+    try:
+        n_yd_after = sum(con.execute(
+            "SELECT count(*) FROM %s WHERE ts_utc >= ? AND ts_utc < ?" % t,
+            [yd_lo, yd_hi]).fetchone()[0]
+            for t in ("orderbooks_l1", "orderbooks_full", "trades"))
+        assert n_yd_after == 0, "sealed day must leave staging"
+        assert con.execute(
+            "SELECT count(*) FROM trades WHERE trade_id='wa-unsealed'"
+            ).fetchone()[0] == 1, "unsealed day must be kept"
+        assert con.execute(
+            "SELECT count(*) FROM trades WHERE ts_utc >= ?",
+            [yd_hi]).fetchone()[0] == n_today_before, "today must be untouched"
+        assert con.execute(
+            "SELECT count(*) FROM checkpoint").fetchone()[0] == n_ckpt
+    finally:
+        con.close()

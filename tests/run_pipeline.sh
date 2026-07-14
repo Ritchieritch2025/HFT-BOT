@@ -107,6 +107,7 @@ run_suite "test_rfq_capture" ./tests/run_pytest.sh tests/test_rfq_capture.py
 run_suite "test_rfq_flow_report" ./tests/run_pytest.sh tests/test_rfq_flow_report.py
 run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
 run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
+run_suite "test_ingest_guard" ./tests/run_pytest.sh tests/test_ingest_guard.py
 run_suite "test_alert_notify" ./tests/run_pytest.sh tests/test_alert_notify.py
 run_suite "test_catalog_sync_pacing" ./tests/run_pytest.sh tests/test_catalog_sync_pacing.py
 run_suite "test_dim_snapshot_schema_drift" ./tests/run_pytest.sh tests/test_dim_snapshot_schema_drift.py

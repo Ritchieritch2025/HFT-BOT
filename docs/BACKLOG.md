@@ -633,6 +633,27 @@ noticed-during, observation, suggested owner.
   (own-pause + verified-stop, like recover_rfq_seal clauses 16-18). This + B9
   are the two capacity defects that made 07-12 a day-long incident. Owner:
   next pipeline engineering W, before W06 Stage 2.
+  **FIXED-IN-BRANCH (W-A, 2026-07-14, w-a-seal-staging-loop): the mechanism
+  proven possible was a SECOND ingest writer (watchdog/main-loop TOCTOU vs
+  the pause + a pidfile that tracks only one pid) — the orphan keeps the
+  writer lock however cleanly the tracked pid stops. tools/ingest_guard.sh
+  now makes the PROCESS TABLE the truth: stop TERMs every matching daemon
+  (uid + exact cmdline + /proc cwd == repo) and returns 0 only at zero
+  survivors; start refuses under a pause, adopts a live orphan instead of
+  doubling, and re-checks the pause post-spawn (TOCTOU closed both sides).
+  Contract tests tests/test_ingest_guard.py. NOT YET DEPLOYED — pending W-A
+  audit + supervisor restart.**
+- B18 (2026-07-14, found during W-A verification): kalshi-s3-sync-hourly
+  fails with SIGTERM (status=143) whenever the LAST SSH session logs out
+  while it runs — `aws` is the snap aws-cli, and snapd parks its scope under
+  user@1000.service; logind tears that manager down on last-logout, killing
+  the sync's aws mid-upload (observed 21:05Z + 22:05Z 2026-07-14, journal
+  evidence "Stopping snap.aws-cli...scope" immediately before "Terminated").
+  Ops fix (OPERATOR, one command on the box): `sudo loginctl enable-linger
+  ubuntu` — keeps the user manager alive across logouts; reversible with
+  disable-linger. Until then, agent sessions hold one keepalive SSH
+  connection across :05 windows. The hourly sync self-heals (aws s3 sync is
+  incremental), so each failure only delays that hour's vault copy.
 - B10 (2026-07-13- B10 (2026-07-13, found while baseline-verifying the RFQ fast-path): the
   deployed W06 Stage 1 selector test tests/test_l2_targets.py::
   test_main_refresh_fail_closed_leaves_previous_file_untouched FAILS on the
