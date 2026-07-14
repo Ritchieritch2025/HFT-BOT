@@ -1,8 +1,14 @@
 # W05 publication status — 2026-07-14 (session verdict)
 
-**一行裁决:⚠️ 发布成功(07-12 + 07-13 双日,版本绑定,Mac 端 verify 全 PASS),
-但 W05_ACCEPTED 还差一道结构性门:证据层级到不了 SEALED_CONFIRMATION —
-唯一精确 blocker = PIPE-W03 采集质量评估还不存在。**
+**一行裁决(经操作员 2026-07-14 修正令,见文末 AMENDMENT):✅ W05_ACCEPTED。**
+发布成功(07-12 + 07-13 双日,版本绑定,Mac 端 verify 全 PASS);操作员以
+option 2 修订验收标准 —— 评估器落地前,"降级原因仅剩 W03-pending"的 release
+以显式层级 `SEALED_PENDING_QUALITY_ASSESSMENT` 记名,满足 W05_ACCEPTED,
+限 EXPLORATORY(Track A)研究使用且每个产物带层级横幅;VERDICT 级结论仍需
+评估器建成回填后的完整 SEALED_CONFIRMATION。
+
+> 本文其余部分是修正令之前的原始裁决记录,保留不改(历史)。原
+> "唯一 blocker" 分析仍然准确 —— 它正是修正令所裁决的对象。
 
 ## 已完成(本 session,操作员 2026-07-14 启动令授权的 retry)
 
@@ -56,3 +62,46 @@ SPORTS-AUTORESEARCH-01 的 GATE A 判 FAIL 条件 = "默认 confirmation-only
 两个新 release 是 VERSION_BOUND 但 DEGRADED —— 按任务书字面,GATE A
 仍然 FAIL,直到上面 1/2 任一落地。操作员批 W09/重发任务时请把这一条
 一并裁决(否则任务还会在 GATE A 停)。
+
+---
+
+## AMENDMENT — 操作员修正令(原文逐字,2026-07-14)
+
+```
+OPERATOR RULINGS:
+1. B18 approved — I will run: sudo loginctl enable-linger ubuntu
+   (durable fix = migrate sync to a system-level unit; add to debt list.)
+2. W05 acceptance AMENDED (option 2): until the capture-quality assessor
+   ships, releases carry the explicit tier SEALED_PENDING_QUALITY_ASSESSMENT.
+   This tier satisfies W05_ACCEPTED and is valid for EXPLORATORY (Track A)
+   research with the tier banner on every artifact. VERDICT-grade claims
+   still require full SEALED_CONFIRMATION after the assessor exists and
+   backfills. Record this amendment in the status doc and STATE, then
+   return W05_ACCEPTED.
+3. The 3.2 GB unexposed publication debris: KEEP, tag it in the status doc,
+   clean up in the next housekeeping pass. No manual S3 deletions.
+4. W-A: proceed to independent audit (fresh session), deploy only on PASS.
+```
+
+## 修正令落地记录(同 turn,E2)
+
+- **W05_ACCEPTED 正式返回**,依据 = 上述第 2 条。两个 release
+  (`2026-07-12__seal-bc37de4c__pub-3e9c7603b8cab292`、
+  `2026-07-13__seal-7f6e5c1b__pub-be44d2be5e80e7fd`)按修正令记名为
+  `SEALED_PENDING_QUALITY_ASSESSMENT`(逻辑层级 —— S3 上的 MANIFEST 是
+  不可变对象,内嵌字符串仍是发布时的 `SEALED_DEGRADED_EVIDENCE` +
+  downgrade_reasons=[仅 W03-pending];消费端以本修正令 + 状态文件为准)。
+- **随之产生的代码债(记入分支 BACKLOG,下一个维护 W 处理):**
+  - B20:research_release.py `derive_evidence_tier` 在
+    downgrade_reasons == [W03-pending 一条] 时应直接产出
+    `SEALED_PENDING_QUALITY_ASSESSMENT`(新发布自带正确层级);
+  - B21:research_data.py 默认视图/横幅逻辑:该层级 = Track A 可用 +
+    强制横幅;VERDICT 级仍只认 SEALED_CONFIRMATION;
+  - B18 长效解:sync 迁移到 system-level unit(不再依赖 user manager)。
+- **TORN 残留处置(第 3 条):** `2026-07-12__seal-bc37de4c__pub-e1007e36c3cd927b`
+  (335 对象,3.24 GB,无 MANIFEST,从未曝光)—— **KEEP**,标记为
+  `HOUSEKEEPING_PENDING`,下次 housekeeping pass 统一清理;禁止手工 S3 删除。
+- **GATE A 影响更新:** 修正令后,confirmation-only 默认视图对 Track A
+  (EXPLORATORY)等价于 "SEALED_PENDING_QUALITY_ASSESSMENT 可见 + 横幅";
+  SPORTS-AUTORESEARCH GATE A 的字面判据是否随之改写,归属任务重发时的
+  操作员定稿(建议随 B21 一并处理)。

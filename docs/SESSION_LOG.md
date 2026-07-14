@@ -6,6 +6,40 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-14 23:40 UTC — 操作员四项裁决落地:W05_ACCEPTED(修正令 option 2)+ B18 批准 + 残留 KEEP + W-A 审计令
+
+- **一行裁决:✅ W05_ACCEPTED 正式返回**(操作员修正验收标准:评估器落地前
+  显式过渡层级 `SEALED_PENDING_QUALITY_ASSESSMENT`,限 Track A EXPLORATORY
+  + 强制横幅;VERDICT 级仍需 W03 回填后的 SEALED_CONFIRMATION)。
+- commits:本条目所在 commit(修正令原文逐字归档 + 落地记录 →
+  `W05_PUBLICATION_STATUS_2026-07-14.md`;STATE W05 行升为
+  DEPLOYED+ACCEPTED → `CURRENT_ENGINEERING_STATE.md`);分支
+  `w-a-seal-staging-loop@0ec2ce0`(BACKLOG:B18 裁决记录 + 新债 B20
+  发布器原生新层级 / B21 桥 CLI 视图+横幅语义,均已推 ec2)。
+- decisions(均已落文件):四项裁决全文 + 逐条落地位置见
+  `W05_PUBLICATION_STATUS_2026-07-14.md` AMENDMENT 节。TORN 残留
+  `…pub-e1007e36c3cd927b` = KEEP + `HOUSEKEEPING_PENDING`,禁手工 S3 删除。
+- blocked / handoff:①W-A 独立审计(fresh session,PASS 才部署)——
+  paste-ready 审计令见本条目下方;②操作员跑 enable-linger;③02:35Z
+  watcher 仍在盯 07-14 封印(上一条目)。
+- **W-A 审计令(可直接粘贴给 fresh session):**
+  ```
+  INDEPENDENT AUDIT — W-A (branch w-a-seal-staging-loop @ 0ec2ce0,
+  base e287778, ec2 bare repo + Mac sandbox/wa-dev worktree).
+  Scope: commits 0bfc347 (B11 tools/ingest_guard.sh + supervisor wiring;
+  B15 bounded _rebuild_state; B16 export_day --prune-sealed + seal-chain
+  step) and 7aad251 (test_console network_write). Audit against
+  docs/GUARDRAILS.md + docs/PIPE_DEBT_PAYDOWN_PLAN_2026-07-14.md W-A
+  acceptance: (a) ingest never revives during export+seal window,
+  (b) restart rebuild bounded & state-equivalent for heartbeat-eligible
+  markets, (c) sealed day leaves staging same cycle, unsealed days kept,
+  checkpoints untouched. Verify tests actually bite (mutate-and-rerun at
+  least one assertion per fix). Capture-continuity review of the
+  supervisor diff is MANDATORY (production data plane). Return PASS or
+  itemized findings. Do NOT deploy; deployment is a separate operator-
+  gated step after PASS.
+  ```
+
 ## 2026-07-14 23:05 UTC — 恢复后三连:数据面核验✅ + 07-12/07-13 研究发布✅(W05 仍差一道 W03 门)+ W-A 三合一修复 BUILT(未部署)
 
 **一句话:** 昨晚恢复的管道确认健康在追平;两天的研究 release 都发布并在 Mac 端
