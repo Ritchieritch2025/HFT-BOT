@@ -6,6 +6,43 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-14 21:30 UTC — 07-13 全天封印事故解决 + staging 排空恢复 + 卡顿债计划
+
+**一句话:** 07-13 卡了一整天的封印事故彻底解决(SEALED+VERIFY PASS),根因是新 L2
+采集路径的多个畸形数值 + 膨胀 staging 导致的重建 OOM;7 个修复上线;数据面已恢复;
+下一段"还卡顿债"计划已写好待执行。
+
+- **commits (branch codex/pipeline-recovery-hardening,均已 deploy 到 EC2):**
+  - 2e7e7ce ticker 类型守卫(isinstance);3bf5635 e4() 输出范围守卫(INT32/INT64)+e4p;
+    a9de8a5 recv_ladder 置空越界 recv_mono_ns + ws_int 范围守卫;22b0d94 ingest
+    memory_limit=32GB(重建 spill 不 OOM,B5);1c4a9bc INGEST_SKIP_REBUILD 逃生开关;
+    ef85dea verify_raw_caught_up 改判定(checkpoint≥最后完整换行=追平;残行/空文件=追平)
+    +回归夹具;e287778 export_day memory_limit=32GB。每个都带 focused 回归测试,全程
+    Python warehouse gate 绿。
+- **decisions(都已落文件):**
+  - 事故全过程+根因+7修复+剩余债务台账 → `docs/PIPE_INCIDENT_AND_PLAN_2026-07-14.md`
+  - 下一段还债 W 序列(execution-ready)→ `docs/PIPE_DEBT_PAYDOWN_PLAN_2026-07-14.md`
+  - 磁盘决策:EBS vol0bbed61d0c69abb21 200→600GiB(操作员扩,growpart+resize2fs;407G空闲)
+- **context capsule(下个 session 要知道的):**
+  - **真凶 = 采集端 ws_shadow 给 L2 orderbook_delta 帧盖垃圾 recv_mono_ns(~2e19..2e24),
+    溢出 INT64 崩 FULL/TRADE_INSERT。recv_wall_ns 正常,可回测本地钟不受影响。** 入库侧已
+    兜住(置空),**采集端未修 = B14,坏数据还会来。**
+  - 恢复机理:export_pause 冻结 respawn → memory-capped skip-rebuild 一次性 checkpoint
+    掉 RFQ 积压 → 2 个残行 raw 尾巴截断+1 空文件删除(操作员执行,随后用 caught-up 逻辑
+    修复取代该 hack)→ export --force→--seal→--verify-seal → staging 修剪到只剩 07-14
+    (5257万 L1,精确 ts 边界验证过,07-13 已归档、07-15 坏未来行删除)→ 撤 pause → 新
+    daemon(memory-capped,瘦库上快重建)恢复。采集全程未停、raw 全在、零真实数据丢失。
+  - **staging.duckdb 文件仍 12GB**(DuckDB 删行不缩文件,内部空间复用,不影响;可选 VACUUM)。
+  - 关键教训:封印链异步,只认 seals/date=D.json + verify PASS;ingest.log 尾巴常是旧
+    崩溃的缓冲冻结内容,别当新崩溃;`(ts/86400000000)::BIGINT` 分组会错标日,要用精确
+    ts 边界。
+- **blocked / handoff(下个 session 第一件事):**
+  1. **确认 daemon 286835(或其后继)已追平 07-14、健康**(本 session 结束时它 pid 稳定、
+     无新崩溃、RNl 在收尾重建/追平,未最终确认追平);确认今晚 07-14 的封印正常落地。
+  2. 然后按 `PIPE_DEBT_PAYDOWN_PLAN` 速战速决:**W-A(B11+B15+B16 打破封印↔staging 循环)
+     → B5 研究内存护栏 →(可开 auto-research)→ W-B(B14 采集坏钟)→ W-C → W-D。**
+     操作员要求:一个 fresh session 一个 W。
+
 ## 2026-07-14 12:05 UTC — 工程状态评审归档 + CURRENT_ENGINEERING_STATE 台账建立;L1×L2 对齐口径裁定(设计保证≠验收事实)
 
 - commits:本条目所在 commit(评审逐字归档 + 新台账 + 本条目)。
