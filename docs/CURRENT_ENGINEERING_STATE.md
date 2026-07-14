@@ -30,7 +30,7 @@
 | 定向 L2(约 50 市场/小时,W06 Stage 1) | **DEPLOYED + ACCEPTED**(Stage 1) | Stage 0 探针 694.5 msg/s/0 错(w06-stage1 日志);Stage 2(~200 市场)NOT BUILT;B10 selector fail-closed 缺陷开放 |
 | RFQ 广播采集(W07) | **DEPLOYED + ACCEPTED**(仅 raw) | kalshi-rfq-capture.service;rfq_<HH>+receipts 双文件族;研究表(rfq_requests 等)NOT BUILT |
 | Ingest + checkpoint(含 W03 修复、RFQ fast-path) | **DEPLOYED + ACCEPTED** | PIPE-W03 收据;ADDENDUM 7 fast-path |
-| 日封印链(export→manifest→seal→verify→gap) | **DEPLOYED + ACCEPTED** | 07-12 seal verify PASS 18:31Z(07-13);**B11 根因未完全复证**(锁竞争解释与 supervisor pause 代码不吻合,需 PID journal+部署 SHA 复证) |
+| 日封印链(export→manifest→seal→verify→gap) | **DEPLOYED,但 07-14 起再度 BLOCKED** | 07-12 seal verify PASS 18:31Z(07-13);**07-13 卡封 ~9h(B13 新病根:WAL 提交报 No space left,磁盘 86%/剩 28G,疑为大积压提交瞬时峰值,待只读诊断确证;出处 ec2_monitor.sh 快照 07-14 12:08Z 转达)**;B11 根因仍未完全复证;07-09 慢性未封钉住 retention |
 | S3 raw 保险库 + 同步定时器 | **DEPLOYED** | W-A5;closed-hour 排除、无 --delete |
 | **W05 研究 release(数据桥)** | **BUILT + BLOCKED(B12)** | 发布器/CLI/hook 在生产谱系;缺 vaultWriter `s3:GetObject(Version)` 回读权限 ⇒ fail-closed;桥上仅 07-11 QUARANTINED_LEGACY;`DATA_PLANE_ACCEPTED` 不存在 |
 | W09 云研究机 | **NOT BUILT** | 仅注册令(PIPE-W05-SPEC ADDENDUM 5);无实例/spend/IAM/runner |
@@ -81,12 +81,20 @@
 | sandbox 嵌套克隆(w05-recovery-fix/、handoff patches) | 未跟踪,污染搜索 | 其补丁全部进入生产谱系 | 确认合入后整目录移出仓库树归档 |
 | `__pycache__`、`outputs/`、`.claude/` | 未跟踪噪音 | 无 | gitignore 收口(注意 .gitignore 写权限走正常 W) |
 
-## 4. 操作员待批清单(按解锁价值排序)
+## 4. 操作员待批清单(2026-07-14 更新,按紧迫度排序)
 
-1. **B12 IAM**:vaultWriter 加 `s3:GetObject`+`s3:GetObjectVersion` on
+1. **只读磁盘诊断批准**(0 成本 0 风险;固定命令 ec2_disk.sh 先审后跑)
+   ——把 B13"瞬时峰值"假设变成事实。
+2. **在线扩 EBS**(约 +$8/月 每 100GB,按 PLAN_AWS_MIGRATION 07-08 报价
+   $0.08/GB-mo 估,需复核现价;不停机零数据风险)——任何假设下都安全的
+   止血;之后 07-13 可封、retention 恢复。
+3. **07-09 慢性未封处置裁决**(受控补封)——拔掉钉住最老 raw 的病根。
+4. **B11 修复 + B13 护栏授权**(封印期硬停 ingest + 空间预检;带回归
+   测试)——W06 Stage 2 在此之前保持冻结。
+5. **B12 IAM**:vaultWriter 加 `s3:GetObject`+`s3:GetObjectVersion` on
    research/*(约 5 分钟,解锁整条研究线)。
-2. 生产分支指定追认(本文件 §0 一句话)。
-3. AUTORESEARCH-01 的 4 项 P1 文本修补批复(一次改完,不再开审计循环)。
-4. C-13(live_e2e 退役)、OQ-1(费率追认)、C-1/C-2(小追认)。
-5. W-K6 实盘演练排期;W09 spend gate(等 W05 验收后)。
-6. B11 根因复证 + B9/B10 修复排期(W06 Stage 2 前置)。
+6. 生产分支建议追认(本文件 §0);AUTORESEARCH-01 的 4 项 P1 批复。
+7. C-13(live_e2e 退役)、OQ-1(费率追认)、C-1/C-2(小追认)。
+8. W-K6 排期;W09 spend gate(等 W05 验收后)。
+事故计划全文:`docs/PIPE_INCIDENT_AND_PLAN_2026-07-14.md`(生产谱系侧,
+草稿待审)。
