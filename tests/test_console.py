@@ -90,6 +90,16 @@ class TestSafetyPolicy(unittest.TestCase):
     def test_unknown_safety_refused(self):
         self.assertFalse(run_tests.may_run({"safety": "whatever"})[0])
 
+    def test_network_write_refused_even_with_allow_network(self):
+        # PIPE-W05 remediation item 7: remote-storage writers (research
+        # release publisher) are a REGISTERED class but must never be
+        # console-runnable — they carry their own --operator-approved gate.
+        # may_run's fall-through refusal is the fail-closed behavior this pins.
+        self.assertFalse(
+            run_tests.may_run({"safety": "network_write"},
+                              allow_network=True)[0],
+            "network_write must be refused EVEN with --allow-network")
+
 
 class TestRegistryRoundTrip(unittest.TestCase):
     def test_registry_loads_and_is_classified(self):
@@ -97,7 +107,8 @@ class TestRegistryRoundTrip(unittest.TestCase):
         self.assertGreater(len(tools), 0)
         for t in tools:
             self.assertIn("name", t)
-            self.assertIn(t["safety"], {"pure", "offline", "network_read", "live_order"})
+            self.assertIn(t["safety"], {"pure", "offline", "network_read",
+                                        "network_write", "live_order"})
 
     def test_every_live_order_is_refused(self):
         for t in run_tests.load_registry():
