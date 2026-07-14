@@ -751,7 +751,17 @@ def connect_with_retry(duckdb, path, attempts=30, sleep_s=5.0):
     last = None
     for i in range(attempts):
         try:
-            return duckdb.connect(path)
+            con = duckdb.connect(path)
+            # B5: cap memory so the startup state-rebuild (a window query over the
+            # WHOLE orderbooks_l1 table) SPILLS to disk instead of OOM-killing the
+            # daemon on a bloated staging (2026-07-14: a 195M-row rebuild
+            # OOM-looped the daemon for 30+ min and never completed). Plenty of
+            # disk headroom for the spill; the default temp dir sits beside the DB.
+            try:
+                con.execute("PRAGMA memory_limit='32GB'")
+            except Exception:
+                pass  # never let a tuning pragma break the connect path
+            return con
         except Exception as e:  # duckdb.IOException has no stable import path
             msg = str(e).lower()
             lock_error = any(token in msg for token in
