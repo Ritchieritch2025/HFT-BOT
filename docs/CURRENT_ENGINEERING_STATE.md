@@ -32,7 +32,7 @@
 | Ingest + checkpoint(含 W03 修复、RFQ fast-path) | **DEPLOYED + ACCEPTED** | PIPE-W03 收据;ADDENDUM 7 fast-path |
 | 日封印链(export→manifest→seal→verify→gap) | **DEPLOYED,但 07-14 起再度 BLOCKED** | 07-12 seal verify PASS 18:31Z(07-13);**07-13 卡封 ~9h(B13 新病根:WAL 提交报 No space left,磁盘 86%/剩 28G,疑为大积压提交瞬时峰值,待只读诊断确证;出处 ec2_monitor.sh 快照 07-14 12:08Z 转达)**;B11 根因仍未完全复证;07-09 慢性未封钉住 retention |
 | S3 raw 保险库 + 同步定时器 | **DEPLOYED** | W-A5;closed-hour 排除、无 --delete |
-| **W05 研究 release(数据桥)** | **DEPLOYED + ACCEPTED**(2026-07-14 操作员修正令 option 2) | B12 已关并实测有效;07-12(335 对象/3.24GB)+ 07-13(330 对象/2.71GB)版本绑定发布、Mac verify PASS;层级 = `SEALED_PENDING_QUALITY_ASSESSMENT`(评估器落地前的显式过渡层级,限 Track A EXPLORATORY + 横幅;VERDICT 级仍需 W03 建成回填后的 SEALED_CONFIRMATION)。修正令原文 + 落地记录:`W05_PUBLICATION_STATUS_2026-07-14.md`。派生代码债 B20/B21 在分支 BACKLOG |
+| **W05 研究 release(数据桥)** | **DEPLOYED + EXPLORATORY_ONLY**(操作员 SUPERSEDE 令 2026-07-14:W05_ACCEPTED REVOKED) | B12 已关并实测有效;07-12 + 07-13 版本绑定发布、Mac verify PASS,但**正式验收保持严格**:W03 评估质量前任何层级不得视同 SEALED_CONFIRMATION。现行目标状态 = W05_EXPLORATORY_READY(条件:带 sealed RFQ 的 state-aware 重发布 + Mac exact-VersionId verify,先前授权 "RFQ inclusion ON" 生效)。层级横幅纪律保留:Tier-1 描述性探索,禁 freeze/verdict/promotion/live-candidate。SUPERSEDE 原文 + 落地:`W05_PUBLICATION_STATUS_2026-07-14.md`;派生债 B18长效/B20/B21 在分支 BACKLOG |
 | W09 云研究机 | **NOT BUILT** | 仅注册令(PIPE-W05-SPEC ADDENDUM 5);无实例/spend/IAM/runner |
 | Research Workbench / Event Intelligence | **BUILT**(sandbox 级) | 读旧本地数据(07-06~08,21 episodes);W05-aware UI 在 `pipe-w05-ui-data-root@34e3a38` **未合并** |
 | mm_sandbox 做市回放器 | **BUILT — DIAGNOSTIC only** | 无真实 L2 校准队列、tape 缺完整 recv/seq 证明 ⇒ 不给经济 go/no-go |

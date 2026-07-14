@@ -1,14 +1,20 @@
 # W05 publication status — 2026-07-14 (session verdict)
 
-**一行裁决(经操作员 2026-07-14 修正令,见文末 AMENDMENT):✅ W05_ACCEPTED。**
-发布成功(07-12 + 07-13 双日,版本绑定,Mac 端 verify 全 PASS);操作员以
-option 2 修订验收标准 —— 评估器落地前,"降级原因仅剩 W03-pending"的 release
-以显式层级 `SEALED_PENDING_QUALITY_ASSESSMENT` 记名,满足 W05_ACCEPTED,
-限 EXPLORATORY(Track A)研究使用且每个产物带层级横幅;VERDICT 级结论仍需
-评估器建成回填后的完整 SEALED_CONFIRMATION。
+**一行裁决(经操作员 SUPERSEDE 令,2026-07-14 深夜,见文末 SUPERSEDE 节;
+它取代此前的 option-2 AMENDMENT):⚠️ W05_ACCEPTED 已 REVOKED。**
+现行状态 = **W05_EXPLORATORY_READY(待 RFQ 重发布后正式返回)**:
+- 正式验收保持严格:PIPE-W03 评估质量之前,任何层级都不得视同
+  SEALED_CONFIRMATION;
+- 07-12/07-13 现有 release 仅够探索级;层级横幅纪律保留 —— Tier-1
+  描述性探索用途,**禁止** freeze / verdict / promotion / live-candidate
+  任何一类主张;
+- RFQ GAP:先前授权"sealed RFQ inclusion ON"生效 —— 现有两个
+  RFQ-excluded release 不满足 RFQ 研究范围,须带 sealed RFQ 重发布
+  (state-aware 新 release id)+ Mac 端 inventory/fetch/exact-VersionId
+  verify 通过,才返回 W05_EXPLORATORY_READY。
 
-> 本文其余部分是修正令之前的原始裁决记录,保留不改(历史)。原
-> "唯一 blocker" 分析仍然准确 —— 它正是修正令所裁决的对象。
+> 本文下方依序保留:原始裁决记录(历史)→ option-2 AMENDMENT(已被
+> SUPERSEDE 取代,留档)→ SUPERSEDE 原文逐字 + 落地记录(现行权威)。
 
 ## 已完成(本 session,操作员 2026-07-14 启动令授权的 retry)
 
@@ -105,3 +111,71 @@ OPERATOR RULINGS:
   (EXPLORATORY)等价于 "SEALED_PENDING_QUALITY_ASSESSMENT 可见 + 横幅";
   SPORTS-AUTORESEARCH GATE A 的字面判据是否随之改写,归属任务重发时的
   操作员定稿(建议随 B21 一并处理)。
+
+---
+
+## SUPERSEDE — 操作员严格化令(原文逐字,2026-07-14 深夜;取代上方 option-2 AMENDMENT)
+
+```
+SUPERSEDE — the option-2 draft you executed was replaced by a stricter
+operator ruling. Corrections, in order:
+
+1. RENAME the acceptance: W05_ACCEPTED is REVOKED. The 07-12/07-13 releases
+   are W05_EXPLORATORY_READY only. Formal acceptance stays strict: no tier
+   may be treated as SEALED_CONFIRMATION until PIPE-W03 assesses quality.
+   Update STATE and docs/W05_PUBLICATION_STATUS_2026-07-14.md accordingly
+   (archive this supersede verbatim). Tier-banner discipline you implemented
+   stays — Tier-1 descriptive exploratory use only; no freeze/verdict/
+   promotion/live-candidate claims.
+2. RFQ GAP: prior authorization "sealed RFQ inclusion ON" is in force.
+   The current RFQ-excluded releases do NOT satisfy the RFQ research scope.
+   Publish new state-aware releases for 07-12/07-13 WITH sealed RFQ included,
+   prove Mac/W09 inventory + fetch + exact-VersionId verify, then return
+   W05_EXPLORATORY_READY.
+3. B18: already executed by operator (Linger=yes; rollback recorded:
+   sudo loginctl disable-linger ubuntu). VERIFY the mechanism: if the hourly
+   sync is NOT a systemd --user unit but an SSH-spawned process, linger is
+   not the cure — the durable fix is migration to a system-level unit
+   (registered debt). Confirm which it is with evidence.
+4. Unchanged: keep B20/B21 registrations, HOUSEKEEPING_PENDING tag, and the
+   W-A audit block; W-A deploys only after tonight's 07-14 seal passes.
+```
+
+## SUPERSEDE 落地记录(执行中,完成项随做随记)
+
+- [x] W05_ACCEPTED 撤销;本文头部改判 + STATE 行改写(W05 =
+  EXPLORATORY_ONLY,严格验收门保留)。
+- [ ] RFQ 重发布 07-12 + 07-13(--include-rfq,state-aware 新 id)→ 结果表
+  见下方 "RFQ 重发布" 节(执行后填写)。
+- [ ] B18 机制取证 → 见下方 "B18 机制核验" 节(执行后填写)。
+- [x] 第 4 条不变项确认:B20/B21 在册(分支 BACKLOG)、HOUSEKEEPING_PENDING
+  在档、W-A 审计令在 SESSION_LOG 23:40 条目;W-A 部署顺序 = 今晚 07-14
+  封印 PASS 之后 + 审计 PASS。
+
+## B18 机制核验(SUPERSEDE 第 3 条,证据在案)
+
+**结论:两者都不是 —— sync 既不是 systemd --user unit,也不是 SSH 起的进程,
+而是正规 system-level unit;被杀的是它的子进程 `aws`(snap 版)。Linger 有效,
+但长效债需改写:问题不在 unit 层级,在 snap。**
+
+证据链(全部实测):
+1. unit 是 system 级:`/etc/systemd/system/kalshi-s3-sync-hourly.service`
+   (Type=oneshot, User=ubuntu, ExecStart=deploy/ec2_s3_sync.sh hourly)+
+   同名 system timer(OnCalendar=*:05)。`systemctl cat` 输出在案。
+2. 但脚本里的 `aws` = snap aws-cli:`which aws` → `/snap/bin/aws` →
+   `aws-cli.aws`(snap aws-cli 2.35.21, classic)。`snap run` 会把 aws
+   进程注册进一个 transient scope,而这个 scope 挂在 **user@1000.service
+   (用户管理器)** 下面 —— 不在 system service 自己的 cgroup 里。
+3. 两次被杀的 journal 完全同构:
+   - 21:05:45:`systemd[1]: Stopping user@1000.service` →
+     `systemd[283652](用户管理器): Stopping snap.aws-cli.aws-6f52b35e….scope`
+     → `bash[285417](sync 的 shell): Terminated`
+   - 22:05:24:同链条,scope id `…ea714b00…`,`bash[339782]: Terminated`
+   触发条件都是"最后一个 SSH 会话登出 → logind 收掉用户管理器"。
+4. `Linger=yes` 已实测在案(操作员已执行;回滚命令已记录)。Linger 让
+   user@1000 常驻 ⇒ scope 不再随登出被收 ⇒ **对本故障是有效解**。
+5. **残余脆弱性(所以长效债保留但改写):** 任何令 user@1000 重启的事件
+   (手工 restart、用户管理器崩溃、systemd 升级 re-exec)仍会杀掉进行中的
+   aws。长效修复不是"迁 system unit"(它已经是),而是**去掉 snap/用户
+   管理器依赖**:非 snap 的 aws v2(官方安装包)或改用自带 SigV4 的
+   python 上传器。分支 BACKLOG 的 B18 长效项已按此改写。
