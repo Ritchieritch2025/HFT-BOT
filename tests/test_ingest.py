@@ -218,6 +218,52 @@ def main():
               bool(ckpt) and ckpt[0][0] == fsize,
               "ckpt=%s size=%d" % (ckpt, fsize))
 
+        # ---- 5c. out-of-range E4 value (2026-07-14 delta_e4 overflow incident) --
+        # e4() must range-guard its output: a garbage delta (~2e15 -> ~2e19 after
+        # x10000) overflowed the INT64 delta_e4 column and crashed the FULL_INSERT
+        # batch. It must be rejected+counted (bad_value), never crash, the
+        # checkpoint must advance, and a valid delta right after must still ingest.
+        check("e4 rejects an out-of-INT64 scaled value",
+              ingest.e4("1994398724026756.7") is None)
+        check("e4 keeps a normal in-range value", ingest.e4("5.00") == 50000)
+        check("e4p (INT32 price) rejects an overflow price",
+              ingest.e4p("500000") is None)
+        check("e4p keeps a normal price", ingest.e4p("0.4200") == 4200)
+
+        def delta_line(mt, ts_us, side, price, delta, sid=7, seq=1):
+            m = {"market_ticker": mt, "ts_ms": ts_us // 1000, "side": side,
+                 "price_dollars": price, "delta_fp": delta}
+            return json.dumps({"recv_wall_ns": ts_us * 1000,
+                "raw": json.dumps({"type": "orderbook_delta",
+                                   "sid": sid, "seq": seq, "msg": m})})
+        mt_d = "KXBTC-25DEC31-DLT"          # Class A; delta path is class-agnostic
+        Td = T0 + 600 * 1_000_000
+        cap_ov = os.path.join(tmp, "cap_overflow.ndjson")
+        open(cap_ov, "w").write(
+            delta_line(mt_d, Td, "yes", "0.40", "1994398724026756.7", seq=1) + "\n" +
+            delta_line(mt_d, Td + 1_000_000, "yes", "0.30", "5.00", seq=2) + "\n")
+        ing_ov = new_ingester(tmp, wh, "overflow.duckdb")   # isolated DB (no pollution)
+        crashed_ov = None
+        try:
+            ing_ov.process_file(cap_ov)
+        except Exception as e:      # delta_e4 overflow previously crashed the batch
+            crashed_ov = e
+        check("out-of-range delta does NOT crash ingest",
+              crashed_ov is None, repr(crashed_ov))
+        check("out-of-range delta rejected and counted (bad_value +1)",
+              ing_ov.bad_value == 1, "bad_value=%d" % ing_ov.bad_value)
+        full_d = q(ing_ov, "SELECT count(*) FROM orderbooks_full "
+                           "WHERE market_ticker='%s' AND msg_type='delta'" % mt_d)[0][0]
+        check("only the VALID delta is staged (garbage one dropped)",
+              full_d == 1, full_d)
+        de_val = q(ing_ov, "SELECT delta_e4 FROM orderbooks_full "
+                           "WHERE market_ticker='%s' AND msg_type='delta'" % mt_d)[0][0]
+        check("staged delta_e4 is the valid 5.00 -> 50000", de_val == 50000, de_val)
+        fsz = os.path.getsize(cap_ov)
+        ck = q(ing_ov, "SELECT byte_offset FROM checkpoint WHERE file='%s'" % cap_ov)
+        check("checkpoint advances through the COMPLETE overflow file",
+              bool(ck) and ck[0][0] == fsz, "ckpt=%s size=%d" % (ck, fsz))
+
         # ---- 7. writer connect survives a reader-held lock (2026-07-07) -------
         import duckdb as _duckdb
         lockdb = os.path.join(tmp, "lock.duckdb")

@@ -160,14 +160,33 @@ def ws_int(v):
     return v if type(v) is int else None
 
 
-def e4(v):
-    """Dollar/size string or number -> integer scaled by 10000 (full precision)."""
+INT32_MIN, INT32_MAX = -2147483648, 2147483647
+INT64_MIN, INT64_MAX = -9223372036854775808, 9223372036854775807
+
+
+def e4(v, lo=INT64_MIN, hi=INT64_MAX):
+    """Dollar/size string or number -> integer scaled by 10000 (full precision).
+
+    Boundary guard (D3): the scaled result MUST fit the destination column's
+    integer range [lo, hi] (INT32 for *_e4 price columns via e4p, INT64 for
+    quantity/delta/volume/oi). An out-of-range value -- e.g. a garbage delta
+    ~2e15 that becomes ~2e19 after x10000 and overflows INT64 -- returns None
+    instead of reaching DuckDB and crashing the whole batch insert
+    (2026-07-14 orderbooks_full delta_e4 ConversionException)."""
     if v is None or v == "":
         return None
     try:
-        return int(round(float(v) * 10000))
+        n = int(round(float(v) * 10000))
     except (ValueError, TypeError):
         return None
+    if n < lo or n > hi:
+        return None
+    return n
+
+
+def e4p(v):
+    """E4 for the INT32 *_e4 PRICE columns (yes/no price, bid/ask, delta price)."""
+    return e4(v, INT32_MIN, INT32_MAX)
 
 
 def levels_e4(msg, side):
@@ -187,7 +206,7 @@ def levels_e4(msg, side):
             p, q = pair[0], pair[1]
         except (TypeError, IndexError):
             continue
-        pe = e4(p) if not cents else (int(p) * 100 if p is not None else None)
+        pe = e4p(p) if not cents else (int(p) * 100 if p is not None else None)
         qe = e4(q)
         if pe is not None and qe is not None:
             out.append([pe, qe])
@@ -298,6 +317,7 @@ class Ingester:
         self.stats = {}          # (day, category) -> [ticks, l1, trades]
         self.bad_ts = 0          # frames dropped for corrupt/implausible timestamps
         self.bad_ticker = 0      # frames dropped for corrupt/spliced tickers
+        self.bad_value = 0       # frames dropped for out-of-range E4 numeric values
         self._rebuild_state()
 
     def _migrate_additive(self):
@@ -657,8 +677,8 @@ class Ingester:
         if typ == "ticker":
             if klass != "A":
                 return  # Class B: no L1
-            st = (e4(msg.get("yes_bid_dollars")), e4(msg.get("yes_bid_size_fp")),
-                  e4(msg.get("yes_ask_dollars")), e4(msg.get("yes_ask_size_fp")))
+            st = (e4p(msg.get("yes_bid_dollars")), e4(msg.get("yes_bid_size_fp")),
+                  e4p(msg.get("yes_ask_dollars")), e4(msg.get("yes_ask_size_fp")))
             hour = ts_us // HOUR_US
             prev = self.state.get(mt)
             if prev is None or hour > self.hb_hour.get(mt, -1):
@@ -675,13 +695,13 @@ class Ingester:
                 self.hb_hour[mt] = hour
             l1_rows.append((ts_us, mt, series, event, cat, sub, grp, klass,
                             st[0], st[1], st[2], st[3],
-                            e4(msg.get("price_dollars")), e4(msg.get("volume_fp")),
+                            e4p(msg.get("price_dollars")), e4(msg.get("volume_fp")),
                             e4(msg.get("open_interest_fp")), snap) + ladder)
             self._stat(ts_us, cat, l1=1)
         elif typ == "trade":
             tr_rows.append((ts_us, mt, series, event, cat, sub, grp,
-                            msg.get("trade_id"), e4(msg.get("yes_price_dollars")),
-                            e4(msg.get("no_price_dollars")), e4(msg.get("count_fp")),
+                            msg.get("trade_id"), e4p(msg.get("yes_price_dollars")),
+                            e4p(msg.get("no_price_dollars")), e4(msg.get("count_fp")),
                             msg.get("taker_side")) + ladder)
             self._stat(ts_us, cat, trades=1)
         elif typ == "orderbook_snapshot":
@@ -692,8 +712,13 @@ class Ingester:
         elif typ == "orderbook_delta":
             price = msg.get("price_dollars", msg.get("price"))
             delta = msg.get("delta_fp", msg.get("delta"))
+            pe, de = e4p(price), e4(delta)
+            if (price not in (None, "") and pe is None) or \
+               (delta not in (None, "") and de is None):
+                self.bad_value += 1
+                return  # out-of-range/garbage orderbook delta never enters staging
             full_rows.append((ts_us, mt, series, event, cat, sub, grp, "delta",
-                              msg.get("side"), e4(price), e4(delta), None, None,
+                              msg.get("side"), pe, de, None, None,
                               ws_int(frame.get("sid")), ws_int(frame.get("seq"))) + ladder)
 
     def _insert(self, l1_rows, tr_rows, full_rows):
