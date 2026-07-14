@@ -842,6 +842,12 @@ def main(argv):
     day_lo = wc.day_start_us(date)
     day_hi = day_lo + 86_400_000_000
     con = duckdb.connect()
+    # Cap memory so a large day export (100M+ rows) spills to disk instead of
+    # OOM-killing the process (B5; 2026-07-14 recovery). Best-effort.
+    try:
+        con.execute("PRAGMA memory_limit='32GB'")
+    except Exception:
+        pass
     attach_mode = " (READ_ONLY)" if proof_modes and not args.seal else ""
     con.execute("ATTACH '%s' AS stg%s" % (staging.replace("'", "''"), attach_mode))
 
