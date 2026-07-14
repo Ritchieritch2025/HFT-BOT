@@ -12,6 +12,15 @@ fresh session,改完独立审计,退出仪式**(项目标准)。按杠杆排序,
 2026-07-14 的马拉松就是这个循环转了一整天。B11/B15/B16 互相喂,必须一个协调 W 一起修。
 
 ## W-A(最高杠杆):打破封印↔staging 循环 [B11+B15+B16]
+> **状态 2026-07-14 23:0xZ:BUILT + 测试全绿,分支 `w-a-seal-staging-loop`
+> @ 0bfc347(已推 ec2 裸仓库)。未部署 —— 等 07-14 封印正常落地 + 独立
+> 审计后再切生产树 + 重启 supervisor(重启步骤见 SESSION_LOG 当日条目)。
+> 实现要点:B11 = tools/ingest_guard.sh(进程表为真、pidfile 只是提示;
+> verified-stop 杀全部含孤儿、start 拒绝 pause/收养孤儿/spawn 后复查),
+> B15 = _rebuild_state 只扫 max(ts)-24h 窗口(心跳可达市场全保留,等价性
+> 有测试),B16 = export_day --prune-sealed(封印当轮清 staging,扫全部
+> 已封旧日自愈积压),契约测试 tests/test_ingest_guard.py 4 项 +
+> test_pipeline_contract 新增 3 项。
 文件:`tools/pipeline_supervisor.sh` (run_seal_chain / stop_ingest)、`tools/ingest.py`
 (_rebuild_state)、`tools/export_day.py` (prune)。
 - **B11**:封印链在**整段 export+seal** 期间硬保持 ingest 停止——own-pause token +

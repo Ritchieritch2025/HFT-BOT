@@ -6,6 +6,72 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-14 23:05 UTC — 恢复后三连:数据面核验✅ + 07-12/07-13 研究发布✅(W05 仍差一道 W03 门)+ W-A 三合一修复 BUILT(未部署)
+
+**一句话:** 昨晚恢复的管道确认健康在追平;两天的研究 release 都发布并在 Mac 端
+验证通过(B12 修复有效),但 W05 验收被一道结构性门挡住(唯一 blocker =
+PIPE-W03 采集质量评估不存在);W-A(B11+B15+B16)已在分支上写完、测试全绿、
+推到 ec2 裸仓库,等 07-14 封印落地 + 独立审计后再部署。
+
+- **commits:**
+  - 本条目所在 commit(主树 docs:本条目 + `W05_PUBLICATION_STATUS_2026-07-14.md`
+    + PIPE_DEBT_PAYDOWN_PLAN W-A 状态注记)
+  - 分支 `w-a-seal-staging-loop`(基于 e287778,已推 ec2 裸仓库):
+    `0bfc347` W-A 三合一(B11 ingest_guard.sh 进程表单写者守卫 + B15 有界
+    _rebuild_state + B16 export_day --prune-sealed,含 4+3 项新测试);
+    `7aad251` test_console 收 network_write 注册类 + 钉死 console 对
+    network_write 的 fail-closed 拒绝。
+- **decisions(均已落文件):**
+  - W05 裁决:发布完成、验收 BLOCKED,唯一精确 blocker + 三条操作员选项
+    → `docs/W05_PUBLICATION_STATUS_2026-07-14.md`(GATE A 影响也在内)。
+  - B11 修复机理 + B18(snap aws-cli 被 last-SSH-logout 杀死,ops 修复 =
+    操作员跑 `sudo loginctl enable-linger ubuntu`)→ 分支 `docs/BACKLOG.md`。
+  - W-A 状态注记 → `docs/PIPE_DEBT_PAYDOWN_PLAN_2026-07-14.md`。
+- **context capsule:**
+  - **数据面核验(任务1):** daemon pid 286835 健康 —— 21:19Z 起稳定无重生
+    (supervisor.out.log 无新 "ingest daemon started"),疯狂追 4 小时积压
+    (17:34–21:19 ingest 停摆期的 raw):rchar 2.4→3.97GB、wchar 136→491MB、
+    staging mtime 秒级新鲜(在插入),RSS ~6GB < 32GB 上限,零 crash。
+    export_pause 不存在 ⇒ 今晚封印走正常 02:00Z 窗口。staging by-day 只读
+    直查不可行(DuckDB 写锁独占,ATTACH READ_ONLY 被 286835 拒 —— 这本身
+    就是 daemon 活着的证据);"只剩 07-14" 的精确边界证明沿用上一 session
+    的修剪核验,今晚 seal 的 export/verify 会做终局重证。**看护:后台
+    watcher 02:35Z 自动查封印结果**(本 bg session 会被唤醒);另有一条
+    keepalive SSH 到 ~02:58Z 护住 B18 的 :05 同步窗口。
+  - **发布(任务2):** 两日发布细节全在 `W05_PUBLICATION_STATUS_2026-07-14.md`。
+    要点:--operator-approved 依据 = 本 session 启动令;未建 arm-file;
+    S3 上有个 07-12 TORN 残留(无 MANIFEST,3.2GB)可清理(操作员定);
+    发布器拒绝在持有 Mac 只读钥匙的主机上跑(EC2 上跑的,合规)。
+  - **W-A(任务3):** B11 真凶确认 = 第二个 ingest 写者(watchdog/主循环
+    TOCTOU + pidfile 只记一个 pid;孤儿保锁整天)。修复 = ingest_guard.sh:
+    stop 杀全部匹配进程(uid+cmdline+/proc cwd)、零存活才返回;start 拒
+    pause/收养孤儿/spawn 后复查 pause。B15 = 重建只扫 max(ts)-active_us
+    (24h)窗口,心跳可达市场全保留(等价性测试证明),>24h 静默市场无状态
+    重启(= SKIP_REBUILD 快照契约)。B16 = --prune-sealed 扫全部已封旧日,
+    未封日保留、checkpoint 不动,接在 seal 步之后同窗执行,non-gating。
+    测试:test_ingest_guard.py 4 项(含孤儿杀、TOCTOU 双保险)、
+    test_pipeline_contract +3 项、全仓 run_pipeline 只剩 2 红 ——
+    test_l2_targets = B10(在册,clean base 也红)、test_console 已修绿。
+    make check 绿。
+  - **死胡同/教训:** ① export_day --check-caught-up 对"今天"会被
+    completed-day guard 拒绝(proof 模式共享该 guard),想查今日追平只能
+    等封印窗口或看 daemon 行为侧写;② macOS date -j -f 按本地时区解析,
+    定时用 python 算 epoch;③ 子进程 TERM 后成僵尸,os.kill(pid,0) 会
+    误报活着 —— 测试要用 wait(timeout) 收尸。
+- **blocked / handoff:**
+  1. **02:35Z watcher 醒来后:** 确认 07-14 seal SEALED+verify PASS、无
+     seal_alarm、23:05/00:05/01:05 sync 恢复 pass。若封印卡住:先看
+     export_attempt.log 的 caught-up 判定,别急着动手 —— B11 修复还没部署,
+     老 stop_ingest 单 pid 逻辑在跑(今晚 daemon 稳定、pidfile 准确,预期能过)。
+  2. **W-A 部署(下一个 fresh session,先审计后部署):** 独立审计分支
+     `w-a-seal-staging-loop`(ec2 裸仓库已有)→ EC2 生产树 checkout →
+     `sudo systemctl restart kalshi-pipeline`(秒级采集间隙,ws_shadow
+     append-only 同小时续写)。重启后 B15 让 ingest 重建从 45+min → <1min。
+  3. **操作员待办:** ① `sudo loginctl enable-linger ubuntu`(B18,一条命令);
+     ② W05 验收三选一裁决(见 W05_PUBLICATION_STATUS);③ RFQ 纳入 cost
+     ack(+$21–23/月)与否;④ 07-12 TORN 残留清理与否;⑤ B10 修复排期。
+  4. mirror 已同步本 session(见下);wa-dev worktree 在
+     `sandbox/wa-dev/`(主树未动,分支工作全在 worktree)。
 ## 2026-07-14 21:30 UTC — 07-13 全天封印事故解决 + staging 排空恢复 + 卡顿债计划
 
 **一句话:** 07-13 卡了一整天的封印事故彻底解决(SEALED+VERIFY PASS),根因是新 L2
