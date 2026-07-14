@@ -654,9 +654,15 @@ noticed-during, observation, suggested owner.
   disable-linger. Until then, agent sessions hold one keepalive SSH
   connection across :05 windows. The hourly sync self-heals (aws s3 sync is
   incremental), so each failure only delays that hour's vault copy.
-  OPERATOR RULING 2026-07-14: enable-linger approved (operator runs it);
-  DURABLE fix stays on the debt list = migrate the sync off the snap-scoped
-  user manager entirely (system-level unit / non-snap aws or equivalent).
+  OPERATOR RULING 2026-07-14: enable-linger EXECUTED (Linger=yes verified;
+  rollback recorded: sudo loginctl disable-linger ubuntu).
+  MECHANISM VERIFIED (evidence in W05_PUBLICATION_STATUS_2026-07-14.md §B18):
+  the sync IS already a system-level unit; the vulnerable piece is its child
+  `aws` = SNAP aws-cli, whose transient scope snap registers under
+  user@1000.service. Linger is an effective mitigation; residual fragility =
+  any user-manager restart still kills in-flight aws. DURABLE fix
+  (re-worded): remove the snap/user-manager dependency — non-snap aws v2
+  install or a stdlib-SigV4 python uploader for the sync path.
 - B20 (2026-07-14, from the operator's W05 acceptance amendment, option 2):
   research_release.py derive_evidence_tier should emit the explicit tier
   SEALED_PENDING_QUALITY_ASSESSMENT when the downgrade reasons are EXACTLY
