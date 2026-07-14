@@ -654,6 +654,22 @@ noticed-during, observation, suggested owner.
   disable-linger. Until then, agent sessions hold one keepalive SSH
   connection across :05 windows. The hourly sync self-heals (aws s3 sync is
   incremental), so each failure only delays that hour's vault copy.
+  OPERATOR RULING 2026-07-14: enable-linger approved (operator runs it);
+  DURABLE fix stays on the debt list = migrate the sync off the snap-scoped
+  user manager entirely (system-level unit / non-snap aws or equivalent).
+- B20 (2026-07-14, from the operator's W05 acceptance amendment, option 2):
+  research_release.py derive_evidence_tier should emit the explicit tier
+  SEALED_PENDING_QUALITY_ASSESSMENT when the downgrade reasons are EXACTLY
+  the single W03-pending capture-quality item, so new releases carry the
+  amended tier natively (today they publish as SEALED_DEGRADED_EVIDENCE and
+  the amendment applies logically via W05_PUBLICATION_STATUS_2026-07-14.md).
+  Owner: next maintenance W on the publisher.
+- B21 (2026-07-14, sibling of B20): research_data.py default view + artifact
+  banner semantics for the amended tier — SEALED_PENDING_QUALITY_ASSESSMENT
+  is exposable for Track A EXPLORATORY research WITH a mandatory tier banner
+  on every artifact; VERDICT-grade consumption keeps requiring
+  SEALED_CONFIRMATION. Coordinate with the SPORTS-AUTORESEARCH GATE A
+  wording at mission re-issue. Owner: next maintenance W on the bridge CLI.
 - B10 (2026-07-13- B10 (2026-07-13, found while baseline-verifying the RFQ fast-path): the
   deployed W06 Stage 1 selector test tests/test_l2_targets.py::
   test_main_refresh_fail_closed_leaves_previous_file_untouched FAILS on the
