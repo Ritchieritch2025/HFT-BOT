@@ -320,7 +320,18 @@ class Ingester:
         self.bad_ts = 0          # frames dropped for corrupt/implausible timestamps
         self.bad_ticker = 0      # frames dropped for corrupt/spliced tickers
         self.bad_value = 0       # frames dropped for out-of-range E4 numeric values
-        self._rebuild_state()
+        # INGEST_SKIP_REBUILD=1 starts with EMPTY change-detection state instead
+        # of the full-table window rebuild. Recovery escape hatch (2026-07-14): on
+        # a badly bloated staging the rebuild is prohibitively slow; skipping it
+        # lets a one-shot catch-up drain a tiny backlog in seconds. Cost: the first
+        # L1 tick per market this run is written as a snapshot (is_snapshot=true)
+        # rather than a change — harmless for a short catch-up. Do NOT set it for
+        # the steady-state daemon (it would inflate snapshot rows).
+        if os.environ.get("INGEST_SKIP_REBUILD") == "1":
+            print("ingest: INGEST_SKIP_REBUILD=1 — starting with empty state "
+                  "(no full rebuild)")
+        else:
+            self._rebuild_state()
 
     def _migrate_additive(self):
         """Additive-column migrations for pre-existing staging DBs (CREATE
