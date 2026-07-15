@@ -6,6 +6,40 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-15 00:30 UTC — 三项裁决执行:W09 接管归档 + P1_FIXES_DONE(6 修一笔钉定)+ RFQ 验证改走 W09;SUPERSEDE 撤销 W05_ACCEPTED 已先行落地
+
+- **一行裁决:✅ P1_FIXES_DONE 返回;W09 工件已入库;RFQ 重发布仍在跑
+  (60GB 级,健康),验证路线 = W09 验收一石二鸟(等操作员开机)。**
+- commits:`6df3f90` W09 bring-up kit 归档(deploy/w09/** + 14 项安全契约
+  测试全绿);`e6f6692` 任务书 V2 单笔六修,**sha256
+  c4c31674571c8c37fd7b761b125064cecf154e9150cba49356d6df50196342c6**,
+  原逐字归档未动,NOT RELEASED 等操作员钉定;本条目所在 commit(日志+
+  状态文件勾账)。另:SUPERSEDE 落地 commit `f16d25b`(W05_ACCEPTED
+  REVOKED → W05_EXPLORATORY_READY 待 RFQ 重发布;B18 机制取证:sync 是
+  system unit,被杀的是 snap aws 的 user-manager scope,linger 有效,
+  长效债改写为去 snap 化)。
+- **W09 安装证据链(裁决 1 要求,如实记录):** 盘上无捕获的
+  W09_INSTALL_COMPLETE 输出;安装完成 + 空闲关机(idle stop)为**操作员
+  亲证**(2026-07-14 深夜裁决原文:"W09 archival: APPROVED — take over.
+  Commit deploy/w09/** … recording the install evidence chain
+  (W09_INSTALL_COMPLETE output, operator-observed idle stop, acceptance
+  pending release gate)")。验收(run_acceptance.sh → W09_READY)待:
+  ①RFQ 重发布完成;②操作员控制台开机 i-0e53d134dceffe166;③重启后
+  30 分钟内从 Mac 执行 `W09_CONTROL_PLANE_STOP_OBSERVED=stopped bash
+  deploy/w09/run_acceptance.sh`。该验收同时完成 SUPERSEDE 第 2 条的
+  RFQ exact-VersionId fetch+verify(Mac 只做 inventory EXPOSED 检查)。
+- decisions(均已落文件):六修 = F-1 holdout 保留 / F-2 log-odds Q1 /
+  F-3 会话边界+断点续跑 / F-4 写权限逐路径枚举 / GATE 名改
+  W05_EXPLORATORY_READY / GATE A 默认视图纳
+  SEALED_PENDING_QUALITY_ASSESSMENT(横幅+仅探索)→ V2 文件,每处带
+  `[P1-FIX v2]` 标记。操作员既定事实:今晚 07-14 封印将迟到(B9 吞吐,
+  体育晚高峰),03:00Z 告警属设计内;W-A 部署门顺延到明日封印落地后。
+- blocked / handoff:①RFQ 重发布(EC2 pid 376430,/tmp/rfqpub_both.log,
+  07-12 新 id `…pub-2bf8871ad4750c03`)完成后:Mac inventory 确认 EXPOSED
+  → 等 W09 验收做 fetch+verify → 返回 W05_EXPLORATORY_READY;②02:35Z
+  哨兵查封印(预期未落,按设计迟到);③操作员:开机 W09 + 钉定 V2
+  sha256 重发任务书;④W-A 审计令照旧(SESSION_LOG 23:40 条目)。
+
 ## 2026-07-14 23:40 UTC — 操作员四项裁决落地:W05_ACCEPTED(修正令 option 2)+ B18 批准 + 残留 KEEP + W-A 审计令
 
 - **一行裁决:✅ W05_ACCEPTED 正式返回**(操作员修正验收标准:评估器落地前
