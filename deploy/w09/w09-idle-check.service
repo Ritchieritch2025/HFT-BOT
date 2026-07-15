@@ -1,0 +1,27 @@
+[Unit]
+Description=PIPE-W09 fail-safe idle shutdown check
+After=cloud-final.service systemd-logind.service network-online.target
+Wants=cloud-final.service systemd-logind.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/w09-idle-check
+RuntimeDirectory=w09-idle
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+StateDirectory=w09-idle
+StateDirectoryMode=0750
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/w09-idle /var/lib/w09-idle
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+TimeoutStartSec=30s
+

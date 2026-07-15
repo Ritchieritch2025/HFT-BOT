@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: w09-run command [args...]" >&2
+    exit 64
+fi
+
+exec /usr/bin/systemd-inhibit \
+    --what=shutdown \
+    --mode=block \
+    --who=w09-workload \
+    --why="PIPE-W09 research workload" \
+    "$@"

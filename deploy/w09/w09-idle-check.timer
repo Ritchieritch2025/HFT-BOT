@@ -1,0 +1,16 @@
+[Unit]
+Description=Check PIPE-W09 idleness every minute
+After=cloud-final.service
+Wants=cloud-final.service
+
+[Timer]
+OnBootSec=60s
+OnUnitInactiveSec=60s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=w09-idle-check.service
+
+[Install]
+WantedBy=timers.target
+

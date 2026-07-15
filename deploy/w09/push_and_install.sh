@@ -1,0 +1,46 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+SOURCE_REPO="${W09_SOURCE_REPO:-/Users/ritcardo/HFT-BOT-pipeline-recovery}"
+HOST="${W09_HOST:-ubuntu@18.226.151.192}"
+KEY="${W09_SSH_KEY:-$HOME/.ssh/kalshi-key.pem}"
+REMOTE="/tmp/w09-bringup"
+EXPECTED_CLI_SHA="3088723db7a87f5c8cf50e0de32de1e52a0ae3b9d4d050d902dfc70722140d84"
+
+if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
+    echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
+    exit 77
+fi
+actual="$(shasum -a 256 "$SOURCE_REPO/tools/research_data.py" | awk '{print $1}')"
+if [ "$actual" != "$EXPECTED_CLI_SHA" ]; then
+    echo "W09_SOURCE_GATE: canonical research_data.py changed ($actual)" >&2
+    exit 65
+fi
+if [ ! -f "$KEY" ]; then
+    echo "W09_SSH_GATE: key missing: $KEY" >&2
+    exit 66
+fi
+
+tmp="$(mktemp -d)"
+cleanup() { rm -rf "$tmp"; }
+trap cleanup EXIT
+mkdir -p "$tmp/tools" "$tmp/config" "$tmp/deploy/w09"
+cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
+cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
+cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
+for file in \
+    acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
+    install_on_host.sh README.md research_data_instance_profile.py \
+    run_acceptance.sh select_newest_release.py w09-idle-check.service \
+    w09-idle-check.timer w09-run w09_idle_check.py \
+    w09_idle_confirm_stop.py w09_idle_proof.py; do
+    cp "$HERE/$file" "$tmp/deploy/w09/$file"
+done
+printf '%s\n' 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
+    > "$tmp/shutdown-behavior-stop.confirmed"
+
+tar -C "$tmp" -czf - . | ssh -i "$KEY" -o BatchMode=yes \
+    -o StrictHostKeyChecking=accept-new "$HOST" \
+    "rm -rf '$REMOTE' && mkdir -p '$REMOTE' && tar -xzf - -C '$REMOTE' && sudo bash '$REMOTE/deploy/w09/install_on_host.sh' '$REMOTE'"
