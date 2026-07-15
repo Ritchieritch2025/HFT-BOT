@@ -6,6 +6,36 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-15 01:15 UTC — W09 研究栈装齐并实测通过;RFQ 双日重发布完成;agent S3 权限只读边界实测确认;审阅页需求落盘
+
+- **一行裁决:✅ W09 软件就绪(新 session 可开 autoresearch);⚠️ 正式
+  W09_READY 还差一次真实空闲关机证明(操作员观察)。**
+- commits:`3a7a064` W09 installer 加研究栈(scipy/statsmodels/matplotlib/
+  pyarrow);`da71728` 审阅页需求;`0b09f1a` RFQ 重发布结果入档;本条目
+  所在 commit(就绪文档 + 本条)。
+- decisions(均已落文件):
+  - W09 就绪全实测 → `docs/W09_READINESS_2026-07-15.md`(实例/角色/权限/
+    栈版本/CLI/空闲守卫逐项证据 + 唯一剩余前置 = 关机证明 + 新 session
+    起步锚点)。venv `/opt/w09/venv` 装:duckdb 1.4.5(生产同版)、numpy
+    2.5.1、pandas 3.0.3、scipy 1.18.0、statsmodels 0.14.6、matplotlib
+    3.11.0、pyarrow 25.0.0,全 import OK;instance-profile(IMDSv2 零静态
+    密钥)inventory 列出全 6 release 通过。
+  - 审阅页需求 → `docs/AUTORESEARCH_REPORT_REQUIREMENTS.md`(单页自包含、
+    逐一过目、被否/负结果同等展示、层级横幅强制、每数字带出处)。
+  - agent S3 权限只读边界实测(Mac 研究钥匙):research/* 读 200;
+    ec2/raw 越界读、桶根列举全 403;写/删未对生产桶实测(安全分类器
+    正确拦截了含 Put/Delete 的探测,改纯只读探测)。IAM 策略实测=
+    ListBucket 整桶 + Get/GetObjectVersion 仅 research/*,无写。
+- context capsule:工具选型定型 = DuckDB 优先(仓库 145 文件用它 vs
+  pandas 24、polars/scipy 此前 0);重活走 SQL,68GB 绝不塞 pandas(会
+  OOM,与 07-14 事故同类)。W09 装 venv 时挂 `w09-run`(systemd-inhibit)
+  防空闲关机,装完释放已复武装。空闲判定:1800s 无 SSH/inhibitor/后台
+  python 才关。
+- blocked / handoff:①正式 W09_READY 需操作员走一次真实 30 分钟关机→
+  重启,agent 再跑 run_acceptance.sh(兼 RFQ verify);②操作员钉定 V2
+  sha 发布图纸;③新 session 起步锚点全在 W09_READINESS 文档。软件就绪
+  ≠ W09_READY,但探索计算(inventory/fetch/DuckDB)现在即可用。
+
 ## 2026-07-15 00:30 UTC — 三项裁决执行:W09 接管归档 + P1_FIXES_DONE(6 修一笔钉定)+ RFQ 验证改走 W09;SUPERSEDE 撤销 W05_ACCEPTED 已先行落地
 
 - **一行裁决:✅ P1_FIXES_DONE 返回;W09 工件已入库;RFQ 重发布仍在跑
