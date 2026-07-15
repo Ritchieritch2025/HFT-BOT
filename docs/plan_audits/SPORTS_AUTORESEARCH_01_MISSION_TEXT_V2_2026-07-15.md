@@ -1621,3 +1621,31 @@ objective.
 All V3.5 ordering rules operate WITHIN the unchanged statistical
 discipline: tiers, labels, multiplicity, pessimistic fills and the
 governing principle of V3.2d are not relaxed by candidate-first priority.
+
+V3.6 CLARIFICATIONS (operator, 2026-07-15) — friction relief, discipline
+unchanged:
+a) METHODS_LEDGER scope: basic descriptive statistics (counts, histograms,
+   ECDFs, percentiles, standard block-bootstrap confidence intervals) are
+   covered by ONE collective seed entry written at run start. The full
+   seven-item entry format applies to inferential and model-based methods
+   (regressions, survival models, Monte Carlo, HMM, point processes, ML,
+   etc.). No basic chart is ever blocked on ledger paperwork.
+b) V3.1 ledger timing: registration (one line per direction) is due by the
+   first daily digest. Tier-1 coverage of registered directions has NO
+   deadline and never preempts the V3.5 candidate-first ordering.
+
+V3.7 SAME-GAME CORRELATION DISCIPLINE (operator, standing)
+All markets on the same underlying game — winner/moneyline, totals
+over/under, run-line/spread, period/inning/segment markets, props — belong
+to ONE root event. Enforcement, three places:
+a) INFERENCE: clustering, bootstrap and sample counts at root-event level
+   ONLY. Same-game markets are never independent observations; any table
+   reporting a sample size must state n_games alongside n_markets.
+b) RISK: simulated positions across same-game markets always aggregate into
+   payout-state exposure (section 11-G); worst-state accounting is
+   mandatory.
+c) SIGNAL: same-game dependence is a first-class research object, not a
+   nuisance — game-script correlation between totals and winner (baseball
+   especially), within-game lead-lag, and copula-modeled leg dependence
+   feed the relative-value and combo directions directly.
+Violation of (a) voids the affected result (per V3.2d).
