@@ -1,8 +1,8 @@
-# SPORTS-AUTORESEARCH-01 — mission text (V3.7 final)
+# SPORTS-AUTORESEARCH-01 — mission text
 
 Provenance and change history: git log + `docs/plan_audits/` (V1 archive,
-audit, supersede records). Active only when the operator pins this file's
-SHA-256 in a release.
+audit, supersede records). The active version is whichever SHA-256 the
+operator pins in the release order.
 
 ---
 
