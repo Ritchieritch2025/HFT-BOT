@@ -91,6 +91,9 @@ REPAIR_PENDING_STATUS = "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR_REGISTERED"
 REPAIR02_PENDING_STATUS = (
     "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED"
 )
+REPAIR03_PENDING_STATUS = (
+    "CYCLE1_CORE_COMPLETE_RFQ_PARSER_REPAIR03_REGISTERED"
+)
 RFQ_PARTIAL_STATUS = "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
 RFQ_ANALYSIS_SCOPE = "DESCRIPTIVE_DISCOVERY_ONLY"
 RFQ_DECLARATION = Path("DATA_INTEGRITY/RFQ_OBJECT_QUARANTINE.json")
@@ -122,6 +125,9 @@ SESSION_RESUME_02 = Path("DATA_INTEGRITY/SESSION_RESUME_02.json")
 ACTIVE_RFQ_REPAIR_RESOURCE_02 = Path(
     "logs/resources/rfq_full_stage_repair02.json"
 )
+ACTIVE_RFQ_REPAIR_RESOURCE_03 = Path(
+    "logs/resources/rfq_full_stage_repair03.json"
+)
 REPAIR_DECLARATION = Path(
     "DATA_INTEGRITY/repairs/repair-01/QUARANTINE_DECLARATION.json"
 )
@@ -138,6 +144,40 @@ REPAIR_AUTHORIZATION_02 = REPAIR_02_ROOT / "USER_AUTHORIZATION.json"
 REPAIR_REGISTRATION_RECEIPT_02 = REPAIR_02_ROOT / "REPAIR_REGISTRATION.json"
 REPAIR_02_TRANSACTION_JOURNAL = REPAIR_02_ROOT / "TRANSACTION_JOURNAL.json"
 REPAIR_02_PRE_ROOT = REPAIR_02_ROOT / "pre_repair"
+REPAIR_03_ROOT = Path("DATA_INTEGRITY/repairs/repair-03")
+REPAIR_REGISTRATION_RECEIPT_03 = REPAIR_03_ROOT / "REPAIR_REGISTRATION.json"
+REPAIR_03_TRANSACTION_JOURNAL = REPAIR_03_ROOT / "TRANSACTION_JOURNAL.json"
+REPAIR_03_AUTHORITY_BASIS = REPAIR_03_ROOT / "AUTHORITY_BASIS.json"
+REPAIR_03_PARSER_CONTRACT = (
+    REPAIR_03_ROOT / "RFQ_INNER_PAYLOAD_PARSER_CONTRACT.json"
+)
+REPAIR_03_AUDIT_SOURCE = (
+    REPAIR_03_ROOT / "RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_SOURCE.py"
+)
+REPAIR_03_SOURCE_ATTESTATION_ACTIVE = Path(
+    "DATA_INTEGRITY/REPAIR_03_SOURCE_ATTESTATION.json"
+)
+REPAIR_03_PRE_ROOT = REPAIR_03_ROOT / "pre_repair"
+REPAIR_03_SOURCE_ATTESTATION_ARCHIVE = (
+    REPAIR_03_PRE_ROOT / REPAIR_03_SOURCE_ATTESTATION_ACTIVE
+)
+FAILED_RFQ_STATE_03 = REPAIR_03_PRE_ROOT / ACTIVE_RFQ_STATE
+FAILED_RFQ_RESOURCE_03 = REPAIR_03_PRE_ROOT / ACTIVE_RFQ_REPAIR_RESOURCE_02
+FAILED_RFQ_SCRATCH_RECEIPT_03 = (
+    REPAIR_03_PRE_ROOT / "DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT_03.json"
+)
+FAILED_RFQ_INPUT_IDENTITY_03 = REPAIR_03_PRE_ROOT / RFQ_INPUT_IDENTITY
+ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03 = (
+    REPAIR_03_PRE_ROOT
+    / "DATA_INTEGRITY/RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_03.json"
+)
+ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_RESOURCE_03 = (
+    REPAIR_03_PRE_ROOT
+    / "logs/resources/rfq_inner_payload_contract_audit03_final.json"
+)
+ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_SOURCE_03 = (
+    REPAIR_03_PRE_ROOT / "tmp/rfq_inner_payload_contract_audit03.py"
+)
 FAILED_RFQ_STATE_02 = REPAIR_02_PRE_ROOT / ACTIVE_RFQ_STATE
 FAILED_RFQ_RESOURCE_02 = (
     REPAIR_02_PRE_ROOT / "logs/resources/rfq_full_stage_repair01.json"
@@ -210,6 +250,61 @@ EXPECTED_RFQ_QUARANTINED_SET_SHA256 = (
 EXPECTED_RFQ_REPAIR02_SELECTION_SHA256 = (
     "8b310c37f3989770d1f53a058e5ef396e1eb5c9c3d24d07ac87bd9d8aee5b9e1"
 )
+EXPECTED_RFQ_RETAINED_LINES = 58_144_912
+EXPECTED_RFQ_EMPTY_CONTROL_ROWS = 1_111
+EXPECTED_RFQ_CONTROL_MARKER_COUNTS = {
+    "hour_open": 575,
+    "transport_close": 536,
+}
+EXPECTED_RFQ_BLANK_CONTROL_MARKERS = (
+    "gap",
+    "hour_open",
+    "loss",
+    "transport_close",
+    "transport_error",
+)
+EXPECTED_RFQ_FAILED_STATE_03_SHA256 = (
+    "cc59ac42d6a8204650d3f60554fddfce2af9e849522f0370ea030f08c9a078b6"
+)
+EXPECTED_RFQ_FAILED_RESOURCE_03_SHA256 = (
+    "a5adca32034c7db02652433ca733fa3657ffeaadbda0809d7f33df8f11230766"
+)
+EXPECTED_RFQ_FAILED_INPUT_03_SHA256 = (
+    "68a7e3aeb22851195769c5e4ab5b614979212e0469ac2584afb4de50870560e1"
+)
+EXPECTED_RFQ_FAILED_SCRATCH_RECEIPT_03_SHA256 = (
+    "6cc399ef7dbcfa4c32adbbdcf507940d0253c2e7bbc6e40000da1cc3c176c197"
+)
+EXPECTED_RFQ_FAILED_SCRATCH_03_SHA256 = (
+    "32b2352dc0390fa5a4f42f2a483bdfa570b9e2a7a6de77d51847afb38fd1cff5"
+)
+EXPECTED_RFQ_FAILED_SCRATCH_03_BYTES = 28_731_781_120
+EXPECTED_RFQ_FAILED_SCRATCH_03_MTIME = "2026-07-15T15:28:30.567397717+00:00"
+EXPECTED_RFQ_INNER_AUDIT_03_SHA256 = (
+    "6d0dc5c16ddad6772657ed7a4ede1f90d255e6629ffd1babbd837b3863de7a0d"
+)
+EXPECTED_RFQ_INNER_AUDIT_RESOURCE_03_SHA256 = (
+    "d820ac998a57428e64a46485cd17319c0430ef9c4c4e516afaac67bec4a3c05d"
+)
+EXPECTED_RFQ_INNER_AUDIT_SOURCE_03_SHA256 = (
+    "27199557ea7aacf9a19f66d16f5fd3770ee0149ef0ed4cd081169a9e0ccb01ea"
+)
+EXPECTED_RFQ_AUDITED_PARSER_CONTRACT_03_SHA256 = (
+    "9fd339e35584a38372ad4f14ba89f0d7a8a38bdd17ebcc3ab53c3d77d19c6389"
+)
+REPAIR_03_GIT_SOURCE_MODE = "LOCAL_GIT_CLEAN_COMMITTED_HEAD"
+REPAIR_03_SNAPSHOT_SOURCE_MODE = (
+    "REMOTE_GITLESS_ATTESTED_COMMITTED_SOURCE_SNAPSHOT"
+)
+REPAIR_03_SOURCE_RELATIVE = "sandbox/research/deep_autoresearch"
+EXPECTED_REPAIR_03_CHANGED_PATHS = [
+    f"{REPAIR_03_SOURCE_RELATIVE}/finalize_mission.py",
+    f"{REPAIR_03_SOURCE_RELATIVE}/repair03_registration.py",
+    f"{REPAIR_03_SOURCE_RELATIVE}/rfq_full_stage.py",
+    f"{REPAIR_03_SOURCE_RELATIVE}/test_finalize_mission.py",
+    f"{REPAIR_03_SOURCE_RELATIVE}/test_repair03_registration.py",
+    f"{REPAIR_03_SOURCE_RELATIVE}/test_rfq_full_stage.py",
+]
 
 # Closed MODE-1 outcomes.  CANDIDATE/DESCRIPTIVE_SURVIVOR/FROZEN are not
 # terminal condition 4; promotion, confirmation and verdict labels are never
@@ -807,6 +902,26 @@ def _require_utc_timestamp(value: Any, label: str) -> str:
     return value
 
 
+def _utc_timestamp_key(value: Any, label: str) -> tuple[int, ...]:
+    """Return a nanosecond-preserving comparison key for a validated UTC time."""
+    timestamp = _require_utc_timestamp(value, label)
+    without_zone = timestamp[:-1] if timestamp.endswith("Z") else timestamp[:-6]
+    base, separator, fraction = without_zone.partition(".")
+    if not separator:
+        fraction = ""
+    parsed = dt.datetime.fromisoformat(base + "+00:00")
+    nanosecond = int(fraction.ljust(9, "0")) if fraction else 0
+    return (
+        parsed.year,
+        parsed.month,
+        parsed.day,
+        parsed.hour,
+        parsed.minute,
+        parsed.second,
+        nanosecond,
+    )
+
+
 def _require_active_archive_equal(
     run_dir: Path,
     active: Path,
@@ -1317,6 +1432,13 @@ def validate_rfq_partial_quarantine(
     """
 
     repairs = manifest.get("data_integrity_repairs")
+    if (
+        isinstance(repairs, list)
+        and len(repairs) == 3
+        and isinstance(repairs[2], dict)
+        and repairs[2].get("repair_id") == "repair-03"
+    ):
+        return validate_rfq_parser_repair03(run_dir, manifest, rfq)
     if (
         isinstance(repairs, list)
         and len(repairs) == 2
@@ -2490,10 +2612,400 @@ def validate_rfq_partial_quarantine(
     }
 
 
+def _validate_repair03_parser_contract(
+    contract: Mapping[str, Any],
+    *,
+    run_id: str,
+    registered_query_sha256: str,
+    audit_path: Path,
+    audit_sha256: str,
+) -> None:
+    """Validate the outcome-independent parser correction registered for repair-03."""
+    expected = {
+        "schema_version": "rfq-inner-payload-parser-contract-v1",
+        "run_id": run_id,
+        "finding": "EXPECTED_CONTROL_MARKER_MISCLASSIFIED_AS_MALFORMED_INNER_PAYLOAD",
+        "mission_sha256": EXPECTED_MISSION_SHA,
+        "selection_fingerprint_sha256": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "retained_unique_objects": EXPECTED_RFQ_RETAINED_OBJECTS,
+        "retained_bytes": EXPECTED_RFQ_RETAINED_BYTES,
+        "outer_ndjson_policy": "STRICT_NDJSON_IGNORE_ERRORS_FALSE",
+        "expected_blank_control_markers": list(EXPECTED_RFQ_BLANK_CONTROL_MARKERS),
+        "expected_blank_raw_representation": "EXACT_EMPTY_STRING",
+        "non_control_payload_policy": (
+            "NONEMPTY_STRING_VALID_JSON_OBJECT_REQUIRED"
+        ),
+        "unexpected_payload_policy": "ABORT_BEFORE_RESULT",
+        "line_salvage": False,
+        "data_selection_change": False,
+        "hypothesis_design_change": False,
+        "registered_query_path": "queries/rfq_full_stage.py",
+        "registered_query_sha256": registered_query_sha256,
+        "audit_path": audit_path.as_posix(),
+        "audit_sha256": audit_sha256,
+    }
+    if set(contract) != set(expected) | {"created_at_utc"}:
+        raise MissionFinalizationError("repair-03 parser-contract field set mismatch")
+    for field, value in expected.items():
+        if contract.get(field) != value:
+            raise MissionFinalizationError(
+                f"repair-03 parser-contract mismatch: {field}"
+            )
+    _require_utc_timestamp(contract.get("created_at_utc"), "repair-03 parser contract")
+
+
+def _validate_repair03_inner_payload_audit(
+    audit: Mapping[str, Any],
+    *,
+    run_id: str,
+    input_identity_sha256: str,
+    audit_source_sha256: str,
+    expected_objects: Sequence[Mapping[str, Any]],
+) -> None:
+    """Recompute the decisive audit totals without trusting its top-level status."""
+    audit_contract = {
+        "schema_version": "rfq-inner-payload-parser-contract-v1",
+        "marker_case": "EXACT_CASE_SENSITIVE",
+        "data_frame_marker": "MARKER_FIELD_ABSENT",
+        "data_frame_raw": "NONEMPTY_JSON_OBJECT",
+        "json_object_payload_markers": ["segment_receipt"],
+        "empty_control_markers": list(EXPECTED_RFQ_BLANK_CONTROL_MARKERS),
+        "empty_control_raw": "EXACT_EMPTY_STRING",
+        "explicit_null_marker": "FAIL_CLOSED",
+        "unknown_or_invalid_marker": "FAIL_CLOSED",
+        "missing_null_or_non_string_raw": "FAIL_CLOSED",
+        "valid_non_object_inner_json": "FAIL_CLOSED",
+        "raw_b64_without_raw": "FAIL_CLOSED",
+    }
+    expected_markers = {
+        **EXPECTED_RFQ_CONTROL_MARKER_COUNTS,
+        "segment_receipt": 560,
+    }
+    expected_fields = {
+        "analysis_result_opened",
+        "audit_script_path",
+        "audit_script_sha256",
+        "bytes_scanned",
+        "completed_at_utc",
+        "data_frame_rows",
+        "expected_empty_control_marker_allowlist",
+        "expected_empty_control_marker_rows",
+        "identity_mismatch_count",
+        "identity_mismatches",
+        "input_fingerprint",
+        "input_identity_path",
+        "input_identity_sha256",
+        "json_object_payload_marker_contract",
+        "lines_scanned",
+        "marker_counts",
+        "object_summaries",
+        "objects_scanned",
+        "outer_invalid_line_count",
+        "outer_invalid_object_count",
+        "parser_contract",
+        "parser_contract_sha256",
+        "raw_payload_redacted",
+        "run_id",
+        "schema_version",
+        "scope",
+        "segment_receipt_rows",
+        "started_at_utc",
+        "status",
+        "unexpected_inner_payload_object_count",
+        "unexpected_inner_payload_objects",
+        "unexpected_inner_payload_row_count",
+        "wall_seconds",
+        "workers",
+    }
+    if (
+        set(audit) != expected_fields
+        or audit.get("schema_version") != "rfq-inner-payload-contract-audit-v1"
+        or audit.get("run_id") != run_id
+        or audit.get("scope")
+        != "RETAINED_OBJECT_INNER_PAYLOAD_CONTRACT_ONLY_NO_RESEARCH_RESULT"
+        or audit.get("status") != "COMPLETE_INNER_PAYLOAD_CONTRACT_AUDIT"
+        or audit.get("analysis_result_opened") is not False
+        or audit.get("raw_payload_redacted") is not True
+        or audit.get("audit_script_path")
+        != "tmp/rfq_inner_payload_contract_audit03.py"
+        or audit.get("audit_script_sha256") != audit_source_sha256
+        or audit.get("workers") != 8
+        or not isinstance(audit.get("wall_seconds"), (int, float))
+        or audit.get("wall_seconds") <= 0
+        or audit.get("input_identity_path") != RFQ_INPUT_IDENTITY.as_posix()
+        or audit.get("input_identity_sha256") != input_identity_sha256
+        or audit.get("input_fingerprint")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or audit.get("parser_contract") != audit_contract
+        or audit.get("parser_contract_sha256")
+        != canonical_json_sha256(audit_contract)
+        or audit.get("parser_contract_sha256")
+        != EXPECTED_RFQ_AUDITED_PARSER_CONTRACT_03_SHA256
+        or audit.get("expected_empty_control_marker_allowlist")
+        != list(EXPECTED_RFQ_BLANK_CONTROL_MARKERS)
+        or audit.get("json_object_payload_marker_contract")
+        != ["<marker field absent>", "segment_receipt"]
+        or audit.get("objects_scanned") != EXPECTED_RFQ_RETAINED_OBJECTS
+        or audit.get("bytes_scanned") != EXPECTED_RFQ_RETAINED_BYTES
+        or audit.get("lines_scanned") != EXPECTED_RFQ_RETAINED_LINES
+        or audit.get("identity_mismatch_count") != 0
+        or audit.get("identity_mismatches") != []
+        or audit.get("outer_invalid_object_count") != 0
+        or audit.get("outer_invalid_line_count") != 0
+        or audit.get("expected_empty_control_marker_rows")
+        != EXPECTED_RFQ_EMPTY_CONTROL_ROWS
+        or audit.get("data_frame_rows") != 58_143_241
+        or audit.get("segment_receipt_rows") != 560
+        or audit.get("marker_counts") != expected_markers
+        or audit.get("unexpected_inner_payload_object_count") != 0
+        or audit.get("unexpected_inner_payload_row_count") != 0
+        or audit.get("unexpected_inner_payload_objects") != []
+    ):
+        raise MissionFinalizationError("repair-03 inner-payload audit mismatch")
+    _require_utc_timestamp(audit.get("started_at_utc"), "repair-03 audit start")
+    _require_utc_timestamp(audit.get("completed_at_utc"), "repair-03 audit completion")
+    summaries = audit.get("object_summaries")
+    if not isinstance(summaries, list) or len(summaries) != EXPECTED_RFQ_RETAINED_OBJECTS:
+        raise MissionFinalizationError("repair-03 audit object summaries are incomplete")
+    keys: set[str] = set()
+    total_bytes = 0
+    total_lines = 0
+    total_controls = 0
+    total_frames = 0
+    total_receipts = 0
+    marker_counts: dict[str, int] = {}
+    observed_objects: dict[str, tuple[int, str]] = {}
+    for index, row in enumerate(summaries):
+        if not isinstance(row, dict):
+            raise MissionFinalizationError(
+                f"repair-03 audit object summary is invalid: {index}"
+            )
+        key = row.get("key")
+        if not isinstance(key, str) or not key.startswith("raw_rfq/") or key in keys:
+            raise MissionFinalizationError("repair-03 audit object key is invalid")
+        keys.add(key)
+        expected_size = require_positive_int(
+            row.get("expected_size"), f"repair-03 audit object {index} size"
+        )
+        lines = require_positive_int(
+            row.get("total_lines"), f"repair-03 audit object {index} lines"
+        )
+        require_hex(row.get("expected_sha256"), "repair-03 audit expected SHA")
+        if (
+            row.get("observed_size") != expected_size
+            or row.get("observed_sha256") != row.get("expected_sha256")
+            or row.get("identity_match") is not True
+            or row.get("outer_invalid_rows") != 0
+            or row.get("unexpected_inner_payload_rows") != 0
+            or row.get("unexpected_details") != []
+            or row.get("raw_payload_redacted") is not True
+        ):
+            raise MissionFinalizationError(
+                f"repair-03 audit object is not clean: {key}"
+            )
+        observed_objects[key] = (expected_size, row["expected_sha256"])
+        total_bytes += expected_size
+        total_lines += lines
+        total_controls += require_nonnegative_int(
+            row.get("expected_empty_control_marker_rows"),
+            f"repair-03 audit object {index} controls",
+        )
+        total_frames += require_nonnegative_int(
+            row.get("data_frame_rows"), f"repair-03 audit object {index} frames"
+        )
+        total_receipts += require_nonnegative_int(
+            row.get("segment_receipt_rows"),
+            f"repair-03 audit object {index} receipts",
+        )
+        row_markers = row.get("marker_counts")
+        if not isinstance(row_markers, dict):
+            raise MissionFinalizationError("repair-03 audit marker counts are invalid")
+        for marker, count in row_markers.items():
+            if not isinstance(marker, str):
+                raise MissionFinalizationError("repair-03 audit marker is invalid")
+            marker_counts[marker] = marker_counts.get(marker, 0) + require_nonnegative_int(
+                count, f"repair-03 audit marker {marker}"
+            )
+    if (
+        total_bytes != audit["bytes_scanned"]
+        or total_lines != audit["lines_scanned"]
+        or total_controls != audit["expected_empty_control_marker_rows"]
+        or total_frames != audit["data_frame_rows"]
+        or total_receipts != audit["segment_receipt_rows"]
+        or marker_counts != expected_markers
+    ):
+        raise MissionFinalizationError("repair-03 audit object totals do not reconcile")
+    expected_object_map = {
+        row.get("key"): (row.get("size"), row.get("sha256"))
+        for row in expected_objects
+        if isinstance(row, Mapping)
+    }
+    if (
+        len(expected_object_map) != EXPECTED_RFQ_RETAINED_OBJECTS
+        or None in expected_object_map
+        or observed_objects != expected_object_map
+    ):
+        raise MissionFinalizationError(
+            "repair-03 audit object identities do not match the retained set"
+        )
+
+
+def _validate_repair03_audit_resource(
+    resource: Mapping[str, Any], *, run_id: str
+) -> None:
+    command = resource.get("command")
+    expected_command = [
+        "/opt/w09/venv/bin/python",
+        (
+            f"/srv/w09-research/runs/{run_id}/"
+            "tmp/rfq_inner_payload_contract_audit03.py"
+        ),
+        "--run-dir",
+        f"/srv/w09-research/runs/{run_id}",
+        "--cache-root",
+        "/srv/w09-research/cache",
+        "--workers",
+        "8",
+    ]
+    if (
+        resource.get("schema_version") != "w09-stage-resource-v1"
+        or resource.get("label") != "rfq_inner_payload_contract_audit03_final"
+        or resource.get("return_code") != 0
+        or command != expected_command
+    ):
+        raise MissionFinalizationError("repair-03 audit resource receipt mismatch")
+
+
+def _validate_repair03_source_verification(
+    run_dir: Path,
+    *,
+    run_id: str,
+    repair03: Mapping[str, Any],
+    previous_identity: Mapping[str, Any],
+    current_identity: Mapping[str, Any],
+) -> None:
+    """Validate either local-Git provenance or the W09 gitless source snapshot."""
+    mode = repair03.get("source_verification_mode")
+    snapshot_fields = {
+        "source_snapshot_attestation_active_path",
+        "source_snapshot_attestation_path",
+        "source_snapshot_attestation_sha256",
+        "source_snapshot_attestation",
+    }
+    if mode == REPAIR_03_GIT_SOURCE_MODE:
+        active_attestation = run_dir / REPAIR_03_SOURCE_ATTESTATION_ACTIVE
+        archived_attestation = run_dir / REPAIR_03_SOURCE_ATTESTATION_ARCHIVE
+        if (
+            any(field in repair03 for field in snapshot_fields)
+            or active_attestation.exists()
+            or active_attestation.is_symlink()
+            or archived_attestation.exists()
+            or archived_attestation.is_symlink()
+        ):
+            raise MissionFinalizationError(
+                "repair-03 local-Git mode contains snapshot attestation evidence"
+            )
+        return
+    if mode != REPAIR_03_SNAPSHOT_SOURCE_MODE:
+        raise MissionFinalizationError("repair-03 source verification mode is invalid")
+
+    attestation_sha = require_hex(
+        repair03.get("source_snapshot_attestation_sha256"),
+        "repair-03 source snapshot attestation SHA-256",
+    )
+    if (
+        repair03.get("source_snapshot_attestation_active_path")
+        != REPAIR_03_SOURCE_ATTESTATION_ACTIVE.as_posix()
+        or repair03.get("source_snapshot_attestation_path")
+        != REPAIR_03_SOURCE_ATTESTATION_ARCHIVE.as_posix()
+    ):
+        raise MissionFinalizationError(
+            "repair-03 source snapshot attestation path mismatch"
+        )
+    active = require_path_hash(
+        run_dir,
+        REPAIR_03_SOURCE_ATTESTATION_ACTIVE,
+        attestation_sha,
+        "repair-03 active source snapshot attestation",
+    )
+    archived = require_path_hash(
+        run_dir,
+        REPAIR_03_SOURCE_ATTESTATION_ARCHIVE,
+        attestation_sha,
+        "repair-03 archived source snapshot attestation",
+    )
+    if active.read_bytes() != archived.read_bytes():
+        raise MissionFinalizationError(
+            "repair-03 active/archived source snapshot attestations differ"
+        )
+    attestation = load_json(active)
+    expected_fields = {
+        "schema_version",
+        "run_id",
+        "mission_sha256",
+        "parent_execution_commit",
+        "execution_commit",
+        "direct_parent_verified",
+        "git_tree",
+        "source_relative",
+        "source_tree_clean_at_attestation",
+        "source_manifest_sha256",
+        "source_sha256s_sha256",
+        "commit_changed_paths",
+        "attested_at_utc",
+    }
+    git_tree = attestation.get("git_tree")
+    if (
+        set(attestation) != expected_fields
+        or attestation.get("schema_version")
+        != "sports-autoresearch-source-snapshot-attestation-v1"
+        or attestation.get("run_id") != run_id
+        or attestation.get("mission_sha256") != EXPECTED_MISSION_SHA
+        or attestation.get("parent_execution_commit")
+        != previous_identity.get("execution_commit")
+        or attestation.get("execution_commit")
+        != current_identity.get("execution_commit")
+        or attestation.get("direct_parent_verified") is not True
+        or not isinstance(git_tree, str)
+        or HEX40.fullmatch(git_tree) is None
+        or attestation.get("source_relative") != REPAIR_03_SOURCE_RELATIVE
+        or attestation.get("source_tree_clean_at_attestation") is not True
+        or attestation.get("source_manifest_sha256")
+        != current_identity.get("source_manifest_sha256")
+        or attestation.get("source_sha256s_sha256")
+        != current_identity.get("source_sha256s_sha256")
+        or attestation.get("commit_changed_paths")
+        != EXPECTED_REPAIR_03_CHANGED_PATHS
+    ):
+        raise MissionFinalizationError(
+            "repair-03 source snapshot attestation mismatch"
+        )
+    _require_utc_timestamp(
+        attestation.get("attested_at_utc"),
+        "repair-03 source snapshot attestation",
+    )
+    expected_binding = {
+        "schema_version": "sports-autoresearch-source-snapshot-attestation-v1",
+        "execution_commit": current_identity["execution_commit"],
+        "git_tree": git_tree,
+        "direct_parent_verified": True,
+        "source_relative": REPAIR_03_SOURCE_RELATIVE,
+        "source_tree_clean_at_attestation": True,
+        "commit_changed_paths": EXPECTED_REPAIR_03_CHANGED_PATHS,
+    }
+    if repair03.get("source_snapshot_attestation") != expected_binding:
+        raise MissionFinalizationError(
+            "repair-03 nested source snapshot attestation mismatch"
+        )
+
+
 def validate_rfq_double_quarantine(
     run_dir: Path,
     manifest: Mapping[str, Any],
     rfq: Mapping[str, Any],
+    *,
+    prefix_only: bool = False,
+    active_boundary_root: Path = Path("."),
 ) -> dict[str, Any]:
     """Validate the append-only repair-01 -> repair-02 RFQ evidence chain."""
     run_id = manifest.get("run_id")
@@ -2913,6 +3425,8 @@ def validate_rfq_double_quarantine(
         audit_sha=audit_sha,
         audit_resource_sha=audit_resource_sha,
         blocker_sha=blocker_sha,
+        prefix_only=prefix_only,
+        active_boundary_root=active_boundary_root,
     )
 
 
@@ -2939,6 +3453,8 @@ def _validate_rfq_double_chain_and_outputs(
     audit_sha: str,
     audit_resource_sha: str,
     blocker_sha: str,
+    prefix_only: bool = False,
+    active_boundary_root: Path = Path("."),
 ) -> dict[str, Any]:
     """Finish the independent repair-02 chain and successful-output audit."""
     run_id = manifest.get("run_id")
@@ -3140,7 +3656,9 @@ def _validate_rfq_double_chain_and_outputs(
             run_dir, replacement_relative, "repair-02 transaction replacement"
         )
         active_path = checked_relative_path(
-            run_dir, relative, "repair-02 transaction active artifact"
+            run_dir,
+            (active_boundary_root / relative).as_posix(),
+            "repair-02 transaction active artifact",
         )
         if (
             row.get("original_sha256") != sha256(original_path)
@@ -3277,7 +3795,7 @@ def _validate_rfq_double_chain_and_outputs(
     stages = (
         (Path("DATA_INTEGRITY/repairs/repair-01/pre_repair"), initial_identity),
         (REPAIR_02_PRE_ROOT, middle_identity),
-        (Path("."), current_identity),
+        (active_boundary_root, current_identity),
     )
     for root, identity in stages:
         for relative, field in (
@@ -3352,7 +3870,7 @@ def _validate_rfq_double_chain_and_outputs(
         run_dir, manifest, [repair01, repair02]
     )
     archived02_cycle = run_dir / REPAIR_02_PRE_ROOT / ACTIVE_CYCLE1_DUCKDB_BINDING
-    active_cycle = run_dir / ACTIVE_CYCLE1_DUCKDB_BINDING
+    active_cycle = run_dir / active_boundary_root / ACTIVE_CYCLE1_DUCKDB_BINDING
     if (
         not archived02_cycle.is_file()
         or archived02_cycle.read_bytes() != active_cycle.read_bytes()
@@ -3682,7 +4200,9 @@ def _validate_rfq_double_chain_and_outputs(
         raise MissionFinalizationError("session-resume verified identity mismatch")
 
     registry = checked_relative_path(
-        run_dir, "TRIAL_REGISTRY.jsonl", "repair-02 trial registry"
+        run_dir,
+        (active_boundary_root / "TRIAL_REGISTRY.jsonl").as_posix(),
+        "repair-02 trial registry",
     ).read_bytes()
     archived_registry01 = (
         run_dir
@@ -4001,6 +4521,48 @@ def _validate_rfq_double_chain_and_outputs(
         ],
     }
 
+    if prefix_only:
+        # repair-03 freezes the complete repair-02 boundary before changing any
+        # executable source.  Returning this context only after all repair-01/02
+        # receipts, journals, archives, identities and trial prefixes above have
+        # been independently revalidated lets the repair-03 validator extend the
+        # chain without weakening the existing two-repair finalization path.
+        return {
+            "prefix_only": True,
+            "run_id": run_id,
+            "selected_releases": [
+                dict(row) for row in manifest.get("selected_releases", [])
+            ],
+            "repair01": dict(repair01),
+            "repair02": dict(repair02),
+            "initial_identity": dict(initial_identity),
+            "middle_identity": dict(middle_identity),
+            "current_identity": dict(current_identity),
+            "authoritative_union": [dict(row) for row in authoritative_union],
+            "release_input_receipts": list(failed01_identity.get("releases", [])),
+            "overlap_keys": list(overlap_keys),
+            "retained_objects": [dict(row) for row in retained],
+            "quarantine_details": [dict(row) for row in details],
+            "full_set_sha256": full_set_sha,
+            "retained_set_sha256": retained_sha,
+            "quarantined_set_sha256": quarantine_sha,
+            "selection_fingerprint_sha256": selection_sha,
+            "coverage": expected_coverage_record,
+            "repair_chain": expected_repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "quarantine_gap_plan": expected_gap_plan,
+            "cycle1_duckdb_binding": cycle_binding,
+            "repair01_receipt_sha256": repair01_receipt_sha,
+            "repair02_receipt_sha256": repair02_receipt_sha,
+            "repair02_trial_registry_sha256": trial02.get("current_sha256"),
+            "repair02_trial_registry_bytes": trial02_current,
+            "audit02_sha256": audit_sha,
+            "audit02_resource_sha256": audit_resource_sha,
+            "authorization02_sha256": authorization_sha,
+            "blocker02_sha256": blocker_sha,
+            "session_resume02_sha256": session_evidence_sha,
+        }
+
     rfq_input = rfq.get("input")
     if not isinstance(rfq_input, dict):
         raise MissionFinalizationError("repair-02 RFQ summary input is missing")
@@ -4282,6 +4844,1393 @@ def _validate_rfq_double_chain_and_outputs(
         "claim_boundary": RFQ_PARTIAL_BOUNDARY,
         "reopen_condition": RFQ_REOPEN_CONDITION,
     }
+
+def _validate_repair03_selection_identity(
+    document: Mapping[str, Any],
+    *,
+    prefix: Mapping[str, Any],
+    run_id: str,
+    require_consumed_objects: bool,
+) -> None:
+    """Prove repair-03 preserved repair-02's exact 282-object population."""
+    retained = prefix["retained_objects"]
+    details = prefix["quarantine_details"]
+    expected = {
+        "release_ids": [
+            row["release_id"] for row in prefix.get("selected_releases", [])
+        ],
+        "coverage_status": RFQ_PARTIAL_STATUS,
+        "full_object_coverage": False,
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+        "logical_manifest_bindings_total": EXPECTED_RFQ_FULL_LOGICAL_BINDINGS,
+        "unique_objects_total": EXPECTED_RFQ_FULL_OBJECTS,
+        "unique_bytes_total": EXPECTED_RFQ_FULL_BYTES,
+        "consumed_unique_objects": EXPECTED_RFQ_RETAINED_OBJECTS,
+        "consumed_logical_bindings": EXPECTED_RFQ_RETAINED_LOGICAL_BINDINGS,
+        "consumed_bytes": EXPECTED_RFQ_RETAINED_BYTES,
+        "consumed_object_set_sha256": prefix["retained_set_sha256"],
+        "quarantined_unique_objects": EXPECTED_RFQ_QUARANTINED_OBJECTS,
+        "quarantined_logical_bindings": EXPECTED_RFQ_QUARANTINED_LOGICAL_BINDINGS,
+        "quarantined_bytes": EXPECTED_RFQ_QUARANTINED_BYTES,
+        "quarantined_object_set_sha256": prefix["quarantined_set_sha256"],
+        "quarantine_reasons": [row["reason"] for row in details],
+        "quarantine_details": list(details),
+        "quarantine_gap_plan": prefix["quarantine_gap_plan"],
+        "cycle1_duckdb_binding": prefix["cycle1_duckdb_binding"],
+        "deduplicated_overlapping_objects": len(prefix["overlap_keys"]),
+        "manifest_object_set_sha256": prefix["full_set_sha256"],
+        "selection_fingerprint_sha256": prefix["selection_fingerprint_sha256"],
+    }
+    if document.get("run_id") != run_id:
+        raise MissionFinalizationError("repair-03 RFQ input run identity mismatch")
+    for field, value in expected.items():
+        if document.get(field) != value:
+            raise MissionFinalizationError(
+                f"repair-03 changed the retained RFQ selection: {field}"
+            )
+    if require_consumed_objects and document.get("consumed_objects") != retained:
+        raise MissionFinalizationError("repair-03 consumed-object inventory changed")
+
+
+def _validate_repair03_failed_evidence(
+    run_dir: Path,
+    *,
+    run_id: str,
+    repair03: Mapping[str, Any],
+    prefix: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected_evidence_paths = {
+        "failed_state_path": FAILED_RFQ_STATE_03.as_posix(),
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE_03.as_posix(),
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT_03.as_posix(),
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY_03.as_posix(),
+    }
+    if any(
+        repair03.get(field) != value
+        for field, value in expected_evidence_paths.items()
+    ):
+        raise MissionFinalizationError("attempt-03 archived evidence path mismatch")
+    state_sha = require_hex(
+        repair03.get("failed_state_sha256"), "attempt-03 failed state SHA-256"
+    )
+    resource_sha = require_hex(
+        repair03.get("failed_resource_receipt_sha256"),
+        "attempt-03 resource SHA-256",
+    )
+    scratch_sha = require_hex(
+        repair03.get("failed_scratch_receipt_sha256"),
+        "attempt-03 scratch receipt SHA-256",
+    )
+    input_sha = require_hex(
+        repair03.get("failed_input_identity_sha256"),
+        "attempt-03 input identity SHA-256",
+    )
+    if (
+        state_sha != EXPECTED_RFQ_FAILED_STATE_03_SHA256
+        or resource_sha != EXPECTED_RFQ_FAILED_RESOURCE_03_SHA256
+        or scratch_sha != EXPECTED_RFQ_FAILED_SCRATCH_RECEIPT_03_SHA256
+        or input_sha != EXPECTED_RFQ_FAILED_INPUT_03_SHA256
+    ):
+        raise MissionFinalizationError(
+            "attempt-03 evidence is not the approved failure boundary"
+        )
+    state = load_json(
+        require_path_hash(
+            run_dir, FAILED_RFQ_STATE_03, state_sha, "attempt-03 failed state"
+        )
+    )
+    resource = load_json(
+        require_path_hash(
+            run_dir,
+            FAILED_RFQ_RESOURCE_03,
+            resource_sha,
+            "attempt-03 resource receipt",
+        )
+    )
+    scratch = load_json(
+        require_path_hash(
+            run_dir,
+            FAILED_RFQ_SCRATCH_RECEIPT_03,
+            scratch_sha,
+            "attempt-03 scratch receipt",
+        )
+    )
+    identity = load_json(
+        require_path_hash(
+            run_dir,
+            FAILED_RFQ_INPUT_IDENTITY_03,
+            input_sha,
+            "attempt-03 input identity",
+        )
+    )
+    expected_resource = {
+        "label": "rfq_full_stage_repair02",
+        "path": ACTIVE_RFQ_REPAIR_RESOURCE_02.as_posix(),
+    }
+    expected_scratch = (
+        f"/srv/w09-research/runs/{run_id}/cache/rfq_full_scratch.duckdb"
+    )
+    if (
+        state.get("schema") != "rfq-full-stage-state-v1"
+        or state.get("run_id") != run_id
+        or state.get("status")
+        != "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+        or state.get("resume") is not False
+        or state.get("input_fingerprint")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or state.get("next_required_authority")
+        != "EXPLICIT_NEW_PREREGISTRATION_OR_RFQ_SCOPE_TERMINATION"
+        or state.get("scratch") != expected_scratch
+        or state.get("error")
+        != "unexpected malformed inner RFQ payload in a consumed object; aborting"
+        or state.get("error_type") != "RFQStageError"
+        or state.get("expected_success_resource") != expected_resource
+        or state.get("repair_chain") != prefix["repair_chain"]
+        or state.get("failed_attempt_bindings")
+        != prefix["failed_attempt_bindings"]
+    ):
+        raise MissionFinalizationError("attempt-03 parser failure state mismatch")
+    command = resource.get("command")
+    if (
+        resource.get("schema_version") != "w09-stage-resource-v1"
+        or resource.get("label") != "rfq_full_stage_repair02"
+        or resource.get("return_code") != 1
+        or not isinstance(command, list)
+        or "--resume" in command
+    ):
+        raise MissionFinalizationError("attempt-03 resource receipt mismatch")
+    sources = [
+        item for item in command
+        if isinstance(item, str) and item.endswith("/source/rfq_full_stage.py")
+    ]
+    if len(sources) != 1 or not Path(sources[0]).is_absolute():
+        raise MissionFinalizationError("attempt-03 resource source identity mismatch")
+    if (
+        set(scratch)
+        != {
+            "bytes",
+            "disposition",
+            "input_fingerprint",
+            "mtime_utc",
+            "original_scratch_path",
+            "preserved_scratch_path",
+            "resume_allowed",
+            "run_id",
+            "schema_version",
+            "sha256",
+        }
+        or
+        scratch.get("schema_version") != "rfq-failed-scratch-receipt-v1"
+        or scratch.get("run_id") != run_id
+        or scratch.get("original_scratch_path") != expected_scratch
+        or scratch.get("preserved_scratch_path")
+        != str(Path(expected_scratch).with_name(
+            "rfq_full_scratch.attempt03_failed.duckdb"
+        ))
+        or scratch.get("input_fingerprint")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or scratch.get("disposition") != "PRESERVED_RENAMED_NO_RESUME"
+        or scratch.get("resume_allowed") is not False
+        or scratch.get("sha256") != EXPECTED_RFQ_FAILED_SCRATCH_03_SHA256
+        or scratch.get("bytes") != EXPECTED_RFQ_FAILED_SCRATCH_03_BYTES
+        or scratch.get("mtime_utc") != EXPECTED_RFQ_FAILED_SCRATCH_03_MTIME
+    ):
+        raise MissionFinalizationError("attempt-03 scratch preservation mismatch")
+    preserved_sha = require_hex(
+        scratch.get("sha256"), "attempt-03 scratch SHA-256"
+    )
+    preserved_bytes = require_positive_int(
+        scratch.get("bytes"), "attempt-03 scratch bytes"
+    )
+    _require_utc_timestamp(scratch.get("mtime_utc"), "attempt-03 scratch mtime")
+    preserved_path = checked_relative_path(
+        run_dir,
+        "cache/rfq_full_scratch.attempt03_failed.duckdb",
+        "attempt-03 preserved scratch",
+    )
+    if (
+        preserved_path.stat().st_size != preserved_bytes
+        or sha256(preserved_path) != preserved_sha
+    ):
+        raise MissionFinalizationError("attempt-03 preserved scratch identity mismatch")
+    if (
+        identity.get("schema") != "rfq-full-input-identity-v2"
+        or identity.get("releases") != prefix["release_input_receipts"]
+        or identity.get("repair_chain") != prefix["repair_chain"]
+        or identity.get("failed_attempt_bindings")
+        != prefix["failed_attempt_bindings"]
+        or identity.get("expected_success_resource") != expected_resource
+        or state.get("repair_chain") != identity.get("repair_chain")
+        or state.get("failed_attempt_bindings")
+        != identity.get("failed_attempt_bindings")
+    ):
+        raise MissionFinalizationError("attempt-03 state/input chain mismatch")
+    prefix_with_releases = {
+        **prefix,
+        "selected_releases": prefix["selected_releases"],
+    }
+    _validate_repair03_selection_identity(
+        identity,
+        prefix=prefix_with_releases,
+        run_id=run_id,
+        require_consumed_objects=True,
+    )
+    return {
+        "state": state,
+        "resource": resource,
+        "scratch": scratch,
+        "input": identity,
+        "state_sha256": state_sha,
+        "resource_sha256": resource_sha,
+        "scratch_sha256": scratch_sha,
+        "input_sha256": input_sha,
+        "preserved_scratch_sha256": preserved_sha,
+        "preserved_scratch_bytes": preserved_bytes,
+    }
+
+
+def _validate_repair03_prefix_overlay(
+    run_dir: Path,
+    *,
+    run_id: str,
+    repair01: Mapping[str, Any],
+    repair02: Mapping[str, Any],
+    rfq: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], Path]:
+    """Replay the strict repair-02 validator against repair-03's frozen boundary."""
+    pre_manifest_path = checked_relative_path(
+        run_dir,
+        (REPAIR_03_PRE_ROOT / "RUN_MANIFEST.json").as_posix(),
+        "repair-03 pre-registration manifest",
+    )
+    pre_manifest = load_json(pre_manifest_path)
+    if (
+        pre_manifest.get("run_id") != run_id
+        or pre_manifest.get("status") != REPAIR02_PENDING_STATUS
+        or pre_manifest.get("registration_state")
+        != "RE_FROZEN_AFTER_DATA_INTEGRITY_REPAIR02_BEFORE_RFQ_RESULT"
+        or pre_manifest.get("data_integrity_repairs") != [repair01, repair02]
+    ):
+        raise MissionFinalizationError("repair-03 did not preserve the repair-02 manifest")
+    prefix = validate_rfq_double_quarantine(
+        run_dir,
+        pre_manifest,
+        rfq,
+        prefix_only=True,
+        active_boundary_root=REPAIR_03_PRE_ROOT,
+    )
+    if prefix.get("prefix_only") is not True:
+        raise MissionFinalizationError("repair-03 synthetic prefix audit did not complete")
+    return prefix, pre_manifest, pre_manifest_path
+
+
+def validate_rfq_parser_repair03(
+    run_dir: Path,
+    manifest: Mapping[str, Any],
+    rfq: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate repair-01 -> repair-02 -> code-only parser repair-03."""
+    run_id = manifest.get("run_id")
+    repairs = manifest.get("data_integrity_repairs")
+    if (
+        not isinstance(run_id, str)
+        or not run_id
+        or not isinstance(repairs, list)
+        or len(repairs) != 3
+        or any(not isinstance(row, dict) for row in repairs)
+        or [row.get("repair_id") for row in repairs]
+        != ["repair-01", "repair-02", "repair-03"]
+    ):
+        raise MissionFinalizationError(
+            "repair-03 requires the ordered repair-01/repair-02/repair-03 chain"
+        )
+    repair01, repair02, repair03 = repairs
+    if (
+        repair03.get("schema_version")
+        != "sports-autoresearch-rfq-parser-repair-v1"
+        or repair03.get("parent_repair_id") != "repair-02"
+        or repair03.get("pre_repair_status") != REPAIR02_PENDING_STATUS
+        or repair03.get("post_repair_status") != REPAIR03_PENDING_STATUS
+        or manifest.get("status")
+        not in {REPAIR03_PENDING_STATUS, "COMPLETE"}
+        or manifest.get("registration_state")
+        != "RE_FROZEN_AFTER_RFQ_PARSER_CORRECTION_REPAIR03_BEFORE_RFQ_RESULT"
+    ):
+        raise MissionFinalizationError("repair-03 registration identity/status mismatch")
+
+    # Synthetic overlay: immutable repair evidence remains rooted at run_dir,
+    # while every mutable repair-02 boundary is resolved from repair-03/pre_repair.
+    # The existing validator therefore replays the complete repair-01/02 audit
+    # without pretending that failed attempt 03 was a successful repair-02 run.
+    prefix, pre_manifest, pre_manifest_path = _validate_repair03_prefix_overlay(
+        run_dir,
+        run_id=run_id,
+        repair01=repair01,
+        repair02=repair02,
+        rfq=rfq,
+    )
+
+    repair03_receipt_sha = _validate_repair_record_receipt(
+        run_dir,
+        repair03,
+        REPAIR_REGISTRATION_RECEIPT_03,
+        "repair-03 registration",
+    )
+    previous_record_payload = (
+        json.dumps(repair02, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    if (
+        repair03.get("previous_repair_registration_path")
+        != REPAIR_REGISTRATION_RECEIPT_02.as_posix()
+        or repair03.get("previous_repair_registration_sha256")
+        != prefix["repair02_receipt_sha256"]
+        or repair03.get("previous_repair_record_sha256")
+        != hashlib.sha256(previous_record_payload).hexdigest()
+    ):
+        raise MissionFinalizationError("repair-03 registration receipt chain mismatch")
+
+    query_files = prefix["current_identity"].get("query_files")
+    if not isinstance(query_files, list) or not query_files:
+        raise MissionFinalizationError("repair-03 previous query-file set is missing")
+    archive03_required = {
+        "RUN_MANIFEST.json",
+        "TRIAL_REGISTRY.jsonl",
+        "SOURCE_MANIFEST.json",
+        "SOURCE_SHA256SUMS.txt",
+        "QUERY_SHA256SUMS.txt",
+        *(str(value) for value in query_files),
+        ACTIVE_RFQ_STATE.as_posix(),
+        ACTIVE_RFQ_REPAIR_RESOURCE_02.as_posix(),
+        "DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT_03.json",
+        RFQ_INPUT_IDENTITY.as_posix(),
+        "DATA_INTEGRITY/RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_03.json",
+        "logs/resources/rfq_inner_payload_contract_audit03_final.json",
+        "tmp/rfq_inner_payload_contract_audit03.py",
+        ACTIVE_CYCLE1_DUCKDB_BINDING.as_posix(),
+    }
+    source_mode = repair03.get("source_verification_mode")
+    if source_mode == REPAIR_03_SNAPSHOT_SOURCE_MODE:
+        archive03_required.add(REPAIR_03_SOURCE_ATTESTATION_ACTIVE.as_posix())
+    elif source_mode != REPAIR_03_GIT_SOURCE_MODE:
+        raise MissionFinalizationError("repair-03 source verification mode is invalid")
+    _validate_archive_inventory(
+        run_dir, repair03, REPAIR_03_PRE_ROOT, archive03_required, "repair-03"
+    )
+
+    failed = _validate_repair03_failed_evidence(
+        run_dir,
+        run_id=run_id,
+        repair03=repair03,
+        prefix=prefix,
+    )
+    archived_cycle03 = REPAIR_03_PRE_ROOT / ACTIVE_CYCLE1_DUCKDB_BINDING
+    cycle03_sha = require_hex(
+        repair03.get("cycle1_binding_sha256"),
+        "repair-03 Cycle-1 binding SHA-256",
+    )
+    if repair03.get("cycle1_binding_path") != archived_cycle03.as_posix():
+        raise MissionFinalizationError("repair-03 Cycle-1 binding path mismatch")
+    active_cycle_path = require_path_hash(
+        run_dir,
+        ACTIVE_CYCLE1_DUCKDB_BINDING,
+        cycle03_sha,
+        "repair-03 active Cycle-1 binding",
+    )
+    archived_cycle_path = require_path_hash(
+        run_dir,
+        archived_cycle03,
+        cycle03_sha,
+        "repair-03 archived Cycle-1 binding",
+    )
+    if active_cycle_path.read_bytes() != archived_cycle_path.read_bytes():
+        raise MissionFinalizationError("repair-03 Cycle-1 binding copies differ")
+    audit_sha = require_hex(
+        repair03.get("inner_payload_audit_sha256"),
+        "repair-03 inner-payload audit SHA-256",
+    )
+    audit_resource_sha = require_hex(
+        repair03.get("inner_payload_audit_resource_sha256"),
+        "repair-03 audit resource SHA-256",
+    )
+    audit_source_sha = require_hex(
+        repair03.get("inner_payload_audit_source_sha256"),
+        "repair-03 audit source SHA-256",
+    )
+    if (
+        audit_sha != EXPECTED_RFQ_INNER_AUDIT_03_SHA256
+        or audit_resource_sha != EXPECTED_RFQ_INNER_AUDIT_RESOURCE_03_SHA256
+        or audit_source_sha != EXPECTED_RFQ_INNER_AUDIT_SOURCE_03_SHA256
+    ):
+        raise MissionFinalizationError(
+            "repair-03 audit evidence is not the approved boundary"
+        )
+    if (
+        repair03.get("inner_payload_audit_path")
+        != ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix()
+        or repair03.get("inner_payload_audit_resource_path")
+        != ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_RESOURCE_03.as_posix()
+        or repair03.get("inner_payload_audit_source_path")
+        != REPAIR_03_AUDIT_SOURCE.as_posix()
+        or repair03.get("inner_payload_audit_source_archive_path")
+        != ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_SOURCE_03.as_posix()
+    ):
+        raise MissionFinalizationError("repair-03 audit evidence paths mismatch")
+    audit = load_json(
+        require_path_hash(
+            run_dir,
+            ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03,
+            audit_sha,
+            "repair-03 inner-payload audit",
+        )
+    )
+    audit_resource = load_json(
+        require_path_hash(
+            run_dir,
+            ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_RESOURCE_03,
+            audit_resource_sha,
+            "repair-03 audit resource",
+        )
+    )
+    canonical_audit_source = require_path_hash(
+        run_dir,
+        REPAIR_03_AUDIT_SOURCE,
+        audit_source_sha,
+        "repair-03 canonical audit source",
+    )
+    archived_audit_source = require_path_hash(
+        run_dir,
+        ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_SOURCE_03,
+        audit_source_sha,
+        "repair-03 archived audit source",
+    )
+    if canonical_audit_source.read_bytes() != archived_audit_source.read_bytes():
+        raise MissionFinalizationError("repair-03 audit source copies differ")
+    _validate_repair03_inner_payload_audit(
+        audit,
+        run_id=run_id,
+        input_identity_sha256=failed["input_sha256"],
+        audit_source_sha256=audit_source_sha,
+        expected_objects=prefix["retained_objects"],
+    )
+    _validate_repair03_audit_resource(audit_resource, run_id=run_id)
+    expected_inner_payload_audit = {
+        "path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix(),
+        "sha256": audit_sha,
+        "resource_path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_RESOURCE_03.as_posix(),
+        "resource_sha256": audit_resource_sha,
+        "source_path": REPAIR_03_AUDIT_SOURCE.as_posix(),
+        "source_sha256": audit_source_sha,
+        "objects_scanned": EXPECTED_RFQ_RETAINED_OBJECTS,
+        "bytes_scanned": EXPECTED_RFQ_RETAINED_BYTES,
+        "lines_scanned": EXPECTED_RFQ_RETAINED_LINES,
+        "data_frame_rows": 58_143_241,
+        "segment_receipt_rows": 560,
+        "expected_blank_control_marker_rows": EXPECTED_RFQ_EMPTY_CONTROL_ROWS,
+        "expected_blank_control_marker_counts": dict(
+            EXPECTED_RFQ_CONTROL_MARKER_COUNTS
+        ),
+        "outer_invalid_object_count": 0,
+        "outer_invalid_line_count": 0,
+        "identity_mismatch_count": 0,
+        "unexpected_inner_payload_object_count": 0,
+        "unexpected_inner_payload_row_count": 0,
+        "audited_parser_contract_sha256": audit["parser_contract_sha256"],
+        "analysis_result_opened": False,
+    }
+    if repair03.get("inner_payload_audit") != expected_inner_payload_audit:
+        raise MissionFinalizationError("repair-03 nested audit binding mismatch")
+
+    authority_sha = require_hex(
+        repair03.get("authority_basis_sha256"), "repair-03 authority basis SHA-256"
+    )
+    if repair03.get("authority_basis_path") != REPAIR_03_AUTHORITY_BASIS.as_posix():
+        raise MissionFinalizationError("repair-03 authority-basis path mismatch")
+    authority = load_json(
+        require_path_hash(
+            run_dir,
+            REPAIR_03_AUTHORITY_BASIS,
+            authority_sha,
+            "repair-03 authority basis",
+        )
+    )
+    expected_authority = {
+        "schema_version": "sports-autoresearch-autonomous-code-repair-authority-v1",
+        "run_id": run_id,
+        "mission_sha256": EXPECTED_MISSION_SHA,
+        "authority_basis": "MISSION_AUTHORIZED_AUTONOMOUS_RESEARCH_CODE_CORRECTION",
+        "permitted_change": "PARSER_CONTRACT_CORRECTION_ONLY",
+        "operator_repair02_authorization_reused": False,
+        "new_data_integrity_decision": False,
+        "data_selection_change": "NONE",
+        "quarantine_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+        "prerequisite_audit_path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix(),
+        "prerequisite_audit_sha256": audit_sha,
+    }
+    if set(authority) != set(expected_authority) | {"recorded_at_utc"} or any(
+        authority.get(field) != value for field, value in expected_authority.items()
+    ):
+        raise MissionFinalizationError("repair-03 authority basis mismatch")
+    _require_utc_timestamp(authority.get("recorded_at_utc"), "repair-03 authority basis")
+    expected_authority_binding = {
+        "path": REPAIR_03_AUTHORITY_BASIS.as_posix(),
+        "sha256": authority_sha,
+        "schema_version": expected_authority["schema_version"],
+        "authority_basis": expected_authority["authority_basis"],
+        "permitted_change": expected_authority["permitted_change"],
+    }
+    if repair03.get("authority_basis") != expected_authority_binding:
+        raise MissionFinalizationError("repair-03 nested authority binding mismatch")
+
+    repository = manifest.get("repository")
+    current_identity = repair03.get("current_repository_identity")
+    previous_identity = prefix["current_identity"]
+    identity_chain = repair03.get("repository_identity_chain")
+    identity_fields = {
+        "execution_commit",
+        "source_manifest_sha256",
+        "source_sha256s_sha256",
+        "query_set_sha256",
+        "query_files",
+    }
+    if (
+        not isinstance(repository, dict)
+        or not isinstance(current_identity, dict)
+        or set(current_identity) != identity_fields
+        or repair03.get("initial_repository_identity")
+        != prefix["initial_identity"]
+        or repair03.get("previous_repository_identity") != previous_identity
+        or identity_chain
+        != [
+            prefix["initial_identity"],
+            prefix["middle_identity"],
+            previous_identity,
+            current_identity,
+        ]
+        or repository.get("identity_history") != identity_chain
+        or repository.get("initial_identity") != prefix["initial_identity"]
+        or repository.get("previous_identity") != previous_identity
+        or repository.get("registration_repair_id") != "repair-03"
+        or repository.get("source_tree_dirty_at_freeze") is not False
+        or any(repository.get(field) != current_identity[field] for field in identity_fields)
+        or repair03.get("previous_execution_commit")
+        != previous_identity["execution_commit"]
+        or repair03.get("current_execution_commit")
+        != current_identity["execution_commit"]
+    ):
+        raise MissionFinalizationError("repair-03 repository identity chain mismatch")
+    for identity_index, identity in enumerate(identity_chain):
+        if not isinstance(identity, dict) or set(identity) != identity_fields:
+            raise MissionFinalizationError("repair-03 repository identity fields mismatch")
+        require_hex(identity.get("execution_commit"), f"repair-03 identity {identity_index} commit", HEX40)
+        for field in (
+            "source_manifest_sha256",
+            "source_sha256s_sha256",
+            "query_set_sha256",
+        ):
+            require_hex(identity.get(field), f"repair-03 identity {identity_index} {field}")
+    if len({canonical_json_sha256(identity) for identity in identity_chain}) != 4:
+        raise MissionFinalizationError("repair-03 repository identities are not distinct")
+    scalar_identity_fields = (
+        "source_manifest_sha256",
+        "source_sha256s_sha256",
+        "query_set_sha256",
+    )
+    if any(
+        repair03.get(f"previous_{field}") != previous_identity[field]
+        or repair03.get(f"current_{field}") != current_identity[field]
+        for field in scalar_identity_fields
+    ):
+        raise MissionFinalizationError("repair-03 scalar repository boundary mismatch")
+    for root, identity in (
+        (REPAIR_03_PRE_ROOT, previous_identity),
+        (Path("."), current_identity),
+    ):
+        for relative, field in (
+            (Path("SOURCE_MANIFEST.json"), "source_manifest_sha256"),
+            (Path("SOURCE_SHA256SUMS.txt"), "source_sha256s_sha256"),
+            (Path("QUERY_SHA256SUMS.txt"), "query_set_sha256"),
+        ):
+            require_path_hash(
+                run_dir,
+                root / relative,
+                identity[field],
+                f"repair-03 repository boundary {root / relative}",
+            )
+        if identity.get("query_files") != query_files:
+            raise MissionFinalizationError("repair-03 changed the query-file path set")
+        for relative in query_files:
+            checked_relative_path(
+                run_dir, (root / relative).as_posix(), "repair-03 frozen query"
+            )
+
+    _validate_repair03_source_verification(
+        run_dir,
+        run_id=run_id,
+        repair03=repair03,
+        previous_identity=previous_identity,
+        current_identity=current_identity,
+    )
+
+    parser_contract_sha = require_hex(
+        repair03.get("parser_contract_sha256"), "repair-03 parser-contract SHA-256"
+    )
+    if repair03.get("parser_contract_path") != REPAIR_03_PARSER_CONTRACT.as_posix():
+        raise MissionFinalizationError("repair-03 parser-contract path mismatch")
+    parser_contract = load_json(
+        require_path_hash(
+            run_dir,
+            REPAIR_03_PARSER_CONTRACT,
+            parser_contract_sha,
+            "repair-03 parser contract",
+        )
+    )
+    frozen_rfq_path = checked_relative_path(
+        run_dir, "queries/rfq_full_stage.py", "repair-03 frozen RFQ query"
+    )
+    registered_rfq_query_sha = sha256(frozen_rfq_path)
+    if registered_rfq_query_sha != repair03.get("registered_rfq_query_sha256"):
+        raise MissionFinalizationError("repair-03 registered RFQ query hash mismatch")
+    _validate_repair03_parser_contract(
+        parser_contract,
+        run_id=run_id,
+        registered_query_sha256=registered_rfq_query_sha,
+        audit_path=ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03,
+        audit_sha256=audit_sha,
+    )
+    if (
+        parser_contract.get("created_at_utc") != repair03.get("applied_at_utc")
+        or authority.get("recorded_at_utc") != repair03.get("applied_at_utc")
+    ):
+        raise MissionFinalizationError(
+            "repair-03 registration/parser/authority timestamps differ"
+        )
+    expected_parser_binding = {
+        "path": REPAIR_03_PARSER_CONTRACT.as_posix(),
+        "sha256": parser_contract_sha,
+        "schema_version": "rfq-inner-payload-parser-contract-v1",
+        "registered_query_sha256": registered_rfq_query_sha,
+        "audited_parser_contract_sha256": audit["parser_contract_sha256"],
+        "audited_parser_contract": audit["parser_contract"],
+    }
+    if repair03.get("parser_contract") != expected_parser_binding:
+        raise MissionFinalizationError("repair-03 nested parser binding mismatch")
+
+    journal_sha = require_hex(
+        repair03.get("transaction_journal_sha256"),
+        "repair-03 transaction journal SHA-256",
+    )
+    if repair03.get("transaction_journal_path") != REPAIR_03_TRANSACTION_JOURNAL.as_posix():
+        raise MissionFinalizationError("repair-03 transaction journal path mismatch")
+    journal = load_json(
+        require_path_hash(
+            run_dir,
+            REPAIR_03_TRANSACTION_JOURNAL,
+            journal_sha,
+            "repair-03 transaction journal",
+        )
+    )
+    mutations = journal.get("active_mutations")
+    expected_mutation_paths = [
+        "SOURCE_MANIFEST.json",
+        "SOURCE_SHA256SUMS.txt",
+        "QUERY_SHA256SUMS.txt",
+        *query_files,
+        "TRIAL_REGISTRY.jsonl",
+    ]
+    if (
+        journal.get("schema_version") != "repair03-registration-transaction-v1"
+        or journal.get("repair_id") != "repair-03"
+        or journal.get("run_id") != run_id
+        or journal.get("state") != "PREPARED_BEFORE_ACTIVE_MUTATION"
+        or journal.get("original_manifest_sha256") != sha256(pre_manifest_path)
+        or not isinstance(mutations, list)
+        or [row.get("path") for row in mutations if isinstance(row, dict)]
+        != expected_mutation_paths
+    ):
+        raise MissionFinalizationError("repair-03 transaction journal identity mismatch")
+    for row in mutations:
+        if not isinstance(row, dict) or set(row) != {
+            "path",
+            "original_archive_path",
+            "original_sha256",
+            "replacement_sha256",
+            "append_only_registry",
+        }:
+            raise MissionFinalizationError("repair-03 transaction mutation row is invalid")
+        relative = row["path"]
+        archive_relative = (REPAIR_03_PRE_ROOT / relative).as_posix()
+        if (
+            row.get("original_archive_path") != archive_relative
+            or row.get("append_only_registry")
+            is not (relative == "TRIAL_REGISTRY.jsonl")
+        ):
+            raise MissionFinalizationError(
+                f"repair-03 transaction mutation policy mismatch: {relative}"
+            )
+        original = checked_relative_path(
+            run_dir, archive_relative, "repair-03 transaction original"
+        )
+        replacement = checked_relative_path(
+            run_dir,
+            (REPAIR_03_ROOT / "post_repair" / relative).as_posix(),
+            "repair-03 transaction replacement",
+        )
+        active = checked_relative_path(
+            run_dir, relative, "repair-03 transaction active artifact"
+        )
+        if (
+            row.get("original_sha256") != sha256(original)
+            or row.get("replacement_sha256") != sha256(replacement)
+        ):
+            raise MissionFinalizationError(
+                f"repair-03 transaction mutation hash mismatch: {relative}"
+            )
+        if relative == "TRIAL_REGISTRY.jsonl":
+            if not active.read_bytes().startswith(replacement.read_bytes()):
+                raise MissionFinalizationError(
+                    "repair-03 trial-registry replacement is not an active prefix"
+                )
+        elif sha256(active) != row.get("replacement_sha256"):
+            raise MissionFinalizationError(
+                f"repair-03 active transaction result changed: {relative}"
+            )
+    actual_repair03_files = sorted(
+        path.relative_to(run_dir / REPAIR_03_ROOT).as_posix()
+        for path in (run_dir / REPAIR_03_ROOT).rglob("*")
+        if path.is_file()
+    )
+    if journal.get("expected_repair_files") != actual_repair03_files:
+        raise MissionFinalizationError("repair-03 transaction file set mismatch")
+
+    if (
+        repair03.get("finding")
+        != "EXPECTED_CONTROL_MARKER_MISCLASSIFIED_AS_MALFORMED_INNER_PAYLOAD"
+        or repair03.get("registration_change_class")
+        != "PARSER_CONTRACT_CORRECTION_ONLY_NO_DATA_SELECTION_OR_HYPOTHESIS_CHANGE"
+        or repair03.get("retry_requirement")
+        != "FRESH_SCRATCH_SAME_SELECTION_NEW_PARSER_CONTRACT_NO_RESUME"
+        or repair03.get("rfq_result_state") != "NO_RFQ_RESULT_OPENED"
+        or repair03.get("failed_stage_status")
+        != "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+        or repair03.get("quarantine_policy")
+        != "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE_INHERITED_NO_CHANGE"
+        or repair03.get("expected_success_resource")
+        != {
+            "label": "rfq_full_stage_repair03",
+            "path": ACTIVE_RFQ_REPAIR_RESOURCE_03.as_posix(),
+        }
+        or repair03.get("newly_quarantined_objects") != []
+        or repair03.get("cumulative_quarantined_objects")
+        != repair02.get("cumulative_quarantined_objects")
+        or repair03.get("coverage") != prefix["coverage"]
+        or repair03.get("selection_identity_unchanged") is not True
+        or repair03.get("previous_selection_fingerprint_sha256")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or repair03.get("current_selection_fingerprint_sha256")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or repair03.get("failed_input_fingerprint")
+        != EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+        or repair03.get("hypothesis_design_change") != "NONE"
+        or repair03.get("data_selection_change") != "NONE"
+        or repair03.get("quarantine_change") != "NONE"
+        or repair03.get("core_results_recomputed") is not False
+        or repair03.get("threshold_feature_test_or_hypothesis_status_changed")
+        is not False
+        or repair03.get("core_result_disposition")
+        != "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED"
+        or repair03.get("core_result_artifacts")
+        != repair02.get("core_result_artifacts")
+        or repair03.get("cycle1_duckdb_binding")
+        != prefix["cycle1_duckdb_binding"]
+    ):
+        raise MissionFinalizationError("repair-03 code-only/no-selection-change boundary mismatch")
+
+    # Trial prefix and the two adaptive-choice records are validated before
+    # accepting any successful RFQ output.
+    previous_registry = checked_relative_path(
+        run_dir,
+        (REPAIR_03_PRE_ROOT / "TRIAL_REGISTRY.jsonl").as_posix(),
+        "repair-03 previous trial registry",
+    ).read_bytes()
+    registry = checked_relative_path(
+        run_dir, "TRIAL_REGISTRY.jsonl", "repair-03 trial registry"
+    ).read_bytes()
+    trial = repair03.get("trial_registry")
+    if not isinstance(trial, dict):
+        raise MissionFinalizationError("repair-03 trial-registry binding is missing")
+    previous_bytes = require_positive_int(
+        trial.get("previous_bytes"), "repair-03 previous trial bytes"
+    )
+    current_bytes = require_positive_int(
+        trial.get("current_bytes"), "repair-03 current trial bytes"
+    )
+    if (
+        previous_bytes != prefix["repair02_trial_registry_bytes"]
+        or previous_registry != registry[:previous_bytes]
+        or len(previous_registry) != previous_bytes
+        or hashlib.sha256(previous_registry).hexdigest()
+        != prefix["repair02_trial_registry_sha256"]
+        or trial.get("previous_sha256")
+        != prefix["repair02_trial_registry_sha256"]
+        or trial.get("strict_previous_bytes_prefix") is not True
+        or trial.get("appended_records") != 2
+        or trial.get("trial_registration_ids")
+        != ["RFQ_FULL_STAGE_ATTEMPT_03", "RFQ_PARSER_CONTRACT_REPAIR_03"]
+        or current_bytes <= previous_bytes
+        or len(registry) < current_bytes
+        or hashlib.sha256(registry[:current_bytes]).hexdigest()
+        != trial.get("current_sha256")
+    ):
+        raise MissionFinalizationError("repair-03 trial append chain mismatch")
+    try:
+        trial_rows = [
+            json.loads(line)
+            for line in registry[previous_bytes:current_bytes]
+            .decode("utf-8")
+            .splitlines()
+            if line
+        ]
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise MissionFinalizationError(
+            f"invalid repair-03 trial append: {exc}"
+        ) from exc
+    if (
+        len(trial_rows) != 2
+        or any(not isinstance(row, dict) for row in trial_rows)
+        or [row.get("trial_registration_id") for row in trial_rows]
+        != ["RFQ_FULL_STAGE_ATTEMPT_03", "RFQ_PARSER_CONTRACT_REPAIR_03"]
+        or any(
+            row.get("trial_ids") != list(RFQ_TRIAL_ORDER)
+            or row.get("result_opened") is not False
+            or row.get("hypothesis_conclusion_opened") is not False
+            or row.get("parent_repair_id") != "repair-02"
+            for row in trial_rows
+        )
+    ):
+        raise MissionFinalizationError("repair-03 trial governance boundary mismatch")
+    failure_trial, prereg_trial = trial_rows
+    applied_at = _require_utc_timestamp(
+        repair03.get("applied_at_utc"), "repair-03 registration"
+    )
+    common_trial = {
+        "recorded_at_utc": applied_at,
+        "trial_ids": list(RFQ_TRIAL_ORDER),
+        "result_opened": False,
+        "hypothesis_conclusion_opened": False,
+        "parent_repair_id": "repair-02",
+    }
+    expected_failure_trial = {
+        **common_trial,
+        "trial_registration_id": "RFQ_FULL_STAGE_ATTEMPT_03",
+        "record_type": "STAGE_FAILURE",
+        "stage": "RFQ_FULL_STAGE_REPAIR02",
+        "failure_class": (
+            "EXPECTED_CONTROL_MARKER_MISCLASSIFIED_AS_MALFORMED_INNER_PAYLOAD"
+        ),
+        "failure_disposition": "PARSER_CONTRACT_FAILURE_BEFORE_RESULT",
+        "hypothesis_conclusion": "NONE",
+        "failed_state_path": FAILED_RFQ_STATE_03.as_posix(),
+        "failed_state_sha256": failed["state_sha256"],
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE_03.as_posix(),
+        "failed_resource_receipt_sha256": failed["resource_sha256"],
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT_03.as_posix(),
+        "failed_scratch_receipt_sha256": failed["scratch_sha256"],
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY_03.as_posix(),
+        "failed_input_identity_sha256": failed["input_sha256"],
+        "failed_input_fingerprint": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "inner_payload_audit_path": (
+            ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix()
+        ),
+        "inner_payload_audit_sha256": audit_sha,
+        "execution_commit": previous_identity["execution_commit"],
+        "source_manifest_sha256": previous_identity["source_manifest_sha256"],
+        "source_sha256s_sha256": previous_identity["source_sha256s_sha256"],
+        "query_set_sha256": previous_identity["query_set_sha256"],
+    }
+    expected_prereg_trial = {
+        **common_trial,
+        "trial_registration_id": "RFQ_PARSER_CONTRACT_REPAIR_03",
+        "record_type": "PARSER_CONTRACT_REPAIR_PREREGISTRATION",
+        "stage": "RFQ_FULL_STAGE_REPAIR03_PREREGISTRATION",
+        "finding": repair03["finding"],
+        "registration_change_class": repair03["registration_change_class"],
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "retry_requirement": repair03["retry_requirement"],
+        "parser_contract_path": REPAIR_03_PARSER_CONTRACT.as_posix(),
+        "parser_contract_sha256": parser_contract_sha,
+        "inner_payload_audit_path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix(),
+        "inner_payload_audit_sha256": audit_sha,
+        "authority_basis_path": REPAIR_03_AUTHORITY_BASIS.as_posix(),
+        "authority_basis_sha256": authority_sha,
+        "newly_quarantined_objects": [],
+        "cumulative_quarantined_objects": repair02["cumulative_quarantined_objects"],
+        "coverage": prefix["coverage"],
+        "previous_execution_commit": previous_identity["execution_commit"],
+        "current_execution_commit": current_identity["execution_commit"],
+        "previous_selection_fingerprint_sha256": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "current_selection_fingerprint_sha256": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "previous_source_manifest_sha256": previous_identity[
+            "source_manifest_sha256"
+        ],
+        "previous_source_sha256s_sha256": previous_identity[
+            "source_sha256s_sha256"
+        ],
+        "current_source_manifest_sha256": current_identity[
+            "source_manifest_sha256"
+        ],
+        "current_source_sha256s_sha256": current_identity[
+            "source_sha256s_sha256"
+        ],
+        "previous_query_set_sha256": previous_identity["query_set_sha256"],
+        "current_query_set_sha256": current_identity["query_set_sha256"],
+        "hypothesis_design_change": "NONE",
+        "data_selection_change": "NONE",
+        "quarantine_change": "NONE",
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "core_results_recomputed": False,
+    }
+    for row, expected, label in (
+        (failure_trial, expected_failure_trial, "repair-03 failure trial"),
+        (prereg_trial, expected_prereg_trial, "repair-03 preregistration trial"),
+    ):
+        if row != expected:
+            raise MissionFinalizationError(f"{label} mismatch")
+
+    expected_failed03_record = {
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR02_ATTEMPT_03",
+        "state_active_path": ACTIVE_RFQ_STATE.as_posix(),
+        "state_path": FAILED_RFQ_STATE_03.as_posix(),
+        "state_sha256": failed["state_sha256"],
+        "state_status": "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION",
+        "resource_active_path": ACTIVE_RFQ_REPAIR_RESOURCE_02.as_posix(),
+        "resource_path": FAILED_RFQ_RESOURCE_03.as_posix(),
+        "resource_sha256": failed["resource_sha256"],
+        "resource_label": "rfq_full_stage_repair02",
+        "return_code": 1,
+        "scratch_receipt_active_path": "DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT_03.json",
+        "scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT_03.as_posix(),
+        "scratch_receipt_sha256": failed["scratch_sha256"],
+        "preserved_scratch_active_path": (
+            "cache/rfq_full_scratch.attempt03_failed.duckdb"
+        ),
+        "preserved_scratch_sha256": failed["preserved_scratch_sha256"],
+        "preserved_scratch_bytes": failed["preserved_scratch_bytes"],
+        "input_identity_active_path": RFQ_INPUT_IDENTITY.as_posix(),
+        "input_identity_path": FAILED_RFQ_INPUT_IDENTITY_03.as_posix(),
+        "input_identity_sha256": failed["input_sha256"],
+        "input_fingerprint": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "scratch_disposition": "PRESERVED_RENAMED_NO_RESUME",
+        "retry_requirement": (
+            "FRESH_SCRATCH_SAME_SELECTION_NEW_PARSER_CONTRACT_NO_RESUME"
+        ),
+    }
+    if repair03.get("failed_attempt") != expected_failed03_record:
+        raise MissionFinalizationError("repair-03 nested failed-attempt binding mismatch")
+
+    return _validate_repair03_success_outputs(
+        run_dir=run_dir,
+        manifest=manifest,
+        rfq=rfq,
+        repair03=repair03,
+        repair03_receipt_sha=repair03_receipt_sha,
+        parser_contract_sha=parser_contract_sha,
+        authority_sha=authority_sha,
+        audit_sha=audit_sha,
+        prefix=prefix,
+        failed=failed,
+        current_identity=current_identity,
+    )
+
+
+def _validate_repair03_success_outputs(
+    *,
+    run_dir: Path,
+    manifest: Mapping[str, Any],
+    rfq: Mapping[str, Any],
+    repair03: Mapping[str, Any],
+    repair03_receipt_sha: str,
+    parser_contract_sha: str,
+    authority_sha: str,
+    audit_sha: str,
+    prefix: Mapping[str, Any],
+    failed: Mapping[str, Any],
+    current_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the fresh-scratch repair-03 success without relaxing repair-02."""
+    run_id = manifest["run_id"]
+    summary_path = checked_relative_path(
+        run_dir, RFQ_SUMMARY.as_posix(), "repair-03 RFQ summary"
+    )
+    if load_json(summary_path) != dict(rfq):
+        raise MissionFinalizationError(
+            "repair-03 RFQ summary argument/file binding mismatch"
+        )
+    chain03 = {
+        "repair_id": "repair-03",
+        "registration_path": REPAIR_REGISTRATION_RECEIPT_03.as_posix(),
+        "registration_sha256": repair03_receipt_sha,
+        "parser_contract_path": REPAIR_03_PARSER_CONTRACT.as_posix(),
+        "parser_contract_sha256": parser_contract_sha,
+        "authority_basis_path": REPAIR_03_AUTHORITY_BASIS.as_posix(),
+        "authority_basis_sha256": authority_sha,
+        "inner_payload_audit_path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix(),
+        "inner_payload_audit_sha256": audit_sha,
+    }
+    expected_repair_chain = [*prefix["repair_chain"], chain03]
+    failed03_binding = {
+        "repair_id": "repair-03",
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR02_ATTEMPT_03",
+        "failed_state_path": FAILED_RFQ_STATE_03.as_posix(),
+        "failed_state_sha256": failed["state_sha256"],
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE_03.as_posix(),
+        "failed_resource_receipt_sha256": failed["resource_sha256"],
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT_03.as_posix(),
+        "failed_scratch_receipt_sha256": failed["scratch_sha256"],
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY_03.as_posix(),
+        "failed_input_identity_sha256": failed["input_sha256"],
+        "input_fingerprint": EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        "resource_label": "rfq_full_stage_repair02",
+        "retry_requirement": (
+            "FRESH_SCRATCH_SAME_SELECTION_NEW_PARSER_CONTRACT_NO_RESUME"
+        ),
+    }
+    expected_failed_bindings = [
+        *prefix["failed_attempt_bindings"], failed03_binding
+    ]
+    expected_resource = {
+        "label": "rfq_full_stage_repair03",
+        "path": ACTIVE_RFQ_REPAIR_RESOURCE_03.as_posix(),
+    }
+    parser_binding = {
+        "path": REPAIR_03_PARSER_CONTRACT.as_posix(),
+        "sha256": parser_contract_sha,
+        "schema_version": "rfq-inner-payload-parser-contract-v1",
+    }
+    registered_query_sha = repair03["registered_rfq_query_sha256"]
+
+    rfq_input = rfq.get("input")
+    if not isinstance(rfq_input, dict):
+        raise MissionFinalizationError("repair-03 RFQ summary input is missing")
+    _validate_repair03_selection_identity(
+        {**rfq_input, "run_id": run_id},
+        prefix=prefix,
+        run_id=run_id,
+        require_consumed_objects=False,
+    )
+    if (
+        rfq.get("schema") != "sports-autoresearch-rfq-full-stage-v1"
+        or rfq.get("run_id") != run_id
+        or rfq.get("status") != RFQ_PARTIAL_STATUS
+        or rfq.get("analysis_scope") != RFQ_ANALYSIS_SCOPE
+        or rfq_input.get("failed_attempt_binding") is not None
+        or rfq_input.get("repair_chain") != expected_repair_chain
+        or rfq_input.get("failed_attempt_bindings") != expected_failed_bindings
+        or rfq_input.get("expected_success_resource") != expected_resource
+        or rfq_input.get("inner_payload_parser_contract") != parser_binding
+        or rfq_input.get("registered_rfq_query_sha256")
+        != registered_query_sha
+        or rfq_input.get("outer_parser")
+        != "STRICT_NDJSON_IGNORE_ERRORS_FALSE; malformed outer rows abort"
+        or rfq_input.get("overlap_keys") != prefix["overlap_keys"]
+    ):
+        raise MissionFinalizationError("repair-03 RFQ summary governance binding mismatch")
+    summary_generated_key = _utc_timestamp_key(
+        rfq.get("generated_at_utc"), "repair-03 RFQ summary generation"
+    )
+
+    active_identity = load_json(
+        checked_relative_path(
+            run_dir, RFQ_INPUT_IDENTITY.as_posix(), "repair-03 active input identity"
+        )
+    )
+    _validate_repair03_selection_identity(
+        active_identity,
+        prefix=prefix,
+        run_id=run_id,
+        require_consumed_objects=True,
+    )
+    if (
+        active_identity.get("schema") != "rfq-full-input-identity-v3"
+        or active_identity.get("releases") != prefix["release_input_receipts"]
+        or active_identity.get("repair_chain") != expected_repair_chain
+        or active_identity.get("failed_attempt_bindings")
+        != expected_failed_bindings
+        or active_identity.get("expected_success_resource") != expected_resource
+        or active_identity.get("inner_payload_parser_contract") != parser_binding
+        or active_identity.get("registered_rfq_query_sha256")
+        != registered_query_sha
+    ):
+        raise MissionFinalizationError("repair-03 active input identity mismatch")
+
+    # Apart from the append-only repair/failure/resource/parser governance
+    # fields, the failed and successful identities must be byte-semantically
+    # identical.  This catches coordinated count or object-list rewrites.
+    mutable_identity_fields = {
+        "repair_chain",
+        "failed_attempt_bindings",
+        "expected_success_resource",
+        "inner_payload_parser_contract",
+        "registered_rfq_query_sha256",
+        "schema",
+    }
+    failed_stable = {
+        key: value for key, value in failed["input"].items()
+        if key not in mutable_identity_fields
+    }
+    active_stable = {
+        key: value for key, value in active_identity.items()
+        if key not in mutable_identity_fields
+    }
+    if active_stable != failed_stable:
+        raise MissionFinalizationError("repair-03 changed stable RFQ input identity fields")
+
+    active_state_path = checked_relative_path(
+        run_dir, ACTIVE_RFQ_STATE.as_posix(), "repair-03 completed RFQ state"
+    )
+    active_state = load_json(active_state_path)
+    _validate_repair02_success_envelope(
+        rfq_input=rfq_input,
+        active_identity=active_identity,
+        active_state=active_state,
+        summary_expected={
+            key: value for key, value in rfq_input.items()
+        },
+        identity_expected=active_identity,
+        run_id=run_id,
+        selection_sha=EXPECTED_RFQ_REPAIR02_SELECTION_SHA256,
+        repair_chain=expected_repair_chain,
+        failed_bindings=expected_failed_bindings,
+        gap_plan=prefix["quarantine_gap_plan"],
+        expected_resource=expected_resource,
+    )
+    if (
+        active_state.get("registered_rfq_query_sha256") != registered_query_sha
+        or active_state.get("inner_payload_parser_contract") != parser_binding
+    ):
+        raise MissionFinalizationError(
+            "repair-03 completion state parser/query binding mismatch"
+        )
+    state_started_key = _utc_timestamp_key(
+        active_state.get("started_at_utc"), "repair-03 running state start"
+    )
+    state_completed_key = _utc_timestamp_key(
+        active_state.get("completed_at_utc"), "repair-03 completion state"
+    )
+    active_state_sha = sha256(active_state_path)
+
+    coverage = rfq.get("coverage")
+    counts = rfq.get("counts")
+    if not isinstance(coverage, dict) or not isinstance(counts, dict):
+        raise MissionFinalizationError("repair-03 RFQ coverage/count receipts are missing")
+    _validate_rfq_quarantine_boundary_counts(coverage, counts)
+    gaps = coverage.get("quarantine_gap_ranges")
+    if (
+        coverage.get("rfq_object_coverage") != RFQ_PARTIAL_STATUS
+        or not isinstance(gaps, list)
+        or len(gaps) != 1
+        or coverage.get("quarantine_gap_set_sha256")
+        != canonical_json_sha256(gaps)
+        or coverage.get("quarantined_hours_are_not_observed_zero") is not True
+        or coverage.get("capture_completeness_is_not_lifecycle_join_completeness")
+        is not True
+    ):
+        raise MissionFinalizationError("repair-03 RFQ quarantine-gap semantics mismatch")
+    gap = gaps[0]
+    if not isinstance(gap, dict):
+        raise MissionFinalizationError("repair-03 RFQ gap receipt is invalid")
+    gap_start = require_positive_int(gap.get("gap_start_ns"), "repair-03 gap start")
+    gap_end = require_positive_int(gap.get("gap_end_ns"), "repair-03 gap end")
+    if gap_end <= gap_start or gap.get("quarantined_object_count") != 2:
+        raise MissionFinalizationError("repair-03 RFQ gap range is invalid")
+    if (
+        gap.get("quarantined_object_set_sha256")
+        != prefix["quarantined_set_sha256"]
+        or gap.get("boundary_reason")
+        != "WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON"
+    ):
+        raise MissionFinalizationError("repair-03 RFQ gap identity changed")
+    gap_csv = _read_csv_rows(
+        run_dir / RFQ_QUARANTINE_GAPS,
+        {
+            "release_id", "key", "sha256", "quarantined_keys_json",
+            "quarantined_object_count", "quarantined_object_set_sha256",
+            "previous_filename", "next_filename", "gap_start_ns", "gap_end_ns",
+            "gap_start_us", "gap_end_us", "boundary_reason",
+        },
+        "repair-03 RFQ quarantine gaps",
+    )
+    if len(gap_csv) != 1:
+        raise MissionFinalizationError("repair-03 gap table must contain one row")
+    for field, value in gap.items():
+        if field not in gap_csv[0]:
+            raise MissionFinalizationError(f"repair-03 gap-table field missing: {field}")
+        observed: Any = gap_csv[0][field]
+        if isinstance(value, int):
+            try:
+                observed = int(observed)
+            except ValueError as exc:
+                raise MissionFinalizationError(
+                    f"repair-03 invalid gap-table integer: {field}"
+                ) from exc
+        if observed != value:
+            raise MissionFinalizationError(f"repair-03 gap-table mismatch: {field}")
+    partial_hours = require_positive_int(
+        coverage.get("partial_object_coverage_hours"),
+        "repair-03 partial-object coverage hours",
+    )
+    hour_rows = _read_csv_rows(
+        run_dir / RFQ_HOUR_COVERAGE,
+        {"object_coverage_status", "zero_interpretation"},
+        "repair-03 RFQ hour coverage",
+    )
+    partial_rows = [
+        row for row in hour_rows
+        if row.get("object_coverage_status") == RFQ_PARTIAL_STATUS
+    ]
+    if len(partial_rows) != partial_hours or any(
+        row.get("zero_interpretation")
+        != "NOT_AN_OBSERVED_ZERO_QUARANTINE_OVERLAP"
+        for row in partial_rows
+    ):
+        raise MissionFinalizationError("repair-03 partial-hour semantics mismatch")
+
+    success_path = checked_relative_path(
+        run_dir,
+        ACTIVE_RFQ_REPAIR_RESOURCE_03.as_posix(),
+        "repair-03 successful RFQ resource",
+    )
+    success = load_json(success_path)
+    command = success.get("command")
+    resolved_run_dir = run_dir.resolve()
+    expected_command = [
+        "/opt/w09/venv/bin/python",
+        str(resolved_run_dir / "source/rfq_full_stage.py"),
+        "--run-dir",
+        str(resolved_run_dir),
+        "--cache-root",
+        "/srv/w09-research/cache",
+        "--memory-limit",
+        "40GB",
+        "--max-temp-size",
+        "120GB",
+        "--threads",
+        "8",
+        "--min-free-gib",
+        "120",
+        "--clob-max-per-root",
+        "50",
+    ]
+    wall_seconds = success.get("wall_seconds")
+    if (
+        success.get("schema_version") != "w09-stage-resource-v1"
+        or success.get("label") != "rfq_full_stage_repair03"
+        or success.get("return_code") != 0
+        or command != expected_command
+        or isinstance(wall_seconds, bool)
+        or not isinstance(wall_seconds, (int, float))
+        or wall_seconds <= 0
+    ):
+        raise MissionFinalizationError("repair-03 successful resource receipt mismatch")
+    resource_started_key = _utc_timestamp_key(
+        success.get("started_at_utc"), "repair-03 resource start"
+    )
+    resource_completed_key = _utc_timestamp_key(
+        success.get("completed_at_utc"), "repair-03 resource completion"
+    )
+    if not (
+        resource_started_key
+        <= state_started_key
+        <= summary_generated_key
+        <= state_completed_key
+        <= resource_completed_key
+    ):
+        raise MissionFinalizationError("repair-03 resource/summary/state time order mismatch")
+    active_source = checked_relative_path(
+        run_dir, "source/rfq_full_stage.py", "repair-03 active RFQ source"
+    )
+    frozen_source = checked_relative_path(
+        run_dir, "queries/rfq_full_stage.py", "repair-03 frozen RFQ source"
+    )
+    active_source_sha = sha256(active_source)
+    if (
+        active_source_sha != sha256(frozen_source)
+        or active_source_sha != registered_query_sha
+    ):
+        raise MissionFinalizationError(
+            "repair-03 executed/frozen/registered RFQ source mismatch"
+        )
+    success_sha = sha256(success_path)
+
+    details = prefix["quarantine_details"]
+    return {
+        "status": RFQ_PARTIAL_STATUS,
+        "analysis_scope": RFQ_ANALYSIS_SCOPE,
+        "retained_population": "RETAINED_OBSERVED_SUBSET",
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+        "quarantined_objects": list(details),
+        "unique_objects_total": EXPECTED_RFQ_FULL_OBJECTS,
+        "consumed_unique_objects": EXPECTED_RFQ_RETAINED_OBJECTS,
+        "quarantined_unique_objects": EXPECTED_RFQ_QUARANTINED_OBJECTS,
+        "unique_bytes_total": EXPECTED_RFQ_FULL_BYTES,
+        "consumed_bytes": EXPECTED_RFQ_RETAINED_BYTES,
+        "quarantined_bytes": EXPECTED_RFQ_QUARANTINED_BYTES,
+        "manifest_object_set_sha256": prefix["full_set_sha256"],
+        "consumed_object_set_sha256": prefix["retained_set_sha256"],
+        "quarantined_object_set_sha256": prefix["quarantined_set_sha256"],
+        "selection_fingerprint_sha256": prefix["selection_fingerprint_sha256"],
+        "quarantine_gap_plan": prefix["quarantine_gap_plan"],
+        "quarantine_gap_set_sha256": canonical_json_sha256(gaps),
+        "quarantine_gap": gap,
+        "partial_object_coverage_hours": partial_hours,
+        "initial_execution_commit": prefix["initial_identity"]["execution_commit"],
+        "previous_execution_commit": prefix["current_identity"]["execution_commit"],
+        "current_execution_commit": current_identity["execution_commit"],
+        "initial_source_manifest_sha256": prefix["initial_identity"]["source_manifest_sha256"],
+        "previous_source_manifest_sha256": prefix["current_identity"]["source_manifest_sha256"],
+        "current_source_manifest_sha256": current_identity["source_manifest_sha256"],
+        "initial_source_sha256s_sha256": prefix["initial_identity"]["source_sha256s_sha256"],
+        "previous_source_sha256s_sha256": prefix["current_identity"]["source_sha256s_sha256"],
+        "current_source_sha256s_sha256": current_identity["source_sha256s_sha256"],
+        "initial_query_set_sha256": prefix["initial_identity"]["query_set_sha256"],
+        "previous_query_set_sha256": prefix["current_identity"]["query_set_sha256"],
+        "current_query_set_sha256": current_identity["query_set_sha256"],
+        "repair_chain": expected_repair_chain,
+        "failed_attempt_bindings": expected_failed_bindings,
+        "declaration_path": RFQ_DECLARATION_02.as_posix(),
+        "declaration_sha256": repair03.get("inherited_declaration_sha256", prefix["repair02"].get("declaration_sha256")),
+        "receipt_path": RFQ_MALFORMED_RECEIPT_02.as_posix(),
+        "receipt_sha256": repair03.get("inherited_receipt_sha256", prefix["repair02"].get("receipt_sha256")),
+        "authorization_path": RFQ_REPAIR_02_AUTHORIZATION.as_posix(),
+        "authorization_sha256": prefix["authorization02_sha256"],
+        "repair_receipt_path": REPAIR_REGISTRATION_RECEIPT_03.as_posix(),
+        "repair_receipt_sha256": repair03_receipt_sha,
+        "failed_state_path": FAILED_RFQ_STATE_03.as_posix(),
+        "failed_state_sha256": failed["state_sha256"],
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE_03.as_posix(),
+        "failed_resource_receipt_sha256": failed["resource_sha256"],
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT_03.as_posix(),
+        "failed_scratch_receipt_sha256": failed["scratch_sha256"],
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY_03.as_posix(),
+        "failed_input_identity_sha256": failed["input_sha256"],
+        "inner_payload_audit_path": ARCHIVED_RFQ_INNER_PAYLOAD_AUDIT_03.as_posix(),
+        "inner_payload_audit_sha256": audit_sha,
+        "parser_contract_path": REPAIR_03_PARSER_CONTRACT.as_posix(),
+        "parser_contract_sha256": parser_contract_sha,
+        "authority_basis_path": REPAIR_03_AUTHORITY_BASIS.as_posix(),
+        "authority_basis_sha256": authority_sha,
+        "cycle1_duckdb_binding": prefix["cycle1_duckdb_binding"],
+        "completed_state_path": ACTIVE_RFQ_STATE.as_posix(),
+        "completed_state_sha256": active_state_sha,
+        "successful_resource_receipt_path": ACTIVE_RFQ_REPAIR_RESOURCE_03.as_posix(),
+        "successful_resource_receipt_sha256": success_sha,
+        "claim_boundary": RFQ_PARTIAL_BOUNDARY,
+        "reopen_condition": RFQ_REOPEN_CONDITION,
+    }
+
 
 def find_l2_summary(run_dir: Path) -> Path:
     existing = [path for path in L2_SUMMARY_CANDIDATES if (run_dir / path).is_file()]
@@ -5830,12 +7779,19 @@ def finalize(run_dir: Path) -> None:
         return
     repairs = manifest.get("data_integrity_repairs")
     expected_pending_status = (
-        REPAIR02_PENDING_STATUS
+        REPAIR03_PENDING_STATUS
         if isinstance(repairs, list)
-        and len(repairs) == 2
-        and isinstance(repairs[1], dict)
-        and repairs[1].get("repair_id") == "repair-02"
-        else REPAIR_PENDING_STATUS
+        and len(repairs) == 3
+        and isinstance(repairs[2], dict)
+        and repairs[2].get("repair_id") == "repair-03"
+        else (
+            REPAIR02_PENDING_STATUS
+            if isinstance(repairs, list)
+            and len(repairs) == 2
+            and isinstance(repairs[1], dict)
+            and repairs[1].get("repair_id") == "repair-02"
+            else REPAIR_PENDING_STATUS
+        )
     )
     if manifest.get("status") != expected_pending_status:
         raise MissionFinalizationError(

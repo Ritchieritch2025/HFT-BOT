@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import hashlib
 import json
@@ -23,6 +24,10 @@ def recorder(wall_ns, frame=None, *, mono_ns=None, epoch=1, marker=None):
     }
     if frame is not None:
         row["raw"] = json.dumps(frame, separators=(",", ":"))
+    elif marker is not None:
+        # RawLogWriter always emits the field; control markers carry an exact
+        # empty string rather than an absent/null payload.
+        row["raw"] = ""
     if marker is not None:
         row["marker"] = marker
     return row
@@ -44,6 +49,847 @@ def write_rows(path, rows):
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def repair03_consumer_fixture(tmp_path, monkeypatch):
+    """Build a small but fully cross-bound repair-03 preregistration."""
+    run_dir = tmp_path / "synthetic-repair03-consumer"
+    run_dir.mkdir()
+    applied_at = "2026-07-15T16:00:00Z"
+    selection = "4" * 64
+    retained_set = "2" * 64
+    quarantined_set = "3" * 64
+    full_set = "1" * 64
+    cumulative = [
+        {"key": "raw_rfq/a", "sha256": "a" * 64, "size": 10},
+        {"key": "raw_rfq/b", "sha256": "b" * 64, "size": 30},
+    ]
+    repair01 = {"repair_id": "repair-01"}
+    parent_receipt = (
+        "DATA_INTEGRITY/repairs/repair-02/REPAIR_REGISTRATION.json"
+    )
+    write_json(run_dir / parent_receipt, {"repair_id": "repair-02"})
+    core_results = [{"path": "REPORT/tables/core.json", "sha256": "9" * 64}]
+    cycle_binding = {"schema_version": "synthetic-cycle1-binding-v1"}
+    repair02 = {
+        "repair_id": "repair-02",
+        "repair_receipt_path": parent_receipt,
+        "repair_receipt_sha256": mod.sha256(run_dir / parent_receipt),
+        "cumulative_quarantined_objects": copy.deepcopy(cumulative),
+        "cycle1_duckdb_binding": copy.deepcopy(cycle_binding),
+        "core_result_artifacts": copy.deepcopy(core_results),
+    }
+    repair_chain = [
+        {"repair_id": "repair-01", "registration_sha256": "5" * 64},
+        {"repair_id": "repair-02", "registration_sha256": "6" * 64},
+    ]
+    failed_bindings = [
+        {"repair_id": "repair-01", "attempt_id": "attempt-01"},
+        {"repair_id": "repair-02", "attempt_id": "attempt-02"},
+    ]
+    inputs = {
+        "objects": 4,
+        "logical_manifest_bindings": 4,
+        "bytes": 100,
+        "path_size_fingerprint_sha256": full_set,
+    }
+    base_result = {
+        **inputs,
+        "coverage_status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "full_object_coverage": False,
+        "unique_objects_total": 4,
+        "unique_bytes_total": 100,
+        "consumed_unique_objects": 2,
+        "consumed_logical_bindings": 2,
+        "consumed_bytes": 60,
+        "consumed_object_set_sha256": retained_set,
+        "quarantined_unique_objects": 2,
+        "quarantined_logical_bindings": 2,
+        "quarantined_bytes": 40,
+        "quarantined_object_set_sha256": quarantined_set,
+        "selection_fingerprint_sha256": selection,
+        "repair_chain": copy.deepcopy(repair_chain),
+        "failed_attempt_bindings": copy.deepcopy(failed_bindings),
+    }
+
+    pre_root = run_dir / mod.REPAIR03_PRE_ROOT
+    repair_root = run_dir / mod.REPAIR03_ROOT
+    post_root = repair_root / "post_repair"
+    previous_commit = "c" * 40
+    current_commit = "d" * 40
+    query_relative = "queries/rfq_full_stage.py"
+    query_payload = b"PARSER_CONTRACT = 'repair-03'\n"
+    old_query_payload = b"PARSER_CONTRACT = 'repair-02'\n"
+    write_bytes = {
+        "SOURCE_MANIFEST.json": b'{"source":"repair-03"}\n',
+        "SOURCE_SHA256SUMS.txt": b"e" * 64 + b"  source.py\n",
+        query_relative: query_payload,
+    }
+    query_sha = hashlib.sha256(query_payload).hexdigest()
+    write_bytes["QUERY_SHA256SUMS.txt"] = (
+        f"{query_sha}  {query_relative}\n".encode("utf-8")
+    )
+    old_bytes = {
+        "SOURCE_MANIFEST.json": b'{"source":"repair-02"}\n',
+        "SOURCE_SHA256SUMS.txt": b"f" * 64 + b"  source.py\n",
+        query_relative: old_query_payload,
+    }
+    old_query_sha = hashlib.sha256(old_query_payload).hexdigest()
+    old_bytes["QUERY_SHA256SUMS.txt"] = (
+        f"{old_query_sha}  {query_relative}\n".encode("utf-8")
+    )
+    for relative, payload in write_bytes.items():
+        path = run_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        post = post_root / relative
+        post.parent.mkdir(parents=True, exist_ok=True)
+        post.write_bytes(payload)
+    for relative, payload in old_bytes.items():
+        path = pre_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    def repository_identity(commit, source_manifest, source_sums, query_sums):
+        return {
+            "execution_commit": commit,
+            "source_manifest_sha256": hashlib.sha256(source_manifest).hexdigest(),
+            "source_sha256s_sha256": hashlib.sha256(source_sums).hexdigest(),
+            "query_set_sha256": hashlib.sha256(query_sums).hexdigest(),
+            "query_files": [query_relative],
+        }
+
+    first_identity = repository_identity(
+        "a" * 40, b"first-manifest", b"first-sums", b"first-query"
+    )
+    second_identity = repository_identity(
+        "b" * 40, b"second-manifest", b"second-sums", b"second-query"
+    )
+    previous_identity = repository_identity(
+        previous_commit,
+        old_bytes["SOURCE_MANIFEST.json"],
+        old_bytes["SOURCE_SHA256SUMS.txt"],
+        old_bytes["QUERY_SHA256SUMS.txt"],
+    )
+    current_identity = repository_identity(
+        current_commit,
+        write_bytes["SOURCE_MANIFEST.json"],
+        write_bytes["SOURCE_SHA256SUMS.txt"],
+        write_bytes["QUERY_SHA256SUMS.txt"],
+    )
+    previous_repository = {
+        **copy.deepcopy(previous_identity),
+        "identity_history": [first_identity, second_identity, previous_identity],
+    }
+    repository = {
+        **copy.deepcopy(previous_repository),
+        **copy.deepcopy(current_identity),
+        "previous_execution_commit": previous_commit,
+        "previous_source_manifest_sha256": previous_identity[
+            "source_manifest_sha256"
+        ],
+        "previous_source_sha256s_sha256": previous_identity[
+            "source_sha256s_sha256"
+        ],
+        "previous_query_set_sha256": previous_identity["query_set_sha256"],
+        "previous_identity": previous_identity,
+        "registration_repair_id": "repair-03",
+        "identity_history": [
+            first_identity, second_identity, previous_identity, current_identity,
+        ],
+    }
+    pre_manifest = {
+        "run_id": run_dir.name,
+        "status": "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED",
+        "registration_state": (
+            "RE_FROZEN_AFTER_DATA_INTEGRITY_REPAIR02_BEFORE_RFQ_RESULT"
+        ),
+        "repository": previous_repository,
+        "data_integrity_repairs": [repair01, repair02],
+    }
+    write_json(pre_root / "RUN_MANIFEST.json", pre_manifest)
+
+    pre_registry = b'{"trial_registration_id":"prior"}\n'
+    (pre_root / "TRIAL_REGISTRY.jsonl").write_bytes(pre_registry)
+    attestation = {
+        "schema_version": mod.REPAIR03_SOURCE_ATTESTATION_SCHEMA,
+        "run_id": run_dir.name,
+        "mission_sha256": mod.EXPECTED_MISSION_SHA256,
+        "parent_execution_commit": previous_commit,
+        "execution_commit": current_commit,
+        "direct_parent_verified": True,
+        "git_tree": "e" * 40,
+        "source_relative": mod.REPAIR03_SOURCE_RELATIVE,
+        "source_tree_clean_at_attestation": True,
+        "source_manifest_sha256": current_identity["source_manifest_sha256"],
+        "source_sha256s_sha256": current_identity["source_sha256s_sha256"],
+        "commit_changed_paths": copy.deepcopy(mod.REPAIR03_CHANGED_PATHS),
+        "attested_at_utc": "2026-07-15T15:59:00Z",
+    }
+    write_json(run_dir / mod.REPAIR03_SOURCE_ATTESTATION, attestation)
+    write_json(pre_root / mod.REPAIR03_SOURCE_ATTESTATION, attestation)
+
+    canonical_audit_source = b"# synthetic audited parser\n"
+    for relative in (
+        mod.REPAIR03_AUDIT_SOURCE,
+        mod.REPAIR03_AUDIT_SOURCE_ARCHIVE,
+        "tmp/rfq_inner_payload_contract_audit03.py",
+    ):
+        path = run_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(canonical_audit_source)
+    audit_source_sha = hashlib.sha256(canonical_audit_source).hexdigest()
+    preserved = run_dir / mod.REPAIR03_PRESERVED_SCRATCH
+    preserved.parent.mkdir(parents=True, exist_ok=True)
+    preserved.write_bytes(b"preserved attempt-03 scratch")
+    preserved_sha = mod.sha256(preserved)
+    expected_repair02_resource = {
+        "label": mod.REPAIR02_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR02_SUCCESS_RESOURCE_PATH,
+    }
+    failed_state = {
+        "schema": "rfq-full-stage-state-v1",
+        "run_id": run_dir.name,
+        "status": "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION",
+        "resume": False,
+        "next_required_authority": (
+            "EXPLICIT_NEW_PREREGISTRATION_OR_RFQ_SCOPE_TERMINATION"
+        ),
+        "input_fingerprint": selection,
+        "error": (
+            "unexpected malformed inner RFQ payload in a consumed object; aborting"
+        ),
+        "expected_success_resource": expected_repair02_resource,
+    }
+    failed_resource = {
+        "schema_version": "w09-stage-resource-v1",
+        "label": mod.REPAIR02_SUCCESS_RESOURCE_LABEL,
+        "return_code": 1,
+        "command": ["python3", "/source/rfq_full_stage.py"],
+    }
+    consumed_objects = [
+        {
+            "key": "raw_rfq/retained-a.ndjson",
+            "size": 20,
+            "sha256": "7" * 64,
+            "bound_release_ids": [mod.RELEASE_IDS[0]],
+        },
+        {
+            "key": "raw_rfq/retained-b.ndjson",
+            "size": 40,
+            "sha256": "8" * 64,
+            "bound_release_ids": [mod.RELEASE_IDS[1]],
+        },
+    ]
+    failed_input = {
+        "schema": "rfq-full-input-identity-v2",
+        "run_id": run_dir.name,
+        "selection_fingerprint_sha256": selection,
+        "repair_chain": repair_chain,
+        "failed_attempt_bindings": failed_bindings,
+        "expected_success_resource": expected_repair02_resource,
+        "consumed_objects": consumed_objects,
+    }
+    failed_scratch = {
+        "schema_version": "rfq-failed-scratch-receipt-v1",
+        "run_id": run_dir.name,
+        "input_fingerprint": selection,
+        "disposition": "PRESERVED_RENAMED_NO_RESUME",
+        "resume_allowed": False,
+        "preserved_scratch_path": str(preserved.resolve()),
+        "bytes": preserved.stat().st_size,
+        "sha256": preserved_sha,
+    }
+    audited_sha = mod._compact_json_sha256(mod.REPAIR03_AUDITED_PARSER_CONTRACT)
+    marker_counts = {"hour_open": 1, "segment_receipt": 1}
+    object_summaries = [
+        {
+            "key": consumed_objects[0]["key"],
+            "expected_size": consumed_objects[0]["size"],
+            "expected_sha256": consumed_objects[0]["sha256"],
+            "observed_size": consumed_objects[0]["size"],
+            "observed_sha256": consumed_objects[0]["sha256"],
+            "identity_match": True,
+            "total_lines": 1,
+            "expected_empty_control_marker_rows": 1,
+            "data_frame_rows": 0,
+            "segment_receipt_rows": 0,
+            "marker_counts": {"hour_open": 1},
+            "outer_invalid_rows": 0,
+            "unexpected_inner_payload_rows": 0,
+            "unexpected_details": [],
+            "raw_payload_redacted": True,
+        },
+        {
+            "key": consumed_objects[1]["key"],
+            "expected_size": consumed_objects[1]["size"],
+            "expected_sha256": consumed_objects[1]["sha256"],
+            "observed_size": consumed_objects[1]["size"],
+            "observed_sha256": consumed_objects[1]["sha256"],
+            "identity_match": True,
+            "total_lines": 2,
+            "expected_empty_control_marker_rows": 0,
+            "data_frame_rows": 1,
+            "segment_receipt_rows": 1,
+            "marker_counts": {"segment_receipt": 1},
+            "outer_invalid_rows": 0,
+            "unexpected_inner_payload_rows": 0,
+            "unexpected_details": [],
+            "raw_payload_redacted": True,
+        },
+    ]
+    audit = {
+        "schema_version": "rfq-inner-payload-contract-audit-v1",
+        "run_id": run_dir.name,
+        "status": "COMPLETE_INNER_PAYLOAD_CONTRACT_AUDIT",
+        "scope": "RETAINED_OBJECT_INNER_PAYLOAD_CONTRACT_ONLY_NO_RESEARCH_RESULT",
+        "analysis_result_opened": False,
+        "raw_payload_redacted": True,
+        "input_fingerprint": selection,
+        "input_identity_path": "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        "expected_empty_control_marker_allowlist": list(
+            mod.EXPECTED_BLANK_CONTROL_MARKERS
+        ),
+        "objects_scanned": 2,
+        "bytes_scanned": 60,
+        "lines_scanned": 3,
+        "data_frame_rows": 1,
+        "segment_receipt_rows": 1,
+        "expected_empty_control_marker_rows": 1,
+        "marker_counts": marker_counts,
+        "identity_mismatch_count": 0,
+        "identity_mismatches": [],
+        "outer_invalid_object_count": 0,
+        "outer_invalid_line_count": 0,
+        "unexpected_inner_payload_object_count": 0,
+        "unexpected_inner_payload_row_count": 0,
+        "unexpected_inner_payload_objects": [],
+        "json_object_payload_marker_contract": [
+            "<marker field absent>", "segment_receipt",
+        ],
+        "parser_contract": copy.deepcopy(mod.REPAIR03_AUDITED_PARSER_CONTRACT),
+        "parser_contract_sha256": audited_sha,
+        "audit_script_path": "tmp/rfq_inner_payload_contract_audit03.py",
+        "audit_script_sha256": audit_source_sha,
+        "object_summaries": object_summaries,
+        "started_at_utc": "2026-07-15T15:00:00Z",
+        "completed_at_utc": "2026-07-15T15:10:00Z",
+        "wall_seconds": 600.0,
+        "workers": 8,
+    }
+    audit_resource = {
+        "schema_version": "w09-stage-resource-v1",
+        "label": "rfq_inner_payload_contract_audit03_final",
+        "return_code": 0,
+        "command": [
+            "/opt/w09/venv/bin/python",
+            (
+                f"/srv/w09-research/runs/{run_dir.name}/"
+                "tmp/rfq_inner_payload_contract_audit03.py"
+            ),
+            "--run-dir", f"/srv/w09-research/runs/{run_dir.name}",
+            "--cache-root", "/srv/w09-research/cache", "--workers", "8",
+        ],
+    }
+    paired_json = (
+        ("REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+         mod.REPAIR03_FAILED_STATE_ARCHIVE, failed_state),
+        ("logs/resources/rfq_full_stage_repair02.json",
+         mod.REPAIR03_FAILED_RESOURCE_ARCHIVE, failed_resource),
+        ("DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT_03.json",
+         mod.REPAIR03_FAILED_SCRATCH_ARCHIVE, failed_scratch),
+        ("DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+         mod.REPAIR03_FAILED_INPUT_ARCHIVE, failed_input),
+        ("DATA_INTEGRITY/RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_03.json",
+         mod.REPAIR03_AUDIT_ARCHIVE, audit),
+        ("logs/resources/rfq_inner_payload_contract_audit03_final.json",
+         mod.REPAIR03_AUDIT_RESOURCE_ARCHIVE, audit_resource),
+        (mod.CYCLE1_DUCKDB_BINDING,
+         mod.REPAIR03_CYCLE1_BINDING_ARCHIVE, cycle_binding),
+    )
+    for active_relative, archive_relative, document in paired_json:
+        write_json(run_dir / active_relative, document)
+        write_json(run_dir / archive_relative, document)
+    audit["input_identity_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR03_FAILED_INPUT_ARCHIVE
+    )
+    write_json(
+        run_dir / "DATA_INTEGRITY/RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_03.json",
+        audit,
+    )
+    write_json(run_dir / mod.REPAIR03_AUDIT_ARCHIVE, audit)
+
+    audit_sha = mod.sha256(run_dir / mod.REPAIR03_AUDIT_ARCHIVE)
+    parser_contract = {
+        "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+        "run_id": run_dir.name,
+        "created_at_utc": applied_at,
+        "finding": mod.REPAIR03_FINDING,
+        "mission_sha256": mod.EXPECTED_MISSION_SHA256,
+        "selection_fingerprint_sha256": selection,
+        "retained_unique_objects": 2,
+        "retained_bytes": 60,
+        "outer_ndjson_policy": "STRICT_NDJSON_IGNORE_ERRORS_FALSE",
+        "expected_blank_control_markers": list(
+            mod.EXPECTED_BLANK_CONTROL_MARKERS
+        ),
+        "expected_blank_raw_representation": "EXACT_EMPTY_STRING",
+        "non_control_payload_policy": "NONEMPTY_STRING_VALID_JSON_OBJECT_REQUIRED",
+        "unexpected_payload_policy": "ABORT_BEFORE_RESULT",
+        "line_salvage": False,
+        "data_selection_change": False,
+        "hypothesis_design_change": False,
+        "registered_query_path": query_relative,
+        "registered_query_sha256": query_sha,
+        "audit_path": mod.REPAIR03_AUDIT_ARCHIVE,
+        "audit_sha256": audit_sha,
+    }
+    write_json(run_dir / mod.REPAIR03_PARSER_CONTRACT, parser_contract)
+    parser_sha = mod.sha256(run_dir / mod.REPAIR03_PARSER_CONTRACT)
+    authority = {
+        "schema_version": mod.REPAIR03_AUTHORITY_SCHEMA,
+        "run_id": run_dir.name,
+        "recorded_at_utc": applied_at,
+        "mission_sha256": mod.EXPECTED_MISSION_SHA256,
+        "authority_basis": "MISSION_AUTHORIZED_AUTONOMOUS_RESEARCH_CODE_CORRECTION",
+        "permitted_change": "PARSER_CONTRACT_CORRECTION_ONLY",
+        "operator_repair02_authorization_reused": False,
+        "new_data_integrity_decision": False,
+        "data_selection_change": "NONE",
+        "quarantine_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+        "prerequisite_audit_path": mod.REPAIR03_AUDIT_ARCHIVE,
+        "prerequisite_audit_sha256": audit_sha,
+    }
+    write_json(run_dir / mod.REPAIR03_AUTHORITY_BASIS, authority)
+    authority_sha = mod.sha256(run_dir / mod.REPAIR03_AUTHORITY_BASIS)
+    hashes = {
+        "failed_state_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_FAILED_STATE_ARCHIVE
+        ),
+        "failed_resource_receipt_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_FAILED_RESOURCE_ARCHIVE
+        ),
+        "failed_scratch_receipt_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_FAILED_SCRATCH_ARCHIVE
+        ),
+        "failed_input_identity_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_FAILED_INPUT_ARCHIVE
+        ),
+        "inner_payload_audit_sha256": audit_sha,
+        "inner_payload_audit_resource_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_AUDIT_RESOURCE_ARCHIVE
+        ),
+        "inner_payload_audit_source_sha256": audit_source_sha,
+        "parser_contract_sha256": parser_sha,
+        "authority_basis_sha256": authority_sha,
+        "cycle1_binding_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_CYCLE1_BINDING_ARCHIVE
+        ),
+    }
+    failed_attempt = {
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR02_ATTEMPT_03",
+        "state_active_path": "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+        "state_path": mod.REPAIR03_FAILED_STATE_ARCHIVE,
+        "state_sha256": hashes["failed_state_sha256"],
+        "state_status": "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION",
+        "resource_active_path": "logs/resources/rfq_full_stage_repair02.json",
+        "resource_path": mod.REPAIR03_FAILED_RESOURCE_ARCHIVE,
+        "resource_sha256": hashes["failed_resource_receipt_sha256"],
+        "resource_label": mod.REPAIR02_SUCCESS_RESOURCE_LABEL,
+        "return_code": 1,
+        "scratch_receipt_active_path": (
+            "DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT_03.json"
+        ),
+        "scratch_receipt_path": mod.REPAIR03_FAILED_SCRATCH_ARCHIVE,
+        "scratch_receipt_sha256": hashes["failed_scratch_receipt_sha256"],
+        "preserved_scratch_active_path": mod.REPAIR03_PRESERVED_SCRATCH,
+        "preserved_scratch_sha256": preserved_sha,
+        "preserved_scratch_bytes": preserved.stat().st_size,
+        "input_identity_active_path": "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        "input_identity_path": mod.REPAIR03_FAILED_INPUT_ARCHIVE,
+        "input_identity_sha256": hashes["failed_input_identity_sha256"],
+        "input_fingerprint": selection,
+        "scratch_disposition": "PRESERVED_RENAMED_NO_RESUME",
+        "retry_requirement": mod.REPAIR03_RETRY_REQUIREMENT,
+    }
+    coverage = {
+        "status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "full_unique_objects": 4,
+        "full_logical_manifest_bindings": 4,
+        "full_unique_bytes": 100,
+        "retained_unique_objects": 2,
+        "retained_logical_manifest_bindings": 2,
+        "retained_bytes": 60,
+        "quarantined_unique_objects": 2,
+        "quarantined_logical_manifest_bindings": 2,
+        "quarantined_bytes": 40,
+        "full_object_set_sha256": full_set,
+        "retained_object_set_sha256": retained_set,
+        "quarantined_object_set_sha256": quarantined_set,
+        "retained_selection_fingerprint_sha256": selection,
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+    }
+    repair03 = {
+        "schema_version": mod.REPAIR03_SCHEMA,
+        "repair_id": "repair-03",
+        "parent_repair_id": "repair-02",
+        "applied_at_utc": applied_at,
+        "pre_repair_status": (
+            "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED"
+        ),
+        "post_repair_status": mod.REPAIR03_STATUS,
+        "failed_stage_status": (
+            "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+        ),
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "retry_requirement": mod.REPAIR03_RETRY_REQUIREMENT,
+        "finding": mod.REPAIR03_FINDING,
+        "registration_change_class": mod.REPAIR03_CHANGE_CLASS,
+        "source_verification_mode": mod.REPAIR03_SNAPSHOT_SOURCE_MODE,
+        "quarantine_policy": (
+            "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE_INHERITED_NO_CHANGE"
+        ),
+        "previous_repair_registration_path": parent_receipt,
+        "previous_repair_registration_sha256": repair02[
+            "repair_receipt_sha256"
+        ],
+        "previous_repair_record_sha256": mod._json_payload_sha256(repair02),
+        "failed_state_path": mod.REPAIR03_FAILED_STATE_ARCHIVE,
+        "failed_resource_receipt_path": mod.REPAIR03_FAILED_RESOURCE_ARCHIVE,
+        "failed_scratch_receipt_path": mod.REPAIR03_FAILED_SCRATCH_ARCHIVE,
+        "failed_input_identity_path": mod.REPAIR03_FAILED_INPUT_ARCHIVE,
+        "inner_payload_audit_path": mod.REPAIR03_AUDIT_ARCHIVE,
+        "inner_payload_audit_resource_path": mod.REPAIR03_AUDIT_RESOURCE_ARCHIVE,
+        "inner_payload_audit_source_path": mod.REPAIR03_AUDIT_SOURCE,
+        "inner_payload_audit_source_archive_path": (
+            mod.REPAIR03_AUDIT_SOURCE_ARCHIVE
+        ),
+        "parser_contract_path": mod.REPAIR03_PARSER_CONTRACT,
+        "authority_basis_path": mod.REPAIR03_AUTHORITY_BASIS,
+        "cycle1_binding_path": mod.REPAIR03_CYCLE1_BINDING_ARCHIVE,
+        **hashes,
+        "registered_rfq_query_sha256": query_sha,
+        "parser_contract": {
+            "path": mod.REPAIR03_PARSER_CONTRACT,
+            "sha256": parser_sha,
+            "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+            "registered_query_sha256": query_sha,
+            "audited_parser_contract_sha256": audited_sha,
+            "audited_parser_contract": copy.deepcopy(
+                mod.REPAIR03_AUDITED_PARSER_CONTRACT
+            ),
+        },
+        "authority_basis": {
+            "path": mod.REPAIR03_AUTHORITY_BASIS,
+            "sha256": authority_sha,
+            "schema_version": mod.REPAIR03_AUTHORITY_SCHEMA,
+            "authority_basis": authority["authority_basis"],
+            "permitted_change": authority["permitted_change"],
+        },
+        "newly_quarantined_objects": [],
+        "cumulative_quarantined_objects": copy.deepcopy(cumulative),
+        "coverage": coverage,
+        "selection_identity_unchanged": True,
+        "previous_selection_fingerprint_sha256": selection,
+        "current_selection_fingerprint_sha256": selection,
+        "failed_input_fingerprint": selection,
+        "failed_attempt": failed_attempt,
+        "expected_success_resource": {
+            "label": mod.REPAIR03_SUCCESS_RESOURCE_LABEL,
+            "path": mod.REPAIR03_SUCCESS_RESOURCE_PATH,
+        },
+        "inner_payload_audit": {
+            "path": mod.REPAIR03_AUDIT_ARCHIVE,
+            "sha256": audit_sha,
+            "resource_path": mod.REPAIR03_AUDIT_RESOURCE_ARCHIVE,
+            "resource_sha256": hashes["inner_payload_audit_resource_sha256"],
+            "source_path": mod.REPAIR03_AUDIT_SOURCE,
+            "source_sha256": audit_source_sha,
+            "objects_scanned": 2,
+            "bytes_scanned": 60,
+            "lines_scanned": 3,
+            "data_frame_rows": 1,
+            "segment_receipt_rows": 1,
+            "expected_blank_control_marker_rows": 1,
+            "expected_blank_control_marker_counts": {"hour_open": 1},
+            "outer_invalid_object_count": 0,
+            "outer_invalid_line_count": 0,
+            "identity_mismatch_count": 0,
+            "unexpected_inner_payload_object_count": 0,
+            "unexpected_inner_payload_row_count": 0,
+            "audited_parser_contract_sha256": audited_sha,
+            "analysis_result_opened": False,
+        },
+        "cycle1_duckdb_binding": cycle_binding,
+        "previous_execution_commit": previous_commit,
+        "current_execution_commit": current_commit,
+        "initial_repository_identity": first_identity,
+        "previous_repository_identity": previous_identity,
+        "current_repository_identity": current_identity,
+        "repository_identity_chain": repository["identity_history"],
+        "previous_source_manifest_sha256": previous_identity[
+            "source_manifest_sha256"
+        ],
+        "current_source_manifest_sha256": current_identity[
+            "source_manifest_sha256"
+        ],
+        "previous_source_sha256s_sha256": previous_identity[
+            "source_sha256s_sha256"
+        ],
+        "current_source_sha256s_sha256": current_identity[
+            "source_sha256s_sha256"
+        ],
+        "previous_query_set_sha256": previous_identity["query_set_sha256"],
+        "current_query_set_sha256": current_identity["query_set_sha256"],
+        "core_result_disposition": "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED",
+        "core_results_recomputed": False,
+        "core_result_artifacts": core_results,
+        "hypothesis_design_change": "NONE",
+        "data_selection_change": "NONE",
+        "quarantine_change": "NONE",
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "source_snapshot_attestation_active_path": (
+            mod.REPAIR03_SOURCE_ATTESTATION
+        ),
+        "source_snapshot_attestation_path": (
+            mod.REPAIR03_SOURCE_ATTESTATION_ARCHIVE
+        ),
+        "source_snapshot_attestation_sha256": mod.sha256(
+            run_dir / mod.REPAIR03_SOURCE_ATTESTATION
+        ),
+        "source_snapshot_attestation": {
+            "schema_version": mod.REPAIR03_SOURCE_ATTESTATION_SCHEMA,
+            "execution_commit": current_commit,
+            "git_tree": attestation["git_tree"],
+            "direct_parent_verified": True,
+            "source_relative": mod.REPAIR03_SOURCE_RELATIVE,
+            "source_tree_clean_at_attestation": True,
+            "commit_changed_paths": copy.deepcopy(mod.REPAIR03_CHANGED_PATHS),
+        },
+        "archive_path": mod.REPAIR03_PRE_ROOT,
+    }
+    repair03["archive_inventory"] = mod._archive_inventory(pre_root)
+
+    first_suffix = {
+        "trial_registration_id": "RFQ_FULL_STAGE_ATTEMPT_03",
+        "result_opened": False,
+        "hypothesis_conclusion_opened": False,
+        "failed_state_sha256": hashes["failed_state_sha256"],
+        "failed_resource_receipt_sha256": hashes[
+            "failed_resource_receipt_sha256"
+        ],
+        "failed_scratch_receipt_sha256": hashes[
+            "failed_scratch_receipt_sha256"
+        ],
+        "failed_input_identity_sha256": hashes[
+            "failed_input_identity_sha256"
+        ],
+    }
+    second_suffix = {
+        "trial_registration_id": "RFQ_PARSER_CONTRACT_REPAIR_03",
+        "result_opened": False,
+        "hypothesis_conclusion_opened": False,
+        "parser_contract_sha256": parser_sha,
+        "current_selection_fingerprint_sha256": selection,
+        "retry_requirement": mod.REPAIR03_RETRY_REQUIREMENT,
+    }
+    active_registry = pre_registry + b"".join(
+        (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+        for row in (first_suffix, second_suffix)
+    )
+    (run_dir / "TRIAL_REGISTRY.jsonl").write_bytes(active_registry)
+    (post_root / "TRIAL_REGISTRY.jsonl").write_bytes(active_registry)
+    repair03["trial_registry"] = {
+        "previous_sha256": hashlib.sha256(pre_registry).hexdigest(),
+        "current_sha256": hashlib.sha256(active_registry).hexdigest(),
+        "previous_bytes": len(pre_registry),
+        "current_bytes": len(active_registry),
+        "strict_previous_bytes_prefix": True,
+        "appended_records": 2,
+        "trial_registration_ids": [
+            "RFQ_FULL_STAGE_ATTEMPT_03", "RFQ_PARSER_CONTRACT_REPAIR_03",
+        ],
+    }
+
+    for placeholder in (
+        mod.REPAIR03_REGISTRATION, mod.REPAIR03_TRANSACTION_JOURNAL,
+    ):
+        path = run_dir / placeholder
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"{}\n")
+    mutation_paths = [
+        "SOURCE_MANIFEST.json", "SOURCE_SHA256SUMS.txt",
+        "QUERY_SHA256SUMS.txt", query_relative, "TRIAL_REGISTRY.jsonl",
+    ]
+    mutations = [
+        {
+            "path": relative,
+            "original_archive_path": f"{mod.REPAIR03_PRE_ROOT}/{relative}",
+            "original_sha256": mod.sha256(pre_root / relative),
+            "replacement_sha256": mod.sha256(run_dir / relative),
+            "append_only_registry": relative == "TRIAL_REGISTRY.jsonl",
+        }
+        for relative in mutation_paths
+    ]
+    expected_repair_files = sorted(
+        row["path"] for row in mod._archive_inventory(repair_root)
+    )
+    journal = {
+        "schema_version": "repair03-registration-transaction-v1",
+        "repair_id": "repair-03",
+        "run_id": run_dir.name,
+        "state": "PREPARED_BEFORE_ACTIVE_MUTATION",
+        "original_manifest_sha256": mod.sha256(pre_root / "RUN_MANIFEST.json"),
+        "active_mutations": mutations,
+        "expected_repair_files": expected_repair_files,
+    }
+    write_json(run_dir / mod.REPAIR03_TRANSACTION_JOURNAL, journal)
+    repair03["transaction_journal_path"] = mod.REPAIR03_TRANSACTION_JOURNAL
+    repair03["transaction_journal_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR03_TRANSACTION_JOURNAL
+    )
+    receipt = copy.deepcopy(repair03)
+    write_json(run_dir / mod.REPAIR03_REGISTRATION, receipt)
+    repair03["repair_receipt_path"] = mod.REPAIR03_REGISTRATION
+    repair03["repair_receipt_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR03_REGISTRATION
+    )
+    manifest = {
+        "run_id": run_dir.name,
+        "status": mod.REPAIR03_STATUS,
+        "registration_state": mod.REPAIR03_REGISTRATION_STATE,
+        "repository": repository,
+        "data_integrity_repairs": [repair01, repair02, repair03],
+    }
+    write_json(run_dir / "RUN_MANIFEST.json", manifest)
+    (run_dir / mod.QUARANTINE_DECLARATION_02).parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (run_dir / mod.QUARANTINE_DECLARATION_02).write_bytes(b"{}\n")
+    (run_dir / mod.MALFORMED_OBJECT_RECEIPT_02).write_bytes(b"{}\n")
+    approved_fixture_values = {
+        "REPAIR03_APPROVED_FAILED_STATE_SHA256": hashes["failed_state_sha256"],
+        "REPAIR03_APPROVED_FAILED_RESOURCE_SHA256": hashes[
+            "failed_resource_receipt_sha256"
+        ],
+        "REPAIR03_APPROVED_FAILED_INPUT_SHA256": hashes[
+            "failed_input_identity_sha256"
+        ],
+        "REPAIR03_APPROVED_FAILED_SCRATCH_RECEIPT_SHA256": hashes[
+            "failed_scratch_receipt_sha256"
+        ],
+        "REPAIR03_APPROVED_FAILED_SCRATCH_SHA256": preserved_sha,
+        "REPAIR03_APPROVED_FAILED_SCRATCH_BYTES": preserved.stat().st_size,
+        "REPAIR03_APPROVED_AUDIT_SHA256": audit_sha,
+        "REPAIR03_APPROVED_AUDIT_RESOURCE_SHA256": hashes[
+            "inner_payload_audit_resource_sha256"
+        ],
+        "REPAIR03_APPROVED_AUDIT_SOURCE_SHA256": audit_source_sha,
+        "REPAIR03_APPROVED_AUDITED_PARSER_CONTRACT_SHA256": audited_sha,
+        "REPAIR03_EXPECTED_RETAINED_OBJECTS": 2,
+        "REPAIR03_EXPECTED_RETAINED_BYTES": 60,
+        "REPAIR03_EXPECTED_LINES": 3,
+        "REPAIR03_EXPECTED_BLANK_CONTROLS": 1,
+        "REPAIR03_EXPECTED_DATA_FRAMES": 1,
+        "REPAIR03_EXPECTED_SEGMENT_RECEIPTS": 1,
+        "REPAIR03_EXPECTED_MARKER_COUNTS": marker_counts,
+    }
+    for name, value in approved_fixture_values.items():
+        monkeypatch.setattr(mod, name, value)
+    return {
+        "run_dir": run_dir,
+        "manifest": manifest,
+        "inputs": inputs,
+        "base_result": base_result,
+        "repair03": repair03,
+    }
+
+
+def repair03_main_failure_fixture(tmp_path, monkeypatch):
+    """Prepare main() immediately before its active-evidence transaction."""
+    run_dir = tmp_path / "repair03-main-failure"
+    (run_dir / "DATA_INTEGRITY").mkdir(parents=True)
+    (run_dir / "REPORT/tables").mkdir(parents=True)
+    (run_dir / "cache").mkdir(parents=True)
+    active_input = run_dir / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+    active_state = run_dir / "REPORT/tables/RFQ_FULL_STAGE_STATE.json"
+    active_input.write_bytes(b'{"schema":"rfq-full-input-identity-v2"}\n')
+    active_state.write_bytes(b'{"status":"FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"}\n')
+    manifest = {
+        "run_id": run_dir.name,
+        "data_integrity_repairs": [
+            {"repair_id": "repair-01"},
+            {"repair_id": "repair-02"},
+            {"repair_id": "repair-03"},
+        ],
+    }
+    object_row = {
+        "key": "raw_rfq/date=2026-07-12/rfq_00.ndjson",
+        "sha256": "a" * 64,
+        "size": 1,
+        "bound_release_ids": [mod.RELEASE_IDS[0]],
+        "path": run_dir / "retained.ndjson",
+    }
+    inputs = {
+        "releases": [],
+        "paths": [object_row["path"]],
+        "objects_detail": [object_row],
+        "objects": 1,
+        "logical_manifest_bindings": 1,
+        "deduplicated_overlapping_objects": 0,
+        "path_size_fingerprint_sha256": "b" * 64,
+        "coverage_status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "full_object_coverage": False,
+        "unique_objects_total": 1,
+        "unique_bytes_total": 1,
+        "consumed_unique_objects": 1,
+        "consumed_logical_bindings": 1,
+        "consumed_bytes": 1,
+        "consumed_object_set_sha256": "c" * 64,
+        "quarantined_unique_objects": 2,
+        "quarantined_logical_bindings": 2,
+        "quarantined_bytes": 40,
+        "quarantined_object_set_sha256": "d" * 64,
+        "quarantine_reasons": ["whole-object quarantine"],
+        "quarantine_details": [],
+        "quarantine_boundaries": [],
+        "selection_fingerprint_sha256": "e" * 64,
+        "repair_chain": [{"repair_id": "repair-03"}],
+        "failed_attempt_bindings": [{"repair_id": "repair-03"}],
+        "expected_success_resource": {
+            "label": mod.REPAIR03_SUCCESS_RESOURCE_LABEL,
+            "path": mod.REPAIR03_SUCCESS_RESOURCE_PATH,
+        },
+        "inner_payload_parser_contract": {
+            "path": mod.REPAIR03_PARSER_CONTRACT,
+            "sha256": "f" * 64,
+            "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+        },
+        "registered_rfq_query_sha256": "1" * 64,
+    }
+    monkeypatch.setattr(mod, "validate_run", lambda _run: manifest)
+    monkeypatch.setattr(mod, "discover_inputs", lambda _cache: {"unfrozen": True})
+    monkeypatch.setattr(mod, "validate_input_bindings", lambda *_args: None)
+    monkeypatch.setattr(
+        mod, "apply_object_quarantine", lambda *_args: copy.deepcopy(inputs)
+    )
+    monkeypatch.setattr(
+        mod,
+        "validate_cycle1_duckdb_binding",
+        lambda *_args: {"schema_version": "synthetic-cycle1-binding-v1"},
+    )
+    monkeypatch.setattr(mod, "EXPECTED_DUCKDB", duckdb.__version__)
+    return {
+        "run_dir": run_dir,
+        "input_path": active_input,
+        "state_path": active_state,
+        "scratch": run_dir / "cache/rfq_full_scratch.duckdb",
+        "input_before": active_input.read_bytes(),
+        "state_before": active_state.read_bytes(),
+    }
 
 
 def quarantine_fixture(tmp_path):
@@ -770,6 +1616,69 @@ def test_nullable_requester_and_observation_boundary_censoring(tmp_path):
     connection.close()
 
 
+def test_inner_payload_contract_accepts_exact_blank_controls_and_json_objects(
+    tmp_path,
+):
+    source = (
+        tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
+        "date=2026-07-12/rfq_00.ndjson"
+    )
+    base_ns = int(dt.datetime(
+        2026, 7, 12, tzinfo=dt.timezone.utc
+    ).timestamp() * 1_000_000_000)
+    receipt = {
+        "status": "PASS",
+        "subscription_proven": True,
+        "boundary_closed": True,
+        "end_reason": "boundary",
+        "findings": [],
+    }
+    rows = [
+        recorder(base_ns + 1, {"type": "subscribed", "sid": 7}),
+        recorder(base_ns + 2, receipt, marker="segment_receipt"),
+    ]
+    rows.extend(
+        recorder(base_ns + 3 + index, marker=marker)
+        for index, marker in enumerate(mod.EXPECTED_BLANK_CONTROL_MARKERS)
+    )
+    write_rows(source, rows)
+
+    connection = duckdb.connect()
+    connection.execute(mod.scan_sql([source], "inner-contract-run"))
+    flags = connection.execute("""
+      SELECT coalesce(marker,'<frame>'),inner_json_valid,
+        expected_blank_control_marker,inner_payload_contract_valid
+      FROM rfq_scan_rows ORDER BY recv_wall_ns
+    """).fetchall()
+    assert flags[:2] == [
+        ("<frame>", True, False, True),
+        ("segment_receipt", True, False, True),
+    ]
+    assert flags[2:] == [
+        (marker, False, True, True)
+        for marker in mod.EXPECTED_BLANK_CONTROL_MARKERS
+    ]
+
+    # Continue through normalization to prove the accepted marker rows remain
+    # available to channel QC and lifecycle-boundary construction.
+    mod.build_scan_tables(connection, [source], "inner-contract-run")
+    assert connection.execute("""
+      SELECT recorder_rows,invalid_inner_json_rows,
+        invalid_inner_payload_contract_rows,expected_blank_control_marker_rows,
+        marker_rows,loss_gap_markers,receipt_rows,healthy_receipts
+      FROM rfq_channel_qc
+    """).fetchone() == (7, 0, 0, 5, 6, 4, 1, 1)
+    assert connection.execute("""
+      SELECT reason FROM rfq_observation_boundaries ORDER BY boundary_ns
+    """).fetchall() == [
+        ("MARKER_GAP",),
+        ("MARKER_LOSS",),
+        ("MARKER_TRANSPORT_CLOSE",),
+        ("MARKER_TRANSPORT_ERROR",),
+    ]
+    connection.close()
+
+
 def test_mutation_guard_next_create_censors_prior_and_delete_stays_new_cycle(tmp_path):
     source = (
         tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
@@ -1322,6 +2231,332 @@ def test_repair02_contract_excludes_exactly_two_adjacent_whole_objects(
     }
 
 
+def test_repair03_consumer_replays_same_selection_with_parser_binding(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_consumer_fixture(tmp_path, monkeypatch)
+    observed = {}
+
+    def replay(run_dir, manifest, inputs, registry_boundary, enforce_pairs):
+        observed.update({
+            "run_dir": run_dir,
+            "manifest": manifest,
+            "inputs": inputs,
+            "registry_boundary": registry_boundary,
+            "enforce_pairs": enforce_pairs,
+        })
+        return copy.deepcopy(fixture["base_result"])
+
+    monkeypatch.setattr(mod, "_apply_double_object_quarantine", replay)
+    result = mod.apply_object_quarantine(
+        fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+    )
+    assert observed["manifest"]["data_integrity_repairs"] == fixture[
+        "manifest"
+    ]["data_integrity_repairs"][:2]
+    assert observed["registry_boundary"] == (
+        fixture["run_dir"] / mod.REPAIR03_PRE_ROOT / "TRIAL_REGISTRY.jsonl"
+    ).read_bytes()
+    assert observed["enforce_pairs"] is False
+    assert result["selection_fingerprint_sha256"] == fixture[
+        "base_result"
+    ]["selection_fingerprint_sha256"]
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03",
+    ]
+    assert set(result["repair_chain"][2]) == {
+        "repair_id", "registration_path", "registration_sha256",
+        "parser_contract_path", "parser_contract_sha256",
+        "authority_basis_path", "authority_basis_sha256",
+        "inner_payload_audit_path", "inner_payload_audit_sha256",
+    }
+    assert [row["repair_id"] for row in result["failed_attempt_bindings"]] == [
+        "repair-01", "repair-02", "repair-03",
+    ]
+    assert set(result["failed_attempt_bindings"][2]) == {
+        "repair_id", "attempt_id", "failed_state_path", "failed_state_sha256",
+        "failed_resource_receipt_path", "failed_resource_receipt_sha256",
+        "failed_scratch_receipt_path", "failed_scratch_receipt_sha256",
+        "failed_input_identity_path", "failed_input_identity_sha256",
+        "input_fingerprint", "resource_label", "retry_requirement",
+    }
+    assert result["inner_payload_parser_contract"] == {
+        "path": mod.REPAIR03_PARSER_CONTRACT,
+        "sha256": fixture["repair03"]["parser_contract_sha256"],
+        "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+    }
+    assert result["registered_rfq_query_sha256"] == fixture["repair03"][
+        "registered_rfq_query_sha256"
+    ]
+    assert result["expected_success_resource"] == {
+        "label": mod.REPAIR03_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR03_SUCCESS_RESOURCE_PATH,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("record", "field set"),
+        ("audit", "archive inventory"),
+        ("registry", "transaction mutation"),
+        ("attestation", "attestation binding"),
+        ("parser", "SHA-256 binding"),
+    ),
+)
+def test_repair03_consumer_mutations_fail_closed(
+    tmp_path, monkeypatch, mutation, message
+):
+    fixture = repair03_consumer_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod,
+        "_apply_double_object_quarantine",
+        lambda *_args: copy.deepcopy(fixture["base_result"]),
+    )
+    if mutation == "record":
+        fixture["manifest"]["data_integrity_repairs"][2]["unregistered"] = True
+    elif mutation == "audit":
+        audit = json.loads(
+            (fixture["run_dir"] / mod.REPAIR03_AUDIT_ARCHIVE).read_text()
+        )
+        audit["unexpected_inner_payload_row_count"] = 1
+        write_json(fixture["run_dir"] / mod.REPAIR03_AUDIT_ARCHIVE, audit)
+    elif mutation == "registry":
+        registry = fixture["run_dir"] / "TRIAL_REGISTRY.jsonl"
+        registry.write_bytes(registry.read_bytes() + b'{"unregistered":true}\n')
+    elif mutation == "attestation":
+        attestation = json.loads(
+            (fixture["run_dir"] / mod.REPAIR03_SOURCE_ATTESTATION).read_text()
+        )
+        attestation["git_tree"] = "f" * 40
+        write_json(fixture["run_dir"] / mod.REPAIR03_SOURCE_ATTESTATION, attestation)
+    elif mutation == "parser":
+        contract = json.loads(
+            (fixture["run_dir"] / mod.REPAIR03_PARSER_CONTRACT).read_text()
+        )
+        contract["line_salvage"] = True
+        write_json(fixture["run_dir"] / mod.REPAIR03_PARSER_CONTRACT, contract)
+    with pytest.raises(mod.RFQStageError, match=message):
+        mod.apply_object_quarantine(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("top_level", "exact approved retained set"),
+        ("summary_missing", "object summaries are incomplete"),
+        ("object_identity", "object identity/contract mismatch"),
+        ("object_totals", "object totals do not reconcile"),
+    ),
+)
+def test_repair03_audit_schema_and_object_mutations_fail_closed(
+    tmp_path, monkeypatch, mutation, message
+):
+    fixture = repair03_consumer_fixture(tmp_path, monkeypatch)
+    audit = json.loads(
+        (fixture["run_dir"] / mod.REPAIR03_AUDIT_ARCHIVE).read_text()
+    )
+    active_input_path = (
+        fixture["run_dir"] / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+    )
+    active_input = json.loads(active_input_path.read_text())
+    if mutation == "top_level":
+        audit["unregistered"] = True
+    elif mutation == "summary_missing":
+        audit["object_summaries"].pop()
+    elif mutation == "object_identity":
+        audit["object_summaries"][0]["expected_sha256"] = "9" * 64
+        audit["object_summaries"][0]["observed_sha256"] = "9" * 64
+    elif mutation == "object_totals":
+        audit["object_summaries"][0]["total_lines"] += 1
+        audit["object_summaries"][0]["data_frame_rows"] += 1
+    with pytest.raises(mod.RFQStageError, match=message):
+        mod._validate_repair03_inner_payload_audit(
+            audit,
+            run_id=fixture["run_dir"].name,
+            active_input=active_input,
+            active_input_sha256=mod.sha256(active_input_path),
+            audit_source_sha256=mod.REPAIR03_APPROVED_AUDIT_SOURCE_SHA256,
+            base_result=fixture["base_result"],
+        )
+
+
+def test_explicit_null_cannot_be_blessed_by_coordinated_repair03_rewrite(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_consumer_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod,
+        "_apply_double_object_quarantine",
+        lambda *_args, **_kwargs: copy.deepcopy(fixture["base_result"]),
+    )
+    run_dir = fixture["run_dir"]
+    # Typed DuckDB JSON maps this explicit null marker to the same SQL NULL as
+    # a missing field.  The preregistration evidence, not scan_sql in isolation,
+    # must therefore reject any attempt to bless these bytes.
+    compact = b'{"marker":null,"raw":"{}"}'
+    explicit_null_payload = compact + b" " * (39 - len(compact)) + b"\n"
+    assert len(explicit_null_payload) == 40
+    explicit_null_path = run_dir / "explicit-null-marker.ndjson"
+    explicit_null_path.write_bytes(explicit_null_payload)
+    rewritten_sha = hashlib.sha256(explicit_null_payload).hexdigest()
+
+    for relative in (
+        "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        mod.REPAIR03_FAILED_INPUT_ARCHIVE,
+    ):
+        identity_path = run_dir / relative
+        identity = json.loads(identity_path.read_text())
+        identity["consumed_objects"][1]["sha256"] = rewritten_sha
+        write_json(identity_path, identity)
+    rewritten_input_sha = mod.sha256(
+        run_dir / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+    )
+    for relative in (
+        "DATA_INTEGRITY/RFQ_INNER_PAYLOAD_CONTRACT_AUDIT_03.json",
+        mod.REPAIR03_AUDIT_ARCHIVE,
+    ):
+        audit_path = run_dir / relative
+        audit = json.loads(audit_path.read_text())
+        audit["input_identity_sha256"] = rewritten_input_sha
+        audit["object_summaries"][1]["expected_sha256"] = rewritten_sha
+        audit["object_summaries"][1]["observed_sha256"] = rewritten_sha
+        write_json(audit_path, audit)
+    rewritten_audit_sha = mod.sha256(run_dir / mod.REPAIR03_AUDIT_ARCHIVE)
+
+    repair03 = fixture["manifest"]["data_integrity_repairs"][2]
+    repair03["failed_input_identity_sha256"] = rewritten_input_sha
+    repair03["inner_payload_audit_sha256"] = rewritten_audit_sha
+    repair03["failed_attempt"]["input_identity_sha256"] = rewritten_input_sha
+    repair03["inner_payload_audit"]["sha256"] = rewritten_audit_sha
+    repair03["archive_inventory"] = mod._archive_inventory(
+        run_dir / mod.REPAIR03_PRE_ROOT
+    )
+    receipt = {
+        key: value for key, value in repair03.items()
+        if key not in {"repair_receipt_path", "repair_receipt_sha256"}
+    }
+    write_json(run_dir / mod.REPAIR03_REGISTRATION, receipt)
+    repair03["repair_receipt_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR03_REGISTRATION
+    )
+
+    with pytest.raises(mod.RFQStageError, match="approved evidence identity changed"):
+        mod.apply_object_quarantine(
+            run_dir, fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_main_disk_headroom_failure_does_not_mutate_failed03_evidence(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_main_failure_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod.shutil, "disk_usage", lambda _path: type("Usage", (), {"free": 0})()
+    )
+    connect_called = False
+
+    def forbidden_connect(_path):
+        nonlocal connect_called
+        connect_called = True
+        raise AssertionError("connect must not run after a pure preflight failure")
+
+    monkeypatch.setattr(duckdb, "connect", forbidden_connect)
+    with pytest.raises(mod.RFQStageError, match="insufficient disk headroom"):
+        mod.main([
+            "--run-dir", str(fixture["run_dir"]),
+            "--cache-root", str(tmp_path / "cache"),
+            "--min-free-gib", "1",
+        ])
+    assert connect_called is False
+    assert fixture["input_path"].read_bytes() == fixture["input_before"]
+    assert fixture["state_path"].read_bytes() == fixture["state_before"]
+    assert not fixture["scratch"].exists()
+
+
+def test_main_connect_failure_writes_governed_repair03_state_and_keeps_scratch(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_main_failure_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod.shutil,
+        "disk_usage",
+        lambda _path: type("Usage", (), {"free": 2**50})(),
+    )
+
+    def fail_connect(path):
+        Path(path).write_bytes(b"partial fresh scratch")
+        raise RuntimeError("synthetic connect failure")
+
+    monkeypatch.setattr(duckdb, "connect", fail_connect)
+    with pytest.raises(RuntimeError, match="synthetic connect failure"):
+        mod.main([
+            "--run-dir", str(fixture["run_dir"]),
+            "--cache-root", str(tmp_path / "cache"),
+            "--min-free-gib", "0",
+        ])
+    state = json.loads(fixture["state_path"].read_text())
+    assert state["status"] == "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+    assert state["resume"] is False
+    assert state["next_required_authority"] == (
+        "EXPLICIT_NEW_PREREGISTRATION_OR_RFQ_SCOPE_TERMINATION"
+    )
+    assert state["error_type"] == "RuntimeError"
+    assert fixture["scratch"].read_bytes() == b"partial fresh scratch"
+    assert json.loads(fixture["input_path"].read_text())["schema"] == (
+        "rfq-full-input-identity-v3"
+    )
+
+
+def test_main_configure_failure_closes_connection_and_keeps_governed_scratch(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_main_failure_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod.shutil,
+        "disk_usage",
+        lambda _path: type("Usage", (), {"free": 2**50})(),
+    )
+
+    class SyntheticConnection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = SyntheticConnection()
+
+    def connect(path):
+        Path(path).write_bytes(b"configured fresh scratch")
+        return connection
+
+    monkeypatch.setattr(duckdb, "connect", connect)
+    monkeypatch.setattr(
+        mod,
+        "configure",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("synthetic configure failure")
+        ),
+    )
+    with pytest.raises(RuntimeError, match="synthetic configure failure"):
+        mod.main([
+            "--run-dir", str(fixture["run_dir"]),
+            "--cache-root", str(tmp_path / "cache"),
+            "--min-free-gib", "0",
+        ])
+    state = json.loads(fixture["state_path"].read_text())
+    assert state["status"] == "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+    assert state["resume"] is False
+    assert state["next_required_authority"] == (
+        "EXPLICIT_NEW_PREREGISTRATION_OR_RFQ_SCOPE_TERMINATION"
+    )
+    assert state["error_type"] == "RuntimeError"
+    assert fixture["scratch"].read_bytes() == b"configured fresh scratch"
+    assert connection.closed is True
+
+
 @pytest.mark.parametrize(
     "mutation",
     ("repair_order", "cumulative_drop", "coverage_fingerprint", "receipt_sha", "auth"),
@@ -1396,6 +2631,74 @@ def test_any_malformed_inner_payload_in_consumed_object_still_aborts(tmp_path):
             connection, inputs["paths"], fixture["run_dir"].name,
             inputs["quarantine_boundaries"],
         )
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"marker": "transport_close"},
+        {"marker": "transport_close", "raw": None},
+        {"marker": "transport_close", "raw": " "},
+        {"marker": "transport_close", "raw": "{}"},
+        {"marker": "transport_close", "raw": "{malformed"},
+        {"marker": "Transport_close", "raw": ""},
+        {"marker": "epoch_change", "raw": ""},
+        {"marker": "unknown", "raw": "{}"},
+        {},
+        {"raw": None},
+        {"raw": "42"},
+        {"raw": "[]"},
+        {"raw": "{malformed"},
+        {"marker": "segment_receipt"},
+        {"marker": "segment_receipt", "raw": "null"},
+        {"marker": "segment_receipt", "raw": "[]"},
+        {"marker": "segment_receipt", "raw": "{malformed"},
+    ],
+    ids=[
+        "control-missing-raw",
+        "control-null-raw",
+        "control-whitespace-raw",
+        "control-valid-object-payload",
+        "control-malformed-payload",
+        "control-case-variant",
+        "epoch-change-not-preregistered",
+        "unknown-marker-valid-object",
+        "frame-missing-raw",
+        "frame-null-raw",
+        "frame-valid-scalar",
+        "frame-valid-list",
+        "frame-malformed-json",
+        "receipt-missing-raw",
+        "receipt-valid-null",
+        "receipt-valid-list",
+        "receipt-malformed-json",
+    ],
+)
+def test_inner_payload_contract_rejects_every_unregistered_shape(tmp_path, fields):
+    source = (
+        tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
+        "date=2026-07-12/rfq_00.ndjson"
+    )
+    outer = {
+        "recv_wall_ns": 1_000_000_000,
+        "recv_mono_ns": 1_000_000_000,
+        "stream_epoch": 1,
+    }
+    outer.update(fields)
+    write_rows(source, [outer])
+    connection = duckdb.connect()
+    connection.execute(mod.scan_sql([source], "invalid-inner-contract"))
+    assert connection.execute("""
+      SELECT expected_blank_control_marker,inner_payload_contract_valid,
+        inner_payload_contract_valid IS NULL
+      FROM rfq_scan_rows
+    """).fetchone() == (False, False, False)
+    with pytest.raises(
+        mod.RFQStageError,
+        match="malformed inner RFQ payload or marker contract violation",
+    ):
+        mod.build_scan_tables(connection, [source], "invalid-inner-contract")
     connection.close()
 
 
