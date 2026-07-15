@@ -145,9 +145,11 @@ operator ruling. Corrections, in order:
 
 - [x] W05_ACCEPTED 撤销;本文头部改判 + STATE 行改写(W05 =
   EXPLORATORY_ONLY,严格验收门保留)。
-- [ ] RFQ 重发布 07-12 + 07-13(--include-rfq,state-aware 新 id)→ 结果表
-  见下方 "RFQ 重发布" 节(执行后填写)。
-- [ ] B18 机制取证 → 见下方 "B18 机制核验" 节(执行后填写)。
+- [x] RFQ 重发布 07-12 + 07-13(--include-rfq,state-aware 新 id)→ 结果表
+  见下方 "RFQ 重发布结果" 节(双日 INCLUDED_SEALED_RAW,发布器全对象校验过,
+  Mac inventory EXPOSED;剩 W09 fetch+verify)。
+- [x] B18 机制取证 → 见下方 "B18 机制核验" 节(system unit + snap scope,
+  linger 有效,长效债改写)。
 - [x] 第 4 条不变项确认:B20/B21 在册(分支 BACKLOG)、HOUSEKEEPING_PENDING
   在档、W-A 审计令在 SESSION_LOG 23:40 条目;W-A 部署顺序 = 今晚 07-14
   封印 PASS 之后 + 审计 PASS。
@@ -179,3 +181,23 @@ operator ruling. Corrections, in order:
    aws。长效修复不是"迁 system unit"(它已经是),而是**去掉 snap/用户
    管理器依赖**:非 snap 的 aws v2(官方安装包)或改用自带 SigV4 的
    python 上传器。分支 BACKLOG 的 B18 长效项已按此改写。
+
+## RFQ 重发布结果(SUPERSEDE 第 2 条,2026-07-15 00:4xZ 完成)
+
+| 日期 | release_id(新,state-aware) | 对象数 | 大小 | rfq | binding | 发布器逐对象校验 |
+|---|---|---|---|---|---|---|
+| 2026-07-12 | `2026-07-12__seal-bc37de4c__pub-2bf8871ad4750c03` | 485 | 35.59 GB | **INCLUDED_SEALED_RAW** | VERSION_BOUND (manifest ver `JLvZOATi.HIwBKlAj6Auej4apdfiE_fe`) | 485/485 |
+| 2026-07-13 | `2026-07-13__seal-7f6e5c1b__pub-f8e4c0abc742b7d5` | 476 | 32.51 GB | **INCLUDED_SEALED_RAW** | VERSION_BOUND (manifest ver `1ZFrFjSr2UbFODHEsiw_MfsbBOM1bKxY`) | 476/476 |
+
+- Mac inventory(只读,00:4xZ):两个新 release 均 **EXPOSED**,
+  rfq=INCLUDED_SEALED_RAW;S3 research/ 现量 80.09 GB(≈$1.84/月,
+  增速 ~26.7 GB/日 ≈ +$18.4/月/月,与操作员 +$21–23 估算同量级)。
+- 注:RFQ raw 重建自 vault 时有 "no object versions" 的 DEGRADED
+  unversioned recovery 警告(内容仍逐字节对封印 sha256 校验)——vault
+  ec2/raw 前缀对该凭据不可见版本号,后续 housekeeping 可查
+  是否给 vaultWriter 补 ListBucketVersions on ec2/raw(非阻塞)。
+- 旧的 RFQ-excluded 两个 release 按 D1 保留不动(EXPOSED,可继续用于
+  无 RFQ 的轻量拉取)。
+- **W05_EXPLORATORY_READY 的最后一步:** W09 验收(操作员开机后)兼做
+  exact-VersionId fetch+verify(Mac 按裁决只做 inventory)。验收 PASS
+  即正式返回 W05_EXPLORATORY_READY。
