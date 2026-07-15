@@ -1484,3 +1484,140 @@ and only the following summary:
 - highest-priority data/engine gap;
 - explicit statement that no live trading was authorized or executed.
 Then stop.
+
+======================================================================
+AMENDMENT V3 (2026-07-15) — SCOPE LEDGER, QUANT METHODS, DOCUMENTATION,
+ARCHIVAL, DIGEST
+======================================================================
+Status: appended for operator review in-conversation; becomes active only
+when the operator pins this file's new SHA-256 and issues the release.
+Where V3 conflicts with the V2 body above, V3 governs. Tag: [V3].
+
+V3.1 RESEARCH_DIRECTION_LEDGER
+Register ALL directions below. Contract: every direction receives at least
+Tier-1 descriptive coverage in the atlas OR an explicit DEFERRED(reason)
+entry in the run's hypothesis ledger. Funnel discipline is unchanged
+(no more than 10 deep hypotheses per cycle) — the ledger guarantees
+completeness of REGISTRATION, not simultaneous execution.
+A. Market-making/microstructure: spread-capture economics by segment;
+   toxicity/markout decomposition; depletion-refill resilience; queue/fill
+   probability lambda(delta); liquidity regimes; quote-lifetime and burst
+   dynamics; leader-follower structure including the H-FOLLOW family
+   (professional-presence fingerprint, leader-retreat signal, adverse
+   selection transfer, anchor manipulability); price-grid/round-number
+   clustering; liquidity seasonality by hour/day; cross-market quote
+   spillover within events.
+B. Directional: multi-horizon continuation/reversion; OFI/imbalance/
+   microprice predictivity; large-flow event studies; favorite-longshot
+   calibration; listing-to-start drift; in-play favorite erosion;
+   realized-volatility structure by time-to-event; jump hazard modeling;
+   settlement-calibration scoring (Brier/log) by segment.
+C. Relative value: mutually-exclusive family overround; bracket/threshold
+   monotonicity; same-event cross-family coherence (e.g. soccer Poisson
+   consistency across winner/totals/spread); within-event lead-lag;
+   combo/MVE vs leg cost; payout-state dominance; multi-day series
+   structure.
+D. RFQ: flow census; size and economic intent; lifecycle survival; combo
+   demand structure and leg hedging pressure; requester-hash clustering;
+   RFQ-as-signal for direction/volatility; RFQ-to-CLOB impact studies.
+E. Terminal dynamics: settlement-convergence microstructure; expiry
+   liquidity migration; freeze-window behavior.
+F. Market ecology: participant-mix proxies over time; fee-structure effects
+   on quoting; new-market cold-start dynamics.
+External-data-dependent directions remain DEFERRED per the standing
+operator ruling (each requires individual approval).
+
+V3.2 QUANT METHODS TOOLBOX
+(Literature supplies structure, our data supplies numbers — Q4.)
+Monte Carlo simulation is first-class:
+(a) strategy PnL distributions and tail risk over fitted flow/volatility
+    models;
+(b) capacity and queue-position stress MC;
+(c) risk-of-ruin and fractional-Kelly sizing MC;
+(d) match-outcome process simulation for model-based fair value (soccer
+    Poisson goal process, tennis point-process) using market-implied
+    parameters only.
+Plus: block/event bootstrap; survival analysis and competing risks;
+Hawkes/point-process burst modeling; HMM/threshold regime models; queueing
+models; extreme value theory for per-event tails; PCA/factor structure of
+cross-market comovement; Bayesian hierarchical pooling across leagues;
+price-discovery/information-share measures; deflated-Sharpe/PBO
+diagnostics.
+
+V3.2b TOOLBOX EXTENSION — additional canonical methods, same discipline:
+GARCH-family volatility structure; cointegration/VECM and Granger lead-lag;
+state-space/Kalman latent fair-value tracking; change-point detection
+(CUSUM, Bayesian online CPD); causal-inference kit (matched-control event
+studies, difference-in-differences across comparable segments,
+propensity-style matching); zero-intelligence null order-book models as
+negative controls; market-impact estimation (Kyle-lambda style
+price-per-volume slopes) per segment; copula/dependence modeling for combo
+legs and same-event families; quantile regression for tail-conditional
+effects; sequential testing (SPRT/alpha-spending) for early COLLECT_MORE
+decisions without alpha inflation; supervised machine learning (gradient
+boosting, regularized linear) PERMITTED but subordinate — only inside the
+nested chronological CV protocol, every variant registered as a trial, and
+an interpretable baseline must be beaten out-of-sample; model complexity is
+never a substitute for originality or a tradable edge.
+Method choice rule: the question picks the method, never the reverse; every
+method's output enters the same tier/label/multiplicity pipeline.
+
+V3.2c METHODS LEDGER
+Every statistical method actually used must be documented for operator
+review BEFORE its first result ships.
+- Files: docs/research_reports/METHODS_LEDGER.md (repo, versioned) plus a
+  per-run METHODS.md snapshot in the run directory.
+- Each entry contains:
+  (1) plain-language explanation in Chinese — what question it answers, in
+      one paragraph a non-programmer can read;
+  (2) formal definition/formula and a canonical literature reference;
+  (3) assumptions it relies on, and what breaks when they fail;
+  (4) where it is used (hypothesis/study ids);
+  (5) implementation location (file:function) and its unit tests;
+  (6) how to READ its output — one worked example with a real chart or
+      table, including common misreadings to avoid;
+  (7) known failure modes and the negative control that guards each.
+- No method may appear in any report unless its ledger entry exists; the
+  daily digest links each new result to its method entries.
+- The ledger is append-and-amend: superseded practice is struck through
+  with a dated note, never deleted (review trail preserved).
+
+V3.2d GOVERNING PRINCIPLE — discretion proposes, statistics disposes:
+exploratory judgment may generate hypotheses; no claim, ranking or
+promotion may rest on any procedure adjusted after outcome data was seen.
+Every adaptive choice becomes a registered trial, or the result is void.
+
+V3.3 ARCHIVAL CONTRACT
+The per-run directory work/research/auto_research/<RUN_ID>/ stays as
+specified. ADDITIONALLY, durable publication: each day's REPORT/ output,
+hypothesis cards and atlas pages are packaged to
+s3://<vault>/research/reports/<run_id>/ (versioned, immutable) and indexed
+in docs/research_reports/INDEX.md (date, run_id, one-line contents).
+Nothing may exist only on W09 disk.
+
+V3.4 DAILY DIGEST (amends section 25)
+Autonomous execution is unchanged, but the mission emits a once-daily
+operator digest: one page — new atlas pages, new/killed hypotheses,
+anomalies found, next-day plan — archived with the run. The operator may
+issue steering orders between digests; every steering order is archived
+verbatim into the run directory. All other section-25 restrictions
+(no routine chatter; interrupt only on the named gates) remain in force.
+
+V3.5 PRIORITY DIRECTIVE — candidate-first (operator, 2026-07-15)
+The mission's governing objective is PROMOTION_READY strategy candidates,
+each with a complete dossier: entry/quote/exit pseudocode, fee-adjusted
+expected economics under the pessimistic fill bound, capacity, kill
+conditions, and a proposed micro-live design (dossier sections 28-30).
+Execution ordering rule: every research cycle must advance strategy-shaped
+hypotheses FIRST — spread-capture segments, the H-FOLLOW family,
+ME-family overround, pre-match dynamics — before pure-science directions
+(market ecology, seasonality), which run only with spare capacity.
+Ranking heuristic within each cycle: shortest credible path to a tradable
+rule wins the slot.
+System/infrastructure findings encountered during research are LOGGED to
+the backlog, never pursued in-mission, unless they block the candidate
+path itself. Finding faults in the system is explicitly NOT a mission
+objective.
+All V3.5 ordering rules operate WITHIN the unchanged statistical
+discipline: tiers, labels, multiplicity, pessimistic fills and the
+governing principle of V3.2d are not relaxed by candidate-first priority.
