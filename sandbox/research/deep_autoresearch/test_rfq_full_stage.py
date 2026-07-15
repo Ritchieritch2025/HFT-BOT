@@ -5,6 +5,7 @@ import datetime as dt
 from pathlib import Path
 
 import duckdb
+import pytest
 
 
 path = Path(__file__).with_name("rfq_full_stage.py")
@@ -40,6 +41,266 @@ def write_rows(path, rows):
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def quarantine_fixture(tmp_path):
+    """Build a tiny exact-binding analogue using the known production failure key."""
+    cache = tmp_path / "cache"
+    run_dir = tmp_path / "test-run"
+    run_dir.mkdir()
+    base_ns = int(dt.datetime(
+        2026, 7, 14, tzinfo=dt.timezone.utc
+    ).timestamp() * 1_000_000_000)
+    known_key = "raw_rfq/date=2026-07-14/rfq_00.ndjson"
+    pre_key = "raw_rfq/date=2026-07-13/rfq_23.ndjson"
+    next_key = known_key + ".1"
+    receipt_key = "raw_rfq/date=2026-07-14/rfq_receipts_00.ndjson"
+    other_key = "raw_rfq/date=2026-07-12/rfq_00.ndjson"
+    bodies = {
+        other_key: json.dumps(recorder(
+            base_ns - 86_400_000_000_000, {"type": "subscribed", "sid": 7}
+        )) + "\n",
+        pre_key: "\n".join([
+            json.dumps(recorder(base_ns + 1_000_000_000, frame(
+                "rfq_created", "CROSS-GAP", "M-A", "2026-07-14T00:00:01Z"
+            ))),
+            json.dumps(recorder(
+                base_ns + 2_000_000_000, {"type": "subscribed", "sid": 7}
+            )),
+        ]) + "\n",
+        # Deliberately invalid outer NDJSON. A successful scan proves this path was not opened.
+        known_key: '{"recv_wall_ns":123,"raw":"unterminated"\n',
+        next_key: "\n".join([
+            json.dumps(recorder(base_ns + 7_204_000_000_000, frame(
+                "rfq_deleted", "CROSS-GAP", "M-A", "2026-07-14T02:00:04Z"
+            ))),
+            json.dumps(recorder(base_ns + 7_204_500_000_000, frame(
+                "rfq_created", "POST-GAP", "M-B", "2026-07-14T02:00:04.5Z"
+            ))),
+            json.dumps(recorder(base_ns + 7_205_000_000_000, frame(
+                "rfq_deleted", "POST-GAP", "M-B", "2026-07-14T02:00:05Z"
+            ))),
+        ]) + "\n",
+        receipt_key: json.dumps(recorder(
+            base_ns + 3_600_000_000_000,
+            {"status": "PASS", "subscription_proven": True,
+             "boundary_closed": True, "end_reason": "boundary", "findings": []},
+            marker="segment_receipt",
+        )) + "\n",
+    }
+    release_keys = {
+        mod.RELEASE_IDS[0]: [other_key],
+        mod.RELEASE_IDS[1]: [pre_key, known_key, next_key, receipt_key],
+    }
+    manifest_sha = {}
+    version_paths = {}
+    object_rows = {}
+    for index, release_id in enumerate(mod.RELEASE_IDS):
+        base = cache / "releases" / release_id
+        rows = []
+        versions = []
+        for key in release_keys[release_id]:
+            body = bodies[key]
+            target = base / key
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+            row = {
+                "key": key,
+                "sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "size": len(body.encode()),
+            }
+            rows.append(row)
+            object_rows[key] = row
+            versions.append({**row, "version_id": f"fixture-version-{index}-{len(rows)}"})
+        write_json(base / ".VERIFIED.json", {
+            "release_id": release_id,
+            "version_binding_mode": "VERSION_BOUND",
+            "evidence_tier": mod.EVIDENCE,
+        })
+        write_json(base / "MANIFEST.json", {"objects": rows})
+        manifest_sha[release_id] = mod.sha256(base / "MANIFEST.json")
+        version_path = f"DATA_INTEGRITY/version_ids/release-{index}.jsonl"
+        version_paths[release_id] = version_path
+        path = run_dir / version_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(row) + "\n" for row in versions), encoding="utf-8")
+
+    selected = [{
+        "release_id": release_id,
+        "manifest_sha256": manifest_sha[release_id],
+        "exact_version_list_path": version_paths[release_id],
+    } for release_id in mod.RELEASE_IDS]
+    execution_commit = "1" * 40
+    manifest = {
+        "selected_releases": selected,
+        "repository": {
+            "execution_commit": execution_commit,
+            "source_manifest_sha256": "2" * 64,
+            "query_set_sha256": "3" * 64,
+        },
+    }
+    failed = object_rows[known_key]
+    version_id = "fixture-version-1-2"
+    receipt = {
+        "schema_version": "rfq-malformed-object-receipt-v1",
+        "run_id": run_dir.name,
+        "release_id": mod.RELEASE_IDS[1],
+        "key": known_key,
+        "expected_size": failed["size"],
+        "observed_size": failed["size"],
+        "expected_sha256": failed["sha256"],
+        "observed_sha256": failed["sha256"],
+        "invalid_line_count": 1,
+        "invalid_lines": [{
+            "line_number": 1,
+            "line_sha256": hashlib.sha256(bodies[known_key].encode()).hexdigest(),
+            "error_type": "JSONDecodeError",
+        }],
+        "total_lines": 1,
+        "raw_payload_redacted": True,
+        "disposition": "CHANNEL_OBJECT_QUARANTINE_REQUIRED",
+    }
+    write_json(run_dir / mod.MALFORMED_OBJECT_RECEIPT, receipt)
+    declaration = {
+        "schema_version": "rfq-object-quarantine-v1",
+        "run_id": run_dir.name,
+        "mode": "EXPLORATORY_AUTORESEARCH",
+        "disposition": "WHOLE_OBJECT_QUARANTINE",
+        "finding": "MALFORMED_NDJSON_OBJECT",
+        "created_after_structural_failure_before_rfq_result": True,
+        "dependent_rfq_result_opened": False,
+        "remaining_object_parse_policy": mod.STRICT_REMAINING_PARSE_POLICY,
+        "authority_basis": "Mission section 22 isolated-channel quarantine.",
+        "selection_rule": "Exact manifest, VersionId, and receipt binding; whole object only.",
+        "result_use_prohibited": "No row or result from the quarantined object.",
+        "source_execution_commit": execution_commit,
+        "quarantined_objects": [{
+            "release_id": mod.RELEASE_IDS[1],
+            "key": known_key,
+            "size": failed["size"],
+            "sha256": failed["sha256"],
+            "version_id": version_id,
+            "manifest_sha256": manifest_sha[mod.RELEASE_IDS[1]],
+            "invalid_line_count": 1,
+            "reason": "Strict parsing proved malformed bytes; whole object excluded.",
+            "receipt": mod.MALFORMED_OBJECT_RECEIPT,
+        }],
+    }
+    write_json(run_dir / mod.QUARANTINE_DECLARATION, declaration)
+    return {
+        "cache": cache,
+        "run_dir": run_dir,
+        "manifest": manifest,
+        "declaration": declaration,
+        "receipt": receipt,
+        "known_key": known_key,
+        "known_path": cache / "releases" / mod.RELEASE_IDS[1] / known_key,
+        "next_path": cache / "releases" / mod.RELEASE_IDS[1] / next_key,
+        "receipt_key": receipt_key,
+        "receipt_path": cache / "releases" / mod.RELEASE_IDS[1] / receipt_key,
+        "base_ns": base_ns,
+    }
+
+
+def synthetic_cycle1_binding(run_id="synthetic-run"):
+    return {
+        "active_path": mod.CYCLE1_DUCKDB_BINDING,
+        "active_sha256": "1" * 64,
+        "archived_path": mod.CYCLE1_DUCKDB_BINDING_ARCHIVE,
+        "archived_sha256": "1" * 64,
+        "schema_version": "cycle1-derived-duckdb-binding-v1",
+        "run_id": run_id,
+        "duckdb_path": f"/srv/w09-research/runs/{run_id}/cache/cycle1.duckdb",
+        "duckdb_bytes": 4096,
+        "duckdb_sha256": "2" * 64,
+        "core_stage_resource_path": mod.CYCLE1_CORE_RESOURCE,
+        "core_stage_resource_sha256": "3" * 64,
+        "core_summary_path": mod.CYCLE1_CORE_SUMMARY,
+        "core_summary_sha256": "4" * 64,
+    }
+
+
+def cycle1_binding_fixture(tmp_path):
+    run_dir = tmp_path / "binding-run"
+    database = run_dir / "cache/cycle1.duckdb"
+    database.parent.mkdir(parents=True)
+    connection = duckdb.connect(str(database))
+    connection.execute("CREATE TABLE preserved_core(value INTEGER)")
+    connection.execute("INSERT INTO preserved_core VALUES (1)")
+    connection.close()
+
+    summary_path = run_dir / mod.CYCLE1_CORE_SUMMARY
+    write_json(summary_path, {
+        "run_id": run_dir.name,
+        "banner": mod.BANNER,
+        "boundary": "No result is promotion ready.",
+    })
+    resource_path = run_dir / mod.CYCLE1_CORE_RESOURCE
+    write_json(resource_path, {
+        "schema_version": "w09-stage-resource-v1",
+        "label": "cycle1_core",
+        "return_code": 0,
+        "command": ["python", "run_cycle1.py", "--run-dir", str(run_dir)],
+    })
+    receipt = {
+        "schema_version": "cycle1-derived-duckdb-binding-v1",
+        "run_id": run_dir.name,
+        "path": str(database.resolve()),
+        "bytes": database.stat().st_size,
+        "sha256": mod.sha256(database),
+        "mtime_utc": dt.datetime.fromtimestamp(
+            database.stat().st_mtime, tz=dt.timezone.utc
+        ).isoformat(),
+        "duckdb_version": mod.EXPECTED_DUCKDB,
+        "created_before_rfq_repair_registration": True,
+        "core_result_disposition": (
+            "CORE_DERIVED_DATABASE_PRESERVED_NOT_RECOMPUTED"
+        ),
+        "core_summary_path": mod.CYCLE1_CORE_SUMMARY,
+        "core_summary_sha256": mod.sha256(summary_path),
+        "core_stage_resource_path": mod.CYCLE1_CORE_RESOURCE,
+        "core_stage_resource_sha256": mod.sha256(resource_path),
+    }
+    active = run_dir / mod.CYCLE1_DUCKDB_BINDING
+    archived = run_dir / mod.CYCLE1_DUCKDB_BINDING_ARCHIVE
+    write_json(active, receipt)
+    write_json(archived, receipt)
+    binding = {
+        "active_path": mod.CYCLE1_DUCKDB_BINDING,
+        "active_sha256": mod.sha256(active),
+        "archived_path": mod.CYCLE1_DUCKDB_BINDING_ARCHIVE,
+        "archived_sha256": mod.sha256(archived),
+        "schema_version": receipt["schema_version"],
+        "run_id": receipt["run_id"],
+        "duckdb_path": receipt["path"],
+        "duckdb_bytes": receipt["bytes"],
+        "duckdb_sha256": receipt["sha256"],
+        "core_stage_resource_path": receipt["core_stage_resource_path"],
+        "core_stage_resource_sha256": receipt["core_stage_resource_sha256"],
+        "core_summary_path": receipt["core_summary_path"],
+        "core_summary_sha256": receipt["core_summary_sha256"],
+    }
+    manifest = {
+        "data_integrity_repairs": [{
+            "repair_id": "repair-01",
+            "finding": "MALFORMED_NDJSON_OBJECT",
+            "cycle1_duckdb_binding": binding,
+        }],
+    }
+    return {
+        "run_dir": run_dir,
+        "database": database,
+        "active": active,
+        "archived": archived,
+        "receipt": receipt,
+        "binding": binding,
+        "manifest": manifest,
+    }
+
+
 def test_fixed_exact_rejects_rounding_and_overflow():
     assert mod.fixed_exact("1.25", 2) == 125
     assert mod.fixed_exact(10, 6) == 10_000_000
@@ -69,6 +330,116 @@ def test_windows_are_contiguous_and_causal_boundaries():
     assert mod.WINDOWS_US[-1][2] == 120_000_000
     for left, right in zip(mod.WINDOWS_US, mod.WINDOWS_US[1:]):
         assert left[2] == right[1]
+
+
+def test_cycle1_duckdb_binding_validates_and_returns_exact_nested_identity(tmp_path):
+    fixture = cycle1_binding_fixture(tmp_path)
+    observed = mod.validate_cycle1_duckdb_binding(
+        fixture["run_dir"], fixture["manifest"], fixture["database"]
+    )
+    assert observed == fixture["binding"]
+
+
+def test_cycle1_duckdb_binding_rejects_database_tamper(tmp_path):
+    fixture = cycle1_binding_fixture(tmp_path)
+    with fixture["database"].open("ab") as handle:
+        handle.write(b"tamper")
+    with pytest.raises(mod.RFQStageError, match="byte count|SHA-256"):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+
+def test_cycle1_duckdb_binding_rejects_same_size_database_tamper(tmp_path):
+    fixture = cycle1_binding_fixture(tmp_path)
+    with fixture["database"].open("r+b") as handle:
+        handle.seek(-1, 2)
+        original = handle.read(1)
+        handle.seek(-1, 2)
+        handle.write(bytes([original[0] ^ 0xFF]))
+    assert fixture["database"].stat().st_size == fixture["receipt"]["bytes"]
+    with pytest.raises(mod.RFQStageError, match="SHA-256"):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+
+def test_cycle1_duckdb_binding_rejects_receipt_or_manifest_tamper(tmp_path):
+    fixture = cycle1_binding_fixture(tmp_path)
+    active_receipt = json.loads(fixture["active"].read_text(encoding="utf-8"))
+    active_receipt["core_summary_sha256"] = "f" * 64
+    write_json(fixture["active"], active_receipt)
+    with pytest.raises(mod.RFQStageError, match="active/archived"):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("core_summary_sha256", "core summary SHA"),
+        ("core_stage_resource_sha256", "core resource receipt SHA"),
+    ],
+)
+def test_cycle1_binding_rehashes_core_artifacts_even_if_receipts_are_reforged(
+    tmp_path, field, message
+):
+    fixture = cycle1_binding_fixture(tmp_path)
+    receipt = json.loads(fixture["active"].read_text(encoding="utf-8"))
+    receipt[field] = "f" * 64
+    write_json(fixture["active"], receipt)
+    write_json(fixture["archived"], receipt)
+    forged_binding = dict(fixture["binding"])
+    forged_binding.update({
+        "active_sha256": mod.sha256(fixture["active"]),
+        "archived_sha256": mod.sha256(fixture["archived"]),
+        field: receipt[field],
+    })
+    fixture["manifest"]["data_integrity_repairs"][0][
+        "cycle1_duckdb_binding"
+    ] = forged_binding
+    with pytest.raises(mod.RFQStageError, match=message):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+    fixture = cycle1_binding_fixture(tmp_path / "manifest")
+    fixture["manifest"]["data_integrity_repairs"][0][
+        "cycle1_duckdb_binding"
+    ]["duckdb_sha256"] = "f" * 64
+    with pytest.raises(mod.RFQStageError, match="repair Cycle-1"):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+
+@pytest.mark.parametrize("run_id", [None, "wrong-run"])
+def test_cycle1_duckdb_binding_rejects_missing_or_mismatched_run_id(
+    tmp_path, run_id
+):
+    fixture = cycle1_binding_fixture(tmp_path)
+    receipt = json.loads(fixture["active"].read_text(encoding="utf-8"))
+    if run_id is None:
+        receipt.pop("run_id")
+    else:
+        receipt["run_id"] = run_id
+    write_json(fixture["active"], receipt)
+    write_json(fixture["archived"], receipt)
+    with pytest.raises(mod.RFQStageError, match="field set|identity mismatch"):
+        mod.validate_cycle1_duckdb_binding(
+            fixture["run_dir"], fixture["manifest"], fixture["database"]
+        )
+
+
+def test_rfq_summary_rejects_absent_run_id_before_querying():
+    with pytest.raises(mod.RFQStageError, match="summary run_id is missing"):
+        mod.build_summary(
+            None,
+            {"cycle1_duckdb_binding": synthetic_cycle1_binding()},
+            {},
+            0.0,
+        )
 
 
 def test_schema_first_dedupe_lifecycle_legs_and_receive_clock(tmp_path):
@@ -288,6 +659,404 @@ def test_manifest_object_key_sha_overlap_is_deduplicated_and_conflict_fails(tmp_
         raise AssertionError("same key with a different manifest SHA must fail")
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ["forged_sha", "unbound_version", "unbound_execution", "receipt_key", "zero_invalid"],
+)
+def test_quarantine_mutations_and_unbound_evidence_fail_closed(tmp_path, mutation):
+    fixture = quarantine_fixture(tmp_path)
+    declaration = json.loads(json.dumps(fixture["declaration"]))
+    receipt = json.loads(json.dumps(fixture["receipt"]))
+    if mutation == "forged_sha":
+        declaration["quarantined_objects"][0]["sha256"] = "f" * 64
+    elif mutation == "unbound_version":
+        declaration["quarantined_objects"][0]["version_id"] = "forged-version"
+    elif mutation == "unbound_execution":
+        declaration["source_execution_commit"] = "9" * 40
+    elif mutation == "receipt_key":
+        receipt["key"] += ".forged"
+    elif mutation == "zero_invalid":
+        receipt["invalid_line_count"] = 0
+        receipt["invalid_lines"] = []
+    write_json(fixture["run_dir"] / mod.QUARANTINE_DECLARATION, declaration)
+    write_json(fixture["run_dir"] / mod.MALFORMED_OBJECT_RECEIPT, receipt)
+    discovered = mod.discover_inputs(fixture["cache"])
+    with pytest.raises(mod.RFQStageError):
+        mod.apply_object_quarantine(
+            fixture["run_dir"], fixture["manifest"], discovered
+        )
+
+
+def test_receipt_without_preregistered_declaration_is_rejected(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    (fixture["run_dir"] / mod.QUARANTINE_DECLARATION).unlink()
+    with pytest.raises(mod.RFQStageError, match="requires both"):
+        mod.apply_object_quarantine(
+            fixture["run_dir"], fixture["manifest"],
+            mod.discover_inputs(fixture["cache"]),
+        )
+
+
+def test_registered_code_repair_binds_archived_failure_and_scratch_receipts(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    run_dir = fixture["run_dir"]
+    discovered_full_set = mod.discover_inputs(fixture["cache"])
+    declaration_source = run_dir / mod.QUARANTINE_DECLARATION
+    receipt_source = run_dir / mod.MALFORMED_OBJECT_RECEIPT
+    archived_declaration = run_dir / mod.REPAIR_DECLARATION_ARCHIVE
+    archived_receipt = run_dir / mod.REPAIR_RECEIPT_ARCHIVE
+    archived_declaration.parent.mkdir(parents=True, exist_ok=True)
+    archived_declaration.write_bytes(declaration_source.read_bytes())
+    archived_receipt.write_bytes(receipt_source.read_bytes())
+    failed_state = run_dir / mod.FAILED_STATE_ARCHIVE
+    original_scratch = "/srv/w09/runs/test-run/cache/rfq_full_scratch.duckdb"
+    failed_input_fingerprint = discovered_full_set["path_size_fingerprint_sha256"]
+    write_json(failed_state, {
+        "schema": "rfq-full-stage-state-v1",
+        "status": "FAILED_RESUMABLE",
+        "resume": False,
+        "scratch": original_scratch,
+        "input_fingerprint": failed_input_fingerprint,
+        "error": f"Malformed JSON in {fixture['known_key']}",
+    })
+    failed_resource = run_dir / mod.FAILED_RESOURCE_ARCHIVE
+    write_json(failed_resource, {
+        "schema_version": "w09-stage-resource-v1",
+        "label": "rfq_full_stage",
+        "return_code": 1,
+        "command": ["python", "rfq_full_stage.py"],
+    })
+    failed_scratch = run_dir / mod.FAILED_SCRATCH_RECEIPT_ARCHIVE
+    write_json(failed_scratch, {
+        "schema_version": "rfq-failed-scratch-receipt-v1",
+        "run_id": run_dir.name,
+        "original_scratch_path": original_scratch,
+        "preserved_scratch_path": "/srv/w09/runs/test-run/cache/rfq_full_scratch.failed.duckdb",
+        "sha256": "4" * 64,
+        "bytes": 4096,
+        "mtime_utc": "2026-07-15T13:20:32Z",
+        "input_fingerprint": failed_input_fingerprint,
+        "disposition": "PRESERVED_RENAMED_NO_RESUME",
+        "resume_allowed": False,
+    })
+    failed_input_identity = run_dir / mod.FAILED_INPUT_IDENTITY_ARCHIVE
+    write_json(
+        failed_input_identity,
+        mod._legacy_full_input_identity(discovered_full_set),
+    )
+    old_commit = fixture["declaration"]["source_execution_commit"]
+    new_commit = "6" * 40
+    repository = fixture["manifest"]["repository"]
+    repository.update({
+        "initial_execution_commit": old_commit,
+        "previous_execution_commit": old_commit,
+        "execution_commit": new_commit,
+        "source_manifest_sha256": "7" * 64,
+        "query_set_sha256": "8" * 64,
+    })
+    repair = {
+        "repair_id": "repair-01",
+        "finding": "MALFORMED_NDJSON_OBJECT",
+        "pre_repair_status": "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING",
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "quarantine_policy": "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE",
+        "previous_execution_commit": old_commit,
+        "current_execution_commit": new_commit,
+        "previous_source_manifest_sha256": "2" * 64,
+        "current_source_manifest_sha256": "7" * 64,
+        "previous_query_set_sha256": "3" * 64,
+        "current_query_set_sha256": "8" * 64,
+        "core_result_disposition": "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED",
+        "core_results_recomputed": False,
+        "registration_change_class": (
+            "DATA_INTEGRITY_HANDLING_ONLY_NO_HYPOTHESIS_DESIGN_CHANGE"
+        ),
+        "hypothesis_design_change": "NONE",
+        "data_integrity_handling_change": (
+            "ONE_EXACT_WHOLE_OBJECT_QUARANTINE_AND_CONSERVATIVE_GAP_CENSORING"
+        ),
+        "frozen_design_change": (
+            "NO_HYPOTHESIS_DESIGN_CHANGE; DATA_INTEGRITY_HANDLING_CHANGED"
+        ),
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "declaration_input_path": mod.QUARANTINE_DECLARATION,
+        "declaration_path": mod.REPAIR_DECLARATION_ARCHIVE,
+        "declaration_sha256": mod.sha256(archived_declaration),
+        "receipt_input_path": mod.MALFORMED_OBJECT_RECEIPT,
+        "receipt_path": mod.REPAIR_RECEIPT_ARCHIVE,
+        "receipt_sha256": mod.sha256(archived_receipt),
+        "failed_state_path": mod.FAILED_STATE_ARCHIVE,
+        "failed_state_sha256": mod.sha256(failed_state),
+        "failed_resource_receipt_path": mod.FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_receipt_sha256": mod.sha256(failed_resource),
+        "failed_scratch_receipt_path": mod.FAILED_SCRATCH_RECEIPT_ARCHIVE,
+        "failed_scratch_receipt_sha256": mod.sha256(failed_scratch),
+        "failed_input_identity_path": mod.FAILED_INPUT_IDENTITY_ARCHIVE,
+        "failed_input_identity_sha256": mod.sha256(failed_input_identity),
+        "quarantined_objects": fixture["declaration"]["quarantined_objects"],
+    }
+    fixture["manifest"]["data_integrity_repairs"] = [repair]
+    inputs = mod.apply_object_quarantine(
+        run_dir, fixture["manifest"], mod.discover_inputs(fixture["cache"])
+    )
+    assert inputs["failed_attempt_binding"] == {
+        "repair_id": "repair-01",
+        "failed_state_path": mod.FAILED_STATE_ARCHIVE,
+        "failed_state_sha256": repair["failed_state_sha256"],
+        "failed_resource_receipt_path": mod.FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_receipt_sha256": repair["failed_resource_receipt_sha256"],
+        "failed_scratch_receipt_path": mod.FAILED_SCRATCH_RECEIPT_ARCHIVE,
+        "failed_scratch_receipt_sha256": repair["failed_scratch_receipt_sha256"],
+        "failed_input_identity_path": mod.FAILED_INPUT_IDENTITY_ARCHIVE,
+        "failed_input_identity_sha256": repair["failed_input_identity_sha256"],
+    }
+    forged_failed_identity = mod._legacy_full_input_identity(discovered_full_set)
+    forged_failed_identity["unique_objects"] += 1
+    write_json(failed_input_identity, forged_failed_identity)
+    repair["failed_input_identity_sha256"] = mod.sha256(failed_input_identity)
+    with pytest.raises(mod.RFQStageError, match="manifest-derived full set"):
+        mod.apply_object_quarantine(
+            run_dir, fixture["manifest"], mod.discover_inputs(fixture["cache"])
+        )
+    write_json(
+        failed_input_identity,
+        mod._legacy_full_input_identity(discovered_full_set),
+    )
+    repair["failed_input_identity_sha256"] = mod.sha256(failed_input_identity)
+    repair["hypothesis_design_change"] = "FORGED_DESIGN_CHANGE"
+    with pytest.raises(
+        mod.RFQStageError,
+        match="RFQ structural repair binding mismatch: hypothesis_design_change",
+    ):
+        mod.apply_object_quarantine(
+            run_dir, fixture["manifest"], mod.discover_inputs(fixture["cache"])
+        )
+    repair["hypothesis_design_change"] = "NONE"
+    fixture["manifest"]["data_integrity_repairs"][0]["failed_state_sha256"] = "0" * 64
+    with pytest.raises(mod.RFQStageError, match="failed state SHA"):
+        mod.apply_object_quarantine(
+            run_dir, fixture["manifest"], mod.discover_inputs(fixture["cache"])
+        )
+
+
+def test_quarantine_without_two_valid_gap_neighbors_is_rejected(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    discovered = mod.discover_inputs(fixture["cache"])
+    pre_key = "raw_rfq/date=2026-07-13/rfq_23.ndjson"
+    discovered["objects_detail"] = [
+        row for row in discovered["objects_detail"] if row["key"] != pre_key
+    ]
+    with pytest.raises(mod.RFQStageError, match="preceding and following"):
+        mod.apply_object_quarantine(
+            fixture["run_dir"], fixture["manifest"], discovered
+        )
+
+
+def test_manifest_bound_whole_object_quarantine_is_gap_safe(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    discovered = mod.discover_inputs(fixture["cache"])
+    inputs = mod.apply_object_quarantine(
+        fixture["run_dir"], fixture["manifest"], discovered
+    )
+    assert inputs["coverage_status"] == "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+    assert inputs["full_object_coverage"] is False
+    assert inputs["unique_objects_total"] == 5
+    assert inputs["consumed_unique_objects"] == 4
+    assert inputs["quarantined_unique_objects"] == 1
+    assert inputs["quarantined_bytes"] == fixture["known_path"].stat().st_size
+    assert mod.stage_completion_status(inputs) == (
+        "COMPLETE_PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+    )
+    assert fixture["known_path"] not in inputs["paths"]
+    assert all(row["key"] != fixture["known_key"] for row in inputs["objects_detail"])
+    assert fixture["receipt_path"] in inputs["paths"]
+    assert any(row["key"] == fixture["receipt_key"] for row in inputs["objects_detail"])
+
+    connection = duckdb.connect()
+    connection.execute("SET TimeZone='UTC'")
+    # The excluded file is malformed outer NDJSON; success proves it was never opened.
+    mod.build_scan_tables(
+        connection, inputs["paths"], fixture["run_dir"].name,
+        inputs["quarantine_boundaries"],
+    )
+    gap = connection.execute("""
+      SELECT gap_start_ns,gap_end_ns FROM rfq_quarantine_gaps
+    """).fetchone()
+    assert gap == (
+        fixture["base_ns"] + 2_000_000_001,
+        fixture["base_ns"] + 7_204_000_000_000,
+    )
+    assert connection.execute("""
+      SELECT count(*) FROM rfq_observation_boundaries
+      WHERE contains(reason,'WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON')
+    """).fetchone()[0] == 2
+
+    mod.build_request_tables(connection, fixture["run_dir"].name)
+    lifecycle = connection.execute("""
+      SELECT endpoint_type,delete_observed,observation_boundary_reason
+      FROM rfq_lifecycle_base WHERE rfq_id_hash=sha256('CROSS-GAP')
+    """).fetchone()
+    assert lifecycle[0] == "RIGHT_CENSORED_AT_OBSERVATION_BOUNDARY"
+    assert lifecycle[1] is False
+    assert "WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON_GAP_START" in lifecycle[2]
+    assert connection.execute("""
+      SELECT count(*) FROM rfq_unmatched_deletes
+      WHERE disposition='CROSS_OBSERVATION_BOUNDARY_DELETE'
+    """).fetchone()[0] == 1
+
+    core_path = tmp_path / "quarantine-core.duckdb"
+    core = duckdb.connect(str(core_path))
+    core.execute("""
+      CREATE TABLE universe(date DATE,market_ticker VARCHAR,sport VARCHAR,league VARCHAR,
+        root_event_id VARCHAR,root_map_status VARCHAR,occurrence_datetime TIMESTAMPTZ,
+        dim_effective_us BIGINT)
+    """)
+    base_us = fixture["base_ns"] // 1000
+    core.executemany("""
+      INSERT INTO universe VALUES (DATE '2026-07-14',?,'Soccer','L',?,
+        'PROVISIONAL_HEURISTIC_MATCHUP_TIME',
+        TIMESTAMPTZ '2026-07-14 03:00:00+00',?)
+    """, [("M-A", "ROOT-A", base_us - 3_600_000_000),
+           ("M-B", "ROOT-B", base_us - 3_600_000_000)])
+    core.execute("""
+      CREATE TABLE l1_real(market_ticker VARCHAR,t_us BIGINT,recv_mono_ns BIGINT,
+        yes_bid_e4 INTEGER,yes_ask_e4 INTEGER,yes_bid_qty_e4 BIGINT,yes_ask_qty_e4 BIGINT)
+    """)
+    l1 = []
+    for market, anchor in (("M-A", base_us + 1_000_000),
+                           ("M-B", base_us + 7_204_500_000)):
+        for offset_s in range(-700, 132):
+            t_us = anchor + offset_s * 1_000_000
+            l1.append((market, t_us, t_us * 1000, 3900, 4100, 100_000, 100_000))
+    core.executemany("INSERT INTO l1_real VALUES (?,?,?,?,?,?,?)", l1)
+    core.execute(
+        "CREATE TABLE trades_safe(market_ticker VARCHAR,t_us BIGINT,"
+        "taker_sign INTEGER,count_e4 BIGINT)"
+    )
+    core.execute("CREATE TABLE l2_all(market_ticker VARCHAR,t_us BIGINT)")
+    core.execute("CREATE TABLE capture_gaps(start_us BIGINT,end_us BIGINT)")
+    core.close()
+
+    mod.attach_core_and_enrich(connection, core_path)
+    mod.build_descriptive_tables(connection)
+    # Both creates are in different observation segments: no interarrival crosses the gap.
+    assert connection.execute("SELECT coalesce(sum(n),0) FROM rfq_interarrival").fetchone()[0] == 0
+    missing_hour = connection.execute("""
+      SELECT requests_in_consumed_objects,object_coverage_status,zero_interpretation
+      FROM rfq_hour_coverage WHERE hour_start_us=?
+    """, [base_us + 3_600_000_000]).fetchone()
+    assert missing_hour == (
+        0, "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "NOT_AN_OBSERVED_ZERO_QUARANTINE_OVERLAP",
+    )
+    for table in (
+        "rfq_flow_daily", "rfq_event_flow_hourly", "rfq_flow_hourly",
+        "rfq_flow_minute", "rfq_burst_summary",
+    ):
+        assert "object_coverage_status" in {
+            row[1] for row in connection.execute(f"PRAGMA table_info('{table}')").fetchall()
+        }
+
+    mod.build_clob_context(connection, max_per_root=50)
+    invalid_context = connection.execute("""
+      SELECT count(*) FROM rfq_clob_context
+      WHERE market_ticker='M-B' AND endpoint_type='CREATE' AND cohort='RFQ'
+        AND window_label='m1_0' AND NOT valid_receive_window
+    """).fetchone()[0]
+    assert invalid_context == 1, {
+        "requests": connection.execute(
+            "SELECT market_ticker,create_date,dimension_causality FROM rfq_requests"
+        ).fetchall(),
+        "anchors": connection.execute(
+            "SELECT market_ticker,endpoint_type,anchor_role FROM rfq_clob_anchors"
+        ).fetchall(),
+        "context": connection.execute(
+            "SELECT market_ticker,endpoint_type,cohort,window_label,valid_receive_window "
+            "FROM rfq_clob_context_unmatched WHERE market_ticker='M-B'"
+        ).fetchall(),
+    }
+    control = connection.execute("""
+      SELECT prior_control_lookback_observed,future_control_outcome_observed,matched
+      FROM rfq_control_balance
+      WHERE market_ticker='M-B' AND endpoint_type='CREATE' AND anchor_role='REQUEST_MARKET'
+    """).fetchone()
+    assert control == (False, False, False)
+    inputs["run_id"] = fixture["run_dir"].name
+    inputs["cycle1_duckdb_binding"] = synthetic_cycle1_binding(
+        fixture["run_dir"].name
+    )
+    summary = mod.build_summary(connection, inputs, {
+        "candidate_anchor_markets": 0,
+    }, 1.0)
+    assert summary["run_id"] == fixture["run_dir"].name
+    assert summary["input"]["cycle1_duckdb_binding"] == inputs[
+        "cycle1_duckdb_binding"
+    ]
+    assert summary["status"] == "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+    assert summary["analysis_scope"] == "DESCRIPTIVE_DISCOVERY_ONLY"
+    assert summary["input"]["whole_object_quarantine"] is True
+    assert summary["input"]["line_salvage"] is False
+    assert summary["coverage"]["quarantine_gap_count"] == 1
+    source_text = path.read_text(encoding="utf-8")
+    assert "Full-scan RFQ" not in source_text
+    assert "# Full RFQ exploratory stage" not in source_text
+    connection.close()
+
+
+def test_any_second_malformed_consumed_object_still_aborts(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    inputs = mod.apply_object_quarantine(
+        fixture["run_dir"], fixture["manifest"],
+        mod.discover_inputs(fixture["cache"]),
+    )
+    with fixture["next_path"].open("a", encoding="utf-8") as handle:
+        handle.write('{"second":"malformed"\n')
+    connection = duckdb.connect()
+    with pytest.raises(Exception, match="Malformed JSON|unexpected character"):
+        mod.build_scan_tables(
+            connection, inputs["paths"], fixture["run_dir"].name,
+            inputs["quarantine_boundaries"],
+        )
+    connection.close()
+
+
+def test_any_malformed_inner_payload_in_consumed_object_still_aborts(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    inputs = mod.apply_object_quarantine(
+        fixture["run_dir"], fixture["manifest"],
+        mod.discover_inputs(fixture["cache"]),
+    )
+    with fixture["next_path"].open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(recorder(
+            fixture["base_ns"] + 7_206_000_000_000, frame=None
+        ) | {"raw": "{malformed-inner"}) + "\n")
+    connection = duckdb.connect()
+    with pytest.raises(mod.RFQStageError, match="malformed inner RFQ payload"):
+        mod.build_scan_tables(
+            connection, inputs["paths"], fixture["run_dir"].name,
+            inputs["quarantine_boundaries"],
+        )
+    connection.close()
+
+
+def test_rfq_receipt_sidecar_is_retained_and_strictly_parsed(tmp_path):
+    fixture = quarantine_fixture(tmp_path)
+    inputs = mod.apply_object_quarantine(
+        fixture["run_dir"], fixture["manifest"],
+        mod.discover_inputs(fixture["cache"]),
+    )
+    assert fixture["receipt_path"] in inputs["paths"]
+    with fixture["receipt_path"].open("a", encoding="utf-8") as handle:
+        handle.write('{"malformed-receipt-sidecar"\n')
+    connection = duckdb.connect()
+    with pytest.raises(Exception, match="Malformed JSON|unexpected character"):
+        mod.build_scan_tables(
+            connection, inputs["paths"], fixture["run_dir"].name,
+            inputs["quarantine_boundaries"],
+        )
+    connection.close()
+
+
 def test_mutation_guard_control_dim_lookback_and_synthetic_clob_stage(tmp_path):
     day = dt.datetime(2026, 7, 12, 12, tzinfo=dt.timezone.utc)
     anchor_us = int(day.timestamp() * 1_000_000)
@@ -395,10 +1164,27 @@ def test_mutation_guard_control_dim_lookback_and_synthetic_clob_stage(tmp_path):
     exports = mod.export_outputs(connection, run_dir)
     charts = mod.render_charts(connection, run_dir) if importlib.util.find_spec("matplotlib") else []
     summary = mod.build_summary(connection, {
+        "run_id": "synthetic-run",
+        "cycle1_duckdb_binding": synthetic_cycle1_binding(),
         "objects": 1, "bytes": source.stat().st_size,
         "logical_manifest_bindings": 1, "deduplicated_overlapping_objects": 0,
         "overlap_keys": [],
         "path_size_fingerprint_sha256": "a" * 64,
+        "coverage_status": "COMPLETE_MANIFEST_OBJECT_COVERAGE",
+        "full_object_coverage": True,
+        "unique_objects_total": 1,
+        "unique_bytes_total": source.stat().st_size,
+        "consumed_unique_objects": 1,
+        "consumed_logical_bindings": 1,
+        "consumed_bytes": source.stat().st_size,
+        "consumed_object_set_sha256": "a" * 64,
+        "quarantined_unique_objects": 0,
+        "quarantined_logical_bindings": 0,
+        "quarantined_bytes": 0,
+        "quarantined_object_set_sha256": hashlib.sha256(b"").hexdigest(),
+        "quarantine_reasons": [],
+        "quarantine_details": [],
+        "selection_fingerprint_sha256": "a" * 64,
     }, result, 1.0)
     assert len(exports["parquet_tables"]) == 4
     assert "REPORT/tables/rfq_observation_boundaries.csv" in exports["csv_tables"]

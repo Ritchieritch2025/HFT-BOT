@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Full RFQ exploratory stage for SPORTS-AUTORESEARCH-01.
+"""Retained-object RFQ exploratory stage for SPORTS-AUTORESEARCH-01.
 
-The stage scans every RFQ recorder row in the two operator-approved releases,
-but keeps the RFQ-to-CLOB expansion bounded with a deterministic root-event
-sample.  It is deliberately separate from ``run_cycle1.py`` so a long raw
-JSON scan can be resumed without changing the frozen registration or the run
-manifest.
+The stage strictly scans every row in the retained, manifest-bound RFQ object
+set, but keeps the RFQ-to-CLOB expansion bounded with a deterministic
+root-event sample. A pre-result whole-object quarantine is permitted only
+through the exact fail-closed binding below and makes coverage explicitly
+partial. It is deliberately separate from ``run_cycle1.py`` so a long raw JSON
+scan can be resumed without changing the registered analysis logic.
 
 Safety and inference boundaries:
 
@@ -27,6 +28,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -69,6 +71,39 @@ BOOK_AGE_CAP_US = 5_000_000
 CONTROL_MIN_SHIFT_US = 300_000_000
 CONTROL_SHIFT_SPAN_US = 300_000_000
 CONTROL_CAUSAL_LOOKBACK_US = 120_000_000
+QUARANTINE_DECLARATION = "DATA_INTEGRITY/RFQ_OBJECT_QUARANTINE.json"
+MALFORMED_OBJECT_RECEIPT = "DATA_INTEGRITY/RFQ_MALFORMED_OBJECT_RECEIPT.json"
+STRICT_REMAINING_PARSE_POLICY = (
+    "STRICT_NDJSON_IGNORE_ERRORS_FALSE; any additional malformed object aborts"
+)
+REPAIR_DECLARATION_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/QUARANTINE_DECLARATION.json"
+)
+REPAIR_RECEIPT_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/MALFORMED_OBJECT_RECEIPT.json"
+)
+FAILED_STATE_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/REPORT/tables/"
+    "RFQ_FULL_STAGE_STATE.json"
+)
+FAILED_RESOURCE_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/logs/resources/rfq_full_stage.json"
+)
+FAILED_SCRATCH_RECEIPT_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "RFQ_FAILED_SCRATCH_RECEIPT.json"
+)
+FAILED_INPUT_IDENTITY_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "RFQ_FULL_INPUT_IDENTITY.json"
+)
+CYCLE1_DUCKDB_BINDING = "DATA_INTEGRITY/CYCLE1_DUCKDB_BINDING.json"
+CYCLE1_DUCKDB_BINDING_ARCHIVE = (
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "CYCLE1_DUCKDB_BINDING.json"
+)
+CYCLE1_CORE_SUMMARY = "REPORT/CYCLE1_CORE_SUMMARY.json"
+CYCLE1_CORE_RESOURCE = "logs/resources/cycle1_core.json"
 
 
 class RFQStageError(RuntimeError):
@@ -122,10 +157,18 @@ def write_text_atomic(path: Path, payload: str) -> None:
     os.replace(temporary, path)
 
 
+def stage_completion_status(inputs: dict) -> str:
+    return (
+        "COMPLETE_PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+        if not inputs.get("full_object_coverage", True)
+        else "COMPLETE_EXPLORATORY_ONLY"
+    )
+
+
 def fixed_exact(value: object, places: int) -> int | None:
     """Convert an exact fixed-point value without rounding.
 
-    This pure helper mirrors the SQL expression used in the full scan and is
+    This pure helper mirrors the SQL expression used in the retained-object scan and is
     intentionally strict: excess non-zero decimal places, non-finite values,
     booleans, and BIGINT overflow are rejected.
     """
@@ -219,6 +262,722 @@ def rows_as_dicts(connection, sql: str) -> list[dict]:
     cursor = connection.execute(sql)
     names = [item[0] for item in cursor.description]
     return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+
+def read_json_object(path: Path, label: str) -> dict:
+    """Read a required JSON object and turn every structural error into fail-closed state."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RFQStageError(f"invalid {label}: {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RFQStageError(f"{label} must be a JSON object: {path}")
+    return value
+
+
+def _object_fingerprint(objects: Sequence[dict]) -> str:
+    rows = [
+        f"{row['key']}\t{row['size']}\t{row['sha256']}"
+        for row in sorted(objects, key=lambda item: item["key"])
+    ]
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
+def _legacy_full_input_identity(inputs: dict) -> dict:
+    """Rebuild the failed v1 full-set identity from discovered manifests."""
+    return {
+        "schema": "rfq-full-input-identity-v1",
+        "release_ids": list(RELEASE_IDS),
+        "releases": inputs["releases"],
+        "objects": [
+            {
+                key: row[key]
+                for key in ("key", "sha256", "size", "bound_release_ids")
+            }
+            for row in inputs["objects_detail"]
+        ],
+        "unique_objects": inputs["objects"],
+        "logical_manifest_bindings": inputs["logical_manifest_bindings"],
+        "deduplicated_overlapping_objects": inputs[
+            "deduplicated_overlapping_objects"
+        ],
+        "path_size_sha_fingerprint": inputs["path_size_fingerprint_sha256"],
+    }
+
+
+def _read_captured_json(raw: bytes, path: Path, label: str) -> dict:
+    """Decode captured bytes so the parsed object and its hash are the same read."""
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RFQStageError(f"invalid {label}: {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RFQStageError(f"{label} must be a JSON object: {path}")
+    return value
+
+
+def _require_run_relative_file(run_dir: Path, relative: str, label: str) -> Path:
+    if not isinstance(relative, str) or not relative:
+        raise RFQStageError(f"{label} path is missing")
+    relative_path = Path(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise RFQStageError(f"unsafe {label} path: {relative}")
+    candidate = run_dir / relative_path
+    if candidate.is_symlink():
+        raise RFQStageError(f"{label} must not be a symlink: {relative}")
+    path = candidate.resolve()
+    try:
+        path.relative_to(run_dir.resolve())
+    except ValueError as exc:
+        raise RFQStageError(f"{label} path escapes run directory") from exc
+    if not path.is_file():
+        raise RFQStageError(f"{label} is missing or unsafe: {relative}")
+    return path
+
+
+def validate_cycle1_duckdb_binding(
+    run_dir: Path, manifest: dict, core_database: Path | None = None
+) -> dict:
+    """Fail closed on the archived, manifest-bound Cycle-1 derived database.
+
+    Receipt bytes and the repair registration are validated before any core artifact
+    or database byte is trusted.  The returned object is the exact nested identity
+    mirrored into the RFQ input identity and summary.
+    """
+    run_dir = run_dir.resolve()
+    expected_database_path = run_dir / "cache/cycle1.duckdb"
+    database_path = core_database or expected_database_path
+    if expected_database_path.is_symlink() or database_path.is_symlink():
+        raise RFQStageError("Cycle-1 DuckDB must not be a symlink")
+    expected_database = expected_database_path.resolve()
+    database = database_path.resolve()
+    if database != expected_database:
+        raise RFQStageError("Cycle-1 DuckDB path is not the run-local derived database")
+
+    active_path = run_dir / CYCLE1_DUCKDB_BINDING
+    archived_path = run_dir / CYCLE1_DUCKDB_BINDING_ARCHIVE
+    if active_path.is_symlink() or archived_path.is_symlink():
+        raise RFQStageError("Cycle-1 DuckDB binding receipts must not be symlinks")
+    try:
+        active_raw = active_path.read_bytes()
+        archived_raw = archived_path.read_bytes()
+    except OSError as exc:
+        raise RFQStageError(f"Cycle-1 DuckDB binding receipt is missing: {exc}") from exc
+    if active_raw != archived_raw:
+        raise RFQStageError("active/archived Cycle-1 DuckDB receipt bytes differ")
+    active_sha = hashlib.sha256(active_raw).hexdigest()
+    archived_sha = hashlib.sha256(archived_raw).hexdigest()
+    if active_sha != archived_sha:
+        raise RFQStageError("active/archived Cycle-1 DuckDB receipt hashes differ")
+    receipt = _read_captured_json(
+        active_raw, active_path, "Cycle-1 DuckDB binding receipt"
+    )
+    exact_receipt_fields = {
+        "bytes",
+        "core_result_disposition",
+        "core_stage_resource_path",
+        "core_stage_resource_sha256",
+        "core_summary_path",
+        "core_summary_sha256",
+        "created_before_rfq_repair_registration",
+        "duckdb_version",
+        "mtime_utc",
+        "path",
+        "run_id",
+        "schema_version",
+        "sha256",
+    }
+    if set(receipt) != exact_receipt_fields:
+        raise RFQStageError("Cycle-1 DuckDB binding receipt field set mismatch")
+    digest_fields = (
+        "sha256",
+        "core_summary_sha256",
+        "core_stage_resource_sha256",
+    )
+    if any(
+        not isinstance(receipt.get(field), str)
+        or re.fullmatch(r"[0-9a-f]{64}", receipt[field]) is None
+        for field in digest_fields
+    ):
+        raise RFQStageError("Cycle-1 DuckDB binding receipt contains an invalid SHA-256")
+    if (
+        receipt.get("schema_version") != "cycle1-derived-duckdb-binding-v1"
+        or receipt.get("run_id") != run_dir.name
+        or receipt.get("duckdb_version") != EXPECTED_DUCKDB
+        or receipt.get("created_before_rfq_repair_registration") is not True
+        or receipt.get("core_result_disposition")
+        != "CORE_DERIVED_DATABASE_PRESERVED_NOT_RECOMPUTED"
+        or receipt.get("path") != str(database)
+        or type(receipt.get("bytes")) is not int
+        or receipt["bytes"] <= 0
+        or receipt.get("core_summary_path") != CYCLE1_CORE_SUMMARY
+        or receipt.get("core_stage_resource_path") != CYCLE1_CORE_RESOURCE
+    ):
+        raise RFQStageError("Cycle-1 DuckDB binding receipt identity mismatch")
+    try:
+        parsed_mtime = dt.datetime.fromisoformat(
+            receipt["mtime_utc"][:-1] + "+00:00"
+            if isinstance(receipt.get("mtime_utc"), str)
+            and receipt["mtime_utc"].endswith("Z")
+            else receipt.get("mtime_utc")
+        )
+    except (TypeError, ValueError):
+        parsed_mtime = None
+    if parsed_mtime is None or parsed_mtime.utcoffset() != dt.timedelta(0):
+        raise RFQStageError("Cycle-1 DuckDB binding UTC mtime is invalid")
+
+    cycle_binding = {
+        "active_path": CYCLE1_DUCKDB_BINDING,
+        "active_sha256": active_sha,
+        "archived_path": CYCLE1_DUCKDB_BINDING_ARCHIVE,
+        "archived_sha256": archived_sha,
+        "schema_version": receipt["schema_version"],
+        "run_id": receipt["run_id"],
+        "duckdb_path": receipt["path"],
+        "duckdb_bytes": receipt["bytes"],
+        "duckdb_sha256": receipt["sha256"],
+        "core_stage_resource_path": receipt["core_stage_resource_path"],
+        "core_stage_resource_sha256": receipt["core_stage_resource_sha256"],
+        "core_summary_path": receipt["core_summary_path"],
+        "core_summary_sha256": receipt["core_summary_sha256"],
+    }
+    repairs = manifest.get("data_integrity_repairs")
+    candidates = [
+        row
+        for row in repairs if isinstance(row, dict)
+        and row.get("repair_id") == "repair-01"
+        and row.get("finding") == "MALFORMED_NDJSON_OBJECT"
+    ] if isinstance(repairs, list) else []
+    if len(candidates) != 1:
+        raise RFQStageError("Cycle-1 DuckDB requires exactly one repair registration")
+    if candidates[0].get("cycle1_duckdb_binding") != cycle_binding:
+        raise RFQStageError("repair Cycle-1 DuckDB binding mismatch")
+
+    summary_path = _require_run_relative_file(
+        run_dir, receipt["core_summary_path"], "Cycle-1 core summary"
+    )
+    resource_path = _require_run_relative_file(
+        run_dir, receipt["core_stage_resource_path"], "Cycle-1 core resource receipt"
+    )
+    try:
+        summary_raw = summary_path.read_bytes()
+        resource_raw = resource_path.read_bytes()
+    except OSError as exc:
+        raise RFQStageError(f"Cycle-1 core binding read failed: {exc}") from exc
+    if hashlib.sha256(summary_raw).hexdigest() != receipt["core_summary_sha256"]:
+        raise RFQStageError("Cycle-1 core summary SHA binding mismatch")
+    if hashlib.sha256(resource_raw).hexdigest() != receipt[
+        "core_stage_resource_sha256"
+    ]:
+        raise RFQStageError("Cycle-1 core resource receipt SHA binding mismatch")
+    summary = _read_captured_json(summary_raw, summary_path, "Cycle-1 core summary")
+    resource = _read_captured_json(
+        resource_raw, resource_path, "Cycle-1 core resource receipt"
+    )
+    if summary.get("run_id") != run_dir.name or summary.get("banner") != BANNER:
+        raise RFQStageError("Cycle-1 core summary run identity mismatch")
+    if (
+        resource.get("schema_version") != "w09-stage-resource-v1"
+        or resource.get("label") != "cycle1_core"
+        or resource.get("return_code") != 0
+        or not isinstance(resource.get("command"), list)
+        or "--resume" in resource["command"]
+    ):
+        raise RFQStageError("Cycle-1 core resource receipt is invalid")
+    command = resource["command"]
+    if command.count("--run-dir") != 1:
+        raise RFQStageError("Cycle-1 core resource run identity is missing")
+    run_dir_index = command.index("--run-dir")
+    if (
+        run_dir_index + 1 >= len(command)
+        or command[run_dir_index + 1] != str(run_dir)
+    ):
+        raise RFQStageError("Cycle-1 core resource run identity mismatch")
+
+    if not database.is_file():
+        raise RFQStageError("Cycle-1 DuckDB is missing or unsafe")
+    if database.stat().st_size != receipt["bytes"]:
+        raise RFQStageError("Cycle-1 DuckDB byte count does not match binding")
+    if sha256(database) != receipt["sha256"]:
+        raise RFQStageError("Cycle-1 DuckDB SHA-256 does not match binding")
+    return cycle_binding
+
+
+def _rfq_object_order(key: str) -> tuple[str, int, int, str]:
+    match = re.fullmatch(
+        r"raw_rfq/date=(\d{4}-\d{2}-\d{2})/rfq_(\d{2})\.ndjson(?:\.(\d+))?",
+        key,
+    )
+    if not match:
+        raise RFQStageError(f"quarantine-safe RFQ object ordering unavailable: {key}")
+    return match.group(1), int(match.group(2)), int(match.group(3) or 0), key
+
+
+def _rfq_message_shard_order(key: str) -> tuple[str, int, int, str] | None:
+    """Return ordering only for recorder message shards, never receipt sidecars."""
+    if not re.fullmatch(
+        r"raw_rfq/date=\d{4}-\d{2}-\d{2}/rfq_\d{2}\.ndjson(?:\.\d+)?",
+        key,
+    ):
+        return None
+    return _rfq_object_order(key)
+
+
+def _load_version_binding(run_dir: Path, selected: dict, key: str) -> dict:
+    relative = selected.get("exact_version_list_path")
+    if not isinstance(relative, str) or not relative.startswith(
+        "DATA_INTEGRITY/version_ids/"
+    ) or not relative.endswith(".jsonl"):
+        raise RFQStageError("selected release has no safe exact version-list path")
+    path = (run_dir / relative).resolve()
+    try:
+        path.relative_to(run_dir.resolve())
+    except ValueError as exc:
+        raise RFQStageError("exact version-list path escapes run directory") from exc
+    if not path.is_file():
+        raise RFQStageError(f"exact version-list missing: {relative}")
+    found = None
+    seen: set[str] = set()
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    raise RFQStageError(
+                        f"blank exact version-list row: {relative}:{line_number}"
+                    )
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise RFQStageError(
+                        f"non-object exact version-list row: {relative}:{line_number}"
+                    )
+                row_key = row.get("key")
+                if not isinstance(row_key, str) or row_key in seen:
+                    raise RFQStageError(
+                        f"invalid/duplicate exact version binding: {relative}:{line_number}"
+                    )
+                seen.add(row_key)
+                if row_key == key:
+                    found = row
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RFQStageError(f"invalid exact version list: {relative}: {exc}") from exc
+    if found is None:
+        raise RFQStageError(f"quarantined object absent from exact version list: {key}")
+    return found
+
+
+def _validate_repair_binding(
+    run_dir: Path,
+    manifest: dict,
+    inputs: dict,
+    declaration: dict,
+    receipt_path: Path,
+    declaration_path: Path,
+) -> dict | None:
+    """Bind a pre-failure declaration to either the current or registered repair code."""
+    repository = manifest.get("repository")
+    if not isinstance(repository, dict):
+        raise RFQStageError("run repository binding missing")
+    declared_commit = declaration.get("source_execution_commit")
+    current_commit = repository.get("execution_commit")
+    if not isinstance(declared_commit, str) or len(declared_commit) != 40:
+        raise RFQStageError("quarantine declaration execution commit is invalid")
+    if declared_commit == current_commit:
+        return None
+
+    repairs = manifest.get("data_integrity_repairs")
+    if not isinstance(repairs, list):
+        raise RFQStageError("quarantine declaration is not bound to current execution code")
+    candidates = [
+        row for row in repairs
+        if isinstance(row, dict)
+        and row.get("repair_id") == "repair-01"
+        and row.get("finding") == "MALFORMED_NDJSON_OBJECT"
+    ]
+    if len(candidates) != 1:
+        raise RFQStageError("exactly one RFQ structural repair registration is required")
+    repair = candidates[0]
+    required = {
+        "pre_repair_status": "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING",
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "quarantine_policy": "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE",
+        "previous_execution_commit": declared_commit,
+        "current_execution_commit": current_commit,
+        "current_source_manifest_sha256": repository.get("source_manifest_sha256"),
+        "current_query_set_sha256": repository.get("query_set_sha256"),
+        "core_result_disposition": "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED",
+        "core_results_recomputed": False,
+        "registration_change_class": (
+            "DATA_INTEGRITY_HANDLING_ONLY_NO_HYPOTHESIS_DESIGN_CHANGE"
+        ),
+        "hypothesis_design_change": "NONE",
+        "data_integrity_handling_change": (
+            "ONE_EXACT_WHOLE_OBJECT_QUARANTINE_AND_CONSERVATIVE_GAP_CENSORING"
+        ),
+        "frozen_design_change": (
+            "NO_HYPOTHESIS_DESIGN_CHANGE; DATA_INTEGRITY_HANDLING_CHANGED"
+        ),
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "declaration_path": REPAIR_DECLARATION_ARCHIVE,
+        "declaration_sha256": sha256(declaration_path),
+        "declaration_input_path": QUARANTINE_DECLARATION,
+        "receipt_path": REPAIR_RECEIPT_ARCHIVE,
+        "receipt_sha256": sha256(receipt_path),
+        "receipt_input_path": MALFORMED_OBJECT_RECEIPT,
+        "failed_state_path": FAILED_STATE_ARCHIVE,
+        "failed_resource_receipt_path": FAILED_RESOURCE_ARCHIVE,
+        "failed_scratch_receipt_path": FAILED_SCRATCH_RECEIPT_ARCHIVE,
+        "failed_input_identity_path": FAILED_INPUT_IDENTITY_ARCHIVE,
+    }
+    for field, expected in required.items():
+        if repair.get(field) != expected:
+            raise RFQStageError(f"RFQ structural repair binding mismatch: {field}")
+    if (
+        repository.get("initial_execution_commit") != declared_commit
+        or repository.get("previous_execution_commit") != declared_commit
+        or not isinstance(repair.get("previous_source_manifest_sha256"), str)
+        or len(repair["previous_source_manifest_sha256"]) != 64
+        or not isinstance(repair.get("previous_query_set_sha256"), str)
+        or len(repair["previous_query_set_sha256"]) != 64
+    ):
+        raise RFQStageError("RFQ structural repair provenance is incomplete")
+    if repair.get("quarantined_objects") != declaration.get("quarantined_objects"):
+        raise RFQStageError("repair/declaration quarantined-object binding mismatch")
+    archived_declaration = run_dir / REPAIR_DECLARATION_ARCHIVE
+    archived_receipt = run_dir / REPAIR_RECEIPT_ARCHIVE
+    failed_state_path = run_dir / FAILED_STATE_ARCHIVE
+    failed_resource_path = run_dir / FAILED_RESOURCE_ARCHIVE
+    failed_scratch_receipt_path = run_dir / FAILED_SCRATCH_RECEIPT_ARCHIVE
+    failed_input_identity_path = run_dir / FAILED_INPUT_IDENTITY_ARCHIVE
+    for label, path, expected_sha in (
+        ("archived declaration", archived_declaration, repair["declaration_sha256"]),
+        ("archived receipt", archived_receipt, repair["receipt_sha256"]),
+        ("failed state", failed_state_path, repair.get("failed_state_sha256")),
+        (
+            "failed resource receipt",
+            failed_resource_path,
+            repair.get("failed_resource_receipt_sha256"),
+        ),
+        (
+            "failed scratch receipt",
+            failed_scratch_receipt_path,
+            repair.get("failed_scratch_receipt_sha256"),
+        ),
+        (
+            "failed input identity",
+            failed_input_identity_path,
+            repair.get("failed_input_identity_sha256"),
+        ),
+    ):
+        if (
+            not path.is_file()
+            or not isinstance(expected_sha, str)
+            or len(expected_sha) != 64
+            or sha256(path) != expected_sha
+        ):
+            raise RFQStageError(f"RFQ repair {label} SHA binding mismatch")
+    if (
+        sha256(archived_declaration) != sha256(declaration_path)
+        or sha256(archived_receipt) != sha256(receipt_path)
+    ):
+        raise RFQStageError("active/archive RFQ repair evidence differs")
+    failed_state = read_json_object(failed_state_path, "archived failed RFQ state")
+    failed_resource = read_json_object(
+        failed_resource_path, "archived failed RFQ resource receipt"
+    )
+    failed_scratch = read_json_object(
+        failed_scratch_receipt_path, "archived failed RFQ scratch receipt"
+    )
+    failed_input_identity = read_json_object(
+        failed_input_identity_path, "archived failed RFQ input identity"
+    )
+    declared_key = declaration["quarantined_objects"][0]["key"]
+    if (
+        failed_state.get("schema") != "rfq-full-stage-state-v1"
+        or failed_state.get("status") != "FAILED_RESUMABLE"
+        or failed_state.get("resume") is not False
+        or declared_key not in str(failed_state.get("error", ""))
+        or failed_resource.get("schema_version") != "w09-stage-resource-v1"
+        or failed_resource.get("label") != "rfq_full_stage"
+        or failed_resource.get("return_code") != 1
+        or not isinstance(failed_resource.get("command"), list)
+        or "--resume" in failed_resource["command"]
+        or failed_scratch.get("schema_version") != "rfq-failed-scratch-receipt-v1"
+        or failed_scratch.get("run_id") != run_dir.name
+        or not isinstance(failed_scratch.get("original_scratch_path"), str)
+        or not failed_scratch["original_scratch_path"]
+        or not isinstance(failed_scratch.get("preserved_scratch_path"), str)
+        or not failed_scratch["preserved_scratch_path"]
+        or failed_scratch["preserved_scratch_path"]
+            == failed_scratch["original_scratch_path"]
+        or failed_scratch["original_scratch_path"] != failed_state.get("scratch")
+        or not isinstance(failed_scratch.get("sha256"), str)
+        or len(failed_scratch["sha256"]) != 64
+        or type(failed_scratch.get("bytes")) is not int
+        or failed_scratch["bytes"] <= 0
+        or not isinstance(failed_scratch.get("mtime_utc"), str)
+        or not failed_scratch["mtime_utc"]
+        or not isinstance(failed_scratch.get("input_fingerprint"), str)
+        or len(failed_scratch["input_fingerprint"]) != 64
+        or failed_scratch["input_fingerprint"] != failed_state.get("input_fingerprint")
+        or failed_state.get("input_fingerprint")
+            != inputs.get("path_size_fingerprint_sha256")
+        or failed_scratch.get("disposition") != "PRESERVED_RENAMED_NO_RESUME"
+        or failed_scratch.get("resume_allowed") is not False
+    ):
+        raise RFQStageError("archived failed RFQ attempt is not structurally bound")
+    if failed_input_identity != _legacy_full_input_identity(inputs):
+        raise RFQStageError(
+            "archived failed RFQ input identity is not the manifest-derived full set"
+        )
+    return {
+        "repair_id": "repair-01",
+        "failed_state_path": FAILED_STATE_ARCHIVE,
+        "failed_state_sha256": repair["failed_state_sha256"],
+        "failed_resource_receipt_path": FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_receipt_sha256": repair["failed_resource_receipt_sha256"],
+        "failed_scratch_receipt_path": FAILED_SCRATCH_RECEIPT_ARCHIVE,
+        "failed_scratch_receipt_sha256": repair["failed_scratch_receipt_sha256"],
+        "failed_input_identity_path": FAILED_INPUT_IDENTITY_ARCHIVE,
+        "failed_input_identity_sha256": repair["failed_input_identity_sha256"],
+    }
+
+
+def apply_object_quarantine(run_dir: Path, manifest: dict, inputs: dict) -> dict:
+    """Apply an exact, pre-result whole-object quarantine without opening its bytes.
+
+    The immutable manifest and version list remain the authority.  A receipt alone
+    cannot exclude data, and a declaration alone cannot do so either.  Both must be
+    present and cross-bind every identity field before the selected path list changes.
+    """
+    declaration_path = run_dir / QUARANTINE_DECLARATION
+    receipt_path = run_dir / MALFORMED_OBJECT_RECEIPT
+    declaration_exists = declaration_path.is_file()
+    receipt_exists = receipt_path.is_file()
+    if not declaration_exists and not receipt_exists:
+        result = dict(inputs)
+        result.update({
+            "coverage_status": "COMPLETE_MANIFEST_OBJECT_COVERAGE",
+            "full_object_coverage": True,
+            "unique_objects_total": inputs["objects"],
+            "unique_bytes_total": inputs["bytes"],
+            "consumed_unique_objects": inputs["objects"],
+            "consumed_logical_bindings": inputs["logical_manifest_bindings"],
+            "consumed_bytes": inputs["bytes"],
+            "quarantined_unique_objects": 0,
+            "quarantined_logical_bindings": 0,
+            "quarantined_bytes": 0,
+            "quarantined_object_set_sha256": hashlib.sha256(b"").hexdigest(),
+            "quarantine_reasons": [],
+            "quarantine_details": [],
+            "quarantine_boundaries": [],
+            "consumed_object_set_sha256": inputs["path_size_fingerprint_sha256"],
+            "selection_fingerprint_sha256": inputs["path_size_fingerprint_sha256"],
+        })
+        return result
+    if declaration_exists != receipt_exists:
+        raise RFQStageError(
+            "RFQ quarantine requires both declaration and malformed-object receipt"
+        )
+
+    declaration = read_json_object(declaration_path, "RFQ quarantine declaration")
+    receipt = read_json_object(receipt_path, "RFQ malformed-object receipt")
+    if (
+        declaration.get("schema_version") != "rfq-object-quarantine-v1"
+        or declaration.get("run_id") != run_dir.name
+        or declaration.get("mode") != "EXPLORATORY_AUTORESEARCH"
+        or declaration.get("disposition") != "WHOLE_OBJECT_QUARANTINE"
+        or declaration.get("finding") != "MALFORMED_NDJSON_OBJECT"
+        or declaration.get("created_after_structural_failure_before_rfq_result") is not True
+        or declaration.get("dependent_rfq_result_opened") is not False
+        or declaration.get("remaining_object_parse_policy")
+            != STRICT_REMAINING_PARSE_POLICY
+        or not isinstance(declaration.get("authority_basis"), str)
+        or not declaration["authority_basis"]
+        or not isinstance(declaration.get("selection_rule"), str)
+        or not declaration["selection_rule"]
+        or not isinstance(declaration.get("result_use_prohibited"), str)
+        or not declaration["result_use_prohibited"]
+    ):
+        raise RFQStageError("RFQ quarantine declaration policy binding mismatch")
+    completed_summary = run_dir / "REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json"
+    if completed_summary.exists():
+        raise RFQStageError("RFQ quarantine was not registered before an RFQ result")
+    declared_objects = declaration.get("quarantined_objects")
+    if not isinstance(declared_objects, list) or len(declared_objects) != 1:
+        raise RFQStageError("exactly one receipt-bound RFQ quarantine object is required")
+    declared = declared_objects[0]
+    if not isinstance(declared, dict):
+        raise RFQStageError("RFQ quarantined-object declaration is invalid")
+
+    invalid_count = receipt.get("invalid_line_count")
+    invalid_lines = receipt.get("invalid_lines")
+    if (
+        receipt.get("schema_version") != "rfq-malformed-object-receipt-v1"
+        or receipt.get("run_id") != run_dir.name
+        or receipt.get("disposition") != "CHANNEL_OBJECT_QUARANTINE_REQUIRED"
+        or receipt.get("raw_payload_redacted") is not True
+        or type(invalid_count) is not int
+        or invalid_count <= 0
+        or not isinstance(invalid_lines, list)
+        or len(invalid_lines) != invalid_count
+        or type(receipt.get("total_lines")) is not int
+        or receipt["total_lines"] < invalid_count
+        or receipt.get("expected_size") != receipt.get("observed_size")
+        or receipt.get("expected_sha256") != receipt.get("observed_sha256")
+    ):
+        raise RFQStageError("RFQ malformed-object receipt is not exclusion-grade")
+    for finding in invalid_lines:
+        if (
+            not isinstance(finding, dict)
+            or type(finding.get("line_number")) is not int
+            or finding["line_number"] <= 0
+            or not isinstance(finding.get("line_sha256"), str)
+            or len(finding["line_sha256"]) != 64
+            or not isinstance(finding.get("error_type"), str)
+            or not finding["error_type"]
+        ):
+            raise RFQStageError("RFQ malformed line receipt is invalid")
+
+    release_id = declared.get("release_id")
+    key = declared.get("key")
+    size = declared.get("size")
+    digest = declared.get("sha256")
+    if (
+        declared.get("receipt") != MALFORMED_OBJECT_RECEIPT
+        or declared.get("invalid_line_count") != invalid_count
+        or type(size) is not int
+        or size <= 0
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or not isinstance(declared.get("reason"), str)
+        or not declared["reason"]
+        or receipt.get("release_id") != release_id
+        or receipt.get("key") != key
+        or receipt.get("expected_size") != size
+        or receipt.get("expected_sha256") != digest
+    ):
+        raise RFQStageError("RFQ declaration/receipt object identity mismatch")
+
+    selected_by_release = {
+        row.get("release_id"): row for row in manifest.get("selected_releases", [])
+        if isinstance(row, dict)
+    }
+    discovered_by_release = {
+        row.get("release_id"): row for row in inputs.get("releases", [])
+        if isinstance(row, dict)
+    }
+    selected = selected_by_release.get(release_id)
+    discovered_release = discovered_by_release.get(release_id)
+    if not isinstance(selected, dict) or not isinstance(discovered_release, dict):
+        raise RFQStageError("quarantined release is outside the selected manifest set")
+    manifest_sha = declared.get("manifest_sha256")
+    if (
+        manifest_sha != selected.get("manifest_sha256")
+        or manifest_sha != discovered_release.get("manifest_sha256")
+    ):
+        raise RFQStageError("quarantine manifest SHA binding mismatch")
+
+    matches = [row for row in inputs["objects_detail"] if row["key"] == key]
+    if len(matches) != 1:
+        raise RFQStageError("quarantined key does not resolve to one manifest object")
+    manifest_object = matches[0]
+    if (
+        manifest_object["size"] != size
+        or manifest_object["sha256"] != digest
+        or manifest_object["bound_release_ids"] != [release_id]
+    ):
+        raise RFQStageError("quarantine is not exact/unambiguous at manifest-object scope")
+    version = _load_version_binding(run_dir, selected, key)
+    if (
+        version.get("key") != key
+        or version.get("size") != size
+        or version.get("sha256") != digest
+        or version.get("version_id") != declared.get("version_id")
+        or not isinstance(declared.get("version_id"), str)
+        or not declared["version_id"]
+    ):
+        raise RFQStageError("quarantine exact VersionId binding mismatch")
+    failed_attempt_binding = _validate_repair_binding(
+        run_dir, manifest, inputs, declaration, receipt_path, declaration_path
+    )
+
+    consumed = [row for row in inputs["objects_detail"] if row["key"] != key]
+    if not consumed:
+        raise RFQStageError("RFQ quarantine leaves no independently valid object")
+    if _rfq_message_shard_order(key) is None:
+        raise RFQStageError("only an RFQ recorder message shard may be quarantined")
+    release_objects = [
+        row for row in inputs["objects_detail"]
+        if release_id in row["bound_release_ids"]
+        and _rfq_message_shard_order(row["key"]) is not None
+    ]
+    ordered = sorted(
+        release_objects,
+        key=lambda row: _rfq_message_shard_order(row["key"]),
+    )
+    index = next(i for i, row in enumerate(ordered) if row["key"] == key)
+    previous = ordered[index - 1] if index else None
+    following = ordered[index + 1] if index + 1 < len(ordered) else None
+    if previous is None or following is None:
+        raise RFQStageError(
+            "quarantine gap requires valid immediately preceding and following RFQ objects"
+        )
+
+    quarantined = [{
+        "release_id": release_id,
+        "key": key,
+        "size": size,
+        "sha256": digest,
+        "version_id": declared["version_id"],
+        "manifest_sha256": manifest_sha,
+        "invalid_line_count": invalid_count,
+        "reason": declared["reason"],
+        "receipt_sha256": sha256(receipt_path),
+        "declaration_sha256": sha256(declaration_path),
+    }]
+    consumed_fingerprint = _object_fingerprint(consumed)
+    quarantined_fingerprint = _object_fingerprint([manifest_object])
+    selection_payload = {
+        "total": inputs["path_size_fingerprint_sha256"],
+        "consumed": consumed_fingerprint,
+        "quarantined": quarantined_fingerprint,
+        "receipt": quarantined[0]["receipt_sha256"],
+        "declaration": quarantined[0]["declaration_sha256"],
+    }
+    result = dict(inputs)
+    result.update({
+        "paths": [row["path"] for row in consumed],
+        "objects_detail": consumed,
+        "coverage_status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "full_object_coverage": False,
+        "unique_objects_total": inputs["objects"],
+        "unique_bytes_total": inputs["bytes"],
+        "consumed_unique_objects": len(consumed),
+        "consumed_logical_bindings": sum(
+            len(row["bound_release_ids"]) for row in consumed
+        ),
+        "consumed_bytes": sum(row["size"] for row in consumed),
+        "quarantined_unique_objects": 1,
+        "quarantined_logical_bindings": len(manifest_object["bound_release_ids"]),
+        "quarantined_bytes": size,
+        "quarantined_object_set_sha256": quarantined_fingerprint,
+        "quarantine_reasons": [declared["reason"]],
+        "quarantine_details": quarantined,
+        "quarantine_boundaries": [{
+            "release_id": release_id,
+            "key": key,
+            "sha256": digest,
+            "previous_path": previous["path"],
+            "next_path": following["path"],
+        }],
+        "consumed_object_set_sha256": consumed_fingerprint,
+        "selection_fingerprint_sha256": hashlib.sha256(
+            json.dumps(selection_payload, sort_keys=True, separators=(",", ":"))
+            .encode("utf-8")
+        ).hexdigest(),
+        "failed_attempt_binding": failed_attempt_binding,
+    })
+    return result
 
 
 def discover_inputs(cache_root: Path) -> dict:
@@ -322,6 +1081,7 @@ def validate_run(run_dir: Path) -> dict:
     if manifest.get("status") not in {
         "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING",
         "CYCLE1_CORE_RUNNING",
+        "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR_REGISTERED",
     }:
         raise RFQStageError("Cycle-1 core is not in an RFQ-stage-compatible state")
     gates = manifest.get("gates", {})
@@ -487,17 +1247,142 @@ def scan_sql(paths: Sequence[Path], run_id: str) -> str:
     """
 
 
-def build_scan_tables(connection, paths: Sequence[Path], run_id: str = "_TEST") -> None:
+def install_quarantine_gaps(connection, boundaries: Sequence[dict]) -> None:
+    """Materialize conservative RFQ-channel gaps without opening excluded objects."""
+    if table_exists(connection, "rfq_quarantine_gaps"):
+        rows = rows_as_dicts(connection, """
+          SELECT release_id,key,sha256,previous_filename,next_filename
+          FROM rfq_quarantine_gaps ORDER BY key
+        """)
+        expected = sorted(({
+            "release_id": item["release_id"],
+            "key": item["key"],
+            "sha256": item["sha256"],
+            "previous_filename": str(item["previous_path"]),
+            "next_filename": str(item["next_path"]),
+        } for item in boundaries), key=lambda row: row["key"])
+        if rows != expected:
+            raise RFQStageError(
+                "existing RFQ quarantine-gap table is stale/incomplete; fresh scratch required"
+            )
+        return
+    connection.execute("""
+      CREATE TABLE rfq_quarantine_gaps(
+        release_id VARCHAR,key VARCHAR,sha256 VARCHAR,
+        previous_filename VARCHAR,next_filename VARCHAR,
+        gap_start_ns UBIGINT,gap_end_ns UBIGINT,gap_start_us BIGINT,gap_end_us BIGINT,
+        boundary_reason VARCHAR
+      )
+    """)
+    for item in boundaries:
+        previous_path = str(item["previous_path"])
+        next_path = str(item["next_path"])
+        previous_end = scalar(
+            connection,
+            "SELECT max(recv_wall_ns) FROM rfq_scan_rows "
+            "WHERE filename=? AND recv_wall_ns>0",
+            [previous_path],
+        )
+        next_start = scalar(
+            connection,
+            "SELECT min(recv_wall_ns) FROM rfq_scan_rows "
+            "WHERE filename=? AND recv_wall_ns>0",
+            [next_path],
+        )
+        if (
+            previous_end is None
+            or next_start is None
+            or int(previous_end) <= 0
+            or int(next_start) <= int(previous_end) + 1
+        ):
+            raise RFQStageError(
+                f"cannot establish causal quarantine gap boundaries: {item['key']}"
+            )
+        start_ns = int(previous_end) + 1
+        end_ns = int(next_start)
+        reason = "WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON"
+        connection.execute(
+            "INSERT INTO rfq_quarantine_gaps VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [
+                item["release_id"], item["key"], item["sha256"],
+                previous_path, next_path, start_ns, end_ns,
+                start_ns // 1000, (end_ns + 999) // 1000, reason,
+            ],
+        )
+
+
+def add_quarantine_observation_boundaries(connection) -> None:
+    if not table_exists(connection, "rfq_quarantine_gaps"):
+        raise RFQStageError("RFQ quarantine-gap table missing")
+    if not scalar(connection, "SELECT count(*) FROM rfq_quarantine_gaps"):
+        return
+    installed = scalar(connection, """
+      SELECT count(*) FROM rfq_quarantine_gaps g
+      WHERE EXISTS (
+        SELECT 1 FROM rfq_observation_boundaries b
+        WHERE b.boundary_ns=g.gap_start_ns
+          AND contains(b.reason,g.boundary_reason||'_GAP_START')
+      ) AND EXISTS (
+        SELECT 1 FROM rfq_observation_boundaries b
+        WHERE b.boundary_ns=g.gap_end_ns
+          AND contains(b.reason,g.boundary_reason||'_GAP_END')
+      )
+    """)
+    gaps = scalar(connection, "SELECT count(*) FROM rfq_quarantine_gaps")
+    if installed == gaps:
+        return
+    if installed:
+        raise RFQStageError("partially installed RFQ quarantine boundaries")
+    connection.execute("""
+      CREATE TABLE rfq_observation_boundaries_with_quarantine AS
+      WITH evidence AS (
+        SELECT boundary_ns,reason,evidence_rows FROM rfq_observation_boundaries
+        UNION ALL
+        SELECT gap_start_ns,
+          boundary_reason||'_GAP_START' AS reason,1 AS evidence_rows
+        FROM rfq_quarantine_gaps
+        UNION ALL
+        SELECT gap_end_ns,
+          boundary_reason||'_GAP_END' AS reason,1 AS evidence_rows
+        FROM rfq_quarantine_gaps
+      )
+      SELECT boundary_ns,string_agg(DISTINCT reason,';' ORDER BY reason) AS reason,
+        sum(evidence_rows)::BIGINT AS evidence_rows
+      FROM evidence GROUP BY boundary_ns ORDER BY boundary_ns
+    """)
+    connection.execute("DROP TABLE rfq_observation_boundaries")
+    connection.execute(
+        "ALTER TABLE rfq_observation_boundaries_with_quarantine "
+        "RENAME TO rfq_observation_boundaries"
+    )
+
+
+def build_scan_tables(
+    connection,
+    paths: Sequence[Path],
+    run_id: str = "_TEST",
+    quarantine_boundaries: Sequence[dict] = (),
+) -> None:
     # A completed normalization phase intentionally drops its two largest
     # intermediates so their pages can be reused by lifecycle construction.
     if (table_exists(connection, "rfq_events_ordered")
             and table_exists(connection, "rfq_scan_counts")
             and table_exists(connection, "rfq_observation_boundaries")
+            and table_exists(connection, "rfq_quarantine_gaps")
             and not table_exists(connection, "rfq_scan_rows")):
+        install_quarantine_gaps(connection, quarantine_boundaries)
+        add_quarantine_observation_boundaries(connection)
         return
     if (not table_exists(connection, "rfq_scan_rows")
             and not table_exists(connection, "rfq_events_valid")):
         connection.execute(scan_sql(paths, run_id))
+    if table_exists(connection, "rfq_scan_rows") and scalar(
+        connection,
+        "SELECT count(*) FROM rfq_scan_rows WHERE inner_json_valid IS FALSE",
+    ):
+        raise RFQStageError(
+            "unexpected malformed inner RFQ payload in a consumed object; aborting"
+        )
     if not table_exists(connection, "rfq_schema_signatures"):
         connection.execute("""
           CREATE TABLE rfq_schema_signatures AS
@@ -582,6 +1467,8 @@ def build_scan_tables(connection, paths: Sequence[Path], run_id: str = "_TEST") 
               count(*) AS evidence_rows
             FROM evidence GROUP BY boundary_ns ORDER BY boundary_ns
         """)
+    install_quarantine_gaps(connection, quarantine_boundaries)
+    add_quarantine_observation_boundaries(connection)
     if not table_exists(connection, "rfq_events_valid"):
         connection.execute("""
           CREATE TABLE rfq_events_valid AS
@@ -867,6 +1754,16 @@ def attach_core_and_enrich(connection, core_db: Path) -> None:
     if not table_exists(connection, "rfq_requests"):
         connection.execute("""
           CREATE TABLE rfq_requests AS
+          WITH boundary_index AS (
+            SELECT boundary_ns,row_number() OVER (ORDER BY boundary_ns)::BIGINT
+              AS observation_segment
+            FROM rfq_observation_boundaries
+          ), segmented AS (
+            SELECT r.*,coalesce(b.observation_segment,0)::BIGINT AS observation_segment
+            FROM (SELECT * FROM rfq_requests_base ORDER BY create_recv_wall_ns) r
+            ASOF LEFT JOIN (SELECT * FROM boundary_index ORDER BY boundary_ns) b
+              ON r.create_recv_wall_ns>=b.boundary_ns
+          )
           SELECT r.*,
             CASE WHEN u.market_ticker IS NOT NULL THEN 'Sports'
                  ELSE '_NOT_SPORTS_OR_UNMAPPED' END AS category,
@@ -891,7 +1788,7 @@ def attach_core_and_enrich(connection, core_db: Path) -> None:
                        OR r.create_receive_us<u.dim_effective_us THEN 'UNKNOWN_POSTHOC_DIM'
                  WHEN epoch_us(u.occurrence_datetime)>r.create_receive_us THEN 'PRE_MATCH'
                  ELSE 'IN_PLAY_OR_POST_START' END AS match_phase
-          FROM rfq_requests_base r LEFT JOIN core.universe u
+          FROM segmented r LEFT JOIN core.universe u
             ON u.date=r.create_date AND u.market_ticker=r.market_ticker
         """)
     if not table_exists(connection, "rfq_lifecycle"):
@@ -902,10 +1799,12 @@ def attach_core_and_enrich(connection, core_db: Path) -> None:
                    r.sport,r.league,r.root_event_id,r.root_map_status,
                    r.known_combo,r.leg_count_raw,r.size_mode,r.contracts_e2,
                    r.target_cost_e6,r.time_to_start_s,r.posthoc_time_to_start_s,
-                   r.match_phase,r.dim_effective_us,r.dimension_causality
+                   r.match_phase,r.dim_effective_us,r.dimension_causality,
+                   r.observation_segment
             FROM rfq_lifecycle_base l JOIN rfq_requests r USING(request_key)
           ) SELECT *,create_receive_us-lag(delete_receive_us) OVER (
-              PARTITION BY rfq_id_hash ORDER BY create_receive_us,cycle_no,request_key
+              PARTITION BY rfq_id_hash,observation_segment
+              ORDER BY create_receive_us,cycle_no,request_key
             ) AS replacement_gap_us
             FROM joined
         """)
@@ -935,9 +1834,10 @@ def build_descriptive_tables(connection) -> None:
     if needs_interarrival and not table_exists(connection, "rfq_interarrival_events"):
         connection.execute("""
           CREATE TABLE rfq_interarrival_events AS
-          SELECT create_date,category,sport,
+          SELECT create_date,category,sport,observation_segment,
             create_receive_us-lag(create_receive_us) OVER (
-              PARTITION BY create_date,category,sport ORDER BY create_receive_us,request_key)
+              PARTITION BY create_date,category,sport,observation_segment
+              ORDER BY create_receive_us,request_key)
               AS interarrival_us
           FROM rfq_requests
         """)
@@ -946,7 +1846,14 @@ def build_descriptive_tables(connection) -> None:
           SELECT create_date,dayname(create_date) AS day_of_week,category,
             coalesce(sport,'_UNMAPPED') AS sport,count(*) AS requests,
             count(*) FILTER (WHERE known_combo) AS known_combo_requests,
-            count(*) FILTER (WHERE requester_known) AS known_requester_requests
+            count(*) FILTER (WHERE requester_known) AS known_requester_requests,
+            'RETAINED_OBSERVED_SUBSET' AS analysis_population,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE cast(to_timestamp(g.gap_start_us/1000000.0) AS DATE)<=create_date
+                AND cast(to_timestamp((g.gap_end_us-1)/1000000.0) AS DATE)>=create_date
+            ) THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+              ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status
           FROM rfq_requests
           GROUP BY create_date,day_of_week,category,coalesce(sport,'_UNMAPPED')
           ORDER BY create_date,category,sport
@@ -958,25 +1865,91 @@ def build_descriptive_tables(connection) -> None:
             UNION ALL
             SELECT receive_date AS date,receive_us,'rfq_deleted' AS event_type
             FROM rfq_unmatched_deletes
-          ) SELECT date,extract('hour' FROM to_timestamp(receive_us/1000000.0))::INTEGER
-              AS utc_hour,event_type,count(*) AS events
-            FROM events GROUP BY date,utc_hour,event_type ORDER BY date,utc_hour,event_type
+          ), hourly AS (
+            SELECT *,(receive_us//3600000000)*3600000000 AS hour_start_us FROM events
+          ) SELECT date,extract('hour' FROM to_timestamp(hour_start_us/1000000.0))::INTEGER
+              AS utc_hour,event_type,count(*) AS events,
+            'RETAINED_OBSERVED_SUBSET' AS analysis_population,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE g.gap_start_us<hour_start_us+3600000000
+                AND g.gap_end_us>hour_start_us
+            ) THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+              ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status
+            FROM hourly GROUP BY date,utc_hour,event_type,hour_start_us
+            ORDER BY date,utc_hour,event_type
         """,
         "rfq_flow_hourly": """
-          SELECT create_date,extract('hour' FROM to_timestamp(create_receive_us/1000000.0))::INTEGER
-                   AS utc_hour,
+          WITH hourly AS (
+            SELECT *,(create_receive_us//3600000000)*3600000000 AS hour_start_us
+            FROM rfq_requests
+          ) SELECT create_date,
+            extract('hour' FROM to_timestamp(hour_start_us/1000000.0))::INTEGER AS utc_hour,
             category,coalesce(sport,'_UNMAPPED') AS sport,count(*) AS requests,
             count(*) FILTER (WHERE known_combo) AS known_combo_requests,
             count(*) FILTER (WHERE requester_known) AS known_requester_requests,
-            count(DISTINCT root_event_id) FILTER (WHERE root_event_id IS NOT NULL) AS root_events
-          FROM rfq_requests GROUP BY create_date,utc_hour,category,coalesce(sport,'_UNMAPPED')
+            count(DISTINCT root_event_id) FILTER (WHERE root_event_id IS NOT NULL) AS root_events,
+            'RETAINED_OBSERVED_SUBSET' AS analysis_population,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE g.gap_start_us<hour_start_us+3600000000
+                AND g.gap_end_us>hour_start_us
+            ) THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+              ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status
+          FROM hourly GROUP BY create_date,utc_hour,category,coalesce(sport,'_UNMAPPED')
+            ,hour_start_us
           ORDER BY create_date,utc_hour,category,sport
         """,
+        "rfq_hour_coverage": """
+          WITH limits AS (
+            SELECT (scan_start_ns//3600000000000)*3600000000000 AS start_ns,
+              (scan_end_ns//3600000000000)*3600000000000 AS end_ns
+            FROM rfq_scan_counts
+          ), hours AS (
+            SELECT hour_start_ns
+            FROM limits,range(start_ns,end_ns+3600000000000,3600000000000)
+              AS x(hour_start_ns)
+          ), requests AS (
+            SELECT (create_receive_us//3600000000)*3600000000 AS hour_start_us,
+              count(*) AS observed_requests
+            FROM rfq_requests GROUP BY hour_start_us
+          )
+          SELECT cast(to_timestamp(h.hour_start_ns/1000000000.0) AS DATE) AS date,
+            extract('hour' FROM to_timestamp(h.hour_start_ns/1000000000.0))::INTEGER
+              AS utc_hour,
+            h.hour_start_ns//1000 AS hour_start_us,
+            coalesce(r.observed_requests,0) AS requests_in_consumed_objects,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE g.gap_start_us<h.hour_start_ns//1000+3600000000
+                AND g.gap_end_us>h.hour_start_ns//1000
+            ) THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+              ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE g.gap_start_us<h.hour_start_ns//1000+3600000000
+                AND g.gap_end_us>h.hour_start_ns//1000
+            ) THEN 'NOT_AN_OBSERVED_ZERO_QUARANTINE_OVERLAP'
+              ELSE 'COUNT_WITHIN_CONSUMED_OBJECTS' END AS zero_interpretation
+          FROM hours h LEFT JOIN requests r
+            ON r.hour_start_us=h.hour_start_ns//1000
+          ORDER BY h.hour_start_ns
+        """,
         "rfq_flow_minute": """
-          SELECT create_date,(create_receive_us//60000000)*60000000 AS minute_receive_us,
+          WITH minute AS (
+            SELECT *,(create_receive_us//60000000)*60000000 AS minute_receive_us
+            FROM rfq_requests
+          ) SELECT create_date,minute_receive_us,
             category,coalesce(sport,'_UNMAPPED') AS sport,count(*) AS requests,
-            min(create_receive_us) AS first_receive_us,max(create_receive_us) AS last_receive_us
-          FROM rfq_requests GROUP BY create_date,minute_receive_us,category,coalesce(sport,'_UNMAPPED')
+            min(create_receive_us) AS first_receive_us,max(create_receive_us) AS last_receive_us,
+            'RETAINED_OBSERVED_SUBSET' AS analysis_population,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM rfq_quarantine_gaps g
+              WHERE g.gap_start_us<minute_receive_us+60000000
+                AND g.gap_end_us>minute_receive_us
+            ) THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+              ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status
+          FROM minute GROUP BY create_date,minute_receive_us,category,coalesce(sport,'_UNMAPPED')
         """,
         "rfq_burst_summary": """
           WITH thresholds AS (
@@ -989,7 +1962,12 @@ def build_descriptive_tables(connection) -> None:
               count(*) FILTER (WHERE m.requests>=greatest(5,t.p99_requests_per_minute))
                 AS p99_burst_minutes,
               sum(m.requests) FILTER (WHERE m.requests>=greatest(5,t.p99_requests_per_minute))
-                AS requests_in_p99_burst_minutes
+                AS requests_in_p99_burst_minutes,
+              'RETAINED_OBSERVED_SUBSET' AS analysis_population,
+              CASE WHEN bool_or(m.object_coverage_status=
+                    'PARTIAL_OBJECT_COVERAGE_QUARANTINED')
+                THEN 'PARTIAL_OBJECT_COVERAGE_QUARANTINED'
+                ELSE 'NO_KNOWN_OBJECT_QUARANTINE_OVERLAP' END AS object_coverage_status
             FROM thresholds t JOIN rfq_flow_minute m
               USING(create_date,category,sport)
             GROUP BY ALL
@@ -1138,9 +2116,10 @@ def build_descriptive_tables(connection) -> None:
         "rfq_requester_summary": """
           WITH x AS (
             SELECT requester_hash,request_key,create_date,create_receive_us,category,sport,
-              known_combo,contracts_e2,target_cost_e6,
+              known_combo,contracts_e2,target_cost_e6,observation_segment,
               create_receive_us-lag(create_receive_us) OVER (
-                PARTITION BY requester_hash ORDER BY create_receive_us,request_key) AS repeat_interval_us
+                PARTITION BY requester_hash,observation_segment
+                ORDER BY create_receive_us,request_key) AS repeat_interval_us
             FROM rfq_requests WHERE requester_hash IS NOT NULL
           ) SELECT requester_hash,count(*) AS requests,count(DISTINCT create_date) AS days,
             count(DISTINCT category) AS category_breadth,count(DISTINCT sport) AS sport_breadth,
@@ -1221,7 +2200,7 @@ def _logodds_sql(bid: str, ask: str) -> str:
 def build_clob_context(connection, max_per_root: int) -> dict:
     """Build a deterministic root-balanced RFQ/CLOB event-study cohort.
 
-    Full RFQ flow/lifecycle remains unsampled.  Only the nine-window CLOB
+    Retained-object RFQ flow/lifecycle remains unsampled. Only the nine-window CLOB
     expansion is bounded because expanding roughly two hundred million raw
     rows would otherwise create a multi-billion-row intermediate.
     """
@@ -1370,6 +2349,13 @@ def build_clob_context(connection, max_per_root: int) -> dict:
             a.control_earliest_required_us,a.control_dim_eligible,
             e.event_us AS prior_rfq_event_us,
             e.event_us IS NULL OR a.control_anchor_us-e.event_us>120000000 AS prior_120s_rfq_free,
+            NOT EXISTS (SELECT 1 FROM rfq_quarantine_gaps q
+              WHERE q.gap_start_us<a.control_anchor_us
+                AND q.gap_end_us>a.control_anchor_us-120000000)
+              AND NOT EXISTS (SELECT 1 FROM rfq_observation_boundaries b
+                WHERE b.boundary_ns>a.control_anchor_us*1000-120000000000
+                  AND b.boundary_ns<=a.control_anchor_us*1000)
+              AS prior_control_lookback_observed,
             cast(to_timestamp(a.control_anchor_us/1000000.0) AS DATE)=a.create_date
               AS same_receive_date,
             extract('hour' FROM to_timestamp(a.control_anchor_us/1000000.0))
@@ -1383,13 +2369,26 @@ def build_clob_context(connection, max_per_root: int) -> dict:
     if not table_exists(connection, "rfq_control_future_events"):
         connection.execute("""
           CREATE TABLE rfq_control_future_events AS
+          WITH anchors AS (
+            SELECT a.*,
+              NOT EXISTS (SELECT 1 FROM rfq_quarantine_gaps q
+                WHERE q.gap_start_us<a.control_anchor_us+120000000
+                  AND q.gap_end_us>a.control_anchor_us)
+              AND NOT EXISTS (SELECT 1 FROM rfq_observation_boundaries b
+                WHERE b.boundary_ns>a.control_anchor_us*1000
+                  AND b.boundary_ns<=a.control_anchor_us*1000+120000000000)
+                AS future_control_outcome_observed
+            FROM rfq_clob_anchors a
+          )
           SELECT a.request_key,a.market_ticker,a.endpoint_type,a.anchor_role,
-            count(e.event_us) AS rfq_events_in_control_outcome_120s
-          FROM rfq_clob_anchors a LEFT JOIN rfq_market_event_times e
+            count(e.event_us) AS rfq_events_in_control_outcome_120s,
+            a.future_control_outcome_observed
+          FROM anchors a LEFT JOIN rfq_market_event_times e
             ON e.market_ticker=a.market_ticker
               AND e.event_us>a.control_anchor_us
               AND e.event_us<=a.control_anchor_us+120000000
-          GROUP BY a.request_key,a.market_ticker,a.endpoint_type,a.anchor_role
+          GROUP BY a.request_key,a.market_ticker,a.endpoint_type,a.anchor_role,
+            a.future_control_outcome_observed
         """)
     if not table_exists(connection, "rfq_windows"):
         values = ",".join(f"({quote(label)},{start},{end})" for label, start, end in WINDOWS_US)
@@ -1491,6 +2490,8 @@ def build_clob_context(connection, max_per_root: int) -> dict:
               AND (s.cohort='RFQ' OR s.control_dim_eligible)
               AND NOT EXISTS (SELECT 1 FROM core.capture_gaps g
                 WHERE g.start_us<s.end_us AND g.end_us>s.start_us)
+              AND NOT EXISTS (SELECT 1 FROM rfq_quarantine_gaps q
+                WHERE q.gap_start_us<s.end_us AND q.gap_end_us>s.start_us)
               AS valid_receive_window
           FROM rfq_boundary_complete s JOIN rfq_boundary_complete e
             ON e.request_key=s.request_key AND e.market_ticker=s.market_ticker
@@ -1532,9 +2533,12 @@ def build_clob_context(connection, max_per_root: int) -> dict:
             AND treatment_depth_bucket=control_depth_bucket
             AND abs(treatment_activity_bucket-control_activity_bucket)<=1
             AND q.prior_120s_rfq_free AND f.rfq_events_in_control_outcome_120s=0
+            AND q.prior_control_lookback_observed
+            AND f.future_control_outcome_observed
             AND q.same_receive_date AND q.same_receive_hour AND q.same_tts_regime
             AND q.anchor_tts_regime<>'UNKNOWN' AND q.control_dim_eligible AS matched,
-            q.prior_120s_rfq_free,f.rfq_events_in_control_outcome_120s,
+            q.prior_120s_rfq_free,q.prior_control_lookback_observed,
+            f.rfq_events_in_control_outcome_120s,f.future_control_outcome_observed,
             q.same_receive_date,q.same_receive_hour,q.same_tts_regime,
             q.anchor_tts_regime,q.control_tts_regime,q.control_earliest_required_us,
             q.control_dim_eligible,q.prior_rfq_event_us
@@ -1763,8 +2767,9 @@ def export_outputs(connection, run_dir: Path) -> dict:
         export_table(connection, table, table_dir / f"{table}.parquet")
     small = (
         "rfq_schema_signatures", "rfq_schema_field_audit", "rfq_channel_qc",
-        "rfq_observation_boundaries",
-        "rfq_flow_daily", "rfq_event_flow_hourly", "rfq_flow_hourly", "rfq_flow_minute",
+        "rfq_observation_boundaries", "rfq_quarantine_gaps",
+        "rfq_flow_daily", "rfq_event_flow_hourly", "rfq_flow_hourly",
+        "rfq_hour_coverage", "rfq_flow_minute",
         "rfq_burst_summary",
         "rfq_interarrival", "rfq_interarrival_histogram", "rfq_size_summary",
         "rfq_size_histogram", "rfq_tts_size_summary", "rfq_population_mix",
@@ -1803,19 +2808,33 @@ def render_charts(connection, run_dir: Path) -> list[str]:
     chart_dir = run_dir / "REPORT/charts"
     chart_dir.mkdir(parents=True, exist_ok=True)
     output = []
+    coverage_label = (
+        "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+        if scalar(connection, "SELECT count(*) FROM rfq_quarantine_gaps")
+        else "COMPLETE_MANIFEST_OBJECT_COVERAGE"
+    )
+    chart_banner = coverage_label + " · " + BANNER
 
     hourly = connection.execute("""
-      SELECT create_date,utc_hour,sum(requests) FROM rfq_flow_hourly
-      GROUP BY create_date,utc_hour ORDER BY create_date,utc_hour
+      SELECT date,utc_hour,requests_in_consumed_objects,object_coverage_status
+      FROM rfq_hour_coverage ORDER BY date,utc_hour
     """).fetchall()
     dates = sorted({str(row[0]) for row in hourly})
     matrix = [[0] * 24 for _ in dates]
-    for date, hour, value in hourly:
-        matrix[dates.index(str(date))][int(hour)] = int(value)
+    for date, hour, value, coverage_status in hourly:
+        matrix[dates.index(str(date))][int(hour)] = (
+            math.nan if coverage_status == "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+            else int(value)
+        )
     fig, ax = plt.subplots(figsize=(12, 3 + len(dates)))
-    image = ax.imshow(matrix, aspect="auto", cmap="viridis")
+    colour_map = plt.get_cmap("viridis").copy()
+    colour_map.set_bad("#bdbdbd")
+    image = ax.imshow(matrix, aspect="auto", cmap=colour_map)
     ax.set_yticks(range(len(dates)), dates); ax.set_xticks(range(24))
-    ax.set_xlabel("UTC hour"); ax.set_title("RFQ create flow by receive-clock hour\n" + BANNER)
+    ax.set_xlabel("UTC hour"); ax.set_title(
+        "RFQ create flow by receive-clock hour (grey = quarantined/unknown)\n"
+        + chart_banner
+    )
     fig.colorbar(image, ax=ax, label="requests")
     fig.tight_layout(); path = chart_dir / "rfq_hourly_heatmap.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
@@ -1834,7 +2853,7 @@ def render_charts(connection, run_dir: Path) -> list[str]:
         ax.step([10 ** float(row[0]) for row in interarrival], ys, where="post")
     ax.set_xscale("log"); ax.set_xlabel("Create inter-arrival (receive µs; log-binned)")
     ax.set_ylabel("Approximate ECDF")
-    ax.set_title("RFQ create inter-arrival distribution\n" + BANNER)
+    ax.set_title("RFQ create inter-arrival distribution\n" + chart_banner)
     ax.grid(alpha=.25); fig.tight_layout(); path = chart_dir / "rfq_interarrival_ecdf.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1853,7 +2872,7 @@ def render_charts(connection, run_dir: Path) -> list[str]:
         ax.step([10 ** float(row[1]) for row in rows], ys, where="post", label=field)
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel("Stored fixed-point magnitude (log-binned)"); ax.set_ylabel("Approximate P(X ≥ x)")
-    ax.set_title("Full-scan RFQ size and target-cost tails\n" + BANNER)
+    ax.set_title("Retained-object RFQ size and target-cost tails\n" + chart_banner)
     ax.legend(); ax.grid(alpha=.25); fig.tight_layout(); path = chart_dir / "rfq_size_target_ccdf.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1865,7 +2884,9 @@ def render_charts(connection, run_dir: Path) -> list[str]:
     if leg_counts:
         ax.bar([str(row[0]) for row in leg_counts], [int(row[1]) for row in leg_counts])
     ax.set_xlabel("Observed selected-leg count"); ax.set_ylabel("Known-combo requests")
-    ax.set_title("Known-combo leg-count distribution (lower-bound population)\n" + BANNER)
+    ax.set_title(
+        "Known-combo leg-count distribution (lower-bound population)\n" + chart_banner
+    )
     fig.tight_layout(); path = chart_dir / "rfq_combo_leg_count.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1878,7 +2899,7 @@ def render_charts(connection, run_dir: Path) -> list[str]:
         ax.bar([row[0] for row in tts], [int(row[1]) for row in tts], color="#6a994e")
     ax.set_xlabel("Time-to-start bucket"); ax.set_ylabel("Mapped Sports RFQs")
     ax.tick_params(axis="x", rotation=25)
-    ax.set_title("RFQ time-to-start / match-phase mix\n" + BANNER)
+    ax.set_title("RFQ time-to-start / match-phase mix\n" + chart_banner)
     fig.tight_layout(); path = chart_dir / "rfq_tts_mix.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1888,7 +2909,10 @@ def render_charts(connection, run_dir: Path) -> list[str]:
         ax.step([max(0.001, row[0] / 1000.0) for row in km], [row[4] for row in km], where="post")
     ax.set_xscale("log"); ax.set_xlabel("RFQ receive-clock age (seconds)")
     ax.set_ylabel("Kaplan–Meier survival")
-    ax.set_title("Full-scan RFQ lifecycle with replacement/boundary censoring\n" + BANNER)
+    ax.set_title(
+        "Retained-object RFQ lifecycle with replacement/boundary censoring\n"
+        + chart_banner
+    )
     ax.grid(alpha=.25); fig.tight_layout(); path = chart_dir / "rfq_lifetime_survival_full.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1907,7 +2931,7 @@ def render_charts(connection, run_dir: Path) -> list[str]:
     ax.plot([0, 1], [0, 1], linestyle="--", color="grey", label="equality")
     ax.set_xlabel("Cumulative share of hashed requesters")
     ax.set_ylabel("Cumulative share of requests")
-    ax.set_title("Requester concentration (known-ID subset only)\n" + BANNER)
+    ax.set_title("Requester concentration (known-ID subset only)\n" + chart_banner)
     ax.legend(); ax.grid(alpha=.25); fig.tight_layout(); path = chart_dir / "rfq_requester_lorenz.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1921,7 +2945,7 @@ def render_charts(connection, run_dir: Path) -> list[str]:
     values = [1.0, coverage[1] / total, coverage[2] / total]
     ax.bar(labels, values, color=["#4da3ff", "#52b788", "#f4a261"])
     ax.set_ylim(0, 1); ax.set_ylabel("Share of valid create cohort")
-    ax.set_title("Lifecycle censoring and requester-ID coverage\n" + BANNER)
+    ax.set_title("Lifecycle censoring and requester-ID coverage\n" + chart_banner)
     fig.tight_layout(); path = chart_dir / "rfq_censor_requester_coverage.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
 
@@ -1942,13 +2966,22 @@ def render_charts(connection, run_dir: Path) -> list[str]:
     axes[1].plot(labels, [float(row[3] or 0) for row in studies], marker="o", color="#e76f51")
     axes[1].axhline(0, color="grey", linewidth=1); axes[1].set_ylabel("Paired L1-message effect")
     axes[1].tick_params(axis="x", rotation=35)
-    fig.suptitle("RFQ-create → CLOB receive-clock event study (matched diagnostics)\n" + BANNER)
+    fig.suptitle(
+        "RFQ-create → CLOB receive-clock event study (matched diagnostics)\n"
+        + chart_banner
+    )
     fig.tight_layout(); path = chart_dir / "rfq_clob_event_study.png"
     fig.savefig(path, dpi=150); plt.close(fig); output.append(str(path.relative_to(run_dir)))
     return output
 
 
 def build_summary(connection, inputs: dict, clob: dict, elapsed: float) -> dict:
+    run_id = inputs.get("run_id")
+    cycle1_binding = inputs.get("cycle1_duckdb_binding")
+    if not isinstance(run_id, str) or not run_id:
+        raise RFQStageError("RFQ summary run_id is missing")
+    if not isinstance(cycle1_binding, dict):
+        raise RFQStageError("RFQ summary Cycle-1 DuckDB binding is missing")
     total = scalar(connection, "SELECT count(*) FROM rfq_requests")
     observed = scalar(connection, "SELECT count(*) FROM rfq_lifecycle WHERE delete_observed")
     requester = scalar(connection, "SELECT count(*) FROM rfq_requests WHERE requester_known")
@@ -1998,22 +3031,54 @@ def build_summary(connection, inputs: dict, clob: dict, elapsed: float) -> dict:
         sum((int(row[0]) / known_total) ** 2 for row in requester_rows)
         if known_total else None
     )
+    gap_rows = rows_as_dicts(connection, """
+      SELECT release_id,key,sha256,gap_start_ns,gap_end_ns,gap_start_us,gap_end_us,
+        boundary_reason
+      FROM rfq_quarantine_gaps ORDER BY gap_start_ns,gap_end_ns,key
+    """)
+    gap_set_sha256 = hashlib.sha256(
+        json.dumps(gap_rows, sort_keys=True, separators=(",", ":"), default=str)
+        .encode("utf-8")
+    ).hexdigest()
     return {
         "schema": "sports-autoresearch-rfq-full-stage-v1",
+        "run_id": run_id,
         "generated_at_utc": utc_now(),
         "banner": BANNER,
         "mode": "EXPLORATORY_AUTORESEARCH",
         "evidence": EVIDENCE,
         "timestamp": "TL1_RECEIVE_CLOCK",
-        "status": "DESCRIPTIVE_DISCOVERY_ONLY",
+        "analysis_scope": "DESCRIPTIVE_DISCOVERY_ONLY",
+        "status": (
+            "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+            if not inputs["full_object_coverage"]
+            else "DESCRIPTIVE_DISCOVERY_ONLY"
+        ),
         "input": {
             "release_ids": list(RELEASE_IDS),
-            "objects": inputs["objects"],
-            "logical_manifest_bindings": inputs["logical_manifest_bindings"],
+            "coverage_status": inputs["coverage_status"],
+            "full_object_coverage": inputs["full_object_coverage"],
+            "whole_object_quarantine": inputs["quarantined_unique_objects"] > 0,
+            "line_salvage": False,
+            "logical_manifest_bindings_total": inputs["logical_manifest_bindings"],
+            "unique_objects_total": inputs["unique_objects_total"],
+            "unique_bytes_total": inputs["unique_bytes_total"],
+            "consumed_unique_objects": inputs["consumed_unique_objects"],
+            "consumed_logical_bindings": inputs["consumed_logical_bindings"],
+            "consumed_bytes": inputs["consumed_bytes"],
+            "consumed_object_set_sha256": inputs["consumed_object_set_sha256"],
+            "quarantined_unique_objects": inputs["quarantined_unique_objects"],
+            "quarantined_logical_bindings": inputs["quarantined_logical_bindings"],
+            "quarantined_bytes": inputs["quarantined_bytes"],
+            "quarantined_object_set_sha256": inputs["quarantined_object_set_sha256"],
+            "quarantine_reasons": inputs["quarantine_reasons"],
+            "quarantine_details": inputs["quarantine_details"],
+            "failed_attempt_binding": inputs.get("failed_attempt_binding"),
+            "cycle1_duckdb_binding": cycle1_binding,
             "deduplicated_overlapping_objects": inputs["deduplicated_overlapping_objects"],
             "overlap_keys": inputs["overlap_keys"],
-            "bytes": inputs["bytes"],
-            "path_size_fingerprint_sha256": inputs["path_size_fingerprint_sha256"],
+            "manifest_object_set_sha256": inputs["path_size_fingerprint_sha256"],
+            "selection_fingerprint_sha256": inputs["selection_fingerprint_sha256"],
             "outer_parser": "STRICT_NDJSON_IGNORE_ERRORS_FALSE; malformed outer rows abort",
         },
         "counts": {
@@ -2044,6 +3109,16 @@ def build_summary(connection, inputs: dict, clob: dict, elapsed: float) -> dict:
             "requester_hhi_known_subset": hhi,
             "causal_dim_share": causal_dim_requests / total if total else None,
             "capture_completeness_is_not_lifecycle_join_completeness": True,
+            "rfq_object_coverage": inputs["coverage_status"],
+            "quarantine_gap_count": len(gap_rows),
+            "quarantine_gap_ranges": gap_rows,
+            "quarantine_gap_set_sha256": gap_set_sha256,
+            "partial_object_coverage_hours": scalar(
+                connection,
+                "SELECT count(*) FROM rfq_hour_coverage "
+                "WHERE object_coverage_status='PARTIAL_OBJECT_COVERAGE_QUARANTINED'",
+            ),
+            "quarantined_hours_are_not_observed_zero": True,
         },
         "clob": clob,
         "hard_truth": {
@@ -2057,10 +3132,12 @@ def build_summary(connection, inputs: dict, clob: dict, elapsed: float) -> dict:
         },
         "limitations": [
             "Only two prior-exposed degraded day blocks are available.",
+            "RFQ object coverage is partial when a manifest-bound whole-object quarantine is listed; no full-scan or complete-flow claim is permitted.",
             "RFQ per-event sequence is not mandatory; sequence completeness is not claimed.",
+            "Lifecycle and interarrival calculations are segmented at the conservative quarantine gap; CLOB windows intersecting it are invalid.",
             "A next genuine same-ID create or the first explicit loss/close/error/epoch boundary, whichever occurs first, censors the prior lifecycle; residual scan-end censoring can still combine true survival with unobserved endpoints.",
             "Known-combo share is a lower bound; no-combo-evidence is not proof of single/HVM status.",
-            "CLOB event studies use only dim-effective anchors and a deterministic root-balanced sample, not the full RFQ population.",
+            "CLOB event studies use only dim-effective anchors and a deterministic root-balanced sample, not the retained RFQ population.",
             "Prior controls are match-eligible only when their full 120-second causal lookback starts at or after dim_effective_us.",
             "Control matching adjusts only observed state and cannot remove unobserved game-state confounding.",
         ],
@@ -2106,6 +3183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifest = validate_run(run_dir)
     inputs = discover_inputs(args.cache_root.resolve())
     validate_input_bindings(manifest, inputs)
+    inputs = apply_object_quarantine(run_dir, manifest, inputs)
 
     import duckdb
 
@@ -2113,22 +3191,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RFQStageError(
             f"DuckDB version drift (runner={duckdb.__version__}, expected={EXPECTED_DUCKDB})"
         )
+    core_database = run_dir / "cache/cycle1.duckdb"
+    inputs["run_id"] = run_dir.name
+    inputs["cycle1_duckdb_binding"] = validate_cycle1_duckdb_binding(
+        run_dir, manifest, core_database
+    )
     input_identity = {
-        "schema": "rfq-full-input-identity-v1",
+        "schema": "rfq-full-input-identity-v2",
+        "run_id": run_dir.name,
         "release_ids": list(RELEASE_IDS),
         "releases": inputs["releases"],
-        "unique_objects": inputs["objects"],
-        "logical_manifest_bindings": inputs["logical_manifest_bindings"],
+        "coverage_status": inputs["coverage_status"],
+        "full_object_coverage": inputs["full_object_coverage"],
+        "whole_object_quarantine": inputs["quarantined_unique_objects"] > 0,
+        "line_salvage": False,
+        "logical_manifest_bindings_total": inputs["logical_manifest_bindings"],
+        "unique_objects_total": inputs["unique_objects_total"],
+        "unique_bytes_total": inputs["unique_bytes_total"],
+        "consumed_unique_objects": inputs["consumed_unique_objects"],
+        "consumed_logical_bindings": inputs["consumed_logical_bindings"],
+        "consumed_bytes": inputs["consumed_bytes"],
+        "consumed_object_set_sha256": inputs["consumed_object_set_sha256"],
+        "quarantined_unique_objects": inputs["quarantined_unique_objects"],
+        "quarantined_logical_bindings": inputs["quarantined_logical_bindings"],
+        "quarantined_bytes": inputs["quarantined_bytes"],
+        "quarantined_object_set_sha256": inputs["quarantined_object_set_sha256"],
+        "quarantine_reasons": inputs["quarantine_reasons"],
+        "quarantine_details": inputs["quarantine_details"],
+        "failed_attempt_binding": inputs.get("failed_attempt_binding"),
+        "cycle1_duckdb_binding": inputs["cycle1_duckdb_binding"],
         "deduplicated_overlapping_objects": inputs["deduplicated_overlapping_objects"],
-        "path_size_sha_fingerprint": inputs["path_size_fingerprint_sha256"],
-        "objects": [
+        "manifest_object_set_sha256": inputs["path_size_fingerprint_sha256"],
+        "selection_fingerprint_sha256": inputs["selection_fingerprint_sha256"],
+        "consumed_objects": [
             {key: row[key] for key in ("key", "sha256", "size", "bound_release_ids")}
             for row in inputs["objects_detail"]
         ],
     }
     write_json(run_dir / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json", input_identity)
     free = shutil.disk_usage(run_dir).free
-    required = max(args.min_free_gib * 2**30, inputs["bytes"] * 1.75)
+    required = max(args.min_free_gib * 2**30, inputs["consumed_bytes"] * 1.75)
     if free < required:
         raise RFQStageError(
             f"insufficient disk headroom: free={free/2**30:.1f}GiB "
@@ -2143,7 +3245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not state_path.is_file():
             raise RFQStageError("resume requested but RFQ stage state is missing")
         previous_state = json.loads(state_path.read_text(encoding="utf-8"))
-        if previous_state.get("input_fingerprint") != inputs["path_size_fingerprint_sha256"]:
+        if previous_state.get("input_fingerprint") != inputs["selection_fingerprint_sha256"]:
             raise RFQStageError("resume input fingerprint mismatch")
 
     connection = duckdb.connect(str(scratch))
@@ -2151,20 +3253,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     state = dict(previous_state or {})
     state.update({
         "schema": "rfq-full-stage-state-v1", "started_at_utc": utc_now(),
-        "status": "RUNNING", "input_fingerprint": inputs["path_size_fingerprint_sha256"],
+        "status": "RUNNING", "input_fingerprint": inputs["selection_fingerprint_sha256"],
         "scratch": str(scratch), "resume": args.resume,
     })
     write_json(state_path, state)
     try:
-        build_scan_tables(connection, inputs["paths"], run_dir.name)
+        build_scan_tables(
+            connection, inputs["paths"], run_dir.name, inputs["quarantine_boundaries"]
+        )
         state.update({"phase": "RAW_SCHEMA_AND_DEDUP_COMPLETE", "updated_at_utc": utc_now()})
         write_json(state_path, state)
         build_request_tables(connection, run_dir.name)
         state.update({"phase": "LIFECYCLE_AND_LEGS_COMPLETE", "updated_at_utc": utc_now()})
         write_json(state_path, state)
-        attach_core_and_enrich(connection, run_dir / "cache/cycle1.duckdb")
+        runtime_cycle1_binding = validate_cycle1_duckdb_binding(
+            run_dir, manifest, core_database
+        )
+        if runtime_cycle1_binding != inputs["cycle1_duckdb_binding"]:
+            raise RFQStageError("Cycle-1 DuckDB binding changed during RFQ scan")
+        attach_core_and_enrich(connection, core_database)
         build_descriptive_tables(connection)
-        state.update({"phase": "FULL_DESCRIPTIVE_COMPLETE", "updated_at_utc": utc_now()})
+        state.update({
+            "phase": "RETAINED_OBJECT_DESCRIPTIVE_COMPLETE",
+            "updated_at_utc": utc_now(),
+        })
         write_json(state_path, state)
         clob = build_clob_context(connection, args.clob_max_per_root)
         state.update({"phase": "CLOB_EVENT_STUDY_COMPLETE", "updated_at_utc": utc_now()})
@@ -2175,9 +3287,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary["tables"] = exports
         summary["charts"] = charts
         write_json(run_dir / "REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json", summary)
+        report_title = (
+            "# Partial RFQ exploratory stage"
+            if not inputs["full_object_coverage"]
+            else "# RFQ retained-object exploratory stage"
+        )
         note = [
-            "# Full RFQ exploratory stage", "", f"> **{BANNER}**", "",
-            "The two approved RFQ releases were scanned in full. Lifecycle endpoints use the",
+            report_title, "", f"> **{inputs['coverage_status']} · {BANNER}**", "",
+            "The consumed manifest-bound RFQ objects were scanned with strict parsing. The exact",
+            "whole-object quarantine recorded in the input identity contributes no row or result;",
+            "RFQ object coverage is therefore partial and this is not a full-coverage claim.",
+            "Lifecycle endpoints use the",
             "outer-envelope receive clock. The next genuine same-ID create or first explicit",
             "observation boundary, whichever is earlier, right-censors the lifecycle; only",
             "uninterrupted residuals are censored at scan end.",
@@ -2193,7 +3313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_text_atomic(run_dir / "REPORT/RFQ_FULL_STAGE.md", "\n".join(note) + "\n")
         write_catalog(run_dir)
         state.update({
-            "status": "COMPLETE_EXPLORATORY_ONLY", "phase": "COMPLETE",
+            "status": stage_completion_status(inputs), "phase": "COMPLETE",
             "completed_at_utc": utc_now(), "wall_seconds": round(time.time() - started, 3),
             "summary": "REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json",
         })

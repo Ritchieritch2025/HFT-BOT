@@ -21,6 +21,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -80,6 +81,66 @@ RFQ_IDS = {
     "C1-ANOM-RFQ-SIZE-TAIL-01",
     "C1-ANOM-RFQ-LIFECYCLE-MIXTURE-01",
 }
+RFQ_TRIAL_ORDER = (
+    "C1-RFQ-CLOB-01",
+    "C1-ANOM-RFQ-SIZE-TAIL-01",
+    "C1-ANOM-RFQ-LIFECYCLE-MIXTURE-01",
+)
+
+REPAIR_PENDING_STATUS = "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR_REGISTERED"
+RFQ_PARTIAL_STATUS = "PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+RFQ_ANALYSIS_SCOPE = "DESCRIPTIVE_DISCOVERY_ONLY"
+RFQ_DECLARATION = Path("DATA_INTEGRITY/RFQ_OBJECT_QUARANTINE.json")
+RFQ_MALFORMED_RECEIPT = Path(
+    "DATA_INTEGRITY/RFQ_MALFORMED_OBJECT_RECEIPT.json"
+)
+RFQ_INPUT_IDENTITY = Path("DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json")
+RFQ_QUARANTINE_GAPS = Path("REPORT/tables/rfq_quarantine_gaps.csv")
+RFQ_HOUR_COVERAGE = Path("REPORT/tables/rfq_hour_coverage.csv")
+ACTIVE_RFQ_STATE = Path("REPORT/tables/RFQ_FULL_STAGE_STATE.json")
+ACTIVE_RFQ_REPAIR_RESOURCE = Path("logs/resources/rfq_full_stage_repair01.json")
+REPAIR_DECLARATION = Path(
+    "DATA_INTEGRITY/repairs/repair-01/QUARANTINE_DECLARATION.json"
+)
+REPAIR_MALFORMED_RECEIPT = Path(
+    "DATA_INTEGRITY/repairs/repair-01/MALFORMED_OBJECT_RECEIPT.json"
+)
+REPAIR_REGISTRATION_RECEIPT = Path(
+    "DATA_INTEGRITY/repairs/repair-01/REPAIR_REGISTRATION.json"
+)
+FAILED_RFQ_STATE = Path(
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/REPORT/tables/"
+    "RFQ_FULL_STAGE_STATE.json"
+)
+FAILED_RFQ_RESOURCE = Path(
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/logs/resources/"
+    "rfq_full_stage.json"
+)
+FAILED_RFQ_SCRATCH_RECEIPT = Path(
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "RFQ_FAILED_SCRATCH_RECEIPT.json"
+)
+FAILED_RFQ_INPUT_IDENTITY = Path(
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "RFQ_FULL_INPUT_IDENTITY.json"
+)
+ACTIVE_CYCLE1_DUCKDB_BINDING = Path("DATA_INTEGRITY/CYCLE1_DUCKDB_BINDING.json")
+ARCHIVED_CYCLE1_DUCKDB_BINDING = Path(
+    "DATA_INTEGRITY/repairs/repair-01/pre_repair/DATA_INTEGRITY/"
+    "CYCLE1_DUCKDB_BINDING.json"
+)
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+RFQ_PARTIAL_BOUNDARY = (
+    "RFQ findings use only the retained observed subset after one exact whole-object "
+    "quarantine; the missing interval can create temporal-selection bias, so these "
+    "findings are partial descriptive diagnostics, not full-coverage estimates."
+)
+RFQ_REOPEN_CONDITION = (
+    "Reopen the frozen RFQ studies only after a structurally valid immutable replacement "
+    "or governed repair restores the quarantined interval, then rerun strict parsing from "
+    "new scratch with complete object coverage and additional quality-assessed sealed days."
+)
 
 # Closed MODE-1 outcomes.  CANDIDATE/DESCRIPTIVE_SURVIVOR/FROZEN are not
 # terminal condition 4; promotion, confirmation and verdict labels are never
@@ -212,6 +273,74 @@ def require_nonnegative_int(value: Any, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise MissionFinalizationError(f"{label} must be a non-negative integer")
     return value
+
+
+def require_positive_int(value: Any, label: str) -> int:
+    result = require_nonnegative_int(value, label)
+    if result == 0:
+        raise MissionFinalizationError(f"{label} must be positive")
+    return result
+
+
+def require_hex(value: Any, label: str, pattern: re.Pattern[str] = HEX64) -> str:
+    if not isinstance(value, str) or pattern.fullmatch(value) is None:
+        raise MissionFinalizationError(f"{label} must be a canonical hexadecimal digest")
+    return value
+
+
+def checked_relative_path(run_dir: Path, value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise MissionFinalizationError(f"{label} path is missing")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise MissionFinalizationError(f"unsafe {label} path: {value}")
+    absolute = run_dir / relative
+    if not absolute.is_file():
+        raise MissionFinalizationError(f"{label} artifact is missing: {value}")
+    return absolute
+
+
+def require_path_hash(
+    run_dir: Path,
+    relative: Path,
+    expected: Any,
+    label: str,
+) -> Path:
+    digest = require_hex(expected, f"{label} SHA-256")
+    path = checked_relative_path(run_dir, relative.as_posix(), label)
+    if sha256(path) != digest:
+        raise MissionFinalizationError(f"{label} SHA-256 binding mismatch")
+    return path
+
+
+def object_set_sha256(rows: Sequence[Mapping[str, Any]]) -> str:
+    canonical: list[str] = []
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        key = row.get("key")
+        size = row.get("size")
+        digest = row.get("sha256")
+        if not isinstance(key, str) or not key or key in seen:
+            raise MissionFinalizationError(
+                f"RFQ object-set row {index} has an invalid/duplicate key"
+            )
+        seen.add(key)
+        require_positive_int(size, f"RFQ object-set row {index}.size")
+        require_hex(digest, f"RFQ object-set row {index}.sha256")
+        canonical.append(f"{key}\t{size}\t{digest}")
+    return hashlib.sha256("\n".join(sorted(canonical)).encode("utf-8")).hexdigest()
+
+
+def canonical_json_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def normalize_status(value: Any) -> str | None:
@@ -525,6 +654,1323 @@ def validate_stage_header(
         )
 
 
+def _load_exact_version_row(
+    run_dir: Path,
+    release: Mapping[str, Any],
+    key: str,
+) -> dict[str, Any]:
+    relative = release.get("exact_version_list_path")
+    path = checked_relative_path(run_dir, relative, "selected release version list")
+    matches: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if not line:
+                raise MissionFinalizationError(
+                    f"blank selected release version row: {relative}:{line_number}"
+                )
+            row = json.loads(line)
+            if not isinstance(row, dict) or not isinstance(row.get("key"), str):
+                raise MissionFinalizationError(
+                    f"invalid selected release version row: {relative}:{line_number}"
+                )
+            if row["key"] in seen:
+                raise MissionFinalizationError(
+                    f"duplicate selected release version key: {row['key']}"
+                )
+            seen.add(row["key"])
+            if row["key"] == key:
+                matches.append(row)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise MissionFinalizationError(
+            f"invalid selected release version list {relative}: {exc}"
+        ) from exc
+    if len(matches) != 1:
+        raise MissionFinalizationError(
+            "quarantined RFQ key does not have one exact VersionId binding"
+        )
+    return matches[0]
+
+
+def _read_csv_rows(path: Path, required: set[str], label: str) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise MissionFinalizationError(f"{label} table is missing")
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames or not required <= set(reader.fieldnames):
+                raise MissionFinalizationError(f"{label} columns are incomplete")
+            return list(reader)
+    except OSError as exc:
+        raise MissionFinalizationError(f"cannot read {label}: {exc}") from exc
+
+
+def _rebuild_selected_rfq_union(
+    run_dir: Path,
+    selected_releases: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
+    """Rebuild the authoritative RFQ union from the two immutable manifests."""
+
+    by_key: dict[str, dict[str, Any]] = {}
+    logical_bindings = 0
+    release_receipts: list[dict[str, Any]] = []
+    for release in selected_releases:
+        release_id = release.get("release_id")
+        relative = Path("DATA_INTEGRITY/manifests") / f"{release_id}.json"
+        path = checked_relative_path(run_dir, relative.as_posix(), "selected manifest")
+        if sha256(path) != release.get("manifest_sha256"):
+            raise MissionFinalizationError(
+                f"selected immutable manifest SHA mismatch: {release_id}"
+            )
+        document = load_json(path)
+        if (
+            document.get("release_id") != release_id
+            or document.get("date") != release.get("date")
+            or not isinstance(document.get("objects"), list)
+        ):
+            raise MissionFinalizationError(
+                f"selected immutable manifest identity mismatch: {release_id}"
+            )
+        release_seen: set[str] = set()
+        release_count = 0
+        release_bytes = 0
+        for index, raw in enumerate(document["objects"]):
+            if not isinstance(raw, dict):
+                raise MissionFinalizationError(
+                    f"selected manifest object is invalid: {release_id}:{index}"
+                )
+            key = raw.get("key")
+            if not isinstance(key, str) or not key.startswith("raw_rfq/"):
+                continue
+            if key in release_seen:
+                raise MissionFinalizationError(
+                    f"duplicate RFQ key in selected manifest: {release_id}:{key}"
+                )
+            release_seen.add(key)
+            size = require_positive_int(
+                raw.get("size"), f"selected manifest RFQ size {release_id}:{key}"
+            )
+            digest = require_hex(
+                raw.get("sha256"), f"selected manifest RFQ SHA {release_id}:{key}"
+            )
+            if not isinstance(raw.get("version_id"), str) or not raw["version_id"]:
+                raise MissionFinalizationError(
+                    f"selected manifest RFQ VersionId is missing: {release_id}:{key}"
+                )
+            release_count += 1
+            release_bytes += size
+            logical_bindings += 1
+            prior = by_key.get(key)
+            if prior is None:
+                by_key[key] = {
+                    "key": key,
+                    "sha256": digest,
+                    "size": size,
+                    "bound_release_ids": [release_id],
+                }
+            else:
+                if prior["sha256"] != digest or prior["size"] != size:
+                    raise MissionFinalizationError(
+                        f"conflicting overlapping RFQ manifest object: {key}"
+                    )
+                prior["bound_release_ids"].append(release_id)
+        if release_count == 0:
+            raise MissionFinalizationError(
+                f"selected manifest contains no RFQ objects: {release_id}"
+            )
+        release_receipts.append(
+            {
+                "release_id": release_id,
+                "manifest_sha256": release["manifest_sha256"],
+                "rfq_objects": release_count,
+                "rfq_bytes": release_bytes,
+            }
+        )
+    return (
+        [by_key[key] for key in sorted(by_key)],
+        logical_bindings,
+        release_receipts,
+    )
+
+
+def validate_rfq_partial_quarantine(
+    run_dir: Path,
+    manifest: Mapping[str, Any],
+    rfq: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the single registered RFQ whole-object quarantine fail closed.
+
+    This deliberately reconstructs the consumed/quarantined set identities from
+    the input-identity receipt and binds the original structural failure.  A
+    status label alone can never turn a partial scan into an accepted stage.
+    """
+
+    if rfq.get("run_id") != manifest.get("run_id"):
+        raise MissionFinalizationError("RFQ partial summary run_id mismatch")
+    if rfq.get("status") != RFQ_PARTIAL_STATUS or rfq.get(
+        "analysis_scope"
+    ) != RFQ_ANALYSIS_SCOPE:
+        raise MissionFinalizationError(
+            "RFQ stage must be partial quarantined descriptive discovery"
+        )
+    if manifest.get("status") not in {REPAIR_PENDING_STATUS, "COMPLETE"}:
+        raise MissionFinalizationError(
+            "manifest is not at the registered RFQ quarantine-repair stage"
+        )
+
+    declaration_path = run_dir / RFQ_DECLARATION
+    receipt_path = run_dir / RFQ_MALFORMED_RECEIPT
+    declaration = load_json(declaration_path)
+    receipt = load_json(receipt_path)
+    declaration_sha = sha256(declaration_path)
+    receipt_sha = sha256(receipt_path)
+    strict_policy = (
+        "STRICT_NDJSON_IGNORE_ERRORS_FALSE; any additional malformed object aborts"
+    )
+    expected_declaration = {
+        "schema_version": "rfq-object-quarantine-v1",
+        "run_id": manifest.get("run_id"),
+        "mode": EXPECTED_MODE,
+        "finding": "MALFORMED_NDJSON_OBJECT",
+        "disposition": "WHOLE_OBJECT_QUARANTINE",
+        "created_after_structural_failure_before_rfq_result": True,
+        "dependent_rfq_result_opened": False,
+        "remaining_object_parse_policy": strict_policy,
+    }
+    for field, expected in expected_declaration.items():
+        if declaration.get(field) != expected:
+            raise MissionFinalizationError(
+                f"RFQ quarantine declaration mismatch: {field}"
+            )
+    for field in ("authority_basis", "selection_rule", "result_use_prohibited"):
+        if not isinstance(declaration.get(field), str) or not declaration[field]:
+            raise MissionFinalizationError(
+                f"RFQ quarantine declaration lacks {field}"
+            )
+    previous_commit = require_hex(
+        declaration.get("source_execution_commit"),
+        "quarantine declaration source commit",
+        HEX40,
+    )
+    declared_objects = declaration.get("quarantined_objects")
+    if not isinstance(declared_objects, list) or len(declared_objects) != 1:
+        raise MissionFinalizationError(
+            "exactly one declared RFQ whole-object quarantine is required"
+        )
+    quarantined = declared_objects[0]
+    if not isinstance(quarantined, dict):
+        raise MissionFinalizationError("RFQ quarantined object is invalid")
+
+    invalid_count = require_positive_int(
+        receipt.get("invalid_line_count"), "malformed receipt invalid_line_count"
+    )
+    invalid_lines = receipt.get("invalid_lines")
+    if (
+        receipt.get("schema_version") != "rfq-malformed-object-receipt-v1"
+        or receipt.get("run_id") != manifest.get("run_id")
+        or receipt.get("disposition") != "CHANNEL_OBJECT_QUARANTINE_REQUIRED"
+        or receipt.get("raw_payload_redacted") is not True
+        or not isinstance(invalid_lines, list)
+        or len(invalid_lines) != invalid_count
+        or require_positive_int(
+            receipt.get("total_lines"), "malformed receipt total_lines"
+        ) < invalid_count
+        or receipt.get("expected_size") != receipt.get("observed_size")
+        or receipt.get("expected_sha256") != receipt.get("observed_sha256")
+    ):
+        raise MissionFinalizationError("RFQ malformed-object receipt is not exact")
+    for index, line in enumerate(invalid_lines):
+        if not isinstance(line, dict):
+            raise MissionFinalizationError("RFQ malformed-line receipt is invalid")
+        require_positive_int(line.get("line_number"), f"invalid_lines[{index}].line_number")
+        require_positive_int(line.get("line_bytes"), f"invalid_lines[{index}].line_bytes")
+        require_hex(line.get("line_sha256"), f"invalid_lines[{index}].line_sha256")
+        if not isinstance(line.get("error_type"), str) or not line["error_type"]:
+            raise MissionFinalizationError("RFQ malformed-line error type is missing")
+
+    release_id = quarantined.get("release_id")
+    key = quarantined.get("key")
+    version_id = quarantined.get("version_id")
+    size = require_positive_int(quarantined.get("size"), "quarantined object size")
+    object_sha = require_hex(quarantined.get("sha256"), "quarantined object SHA-256")
+    manifest_sha = require_hex(
+        quarantined.get("manifest_sha256"), "quarantined manifest SHA-256"
+    )
+    if (
+        not isinstance(key, str)
+        or not key.startswith("raw_rfq/")
+        or not isinstance(version_id, str)
+        or not version_id
+        or quarantined.get("receipt") != RFQ_MALFORMED_RECEIPT.as_posix()
+        or quarantined.get("invalid_line_count") != invalid_count
+        or not isinstance(quarantined.get("reason"), str)
+        or not quarantined["reason"]
+        or receipt.get("release_id") != release_id
+        or receipt.get("key") != key
+        or receipt.get("expected_size") != size
+        or receipt.get("expected_sha256") != object_sha
+    ):
+        raise MissionFinalizationError(
+            "RFQ declaration/receipt object identity mismatch"
+        )
+    selected = [
+        row
+        for row in manifest.get("selected_releases", [])
+        if isinstance(row, dict) and row.get("release_id") == release_id
+    ]
+    if len(selected) != 1 or selected[0].get("manifest_sha256") != manifest_sha:
+        raise MissionFinalizationError(
+            "quarantined object is not bound to one selected release manifest"
+        )
+    exact_version = _load_exact_version_row(run_dir, selected[0], key)
+    if exact_version != {
+        "key": key,
+        "sha256": object_sha,
+        "size": size,
+        "version_id": version_id,
+    }:
+        raise MissionFinalizationError(
+            "quarantined object exact VersionId/size/SHA binding mismatch"
+        )
+    authoritative_union, authoritative_logical_bindings, release_receipts = (
+        _rebuild_selected_rfq_union(run_dir, manifest["selected_releases"])
+    )
+    authoritative_manifest_set_sha = object_set_sha256(authoritative_union)
+    authoritative_quarantine = [
+        row for row in authoritative_union if row["key"] == key
+    ]
+    if authoritative_quarantine != [
+        {
+            "key": key,
+            "sha256": object_sha,
+            "size": size,
+            "bound_release_ids": [release_id],
+        }
+    ]:
+        raise MissionFinalizationError(
+            "quarantined object does not exactly match the immutable RFQ manifest union"
+        )
+
+    repairs = manifest.get("data_integrity_repairs")
+    if not isinstance(repairs, list) or len(repairs) != 1 or not isinstance(
+        repairs[0], dict
+    ):
+        raise MissionFinalizationError("exactly one data-integrity repair is required")
+    repair = repairs[0]
+    repository = manifest.get("repository")
+    if not isinstance(repository, dict):
+        raise MissionFinalizationError("repair repository identity is missing")
+    current_commit = require_hex(
+        repository.get("execution_commit"), "current execution commit", HEX40
+    )
+    previous_source = require_hex(
+        repair.get("previous_source_manifest_sha256"),
+        "previous source manifest SHA-256",
+    )
+    current_source = require_hex(
+        repository.get("source_manifest_sha256"), "current source manifest SHA-256"
+    )
+    previous_source_sums = require_hex(
+        repair.get("previous_source_sha256s_sha256"),
+        "previous source checksum-set SHA-256",
+    )
+    current_source_sums = require_hex(
+        repository.get("source_sha256s_sha256"),
+        "current source checksum-set SHA-256",
+    )
+    previous_query = require_hex(
+        repair.get("previous_query_set_sha256"), "previous query set SHA-256"
+    )
+    current_query = require_hex(
+        repository.get("query_set_sha256"), "current query set SHA-256"
+    )
+    repair_exact = {
+        "schema_version": "sports-autoresearch-data-integrity-repair-v1",
+        "repair_id": "repair-01",
+        "finding": "MALFORMED_NDJSON_OBJECT",
+        "pre_repair_status": "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING",
+        "post_repair_status": REPAIR_PENDING_STATUS,
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "quarantine_policy": "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE",
+        "declaration_input_path": RFQ_DECLARATION.as_posix(),
+        "receipt_input_path": RFQ_MALFORMED_RECEIPT.as_posix(),
+        "declaration_path": REPAIR_DECLARATION.as_posix(),
+        "declaration_sha256": declaration_sha,
+        "receipt_path": REPAIR_MALFORMED_RECEIPT.as_posix(),
+        "receipt_sha256": receipt_sha,
+        "previous_execution_commit": previous_commit,
+        "current_execution_commit": current_commit,
+        "current_source_manifest_sha256": current_source,
+        "current_source_sha256s_sha256": current_source_sums,
+        "current_query_set_sha256": current_query,
+        "core_result_disposition": "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED",
+        "core_results_recomputed": False,
+        "registration_change_class": (
+            "DATA_INTEGRITY_HANDLING_ONLY_NO_HYPOTHESIS_DESIGN_CHANGE"
+        ),
+        "hypothesis_design_change": "NONE",
+        "data_integrity_handling_change": (
+            "ONE_EXACT_WHOLE_OBJECT_QUARANTINE_AND_CONSERVATIVE_GAP_CENSORING"
+        ),
+        "frozen_design_change": (
+            "NO_HYPOTHESIS_DESIGN_CHANGE; DATA_INTEGRITY_HANDLING_CHANGED"
+        ),
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "failed_state_path": FAILED_RFQ_STATE.as_posix(),
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE.as_posix(),
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT.as_posix(),
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY.as_posix(),
+    }
+    for field, expected in repair_exact.items():
+        if repair.get(field) != expected:
+            raise MissionFinalizationError(
+                f"RFQ repair registration mismatch: {field}"
+            )
+    if repair.get("quarantined_objects") != declared_objects:
+        raise MissionFinalizationError(
+            "repair/quarantine declaration object binding mismatch"
+        )
+    if (
+        repair.get("previous_source_manifest_sha256") != previous_source
+        or repair.get("current_source_manifest_sha256") != current_source
+        or repair.get("previous_query_set_sha256") != previous_query
+        or repair.get("current_query_set_sha256") != current_query
+        or repository.get("initial_execution_commit") != previous_commit
+        or repository.get("previous_execution_commit") != previous_commit
+        or repository.get("initial_source_manifest_sha256") != previous_source
+        or repository.get("previous_source_manifest_sha256") != previous_source
+        or repository.get("initial_source_sha256s_sha256") != previous_source_sums
+        or repository.get("previous_source_sha256s_sha256") != previous_source_sums
+        or repair.get("current_source_sha256s_sha256") != current_source_sums
+        or repository.get("initial_query_set_sha256") != previous_query
+        or repository.get("previous_query_set_sha256") != previous_query
+        or repository.get("registration_repair_id") != "repair-01"
+        or manifest.get("registration_state")
+        != "RE_FROZEN_AFTER_DATA_INTEGRITY_REPAIR_BEFORE_RFQ_RESULT"
+    ):
+        raise MissionFinalizationError("RFQ repair repository history mismatch")
+    if sha256(run_dir / "SOURCE_MANIFEST.json") != current_source or sha256(
+        run_dir / "QUERY_SHA256SUMS.txt"
+    ) != current_query:
+        raise MissionFinalizationError("current repair source/query receipt mismatch")
+    if sha256(run_dir / "SOURCE_SHA256SUMS.txt") != current_source_sums:
+        raise MissionFinalizationError("current source checksum-set receipt mismatch")
+    previous_source_path = Path(
+        "DATA_INTEGRITY/repairs/repair-01/pre_repair/SOURCE_MANIFEST.json"
+    )
+    previous_query_path = Path(
+        "DATA_INTEGRITY/repairs/repair-01/pre_repair/QUERY_SHA256SUMS.txt"
+    )
+    previous_source_sums_path = Path(
+        "DATA_INTEGRITY/repairs/repair-01/pre_repair/SOURCE_SHA256SUMS.txt"
+    )
+    require_path_hash(
+        run_dir, previous_source_path, previous_source, "pre-repair source manifest"
+    )
+    require_path_hash(run_dir, previous_query_path, previous_query, "pre-repair query set")
+    require_path_hash(
+        run_dir,
+        previous_source_sums_path,
+        previous_source_sums,
+        "pre-repair source checksum set",
+    )
+    require_path_hash(
+        run_dir, REPAIR_DECLARATION, declaration_sha, "archived quarantine declaration"
+    )
+    require_path_hash(
+        run_dir, REPAIR_MALFORMED_RECEIPT, receipt_sha, "archived malformed receipt"
+    )
+    if load_json(run_dir / REPAIR_DECLARATION) != declaration or load_json(
+        run_dir / REPAIR_MALFORMED_RECEIPT
+    ) != receipt:
+        raise MissionFinalizationError("active/archive RFQ integrity receipts differ")
+    if repair.get("repair_receipt_path") != REPAIR_REGISTRATION_RECEIPT.as_posix():
+        raise MissionFinalizationError("repair registration receipt path mismatch")
+    repair_receipt_sha = require_hex(
+        repair.get("repair_receipt_sha256"), "repair registration receipt SHA-256"
+    )
+    repair_receipt_path = require_path_hash(
+        run_dir,
+        REPAIR_REGISTRATION_RECEIPT,
+        repair_receipt_sha,
+        "repair registration receipt",
+    )
+    repair_receipt = load_json(repair_receipt_path)
+    self_fields = {"repair_receipt_path", "repair_receipt_sha256"}
+    if set(repair) != set(repair_receipt) | self_fields or any(
+        repair.get(field) != value for field, value in repair_receipt.items()
+    ):
+        raise MissionFinalizationError(
+            "repair registration receipt/manifest record mismatch"
+        )
+    core_artifacts = repair.get("core_result_artifacts")
+    expected_core_paths = {
+        "REPORT/CYCLE1_CORE_SUMMARY.json",
+        "REPORT/tables/CORE_HYPOTHESIS_TESTS.json",
+        "REPORT/tables/L2_HYPOTHESIS_STAGE_SUMMARY.json",
+        "REPORT/tables/RFQ_TRIGGER_REPRODUCTION.json",
+    }
+    if not isinstance(core_artifacts, list) or len(core_artifacts) != len(
+        expected_core_paths
+    ):
+        raise MissionFinalizationError("preserved core-result inventory is incomplete")
+    seen_core_paths: set[str] = set()
+    for index, row in enumerate(core_artifacts):
+        if not isinstance(row, dict) or set(row) != {"path", "sha256", "bytes"}:
+            raise MissionFinalizationError(
+                f"preserved core-result row is invalid: {index}"
+            )
+        relative = row.get("path")
+        if (
+            not isinstance(relative, str)
+            or relative not in expected_core_paths
+            or relative in seen_core_paths
+        ):
+            raise MissionFinalizationError(
+                f"unsafe/duplicate preserved core-result path: {relative}"
+            )
+        seen_core_paths.add(relative)
+        path = checked_relative_path(run_dir, relative, "preserved core result")
+        if (
+            row.get("sha256") != sha256(path)
+            or row.get("bytes") != path.stat().st_size
+        ):
+            raise MissionFinalizationError(
+                f"preserved core-result artifact changed: {relative}"
+            )
+    if seen_core_paths != expected_core_paths:
+        raise MissionFinalizationError("preserved core-result path set mismatch")
+
+    failed_state_sha = require_hex(
+        repair.get("failed_state_sha256"), "failed RFQ state SHA-256"
+    )
+    failed_resource_sha = require_hex(
+        repair.get("failed_resource_receipt_sha256"),
+        "failed RFQ resource receipt SHA-256",
+    )
+    failed_scratch_sha = require_hex(
+        repair.get("failed_scratch_receipt_sha256"),
+        "failed RFQ scratch receipt SHA-256",
+    )
+    failed_state_path = require_path_hash(
+        run_dir, FAILED_RFQ_STATE, failed_state_sha, "failed RFQ state"
+    )
+    failed_resource_path = require_path_hash(
+        run_dir,
+        FAILED_RFQ_RESOURCE,
+        failed_resource_sha,
+        "failed RFQ resource receipt",
+    )
+    failed_scratch_path = require_path_hash(
+        run_dir,
+        FAILED_RFQ_SCRATCH_RECEIPT,
+        failed_scratch_sha,
+        "failed RFQ scratch receipt",
+    )
+    failed_state = load_json(failed_state_path)
+    failed_resource = load_json(failed_resource_path)
+    failed_scratch = load_json(failed_scratch_path)
+    if (
+        failed_state.get("schema") != "rfq-full-stage-state-v1"
+        or failed_state.get("status") != "FAILED_RESUMABLE"
+        or failed_state.get("resume") is not False
+        or not isinstance(failed_state.get("scratch"), str)
+        or failed_state.get("input_fingerprint") != authoritative_manifest_set_sha
+        or not isinstance(failed_state.get("error_type"), str)
+        or not failed_state["error_type"]
+        or key not in str(failed_state.get("error", ""))
+        or failed_resource.get("schema_version") != "w09-stage-resource-v1"
+        or failed_resource.get("label") != "rfq_full_stage"
+        or failed_resource.get("return_code") != 1
+        or not isinstance(failed_resource.get("command"), list)
+        or "--resume" in failed_resource.get("command", [])
+    ):
+        raise MissionFinalizationError("failed RFQ attempt receipt is not structural/non-resume")
+    if (
+        failed_scratch.get("schema_version") != "rfq-failed-scratch-receipt-v1"
+        or failed_scratch.get("run_id") != manifest.get("run_id")
+        or not isinstance(failed_scratch.get("original_scratch_path"), str)
+        or not isinstance(failed_scratch.get("preserved_scratch_path"), str)
+        or failed_scratch.get("original_scratch_path")
+        == failed_scratch.get("preserved_scratch_path")
+        or failed_scratch.get("original_scratch_path") != failed_state.get("scratch")
+        or failed_scratch.get("input_fingerprint")
+        != failed_state.get("input_fingerprint")
+        or failed_scratch.get("disposition") != "PRESERVED_RENAMED_NO_RESUME"
+        or failed_scratch.get("resume_allowed") is not False
+    ):
+        raise MissionFinalizationError("failed RFQ scratch preservation receipt mismatch")
+    require_hex(failed_scratch.get("sha256"), "failed RFQ scratch SHA-256")
+    require_positive_int(failed_scratch.get("bytes"), "failed RFQ scratch bytes")
+    mtime = failed_scratch.get("mtime_utc")
+    try:
+        parsed_mtime = dt.datetime.fromisoformat(
+            mtime[:-1] + "+00:00" if isinstance(mtime, str) and mtime.endswith("Z") else mtime
+        )
+    except (TypeError, ValueError):
+        parsed_mtime = None
+    if parsed_mtime is None or parsed_mtime.utcoffset() != dt.timedelta(0):
+        raise MissionFinalizationError("failed RFQ scratch UTC mtime is missing")
+
+    failed_input_sha = require_hex(
+        repair.get("failed_input_identity_sha256"),
+        "failed RFQ input-identity SHA-256",
+    )
+    failed_input_path = require_path_hash(
+        run_dir,
+        FAILED_RFQ_INPUT_IDENTITY,
+        failed_input_sha,
+        "failed RFQ input identity",
+    )
+    failed_input = load_json(failed_input_path)
+    authoritative_overlap_keys = [
+        row["key"]
+        for row in authoritative_union
+        if len(row["bound_release_ids"]) > 1
+    ]
+    if (
+        failed_input.get("schema") != "rfq-full-input-identity-v1"
+        or failed_input.get("release_ids")
+        != [row["release_id"] for row in manifest["selected_releases"]]
+        or failed_input.get("logical_manifest_bindings")
+        != authoritative_logical_bindings
+        or failed_input.get("unique_objects") != len(authoritative_union)
+        or failed_input.get("deduplicated_overlapping_objects")
+        != len(authoritative_overlap_keys)
+        or failed_input.get("path_size_sha_fingerprint")
+        != authoritative_manifest_set_sha
+        or failed_input.get("objects") != authoritative_union
+        or failed_state.get("input_fingerprint") != authoritative_manifest_set_sha
+    ):
+        raise MissionFinalizationError(
+            "archived failed RFQ input identity is not the immutable manifest union"
+        )
+    failed_releases = failed_input.get("releases")
+    if not isinstance(failed_releases, list) or len(failed_releases) != len(
+        release_receipts
+    ):
+        raise MissionFinalizationError("archived failed RFQ release receipts are missing")
+    for expected, observed in zip(release_receipts, failed_releases):
+        if not isinstance(observed, dict) or any(
+            observed.get(field) != value for field, value in expected.items()
+        ):
+            raise MissionFinalizationError(
+                "archived failed RFQ release-manifest receipt mismatch"
+            )
+
+    active_cycle_path = run_dir / ACTIVE_CYCLE1_DUCKDB_BINDING
+    archived_cycle_path = run_dir / ARCHIVED_CYCLE1_DUCKDB_BINDING
+    active_cycle = load_json(active_cycle_path)
+    archived_cycle = load_json(archived_cycle_path)
+    active_cycle_sha = sha256(active_cycle_path)
+    archived_cycle_sha = sha256(archived_cycle_path)
+    if active_cycle != archived_cycle or active_cycle_sha != archived_cycle_sha:
+        raise MissionFinalizationError("active/archived Cycle-1 DuckDB receipts differ")
+    cycle_db_sha = require_hex(active_cycle.get("sha256"), "Cycle-1 DuckDB SHA-256")
+    cycle_db_bytes = require_positive_int(
+        active_cycle.get("bytes"), "Cycle-1 DuckDB bytes"
+    )
+    if (
+        active_cycle.get("schema_version") != "cycle1-derived-duckdb-binding-v1"
+        or active_cycle.get("run_id") != manifest.get("run_id")
+        or active_cycle.get("duckdb_version") != "1.4.5"
+        or active_cycle.get("created_before_rfq_repair_registration") is not True
+        or active_cycle.get("core_result_disposition")
+        != "CORE_DERIVED_DATABASE_PRESERVED_NOT_RECOMPUTED"
+        or active_cycle.get("core_summary_path") != CORE_SUMMARY.as_posix()
+        or active_cycle.get("core_summary_sha256")
+        != sha256(run_dir / CORE_SUMMARY)
+        or active_cycle.get("core_stage_resource_path")
+        != "logs/resources/cycle1_core.json"
+    ):
+        raise MissionFinalizationError("Cycle-1 DuckDB binding receipt mismatch")
+    core_resource_path = checked_relative_path(
+        run_dir,
+        active_cycle["core_stage_resource_path"],
+        "Cycle-1 core resource receipt",
+    )
+    core_resource_sha = require_hex(
+        active_cycle.get("core_stage_resource_sha256"),
+        "Cycle-1 core resource receipt SHA-256",
+    )
+    if sha256(core_resource_path) != core_resource_sha:
+        raise MissionFinalizationError("Cycle-1 core resource receipt hash mismatch")
+    cycle_mtime = active_cycle.get("mtime_utc")
+    try:
+        parsed_cycle_mtime = dt.datetime.fromisoformat(
+            cycle_mtime[:-1] + "+00:00"
+            if isinstance(cycle_mtime, str) and cycle_mtime.endswith("Z")
+            else cycle_mtime
+        )
+    except (TypeError, ValueError):
+        parsed_cycle_mtime = None
+    if parsed_cycle_mtime is None or parsed_cycle_mtime.utcoffset() != dt.timedelta(0):
+        raise MissionFinalizationError("Cycle-1 DuckDB binding UTC mtime is invalid")
+    cycle_database = run_dir / "cache/cycle1.duckdb"
+    if manifest.get("status") != "COMPLETE":
+        if (
+            not cycle_database.is_file()
+            or cycle_database.stat().st_size != cycle_db_bytes
+            or sha256(cycle_database) != cycle_db_sha
+        ):
+            raise MissionFinalizationError("Cycle-1 DuckDB bytes do not match binding")
+    cycle_binding = {
+        "active_path": ACTIVE_CYCLE1_DUCKDB_BINDING.as_posix(),
+        "active_sha256": active_cycle_sha,
+        "archived_path": ARCHIVED_CYCLE1_DUCKDB_BINDING.as_posix(),
+        "archived_sha256": archived_cycle_sha,
+        "schema_version": "cycle1-derived-duckdb-binding-v1",
+        "run_id": manifest.get("run_id"),
+        "duckdb_path": active_cycle.get("path"),
+        "duckdb_sha256": cycle_db_sha,
+        "duckdb_bytes": cycle_db_bytes,
+        "core_summary_path": CORE_SUMMARY.as_posix(),
+        "core_summary_sha256": active_cycle["core_summary_sha256"],
+        "core_stage_resource_path": active_cycle["core_stage_resource_path"],
+        "core_stage_resource_sha256": core_resource_sha,
+    }
+    if repair.get("cycle1_duckdb_binding") != cycle_binding:
+        raise MissionFinalizationError("repair Cycle-1 DuckDB binding mismatch")
+
+    trial_binding = repair.get("trial_registry")
+    if not isinstance(trial_binding, dict):
+        raise MissionFinalizationError("RFQ repair trial-registry binding is missing")
+    previous_trial_bytes = require_positive_int(
+        trial_binding.get("previous_bytes"), "pre-repair trial-registry bytes"
+    )
+    current_trial_bytes = require_positive_int(
+        trial_binding.get("current_bytes"), "repair trial-registry bytes"
+    )
+    if (
+        current_trial_bytes <= previous_trial_bytes
+        or trial_binding.get("strict_previous_bytes_prefix") is not True
+        or trial_binding.get("appended_records") != 2
+        or trial_binding.get("trial_registration_ids")
+        != ["RFQ_FULL_STAGE_ATTEMPT_01", "RFQ_OBJECT_QUARANTINE_REPAIR_01"]
+    ):
+        raise MissionFinalizationError("RFQ repair trial-registry append policy mismatch")
+    trial_bytes = (run_dir / "TRIAL_REGISTRY.jsonl").read_bytes()
+    if len(trial_bytes) < current_trial_bytes:
+        raise MissionFinalizationError("RFQ repair trial-registry prefix is truncated")
+    previous_prefix = trial_bytes[:previous_trial_bytes]
+    repair_prefix = trial_bytes[:current_trial_bytes]
+    if (
+        not previous_prefix.endswith(b"\n")
+        or not repair_prefix.endswith(b"\n")
+        or hashlib.sha256(previous_prefix).hexdigest()
+        != trial_binding.get("previous_sha256")
+        or hashlib.sha256(repair_prefix).hexdigest()
+        != trial_binding.get("current_sha256")
+    ):
+        raise MissionFinalizationError("RFQ repair trial-registry prefix hash mismatch")
+    try:
+        appended = [
+            json.loads(line)
+            for line in repair_prefix[previous_trial_bytes:].decode("utf-8").splitlines()
+            if line
+        ]
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise MissionFinalizationError(
+            f"invalid RFQ repair trial-registry records: {exc}"
+        ) from exc
+    if len(appended) != 2 or any(not isinstance(row, dict) for row in appended):
+        raise MissionFinalizationError("RFQ repair trial-registry append count mismatch")
+    failure_trial, repair_trial = appended
+    common_trial = {
+        "trial_ids": list(RFQ_TRIAL_ORDER),
+        "result_opened": False,
+        "hypothesis_conclusion_opened": False,
+    }
+    for field, expected in common_trial.items():
+        if failure_trial.get(field) != expected or repair_trial.get(field) != expected:
+            raise MissionFinalizationError(
+                f"RFQ repair trial-registry common binding mismatch: {field}"
+            )
+    expected_failure_trial = {
+        "trial_registration_id": "RFQ_FULL_STAGE_ATTEMPT_01",
+        "record_type": "STAGE_FAILURE",
+        "stage": "RFQ_FULL_STAGE",
+        "failure_class": "MALFORMED_NDJSON_OBJECT",
+        "failure_disposition": "STRUCTURAL_INPUT_FAILURE_BEFORE_RESULT",
+        "hypothesis_conclusion": "NONE",
+        "receipt_path": REPAIR_MALFORMED_RECEIPT.as_posix(),
+        "receipt_sha256": receipt_sha,
+        "failure_state_path": FAILED_RFQ_STATE.as_posix(),
+        "failure_state_sha256": failed_state_sha,
+        "failure_resource_path": FAILED_RFQ_RESOURCE.as_posix(),
+        "failure_resource_sha256": failed_resource_sha,
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT.as_posix(),
+        "failed_scratch_receipt_sha256": failed_scratch_sha,
+        "execution_commit": previous_commit,
+        "source_manifest_sha256": previous_source,
+        "query_set_sha256": previous_query,
+    }
+    expected_repair_trial = {
+        "trial_registration_id": "RFQ_OBJECT_QUARANTINE_REPAIR_01",
+        "record_type": "DATA_INTEGRITY_REPAIR_PREREGISTRATION",
+        "stage": "RFQ_FULL_STAGE_REPAIR_PREREGISTRATION",
+        "finding": "MALFORMED_NDJSON_OBJECT",
+        "quarantine_policy": "DETERMINISTIC_WHOLE_OBJECT_QUARANTINE",
+        "rfq_result_state": "NO_RFQ_RESULT_OPENED",
+        "declaration_path": REPAIR_DECLARATION.as_posix(),
+        "declaration_sha256": declaration_sha,
+        "receipt_path": REPAIR_MALFORMED_RECEIPT.as_posix(),
+        "receipt_sha256": receipt_sha,
+        "previous_execution_commit": previous_commit,
+        "current_execution_commit": current_commit,
+        "previous_source_manifest_sha256": previous_source,
+        "current_source_manifest_sha256": current_source,
+        "previous_query_set_sha256": previous_query,
+        "current_query_set_sha256": current_query,
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+        "registration_change_class": (
+            "DATA_INTEGRITY_HANDLING_ONLY_NO_HYPOTHESIS_DESIGN_CHANGE"
+        ),
+        "hypothesis_design_change": "NONE",
+        "data_integrity_handling_change": (
+            "ONE_EXACT_WHOLE_OBJECT_QUARANTINE_AND_CONSERVATIVE_GAP_CENSORING"
+        ),
+        "frozen_design_change": (
+            "NO_HYPOTHESIS_DESIGN_CHANGE; DATA_INTEGRITY_HANDLING_CHANGED"
+        ),
+        "core_results_recomputed": False,
+    }
+    for field, expected in expected_failure_trial.items():
+        if failure_trial.get(field) != expected:
+            raise MissionFinalizationError(
+                f"RFQ failure trial-registry binding mismatch: {field}"
+            )
+    for field, expected in expected_repair_trial.items():
+        if repair_trial.get(field) != expected:
+            raise MissionFinalizationError(
+                f"RFQ repair trial-registry binding mismatch: {field}"
+            )
+
+    archive_relative = Path("DATA_INTEGRITY/repairs/repair-01/pre_repair")
+    if repair.get("archive_path") != archive_relative.as_posix():
+        raise MissionFinalizationError("pre-repair archive path mismatch")
+    inventory = repair.get("archive_inventory")
+    if not isinstance(inventory, list) or not inventory:
+        raise MissionFinalizationError("pre-repair archive inventory is missing")
+    inventory_by_path: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(inventory):
+        if not isinstance(row, dict) or set(row) != {"path", "sha256", "bytes"}:
+            raise MissionFinalizationError(
+                f"pre-repair archive inventory row is invalid: {index}"
+            )
+        relative_value = row.get("path")
+        if not isinstance(relative_value, str):
+            raise MissionFinalizationError("pre-repair archive path is invalid")
+        relative_path = Path(relative_value)
+        if (
+            relative_path.is_absolute()
+            or ".." in relative_path.parts
+            or relative_value in inventory_by_path
+        ):
+            raise MissionFinalizationError(
+                f"unsafe/duplicate pre-repair archive path: {relative_value}"
+            )
+        require_hex(row.get("sha256"), f"archive inventory {relative_value} SHA")
+        require_nonnegative_int(row.get("bytes"), f"archive inventory {relative_value} bytes")
+        inventory_by_path[relative_value] = row
+    archive_root = run_dir / archive_relative
+    if not archive_root.is_dir():
+        raise MissionFinalizationError("pre-repair archive directory is missing")
+    actual_archive: dict[str, dict[str, Any]] = {}
+    for path in sorted(archive_root.rglob("*")):
+        if path.is_symlink():
+            raise MissionFinalizationError("pre-repair archive contains a symlink")
+        if not path.is_file():
+            continue
+        relative_value = path.relative_to(archive_root).as_posix()
+        actual_archive[relative_value] = {
+            "path": relative_value,
+            "sha256": sha256(path),
+            "bytes": path.stat().st_size,
+        }
+    if inventory_by_path != actual_archive:
+        raise MissionFinalizationError(
+            "pre-repair archive inventory does not exactly match archived files"
+        )
+    required_archive = {
+        "RUN_MANIFEST.json",
+        "TRIAL_REGISTRY.jsonl",
+        "SOURCE_MANIFEST.json",
+        "SOURCE_SHA256SUMS.txt",
+        "QUERY_SHA256SUMS.txt",
+        "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+        "logs/resources/rfq_full_stage.json",
+        "DATA_INTEGRITY/RFQ_FAILED_SCRATCH_RECEIPT.json",
+        "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        "DATA_INTEGRITY/CYCLE1_DUCKDB_BINDING.json",
+    }
+    if not required_archive <= set(actual_archive):
+        raise MissionFinalizationError("pre-repair archive lacks a required receipt")
+    archived_manifest = load_json(archive_root / "RUN_MANIFEST.json")
+    archived_repository = archived_manifest.get("repository")
+    if (
+        archived_manifest.get("run_id") != manifest.get("run_id")
+        or archived_manifest.get("status")
+        != "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING"
+        or not isinstance(archived_repository, dict)
+    ):
+        raise MissionFinalizationError("archived pre-repair manifest identity mismatch")
+    previous_repository_identity = {
+        "execution_commit": previous_commit,
+        "source_manifest_sha256": previous_source,
+        "source_sha256s_sha256": previous_source_sums,
+        "query_set_sha256": previous_query,
+        "query_files": archived_repository.get("query_files"),
+    }
+    current_repository_identity = {
+        "execution_commit": current_commit,
+        "source_manifest_sha256": current_source,
+        "source_sha256s_sha256": current_source_sums,
+        "query_set_sha256": current_query,
+        "query_files": repository.get("query_files"),
+    }
+    if (
+        repair.get("previous_repository_identity") != previous_repository_identity
+        or repair.get("current_repository_identity") != current_repository_identity
+        or any(
+            archived_repository.get(field) != value
+            for field, value in previous_repository_identity.items()
+            if field != "source_sha256s_sha256"
+        )
+        or repository.get("initial_identity") != previous_repository_identity
+        or repository.get("previous_identity") != previous_repository_identity
+        or repository.get("query_files") != archived_repository.get("query_files")
+    ):
+        raise MissionFinalizationError("archived repository identity/history mismatch")
+    query_files = archived_repository.get("query_files")
+    if (
+        not isinstance(query_files, list)
+        or not query_files
+        or any(
+            not isinstance(item, str) or item not in actual_archive
+            for item in query_files
+        )
+    ):
+        raise MissionFinalizationError("archived frozen query set is incomplete")
+    archived_trial = (archive_root / "TRIAL_REGISTRY.jsonl").read_bytes()
+    if (
+        archived_trial != previous_prefix
+        or len(archived_trial) != previous_trial_bytes
+        or hashlib.sha256(archived_trial).hexdigest()
+        != trial_binding.get("previous_sha256")
+    ):
+        raise MissionFinalizationError("archived pre-repair trial registry mismatch")
+
+    rfq_input = rfq.get("input")
+    if not isinstance(rfq_input, dict):
+        raise MissionFinalizationError("RFQ partial input identity is missing")
+    expected_release_ids = [
+        row["release_id"] for row in manifest.get("selected_releases", [])
+    ]
+    input_exact = {
+        "release_ids": expected_release_ids,
+        "coverage_status": RFQ_PARTIAL_STATUS,
+        "full_object_coverage": False,
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+        "outer_parser": "STRICT_NDJSON_IGNORE_ERRORS_FALSE; malformed outer rows abort",
+    }
+    for field, expected in input_exact.items():
+        if rfq_input.get(field) != expected:
+            raise MissionFinalizationError(f"RFQ partial input mismatch: {field}")
+    failed_binding = rfq_input.get("failed_attempt_binding")
+    expected_failure_binding = {
+        "repair_id": "repair-01",
+        "failed_state_path": FAILED_RFQ_STATE.as_posix(),
+        "failed_state_sha256": failed_state_sha,
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE.as_posix(),
+        "failed_resource_receipt_sha256": failed_resource_sha,
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT.as_posix(),
+        "failed_scratch_receipt_sha256": failed_scratch_sha,
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY.as_posix(),
+        "failed_input_identity_sha256": failed_input_sha,
+    }
+    if failed_binding != expected_failure_binding:
+        raise MissionFinalizationError("RFQ summary failed-attempt binding mismatch")
+    if rfq_input.get("cycle1_duckdb_binding") != cycle_binding:
+        raise MissionFinalizationError("RFQ summary Cycle-1 DuckDB binding mismatch")
+
+    total_objects = require_positive_int(
+        rfq_input.get("unique_objects_total"), "RFQ unique_objects_total"
+    )
+    total_bindings = require_positive_int(
+        rfq_input.get("logical_manifest_bindings_total"),
+        "RFQ logical_manifest_bindings_total",
+    )
+    total_bytes = require_positive_int(
+        rfq_input.get("unique_bytes_total"), "RFQ unique_bytes_total"
+    )
+    consumed_objects = require_positive_int(
+        rfq_input.get("consumed_unique_objects"), "RFQ consumed_unique_objects"
+    )
+    consumed_bindings = require_positive_int(
+        rfq_input.get("consumed_logical_bindings"),
+        "RFQ consumed_logical_bindings",
+    )
+    consumed_bytes = require_positive_int(
+        rfq_input.get("consumed_bytes"), "RFQ consumed_bytes"
+    )
+    quarantined_objects = require_positive_int(
+        rfq_input.get("quarantined_unique_objects"),
+        "RFQ quarantined_unique_objects",
+    )
+    quarantined_bindings = require_positive_int(
+        rfq_input.get("quarantined_logical_bindings"),
+        "RFQ quarantined_logical_bindings",
+    )
+    quarantined_bytes = require_positive_int(
+        rfq_input.get("quarantined_bytes"), "RFQ quarantined_bytes"
+    )
+    if (
+        quarantined_objects != 1
+        or quarantined_bindings != 1
+        or quarantined_bytes != size
+        or consumed_objects + quarantined_objects != total_objects
+        or consumed_bindings + quarantined_bindings != total_bindings
+        or consumed_bytes + quarantined_bytes != total_bytes
+        or total_bindings < total_objects
+        or total_objects != len(authoritative_union)
+        or total_bindings != authoritative_logical_bindings
+        or total_bytes != sum(row["size"] for row in authoritative_union)
+    ):
+        raise MissionFinalizationError("RFQ partial object count/byte arithmetic mismatch")
+    expected_detail = {
+        "release_id": release_id,
+        "key": key,
+        "size": size,
+        "sha256": object_sha,
+        "version_id": version_id,
+        "manifest_sha256": manifest_sha,
+        "invalid_line_count": invalid_count,
+        "reason": quarantined["reason"],
+        "receipt_sha256": receipt_sha,
+        "declaration_sha256": declaration_sha,
+    }
+    if (
+        rfq_input.get("quarantine_details") != [expected_detail]
+        or rfq_input.get("quarantine_reasons") != [quarantined["reason"]]
+    ):
+        raise MissionFinalizationError("RFQ quarantine summary detail mismatch")
+
+    identity = load_json(run_dir / RFQ_INPUT_IDENTITY)
+    if identity.get("schema") != "rfq-full-input-identity-v2":
+        raise MissionFinalizationError("RFQ input-identity schema mismatch")
+    if identity.get("run_id") != manifest.get("run_id"):
+        raise MissionFinalizationError("RFQ input-identity run_id mismatch")
+    mirrored_fields = (
+        "release_ids",
+        "coverage_status",
+        "full_object_coverage",
+        "whole_object_quarantine",
+        "line_salvage",
+        "logical_manifest_bindings_total",
+        "unique_objects_total",
+        "unique_bytes_total",
+        "consumed_unique_objects",
+        "consumed_logical_bindings",
+        "consumed_bytes",
+        "consumed_object_set_sha256",
+        "quarantined_unique_objects",
+        "quarantined_logical_bindings",
+        "quarantined_bytes",
+        "quarantined_object_set_sha256",
+        "quarantine_reasons",
+        "quarantine_details",
+        "failed_attempt_binding",
+        "cycle1_duckdb_binding",
+        "manifest_object_set_sha256",
+        "selection_fingerprint_sha256",
+    )
+    for field in mirrored_fields:
+        if identity.get(field) != rfq_input.get(field):
+            raise MissionFinalizationError(
+                f"RFQ summary/input-identity mismatch: {field}"
+            )
+    identity_releases = identity.get("releases")
+    if not isinstance(identity_releases, list) or len(identity_releases) != len(
+        release_receipts
+    ):
+        raise MissionFinalizationError("RFQ input-identity release receipts are missing")
+    for expected, observed in zip(release_receipts, identity_releases):
+        if not isinstance(observed, dict) or any(
+            observed.get(field) != value for field, value in expected.items()
+        ):
+            raise MissionFinalizationError(
+                f"RFQ input-identity release manifest mismatch: {expected['release_id']}"
+            )
+    consumed_rows = identity.get("consumed_objects")
+    if not isinstance(consumed_rows, list) or len(consumed_rows) != consumed_objects:
+        raise MissionFinalizationError("RFQ consumed-object inventory count mismatch")
+    logical_count = 0
+    for index, row in enumerate(consumed_rows):
+        if not isinstance(row, dict):
+            raise MissionFinalizationError("RFQ consumed-object row is invalid")
+        releases = row.get("bound_release_ids")
+        if (
+            not isinstance(releases, list)
+            or not releases
+            or any(item not in expected_release_ids for item in releases)
+            or len(releases) != len(set(releases))
+            or row.get("key") == key
+        ):
+            raise MissionFinalizationError(
+                f"RFQ consumed-object release binding mismatch: row {index}"
+            )
+        logical_count += len(releases)
+    if logical_count != consumed_bindings or sum(
+        require_positive_int(row.get("size"), "RFQ consumed object size")
+        for row in consumed_rows
+    ) != consumed_bytes:
+        raise MissionFinalizationError("RFQ consumed-object counts/bytes mismatch")
+    authoritative_consumed = [
+        row for row in authoritative_union if row["key"] != key
+    ]
+    if consumed_rows != authoritative_consumed:
+        raise MissionFinalizationError(
+            "RFQ consumed inventory is not the exact immutable manifest union minus quarantine"
+        )
+    authoritative_overlap_keys = [
+        row["key"]
+        for row in authoritative_union
+        if len(row["bound_release_ids"]) > 1
+    ]
+    if (
+        rfq_input.get("deduplicated_overlapping_objects")
+        != len(authoritative_overlap_keys)
+        or rfq_input.get("overlap_keys") != authoritative_overlap_keys
+    ):
+        raise MissionFinalizationError("RFQ overlapping-object union receipt mismatch")
+    consumed_set_sha = object_set_sha256(consumed_rows)
+    quarantined_set_sha = object_set_sha256([quarantined])
+    manifest_set_sha = object_set_sha256([*consumed_rows, quarantined])
+    if (
+        rfq_input.get("consumed_object_set_sha256") != consumed_set_sha
+        or rfq_input.get("quarantined_object_set_sha256") != quarantined_set_sha
+        or rfq_input.get("manifest_object_set_sha256") != manifest_set_sha
+    ):
+        raise MissionFinalizationError("RFQ object-set fingerprint mismatch")
+    selection_payload = {
+        "total": manifest_set_sha,
+        "consumed": consumed_set_sha,
+        "quarantined": quarantined_set_sha,
+        "receipt": receipt_sha,
+        "declaration": declaration_sha,
+    }
+    selection_sha = canonical_json_sha256(selection_payload)
+    if rfq_input.get("selection_fingerprint_sha256") != selection_sha:
+        raise MissionFinalizationError("RFQ selection fingerprint mismatch")
+
+    coverage = rfq.get("coverage")
+    if not isinstance(coverage, dict):
+        raise MissionFinalizationError("RFQ partial coverage QC is missing")
+    gap_count = require_positive_int(
+        coverage.get("quarantine_gap_count"), "RFQ quarantine_gap_count"
+    )
+    gap_ranges = coverage.get("quarantine_gap_ranges")
+    if gap_count != 1 or not isinstance(gap_ranges, list) or len(gap_ranges) != 1:
+        raise MissionFinalizationError("RFQ quarantine gap count mismatch")
+    gap = gap_ranges[0]
+    if not isinstance(gap, dict):
+        raise MissionFinalizationError("RFQ quarantine gap receipt is invalid")
+    gap_start_ns = require_positive_int(gap.get("gap_start_ns"), "RFQ gap_start_ns")
+    gap_end_ns = require_positive_int(gap.get("gap_end_ns"), "RFQ gap_end_ns")
+    expected_gap = {
+        "release_id": release_id,
+        "key": key,
+        "sha256": object_sha,
+        "gap_start_ns": gap_start_ns,
+        "gap_end_ns": gap_end_ns,
+        "gap_start_us": gap_start_ns // 1000,
+        "gap_end_us": (gap_end_ns + 999) // 1000,
+        "boundary_reason": "WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON",
+    }
+    if gap != expected_gap or gap_end_ns <= gap_start_ns:
+        raise MissionFinalizationError("RFQ quarantine gap boundary QC mismatch")
+    gap_set_sha = canonical_json_sha256(gap_ranges)
+    if (
+        coverage.get("rfq_object_coverage") != RFQ_PARTIAL_STATUS
+        or coverage.get("quarantine_gap_set_sha256") != gap_set_sha
+        or coverage.get("quarantined_hours_are_not_observed_zero") is not True
+        or coverage.get("capture_completeness_is_not_lifecycle_join_completeness")
+        is not True
+    ):
+        raise MissionFinalizationError("RFQ quarantine coverage semantics mismatch")
+    partial_hours = require_positive_int(
+        coverage.get("partial_object_coverage_hours"),
+        "RFQ partial_object_coverage_hours",
+    )
+    gap_csv = _read_csv_rows(
+        run_dir / RFQ_QUARANTINE_GAPS,
+        {
+            "release_id",
+            "key",
+            "sha256",
+            "gap_start_ns",
+            "gap_end_ns",
+            "gap_start_us",
+            "gap_end_us",
+            "boundary_reason",
+            "previous_filename",
+            "next_filename",
+        },
+        "RFQ quarantine gaps",
+    )
+    if len(gap_csv) != 1:
+        raise MissionFinalizationError("RFQ quarantine gap table must contain one row")
+    csv_gap = gap_csv[0]
+    for field, expected in expected_gap.items():
+        actual: Any = csv_gap.get(field)
+        if isinstance(expected, int):
+            try:
+                actual = int(actual or "")
+            except ValueError as exc:
+                raise MissionFinalizationError(
+                    f"RFQ quarantine gap table has invalid {field}"
+                ) from exc
+        if actual != expected:
+            raise MissionFinalizationError(
+                f"RFQ quarantine gap table mismatch: {field}"
+            )
+    if not csv_gap.get("previous_filename") or not csv_gap.get("next_filename"):
+        raise MissionFinalizationError("RFQ quarantine adjacent-object QC is missing")
+    hour_rows = _read_csv_rows(
+        run_dir / RFQ_HOUR_COVERAGE,
+        {"object_coverage_status", "zero_interpretation"},
+        "RFQ hour coverage",
+    )
+    partial_rows = [
+        row for row in hour_rows if row.get("object_coverage_status") == RFQ_PARTIAL_STATUS
+    ]
+    if len(partial_rows) != partial_hours or any(
+        row.get("zero_interpretation")
+        != "NOT_AN_OBSERVED_ZERO_QUARANTINE_OVERLAP"
+        for row in partial_rows
+    ):
+        raise MissionFinalizationError("RFQ partial-hour gap QC mismatch")
+
+    active_state_path = checked_relative_path(
+        run_dir, ACTIVE_RFQ_STATE.as_posix(), "completed RFQ repair state"
+    )
+    active_state = load_json(active_state_path)
+    if (
+        active_state.get("schema") != "rfq-full-stage-state-v1"
+        or active_state.get("status")
+        != "COMPLETE_PARTIAL_OBJECT_COVERAGE_QUARANTINED"
+        or active_state.get("phase") != "COMPLETE"
+        or active_state.get("resume") is not False
+        or active_state.get("input_fingerprint") != selection_sha
+        or active_state.get("summary") != RFQ_SUMMARY.as_posix()
+        or not isinstance(active_state.get("completed_at_utc"), str)
+        or not active_state["completed_at_utc"]
+    ):
+        raise MissionFinalizationError("active RFQ repair completion state mismatch")
+    active_state_sha = sha256(active_state_path)
+
+    repair_resource_path = checked_relative_path(
+        run_dir,
+        ACTIVE_RFQ_REPAIR_RESOURCE.as_posix(),
+        "successful RFQ repair resource receipt",
+    )
+    repair_resource = load_json(repair_resource_path)
+    repair_command = repair_resource.get("command")
+    if (
+        repair_resource.get("schema_version") != "w09-stage-resource-v1"
+        or repair_resource.get("label") != "rfq_full_stage_repair01"
+        or repair_resource.get("return_code") != 0
+        or not isinstance(repair_command, list)
+        or not repair_command
+        or "--resume" in repair_command
+    ):
+        raise MissionFinalizationError("successful RFQ repair resource receipt mismatch")
+    source_arguments = [
+        value
+        for value in repair_command
+        if isinstance(value, str) and value.endswith("/source/rfq_full_stage.py")
+    ]
+    try:
+        run_index = repair_command.index("--run-dir")
+        command_run_dir = repair_command[run_index + 1]
+    except (ValueError, IndexError):
+        command_run_dir = None
+    if (
+        len(source_arguments) != 1
+        or not isinstance(command_run_dir, str)
+        or Path(command_run_dir).name != manifest.get("run_id")
+    ):
+        raise MissionFinalizationError("RFQ repair resource command identity mismatch")
+    active_source = checked_relative_path(
+        run_dir, "source/rfq_full_stage.py", "current RFQ repair source"
+    )
+    frozen_source = checked_relative_path(
+        run_dir, "queries/rfq_full_stage.py", "frozen RFQ repair query"
+    )
+    if sha256(active_source) != sha256(frozen_source):
+        raise MissionFinalizationError("executed/frozen RFQ repair source mismatch")
+    repair_resource_sha = sha256(repair_resource_path)
+
+    return {
+        "status": RFQ_PARTIAL_STATUS,
+        "analysis_scope": RFQ_ANALYSIS_SCOPE,
+        "retained_population": "RETAINED_OBSERVED_SUBSET",
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+        "quarantined_object": expected_detail,
+        "unique_objects_total": total_objects,
+        "consumed_unique_objects": consumed_objects,
+        "quarantined_unique_objects": quarantined_objects,
+        "unique_bytes_total": total_bytes,
+        "consumed_bytes": consumed_bytes,
+        "quarantined_bytes": quarantined_bytes,
+        "manifest_object_set_sha256": manifest_set_sha,
+        "consumed_object_set_sha256": consumed_set_sha,
+        "quarantined_object_set_sha256": quarantined_set_sha,
+        "selection_fingerprint_sha256": selection_sha,
+        "quarantine_gap_set_sha256": gap_set_sha,
+        "quarantine_gap": gap,
+        "partial_object_coverage_hours": partial_hours,
+        "initial_execution_commit": previous_commit,
+        "previous_execution_commit": previous_commit,
+        "current_execution_commit": current_commit,
+        "initial_source_manifest_sha256": previous_source,
+        "previous_source_manifest_sha256": previous_source,
+        "current_source_manifest_sha256": current_source,
+        "initial_source_sha256s_sha256": previous_source_sums,
+        "previous_source_sha256s_sha256": previous_source_sums,
+        "current_source_sha256s_sha256": current_source_sums,
+        "initial_query_set_sha256": previous_query,
+        "previous_query_set_sha256": previous_query,
+        "current_query_set_sha256": current_query,
+        "declaration_path": RFQ_DECLARATION.as_posix(),
+        "declaration_sha256": declaration_sha,
+        "receipt_path": RFQ_MALFORMED_RECEIPT.as_posix(),
+        "receipt_sha256": receipt_sha,
+        "repair_receipt_path": REPAIR_REGISTRATION_RECEIPT.as_posix(),
+        "repair_receipt_sha256": repair_receipt_sha,
+        "failed_state_path": FAILED_RFQ_STATE.as_posix(),
+        "failed_state_sha256": failed_state_sha,
+        "failed_resource_receipt_path": FAILED_RFQ_RESOURCE.as_posix(),
+        "failed_resource_receipt_sha256": failed_resource_sha,
+        "failed_scratch_receipt_path": FAILED_RFQ_SCRATCH_RECEIPT.as_posix(),
+        "failed_scratch_receipt_sha256": failed_scratch_sha,
+        "failed_input_identity_path": FAILED_RFQ_INPUT_IDENTITY.as_posix(),
+        "failed_input_identity_sha256": failed_input_sha,
+        "cycle1_duckdb_binding": cycle_binding,
+        "completed_state_path": ACTIVE_RFQ_STATE.as_posix(),
+        "completed_state_sha256": active_state_sha,
+        "successful_resource_receipt_path": ACTIVE_RFQ_REPAIR_RESOURCE.as_posix(),
+        "successful_resource_receipt_sha256": repair_resource_sha,
+        "claim_boundary": RFQ_PARTIAL_BOUNDARY,
+        "reopen_condition": RFQ_REOPEN_CONDITION,
+    }
+
+
 def find_l2_summary(run_dir: Path) -> Path:
     existing = [path for path in L2_SUMMARY_CANDIDATES if (run_dir / path).is_file()]
     if len(existing) == 1:
@@ -594,6 +2040,7 @@ def build_rfq_conclusions(
     run_dir: Path,
     manifest: Mapping[str, Any],
     rfq: Mapping[str, Any],
+    quarantine: Mapping[str, Any],
     *,
     completed_at_utc: str,
 ) -> dict[str, Any]:
@@ -642,9 +2089,11 @@ def build_rfq_conclusions(
             "status_reason": (
                 "Required RFQ-to-CLOB matched samples exist, but the frozen negative-control "
                 "suite, full matching/balance proof, executable fee model and economic-cost "
-                "test are incomplete across only two degraded days."
+                "test are incomplete across only two degraded days. "
+                + RFQ_PARTIAL_BOUNDARY
                 if valid_requests > 0 and causal_anchors > 0 and matched_pairs > 0
-                else "No causally eligible matched RFQ-to-CLOB sample exists for the frozen test."
+                else "No causally eligible matched RFQ-to-CLOB sample exists for the frozen test. "
+                + RFQ_PARTIAL_BOUNDARY
             ),
             "necessary_input_rule": {
                 "valid_requests_gt_zero": valid_requests > 0,
@@ -658,8 +2107,8 @@ def build_rfq_conclusions(
                 "additional independent sealed day blocks",
             ],
             "reopen_condition": (
-                "Collect additional quality-assessed sealed days and complete the frozen "
-                "matched negative-control and executable-cost study."
+                RFQ_REOPEN_CONDITION + " Then complete the frozen matched negative-control "
+                "and executable-cost study."
             ),
         },
         "C1-ANOM-RFQ-SIZE-TAIL-01": {
@@ -668,9 +2117,11 @@ def build_rfq_conclusions(
             "status_reason": (
                 "Validated RFQ size observations exist, but the dependent tail-vs-ordinary "
                 "matched survival/CLOB-impact test, unit-rescaling control and economic-cost "
-                "test are incomplete across only two degraded days."
+                "test are incomplete across only two degraded days. "
+                + RFQ_PARTIAL_BOUNDARY
                 if valid_requests > 0 and size_observations > 0
-                else "No validated RFQ size observation exists for the frozen dependent test."
+                else "No validated RFQ size observation exists for the frozen dependent test. "
+                + RFQ_PARTIAL_BOUNDARY
             ),
             "necessary_input_rule": {
                 "valid_requests_gt_zero": valid_requests > 0,
@@ -683,8 +2134,8 @@ def build_rfq_conclusions(
                 "root-event clustered CLOB impact and economic-cost test",
             ],
             "reopen_condition": (
-                "Complete the frozen matched dependent test on additional quality-assessed "
-                "sealed RFQ days with unit controls."
+                RFQ_REOPEN_CONDITION + " Then complete the frozen matched dependent test "
+                "with unit controls."
             ),
         },
         "C1-ANOM-RFQ-LIFECYCLE-MIXTURE-01": {
@@ -693,9 +2144,11 @@ def build_rfq_conclusions(
             "status_reason": (
                 "Observed RFQ lifecycle endpoints exist, but a predictive mixture or "
                 "competing-risk test, arrival-only comparison, boundary-shift control and "
-                "root-event CLOB-impact test are incomplete across only two degraded days."
+                "root-event CLOB-impact test are incomplete across only two degraded days. "
+                + RFQ_PARTIAL_BOUNDARY
                 if valid_requests > 0 and observed_deletes > 0
-                else "No observed valid RFQ lifecycle endpoint exists for the frozen mixture test."
+                else "No observed valid RFQ lifecycle endpoint exists for the frozen mixture test. "
+                + RFQ_PARTIAL_BOUNDARY
             ),
             "necessary_input_rule": {
                 "valid_requests_gt_zero": valid_requests > 0,
@@ -708,8 +2161,8 @@ def build_rfq_conclusions(
                 "root-event clustered incremental CLOB impact test",
             ],
             "reopen_condition": (
-                "Complete the frozen censor-aware predictive/competing-risk test on "
-                "additional quality-assessed sealed RFQ days."
+                RFQ_REOPEN_CONDITION + " Then complete the frozen censor-aware "
+                "predictive/competing-risk test."
             ),
         },
     }
@@ -721,6 +2174,13 @@ def build_rfq_conclusions(
         "data_evidence": EXPECTED_EVIDENCE,
         "split": EXPECTED_SPLIT,
         "artifact_status": "DIAGNOSTIC_ONLY",
+        "coverage_status": RFQ_PARTIAL_STATUS,
+        "analysis_population": quarantine["retained_population"],
+        "whole_object_quarantine": True,
+        "line_salvage": False,
+        "quarantined_object_set_sha256": quarantine[
+            "quarantined_object_set_sha256"
+        ],
         "source_summary": str(RFQ_SUMMARY),
         "source_summary_sha256": sha256(run_dir / RFQ_SUMMARY),
         "frozen_outcome_independent_rule": (
@@ -741,8 +2201,10 @@ def build_rfq_conclusions(
         "claim_boundary": (
             "This conservative status receipt is not a completed dependent RFQ test, does "
             "not infer RFQ acceptance/fill/PnL, and creates no promotion, verdict, "
-            "validation, confirmation or live authority."
+            "validation, confirmation or live authority. Whole-object quarantine is true "
+            "and line salvage is false. " + RFQ_PARTIAL_BOUNDARY
         ),
+        "reopen_condition": RFQ_REOPEN_CONDITION,
     }
 
 
@@ -871,6 +2333,7 @@ def merge_coverage(
     run_dir: Path,
     manifest: Mapping[str, Any],
     rfq: Mapping[str, Any],
+    quarantine: Mapping[str, Any],
     l2: Mapping[str, Any],
     l2_path: Path,
     *,
@@ -899,13 +2362,14 @@ def merge_coverage(
     if not isinstance(l2_hypotheses, dict):
         raise MissionFinalizationError("L2 summary hypotheses must be an id-keyed object")
     coverage["coverage_status"] = (
-        "COMPLETE_MODE1_SELECTED_RELEASES_WITH_EXPLICIT_LIMITATIONS"
+        "PARTIAL_MODE1_RFQ_OBJECT_COVERAGE_QUARANTINED"
     )
     coverage["finalized_at_utc"] = completed_at_utc
     coverage["scope_note"] = (
-        "Core fact rows remain in the market-hour cube. RFQ and snapshot-aware L2 "
-        "stage completeness are merged as separately provenance-bound stage summaries "
-        "rather than fabricating RFQ rows or object bytes inside the core cube."
+        "Core fact rows remain in the market-hour cube. RFQ uses only the retained "
+        "observed subset after one exact whole-object quarantine, while snapshot-aware "
+        "L2 has its own receipt. The missing RFQ interval can create temporal-selection "
+        "bias; no RFQ rows or object bytes are fabricated inside the core cube."
     )
     coverage["stage_completeness"] = {
         "core_fact_cube": {
@@ -914,15 +2378,38 @@ def merge_coverage(
             "cells": coverage.get("coverage_cube_cells"),
         },
         "rfq_full_stage": {
-            "status": "COMPLETE_DESCRIPTIVE_EXPLORATORY_ONLY",
+            "status": RFQ_PARTIAL_STATUS,
+            "analysis_scope": RFQ_ANALYSIS_SCOPE,
+            "analysis_population": quarantine["retained_population"],
+            "whole_object_quarantine": True,
+            "line_salvage": False,
             "path": str(RFQ_SUMMARY),
             "sha256": sha256(run_dir / RFQ_SUMMARY),
             "release_ids": rfq_input.get("release_ids"),
-            "objects": rfq_input.get("objects"),
-            "bytes": rfq_input.get("bytes"),
+            "logical_manifest_bindings_total": rfq_input.get(
+                "logical_manifest_bindings_total"
+            ),
+            "unique_objects_total": quarantine["unique_objects_total"],
+            "retained_unique_objects": quarantine["consumed_unique_objects"],
+            "quarantined_unique_objects": quarantine[
+                "quarantined_unique_objects"
+            ],
+            "unique_bytes_total": quarantine["unique_bytes_total"],
+            "retained_bytes": quarantine["consumed_bytes"],
+            "quarantined_bytes": quarantine["quarantined_bytes"],
+            "manifest_object_set_sha256": quarantine[
+                "manifest_object_set_sha256"
+            ],
+            "retained_object_set_sha256": quarantine[
+                "consumed_object_set_sha256"
+            ],
+            "quarantined_object_set_sha256": quarantine[
+                "quarantined_object_set_sha256"
+            ],
             "counts": rfq_counts,
             "coverage": rfq.get("coverage"),
             "hard_truth": rfq.get("hard_truth"),
+            "quarantine": dict(quarantine),
         },
         "l2_snapshot_aware_stage": {
             "status": "COMPLETE_EXPLORATORY_HYPOTHESIS_STAGE",
@@ -948,7 +2435,9 @@ def merge_coverage(
     final_limits = (
         "Both selected releases are SEALED_DEGRADED_EVIDENCE; no confirmation-grade claim is possible.",
         "Only two prior-exposed UTC day blocks are available.",
-        "RFQ full-stage coverage is separate from the core market-hour cube.",
+        "RFQ coverage is partial: one exact malformed manifest object is wholly quarantined with no line salvage.",
+        "RFQ findings use the retained observed subset and may have temporal-selection bias from the missing interval.",
+        RFQ_REOPEN_CONDITION,
         "W09 has no S3 write path; durable S3 report publication was unavailable and not attempted.",
     )
     for item in final_limits:
@@ -983,12 +2472,20 @@ def merge_coverage(
     lines.extend(
         [
             "",
-            "## RFQ full-stage coverage",
+            "## RFQ partial object coverage",
             "",
+            f"- Status: `{RFQ_PARTIAL_STATUS}`; population: "
+            "`RETAINED_OBSERVED_SUBSET`; whole-object quarantine: `true`; line salvage: `false`.",
+            f"- Objects retained/quarantined/total: `{quarantine['consumed_unique_objects']}` / "
+            f"`{quarantine['quarantined_unique_objects']}` / `{quarantine['unique_objects_total']}`.",
+            f"- Bytes retained/quarantined/total: `{quarantine['consumed_bytes']}` / "
+            f"`{quarantine['quarantined_bytes']}` / `{quarantine['unique_bytes_total']}`.",
             f"- Valid requests: `{rfq_counts.get('valid_requests')}` "
             "(provenance: `REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json#/counts/valid_requests`).",
             f"- Matched CLOB pairs: `{(rfq.get('clob') or {}).get('matched_pairs')}` "
             "(provenance: `REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json#/clob/matched_pairs`).",
+            f"- {RFQ_PARTIAL_BOUNDARY}",
+            f"- Reopen condition: {RFQ_REOPEN_CONDITION}",
             "",
             "## L2 stage",
             "",
@@ -1266,6 +2763,7 @@ def build_report_sections(
     ledger: Mapping[str, Any],
     coverage: Mapping[str, Any],
     rfq: Mapping[str, Any],
+    quarantine: Mapping[str, Any],
     l2_path: Path,
     conclusions: Mapping[str, Conclusion],
     dossier_paths: Mapping[str, str],
@@ -1330,11 +2828,16 @@ def build_report_sections(
             + "\n".join(release_lines)
             + "\n\nCore fact cube: `"
             + str(coverage.get("coverage_cube"))
-            + "`; RFQ full summary: `"
+            + "`; RFQ partial-stage summary: `"
             + str(RFQ_SUMMARY)
             + "`; L2 snapshot-aware summary: `"
             + str(l2_path)
-            + "`.",
+            + "`.\n\n"
+            + RFQ_PARTIAL_BOUNDARY
+            + " Whole-object quarantine is true and line salvage is false; retained RFQ "
+            f"objects/bytes are `{quarantine['consumed_unique_objects']}` / "
+            f"`{quarantine['consumed_bytes']}` of `{quarantine['unique_objects_total']}` / "
+            f"`{quarantine['unique_bytes_total']}`.",
         ),
         (
             REPORT_SECTION_TITLES[2],
@@ -1350,7 +2853,18 @@ def build_report_sections(
             f"with explicitly MIXED/post-hoc dimensions; split: `{EXPECTED_SPLIT}`; artifact: "
             f"`DIAGNOSTIC_ONLY`; mode: `{EXPECTED_MODE}`. Provenance: `RUN_MANIFEST.json#/banners`.",
         ),
-        (REPORT_SECTION_TITLES[4], "\n".join(integrity_lines)),
+        (
+            REPORT_SECTION_TITLES[4],
+            "\n".join(integrity_lines)
+            + "\n- RFQ status: `PARTIAL_OBJECT_COVERAGE_QUARANTINED`; the malformed "
+            "object was excluded in full with no line salvage. Failure-state, resource, "
+            "scratch-preservation, declaration, receipt, VersionId, set-hash, and gap-QC "
+            "bindings were verified before finalization. The registration change was data-"
+            "integrity handling only: one exact whole-object quarantine plus conservative "
+            "gap censoring, with no hypothesis-design, threshold, feature, test, or status "
+            "change.\n- "
+            + RFQ_PARTIAL_BOUNDARY,
+        ),
         (
             REPORT_SECTION_TITLES[5],
             "The atlas is a root-event-first diagnostic with provisional heuristic game mapping. "
@@ -1369,12 +2883,16 @@ def build_report_sections(
         (REPORT_SECTION_TITLES[9], "\n".join(hypothesis_lines(RV_IDS, conclusions))),
         (
             REPORT_SECTION_TITLES[10],
-            "\n".join(hypothesis_lines(RFQ_IDS, conclusions))
+            RFQ_PARTIAL_BOUNDARY
+            + "\n\n"
+            + "\n".join(hypothesis_lines(RFQ_IDS, conclusions))
             + "\n\nValid requests: "
             + metric(rfq_counts.get("valid_requests"), str(RFQ_SUMMARY), "/counts/valid_requests")
             + "; matched CLOB pairs: "
             + metric(clob.get("matched_pairs"), str(RFQ_SUMMARY), "/clob/matched_pairs")
-            + ". Broadcast hard truth remains: no accepted quote/fill or actual RFQ PnL is observed.",
+            + ". Broadcast hard truth remains: no accepted quote/fill or actual RFQ PnL is observed.\n\n"
+            + "Reopen condition: "
+            + RFQ_REOPEN_CONDITION,
         ),
         (
             REPORT_SECTION_TITLES[11],
@@ -1430,7 +2948,8 @@ def build_report_sections(
             REPORT_SECTION_TITLES[19],
             "Highest priority: additional quality-assessed sealed day blocks. Also required: "
             "authoritative root/family roles, causal dimension history, exact fees/order latency, "
-            "and RFQ outcome fields if acceptance/fill/PnL questions are ever authorized.",
+            "and RFQ outcome fields if acceptance/fill/PnL questions are ever authorized. "
+            + RFQ_REOPEN_CONDITION,
         ),
         (
             REPORT_SECTION_TITLES[20],
@@ -1442,7 +2961,8 @@ def build_report_sections(
             REPORT_SECTION_TITLES[21],
             "Collect new post-start sealed days, run PIPE-W03 quality assessment, then execute the "
             "already frozen dependent tests without retuning thresholds. Formal validation/confirmation "
-            "requires separate authority and an untouched split.",
+            "requires separate authority and an untouched split. For RFQ specifically: "
+            + RFQ_REOPEN_CONDITION,
         ),
         (
             REPORT_SECTION_TITLES[22],
@@ -1463,7 +2983,9 @@ def build_report_sections(
             REPORT_SECTION_TITLES[24],
             f"Two degraded prior-exposed days cannot establish persistence, conservative fill "
             "economics, unseen-data survival, or live readiness. Post-hoc/provisional dimensions "
-            "remain limited. S3 write publication was unavailable and not attempted. No production "
+            "remain limited. The RFQ retained observed subset is partial and may have "
+            "temporal-selection bias from its quarantined interval; no line was salvaged. "
+            "S3 write publication was unavailable and not attempted. No production "
             "EC2 access, S3 mutation, exchange action, RFQ post/response, shadow order, or live trade "
             f"was authorized or executed. **{NO_LIVE_BANNER}.**",
         ),
@@ -1490,6 +3012,7 @@ def executive_summary(
     run_id: str,
     conclusions: Mapping[str, Conclusion],
     resource: Mapping[str, Any],
+    quarantine: Mapping[str, Any],
 ) -> str:
     counts = status_counts(conclusions)
     return "\n".join(
@@ -1501,6 +3024,12 @@ def executive_summary(
             "",
             "The run reached terminal condition 4: every frozen hypothesis is closed or needs "
             "more/adequate data. No strategy was shortlisted.",
+            "",
+            f"RFQ status: `{RFQ_PARTIAL_STATUS}`. {RFQ_PARTIAL_BOUNDARY}",
+            "Whole-object quarantine: `true`; line salvage: `false`; retained/quarantined "
+            f"objects: `{quarantine['consumed_unique_objects']}` / "
+            f"`{quarantine['quarantined_unique_objects']}`.",
+            f"Reopen condition: {RFQ_REOPEN_CONDITION}",
             "",
             f"- hypotheses tested/screened: `{len(conclusions)}` (provenance: `REPORT/tables/FINAL_MISSION_SUMMARY.json#/hypotheses_tested`)",
             f"- COLLECT_MORE: `{counts['COLLECT_MORE']}` (provenance: `REPORT/tables/FINAL_MISSION_SUMMARY.json#/status_counts/COLLECT_MORE`)",
@@ -1592,6 +3121,7 @@ def write_reproduction(
     run_dir: Path,
     manifest: Mapping[str, Any],
     l2_path: Path,
+    quarantine: Mapping[str, Any],
 ) -> None:
     releases = manifest["selected_releases"]
     lines = [
@@ -1604,6 +3134,15 @@ def write_reproduction(
         "",
         f"- run_id: `{manifest['run_id']}`",
         f"- repository commit: `{manifest.get('repo_commit', (manifest.get('repository') or {}).get('commit'))}`",
+        f"- initial execution commit: `{quarantine['initial_execution_commit']}`",
+        f"- previous execution commit: `{quarantine['previous_execution_commit']}`",
+        f"- current repair execution commit: `{quarantine['current_execution_commit']}`",
+        f"- initial/previous source manifest SHA-256: `{quarantine['previous_source_manifest_sha256']}`",
+        f"- current source manifest SHA-256: `{quarantine['current_source_manifest_sha256']}`",
+        f"- initial/previous source checksum-set SHA-256: `{quarantine['previous_source_sha256s_sha256']}`",
+        f"- current source checksum-set SHA-256: `{quarantine['current_source_sha256s_sha256']}`",
+        f"- initial/previous query-set SHA-256: `{quarantine['previous_query_set_sha256']}`",
+        f"- current query-set SHA-256: `{quarantine['current_query_set_sha256']}`",
         f"- mission SHA-256: `{manifest['mission']['sha256']}`",
         f"- prompt SHA-256: `{manifest['canonical_prompt']['sha256']}`",
     ]
@@ -1615,6 +3154,32 @@ def write_reproduction(
     lines.extend(
         [
             "",
+            "## RFQ integrity repair binding",
+            "",
+            f"- status/scope: `{RFQ_PARTIAL_STATUS}` / `{RFQ_ANALYSIS_SCOPE}`",
+            "- population: `RETAINED_OBSERVED_SUBSET`",
+            "- whole-object quarantine: `true`",
+            "- line salvage: `false`",
+            "- registration change class: `DATA_INTEGRITY_HANDLING_ONLY_NO_HYPOTHESIS_DESIGN_CHANGE`",
+            "- handling change: `ONE_EXACT_WHOLE_OBJECT_QUARANTINE_AND_CONSERVATIVE_GAP_CENSORING`",
+            "- hypothesis-design change: `NONE`",
+            f"- declaration: `{quarantine['declaration_path']}` / `{quarantine['declaration_sha256']}`",
+            f"- malformed-object receipt: `{quarantine['receipt_path']}` / `{quarantine['receipt_sha256']}`",
+            f"- repair registration receipt: `{quarantine['repair_receipt_path']}` / `{quarantine['repair_receipt_sha256']}`",
+            f"- failed state: `{quarantine['failed_state_path']}` / `{quarantine['failed_state_sha256']}`",
+            f"- failed resource receipt: `{quarantine['failed_resource_receipt_path']}` / `{quarantine['failed_resource_receipt_sha256']}`",
+            f"- failed scratch receipt: `{quarantine['failed_scratch_receipt_path']}` / `{quarantine['failed_scratch_receipt_sha256']}`",
+            f"- archived failed input identity: `{quarantine['failed_input_identity_path']}` / `{quarantine['failed_input_identity_sha256']}`",
+            f"- Cycle-1 DuckDB binding: `{quarantine['cycle1_duckdb_binding']['active_path']}` / `{quarantine['cycle1_duckdb_binding']['active_sha256']}`; archived `{quarantine['cycle1_duckdb_binding']['archived_path']}` / `{quarantine['cycle1_duckdb_binding']['archived_sha256']}`; DB `{quarantine['cycle1_duckdb_binding']['duckdb_sha256']}`",
+            f"- completed partial-stage state: `{quarantine['completed_state_path']}` / `{quarantine['completed_state_sha256']}`",
+            f"- successful repair resource receipt: `{quarantine['successful_resource_receipt_path']}` / `{quarantine['successful_resource_receipt_sha256']}`",
+            f"- quarantined object-set SHA-256: `{quarantine['quarantined_object_set_sha256']}`",
+            f"- retained object-set SHA-256: `{quarantine['consumed_object_set_sha256']}`",
+            f"- manifest RFQ object-set SHA-256: `{quarantine['manifest_object_set_sha256']}`",
+            f"- quarantine gap-set SHA-256: `{quarantine['quarantine_gap_set_sha256']}`",
+            f"- claim boundary: {RFQ_PARTIAL_BOUNDARY}",
+            f"- reopen condition: {RFQ_REOPEN_CONDITION}",
+            "",
             "## W09-only stage order",
             "",
             "The original heavy run must remain inside `sudo /usr/local/bin/w09-run ...` on the "
@@ -1624,7 +3189,9 @@ def write_reproduction(
             "1. `queries/rfq_trigger.py`",
             "2. `queries/run_cycle1.py`",
             "3. `queries/core_hypothesis_tests.py`",
-            "4. `queries/rfq_full_stage.py`",
+            "4. Preserve the failed scratch receipt and run `queries/rfq_full_stage.py` "
+            "from new scratch, with the one receipt-bound object wholly quarantined and "
+            "strict parsing for every retained object; never resume or salvage a line.",
             f"5. L2 stage producing `{l2_path}`",
             "6. `source/resource_finalize.py` (freeze resource/cost receipt)",
             "7. `queries/finalize_mission.py` (write RUN_MANIFEST last)",
@@ -1681,7 +3248,7 @@ def write_daily_digest(
             "",
             "## New atlas/report pages",
             "",
-            "- Final data coverage, 25-section report, self-contained HTML, RFQ full-stage and "
+            "- Final data coverage, 25-section report, self-contained HTML, RFQ partial-stage and "
             "snapshot-aware L2 receipts are linked from `REPORT/index.html`.",
             "",
             "## New/killed hypotheses",
@@ -1697,6 +3264,9 @@ def write_daily_digest(
             "",
             "- RFQ size-tail and lifecycle-mixture anomalies remain COLLECT_MORE or DATA_STARVED "
             "under the frozen sign-independent rule; they are not strategy claims.",
+            f"- {RFQ_PARTIAL_BOUNDARY}",
+            "- Whole-object quarantine was used and line salvage was not used. Reopen only "
+            f"under this condition: {RFQ_REOPEN_CONDITION}",
             "",
             "## Next-day plan",
             "",
@@ -1828,6 +3398,62 @@ def verify_artifacts(run_dir: Path) -> None:
         or summary.get("shortlisted_strategies") != []
     ):
         raise MissionFinalizationError("final summary terminal binding mismatch")
+    rfq = load_json(run_dir / RFQ_SUMMARY)
+    validate_stage_header(
+        rfq,
+        manifest=manifest,
+        stage_name="RFQ partial stage",
+        schema_prefix="sports-autoresearch-rfq-full-stage-v1",
+    )
+    quarantine = validate_rfq_partial_quarantine(run_dir, manifest, rfq)
+    if (
+        summary.get("rfq_partial_quarantine") != quarantine
+        or summary.get("rfq_claim_boundary") != RFQ_PARTIAL_BOUNDARY
+        or summary.get("rfq_reopen_condition") != RFQ_REOPEN_CONDITION
+        or summary.get("rfq_integrity_statement")
+        != (
+            "Whole-object quarantine is true and line salvage is false for the retained "
+            "observed subset; the missing interval may create temporal-selection bias."
+        )
+        or finalization.get("rfq_coverage_status") != RFQ_PARTIAL_STATUS
+        or finalization.get("rfq_quarantined_object_set_sha256")
+        != quarantine["quarantined_object_set_sha256"]
+        or finalization.get("rfq_line_salvage") is not False
+        or finalization.get("rfq_completed_state_sha256")
+        != quarantine["completed_state_sha256"]
+        or finalization.get("rfq_successful_resource_receipt_sha256")
+        != quarantine["successful_resource_receipt_sha256"]
+        or finalization.get("rfq_repair_registration_receipt_sha256")
+        != quarantine["repair_receipt_sha256"]
+    ):
+        raise MissionFinalizationError("final RFQ partial-quarantine binding mismatch")
+    final_coverage = load_json(run_dir / "DATA_COVERAGE.json")
+    if (
+        final_coverage.get("coverage_status")
+        != "PARTIAL_MODE1_RFQ_OBJECT_COVERAGE_QUARANTINED"
+        or (final_coverage.get("stage_completeness") or {})
+        .get("rfq_full_stage", {})
+        .get("status")
+        != RFQ_PARTIAL_STATUS
+    ):
+        raise MissionFinalizationError("final data coverage falsely claims completion")
+    required_partial_outputs = (
+        Path("REPORT/FULL_REPORT.md"),
+        Path("REPORT/EXECUTIVE_SUMMARY.md"),
+        Path("REPORT/index.html"),
+        RFQ_CONCLUSIONS,
+        Path("REPRODUCE.md"),
+    )
+    for relative in required_partial_outputs:
+        text = (run_dir / relative).read_text(encoding="utf-8")
+        if (
+            "retained observed subset" not in text.lower()
+            or "temporal-selection bias" not in text.lower()
+            or "line salvage" not in text.lower()
+        ):
+            raise MissionFinalizationError(
+                f"partial RFQ boundary missing from final output: {relative}"
+            )
     ledger_counts = {status: 0 for status in sorted(TERMINAL_MODE1_STATUSES)}
     ledger_statuses = {}
     for card in cards:
@@ -1866,8 +3492,10 @@ def finalize(run_dir: Path) -> None:
             f"run_id={manifest['run_id']} report={run_dir / 'REPORT/FULL_REPORT.md'}"
         )
         return
-    if manifest.get("status") != "CYCLE1_CORE_COMPLETE_RFQ_FULL_SCAN_PENDING":
-        raise MissionFinalizationError("manifest is not at the finalizable Cycle-1 stage")
+    if manifest.get("status") != REPAIR_PENDING_STATUS:
+        raise MissionFinalizationError(
+            "manifest is not at the registered RFQ quarantine-repair stage"
+        )
     validate_frozen_query_source(run_dir, manifest)
     resource_path = run_dir / "RESOURCE_USAGE.json"
     resource_binding = manifest.get("resource_usage")
@@ -1895,23 +3523,10 @@ def finalize(run_dir: Path) -> None:
     validate_stage_header(
         rfq,
         manifest=manifest,
-        stage_name="RFQ full stage",
+        stage_name="RFQ partial stage",
         schema_prefix="sports-autoresearch-rfq-full-stage-v1",
     )
-    if rfq.get("status") != "DESCRIPTIVE_DISCOVERY_ONLY":
-        raise MissionFinalizationError("RFQ full stage is not complete descriptive discovery")
-    rfq_input = rfq.get("input")
-    if not isinstance(rfq_input, dict):
-        raise MissionFinalizationError("RFQ input identity is missing")
-    expected_release_ids = [
-        item["release_id"] for item in manifest["selected_releases"]
-    ]
-    if rfq_input.get("release_ids") != expected_release_ids:
-        raise MissionFinalizationError("RFQ full-stage release binding mismatch")
-    if require_nonnegative_int(rfq_input.get("objects"), "RFQ input.objects") == 0:
-        raise MissionFinalizationError("RFQ full-stage manifest object set is empty")
-    if require_nonnegative_int(rfq_input.get("bytes"), "RFQ input.bytes") == 0:
-        raise MissionFinalizationError("RFQ full-stage manifest byte count is empty")
+    quarantine = validate_rfq_partial_quarantine(run_dir, manifest, rfq)
     hard_truth = rfq.get("hard_truth")
     if not isinstance(hard_truth, dict) or hard_truth.get(
         "broadcast_contains_accepted_quote_or_fill"
@@ -1919,7 +3534,11 @@ def finalize(run_dir: Path) -> None:
         raise MissionFinalizationError("RFQ hard-truth boundary is missing")
 
     rfq_conclusions = build_rfq_conclusions(
-        run_dir, manifest, rfq, completed_at_utc=completed_at_utc
+        run_dir,
+        manifest,
+        rfq,
+        quarantine,
+        completed_at_utc=completed_at_utc,
     )
     atomic_json(run_dir / RFQ_CONCLUSIONS, rfq_conclusions)
 
@@ -1930,6 +3549,7 @@ def finalize(run_dir: Path) -> None:
         run_dir,
         manifest,
         rfq,
+        quarantine,
         l2,
         l2_path,
         completed_at_utc=completed_at_utc,
@@ -1987,6 +3607,13 @@ def finalize(run_dir: Path) -> None:
             "rfq_conclusions": str(RFQ_CONCLUSIONS),
             "l2": str(l2_path),
         },
+        "rfq_partial_quarantine": dict(quarantine),
+        "rfq_claim_boundary": RFQ_PARTIAL_BOUNDARY,
+        "rfq_reopen_condition": RFQ_REOPEN_CONDITION,
+        "rfq_integrity_statement": (
+            "Whole-object quarantine is true and line salvage is false for the retained "
+            "observed subset; the missing interval may create temporal-selection bias."
+        ),
         "publication": {
             "canonical_local_archive": str(run_dir),
             "s3_write_available": False,
@@ -2006,6 +3633,7 @@ def finalize(run_dir: Path) -> None:
         ledger,
         coverage,
         rfq,
+        quarantine,
         l2_path,
         conclusions,
         dossier_paths,
@@ -2019,14 +3647,14 @@ def finalize(run_dir: Path) -> None:
     )
     atomic_text(
         report_dir / "EXECUTIVE_SUMMARY.md",
-        executive_summary(manifest["run_id"], conclusions, resource),
+        executive_summary(manifest["run_id"], conclusions, resource, quarantine),
     )
     atomic_text(
         report_dir / "index.html",
         html_report(manifest["run_id"], sections, report_dir / "charts"),
     )
     write_daily_digest(run_dir, completed_at_utc, conclusions)
-    write_reproduction(run_dir, manifest, l2_path)
+    write_reproduction(run_dir, manifest, l2_path, quarantine)
 
     write_artifact_hashes(run_dir)
 
@@ -2055,6 +3683,18 @@ def finalize(run_dir: Path) -> None:
         "s3_write_attempted": False,
         "shutdown_confirmation": resource.get("shutdown_confirmation"),
         "no_live_trading_authorized_or_executed": True,
+        "rfq_coverage_status": RFQ_PARTIAL_STATUS,
+        "rfq_quarantined_object_set_sha256": quarantine[
+            "quarantined_object_set_sha256"
+        ],
+        "rfq_line_salvage": False,
+        "rfq_completed_state_sha256": quarantine["completed_state_sha256"],
+        "rfq_successful_resource_receipt_sha256": quarantine[
+            "successful_resource_receipt_sha256"
+        ],
+        "rfq_repair_registration_receipt_sha256": quarantine[
+            "repair_receipt_sha256"
+        ],
     }
     atomic_json(run_dir / "RUN_MANIFEST.json", manifest)
     print(
