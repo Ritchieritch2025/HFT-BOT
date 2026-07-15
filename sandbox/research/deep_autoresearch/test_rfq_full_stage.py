@@ -15,6 +15,14 @@ mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(mod)
 
+repair04_path = Path(__file__).with_name("repair04_registration.py")
+repair04_spec = importlib.util.spec_from_file_location(
+    "repair04_registration_for_rfq_consumer_tests", repair04_path
+)
+repair04_producer = importlib.util.module_from_spec(repair04_spec)
+assert repair04_spec.loader is not None
+repair04_spec.loader.exec_module(repair04_producer)
+
 
 def recorder(wall_ns, frame=None, *, mono_ns=None, epoch=1, marker=None):
     row = {
@@ -884,6 +892,8 @@ def repair03_main_failure_fixture(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "EXPECTED_DUCKDB", duckdb.__version__)
     return {
         "run_dir": run_dir,
+        "manifest": manifest,
+        "inputs": inputs,
         "input_path": active_input,
         "state_path": active_state,
         "scratch": run_dir / "cache/rfq_full_scratch.duckdb",
@@ -2294,6 +2304,51 @@ def test_repair03_consumer_replays_same_selection_with_parser_binding(
     }
 
 
+def test_repair03_strict_parent_replay_uses_repair04_boundary_snapshot(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_consumer_fixture(tmp_path, monkeypatch)
+    run_dir = fixture["run_dir"]
+    boundary = run_dir / "synthetic-repair04-parent-boundary"
+    repository = fixture["manifest"]["repository"]
+    for relative in (
+        "SOURCE_MANIFEST.json", "SOURCE_SHA256SUMS.txt", "QUERY_SHA256SUMS.txt",
+        *repository["query_files"], "TRIAL_REGISTRY.jsonl",
+    ):
+        source = run_dir / relative
+        target = boundary / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    # A legitimate attempt after repair-03 replaces these active evidence
+    # documents.  The descendant replay must use repair-03's fixed archives,
+    # while source/query/registry bytes come from repair-04's pre-repair snapshot.
+    write_json(
+        run_dir / "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+        {"status": "ATTEMPT_04_REPLACED_ACTIVE_PARENT_EVIDENCE"},
+    )
+    write_json(
+        run_dir / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        {"schema": "rfq-full-input-identity-v3", "attempt": 4},
+    )
+    monkeypatch.setattr(
+        mod,
+        "_apply_double_object_quarantine",
+        lambda *_args, **_kwargs: copy.deepcopy(fixture["base_result"]),
+    )
+    result = mod._apply_repair03_parser_contract(
+        run_dir,
+        fixture["manifest"],
+        fixture["inputs"],
+        descendant_boundary_root=boundary,
+    )
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03",
+    ]
+    assert result["registered_rfq_query_sha256"] == fixture["repair03"][
+        "registered_rfq_query_sha256"
+    ]
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     (
@@ -2447,6 +2502,508 @@ def test_explicit_null_cannot_be_blessed_by_coordinated_repair03_rewrite(
         mod.apply_object_quarantine(
             run_dir, fixture["manifest"], fixture["inputs"]
         )
+
+
+def test_repair04_resource_contract_and_authority_are_exact(tmp_path):
+    run_dir = tmp_path / "repair04-contract"
+    run_dir.mkdir()
+    applied_at = "2026-07-15T18:00:00Z"
+    repair04 = {
+        "failed_state_sha256": "1" * 64,
+        "failed_resource_receipt_sha256": "2" * 64,
+        "failed_input_identity_sha256": "3" * 64,
+        "failed_scratch_receipt_sha256": "4" * 64,
+        "resource_contract_path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "authority_basis_path": mod.REPAIR04_AUTHORITY_BASIS,
+    }
+    contract = mod._expected_repair04_resource_contract(
+        run_dir.name, applied_at, repair04
+    )
+    write_json(run_dir / mod.REPAIR04_RESOURCE_CONTRACT_PATH, contract)
+    contract_sha = mod.sha256(run_dir / mod.REPAIR04_RESOURCE_CONTRACT_PATH)
+    repair04["resource_contract_sha256"] = contract_sha
+    authority = {
+        "schema_version": mod.REPAIR04_AUTHORITY_SCHEMA,
+        "run_id": run_dir.name,
+        "recorded_at_utc": applied_at,
+        "mission_sha256": mod.EXPECTED_MISSION_SHA256,
+        "authority_class": mod.REPAIR04_AUTHORITY_CLASS,
+        "permitted_change": "EXISTING_W09_EXECUTION_RESOURCE_RETUNE_ONLY",
+        "resource_contract_path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "resource_contract_sha256": contract_sha,
+        "existing_w09_instance_id": mod.EXPECTED_INSTANCE,
+        "new_instance_spend_authorized": False,
+        "instance_resize_authorized": False,
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+    }
+    write_json(run_dir / mod.REPAIR04_AUTHORITY_BASIS, authority)
+    repair04["authority_basis_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR04_AUTHORITY_BASIS
+    )
+
+    observed_contract, observed_authority = (
+        mod._validate_repair04_contract_artifacts(run_dir, repair04, applied_at)
+    )
+    assert observed_contract == contract
+    assert observed_authority == authority
+    assert contract["current_runtime"] == mod.REPAIR04_RUNTIME_CONTRACT
+    assert contract["previous_runtime"] == mod.REPAIR04_PREVIOUS_RESOURCE_CONTRACT
+    assert contract["expected_command"] == mod._repair04_retry_command(run_dir.name)
+    assert contract["expected_command"][1] == (
+        f"/srv/w09-research/runs/{run_dir.name}/queries/rfq_full_stage.py"
+    )
+    assert mod._repair04_failed_command(run_dir.name)[1] == (
+        f"/srv/w09-research/runs/{run_dir.name}/source/rfq_full_stage.py"
+    )
+    assert contract["disk_safety"]["failed_scratch_deletion_allowed"] is False
+    assert contract["w09"]["resize_allowed"] is False
+
+
+def repair04_runtime_enforcement_fixture(tmp_path, monkeypatch):
+    run_dir = tmp_path / "repair04-runtime-enforcement"
+    execution_entry = run_dir / mod.REPAIR04_EXECUTION_QUERY
+    execution_entry.parent.mkdir(parents=True)
+    execution_entry.write_bytes(path.read_bytes())
+    monkeypatch.setattr(mod, "__file__", str(execution_entry))
+    binding = {
+        "path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "sha256": "a" * 64,
+        "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+        "current_runtime": copy.deepcopy(mod.REPAIR04_RUNTIME_CONTRACT),
+    }
+    inputs = {
+        "rfq_resource_contract": binding,
+        "registered_rfq_query_sha256": mod.sha256(execution_entry),
+    }
+    args = type("Args", (), {
+        "memory_limit": "46GB", "max_temp_size": "70GB", "threads": 4,
+        "min_free_gib": 100.0, "clob_max_per_root": 50,
+        "resume": False, "keep_scratch": False,
+    })()
+    return run_dir, inputs, args, execution_entry
+
+
+@pytest.mark.parametrize(
+    "section,key,value,message",
+    [
+        ("current_runtime", "threads", 8, "resource contract content mismatch"),
+        ("current_runtime", "max_temp_size", "120GB", "resource contract content mismatch"),
+        ("disk_safety", "failed_scratch_deletion_allowed", True,
+         "resource contract content mismatch"),
+        ("w09", "replacement_instance_allowed", True,
+         "resource contract content mismatch"),
+    ],
+)
+def test_repair04_coordinated_contract_rewrites_fail_closed(
+    tmp_path, section, key, value, message
+):
+    run_dir = tmp_path / "repair04-contract-mutation"
+    run_dir.mkdir()
+    applied_at = "2026-07-15T18:00:00Z"
+    repair04 = {
+        "failed_state_sha256": "1" * 64,
+        "failed_resource_receipt_sha256": "2" * 64,
+        "failed_input_identity_sha256": "3" * 64,
+        "failed_scratch_receipt_sha256": "4" * 64,
+        "resource_contract_path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "authority_basis_path": mod.REPAIR04_AUTHORITY_BASIS,
+    }
+    contract = mod._expected_repair04_resource_contract(
+        run_dir.name, applied_at, repair04
+    )
+    contract[section][key] = value
+    write_json(run_dir / mod.REPAIR04_RESOURCE_CONTRACT_PATH, contract)
+    repair04["resource_contract_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR04_RESOURCE_CONTRACT_PATH
+    )
+    authority = {
+        "schema_version": mod.REPAIR04_AUTHORITY_SCHEMA,
+        "run_id": run_dir.name,
+        "recorded_at_utc": applied_at,
+        "mission_sha256": mod.EXPECTED_MISSION_SHA256,
+        "authority_class": mod.REPAIR04_AUTHORITY_CLASS,
+        "permitted_change": "EXISTING_W09_EXECUTION_RESOURCE_RETUNE_ONLY",
+        "resource_contract_path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "resource_contract_sha256": repair04["resource_contract_sha256"],
+        "existing_w09_instance_id": mod.EXPECTED_INSTANCE,
+        "new_instance_spend_authorized": False,
+        "instance_resize_authorized": False,
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+    }
+    write_json(run_dir / mod.REPAIR04_AUTHORITY_BASIS, authority)
+    repair04["authority_basis_sha256"] = mod.sha256(
+        run_dir / mod.REPAIR04_AUTHORITY_BASIS
+    )
+    with pytest.raises(mod.RFQStageError, match=message):
+        mod._validate_repair04_contract_artifacts(run_dir, repair04, applied_at)
+
+
+def test_repair04_trial_suffix_matches_registration_producer_exactly():
+    applied_at = "2026-07-15T18:00:00Z"
+    previous_repository = {
+        "execution_commit": "1" * 40,
+        "source_manifest_sha256": "2" * 64,
+        "source_sha256s_sha256": "3" * 64,
+        "query_set_sha256": "4" * 64,
+    }
+    current_identity = {
+        "execution_commit": "5" * 40,
+        "source_manifest_sha256": "6" * 64,
+        "source_sha256s_sha256": "7" * 64,
+        "query_set_sha256": "8" * 64,
+    }
+    evidence = {
+        "failed_state_path": mod.REPAIR04_FAILED_STATE_ARCHIVE,
+        "failed_state_sha256": "9" * 64,
+        "failed_resource_receipt_path": mod.REPAIR04_FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_receipt_sha256": "a" * 64,
+        "failed_scratch_receipt_path": mod.REPAIR04_FAILED_SCRATCH_ARCHIVE,
+        "failed_scratch_receipt_sha256": "b" * 64,
+        "failed_input_identity_path": mod.REPAIR04_FAILED_INPUT_ARCHIVE,
+        "failed_input_identity_sha256": "c" * 64,
+        "resource_contract_path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "resource_contract_sha256": "d" * 64,
+        "authority_basis_path": mod.REPAIR04_AUTHORITY_BASIS,
+        "authority_basis_sha256": "e" * 64,
+    }
+    repair04 = {
+        **evidence,
+        "failed_input_fingerprint": repair04_producer.SELECTION_FINGERPRINT,
+        "previous_selection_fingerprint_sha256": (
+            repair04_producer.SELECTION_FINGERPRINT
+        ),
+        "current_selection_fingerprint_sha256": (
+            repair04_producer.SELECTION_FINGERPRINT
+        ),
+    }
+    coverage = {"status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED"}
+    cumulative = [{"key": "raw_rfq/quarantined"}]
+    resource = {
+        "wall_seconds": mod.REPAIR04_APPROVED_RESOURCE_WALL_SECONDS,
+        "peak_process_tree_rss_kib_polled": (
+            mod.REPAIR04_APPROVED_RESOURCE_PEAK_RSS_KIB
+        ),
+        "cumulative_children_max_rss_kib": 40_429_620,
+        "peak_temp_bytes_polled": mod.REPAIR04_APPROVED_RESOURCE_PEAK_TEMP_BYTES,
+        "minimum_disk_free_bytes_polled": (
+            mod.REPAIR04_APPROVED_RESOURCE_MIN_FREE_BYTES
+        ),
+    }
+    produced = list(repair04_producer.make_trial_records(
+        applied_at,
+        previous_repository,
+        current_identity,
+        evidence,
+        coverage,
+        cumulative,
+        resource,
+    ))
+    consumed = mod._expected_repair04_trial_rows(
+        applied_at,
+        previous_repository,
+        current_identity,
+        repair04,
+        coverage,
+        cumulative,
+        resource,
+    )
+    assert consumed == produced
+
+
+def test_repair04_registration_product_is_accepted_by_consumer(
+    tmp_path, monkeypatch
+):
+    helper_path = Path(__file__).with_name("test_repair04_registration.py")
+    helper_spec = importlib.util.spec_from_file_location(
+        "repair04_registration_fixture_for_consumer", helper_path
+    )
+    helpers = importlib.util.module_from_spec(helper_spec)
+    assert helper_spec.loader is not None
+    helper_spec.loader.exec_module(helpers)
+    fixture = helpers.make_transaction_fixture(tmp_path, monkeypatch)
+    assert helpers.invoke(fixture)["status"] == "REGISTRATION_REPAIR04_REFROZEN"
+
+    run_dir = fixture["run"]
+    manifest = json.loads((run_dir / "RUN_MANIFEST.json").read_text())
+    repair03 = manifest["data_integrity_repairs"][2]
+    repair04 = manifest["data_integrity_repairs"][3]
+    coverage = repair04["coverage"]
+    base_result = {
+        "objects": coverage["full_unique_objects"],
+        "logical_manifest_bindings": coverage[
+            "full_logical_manifest_bindings"
+        ],
+        "bytes": coverage["full_unique_bytes"],
+        "path_size_fingerprint_sha256": coverage["full_object_set_sha256"],
+        "coverage_status": coverage["status"],
+        "full_object_coverage": False,
+        "unique_objects_total": coverage["full_unique_objects"],
+        "unique_bytes_total": coverage["full_unique_bytes"],
+        "consumed_unique_objects": coverage["retained_unique_objects"],
+        "consumed_logical_bindings": coverage[
+            "retained_logical_manifest_bindings"
+        ],
+        "consumed_bytes": coverage["retained_bytes"],
+        "consumed_object_set_sha256": coverage["retained_object_set_sha256"],
+        "quarantined_unique_objects": coverage["quarantined_unique_objects"],
+        "quarantined_logical_bindings": coverage[
+            "quarantined_logical_manifest_bindings"
+        ],
+        "quarantined_bytes": coverage["quarantined_bytes"],
+        "quarantined_object_set_sha256": coverage[
+            "quarantined_object_set_sha256"
+        ],
+        "selection_fingerprint_sha256": coverage[
+            "retained_selection_fingerprint_sha256"
+        ],
+        "repair_chain": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 4)
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 4)
+        ],
+        "inner_payload_parser_contract": {
+            "path": repair03["parser_contract_path"],
+            "sha256": repair03["parser_contract_sha256"],
+            "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+        },
+        "registered_rfq_query_sha256": repair03[
+            "registered_rfq_query_sha256"
+        ],
+        "cycle1_duckdb_binding": repair03["cycle1_duckdb_binding"],
+        "paths": [],
+        "objects_detail": [],
+    }
+    inputs = {
+        "objects": coverage["full_unique_objects"],
+        "logical_manifest_bindings": coverage[
+            "full_logical_manifest_bindings"
+        ],
+        "bytes": coverage["full_unique_bytes"],
+        "path_size_fingerprint_sha256": coverage["full_object_set_sha256"],
+    }
+    monkeypatch.setattr(
+        mod,
+        "_apply_repair03_parser_contract",
+        lambda *_args, **_kwargs: copy.deepcopy(base_result),
+    )
+    monkeypatch.setattr(
+        mod,
+        "_validate_repair04_failed_boundary",
+        lambda *_args, **_kwargs: {
+            "resource": copy.deepcopy(fixture["resource"]),
+        },
+    )
+    failed = repair04["failed_attempt"]
+    monkeypatch.setattr(
+        mod, "REPAIR04_APPROVED_FAILED_SCRATCH_SHA256",
+        failed["preserved_scratch_sha256"],
+    )
+    monkeypatch.setattr(
+        mod, "REPAIR04_APPROVED_FAILED_SCRATCH_BYTES",
+        failed["preserved_scratch_bytes"],
+    )
+    monkeypatch.setattr(
+        mod, "REPAIR04_APPROVED_FAILED_SCRATCH_MTIME",
+        failed["preserved_scratch_mtime_utc"],
+    )
+    monkeypatch.setattr(
+        mod, "REPAIR04_APPROVED_FAILED_SCRATCH_INODE",
+        failed["preserved_scratch_original_inode"],
+    )
+
+    result = mod._apply_repair04_resource_contract(run_dir, manifest, inputs)
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03", "repair-04",
+    ]
+    assert result["rfq_resource_contract"] == {
+        "path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "sha256": repair04["resource_contract_sha256"],
+        "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+        "current_runtime": mod.REPAIR04_RUNTIME_CONTRACT,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("memory_limit", "40GB"),
+        ("max_temp_size", "120GB"),
+        ("threads", 8),
+        ("min_free_gib", 120.0),
+        ("clob_max_per_root", 51),
+        ("resume", True),
+        ("keep_scratch", True),
+    ],
+)
+def test_repair04_runtime_contract_is_enforced_before_attempt_mutation(
+    tmp_path, monkeypatch, field, invalid
+):
+    run_dir, inputs, args, _ = repair04_runtime_enforcement_fixture(
+        tmp_path, monkeypatch
+    )
+    mod._enforce_registered_resource_contract(args, inputs, run_dir)
+    setattr(args, field, invalid)
+    with pytest.raises(mod.RFQStageError, match="runtime arguments differ"):
+        mod._enforce_registered_resource_contract(args, inputs, run_dir)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "value"),
+    [
+        ("extra", True),
+        ("path", "DATA_INTEGRITY/forged.json"),
+        ("sha256", "not-a-sha"),
+        ("schema_version", "rfq-execution-resource-contract-v2"),
+        ("current_runtime", {"threads": 4}),
+    ],
+)
+def test_repair04_runtime_binding_shape_fails_closed(
+    tmp_path, monkeypatch, mutation, value
+):
+    run_dir, inputs, args, _ = repair04_runtime_enforcement_fixture(
+        tmp_path, monkeypatch
+    )
+    binding = inputs["rfq_resource_contract"]
+    binding[mutation] = value
+    with pytest.raises(mod.RFQStageError, match="registered resource contract"):
+        mod._enforce_registered_resource_contract(args, inputs, run_dir)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["legacy_source_path", "query_bytes", "query_symlink", "registered_sha"],
+)
+def test_repair04_execution_entry_must_be_registered_frozen_query(
+    tmp_path, monkeypatch, mutation
+):
+    run_dir, inputs, args, execution_entry = repair04_runtime_enforcement_fixture(
+        tmp_path, monkeypatch
+    )
+    if mutation == "legacy_source_path":
+        legacy = run_dir / "source/rfq_full_stage.py"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_bytes(execution_entry.read_bytes())
+        monkeypatch.setattr(mod, "__file__", str(legacy))
+    elif mutation == "query_bytes":
+        execution_entry.write_bytes(b"# unregistered repair-04 query\n")
+    elif mutation == "query_symlink":
+        payload = execution_entry.read_bytes()
+        execution_entry.unlink()
+        target = run_dir / "unregistered-rfq-query.py"
+        target.write_bytes(payload)
+        execution_entry.symlink_to(target)
+    else:
+        inputs["registered_rfq_query_sha256"] = "0" * 64
+    with pytest.raises(mod.RFQStageError, match="execution entry"):
+        mod._enforce_registered_resource_contract(args, inputs, run_dir)
+
+
+def test_resource_gate_is_noop_without_repair04_contract(tmp_path):
+    args = type("Args", (), {})()
+    mod._enforce_registered_resource_contract(args, {}, tmp_path)
+
+
+def test_apply_object_quarantine_dispatches_exact_repair04_chain(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "repair04-dispatch"
+    run_dir.mkdir()
+    (run_dir / mod.QUARANTINE_DECLARATION_02).parent.mkdir(parents=True)
+    (run_dir / mod.QUARANTINE_DECLARATION_02).write_bytes(b"{}\n")
+    (run_dir / mod.MALFORMED_OBJECT_RECEIPT_02).write_bytes(b"{}\n")
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 5)
+        ]
+    }
+    sentinel = {"repair04": "validated"}
+    monkeypatch.setattr(
+        mod,
+        "_apply_repair04_resource_contract",
+        lambda observed_run, observed_manifest, observed_inputs: (
+            sentinel
+            if (observed_run, observed_manifest, observed_inputs)
+            == (run_dir, manifest, {"inputs": True})
+            else None
+        ),
+    )
+    assert mod.apply_object_quarantine(
+        run_dir, manifest, {"inputs": True}
+    ) == sentinel
+
+
+def test_main_repair04_writes_v4_identity_and_resource_binding(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_main_failure_fixture(tmp_path, monkeypatch)
+    fixture["manifest"]["data_integrity_repairs"].append(
+        {"repair_id": "repair-04"}
+    )
+    binding = {
+        "path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "sha256": "2" * 64,
+        "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+        "current_runtime": copy.deepcopy(mod.REPAIR04_RUNTIME_CONTRACT),
+    }
+    execution_entry = fixture["run_dir"] / mod.REPAIR04_EXECUTION_QUERY
+    execution_entry.parent.mkdir(parents=True)
+    execution_entry.write_bytes(path.read_bytes())
+    monkeypatch.setattr(mod, "__file__", str(execution_entry))
+    fixture["inputs"].update({
+        "repair_chain": [
+            {"repair_id": "repair-03"}, {"repair_id": "repair-04"},
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": "repair-03"}, {"repair_id": "repair-04"},
+        ],
+        "expected_success_resource": {
+            "label": mod.REPAIR04_SUCCESS_RESOURCE_LABEL,
+            "path": mod.REPAIR04_SUCCESS_RESOURCE_PATH,
+        },
+        "rfq_resource_contract": binding,
+        "registered_rfq_query_sha256": mod.sha256(execution_entry),
+    })
+    monkeypatch.setattr(
+        mod.shutil,
+        "disk_usage",
+        lambda _path: type("Usage", (), {"free": 2**50})(),
+    )
+
+    def fail_connect(path):
+        Path(path).write_bytes(b"partial repair04 scratch")
+        raise RuntimeError("synthetic repair04 connect failure")
+
+    monkeypatch.setattr(duckdb, "connect", fail_connect)
+    with pytest.raises(RuntimeError, match="repair04 connect failure"):
+        mod.main([
+            "--run-dir", str(fixture["run_dir"]),
+            "--cache-root", str(tmp_path / "cache"),
+            "--memory-limit", "46GB", "--max-temp-size", "70GB",
+            "--threads", "4", "--min-free-gib", "100",
+            "--clob-max-per-root", "50",
+        ])
+    identity = json.loads(fixture["input_path"].read_text())
+    state = json.loads(fixture["state_path"].read_text())
+    assert identity["schema"] == "rfq-full-input-identity-v4"
+    assert identity["rfq_resource_contract"] == binding
+    assert state["rfq_resource_contract"] == binding
+    assert state["expected_success_resource"] == {
+        "label": mod.REPAIR04_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR04_SUCCESS_RESOURCE_PATH,
+    }
+    assert state["status"] == "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
+    assert fixture["scratch"].read_bytes() == b"partial repair04 scratch"
 
 
 def test_main_disk_headroom_failure_does_not_mutate_failed03_evidence(
