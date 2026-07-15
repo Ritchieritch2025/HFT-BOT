@@ -39,6 +39,22 @@ repair05_test_helpers = importlib.util.module_from_spec(repair05_test_spec)
 assert repair05_test_spec.loader is not None
 repair05_test_spec.loader.exec_module(repair05_test_helpers)
 
+repair06_path = Path(__file__).with_name("repair06_registration.py")
+repair06_spec = importlib.util.spec_from_file_location(
+    "repair06_registration_for_rfq_consumer_tests", repair06_path
+)
+repair06_producer = importlib.util.module_from_spec(repair06_spec)
+assert repair06_spec.loader is not None
+repair06_spec.loader.exec_module(repair06_producer)
+
+repair06_test_path = Path(__file__).with_name("test_repair06_registration.py")
+repair06_test_spec = importlib.util.spec_from_file_location(
+    "repair06_registration_fixture_for_rfq_consumer", repair06_test_path
+)
+repair06_test_helpers = importlib.util.module_from_spec(repair06_test_spec)
+assert repair06_test_spec.loader is not None
+repair06_test_spec.loader.exec_module(repair06_test_helpers)
+
 
 def recorder(wall_ns, frame=None, *, mono_ns=None, epoch=1, marker=None):
     row = {
@@ -3394,6 +3410,46 @@ def test_apply_object_quarantine_dispatches_exact_repair05_chain(
     ) == sentinel
 
 
+def test_apply_object_quarantine_dispatches_exact_repair06_chain(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "repair06-dispatch"
+    (run_dir / mod.QUARANTINE_DECLARATION_02).parent.mkdir(parents=True)
+    (run_dir / mod.QUARANTINE_DECLARATION_02).write_bytes(b"{}\n")
+    (run_dir / mod.MALFORMED_OBJECT_RECEIPT_02).write_bytes(b"{}\n")
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 7)
+        ]
+    }
+    sentinel = {"repair06": "validated"}
+    observed = {}
+
+    def apply06(observed_run, observed_manifest, observed_inputs, *, active_root=None):
+        observed.update({
+            "run": observed_run,
+            "manifest": observed_manifest,
+            "inputs": observed_inputs,
+            "active_root": active_root,
+        })
+        return sentinel
+
+    monkeypatch.setattr(mod, "_apply_repair06_status_wiring", apply06)
+    overlay = run_dir / mod.REPAIR06_ROOT / "post_repair"
+    assert mod.apply_object_quarantine(
+        run_dir,
+        manifest,
+        {"inputs": True},
+        _active_root=overlay,
+    ) == sentinel
+    assert observed == {
+        "run": run_dir,
+        "manifest": manifest,
+        "inputs": {"inputs": True},
+        "active_root": overlay,
+    }
+
+
 def test_apply_object_quarantine_dispatches_exact_repair04_chain(
     tmp_path, monkeypatch
 ):
@@ -3555,6 +3611,296 @@ def test_main_repair05_writes_v5_identity_and_both_contract_bindings(
         "label": mod.REPAIR05_SUCCESS_RESOURCE_LABEL,
         "path": mod.REPAIR05_SUCCESS_RESOURCE_PATH,
     }
+
+
+def _repair06_validate_run_fixture(tmp_path, monkeypatch):
+    run_dir = tmp_path / "repair06-validate-run"
+    (run_dir / "DATA_INTEGRITY/manifests").mkdir(parents=True)
+    (run_dir / "REPORT/tables").mkdir(parents=True)
+    (run_dir / "cache").mkdir(parents=True)
+    attestation = {
+        "instance_id": mod.EXPECTED_INSTANCE,
+        "region": mod.EXPECTED_REGION,
+        "role": mod.EXPECTED_ROLE,
+        "instance_profile": mod.EXPECTED_ROLE,
+        "architecture": "aarch64",
+        "w09_run_inhibitor_present": True,
+        "w09_run_inhibitor_is_ancestor": True,
+        "static_credentials_present": False,
+        "trading_credentials_present": False,
+        "ambient_aws_or_kalshi_variables": [],
+        "static_credential_paths_present": [],
+        "installation_sha256": mod.EXPECTED_W09_INSTALLATION_SHA256,
+        "s3_access": "READ_ONLY_RESEARCH_PREFIX",
+        "duckdb": mod.EXPECTED_DUCKDB,
+    }
+    attestation_path = run_dir / "DATA_INTEGRITY/W09_ATTESTATION.json"
+    write_json(attestation_path, attestation)
+    expected_manifests = {}
+    selected = []
+    for index, release_id in enumerate(mod.RELEASE_IDS):
+        manifest_copy = run_dir / "DATA_INTEGRITY/manifests" / f"{release_id}.json"
+        manifest_copy.write_bytes(f"synthetic-manifest-{index}\n".encode())
+        digest = mod.sha256(manifest_copy)
+        expected_manifests[release_id] = digest
+        selected.append({
+            "release_id": release_id,
+            "evidence_tier": mod.EVIDENCE,
+            "include": "EXPLORATORY_ONLY",
+            "manifest_sha256": digest,
+        })
+    monkeypatch.setattr(mod, "EXPECTED_MANIFEST_SHA256", expected_manifests)
+    manifest = {
+        "run_id": run_dir.name,
+        "mode": "EXPLORATORY_AUTORESEARCH",
+        "mission": {"sha256": mod.EXPECTED_MISSION_SHA256},
+        "explicit_degraded_admission": True,
+        "analysis_started": True,
+        "status": mod.REPAIR06_STATUS,
+        "registration_state": mod.REPAIR06_REGISTRATION_STATE,
+        "gates": {
+            "gate_a": {"status": "PASS_SYNTHETIC"},
+            "gate_b": {
+                "status": "PASS_SYNTHETIC",
+                "attestation_sha256": mod.sha256(attestation_path),
+            },
+            "gate_c": {
+                "status": "PASS_SYNTHETIC",
+                "mode2_authorized": False,
+            },
+        },
+        "selected_releases": selected,
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 7)
+        ],
+    }
+    write_json(run_dir / "RUN_MANIFEST.json", manifest)
+    return run_dir, manifest
+
+
+def test_repair06_contract_and_authority_match_registration_producer_exactly():
+    parent = {
+        "repair_receipt_path": mod.REPAIR05_REGISTRATION,
+        "repair_receipt_sha256": repair06_producer.PARENT_RECEIPT_SHA256,
+        "transaction_journal_path": mod.REPAIR05_TRANSACTION_JOURNAL,
+        "transaction_journal_sha256": repair06_producer.PARENT_JOURNAL_SHA256,
+        "wiring_contract_path": mod.REPAIR05_WIRING_CONTRACT,
+        "wiring_contract_sha256": repair06_producer.PARENT_WIRING_SHA256,
+        "authority_basis_path": mod.REPAIR05_AUTHORITY_BASIS,
+        "authority_basis_sha256": repair06_producer.PARENT_AUTHORITY_SHA256,
+        "core_result_artifacts": [{"path": "core", "sha256": "0" * 64}],
+        "coverage": {"status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED"},
+        "cycle1_duckdb_binding": {"active_sha256": "1" * 64},
+        "parser_contract": {"schema_version": mod.REPAIR03_PARSER_SCHEMA},
+        "resource_contract": {"schema_version": mod.REPAIR04_RESOURCE_SCHEMA},
+    }
+    run_id = "repair06-producer-parity"
+    applied_at = "2026-07-15T20:00:00Z"
+    produced_contract = repair06_producer.make_status_wiring_contract(
+        run_id, applied_at, parent
+    )
+    consumed_contract = mod._expected_repair06_status_wiring_contract(
+        run_id,
+        applied_at,
+        {},
+        parent,
+        repair06_producer.PARENT_MANIFEST_SHA256,
+    )
+    assert consumed_contract == produced_contract
+    contract_sha = "a" * 64
+    assert mod._expected_repair06_authority_basis(
+        run_id, applied_at, contract_sha
+    ) == repair06_producer.make_authority(
+        run_id,
+        applied_at,
+        mod.REPAIR06_STATUS_WIRING_CONTRACT,
+        contract_sha,
+    )
+
+
+def test_repair06_registration_product_is_accepted_by_strict_consumer(
+    tmp_path, monkeypatch
+):
+    fixture = repair06_test_helpers.make_fixture(tmp_path, monkeypatch)
+    assert repair06_test_helpers.invoke(fixture)["status"] == (
+        "REGISTRATION_REPAIR06_REFROZEN"
+    )
+    run_dir = fixture["run"]
+    manifest = json.loads((run_dir / "RUN_MANIFEST.json").read_text())
+    parent = manifest["data_integrity_repairs"][4]
+    record = manifest["data_integrity_repairs"][5]
+    fixed = {
+        "REPAIR06_PARENT_MANIFEST_SHA256": record["parent_manifest_sha256"],
+        "REPAIR06_PARENT_RECEIPT_SHA256": record[
+            "parent_repair_registration_sha256"
+        ],
+        "REPAIR06_PARENT_JOURNAL_SHA256": record[
+            "parent_transaction_journal_sha256"
+        ],
+        "REPAIR06_PARENT_WIRING_SHA256": record[
+            "parent_wiring_contract_sha256"
+        ],
+        "REPAIR06_PARENT_AUTHORITY_SHA256": record[
+            "parent_authority_basis_sha256"
+        ],
+        "REPAIR06_BLOCKER_SHA256": record["blocker_sha256"],
+        "REPAIR06_FAILED_RESOURCE_SHA256": record[
+            "failed_resource_receipt_sha256"
+        ],
+        "REPAIR06_PARENT_RFQ_QUERY_SHA256": parent[
+            "registered_rfq_query_sha256"
+        ],
+        "REPAIR04_APPROVED_FAILED_STATE_SHA256": record[
+            "unchanged_state_sha256"
+        ],
+        "REPAIR04_APPROVED_FAILED_INPUT_SHA256": record[
+            "unchanged_input_identity_sha256"
+        ],
+    }
+    for name, value in fixed.items():
+        monkeypatch.setattr(mod, name, value)
+    base_result = {
+        "selection_fingerprint_sha256": parent[
+            "current_selection_fingerprint_sha256"
+        ],
+        "repair_chain": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 6)
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 6)
+        ],
+        "consumer_wiring_contract": {
+            "path": parent["wiring_contract_path"],
+            "sha256": parent["wiring_contract_sha256"],
+            "schema_version": mod.REPAIR05_WIRING_SCHEMA,
+        },
+        "rfq_resource_contract": {
+            "path": parent["resource_contract_path"],
+            "sha256": parent["resource_contract_sha256"],
+            "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+            "current_runtime": copy.deepcopy(mod.REPAIR04_RUNTIME_CONTRACT),
+        },
+        "registered_rfq_query_sha256": parent[
+            "registered_rfq_query_sha256"
+        ],
+    }
+    monkeypatch.setattr(
+        mod,
+        "_apply_repair05_consumer_wiring",
+        lambda *_args, **_kwargs: copy.deepcopy(base_result),
+    )
+    inputs = {
+        "objects": record["coverage"]["full_unique_objects"],
+        "logical_manifest_bindings": record["coverage"][
+            "full_logical_manifest_bindings"
+        ],
+        "bytes": record["coverage"]["full_unique_bytes"],
+        "path_size_fingerprint_sha256": record["coverage"][
+            "full_object_set_sha256"
+        ],
+    }
+    result = mod._apply_repair06_status_wiring(run_dir, manifest, inputs)
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03", "repair-04", "repair-05",
+        "repair-06",
+    ]
+    assert result["validate_run_status_wiring_contract"] == {
+        "path": mod.REPAIR06_STATUS_WIRING_CONTRACT,
+        "sha256": record["status_wiring_contract_sha256"],
+        "schema_version": mod.REPAIR06_STATUS_WIRING_SCHEMA,
+    }
+    assert result["expected_success_resource"] == {
+        "label": mod.REPAIR06_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR06_SUCCESS_RESOURCE_PATH,
+    }
+
+
+def test_repair06_runtime_status_wiring_gate_rejects_contract_drift(tmp_path):
+    contract = tmp_path / mod.REPAIR06_STATUS_WIRING_CONTRACT
+    contract.parent.mkdir(parents=True)
+    contract.write_bytes(b'{"schema_version":"repair06"}\n')
+    binding = {
+        "path": mod.REPAIR06_STATUS_WIRING_CONTRACT,
+        "sha256": mod.sha256(contract),
+        "schema_version": mod.REPAIR06_STATUS_WIRING_SCHEMA,
+    }
+    mod._enforce_registered_validate_run_status_wiring_contract(
+        {"validate_run_status_wiring_contract": binding}, tmp_path
+    )
+    contract.write_bytes(b'{"schema_version":"drifted"}\n')
+    with pytest.raises(mod.RFQStageError, match="status wiring contract changed"):
+        mod._enforce_registered_validate_run_status_wiring_contract(
+            {"validate_run_status_wiring_contract": binding}, tmp_path
+        )
+
+
+def test_validate_run_accepts_repair05_and_repair06_registered_statuses(
+    tmp_path, monkeypatch
+):
+    run_dir, manifest = _repair06_validate_run_fixture(tmp_path, monkeypatch)
+    assert mod.validate_run(run_dir)["status"] == mod.REPAIR06_STATUS
+    manifest["status"] = mod.REPAIR05_STATUS
+    manifest["registration_state"] = mod.REPAIR05_REGISTRATION_STATE
+    write_json(run_dir / "RUN_MANIFEST.json", manifest)
+    assert mod.validate_run(run_dir)["status"] == mod.REPAIR05_STATUS
+
+
+def test_main_repair06_overlay_preflight_is_read_only_and_strictly_gated(
+    tmp_path, monkeypatch, capsys
+):
+    run_dir, manifest = _repair06_validate_run_fixture(tmp_path, monkeypatch)
+    active_manifest = copy.deepcopy(manifest)
+    active_manifest["status"] = mod.REPAIR05_STATUS
+    active_manifest["registration_state"] = mod.REPAIR05_REGISTRATION_STATE
+    active_manifest["data_integrity_repairs"] = active_manifest[
+        "data_integrity_repairs"
+    ][:5]
+    write_json(run_dir / "RUN_MANIFEST.json", active_manifest)
+    overlay = run_dir / mod.REPAIR06_ROOT / "post_repair"
+    write_json(overlay / "RUN_MANIFEST.json", manifest)
+
+    state_path = run_dir / "REPORT/tables/RFQ_FULL_STAGE_STATE.json"
+    input_path = run_dir / "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+    state_path.write_bytes(b'{"status":"UNCHANGED"}\n')
+    input_path.write_bytes(b'{"schema":"UNCHANGED"}\n')
+    state_before = state_path.read_bytes()
+    input_before = input_path.read_bytes()
+    monkeypatch.setattr(
+        mod,
+        "discover_inputs",
+        lambda *_args: pytest.fail("input discovery ran during status preflight"),
+    )
+    monkeypatch.setattr(
+        mod,
+        "validate_input_bindings",
+        lambda *_args: pytest.fail("input binding ran during status preflight"),
+    )
+    monkeypatch.setattr(
+        mod,
+        "apply_object_quarantine",
+        lambda *_args, **_kwargs: pytest.fail(
+            "repair replay ran during status preflight"
+        ),
+    )
+    monkeypatch.setattr(
+        duckdb,
+        "connect",
+        lambda *_args, **_kwargs: pytest.fail("DuckDB opened during preflight"),
+    )
+    args = [
+        "--run-dir", str(run_dir),
+        "--cache-root", str(tmp_path / "cache"),
+        "--validate-run-preflight-only",
+        "--validate-run-preflight-overlay", str(overlay),
+    ]
+    assert mod.main(args) == 0
+    assert capsys.readouterr().out.strip() == (
+        f"RFQ_VALIDATE_RUN_PREFLIGHT_COMPLETE run_id={run_dir.name}"
+    )
+    assert state_path.read_bytes() == state_before
+    assert input_path.read_bytes() == input_before
+    assert not (run_dir / "cache/rfq_full_scratch.duckdb").exists()
+    assert not (run_dir / "cache/rfq_full_scratch.duckdb.wal").exists()
 
 
 def test_main_disk_headroom_failure_does_not_mutate_failed03_evidence(

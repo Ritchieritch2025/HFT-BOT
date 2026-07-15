@@ -38,6 +38,14 @@ repair05_producer_tests = importlib.util.module_from_spec(repair05_tests_spec)
 assert repair05_tests_spec.loader is not None
 repair05_tests_spec.loader.exec_module(repair05_producer_tests)
 
+repair06_tests_path = Path(__file__).with_name("test_repair06_registration.py")
+repair06_tests_spec = importlib.util.spec_from_file_location(
+    "repair06_registration_canonical_fixture_for_finalizer", repair06_tests_path
+)
+repair06_producer_tests = importlib.util.module_from_spec(repair06_tests_spec)
+assert repair06_tests_spec.loader is not None
+repair06_tests_spec.loader.exec_module(repair06_producer_tests)
+
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1020,8 +1028,25 @@ def test_finalizer_is_terminal_idempotent_and_self_contained(tmp_path):
     assert summary["shortlisted_strategies"] == []
     assert summary["status_counts"]["COLLECT_MORE"] == 7
     assert summary["status_counts"]["DATA_STARVED"] == 3
+    expected_all_modules = (
+        set(mod.CORE_TEST_IDS)
+        | set(mod.L2_TEST_IDS)
+        | set(mod.RV_IDS)
+        | set(mod.RFQ_TRIAL_ORDER)
+    )
+    assert set(summary["hypotheses"]) == expected_all_modules
     full = (run / "REPORT/FULL_REPORT.md").read_text(encoding="utf-8")
     assert full.count("\n## ") == 25
+    for section in (
+        "Market atlas",
+        "Regime atlas",
+        "Market-making findings",
+        "Directional findings",
+        "Relative-value findings",
+        "RFQ findings",
+    ):
+        assert section in full
+    assert "root-event-first diagnostic" in full
     page = (run / "REPORT/index.html").read_text(encoding="utf-8")
     assert "data:image/png;base64," in page
     assert "<style>" in page and "<script>" in page
@@ -3402,6 +3427,301 @@ def test_repair05_dispatches_to_consumer_wiring_validator(monkeypatch, tmp_path)
     }
 
     assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def repair06_success_outputs_fixture(tmp_path):
+    """Upgrade repair-05's envelope to the status-wiring-only v6 result."""
+    fixture = repair05_success_outputs_fixture(tmp_path)
+    args05 = fixture["validation_args"]
+    run = fixture["run"]
+    repair05_context = {
+        "repair04_context": args05["repair04_context"],
+        "repair05": args05["repair05"],
+        "repair05_receipt_sha256": args05["repair05_receipt_sha"],
+        "wiring_contract_sha256": args05["wiring_contract_sha"],
+        "authority_basis_sha256": args05["authority_sha"],
+        "current_identity": args05["current_identity"],
+        "registered_rfq_query_sha256": args05["repair05"][
+            "registered_rfq_query_sha256"
+        ],
+    }
+    receipt_sha = "7" * 64
+    contract_sha = "8" * 64
+    authority_sha = "9" * 64
+    (
+        repair_chain,
+        failed_bindings,
+        parser_binding,
+        resource_binding,
+        wiring_binding,
+        status_wiring_binding,
+    ) = mod._repair06_runtime_bindings(
+        repair05_context=repair05_context,
+        repair06_receipt_sha=receipt_sha,
+        status_wiring_contract_sha=contract_sha,
+        authority_sha=authority_sha,
+    )
+    expected_resource = {
+        "label": "rfq_full_stage_repair06",
+        "path": mod.ACTIVE_RFQ_REPAIR_RESOURCE_06.as_posix(),
+    }
+    query_sha = args05["repair05"]["registered_rfq_query_sha256"]
+
+    identity = json.loads(fixture["identity_path"].read_text(encoding="utf-8"))
+    identity.update(
+        {
+            "schema": "rfq-full-input-identity-v6",
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+            "validate_run_status_wiring_contract": status_wiring_binding,
+            "registered_rfq_query_sha256": query_sha,
+        }
+    )
+    write_json(fixture["identity_path"], identity)
+
+    state = json.loads(fixture["state_path"].read_text(encoding="utf-8"))
+    state.update(
+        {
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+            "validate_run_status_wiring_contract": status_wiring_binding,
+            "registered_rfq_query_sha256": query_sha,
+        }
+    )
+    write_json(fixture["state_path"], state)
+
+    rfq = copy.deepcopy(args05["rfq"])
+    rfq["input"].update(
+        {
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+            "validate_run_status_wiring_contract": status_wiring_binding,
+            "registered_rfq_query_sha256": query_sha,
+        }
+    )
+    write_json(fixture["summary_path"], rfq)
+    resource = json.loads(fixture["resource_path"].read_text(encoding="utf-8"))
+    resource["label"] = "rfq_full_stage_repair06"
+    resource_path = run / mod.ACTIVE_RFQ_REPAIR_RESOURCE_06
+    write_json(resource_path, resource)
+
+    current_identity = {
+        "execution_commit": "f" * 40,
+        "source_manifest_sha256": "a" * 64,
+        "source_sha256s_sha256": "b" * 64,
+        "query_set_sha256": "c" * 64,
+    }
+    repair06_context = {
+        "repair06": {"registered_rfq_query_sha256": query_sha},
+        "repair06_receipt_sha256": receipt_sha,
+        "status_wiring_contract_sha256": contract_sha,
+        "authority_basis_sha256": authority_sha,
+        "repair05_context": repair05_context,
+        "failed_input_identity": args05["repair04_context"]["failed"]["input"],
+    }
+    validation_args = {
+        **args05,
+        "rfq": rfq,
+        "current_identity": current_identity,
+        "repair06_context": repair06_context,
+    }
+    return {
+        **fixture,
+        "validation_args": validation_args,
+        "resource_path": resource_path,
+        "repair_chain": repair_chain,
+        "failed_bindings": failed_bindings,
+        "status_wiring_binding": status_wiring_binding,
+    }
+
+
+def test_repair06_success_outputs_bind_v6_status_wiring(tmp_path):
+    fixture = repair06_success_outputs_fixture(tmp_path)
+    result = mod._validate_repair05_success_outputs(
+        **fixture["validation_args"]
+    )
+
+    assert result["repair_chain"] == fixture["repair_chain"]
+    assert result["failed_attempt_bindings"] == fixture["failed_bindings"]
+    assert result["repair_chain"][-1]["repair_id"] == "repair-06"
+    assert result["successful_resource_receipt_path"] == (
+        mod.ACTIVE_RFQ_REPAIR_RESOURCE_06.as_posix()
+    )
+    assert result["status_wiring_contract_sha256"] == (
+        fixture["status_wiring_binding"]["sha256"]
+    )
+
+
+@pytest.mark.parametrize("surface", ["identity", "state", "summary"])
+def test_repair06_success_outputs_reject_status_wiring_drift(tmp_path, surface):
+    fixture = repair06_success_outputs_fixture(tmp_path)
+    args = fixture["validation_args"]
+    if surface == "identity":
+        payload = json.loads(fixture["identity_path"].read_text(encoding="utf-8"))
+        payload["validate_run_status_wiring_contract"]["sha256"] = "0" * 64
+        write_json(fixture["identity_path"], payload)
+    elif surface == "state":
+        payload = json.loads(fixture["state_path"].read_text(encoding="utf-8"))
+        payload["validate_run_status_wiring_contract"]["sha256"] = "0" * 64
+        write_json(fixture["state_path"], payload)
+    else:
+        args["rfq"]["input"]["validate_run_status_wiring_contract"][
+            "sha256"
+        ] = "0" * 64
+        write_json(fixture["summary_path"], args["rfq"])
+
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._validate_repair05_success_outputs(**args)
+
+
+def test_repair06_prefix_overlay_replays_repair05_at_archived_boundary(
+    tmp_path, monkeypatch
+):
+    run = tmp_path / "synthetic-repair06-prefix"
+    repairs = [{"repair_id": f"repair-0{number}"} for number in range(1, 7)]
+    pre_manifest = {
+        "run_id": run.name,
+        "status": mod.REPAIR05_PENDING_STATUS,
+        "registration_state": (
+            "RE_FROZEN_AFTER_RFQ_CONSUMER_WIRING_REPAIR05_BEFORE_RFQ_RESULT"
+        ),
+        "data_integrity_repairs": repairs[:5],
+    }
+    write_json(run / mod.REPAIR_06_PRE_ROOT / "RUN_MANIFEST.json", pre_manifest)
+    observed = {}
+
+    def fake_repair05(run_dir, manifest, rfq, **kwargs):
+        observed.update(
+            {
+                "run_dir": run_dir,
+                "manifest": manifest,
+                "rfq": rfq,
+                "kwargs": kwargs,
+            }
+        )
+        return {"prefix_only": True}
+
+    monkeypatch.setattr(mod, "validate_rfq_consumer_wiring_repair05", fake_repair05)
+    context, observed_manifest, _ = mod._validate_repair06_prefix_overlay(
+        run, run_id=run.name, repairs=repairs, rfq={"fixture": True}
+    )
+
+    assert context == {"prefix_only": True}
+    assert observed_manifest == pre_manifest
+    assert observed["kwargs"] == {
+        "prefix_only": True,
+        "active_boundary_root": mod.REPAIR_06_PRE_ROOT,
+    }
+
+
+def test_repair06_dispatches_to_status_wiring_validator(monkeypatch, tmp_path):
+    expected = {"status": "repair06-validated"}
+    monkeypatch.setattr(
+        mod, "validate_rfq_status_wiring_repair06", lambda *_: expected
+    )
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{number}"} for number in range(1, 7)
+        ]
+    }
+
+    assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def repair06_canonical_transaction_fixture(tmp_path, monkeypatch):
+    fixture = repair06_producer_tests.make_fixture(tmp_path, monkeypatch)
+    result = repair06_producer_tests.invoke(fixture)
+    assert result["status"] == "REGISTRATION_REPAIR06_REFROZEN"
+    run = fixture["run"]
+    manifest = json.loads((run / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+    repair06 = manifest["data_integrity_repairs"][-1]
+    return {
+        **fixture,
+        "manifest": manifest,
+        "repair06": repair06,
+        "pre_manifest_path": run / mod.REPAIR_06_PRE_ROOT / "RUN_MANIFEST.json",
+        "query_files": manifest["repository"]["query_files"],
+    }
+
+
+def validate_repair06_canonical_transaction(fixture):
+    return mod._validate_repair06_transaction(
+        fixture["run"],
+        run_id=fixture["run"].name,
+        manifest=fixture["manifest"],
+        repair06=fixture["repair06"],
+        pre_manifest_path=fixture["pre_manifest_path"],
+        query_files=fixture["query_files"],
+    )
+
+
+def test_repair06_canonical_producer_transaction_is_accepted(
+    tmp_path, monkeypatch
+):
+    fixture = repair06_canonical_transaction_fixture(tmp_path, monkeypatch)
+    journal = validate_repair06_canonical_transaction(fixture)
+
+    assert journal["schema_version"] == "repair06-registration-transaction-v1"
+    assert journal["repair_id"] == "repair-06"
+    assert journal["state"] == "PREPARED_BEFORE_ACTIVE_MUTATION"
+
+
+def test_repair06_canonical_producer_contract_and_authority_are_exact(
+    tmp_path, monkeypatch
+):
+    fixture = repair06_canonical_transaction_fixture(tmp_path, monkeypatch)
+    repair06 = fixture["repair06"]
+    repair05 = fixture["manifest"]["data_integrity_repairs"][-2]
+    monkeypatch.setattr(
+        mod,
+        "EXPECTED_REPAIR05_MANIFEST_SHA256",
+        repair06["parent_manifest_sha256"],
+    )
+    monkeypatch.setattr(
+        mod,
+        "EXPECTED_RFQ_REPAIR05_STATUS_BLOCKER_06_SHA256",
+        repair06["blocker_sha256"],
+    )
+    monkeypatch.setattr(
+        mod,
+        "EXPECTED_RFQ_FAILED_RESOURCE_06_SHA256",
+        repair06["failed_resource_receipt_sha256"],
+    )
+    monkeypatch.setattr(
+        mod,
+        "EXPECTED_RFQ_FAILED_STATE_04_SHA256",
+        repair06["unchanged_state_sha256"],
+    )
+    monkeypatch.setattr(
+        mod,
+        "EXPECTED_RFQ_FAILED_INPUT_04_SHA256",
+        repair06["unchanged_input_identity_sha256"],
+    )
+
+    assert repair06["status_wiring_contract"] == (
+        mod._repair06_expected_status_contract(
+            run_id=fixture["run"].name,
+            applied_at=repair06["applied_at_utc"],
+            repair05=repair05,
+        )
+    )
+    assert repair06["authority_basis"] == mod._repair06_expected_authority(
+        run_id=fixture["run"].name,
+        applied_at=repair06["applied_at_utc"],
+        contract_sha=repair06["status_wiring_contract_sha256"],
+    )
 
 
 def test_repair02_claim_boundary_is_two_adjacent_objects_one_gap():

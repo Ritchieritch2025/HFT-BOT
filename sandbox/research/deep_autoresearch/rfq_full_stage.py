@@ -445,6 +445,86 @@ REPAIR05_PARENT_RFQ_QUERY_SHA256 = (
     "3bf8b255f624aae4fc6f2a00a8e5ffb5037d701077435d5bddc3c4d093ba4ba4"
 )
 REPAIR05_FAILED_RESOURCE_WALL_SECONDS = 18.118
+# Repair-06 is a status-dispatch wiring correction only.  Attempt-06 failed in
+# validate_run before input discovery, scratch creation, or any RFQ evidence
+# write because the already registered repair-05 status was missing from the
+# RFQ-stage allowlist.  The descendant must replay repair-05 from its immutable
+# pre-repair boundary and may change no research semantics or resources.
+REPAIR06_ROOT = "DATA_INTEGRITY/repairs/repair-06"
+REPAIR06_PRE_ROOT = f"{REPAIR06_ROOT}/pre_repair"
+REPAIR06_REGISTRATION = f"{REPAIR06_ROOT}/REPAIR_REGISTRATION.json"
+REPAIR06_TRANSACTION_JOURNAL = f"{REPAIR06_ROOT}/TRANSACTION_JOURNAL.json"
+REPAIR06_AUTHORITY_BASIS = f"{REPAIR06_ROOT}/AUTHORITY_BASIS.json"
+REPAIR06_STATUS_WIRING_CONTRACT = (
+    f"{REPAIR06_ROOT}/RFQ_VALIDATE_RUN_STATUS_WIRING_CONTRACT.json"
+)
+REPAIR06_BLOCKER_ACTIVE = "DATA_INTEGRITY/RFQ_REPAIR05_STATUS_BLOCKER_06.json"
+REPAIR06_BLOCKER_ARCHIVE = f"{REPAIR06_PRE_ROOT}/{REPAIR06_BLOCKER_ACTIVE}"
+REPAIR06_FAILED_RESOURCE_ARCHIVE = (
+    f"{REPAIR06_PRE_ROOT}/{REPAIR05_SUCCESS_RESOURCE_PATH}"
+)
+REPAIR06_UNCHANGED_STATE_ARCHIVE = (
+    f"{REPAIR06_PRE_ROOT}/REPORT/tables/RFQ_FULL_STAGE_STATE.json"
+)
+REPAIR06_UNCHANGED_INPUT_ARCHIVE = (
+    f"{REPAIR06_PRE_ROOT}/DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+)
+REPAIR06_CYCLE1_BINDING_ARCHIVE = (
+    f"{REPAIR06_PRE_ROOT}/{CYCLE1_DUCKDB_BINDING}"
+)
+REPAIR06_EXECUTION_QUERY = REPAIR05_EXECUTION_QUERY
+REPAIR06_SUCCESS_RESOURCE_LABEL = "rfq_full_stage_repair06"
+REPAIR06_SUCCESS_RESOURCE_PATH = "logs/resources/rfq_full_stage_repair06.json"
+REPAIR06_STATUS = "CYCLE1_CORE_COMPLETE_RFQ_STATUS_WIRING_REPAIR06_REGISTERED"
+REPAIR06_REGISTRATION_STATE = (
+    "RE_FROZEN_AFTER_RFQ_STATUS_WIRING_REPAIR06_BEFORE_RFQ_RESULT"
+)
+REPAIR06_SCHEMA = "sports-autoresearch-validate-run-status-wiring-repair-v1"
+REPAIR06_STATUS_WIRING_SCHEMA = "rfq-validate-run-status-wiring-contract-v1"
+REPAIR06_AUTHORITY_SCHEMA = (
+    "sports-autoresearch-validate-run-status-wiring-authority-v1"
+)
+REPAIR06_FINDING = "REPAIR05_STATUS_NOT_ACCEPTED_BY_VALIDATE_RUN"
+REPAIR06_FAILURE_PHASE = "PRE_EVIDENCE_VALIDATE_RUN_STATUS_GATE"
+REPAIR06_FAILURE_DISPOSITION = "STATUS_WIRING_FAILURE_BEFORE_RESULT"
+REPAIR06_CHANGE_CLASS = "VALIDATE_RUN_STATUS_WIRING_ONLY"
+REPAIR06_REGISTRATION_CHANGE_CLASS = (
+    "VALIDATE_RUN_STATUS_WIRING_ONLY_NO_DATA_PARSER_QUERY_SEMANTICS_SELECTION_"
+    "QUARANTINE_RESOURCE_CONTRACT_OR_HYPOTHESIS_CHANGE"
+)
+REPAIR06_RETRY_REQUIREMENT = (
+    "APPEND_ONLY_REPAIR06_VALIDATE_RUN_STATUS_WIRING_CORRECTION_AND_FRESH_"
+    "SCRATCH_RETRY"
+)
+REPAIR06_AUTHORITY_CLASS = REPAIR05_AUTHORITY_CLASS
+REPAIR06_BLOCKER_SHA256 = (
+    "8afa321af51d6a23a958de9348413eed22df60173cd9b64a09612840dac0077f"
+)
+REPAIR06_FAILED_RESOURCE_SHA256 = (
+    "3adc0f3f56dad9483e3215f172c547c97f5b85890def8512053eeb958f64fc24"
+)
+REPAIR06_PARENT_RFQ_QUERY_SHA256 = (
+    "e40d8c1c8560d9cb08904dd3b58259f8e4c91da5c2221015f7b558dc0f1c90ca"
+)
+REPAIR06_FAILED_RESOURCE_WALL_SECONDS = 0.114
+REPAIR06_PARENT_MANIFEST_SHA256 = (
+    "a3af7f05cba25a56e1ae1f2d7541588f67e487c8292f62aeb5f1bd52a767383a"
+)
+REPAIR06_PARENT_RECEIPT_SHA256 = (
+    "13d01e2d4122dc801a88f8c1e7a6824a1f928181900415f922a0908b31b9893d"
+)
+REPAIR06_PARENT_JOURNAL_SHA256 = (
+    "4eef0a29c181ed7b0c28017ba9246831fd8c36e74fd0843f6da665415533aedc"
+)
+REPAIR06_PARENT_WIRING_SHA256 = (
+    "dc2a4f058eab3ff684ee3e9324f58cf19976c54dec9c453bf082d17269e2aafb"
+)
+REPAIR06_PARENT_AUTHORITY_SHA256 = (
+    "c462f9409f9b25ad2d86561d908a17c7856b9a754bed796fd78c9bffd493d073"
+)
+REPAIR06_PRESERVED_SCRATCH_POLICY = (
+    "FRESH_SCRATCH_REQUIRED_NO_RESUME_NO_PRIOR_SCRATCH_OR_WAL"
+)
 REPAIR02_APPROVED_SELECTION_FINGERPRINT = (
     "8b310c37f3989770d1f53a058e5ef396e1eb5c9c3d24d07ac87bd9d8aee5b9e1"
 )
@@ -3475,6 +3555,159 @@ def _expected_repair05_authority_basis(
     }
 
 
+def _repair06_retry_command(run_id: str) -> list[str]:
+    """Repair-06 keeps the exact repair-05 runtime command and resources."""
+    return _repair05_retry_command(run_id)
+
+
+def _repair06_preflight_contract(run_id: str) -> dict:
+    return {
+        "cli_flags": [
+            "--validate-run-preflight-only",
+            "--validate-run-preflight-overlay",
+        ],
+        "overlay_path": f"{REPAIR06_ROOT}/post_repair",
+        "expected_stdout": (
+            f"RFQ_VALIDATE_RUN_PREFLIGHT_COMPLETE run_id={run_id}"
+        ),
+        "read_only": True,
+        "stop_before_input_discovery": True,
+        "stop_before_repair_replay": True,
+        "stop_before_duckdb_import": True,
+        "stop_before_state_input_scratch_or_result_write": True,
+    }
+
+
+def _expected_repair06_status_wiring_contract(
+    run_id: str,
+    applied_at: str,
+    repair06: dict,
+    repair05: dict,
+    parent_manifest_sha256: str,
+) -> dict:
+    """Canonical repair-06 status-wiring-only contract."""
+    return {
+        "schema_version": REPAIR06_STATUS_WIRING_SCHEMA,
+        "repair_id": "repair-06",
+        "run_id": run_id,
+        "applied_at_utc": applied_at,
+        "pre_repair_status": REPAIR05_STATUS,
+        "post_repair_status": REPAIR06_STATUS,
+        "registration_state": REPAIR06_REGISTRATION_STATE,
+        "change_class": REPAIR06_CHANGE_CLASS,
+        "failure_evidence": {
+            "blocker_active_path": REPAIR06_BLOCKER_ACTIVE,
+            "blocker_archived_path": REPAIR06_BLOCKER_ARCHIVE,
+            "blocker_sha256": REPAIR06_BLOCKER_SHA256,
+            "failed_resource_active_path": REPAIR05_SUCCESS_RESOURCE_PATH,
+            "failed_resource_archived_path": REPAIR06_FAILED_RESOURCE_ARCHIVE,
+            "failed_resource_sha256": REPAIR06_FAILED_RESOURCE_SHA256,
+            "unchanged_state_active_path": (
+                "REPORT/tables/RFQ_FULL_STAGE_STATE.json"
+            ),
+            "unchanged_state_archived_path": REPAIR06_UNCHANGED_STATE_ARCHIVE,
+            "unchanged_state_sha256": REPAIR04_APPROVED_FAILED_STATE_SHA256,
+            "unchanged_input_identity_active_path": (
+                "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+            ),
+            "unchanged_input_identity_archived_path": (
+                REPAIR06_UNCHANGED_INPUT_ARCHIVE
+            ),
+            "unchanged_input_identity_sha256": (
+                REPAIR04_APPROVED_FAILED_INPUT_SHA256
+            ),
+            "analysis_stage_started": False,
+            "new_state_written": False,
+            "new_input_identity_written": False,
+            "active_scratch_absent": True,
+            "active_wal_absent": True,
+        },
+        "parent_repair05": {
+            "manifest_sha256": parent_manifest_sha256,
+            "repair_receipt_path": repair05["repair_receipt_path"],
+            "repair_receipt_sha256": repair05["repair_receipt_sha256"],
+            "transaction_journal_path": repair05["transaction_journal_path"],
+            "transaction_journal_sha256": repair05[
+                "transaction_journal_sha256"
+            ],
+            "wiring_contract_path": repair05["wiring_contract_path"],
+            "wiring_contract_sha256": repair05["wiring_contract_sha256"],
+            "authority_basis_path": repair05["authority_basis_path"],
+            "authority_basis_sha256": repair05["authority_basis_sha256"],
+            "core_result_artifacts": copy.deepcopy(
+                repair05["core_result_artifacts"]
+            ),
+        },
+        "status_wiring": {
+            "offending_function": "validate_run",
+            "error": (
+                "RFQStageError: Cycle-1 core is not in an RFQ-stage-compatible "
+                "state"
+            ),
+            "error_type": "RFQStageError",
+            "failure_phase": REPAIR06_FAILURE_PHASE,
+            "finding": REPAIR06_FINDING,
+            "accepted_parent_status": REPAIR05_STATUS,
+            "accepted_parent_registration_state": REPAIR05_REGISTRATION_STATE,
+            "registered_post_status": REPAIR06_STATUS,
+            "registered_post_registration_state": REPAIR06_REGISTRATION_STATE,
+            "source_change_scope": REPAIR06_CHANGE_CLASS,
+        },
+        "inherited_contracts": {
+            "coverage": copy.deepcopy(repair05["coverage"]),
+            "cycle1_duckdb_binding": copy.deepcopy(
+                repair05["cycle1_duckdb_binding"]
+            ),
+            "parser_contract": copy.deepcopy(repair05["parser_contract"]),
+            "resource_contract": copy.deepcopy(repair05["resource_contract"]),
+            "runtime": dict(REPAIR04_RUNTIME_CONTRACT),
+        },
+        "preflight": _repair06_preflight_contract(run_id),
+        "retry": {
+            "requirement": REPAIR06_RETRY_REQUIREMENT,
+            "expected_success_resource": {
+                "label": REPAIR06_SUCCESS_RESOURCE_LABEL,
+                "path": REPAIR06_SUCCESS_RESOURCE_PATH,
+            },
+            "command": _repair06_retry_command(run_id),
+            "fresh_scratch": True,
+            "resume": False,
+        },
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "resource_contract_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+    }
+
+
+def _expected_repair06_authority_basis(
+    run_id: str,
+    applied_at: str,
+    status_wiring_contract_sha256: str,
+) -> dict:
+    return {
+        "schema_version": REPAIR06_AUTHORITY_SCHEMA,
+        "repair_id": "repair-06",
+        "run_id": run_id,
+        "created_at_utc": applied_at,
+        "authority_class": REPAIR06_AUTHORITY_CLASS,
+        "mission_sha256": EXPECTED_MISSION_SHA256,
+        "permitted_change": REPAIR06_CHANGE_CLASS,
+        "status_wiring_contract_path": REPAIR06_STATUS_WIRING_CONTRACT,
+        "status_wiring_contract_sha256": status_wiring_contract_sha256,
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "resource_contract_change": "NONE",
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+    }
+
+
 def _expected_repair05_trial_rows(
     applied_at: str,
     old_repository: dict,
@@ -4779,8 +5012,11 @@ def _validate_repair05_failure_evidence(
     run_dir: Path,
     repair05: dict,
     repair04: dict,
+    *,
+    descendant_boundary_root: Path | None = None,
 ) -> dict:
     """Validate attempt-05's pre-evidence KeyError and unchanged boundary."""
+    repair05_active_root = descendant_boundary_root or run_dir
     pairs = (
         (REPAIR05_BLOCKER_ACTIVE, REPAIR05_BLOCKER_ARCHIVE),
         (REPAIR04_SUCCESS_RESOURCE_PATH, REPAIR05_FAILED_RESOURCE_ARCHIVE),
@@ -4793,7 +5029,9 @@ def _validate_repair05_failure_evidence(
     )
     for active_relative, archive_relative in pairs:
         active = _require_run_relative_file(
-            run_dir, active_relative, "repair-05 active pre-evidence boundary"
+            repair05_active_root,
+            active_relative,
+            "repair-05 active pre-evidence boundary",
         )
         archived = _require_run_relative_file(
             run_dir, archive_relative, "repair-05 archived pre-evidence boundary"
@@ -4933,6 +5171,8 @@ def _apply_repair05_consumer_wiring(
     run_dir: Path,
     manifest: dict,
     inputs: dict,
+    *,
+    descendant_boundary_root: Path | None = None,
 ) -> dict:
     """Validate repair-05 and expose only its preregistered runtime bindings."""
     repairs = manifest.get("data_integrity_repairs")
@@ -4943,6 +5183,7 @@ def _apply_repair05_consumer_wiring(
     if repair_ids != ["repair-01", "repair-02", "repair-03", "repair-04", "repair-05"]:
         raise RFQStageError("RFQ repair-05 chain must be exactly repair-01/02/03/04/05")
     repair01, repair02, repair03, repair04, repair05 = repairs
+    repair05_active_root = descendant_boundary_root or run_dir
     required_fields = {
         "schema_version", "repair_id", "parent_repair_id", "applied_at_utc",
         "pre_repair_status", "post_repair_status", "rfq_result_state",
@@ -5042,7 +5283,11 @@ def _apply_repair05_consumer_wiring(
         inputs,
         descendant_boundary_root=pre_root,
     )
-    evidence = _validate_repair05_failure_evidence(run_dir, repair05, repair04)
+    evidence = _validate_repair05_failure_evidence(
+        run_dir,
+        repair05,
+        repair04,
+    )
     resource = evidence["resource"]
     expected_failed_attempt = {
         "attempt_id": "RFQ_FULL_STAGE_REPAIR04_ATTEMPT_05",
@@ -5186,13 +5431,15 @@ def _apply_repair05_consumer_wiring(
     ):
         raise RFQStageError("repair-05 repository transfer mismatch")
     if (
-        sha256(run_dir / "SOURCE_MANIFEST.json")
+        sha256(repair05_active_root / "SOURCE_MANIFEST.json")
             != repository.get("source_manifest_sha256")
-        or sha256(run_dir / "SOURCE_SHA256SUMS.txt")
+        or sha256(repair05_active_root / "SOURCE_SHA256SUMS.txt")
             != repository.get("source_sha256s_sha256")
     ):
         raise RFQStageError("repair-05 active source receipts changed")
-    query_rows = _validate_query_receipt(run_dir, repository)
+    query_rows = _validate_query_receipt(
+        run_dir, repository, active_root=repair05_active_root
+    )
     registered_query_sha = query_rows.get(REPAIR05_EXECUTION_QUERY)
     if registered_query_sha != repair05.get("registered_rfq_query_sha256"):
         raise RFQStageError("repair-05 registered RFQ query SHA mismatch")
@@ -5267,7 +5514,9 @@ def _apply_repair05_consumer_wiring(
             run_dir, staging_relative, "repair-05 staged mutation payload"
         )
         active = _require_run_relative_file(
-            run_dir, relative, "repair-05 active mutation payload"
+            repair05_active_root,
+            relative,
+            "repair-05 active mutation payload",
         )
         if (
             not isinstance(mutation, dict)
@@ -5306,7 +5555,7 @@ def _apply_repair05_consumer_wiring(
         run_dir, manifest_staging_relative, "repair-05 staged manifest"
     )
     active_manifest_path = _require_run_relative_file(
-        run_dir, "RUN_MANIFEST.json", "repair-05 active manifest"
+        repair05_active_root, "RUN_MANIFEST.json", "repair-05 active manifest"
     )
     staged_manifest = read_json_object(
         staged_manifest_path, "repair-05 staged manifest"
@@ -5416,7 +5665,7 @@ def _apply_repair05_consumer_wiring(
         "repair-05 parent registry",
     ).read_bytes()
     active_registry = _require_run_relative_file(
-        run_dir, "TRIAL_REGISTRY.jsonl", "repair-05 active registry"
+        repair05_active_root, "TRIAL_REGISTRY.jsonl", "repair-05 active registry"
     ).read_bytes()
     trial = repair05.get("trial_registry")
     if (
@@ -5507,11 +5756,714 @@ def _apply_repair05_consumer_wiring(
     return result
 
 
+def _validate_repair06_failure_evidence(
+    run_dir: Path,
+    repair06: dict,
+    repair05: dict,
+) -> dict:
+    """Bind attempt-06's validate_run failure and unchanged pre-evidence state."""
+    pairs = (
+        (REPAIR06_BLOCKER_ACTIVE, REPAIR06_BLOCKER_ARCHIVE),
+        (REPAIR05_SUCCESS_RESOURCE_PATH, REPAIR06_FAILED_RESOURCE_ARCHIVE),
+        (
+            "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+            REPAIR06_UNCHANGED_STATE_ARCHIVE,
+        ),
+        (
+            "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+            REPAIR06_UNCHANGED_INPUT_ARCHIVE,
+        ),
+        (CYCLE1_DUCKDB_BINDING, REPAIR06_CYCLE1_BINDING_ARCHIVE),
+    )
+    for active_relative, archive_relative in pairs:
+        active = _require_run_relative_file(
+            run_dir, active_relative, "repair-06 active pre-evidence boundary"
+        )
+        archived = _require_run_relative_file(
+            run_dir, archive_relative, "repair-06 archived pre-evidence boundary"
+        )
+        if active.read_bytes() != archived.read_bytes():
+            raise RFQStageError(
+                f"repair-06 active/archive boundary differs: {active_relative}"
+            )
+
+    blocker_path = _require_run_relative_file(
+        run_dir, REPAIR06_BLOCKER_ARCHIVE, "repair-06 blocker"
+    )
+    resource_path = _require_run_relative_file(
+        run_dir, REPAIR06_FAILED_RESOURCE_ARCHIVE, "repair-06 failed resource"
+    )
+    state_path = _require_run_relative_file(
+        run_dir, REPAIR06_UNCHANGED_STATE_ARCHIVE, "repair-06 unchanged state"
+    )
+    input_path = _require_run_relative_file(
+        run_dir, REPAIR06_UNCHANGED_INPUT_ARCHIVE, "repair-06 unchanged input"
+    )
+    if (
+        sha256(blocker_path) != REPAIR06_BLOCKER_SHA256
+        or sha256(resource_path) != REPAIR06_FAILED_RESOURCE_SHA256
+        or sha256(state_path) != REPAIR04_APPROVED_FAILED_STATE_SHA256
+        or sha256(input_path) != REPAIR04_APPROVED_FAILED_INPUT_SHA256
+        or repair06.get("blocker_path") != REPAIR06_BLOCKER_ARCHIVE
+        or repair06.get("blocker_sha256") != REPAIR06_BLOCKER_SHA256
+        or repair06.get("failed_resource_receipt_path")
+            != REPAIR06_FAILED_RESOURCE_ARCHIVE
+        or repair06.get("failed_resource_receipt_sha256")
+            != REPAIR06_FAILED_RESOURCE_SHA256
+        or repair06.get("unchanged_state_path")
+            != REPAIR06_UNCHANGED_STATE_ARCHIVE
+        or repair06.get("unchanged_state_sha256")
+            != REPAIR04_APPROVED_FAILED_STATE_SHA256
+        or repair06.get("unchanged_input_identity_path")
+            != REPAIR06_UNCHANGED_INPUT_ARCHIVE
+        or repair06.get("unchanged_input_identity_sha256")
+            != REPAIR04_APPROVED_FAILED_INPUT_SHA256
+    ):
+        raise RFQStageError("repair-06 pre-evidence hashes or paths changed")
+
+    blocker = read_json_object(blocker_path, "repair-06 blocker")
+    if (
+        blocker.get("schema_version")
+            != "rfq-repair05-status-pre-evidence-blocker-v1"
+        or blocker.get("run_id") != run_dir.name
+        or blocker.get("mission_sha256") != EXPECTED_MISSION_SHA256
+        or blocker.get("finding") != REPAIR06_FINDING
+        or blocker.get("failure_phase") != REPAIR06_FAILURE_PHASE
+        or blocker.get("error_type") != "RFQStageError"
+        or blocker.get("error")
+            != "RFQStageError: Cycle-1 core is not in an RFQ-stage-compatible state"
+        or blocker.get("offending_function") != "validate_run"
+        or blocker.get("traceback_call_chain") != ["main", "validate_run"]
+        or blocker.get("source_change_scope") != REPAIR06_CHANGE_CLASS
+        or blocker.get("failed_resource_receipt_path")
+            != REPAIR05_SUCCESS_RESOURCE_PATH
+        or blocker.get("failed_resource_receipt_sha256")
+            != REPAIR06_FAILED_RESOURCE_SHA256
+        or blocker.get("parent_registration_path") != REPAIR05_REGISTRATION
+        or blocker.get("parent_registration_sha256")
+            != repair05.get("repair_receipt_sha256")
+        or blocker.get("repair05_wiring_contract_path")
+            != REPAIR05_WIRING_CONTRACT
+        or blocker.get("repair05_wiring_contract_sha256")
+            != repair05.get("wiring_contract_sha256")
+        or blocker.get("registered_query_path") != REPAIR05_EXECUTION_QUERY
+        or blocker.get("registered_query_sha256")
+            != REPAIR06_PARENT_RFQ_QUERY_SHA256
+        or blocker.get("resource_label") != REPAIR05_SUCCESS_RESOURCE_LABEL
+        or blocker.get("resource_return_code") != 1
+        or blocker.get("active_state_sha256")
+            != REPAIR04_APPROVED_FAILED_STATE_SHA256
+        or blocker.get("active_input_identity_sha256")
+            != REPAIR04_APPROVED_FAILED_INPUT_SHA256
+        or blocker.get("new_state_written") is not False
+        or blocker.get("new_input_identity_written") is not False
+        or blocker.get("analysis_stage_started") is not False
+        or blocker.get("active_scratch_absent") is not True
+        or blocker.get("active_wal_absent") is not True
+        or blocker.get("dependent_rfq_result_opened") is not False
+        or blocker.get("whole_object_quarantine_unchanged") is not True
+        or blocker.get("line_salvage") is not False
+        or any(
+            blocker.get(field) != "NONE"
+            for field in (
+                "data_selection_change", "parser_contract_change",
+                "query_semantics_change", "quarantine_change",
+                "resource_contract_change", "hypothesis_design_change",
+            )
+        )
+    ):
+        raise RFQStageError("repair-06 blocker content mismatch")
+
+    resource = read_json_object(resource_path, "repair-06 failed resource")
+    if (
+        resource.get("schema_version") != "w09-stage-resource-v1"
+        or resource.get("label") != REPAIR05_SUCCESS_RESOURCE_LABEL
+        or resource.get("command") != _repair06_retry_command(run_dir.name)
+        or resource.get("return_code") != 1
+        or resource.get("started_at_utc") != "2026-07-15T19:51:52.268627Z"
+        or resource.get("completed_at_utc")
+            != "2026-07-15T19:51:52.382793Z"
+        or resource.get("wall_seconds") != REPAIR06_FAILED_RESOURCE_WALL_SECONDS
+        or resource.get("s3_bytes_read_by_analysis") != 0
+    ):
+        raise RFQStageError("repair-06 failed resource receipt mismatch")
+
+    _validate_repair05_fresh_scratch_absence(run_dir)
+    if any(
+        os.path.lexists(run_dir / relative)
+        for relative in (
+            "REPORT/tables/RFQ_FULL_STAGE_SUMMARY.json",
+            "REPORT/RFQ_FULL_STAGE.md",
+            "cache/rfq_full_catalog.duckdb",
+        )
+    ):
+        raise RFQStageError("repair-06 did not preserve its pre-result boundary")
+
+    cycle_path = _require_run_relative_file(
+        run_dir, REPAIR06_CYCLE1_BINDING_ARCHIVE, "repair-06 Cycle-1 binding"
+    )
+    registered_cycle = repair05.get("cycle1_duckdb_binding")
+    if (
+        not isinstance(registered_cycle, dict)
+        or repair06.get("cycle1_duckdb_binding") != registered_cycle
+        or repair06.get("cycle1_binding_path")
+            != REPAIR06_CYCLE1_BINDING_ARCHIVE
+        or repair06.get("cycle1_binding_sha256") != sha256(cycle_path)
+        or registered_cycle.get("active_sha256") != sha256(cycle_path)
+    ):
+        raise RFQStageError("repair-06 Cycle-1 evidence chain mismatch")
+    return {"blocker": blocker, "resource": resource}
+
+
+def _apply_repair06_status_wiring(
+    run_dir: Path,
+    manifest: dict,
+    inputs: dict,
+    *,
+    active_root: Path | None = None,
+) -> dict:
+    """Validate repair-06 and expose its status-only runtime binding."""
+    repairs = manifest.get("data_integrity_repairs")
+    repair_ids = [
+        row.get("repair_id") if isinstance(row, dict) else None
+        for row in (repairs if isinstance(repairs, list) else [])
+    ]
+    if repair_ids != [
+        "repair-01", "repair-02", "repair-03", "repair-04", "repair-05",
+        "repair-06",
+    ]:
+        raise RFQStageError("RFQ repair-06 chain must be exactly repair-01/02/03/04/05/06")
+    repair01, repair02, repair03, repair04, repair05, repair06 = repairs
+    repair06_active_root = active_root or run_dir
+    required_fields = {
+        "schema_version", "repair_id", "parent_repair_id", "applied_at_utc",
+        "pre_repair_status", "post_repair_status", "rfq_result_state",
+        "retry_requirement", "registration_change_class", "finding",
+        "failure_disposition", "failure_phase", "failed_attempt",
+        "blocker_path", "blocker_sha256", "failed_resource_receipt_path",
+        "failed_resource_receipt_sha256", "unchanged_state_path",
+        "unchanged_state_sha256", "unchanged_input_identity_path",
+        "unchanged_input_identity_sha256", "cycle1_binding_path",
+        "cycle1_binding_sha256", "cycle1_duckdb_binding",
+        "parent_manifest_sha256", "parent_repair_registration_path",
+        "parent_repair_registration_sha256", "parent_transaction_journal_path",
+        "parent_transaction_journal_sha256", "parent_wiring_contract_path",
+        "parent_wiring_contract_sha256", "parent_authority_basis_path",
+        "parent_authority_basis_sha256", "status_wiring_contract",
+        "status_wiring_contract_path", "status_wiring_contract_sha256",
+        "authority_basis", "authority_basis_path", "authority_basis_sha256",
+        "previous_repair_record_sha256", "coverage",
+        "cumulative_quarantined_objects", "core_result_artifacts",
+        "core_result_disposition", "core_results_recomputed", "parser_contract",
+        "parser_contract_path", "parser_contract_sha256", "resource_contract",
+        "resource_contract_path", "resource_contract_sha256",
+        "expected_success_resource", "registered_rfq_query_sha256",
+        "previous_execution_commit", "current_execution_commit",
+        "previous_repository_identity", "current_repository_identity",
+        "repository_identity_chain", "source_verification_mode",
+        "preserved_scratch_policy", "main_preflight", "data_selection_change",
+        "parser_contract_change", "query_semantics_change", "quarantine_change",
+        "resource_contract_change", "hypothesis_design_change",
+        "threshold_feature_test_or_hypothesis_status_changed", "archive_path",
+        "archive_inventory", "trial_registry", "transaction_journal_path",
+        "transaction_journal_sha256", "repair_receipt_path",
+        "repair_receipt_sha256",
+    }
+    if set(repair06) != required_fields:
+        raise RFQStageError("repair-06 registration record field set mismatch")
+    if (
+        manifest.get("status") != REPAIR06_STATUS
+        or manifest.get("registration_state") != REPAIR06_REGISTRATION_STATE
+        or repair06.get("schema_version") != REPAIR06_SCHEMA
+        or repair06.get("repair_id") != "repair-06"
+        or repair06.get("parent_repair_id") != "repair-05"
+        or repair06.get("pre_repair_status") != REPAIR05_STATUS
+        or repair06.get("post_repair_status") != REPAIR06_STATUS
+        or repair06.get("rfq_result_state") != "NO_RFQ_RESULT_OPENED"
+        or repair06.get("retry_requirement") != REPAIR06_RETRY_REQUIREMENT
+        or repair06.get("finding") != REPAIR06_FINDING
+        or repair06.get("failure_disposition") != REPAIR06_FAILURE_DISPOSITION
+        or repair06.get("failure_phase") != REPAIR06_FAILURE_PHASE
+        or repair06.get("registration_change_class")
+            != REPAIR06_REGISTRATION_CHANGE_CLASS
+        or repair06.get("source_verification_mode") != REPAIR04_GIT_SOURCE_MODE
+        or repair06.get("preserved_scratch_policy")
+            != REPAIR06_PRESERVED_SCRATCH_POLICY
+    ):
+        raise RFQStageError("repair-06 identity/governance mismatch")
+    try:
+        applied_at = dt.datetime.fromisoformat(
+            repair06["applied_at_utc"].replace("Z", "+00:00")
+        )
+    except (KeyError, AttributeError, ValueError) as exc:
+        raise RFQStageError("repair-06 timestamp is invalid") from exc
+    if applied_at.utcoffset() != dt.timedelta(0):
+        raise RFQStageError("repair-06 timestamp is not UTC")
+
+    receipt_path = _require_run_relative_file(
+        run_dir, REPAIR06_REGISTRATION, "repair-06 registration receipt"
+    )
+    receipt_sha = sha256(receipt_path)
+    receipt = read_json_object(receipt_path, "repair-06 registration receipt")
+    expected_receipt = {
+        key: value for key, value in repair06.items()
+        if key not in {"repair_receipt_path", "repair_receipt_sha256"}
+    }
+    if (
+        repair06.get("repair_receipt_path") != REPAIR06_REGISTRATION
+        or repair06.get("repair_receipt_sha256") != receipt_sha
+        or receipt != expected_receipt
+    ):
+        raise RFQStageError("repair-06 registration receipt binding mismatch")
+
+    pre_root = run_dir / REPAIR06_PRE_ROOT
+    pre_manifest_path = _require_run_relative_file(
+        run_dir, f"{REPAIR06_PRE_ROOT}/RUN_MANIFEST.json",
+        "repair-06 archived repair-05 manifest",
+    )
+    pre_manifest = read_json_object(pre_manifest_path, "repair-06 parent manifest")
+    if (
+        repair06.get("archive_path") != REPAIR06_PRE_ROOT
+        or repair06.get("archive_inventory") != _archive_inventory(pre_root)
+        or pre_manifest.get("run_id") != run_dir.name
+        or pre_manifest.get("status") != REPAIR05_STATUS
+        or pre_manifest.get("registration_state") != REPAIR05_REGISTRATION_STATE
+        or pre_manifest.get("data_integrity_repairs") != repairs[:5]
+        or repair06.get("parent_manifest_sha256") != sha256(pre_manifest_path)
+        or repair06.get("parent_manifest_sha256")
+            != REPAIR06_PARENT_MANIFEST_SHA256
+    ):
+        raise RFQStageError("repair-06 archive is not the exact repair-05 boundary")
+    base_result = _apply_repair05_consumer_wiring(
+        run_dir,
+        pre_manifest,
+        inputs,
+        descendant_boundary_root=pre_root,
+    )
+    evidence = _validate_repair06_failure_evidence(run_dir, repair06, repair05)
+    resource = evidence["resource"]
+    expected_failed_attempt = {
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR05_ATTEMPT_06",
+        "error": (
+            "RFQStageError: Cycle-1 core is not in an RFQ-stage-compatible state"
+        ),
+        "error_type": "RFQStageError",
+        "failure_phase": REPAIR06_FAILURE_PHASE,
+        "finding": REPAIR06_FINDING,
+        "blocker_active_path": REPAIR06_BLOCKER_ACTIVE,
+        "blocker_archived_path": REPAIR06_BLOCKER_ARCHIVE,
+        "blocker_sha256": REPAIR06_BLOCKER_SHA256,
+        "failed_resource_active_path": REPAIR05_SUCCESS_RESOURCE_PATH,
+        "failed_resource_archived_path": REPAIR06_FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_sha256": REPAIR06_FAILED_RESOURCE_SHA256,
+        "unchanged_state_active_path": "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+        "unchanged_state_archived_path": REPAIR06_UNCHANGED_STATE_ARCHIVE,
+        "unchanged_state_sha256": REPAIR04_APPROVED_FAILED_STATE_SHA256,
+        "unchanged_input_identity_active_path": (
+            "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+        ),
+        "unchanged_input_identity_archived_path": (
+            REPAIR06_UNCHANGED_INPUT_ARCHIVE
+        ),
+        "unchanged_input_identity_sha256": (
+            REPAIR04_APPROVED_FAILED_INPUT_SHA256
+        ),
+        "analysis_stage_started": False,
+        "new_state_written": False,
+        "new_input_identity_written": False,
+        "active_scratch_absent": True,
+        "active_wal_absent": True,
+        "resource_label": REPAIR05_SUCCESS_RESOURCE_LABEL,
+        "return_code": 1,
+        "resource_command": _repair06_retry_command(run_dir.name),
+    }
+    if (
+        repair06.get("failed_attempt") != expected_failed_attempt
+        or repair06.get("parent_repair_registration_path")
+            != repair05.get("repair_receipt_path")
+        or repair06.get("parent_repair_registration_sha256")
+            != repair05.get("repair_receipt_sha256")
+        or repair06.get("parent_repair_registration_sha256")
+            != REPAIR06_PARENT_RECEIPT_SHA256
+        or repair06.get("parent_transaction_journal_path")
+            != repair05.get("transaction_journal_path")
+        or repair06.get("parent_transaction_journal_sha256")
+            != repair05.get("transaction_journal_sha256")
+        or repair06.get("parent_transaction_journal_sha256")
+            != REPAIR06_PARENT_JOURNAL_SHA256
+        or repair06.get("parent_wiring_contract_path")
+            != repair05.get("wiring_contract_path")
+        or repair06.get("parent_wiring_contract_sha256")
+            != repair05.get("wiring_contract_sha256")
+        or repair06.get("parent_wiring_contract_sha256")
+            != REPAIR06_PARENT_WIRING_SHA256
+        or repair06.get("parent_authority_basis_path")
+            != repair05.get("authority_basis_path")
+        or repair06.get("parent_authority_basis_sha256")
+            != repair05.get("authority_basis_sha256")
+        or repair06.get("parent_authority_basis_sha256")
+            != REPAIR06_PARENT_AUTHORITY_SHA256
+        or repair06.get("previous_repair_record_sha256")
+            != _json_payload_sha256(repair05)
+        or repair06.get("coverage") != repair05.get("coverage")
+        or repair06.get("cumulative_quarantined_objects")
+            != repair05.get("cumulative_quarantined_objects")
+        or repair06.get("core_result_artifacts")
+            != repair05.get("core_result_artifacts")
+        or repair06.get("core_result_disposition")
+            != "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED"
+        or repair06.get("core_results_recomputed") is not False
+        or repair06.get("parser_contract") != repair05.get("parser_contract")
+        or repair06.get("parser_contract_path")
+            != repair05.get("parser_contract_path")
+        or repair06.get("parser_contract_sha256")
+            != repair05.get("parser_contract_sha256")
+        or repair06.get("resource_contract") != repair05.get("resource_contract")
+        or repair06.get("resource_contract_path")
+            != repair05.get("resource_contract_path")
+        or repair06.get("resource_contract_sha256")
+            != repair05.get("resource_contract_sha256")
+        or repair06.get("cycle1_duckdb_binding")
+            != repair05.get("cycle1_duckdb_binding")
+        or repair06.get("expected_success_resource") != {
+            "label": REPAIR06_SUCCESS_RESOURCE_LABEL,
+            "path": REPAIR06_SUCCESS_RESOURCE_PATH,
+        }
+        or repair06.get("main_preflight")
+            != _repair06_preflight_contract(run_dir.name)
+        or any(
+            repair06.get(field) != "NONE"
+            for field in (
+                "data_selection_change", "parser_contract_change",
+                "query_semantics_change", "quarantine_change",
+                "resource_contract_change", "hypothesis_design_change",
+            )
+        )
+        or repair06.get("threshold_feature_test_or_hypothesis_status_changed")
+            is not False
+    ):
+        raise RFQStageError("repair-06 changed inherited research semantics")
+
+    pre_repository = pre_manifest.get("repository")
+    repository = manifest.get("repository")
+    if not isinstance(pre_repository, dict) or not isinstance(repository, dict):
+        raise RFQStageError("repair-06 repository identity is missing")
+    pre_identity = _repository_identity(pre_repository)
+    current_identity = _repository_identity(repository)
+    identity_chain = repository.get("identity_history")
+    if (
+        not isinstance(identity_chain, list)
+        or len(identity_chain) != 7
+        or len({_json_payload_sha256(row) for row in identity_chain}) != 7
+        or identity_chain[:-1] != pre_repository.get("identity_history")
+        or identity_chain[-1] != current_identity
+        or identity_chain != repair06.get("repository_identity_chain")
+        or repair06.get("previous_repository_identity") != pre_identity
+        or repair06.get("current_repository_identity") != current_identity
+        or repair06.get("previous_execution_commit")
+            != pre_repository.get("execution_commit")
+        or repair06.get("current_execution_commit")
+            != repository.get("execution_commit")
+        or repository.get("registration_repair_id") != "repair-06"
+        or repository.get("previous_execution_commit")
+            != pre_repository.get("execution_commit")
+        or repository.get("previous_source_manifest_sha256")
+            != pre_repository.get("source_manifest_sha256")
+        or repository.get("previous_source_sha256s_sha256")
+            != pre_repository.get("source_sha256s_sha256")
+        or repository.get("previous_query_set_sha256")
+            != pre_repository.get("query_set_sha256")
+        or repository.get("previous_identity") != pre_identity
+        or repository.get("source_tree_dirty_at_freeze") is not False
+    ):
+        raise RFQStageError("repair-06 repository transfer mismatch")
+    if (
+        sha256(repair06_active_root / "SOURCE_MANIFEST.json")
+            != repository.get("source_manifest_sha256")
+        or sha256(repair06_active_root / "SOURCE_SHA256SUMS.txt")
+            != repository.get("source_sha256s_sha256")
+    ):
+        raise RFQStageError("repair-06 active source receipts changed")
+    query_rows = _validate_query_receipt(
+        run_dir, repository, active_root=repair06_active_root
+    )
+    registered_query_sha = query_rows.get(REPAIR06_EXECUTION_QUERY)
+    if (
+        repair05.get("registered_rfq_query_sha256")
+            != REPAIR06_PARENT_RFQ_QUERY_SHA256
+        or registered_query_sha != repair06.get("registered_rfq_query_sha256")
+        or registered_query_sha == REPAIR06_PARENT_RFQ_QUERY_SHA256
+    ):
+        raise RFQStageError("repair-06 registered RFQ query SHA mismatch")
+
+    contract_path = _require_run_relative_file(
+        run_dir, REPAIR06_STATUS_WIRING_CONTRACT,
+        "repair-06 status wiring contract",
+    )
+    contract_sha = sha256(contract_path)
+    contract = read_json_object(contract_path, "repair-06 status wiring contract")
+    expected_contract = _expected_repair06_status_wiring_contract(
+        run_dir.name,
+        repair06["applied_at_utc"],
+        repair06,
+        repair05,
+        sha256(pre_manifest_path),
+    )
+    if (
+        repair06.get("status_wiring_contract_path")
+            != REPAIR06_STATUS_WIRING_CONTRACT
+        or repair06.get("status_wiring_contract_sha256") != contract_sha
+        or contract != expected_contract
+        or repair06.get("status_wiring_contract") != expected_contract
+    ):
+        raise RFQStageError("repair-06 status wiring contract mismatch")
+    authority_path = _require_run_relative_file(
+        run_dir, REPAIR06_AUTHORITY_BASIS, "repair-06 authority basis"
+    )
+    authority_sha = sha256(authority_path)
+    authority = read_json_object(authority_path, "repair-06 authority basis")
+    if (
+        repair06.get("authority_basis_path") != REPAIR06_AUTHORITY_BASIS
+        or repair06.get("authority_basis_sha256") != authority_sha
+        or authority != _expected_repair06_authority_basis(
+            run_dir.name, repair06["applied_at_utc"], contract_sha
+        )
+        or repair06.get("authority_basis") != authority
+    ):
+        raise RFQStageError("repair-06 authority basis mismatch")
+
+    pre_registry = _require_run_relative_file(
+        run_dir, f"{REPAIR06_PRE_ROOT}/TRIAL_REGISTRY.jsonl",
+        "repair-06 parent registry",
+    ).read_bytes()
+    active_registry = _require_run_relative_file(
+        repair06_active_root, "TRIAL_REGISTRY.jsonl", "repair-06 active registry"
+    ).read_bytes()
+    trial = repair06.get("trial_registry")
+    expected_trial_ids = [
+        "RFQ_FULL_STAGE_ATTEMPT_06",
+        "RFQ_VALIDATE_RUN_STATUS_WIRING_REPAIR_06",
+    ]
+    if (
+        not isinstance(trial, dict)
+        or set(trial) != {
+            "previous_sha256", "current_sha256", "previous_bytes",
+            "current_bytes", "strict_previous_bytes_prefix",
+            "appended_records", "trial_registration_ids",
+        }
+        or active_registry == pre_registry
+        or not active_registry.startswith(pre_registry)
+        or trial.get("previous_sha256") != hashlib.sha256(pre_registry).hexdigest()
+        or trial.get("current_sha256")
+            != hashlib.sha256(active_registry).hexdigest()
+        or trial.get("previous_bytes") != len(pre_registry)
+        or trial.get("current_bytes") != len(active_registry)
+        or trial.get("strict_previous_bytes_prefix") is not True
+        or trial.get("appended_records") != 2
+        or trial.get("trial_registration_ids") != expected_trial_ids
+    ):
+        raise RFQStageError("repair-06 trial-registry boundary mismatch")
+    suffix_rows = _read_registry_rows(
+        active_registry[len(pre_registry):], "repair-06 registry suffix"
+    )
+    if (
+        len(suffix_rows) != 2
+        or [row.get("trial_registration_id") for row in suffix_rows]
+            != expected_trial_ids
+        or any(row.get("parent_repair_id") != "repair-05" for row in suffix_rows)
+        or any(row.get("result_opened") is not False for row in suffix_rows)
+        or any(
+            row.get("hypothesis_conclusion_opened") is not False
+            for row in suffix_rows
+        )
+    ):
+        raise RFQStageError("repair-06 trial-registry suffix mismatch")
+
+    repair_root = run_dir / REPAIR06_ROOT
+    journal_path = _require_run_relative_file(
+        run_dir, REPAIR06_TRANSACTION_JOURNAL, "repair-06 transaction journal"
+    )
+    journal_sha = sha256(journal_path)
+    journal = read_json_object(journal_path, "repair-06 transaction journal")
+    mutations = journal.get("active_mutations")
+    manifest_mutation = journal.get("manifest_mutation")
+    expected_mutation_paths = [
+        "SOURCE_MANIFEST.json", "SOURCE_SHA256SUMS.txt", "QUERY_SHA256SUMS.txt",
+        *pre_repository.get("query_files", []), "TRIAL_REGISTRY.jsonl",
+    ]
+    expected_repair_files = sorted({
+        *(f"pre_repair/{row['path']}" for row in repair06["archive_inventory"]),
+        *(f"post_repair/{relative}" for relative in expected_mutation_paths),
+        "post_repair/RUN_MANIFEST.json",
+        Path(REPAIR06_STATUS_WIRING_CONTRACT).name,
+        Path(REPAIR06_AUTHORITY_BASIS).name,
+        Path(REPAIR06_REGISTRATION).name,
+        Path(REPAIR06_TRANSACTION_JOURNAL).name,
+        "REGISTRY_APPEND_PROGRESS.json",
+    })
+    actual_repair_files = sorted(
+        row["path"] for row in _archive_inventory(repair_root)
+    )
+    if (
+        repair06.get("transaction_journal_path")
+            != REPAIR06_TRANSACTION_JOURNAL
+        or repair06.get("transaction_journal_sha256") != journal_sha
+        or set(journal) != {
+            "schema_version", "repair_id", "run_id", "state",
+            "original_manifest_sha256", "active_mutations",
+            "manifest_mutation", "expected_repair_files",
+        }
+        or journal.get("schema_version") != "repair06-registration-transaction-v1"
+        or journal.get("repair_id") != "repair-06"
+        or journal.get("run_id") != run_dir.name
+        or journal.get("state") != "PREPARED_BEFORE_ACTIVE_MUTATION"
+        or journal.get("original_manifest_sha256") != sha256(pre_manifest_path)
+        or not isinstance(mutations, list)
+        or not isinstance(manifest_mutation, dict)
+        or [row.get("path") if isinstance(row, dict) else None for row in mutations]
+            != expected_mutation_paths
+        or journal.get("expected_repair_files") != expected_repair_files
+        or actual_repair_files != expected_repair_files
+    ):
+        raise RFQStageError("repair-06 transaction journal mismatch")
+    for mutation in mutations:
+        relative = mutation.get("path") if isinstance(mutation, dict) else None
+        original_relative = f"{REPAIR06_PRE_ROOT}/{relative}"
+        staging_relative = f"{REPAIR06_ROOT}/post_repair/{relative}"
+        displaced_relative = (
+            f"{REPAIR06_ROOT}/cas_displaced/"
+            f"{str(relative).replace('/', '__')}.original"
+        )
+        original = _require_run_relative_file(
+            run_dir, original_relative, "repair-06 original mutation payload"
+        )
+        staging = _require_run_relative_file(
+            run_dir, staging_relative, "repair-06 staged mutation payload"
+        )
+        active = _require_run_relative_file(
+            repair06_active_root, relative, "repair-06 active mutation payload"
+        )
+        if (
+            not isinstance(mutation, dict)
+            or set(mutation) != {
+                "path", "original_archive_path", "original_sha256",
+                "replacement_staging_path", "replacement_sha256",
+                "displaced_path", "append_only_registry",
+            }
+            or mutation.get("original_archive_path") != original_relative
+            or mutation.get("original_sha256") != sha256(original)
+            or mutation.get("replacement_staging_path") != staging_relative
+            or mutation.get("replacement_sha256") != sha256(staging)
+            or sha256(active) != mutation.get("replacement_sha256")
+            or active.read_bytes() != staging.read_bytes()
+            or mutation.get("displaced_path") != displaced_relative
+            or os.path.lexists(run_dir / displaced_relative)
+            or mutation.get("append_only_registry")
+                is not (relative == "TRIAL_REGISTRY.jsonl")
+            or (
+                relative == "TRIAL_REGISTRY.jsonl"
+                and not active.read_bytes().startswith(original.read_bytes())
+            )
+        ):
+            raise RFQStageError(
+                f"repair-06 transaction mutation mismatch: {relative}"
+            )
+
+    manifest_staging_relative = f"{REPAIR06_ROOT}/post_repair/RUN_MANIFEST.json"
+    manifest_displaced_relative = (
+        f"{REPAIR06_ROOT}/cas_displaced/RUN_MANIFEST.json.original"
+    )
+    staged_manifest_path = _require_run_relative_file(
+        run_dir, manifest_staging_relative, "repair-06 staged manifest"
+    )
+    active_manifest_path = _require_run_relative_file(
+        repair06_active_root, "RUN_MANIFEST.json", "repair-06 active manifest"
+    )
+    if (
+        set(manifest_mutation) != {
+            "path", "original_archive_path", "original_sha256",
+            "replacement_staging_path", "replacement_sha256",
+            "displaced_path", "append_only_registry",
+        }
+        or manifest_mutation.get("path") != "RUN_MANIFEST.json"
+        or manifest_mutation.get("original_archive_path")
+            != f"{REPAIR06_PRE_ROOT}/RUN_MANIFEST.json"
+        or manifest_mutation.get("original_sha256") != sha256(pre_manifest_path)
+        or manifest_mutation.get("replacement_staging_path")
+            != manifest_staging_relative
+        or manifest_mutation.get("replacement_sha256") is not None
+        or manifest_mutation.get("displaced_path") != manifest_displaced_relative
+        or manifest_mutation.get("append_only_registry") is not False
+        or os.path.lexists(run_dir / manifest_displaced_relative)
+        or active_manifest_path.read_bytes() != staged_manifest_path.read_bytes()
+        or read_json_object(staged_manifest_path, "repair-06 staged manifest")
+            != manifest
+        or repair06.get("transaction_journal_sha256") != journal_sha
+        or repair06.get("repair_receipt_sha256") != receipt_sha
+    ):
+        raise RFQStageError("repair-06 manifest transaction mutation mismatch")
+
+    failed06 = {
+        "repair_id": "repair-06",
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR05_ATTEMPT_06",
+        "blocker_path": repair06["blocker_path"],
+        "blocker_sha256": repair06["blocker_sha256"],
+        "failed_resource_receipt_path": repair06[
+            "failed_resource_receipt_path"
+        ],
+        "failed_resource_receipt_sha256": repair06[
+            "failed_resource_receipt_sha256"
+        ],
+        "unchanged_state_path": repair06["unchanged_state_path"],
+        "unchanged_state_sha256": repair06["unchanged_state_sha256"],
+        "unchanged_input_identity_path": repair06[
+            "unchanged_input_identity_path"
+        ],
+        "unchanged_input_identity_sha256": repair06[
+            "unchanged_input_identity_sha256"
+        ],
+        "new_state_written": False,
+        "new_input_identity_written": False,
+        "input_fingerprint": base_result["selection_fingerprint_sha256"],
+        "resource_label": REPAIR05_SUCCESS_RESOURCE_LABEL,
+        "retry_requirement": REPAIR06_RETRY_REQUIREMENT,
+    }
+    chain06 = {
+        "repair_id": "repair-06",
+        "registration_path": REPAIR06_REGISTRATION,
+        "registration_sha256": receipt_sha,
+        "status_wiring_contract_path": REPAIR06_STATUS_WIRING_CONTRACT,
+        "status_wiring_contract_sha256": contract_sha,
+        "authority_basis_path": REPAIR06_AUTHORITY_BASIS,
+        "authority_basis_sha256": authority_sha,
+    }
+    result = dict(base_result)
+    result.update({
+        "repair_chain": [*base_result["repair_chain"], chain06],
+        "failed_attempt_bindings": [
+            *base_result["failed_attempt_bindings"], failed06,
+        ],
+        "expected_success_resource": {
+            "label": REPAIR06_SUCCESS_RESOURCE_LABEL,
+            "path": REPAIR06_SUCCESS_RESOURCE_PATH,
+        },
+        "validate_run_status_wiring_contract": {
+            "path": REPAIR06_STATUS_WIRING_CONTRACT,
+            "sha256": contract_sha,
+            "schema_version": REPAIR06_STATUS_WIRING_SCHEMA,
+        },
+        "registered_rfq_query_sha256": registered_query_sha,
+    })
+    del repair01, repair02, repair03, repair04, evidence
+    return result
+
+
 def apply_object_quarantine(
     run_dir: Path,
     manifest: dict,
     inputs: dict,
     _ignore_repair02: bool = False,
+    _active_root: Path | None = None,
 ) -> dict:
     """Apply an exact, pre-result whole-object quarantine without opening its bytes.
 
@@ -5531,6 +6483,13 @@ def apply_object_quarantine(
                 row.get("repair_id") if isinstance(row, dict) else None
                 for row in manifest.get("data_integrity_repairs", [])
             ]
+            if repair_ids == [
+                "repair-01", "repair-02", "repair-03", "repair-04",
+                "repair-05", "repair-06",
+            ]:
+                return _apply_repair06_status_wiring(
+                    run_dir, manifest, inputs, active_root=_active_root
+                )
             if repair_ids == [
                 "repair-01", "repair-02", "repair-03", "repair-04", "repair-05"
             ]:
@@ -5858,8 +6817,10 @@ def discover_inputs(cache_root: Path) -> dict:
     return payload
 
 
-def validate_run(run_dir: Path) -> dict:
-    manifest_path = run_dir / "RUN_MANIFEST.json"
+def validate_run(
+    run_dir: Path, *, manifest_root: Path | None = None
+) -> dict:
+    manifest_path = (manifest_root or run_dir) / "RUN_MANIFEST.json"
     attestation_path = run_dir / "DATA_INTEGRITY/W09_ATTESTATION.json"
     if not manifest_path.is_file() or not attestation_path.is_file():
         raise RFQStageError("run manifest or W09 attestation missing")
@@ -5881,6 +6842,8 @@ def validate_run(run_dir: Path) -> dict:
         "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED",
         REPAIR03_STATUS,
         REPAIR04_STATUS,
+        REPAIR05_STATUS,
+        REPAIR06_STATUS,
     }:
         raise RFQStageError("Cycle-1 core is not in an RFQ-stage-compatible state")
     gates = manifest.get("gates", {})
@@ -8011,6 +8974,10 @@ def build_summary(connection, inputs: dict, clob: dict, elapsed: float) -> dict:
         summary["input"]["consumer_wiring_contract"] = inputs[
             "consumer_wiring_contract"
         ]
+    if inputs.get("validate_run_status_wiring_contract") is not None:
+        summary["input"]["validate_run_status_wiring_contract"] = inputs[
+            "validate_run_status_wiring_contract"
+        ]
     return summary
 
 
@@ -8103,6 +9070,35 @@ def _enforce_registered_consumer_wiring_contract(
         raise RFQStageError("repair-05 registered consumer wiring contract changed")
 
 
+def _enforce_registered_validate_run_status_wiring_contract(
+    inputs: dict, run_dir: Path
+) -> None:
+    """Reject repair-06 status-wiring drift before any governed RFQ write."""
+    binding = inputs.get("validate_run_status_wiring_contract")
+    if binding is None:
+        return
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"path", "sha256", "schema_version"}
+        or binding.get("path") != REPAIR06_STATUS_WIRING_CONTRACT
+        or binding.get("schema_version") != REPAIR06_STATUS_WIRING_SCHEMA
+        or not isinstance(binding.get("sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", binding["sha256"]) is None
+    ):
+        raise RFQStageError(
+            "repair-06 registered validate_run status wiring contract is invalid"
+        )
+    contract = _require_run_relative_file(
+        run_dir,
+        binding["path"],
+        "repair-06 registered validate_run status wiring contract",
+    )
+    if sha256(contract) != binding["sha256"]:
+        raise RFQStageError(
+            "repair-06 registered validate_run status wiring contract changed"
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     validate_windows()
     parser = argparse.ArgumentParser()
@@ -8115,12 +9111,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--clob-max-per-root", type=int, default=50)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--keep-scratch", action="store_true")
+    parser.add_argument("--validate-run-preflight-only", action="store_true")
+    parser.add_argument("--validate-run-preflight-overlay", type=Path)
     args = parser.parse_args(argv)
     if args.threads < 1:
         parser.error("threads must be positive")
     started = time.time()
     run_dir = args.run_dir.resolve()
-    manifest = validate_run(run_dir)
+    preflight_overlay = args.validate_run_preflight_overlay
+    if preflight_overlay is not None:
+        if not args.validate_run_preflight_only:
+            raise RFQStageError(
+                "validate_run preflight overlay requires preflight-only mode"
+            )
+        expected_overlay = (
+            run_dir / REPAIR06_ROOT / "post_repair"
+        ).resolve()
+        if (
+            preflight_overlay.is_symlink()
+            or not preflight_overlay.is_dir()
+            or preflight_overlay.resolve() != expected_overlay
+        ):
+            raise RFQStageError(
+                "repair-06 validate_run preflight overlay is missing or unsafe"
+            )
+        preflight_overlay = expected_overlay
+    manifest = (
+        validate_run(run_dir)
+        if preflight_overlay is None
+        else validate_run(run_dir, manifest_root=preflight_overlay)
+    )
+    if args.validate_run_preflight_only:
+        print(f"RFQ_VALIDATE_RUN_PREFLIGHT_COMPLETE run_id={run_dir.name}")
+        return 0
     inputs = discover_inputs(args.cache_root.resolve())
     validate_input_bindings(manifest, inputs)
     # Security ordering: repair-03's immutable, per-object absence proof must
@@ -8129,6 +9152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     inputs = apply_object_quarantine(run_dir, manifest, inputs)
     _enforce_registered_resource_contract(args, inputs, run_dir)
     _enforce_registered_consumer_wiring_contract(inputs, run_dir)
+    _enforce_registered_validate_run_status_wiring_contract(inputs, run_dir)
     scratch = run_dir / "cache/rfq_full_scratch.duckdb"
     state_path = run_dir / "REPORT/tables/RFQ_FULL_STAGE_STATE.json"
     registered_repair_active = bool(inputs.get("repair_chain"))
@@ -8136,12 +9160,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RFQStageError(
             "preregistered RFQ repair forbids resume; a fresh scratch is mandatory"
         )
-    if registered_repair_active and scratch.exists():
+    if registered_repair_active and (
+        os.path.lexists(scratch) or os.path.lexists(Path(str(scratch) + ".wal"))
+    ):
         raise RFQStageError(
-            "preregistered RFQ repair fresh scratch path already exists; "
+            "preregistered RFQ repair fresh scratch or WAL path already exists; "
             "aborting without resume"
         )
-
     import duckdb
 
     if duckdb.__version__ != EXPECTED_DUCKDB:
@@ -8155,15 +9180,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     input_identity = {
         "schema": (
-            "rfq-full-input-identity-v5"
-            if inputs.get("consumer_wiring_contract") is not None
+            "rfq-full-input-identity-v6"
+            if inputs.get("validate_run_status_wiring_contract") is not None
             else (
-                "rfq-full-input-identity-v4"
-                if inputs.get("rfq_resource_contract") is not None
+                "rfq-full-input-identity-v5"
+                if inputs.get("consumer_wiring_contract") is not None
                 else (
-                    "rfq-full-input-identity-v3"
-                    if inputs.get("inner_payload_parser_contract") is not None
-                    else "rfq-full-input-identity-v2"
+                    "rfq-full-input-identity-v4"
+                    if inputs.get("rfq_resource_contract") is not None
+                    else (
+                        "rfq-full-input-identity-v3"
+                        if inputs.get("inner_payload_parser_contract") is not None
+                        else "rfq-full-input-identity-v2"
+                    )
                 )
             )
         ),
@@ -8216,6 +9245,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         input_identity["consumer_wiring_contract"] = inputs[
             "consumer_wiring_contract"
         ]
+    if inputs.get("validate_run_status_wiring_contract") is not None:
+        input_identity["validate_run_status_wiring_contract"] = inputs[
+            "validate_run_status_wiring_contract"
+        ]
     free = shutil.disk_usage(run_dir).free
     required = max(args.min_free_gib * 2**30, inputs["consumed_bytes"] * 1.75)
     if free < required:
@@ -8258,6 +9291,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if inputs.get("consumer_wiring_contract") is not None:
         state["consumer_wiring_contract"] = inputs[
             "consumer_wiring_contract"
+        ]
+    if inputs.get("validate_run_status_wiring_contract") is not None:
+        state["validate_run_status_wiring_contract"] = inputs[
+            "validate_run_status_wiring_contract"
         ]
     connection = None
     attempt_started = False
