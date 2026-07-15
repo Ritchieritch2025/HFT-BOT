@@ -1640,3 +1640,34 @@ c) SIGNAL: same-game dependence is a first-class research object, not a
    especially), within-game lead-lag, and copula-modeled leg dependence
    feed the relative-value and combo directions directly.
 Violation of (a) voids the affected result (per V3.2d).
+
+V3.8 EXECUTION ENVIRONMENT BINDING — where and how the mission runs
+The "operator-approved W09 research machine" (GATE B) is bound to:
+- Instance: i-0e53d134dceffe166 ("w09-research"), r8g.2xlarge, Ubuntu 24.04
+  arm64, us-east-2, Elastic IP 18.226.151.192 (stable across stop/start).
+- Access: driver session on the operator Mac connects via
+  `ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192`. W09 holds neither
+  the Mac private key nor any Kalshi/AWS static credentials; its only
+  identity is the w09-research-runner instance profile (IMDSv2 temporary
+  credentials, read-only on research/*).
+- Data access ON the instance: the installed research_data CLI (instance-
+  profile wrapper) — inventory / fetch / verify against
+  s3://kalshi-vault-ritcardo/research/ only; local cache at
+  /srv/w09-research/cache. There is no S3 write path from W09.
+- Job execution: ALL detached or long-running work MUST go through
+  `w09-run <command> ...` — it holds the shutdown inhibitor so the 30-min
+  idle auto-stop never kills a running job. Work not wrapped in w09-run
+  may be lost to auto-stop; that loss is on the runner, not the machine.
+- Working area on the instance: /srv/w09-research/runs/<RUN_ID>/. The
+  section-2 repository run directory remains the canonical archive; sync
+  artifacts back at least once per daily digest, and publish durables to
+  S3 per V3.3. Nothing may exist only on W09 disk (V3.3).
+- Idle behavior: 1,800 s with no SSH session and no w09-run inhibitor =>
+  instance stops itself. If the runner finds the instance stopped, request
+  an operator start (no auto-wake exists until PIPE-W09 Phase B); do not
+  disable the idle timer except via the documented emergency procedure.
+- Environment facts: DuckDB pinned 1.4.5 (matches production), UTC via
+  chrony/Amazon Time Sync. Cost contract at /etc/w09/cost-contract.json
+  (~$0.4713/h compute while running). Operational details are governed by
+  deploy/w09/README.md; where that README and this section conflict, this
+  section governs.
