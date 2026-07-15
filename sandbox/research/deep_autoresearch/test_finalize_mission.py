@@ -22,6 +22,22 @@ repair04_registrar = importlib.util.module_from_spec(repair04_spec)
 assert repair04_spec.loader is not None
 repair04_spec.loader.exec_module(repair04_registrar)
 
+repair05_registration_path = Path(__file__).with_name("repair05_registration.py")
+repair05_spec = importlib.util.spec_from_file_location(
+    "repair05_registration_for_finalizer_tests", repair05_registration_path
+)
+repair05_registrar = importlib.util.module_from_spec(repair05_spec)
+assert repair05_spec.loader is not None
+repair05_spec.loader.exec_module(repair05_registrar)
+
+repair05_tests_path = Path(__file__).with_name("test_repair05_registration.py")
+repair05_tests_spec = importlib.util.spec_from_file_location(
+    "repair05_registration_canonical_fixture_for_finalizer", repair05_tests_path
+)
+repair05_producer_tests = importlib.util.module_from_spec(repair05_tests_spec)
+assert repair05_tests_spec.loader is not None
+repair05_tests_spec.loader.exec_module(repair05_producer_tests)
+
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2879,6 +2895,509 @@ def test_repair04_dispatches_to_resource_validator(monkeypatch, tmp_path):
             {"repair_id": "repair-02"},
             {"repair_id": "repair-03"},
             {"repair_id": "repair-04"},
+        ]
+    }
+
+    assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def repair05_success_outputs_fixture(tmp_path):
+    """Upgrade repair-04's synthetic envelope to the wiring-only v5 result."""
+    fixture = repair04_success_outputs_fixture(tmp_path)
+    args04 = fixture["validation_args"]
+    run = fixture["run"]
+    repair04_context = {
+        "repair03_context": args04["repair03_context"],
+        "repair04_receipt_sha256": args04["repair04_receipt_sha"],
+        "resource_contract_sha256": args04["resource_contract_sha"],
+        "authority_basis_sha256": args04["authority_sha"],
+        "failed": args04["failed"],
+        "current_identity": args04["current_identity"],
+        "registered_rfq_query_sha256": args04["repair04"][
+            "registered_rfq_query_sha256"
+        ],
+    }
+    repair05_receipt_sha = "1" * 64
+    wiring_sha = "2" * 64
+    authority_sha = "3" * 64
+    (
+        repair_chain,
+        failed_bindings,
+        parser_binding,
+        resource_binding,
+        wiring_binding,
+    ) = mod._repair05_runtime_bindings(
+        repair04_context=repair04_context,
+        repair05_receipt_sha=repair05_receipt_sha,
+        wiring_contract_sha=wiring_sha,
+        authority_sha=authority_sha,
+    )
+    source_payload = b"# repair-05 consumer wiring correction\n"
+    query_sha = hashlib.sha256(source_payload).hexdigest()
+    fixture["frozen_source_path"].write_bytes(source_payload)
+    expected_resource = {
+        "label": "rfq_full_stage_repair05",
+        "path": mod.ACTIVE_RFQ_REPAIR_RESOURCE_05.as_posix(),
+    }
+
+    active_identity = json.loads(
+        fixture["identity_path"].read_text(encoding="utf-8")
+    )
+    active_identity.update(
+        {
+            "schema": "rfq-full-input-identity-v5",
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "registered_rfq_query_sha256": query_sha,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+        }
+    )
+    write_json(run / mod.RFQ_INPUT_IDENTITY, active_identity)
+
+    active_state = json.loads(fixture["state_path"].read_text(encoding="utf-8"))
+    active_state.update(
+        {
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "registered_rfq_query_sha256": query_sha,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+            "started_at_utc": "2026-07-15T19:01:00Z",
+            "completed_at_utc": "2026-07-15T20:00:00Z",
+        }
+    )
+    write_json(fixture["state_path"], active_state)
+
+    rfq = copy.deepcopy(args04["rfq"])
+    rfq["generated_at_utc"] = "2026-07-15T19:50:00Z"
+    rfq["input"].update(
+        {
+            "repair_chain": repair_chain,
+            "failed_attempt_bindings": failed_bindings,
+            "expected_success_resource": expected_resource,
+            "inner_payload_parser_contract": parser_binding,
+            "registered_rfq_query_sha256": query_sha,
+            "rfq_resource_contract": resource_binding,
+            "consumer_wiring_contract": wiring_binding,
+        }
+    )
+    write_json(fixture["summary_path"], rfq)
+    resource_path = run / mod.ACTIVE_RFQ_REPAIR_RESOURCE_05
+    write_json(
+        resource_path,
+        {
+            "schema_version": "w09-stage-resource-v1",
+            "label": "rfq_full_stage_repair05",
+            "started_at_utc": "2026-07-15T19:00:00Z",
+            "completed_at_utc": "2026-07-15T20:01:00Z",
+            "wall_seconds": 3_660.0,
+            "return_code": 0,
+            "s3_bytes_read_by_analysis": 0,
+            "command": [
+                "/opt/w09/venv/bin/python",
+                str(fixture["frozen_source_path"].resolve()),
+                "--run-dir",
+                str(run.resolve()),
+                "--cache-root",
+                "/srv/w09-research/cache",
+                "--memory-limit",
+                "46GB",
+                "--max-temp-size",
+                "70GB",
+                "--threads",
+                "4",
+                "--min-free-gib",
+                "100",
+                "--clob-max-per-root",
+                "50",
+            ],
+        },
+    )
+    current_identity = {
+        "execution_commit": "e" * 40,
+        "source_manifest_sha256": "4" * 64,
+        "source_sha256s_sha256": "5" * 64,
+        "query_set_sha256": "6" * 64,
+    }
+    validation_args = {
+        "run_dir": run,
+        "manifest": {"run_id": run.name},
+        "rfq": rfq,
+        "repair05": {"registered_rfq_query_sha256": query_sha},
+        "repair05_receipt_sha": repair05_receipt_sha,
+        "wiring_contract_sha": wiring_sha,
+        "authority_sha": authority_sha,
+        "repair04_context": repair04_context,
+        "current_identity": current_identity,
+    }
+    return {
+        **fixture,
+        "validation_args": validation_args,
+        "resource_path": resource_path,
+        "repair_chain": repair_chain,
+        "failed_bindings": failed_bindings,
+        "resource_binding": resource_binding,
+        "wiring_binding": wiring_binding,
+    }
+
+
+def test_repair05_success_outputs_complete_positive_path(tmp_path):
+    fixture = repair05_success_outputs_fixture(tmp_path)
+    result = mod._validate_repair05_success_outputs(
+        **fixture["validation_args"]
+    )
+
+    assert result["status"] == mod.RFQ_PARTIAL_STATUS
+    assert result["repair_chain"] == fixture["repair_chain"]
+    assert result["failed_attempt_bindings"] == fixture["failed_bindings"]
+    assert result["wiring_contract_path"] == (
+        mod.REPAIR_05_WIRING_CONTRACT.as_posix()
+    )
+    assert set(result["repair_chain"][-1]) == {
+        "repair_id",
+        "registration_path",
+        "registration_sha256",
+        "wiring_contract_path",
+        "wiring_contract_sha256",
+        "authority_basis_path",
+        "authority_basis_sha256",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "identity_schema_v4",
+        "identity_wiring_changed",
+        "state_wiring_changed",
+        "summary_wiring_changed",
+        "identity_resource_changed",
+        "resource_label",
+        "command_legacy_source_path",
+        "executed_source_not_registered",
+    ],
+)
+def test_repair05_success_outputs_reject_mutations(tmp_path, mutation):
+    fixture = repair05_success_outputs_fixture(tmp_path)
+    args = fixture["validation_args"]
+    identity = json.loads(fixture["identity_path"].read_text(encoding="utf-8"))
+    state = json.loads(fixture["state_path"].read_text(encoding="utf-8"))
+    resource = json.loads(fixture["resource_path"].read_text(encoding="utf-8"))
+
+    if mutation == "identity_schema_v4":
+        identity["schema"] = "rfq-full-input-identity-v4"
+    elif mutation == "identity_wiring_changed":
+        identity["consumer_wiring_contract"]["sha256"] = "0" * 64
+    elif mutation == "state_wiring_changed":
+        state["consumer_wiring_contract"]["sha256"] = "0" * 64
+    elif mutation == "summary_wiring_changed":
+        args["rfq"]["input"]["consumer_wiring_contract"]["sha256"] = "0" * 64
+    elif mutation == "identity_resource_changed":
+        identity["rfq_resource_contract"]["current_runtime"]["threads"] = 8
+    elif mutation == "resource_label":
+        resource["label"] = "rfq_full_stage_repair04"
+    elif mutation == "command_legacy_source_path":
+        resource["command"][1] = str(fixture["source_path"].resolve())
+    else:
+        fixture["frozen_source_path"].write_bytes(b"# forged repair-05 query\n")
+
+    write_json(fixture["identity_path"], identity)
+    write_json(fixture["state_path"], state)
+    write_json(fixture["resource_path"], resource)
+    write_json(fixture["summary_path"], args["rfq"])
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._validate_repair05_success_outputs(**args)
+
+
+def test_repair05_runtime_bindings_are_wiring_only(tmp_path):
+    fixture = repair05_success_outputs_fixture(tmp_path)
+    chain = fixture["repair_chain"][-1]
+    failed = fixture["failed_bindings"][-1]
+
+    assert chain["repair_id"] == "repair-05"
+    assert failed["new_state_written"] is False
+    assert failed["new_input_identity_written"] is False
+    assert fixture["resource_binding"]["current_runtime"] == {
+        "memory_limit": "46GB",
+        "max_temp_size": "70GB",
+        "threads": 4,
+        "min_free_gib": 100.0,
+        "clob_max_per_root": 50,
+        "resume": False,
+        "keep_scratch": False,
+    }
+    assert fixture["wiring_binding"]["schema_version"] == (
+        "rfq-consumer-validation-wiring-contract-v1"
+    )
+
+
+def test_repair05_prefix_overlay_replays_repair04_at_archived_boundary(
+    tmp_path, monkeypatch
+):
+    run = tmp_path / "synthetic-repair05-prefix"
+    repairs = [{"repair_id": f"repair-0{number}"} for number in range(1, 6)]
+    pre_manifest = {
+        "run_id": run.name,
+        "status": mod.REPAIR04_PENDING_STATUS,
+        "registration_state": (
+            "RE_FROZEN_AFTER_RFQ_RESOURCE_RETUNE_REPAIR04_BEFORE_RFQ_RESULT"
+        ),
+        "data_integrity_repairs": repairs[:4],
+    }
+    write_json(run / mod.REPAIR_05_PRE_ROOT / "RUN_MANIFEST.json", pre_manifest)
+    observed = {}
+
+    def fake_repair04(run_dir, manifest, rfq, **kwargs):
+        observed.update(
+            {
+                "run_dir": run_dir,
+                "manifest": manifest,
+                "rfq": rfq,
+                **kwargs,
+            }
+        )
+        return {"prefix_only": True, "historical_chain": "strict"}
+
+    monkeypatch.setattr(mod, "validate_rfq_resource_repair04", fake_repair04)
+    context, observed_manifest, _ = mod._validate_repair05_prefix_overlay(
+        run,
+        run_id=run.name,
+        repairs=repairs,
+        rfq={"run_id": run.name},
+    )
+
+    assert context["historical_chain"] == "strict"
+    assert observed_manifest == pre_manifest
+    assert observed["prefix_only"] is True
+    assert observed["active_boundary_root"] == mod.REPAIR_05_PRE_ROOT
+
+
+def repair05_contract_fixture(tmp_path):
+    run = tmp_path / "synthetic-repair05-contract"
+    run.mkdir()
+    applied_at = "2026-07-15T18:55:00Z"
+    current_query_sha = "a" * 64
+    cycle_binding = {"path": "cache/cycle1.duckdb", "sha256": "c" * 64}
+    cycle_sha = "b" * 64
+    evidence = {
+        "blocker_path": mod.REPAIR_05_BLOCKER_ARCHIVE.as_posix(),
+        "blocker_sha256": (
+            mod.EXPECTED_RFQ_REPAIR04_CONSUMER_BLOCKER_05_SHA256
+        ),
+        "failed_resource_receipt_path": mod.FAILED_RFQ_RESOURCE_05.as_posix(),
+        "failed_resource_receipt_sha256": (
+            mod.EXPECTED_RFQ_FAILED_RESOURCE_05_SHA256
+        ),
+        "cycle1_binding_path": (
+            mod.REPAIR_05_PRE_ROOT / mod.ACTIVE_CYCLE1_DUCKDB_BINDING
+        ).as_posix(),
+        "cycle1_binding_sha256": cycle_sha,
+        "registered_cycle1_duckdb_binding": cycle_binding,
+    }
+    wiring = repair05_registrar.make_wiring_contract(
+        run.name, applied_at, evidence, current_query_sha
+    )
+    write_json(run / mod.REPAIR_05_WIRING_CONTRACT, wiring)
+    wiring_sha = mod.sha256(run / mod.REPAIR_05_WIRING_CONTRACT)
+    authority = repair05_registrar.make_authority_basis(
+        run.name,
+        applied_at,
+        mod.REPAIR_05_WIRING_CONTRACT.as_posix(),
+        wiring_sha,
+    )
+    write_json(run / mod.REPAIR_05_AUTHORITY_BASIS, authority)
+    repair05 = {
+        "applied_at_utc": applied_at,
+        "registered_rfq_query_sha256": current_query_sha,
+        "wiring_contract_path": mod.REPAIR_05_WIRING_CONTRACT.as_posix(),
+        "wiring_contract_sha256": wiring_sha,
+        "authority_basis_path": mod.REPAIR_05_AUTHORITY_BASIS.as_posix(),
+        "authority_basis_sha256": mod.sha256(run / mod.REPAIR_05_AUTHORITY_BASIS),
+        "cycle1_binding_path": evidence["cycle1_binding_path"],
+        "cycle1_binding_sha256": cycle_sha,
+    }
+    repair04_context = {
+        "registered_rfq_query_sha256": (
+            repair05_registrar.PARENT_RFQ_QUERY_SHA256
+        ),
+        "resource_contract_sha256": (
+            repair05_registrar.PARENT_RESOURCE_CONTRACT_SHA256
+        ),
+        "repair03_context": {"prefix": {"cycle1_duckdb_binding": cycle_binding}},
+    }
+    return run, repair05, repair04_context, wiring, authority
+
+
+def test_repair05_wiring_contract_and_authority_are_exact(tmp_path):
+    run, repair05, repair04_context, wiring, authority = (
+        repair05_contract_fixture(tmp_path)
+    )
+    observed = mod._validate_repair05_contracts(
+        run,
+        run_id=run.name,
+        repair05=repair05,
+        repair04_context=repair04_context,
+    )
+
+    assert observed[0] == wiring
+    assert observed[2] == authority
+    assert wiring["inherited_contracts"]["runtime"] == (
+        repair04_registrar.RUNTIME_CONTRACT
+    )
+
+
+def test_repair05_wiring_contract_semantic_mutation_fails_closed(tmp_path):
+    run, repair05, repair04_context, wiring, _ = repair05_contract_fixture(tmp_path)
+    wiring["query_semantics_change"] = "CHANGED"
+    write_json(run / mod.REPAIR_05_WIRING_CONTRACT, wiring)
+    repair05["wiring_contract_sha256"] = mod.sha256(
+        run / mod.REPAIR_05_WIRING_CONTRACT
+    )
+
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._validate_repair05_contracts(
+            run,
+            run_id=run.name,
+            repair05=repair05,
+            repair04_context=repair04_context,
+        )
+
+
+def repair05_canonical_transaction_fixture(tmp_path, monkeypatch):
+    fixture = repair05_producer_tests.make_transaction_fixture(
+        tmp_path, monkeypatch
+    )
+    result = repair05_producer_tests.invoke(fixture)
+    assert result["status"] == "REGISTRATION_REPAIR05_REFROZEN"
+    run = fixture["run"]
+    manifest = json.loads((run / "RUN_MANIFEST.json").read_text())
+    repair05 = manifest["data_integrity_repairs"][-1]
+    return {
+        "fixture": fixture,
+        "run": run,
+        "manifest": manifest,
+        "repair05": repair05,
+        "pre_manifest_path": run / mod.REPAIR_05_PRE_ROOT / "RUN_MANIFEST.json",
+        "query_files": manifest["repository"]["query_files"],
+    }
+
+
+def validate_repair05_canonical_transaction(fixture):
+    return mod._validate_repair05_transaction(
+        fixture["run"],
+        run_id=fixture["run"].name,
+        manifest=fixture["manifest"],
+        repair05=fixture["repair05"],
+        pre_manifest_path=fixture["pre_manifest_path"],
+        query_files=fixture["query_files"],
+    )
+
+
+def rebind_repair05_journal_fixture(fixture, journal):
+    run = fixture["run"]
+    journal_path = run / mod.REPAIR_05_TRANSACTION_JOURNAL
+    write_json(journal_path, journal)
+    record = fixture["manifest"]["data_integrity_repairs"][-1]
+    record["transaction_journal_sha256"] = mod.sha256(journal_path)
+    receipt_body = copy.deepcopy(record)
+    receipt_body.pop("repair_receipt_path")
+    receipt_body.pop("repair_receipt_sha256")
+    receipt_path = run / mod.REPAIR_REGISTRATION_RECEIPT_05
+    write_json(receipt_path, receipt_body)
+    record["repair_receipt_sha256"] = mod.sha256(receipt_path)
+    fixture["repair05"] = record
+    for path in (
+        run / "RUN_MANIFEST.json",
+        run / mod.REPAIR_05_ROOT / "post_repair/RUN_MANIFEST.json",
+    ):
+        write_json(path, fixture["manifest"])
+
+
+def test_repair05_canonical_producer_transaction_is_accepted(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_canonical_transaction_fixture(tmp_path, monkeypatch)
+    journal = validate_repair05_canonical_transaction(fixture)
+
+    assert set(journal) == {
+        "schema_version",
+        "repair_id",
+        "run_id",
+        "state",
+        "original_manifest_sha256",
+        "active_mutations",
+        "manifest_mutation",
+        "expected_repair_files",
+    }
+    assert "post_repair/RUN_MANIFEST.json" in journal["expected_repair_files"]
+    assert journal["manifest_mutation"]["replacement_sha256"] is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "archive_bytes",
+        "staging_bytes",
+        "active_bytes",
+        "active_displaced",
+        "manifest_staging_bytes",
+        "manifest_displaced",
+        "active_mutation_shape",
+        "manifest_mutation_shape",
+    ],
+)
+def test_repair05_transaction_mutations_fail_closed(
+    tmp_path, monkeypatch, mutation
+):
+    fixture = repair05_canonical_transaction_fixture(tmp_path, monkeypatch)
+    run = fixture["run"]
+    journal_path = run / mod.REPAIR_05_TRANSACTION_JOURNAL
+    journal = json.loads(journal_path.read_text())
+
+    if mutation == "archive_bytes":
+        path = run / journal["active_mutations"][0]["original_archive_path"]
+        path.write_bytes(path.read_bytes() + b"foreign")
+    elif mutation == "staging_bytes":
+        path = run / journal["active_mutations"][0]["replacement_staging_path"]
+        path.write_bytes(path.read_bytes() + b"foreign")
+    elif mutation == "active_bytes":
+        path = run / journal["active_mutations"][0]["path"]
+        path.write_bytes(path.read_bytes() + b"foreign")
+    elif mutation == "active_displaced":
+        path = run / journal["active_mutations"][0]["displaced_path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"owned-original-that-should-have-been-cleaned")
+    elif mutation == "manifest_staging_bytes":
+        path = run / journal["manifest_mutation"]["replacement_staging_path"]
+        path.write_bytes(path.read_bytes() + b"foreign")
+    elif mutation == "manifest_displaced":
+        path = run / journal["manifest_mutation"]["displaced_path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"owned-original-that-should-have-been-cleaned")
+    elif mutation == "active_mutation_shape":
+        journal["active_mutations"][0].pop("replacement_staging_path")
+        rebind_repair05_journal_fixture(fixture, journal)
+    else:
+        journal["manifest_mutation"]["replacement_sha256"] = "0" * 64
+        rebind_repair05_journal_fixture(fixture, journal)
+
+    with pytest.raises(mod.MissionFinalizationError):
+        validate_repair05_canonical_transaction(fixture)
+
+
+def test_repair05_dispatches_to_consumer_wiring_validator(monkeypatch, tmp_path):
+    expected = {"status": "repair05-validated"}
+    monkeypatch.setattr(
+        mod, "validate_rfq_consumer_wiring_repair05", lambda *_: expected
+    )
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{number}"} for number in range(1, 6)
         ]
     }
 

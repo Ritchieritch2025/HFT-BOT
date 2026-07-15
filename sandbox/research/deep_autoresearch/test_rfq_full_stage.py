@@ -23,6 +23,22 @@ repair04_producer = importlib.util.module_from_spec(repair04_spec)
 assert repair04_spec.loader is not None
 repair04_spec.loader.exec_module(repair04_producer)
 
+repair05_path = Path(__file__).with_name("repair05_registration.py")
+repair05_spec = importlib.util.spec_from_file_location(
+    "repair05_registration_for_rfq_consumer_tests", repair05_path
+)
+repair05_producer = importlib.util.module_from_spec(repair05_spec)
+assert repair05_spec.loader is not None
+repair05_spec.loader.exec_module(repair05_producer)
+
+repair05_test_path = Path(__file__).with_name("test_repair05_registration.py")
+repair05_test_spec = importlib.util.spec_from_file_location(
+    "repair05_registration_fixture_for_rfq_consumer", repair05_test_path
+)
+repair05_test_helpers = importlib.util.module_from_spec(repair05_test_spec)
+assert repair05_test_spec.loader is not None
+repair05_test_spec.loader.exec_module(repair05_test_helpers)
+
 
 def recorder(wall_ns, frame=None, *, mono_ns=None, epoch=1, marker=None):
     row = {
@@ -2780,7 +2796,6 @@ def test_repair04_registration_product_is_accepted_by_consumer(
         "registered_rfq_query_sha256": repair03[
             "registered_rfq_query_sha256"
         ],
-        "cycle1_duckdb_binding": repair03["cycle1_duckdb_binding"],
         "paths": [],
         "objects_detail": [],
     }
@@ -2797,12 +2812,19 @@ def test_repair04_registration_product_is_accepted_by_consumer(
         "_apply_repair03_parser_contract",
         lambda *_args, **_kwargs: copy.deepcopy(base_result),
     )
+    observed_cycle1_sources = []
+
+    def validate_failed_boundary(
+        _run_dir, _repair04, observed_base_result, cycle1_duckdb_binding
+    ):
+        # Production discover/quarantine output has this exact shape: Cycle-1 is
+        # registered evidence, not a property synthesized onto base_result.
+        assert "cycle1_duckdb_binding" not in observed_base_result
+        observed_cycle1_sources.append(copy.deepcopy(cycle1_duckdb_binding))
+        return {"resource": copy.deepcopy(fixture["resource"])}
+
     monkeypatch.setattr(
-        mod,
-        "_validate_repair04_failed_boundary",
-        lambda *_args, **_kwargs: {
-            "resource": copy.deepcopy(fixture["resource"]),
-        },
+        mod, "_validate_repair04_failed_boundary", validate_failed_boundary
     )
     failed = repair04["failed_attempt"]
     monkeypatch.setattr(
@@ -2822,7 +2844,26 @@ def test_repair04_registration_product_is_accepted_by_consumer(
         failed["preserved_scratch_original_inode"],
     )
 
+    pre_evidence = {
+        relative: (
+            (run_dir / relative).read_bytes()
+            if (run_dir / relative).is_file() else None
+        )
+        for relative in (
+            "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+            "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+            "cache/rfq_full_scratch.duckdb",
+        )
+    }
     result = mod._apply_repair04_resource_contract(run_dir, manifest, inputs)
+    assert pre_evidence == {
+        relative: (
+            (run_dir / relative).read_bytes()
+            if (run_dir / relative).is_file() else None
+        )
+        for relative in pre_evidence
+    }
+    assert observed_cycle1_sources == [repair03["cycle1_duckdb_binding"]]
     assert [row["repair_id"] for row in result["repair_chain"]] == [
         "repair-01", "repair-02", "repair-03", "repair-04",
     ]
@@ -2912,6 +2953,445 @@ def test_repair04_execution_entry_must_be_registered_frozen_query(
 def test_resource_gate_is_noop_without_repair04_contract(tmp_path):
     args = type("Args", (), {})()
     mod._enforce_registered_resource_contract(args, {}, tmp_path)
+
+
+def repair05_consumer_product_fixture(tmp_path, monkeypatch):
+    fixture = repair05_test_helpers.make_transaction_fixture(tmp_path, monkeypatch)
+    assert repair05_test_helpers.invoke(fixture)["status"] == (
+        "REGISTRATION_REPAIR05_REFROZEN"
+    )
+    run_dir = fixture["run"]
+    manifest = json.loads((run_dir / "RUN_MANIFEST.json").read_text())
+    repair04 = manifest["data_integrity_repairs"][3]
+    repair05 = manifest["data_integrity_repairs"][4]
+    selection = repair05["current_selection_fingerprint_sha256"]
+    base_result = {
+        "selection_fingerprint_sha256": selection,
+        "repair_chain": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 5)
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 5)
+        ],
+        "rfq_resource_contract": {
+            "path": repair04["resource_contract_path"],
+            "sha256": repair04["resource_contract_sha256"],
+            "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+            "current_runtime": copy.deepcopy(mod.REPAIR04_RUNTIME_CONTRACT),
+        },
+        "inner_payload_parser_contract": {
+            "path": repair04["parser_contract_path"],
+            "sha256": repair04["parser_contract_sha256"],
+            "schema_version": mod.REPAIR03_PARSER_SCHEMA,
+        },
+        "registered_rfq_query_sha256": repair04[
+            "registered_rfq_query_sha256"
+        ],
+    }
+    monkeypatch.setattr(
+        mod, "_apply_repair04_resource_contract",
+        lambda *_args, **_kwargs: copy.deepcopy(base_result),
+    )
+    monkeypatch.setattr(
+        mod, "_validate_repair05_failure_evidence",
+        lambda *_args, **_kwargs: {
+            "resource": copy.deepcopy(fixture["resource"]),
+            "cycle1_duckdb_binding": copy.deepcopy(
+                repair05["cycle1_duckdb_binding"]
+            ),
+        },
+    )
+    return {
+        **fixture,
+        "run_dir": run_dir,
+        "manifest": manifest,
+        "repair04": repair04,
+        "repair05": repair05,
+        "inputs": {
+            "objects": repair05["coverage"]["full_unique_objects"],
+            "logical_manifest_bindings": repair05["coverage"][
+                "full_logical_manifest_bindings"
+            ],
+            "bytes": repair05["coverage"]["full_unique_bytes"],
+            "path_size_fingerprint_sha256": repair05["coverage"][
+                "full_object_set_sha256"
+            ],
+        },
+    }
+
+
+def _rebind_repair05_record(fixture):
+    run_dir = fixture["run_dir"]
+    manifest_path = run_dir / "RUN_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    record = manifest["data_integrity_repairs"][4]
+    journal_path = run_dir / mod.REPAIR05_TRANSACTION_JOURNAL
+    record["transaction_journal_sha256"] = mod.sha256(journal_path)
+    receipt_path = run_dir / mod.REPAIR05_REGISTRATION
+    receipt = {
+        key: value for key, value in record.items()
+        if key not in {"repair_receipt_path", "repair_receipt_sha256"}
+    }
+    write_json(receipt_path, receipt)
+    record["repair_receipt_sha256"] = mod.sha256(receipt_path)
+    write_json(manifest_path, manifest)
+    write_json(
+        run_dir / mod.REPAIR05_ROOT / "post_repair/RUN_MANIFEST.json",
+        manifest,
+    )
+    fixture["manifest"] = manifest
+    fixture["repair05"] = record
+
+
+def test_repair05_wiring_contract_matches_registration_producer_exactly():
+    evidence = {
+        "blocker_path": mod.REPAIR05_BLOCKER_ARCHIVE,
+        "blocker_sha256": mod.REPAIR05_BLOCKER_SHA256,
+        "failed_resource_receipt_path": mod.REPAIR05_FAILED_RESOURCE_ARCHIVE,
+        "failed_resource_receipt_sha256": mod.REPAIR05_FAILED_RESOURCE_SHA256,
+        "unchanged_state_sha256": mod.REPAIR04_APPROVED_FAILED_STATE_SHA256,
+        "unchanged_input_identity_sha256": (
+            mod.REPAIR04_APPROVED_FAILED_INPUT_SHA256
+        ),
+        "parent_registered_rfq_query_sha256": (
+            repair05_producer.PARENT_RFQ_QUERY_SHA256
+        ),
+        "parent_resource_contract_sha256": (
+            repair05_producer.PARENT_RESOURCE_CONTRACT_SHA256
+        ),
+        "cycle1_binding_path": mod.REPAIR05_CYCLE1_BINDING_ARCHIVE,
+        "cycle1_binding_sha256": "b" * 64,
+        "registered_cycle1_duckdb_binding": {
+            "active_path": mod.CYCLE1_DUCKDB_BINDING,
+            "active_sha256": "b" * 64,
+        },
+    }
+    current_query_sha = "a" * 64
+    produced = repair05_producer.make_wiring_contract(
+        "run", "2026-07-15T19:00:00Z", evidence, current_query_sha
+    )
+    consumed = mod._expected_repair05_wiring_contract(
+        "run", "2026-07-15T19:00:00Z", evidence, current_query_sha
+    )
+    assert consumed == produced
+
+
+def test_repair05_registration_product_is_accepted_by_strict_consumer(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    result = mod._apply_repair05_consumer_wiring(
+        fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+    )
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03", "repair-04", "repair-05",
+    ]
+    assert result["consumer_wiring_contract"] == {
+        "path": mod.REPAIR05_WIRING_CONTRACT,
+        "sha256": fixture["repair05"]["wiring_contract_sha256"],
+        "schema_version": mod.REPAIR05_WIRING_SCHEMA,
+    }
+
+
+@pytest.mark.parametrize("mutation", ["missing", "tampered"])
+def test_repair05_consumer_rejects_missing_or_tampered_journal(
+    tmp_path, monkeypatch, mutation
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    journal = fixture["run_dir"] / mod.REPAIR05_TRANSACTION_JOURNAL
+    if mutation == "missing":
+        journal.unlink()
+    else:
+        journal.write_bytes(journal.read_bytes() + b" ")
+    with pytest.raises(mod.RFQStageError, match="transaction journal"):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("original_sha256", "0" * 64),
+        ("replacement_staging_path", "DATA_INTEGRITY/forged"),
+        ("displaced_path", "DATA_INTEGRITY/forged-displaced"),
+    ],
+)
+def test_repair05_consumer_rejects_transaction_mutation_mismatch(
+    tmp_path, monkeypatch, field, value
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    journal_path = fixture["run_dir"] / mod.REPAIR05_TRANSACTION_JOURNAL
+    journal = json.loads(journal_path.read_text())
+    journal["active_mutations"][0][field] = value
+    write_json(journal_path, journal)
+    _rebind_repair05_record(fixture)
+    with pytest.raises(mod.RFQStageError, match="transaction mutation mismatch"):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("replacement_sha256", "0" * 64),
+        ("replacement_staging_path", "DATA_INTEGRITY/forged-manifest"),
+        ("displaced_path", "DATA_INTEGRITY/forged-displaced-manifest"),
+    ],
+)
+def test_repair05_consumer_rejects_manifest_mutation_mismatch(
+    tmp_path, monkeypatch, field, value
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    journal_path = fixture["run_dir"] / mod.REPAIR05_TRANSACTION_JOURNAL
+    journal = json.loads(journal_path.read_text())
+    journal["manifest_mutation"][field] = value
+    write_json(journal_path, journal)
+    _rebind_repair05_record(fixture)
+    with pytest.raises(
+        mod.RFQStageError, match="manifest transaction mutation mismatch"
+    ):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_repair05_consumer_rejects_committed_displaced_path(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    journal = json.loads(
+        (fixture["run_dir"] / mod.REPAIR05_TRANSACTION_JOURNAL).read_text()
+    )
+    displaced = fixture["run_dir"] / journal["active_mutations"][0][
+        "displaced_path"
+    ]
+    displaced.parent.mkdir(parents=True, exist_ok=True)
+    displaced.write_bytes(b"stale displaced bytes")
+    with pytest.raises(
+        mod.RFQStageError, match="transaction journal|transaction mutation mismatch"
+    ):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_repair05_consumer_rejects_staging_active_byte_mismatch(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    run_dir = fixture["run_dir"]
+    journal_path = run_dir / mod.REPAIR05_TRANSACTION_JOURNAL
+    journal = json.loads(journal_path.read_text())
+    mutation = next(
+        row for row in journal["active_mutations"]
+        if row["path"] == "TRIAL_REGISTRY.jsonl"
+    )
+    staging = run_dir / mutation["replacement_staging_path"]
+    staging.write_bytes(staging.read_bytes() + b"forged-staging")
+    mutation["replacement_sha256"] = mod.sha256(staging)
+    write_json(journal_path, journal)
+    _rebind_repair05_record(fixture)
+    with pytest.raises(mod.RFQStageError, match="transaction mutation mismatch"):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_repair05_consumer_rejects_staged_active_manifest_byte_mismatch(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    staged = (
+        fixture["run_dir"] / mod.REPAIR05_ROOT
+        / "post_repair/RUN_MANIFEST.json"
+    )
+    value = json.loads(staged.read_text())
+    value["forged_staging_only"] = True
+    write_json(staged, value)
+    with pytest.raises(
+        mod.RFQStageError, match="manifest transaction mutation mismatch"
+    ):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_repair05_consumer_rejects_repository_scalar_mismatch(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    fixture["manifest"]["repository"]["previous_source_manifest_sha256"] = (
+        "0" * 64
+    )
+    write_json(
+        fixture["run_dir"] / "RUN_MANIFEST.json", fixture["manifest"]
+    )
+    write_json(
+        fixture["run_dir"] / mod.REPAIR05_ROOT
+        / "post_repair/RUN_MANIFEST.json",
+        fixture["manifest"],
+    )
+    with pytest.raises(mod.RFQStageError, match="repository transfer mismatch"):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["failed_attempt", "expected_success", "core_disposition", "quarantine_policy"],
+)
+def test_repair05_consumer_rejects_nested_governance_mismatch(
+    tmp_path, monkeypatch, mutation
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    manifest_path = fixture["run_dir"] / "RUN_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    record = manifest["data_integrity_repairs"][4]
+    if mutation == "failed_attempt":
+        record["failed_attempt"]["error"] = "forged"
+    elif mutation == "expected_success":
+        record["expected_success_resource"]["label"] = "forged"
+    elif mutation == "core_disposition":
+        record["core_result_disposition"] = "RECOMPUTED"
+    else:
+        record["quarantine_policy"] = "FORGED"
+    write_json(manifest_path, manifest)
+    _rebind_repair05_record(fixture)
+    with pytest.raises(
+        mod.RFQStageError,
+        match="identity/governance|inherited research semantics",
+    ):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+def test_repair05_consumer_rejects_exact_trial_suffix_mismatch(
+    tmp_path, monkeypatch
+):
+    fixture = repair05_consumer_product_fixture(tmp_path, monkeypatch)
+    run_dir = fixture["run_dir"]
+    pre_registry = (
+        run_dir / mod.REPAIR05_PRE_ROOT / "TRIAL_REGISTRY.jsonl"
+    ).read_bytes()
+    registry_path = run_dir / "TRIAL_REGISTRY.jsonl"
+    suffix = registry_path.read_bytes()[len(pre_registry):]
+    rows = mod._read_registry_rows(suffix, "repair-05 test suffix")
+    rows[0]["failure_class"] = "FORGED_FAILURE_CLASS"
+    registry = pre_registry + b"".join(
+        repair05_test_helpers.repair.base.registry_line(row) for row in rows
+    )
+    registry_path.write_bytes(registry)
+    (
+        run_dir / mod.REPAIR05_ROOT / "post_repair/TRIAL_REGISTRY.jsonl"
+    ).write_bytes(registry)
+
+    journal_path = run_dir / mod.REPAIR05_TRANSACTION_JOURNAL
+    journal = json.loads(journal_path.read_text())
+    registry_mutation = next(
+        row for row in journal["active_mutations"]
+        if row["path"] == "TRIAL_REGISTRY.jsonl"
+    )
+    registry_mutation["replacement_sha256"] = mod.sha256(registry_path)
+    write_json(journal_path, journal)
+
+    manifest_path = run_dir / "RUN_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    record = manifest["data_integrity_repairs"][4]
+    record["trial_registry"]["current_sha256"] = mod.sha256(registry_path)
+    record["trial_registry"]["current_bytes"] = len(registry)
+    write_json(manifest_path, manifest)
+    _rebind_repair05_record(fixture)
+    with pytest.raises(mod.RFQStageError, match="registry suffix mismatch"):
+        mod._apply_repair05_consumer_wiring(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
+
+
+@pytest.mark.parametrize("mutation", ["scratch", "wal", "cache_symlink"])
+def test_repair05_fresh_scratch_gate_rejects_dangling_or_escaped_paths(
+    tmp_path, mutation
+):
+    run_dir = tmp_path / "repair05-scratch-boundary"
+    cache = run_dir / "cache"
+    cache.mkdir(parents=True)
+    if mutation == "scratch":
+        (cache / "rfq_full_scratch.duckdb").symlink_to(
+            tmp_path / "missing-scratch-target"
+        )
+    elif mutation == "wal":
+        (cache / "rfq_full_scratch.duckdb.wal").symlink_to(
+            tmp_path / "missing-wal-target"
+        )
+    else:
+        outside = tmp_path / "outside-cache"
+        outside.mkdir()
+        cache.rmdir()
+        cache.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(mod.RFQStageError, match="scratch|WAL"):
+        mod._validate_repair05_fresh_scratch_absence(run_dir)
+
+
+def test_repair05_wiring_runtime_gate_is_before_evidence_mutation(tmp_path):
+    run_dir = tmp_path / "repair05-wiring-gate"
+    contract = run_dir / mod.REPAIR05_WIRING_CONTRACT
+    contract.parent.mkdir(parents=True)
+    contract.write_bytes(b'{"schema_version":"synthetic"}\n')
+    binding = {
+        "path": mod.REPAIR05_WIRING_CONTRACT,
+        "sha256": mod.sha256(contract),
+        "schema_version": mod.REPAIR05_WIRING_SCHEMA,
+    }
+    mod._enforce_registered_consumer_wiring_contract(
+        {"consumer_wiring_contract": binding}, run_dir
+    )
+    before = {
+        relative: (run_dir / relative).exists()
+        for relative in (
+            "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+            "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+            "cache/rfq_full_scratch.duckdb",
+        )
+    }
+    contract.write_bytes(b'{"schema_version":"tampered"}\n')
+    with pytest.raises(mod.RFQStageError, match="wiring contract changed"):
+        mod._enforce_registered_consumer_wiring_contract(
+            {"consumer_wiring_contract": binding}, run_dir
+        )
+    assert before == {
+        relative: (run_dir / relative).exists() for relative in before
+    }
+
+
+def test_apply_object_quarantine_dispatches_exact_repair05_chain(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "repair05-dispatch"
+    (run_dir / mod.QUARANTINE_DECLARATION_02).parent.mkdir(parents=True)
+    (run_dir / mod.QUARANTINE_DECLARATION_02).write_bytes(b"{}\n")
+    (run_dir / mod.MALFORMED_OBJECT_RECEIPT_02).write_bytes(b"{}\n")
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 6)
+        ]
+    }
+    sentinel = {"repair05": "validated"}
+    monkeypatch.setattr(
+        mod,
+        "_apply_repair05_consumer_wiring",
+        lambda observed_run, observed_manifest, observed_inputs: (
+            sentinel
+            if (observed_run, observed_manifest, observed_inputs)
+            == (run_dir, manifest, {"inputs": True})
+            else None
+        ),
+    )
+    assert mod.apply_object_quarantine(
+        run_dir, manifest, {"inputs": True}
+    ) == sentinel
 
 
 def test_apply_object_quarantine_dispatches_exact_repair04_chain(
@@ -3004,6 +3484,77 @@ def test_main_repair04_writes_v4_identity_and_resource_binding(
     }
     assert state["status"] == "FAILED_DATA_INTEGRITY_REQUIRES_NEW_PREREGISTRATION"
     assert fixture["scratch"].read_bytes() == b"partial repair04 scratch"
+
+
+def test_main_repair05_writes_v5_identity_and_both_contract_bindings(
+    tmp_path, monkeypatch
+):
+    fixture = repair03_main_failure_fixture(tmp_path, monkeypatch)
+    fixture["manifest"]["data_integrity_repairs"].extend([
+        {"repair_id": "repair-04"}, {"repair_id": "repair-05"},
+    ])
+    execution_entry = fixture["run_dir"] / mod.REPAIR05_EXECUTION_QUERY
+    execution_entry.parent.mkdir(parents=True)
+    execution_entry.write_bytes(path.read_bytes())
+    monkeypatch.setattr(mod, "__file__", str(execution_entry))
+    resource_binding = {
+        "path": mod.REPAIR04_RESOURCE_CONTRACT_PATH,
+        "sha256": "2" * 64,
+        "schema_version": mod.REPAIR04_RESOURCE_SCHEMA,
+        "current_runtime": copy.deepcopy(mod.REPAIR04_RUNTIME_CONTRACT),
+    }
+    wiring_path = fixture["run_dir"] / mod.REPAIR05_WIRING_CONTRACT
+    wiring_path.parent.mkdir(parents=True)
+    wiring_path.write_bytes(b'{"schema_version":"synthetic-repair05"}\n')
+    wiring_binding = {
+        "path": mod.REPAIR05_WIRING_CONTRACT,
+        "sha256": mod.sha256(wiring_path),
+        "schema_version": mod.REPAIR05_WIRING_SCHEMA,
+    }
+    fixture["inputs"].update({
+        "repair_chain": [
+            {"repair_id": "repair-04"}, {"repair_id": "repair-05"},
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": "repair-04"}, {"repair_id": "repair-05"},
+        ],
+        "expected_success_resource": {
+            "label": mod.REPAIR05_SUCCESS_RESOURCE_LABEL,
+            "path": mod.REPAIR05_SUCCESS_RESOURCE_PATH,
+        },
+        "rfq_resource_contract": resource_binding,
+        "consumer_wiring_contract": wiring_binding,
+        "registered_rfq_query_sha256": mod.sha256(execution_entry),
+    })
+    monkeypatch.setattr(
+        mod.shutil, "disk_usage",
+        lambda _path: type("Usage", (), {"free": 2**50})(),
+    )
+
+    def fail_connect(path):
+        Path(path).write_bytes(b"partial repair05 scratch")
+        raise RuntimeError("synthetic repair05 connect failure")
+
+    monkeypatch.setattr(duckdb, "connect", fail_connect)
+    with pytest.raises(RuntimeError, match="repair05 connect failure"):
+        mod.main([
+            "--run-dir", str(fixture["run_dir"]),
+            "--cache-root", str(tmp_path / "cache"),
+            "--memory-limit", "46GB", "--max-temp-size", "70GB",
+            "--threads", "4", "--min-free-gib", "100",
+            "--clob-max-per-root", "50",
+        ])
+    identity = json.loads(fixture["input_path"].read_text())
+    state = json.loads(fixture["state_path"].read_text())
+    assert identity["schema"] == "rfq-full-input-identity-v5"
+    assert identity["rfq_resource_contract"] == resource_binding
+    assert identity["consumer_wiring_contract"] == wiring_binding
+    assert state["rfq_resource_contract"] == resource_binding
+    assert state["consumer_wiring_contract"] == wiring_binding
+    assert state["expected_success_resource"] == {
+        "label": mod.REPAIR05_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR05_SUCCESS_RESOURCE_PATH,
+    }
 
 
 def test_main_disk_headroom_failure_does_not_mutate_failed03_evidence(
