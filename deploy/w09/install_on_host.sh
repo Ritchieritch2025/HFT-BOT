@@ -91,8 +91,12 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/select_newest_release.py" \
 
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
+# duckdb pinned to production 1.4.5 (asserted below). numpy/pandas for
+# strategy math + small result frames; scipy/statsmodels for the mission's
+# multiple-comparison correction + bootstrap + regression diagnostics;
+# matplotlib for REPORT/charts/**; pyarrow for parquet interop with DuckDB.
 "$VENV/bin/pip" install --quiet \
-    'duckdb==1.4.5' numpy pandas pytest pyyaml
+    'duckdb==1.4.5' numpy pandas scipy statsmodels matplotlib pyarrow pytest pyyaml
 "$VENV/bin/python" -c \
     'import duckdb; assert duckdb.__version__ == "1.4.5"; print("duckdb=1.4.5")'
 
