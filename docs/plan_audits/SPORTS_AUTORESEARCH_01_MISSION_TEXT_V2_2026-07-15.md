@@ -1,21 +1,12 @@
-# SPORTS-AUTORESEARCH-01 — mission text V2 (P1-FIX BATCH APPLIED)
+# SPORTS-AUTORESEARCH-01 — mission text (V3.7 final)
 
-- derived from: `SPORTS_AUTORESEARCH_01_MISSION_TEXT_2026-07-13.md` (verbatim
-  archive, untouched) by the operator-ordered single text-fix batch of
-  2026-07-15: the four audited P1 items (F-1 holdout reservation, F-2
-  log-odds clause, F-3 session-boundary/resume protocol, F-4 write-path
-  enumeration; audit `AUDIT_SPORTS_AUTORESEARCH_01_2026-07-13.md`) plus the
-  two supersede-driven gate amendments (W05 gate name -> W05_EXPLORATORY_READY;
-  GATE A / default view accepts SEALED_PENDING_QUALITY_ASSESSMENT while
-  PIPE-W03 is pending — operator supersede 2026-07-14, archived in
-  `docs/W05_PUBLICATION_STATUS_2026-07-14.md`). Six edits, nothing else.
-- status: **DRAFT — P1 FIXES APPLIED, NOT RELEASED.** Release still requires
-  the operator to pin this file's SHA-256 and issue the mission.
-- every inserted/changed passage is bracketed with `[P1-FIX vN]` markers.
+Provenance and change history: git log + `docs/plan_audits/` (V1 archive,
+audit, supersede records). Active only when the operator pins this file's
+SHA-256 in a release.
 
 ---
 
-## MISSION TEXT (V2)
+## MISSION TEXT
 
 OPERATOR MISSION — SPORTS-AUTORESEARCH-01
 HYPOTHESIS FACTORY, MARKET-MECHANISM DISCOVERY, AND STRATEGY SHORTLIST
