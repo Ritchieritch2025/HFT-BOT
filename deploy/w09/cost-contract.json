@@ -1,0 +1,20 @@
+{
+  "as_of_utc": "2026-07-14",
+  "region": "us-east-2",
+  "instance_type": "r8g.2xlarge",
+  "operating_system": "Linux",
+  "purchase_option": "On-Demand",
+  "compute_usd_per_running_hour": 0.4713,
+  "public_ipv4_usd_per_hour_running_or_idle": 0.005,
+  "gp3_size_gb": 300,
+  "gp3_usd_per_gb_month": 0.08,
+  "gp3_usd_per_month": 24.0,
+  "effective_running_usd_per_hour_at_730h_month": 0.50918,
+  "effective_stopped_usd_per_hour_at_730h_month": 0.03788,
+  "notes": "Stopping removes compute charges; gp3 and the Elastic IP remain billable.",
+  "sources": [
+    "https://aws.amazon.com/ec2/pricing/on-demand/",
+    "https://aws.amazon.com/ebs/pricing/",
+    "https://aws.amazon.com/vpc/pricing/"
+  ]
+}
