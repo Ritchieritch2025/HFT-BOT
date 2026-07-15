@@ -6,6 +6,60 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-15 02:10 UTC — 开 autoresearch 新 session 前的交接块(最重要:并发会话冲突 + W09 软件就绪 + 该发哪版任务书)
+
+**给下一个 session 的一屏交接。按重要性排。**
+
+### ⚠️ 1. 并发会话冲突(最先看,否则会打架)
+- 本分支 `plan-sports-market-dynamics-v2` 上**有另一个会话在同时改**。它在
+  我的提交之后追加了 3 个 commit(`fc7990c` V3.1-3.5、`02c56bb` V3.6-3.7、
+  `ce4b3a1` 裁头部),全部标 operator-directed。
+- **任务书就一个文件**:`docs/plan_audits/SPORTS_AUTORESEARCH_01_MISSION_TEXT_V2_2026-07-15.md`
+  —— 文件名叫 V2 但**内容已是 V3.7**(末尾 = same-game 相关性条款)。
+  **当前 HEAD 版 sha256 = `f0db3848e3ecafff889a42aa6d661a582b74700efaa20b794e42afb78ef2f134`。**
+  发布要钉这个,**不是**我早先那版 V2 的 `c4c31674…`(那个已死)。
+- 工作树里有**两个未提交改动**:`deploy/w09/w09_idle_check.py`(sensor-error
+  上报改进)、`tests/test_w09_bringup.py`(+120 行测试)—— **是那个会话的
+  在途工作,别提交、别回退、别 checkout 覆盖**。本会话所有自己的活已提交干净。
+
+### ✅ 2. W09 软件就绪(可直接用,实测)
+- 实例 `i-0e53d134dceffe166`(18.226.151.192)开着;角色 `w09-research-runner`;
+  只读 `research/*`(instance-profile inventory 实测全 6 release)。
+- venv `/opt/w09/venv`:duckdb 1.4.5(生产同版)+ numpy/pandas/scipy/
+  statsmodels/matplotlib/pyarrow/pytest/pyyaml,全 import OK。装脚本已改
+  (commit `3a7a064`)。详见 `docs/W09_READINESS_2026-07-15.md`。
+- **但正式 W09_READY 还缺一次真实空闲关机证明**(`run_acceptance.sh`
+  fail-closed 要上一轮 idle_for≥1800 + 不同 boot id)。要操作员观察一次
+  30 分钟自动关机→重启,再跑 acceptance。软件能用 ≠ 有正式凭据。
+  ⚠️ 且那个会话正在改 idle_check —— 跑关机证明前先跟它对齐。
+- W09 重活挂 `sudo /usr/local/bin/w09-run <cmd>` 防空闲关机。
+
+### 📊 3. 数据(现成)
+- 6 release / 80 GB。核心 = 07-12 + 07-13 **带 sealed RFQ** 两日:
+  `2026-07-12__seal-bc37de4c__pub-2bf8871ad4750c03`(485 对象/35.6GB)、
+  `2026-07-13__seal-7f6e5c1b__pub-f8e4c0abc742b7d5`(476 对象/32.5GB)。
+  全 SEALED_DEGRADED_EVIDENCE = 探索级,横幅强制、禁 verdict。
+- 工具栈:**DuckDB 优先**(重活走 SQL),numpy 在 log-odds 空间,统计
+  scipy/statsmodels 或手写,**68GB 绝不塞 pandas(OOM)**。
+
+### 🔧 4. 数据面 / 管道(不阻塞 autoresearch,但要知道)
+- 07-14 封印按 B9 吞吐**迟到中**(103GB raw vs ~3.2GB/h 解析),daemon
+  471404 健康在追;03:00Z UNSEALED 告警属设计;采集零丢。预计明晨落印。
+- **W-A**(打破封印↔staging 循环,B11+B15+B16)在分支 `w-a-seal-staging-loop`
+  (ec2 裸仓库有),测试全绿,**未部署** —— 等①明日封印落地 ②独立审计
+  PASS。审计令原文见本文件 07-14 23:40 条目。
+- B18(snap aws 被 last-logout 杀)已由操作员 enable-linger 缓解,实测
+  23:05Z 起同步恢复;长效债 = 去 snap 化。
+
+### 🖥️ 5. 交付形态(已落盘)
+- 单页审阅报告需求:`docs/AUTORESEARCH_REPORT_REQUIREMENTS.md`(逐一过目、
+  被否/负结果同等展示、层级横幅、每数字带出处)。
+
+### 📌 6. 等操作员的动作
+- ①发布任务书:钉 sha `f0db3848…`(V3.7)正式发 SPORTS-AUTORESEARCH-01;
+  ②W09 关机证明(取正式 W09_READY);③W-A 独立审计+部署排期;
+  ④与并发会话对齐谁提交那两个未提交 W09 文件。
+
 ## 2026-07-15 01:15 UTC — W09 研究栈装齐并实测通过;RFQ 双日重发布完成;agent S3 权限只读边界实测确认;审阅页需求落盘
 
 - **一行裁决:✅ W09 软件就绪(新 session 可开 autoresearch);⚠️ 正式
