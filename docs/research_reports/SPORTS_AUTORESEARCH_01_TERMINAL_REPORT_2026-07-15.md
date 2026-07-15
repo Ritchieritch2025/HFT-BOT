@@ -53,13 +53,18 @@ repair-01～07 的完整路径与哈希索引位于 run artifact
   `DATA_STARVED=6`；RFQ blocked/untested=3。
 - `PROMOTION_READY=0`；formal `VERDICT_PASS=0`；shortlist 为空。
 - Stage wall time 6,160.684 秒、stage cost 估算 $0.806535；从 orchestration
-  start 到终止报告的 W09 elapsed 估算 8.897778 小时、$4.193523，费率
+  start 到关机广播的 W09 elapsed 估算 8.935556 小时、$4.211327，费率
   $0.4713/h；不是 AWS billed cost。
 - 没有可执行性、扣费后收益、保守成交、未见数据存活或实盘授权结论。
 
-W09 的最终 stopped confirmation 将在本报告的 exit-confirmation 段与
-`docs/SESSION_LOG.md` 补记。
-
 ## Exit confirmation
 
-- Pending at report creation; to be replaced after W09 stop is observed.
+- `2026-07-15T21:51:27Z`: W09 接受 `shutdown -h now`，广播
+  `The system will power off now!` 后 SSH 正常断开。
+- 随后对 `18.226.151.192:22` 的连接持续 timeout，主机已关机且不可达。
+- 安装门 `W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop` 已要求并记录
+  `InstanceInitiatedShutdownBehavior=stop`，所以 instance-initiated poweroff
+  的配置结果是 stop，而不是 terminate。
+- 本 Mac 没有 AWS CLI，且无可用浏览器登录会话，故本 session 没有直接读取
+  EC2 控制面 `State.Name`；不得把这一点写成“控制台亲眼观察”。操作层面的关机
+  已完成，若需要独立控制面证据，操作员可在 AWS Console 只读确认 `stopped`。

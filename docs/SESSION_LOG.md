@@ -6,6 +6,58 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-15 21:53 UTC — SPORTS-AUTORESEARCH-01 止损关闭：L1/L2/盘口图谱成报，RFQ=DATA_INTEGRITY_BLOCKED，W09 已关机
+
+- **一行裁决：⚠️ 研究按操作员最终终止令关闭；不是
+  `AUTORESEARCH_COMPLETE`。L1、L2、盘口图谱保留；RFQ 没有结果，repair-08
+  禁止执行；W09 已接受 poweroff 并不可达。**
+- **commits：**
+  - `956dfcf`：冻结 deep-cycle runner；
+  - `b0f9cc2`～`6bcb5cb`：repair-01～07 的 append-only RFQ 证据链；
+  - `0089e4a`：终止报告 + `W-SAR-RFQ-REPLAY-01` 工程债存档；
+  - 本条目所在 commit：exit confirmation + SESSION_LOG。
+- **decisions（均已落文件）：**
+  - 操作员 2026-07-15T21:47:04Z 最终裁决：RFQ 分支关闭为
+    `DATA_INTEGRITY_BLOCKED`；不做 repair-08；不再修复、审计、测试或计算。
+    最终三模块报告在
+    `docs/research_reports/SPORTS_AUTORESEARCH_01_TERMINAL_REPORT_2026-07-15.md`；
+    run 级报告在
+    `work/research/auto_research/20260715T112538Z__c21a79a8cff__deep01/REPORT/`。
+  - repair-08 拟议方案只存档为 `W-SAR-RFQ-REPLAY-01`，状态
+    `DEFERRED_NOT_AUTHORIZED`：
+    `docs/plan_audits/SPORTS_AUTORESEARCH_01_W_SAR_RFQ_REPLAY_01_DEBT_2026-07-15.md`。
+  - RFQ repair-01～07 及所有关键 SHA/路径索引在 run artifact
+    `REPORT/RFQ_BLOCKED.md`；不得把 trigger-only 图表当 RFQ 结果。
+- **context capsule：**
+  - run=`20260715T112538Z__c21a79a8cff__deep01`；研究 commit=
+    `6bcb5cb972865abc9c133bd9635c05540b9ced86`；两个 release 是
+    2026-07-12/13 的 `SEALED_DEGRADED_EVIDENCE`。
+  - L1=22,271,678 行；trades=7,952,620；L2=48,897,095 行/485 markets；
+    atlas=48,022 identity-clean market-days、35,148 markets、382 provisional
+    roots、9 sports。7 个假设得到分析状态：6 `DATA_STARVED`、1
+    `COLLECT_MORE`；RFQ 3 个假设 blocked/untested；rejected=0、
+    promotion=0、formal pass=0、shortlist=[]。
+  - RFQ 冻结选择=282/284 objects、59,185,856,724 bytes；2 objects /
+    534,038,690 bytes 整对象隔离。repair-06 全局 dedup 在 DuckDB
+    42.8GiB/42.8GiB OOM。repair-07 formal receipt=
+    `7dc5271d1588b7f797c9c7126d11a59b7c92f03712fc3bdbc044fcf72c165124`，
+    rc=1、218.733s；在创建新 scratch/state/result 前，因 repair-04/05
+    descendant replay 的 state/input 根目录选错而 fail-closed。
+  - W09 stage wall=6,160.684s、stage cost estimate=$0.806535；从
+    orchestration start 到 poweroff 估算 8.935556h、$4.211327（$0.4713/h，
+    非 AWS billed cost）。
+  - 2026-07-15T21:51:27Z，`i-0e53d134dceffe166` 接受
+    `shutdown -h now`，广播 poweroff 后 SSH 断开并持续 timeout；安装门已记录
+    instance-initiated shutdown behavior=`stop`。本 Mac 无 AWS CLI/可用
+    控制台登录态，因此没有伪称直接读取 EC2 `State.Name`。
+- **blocked / handoff：**
+  - 本 run 永久停止，不自动恢复。若未来要重开 RFQ，必须由操作员显式重开
+    `W-SAR-RFQ-REPLAY-01`，使用新 run/新授权；禁止覆写 repair-07 证据。
+  - 操作员若需要独立控制面证明，只需在 AWS Console 只读确认实例
+    `i-0e53d134dceffe166` 为 `stopped`；不要启动它。
+  - 按终止令，本次收尾未运行测试或独立审计；这是有意的 stop-loss 边界，
+    不是测试遗漏。
+
 ## 2026-07-15 02:10 UTC — 开 autoresearch 新 session 前的交接块(最重要:并发会话冲突 + W09 软件就绪 + 该发哪版任务书)
 
 **给下一个 session 的一屏交接。按重要性排。**
