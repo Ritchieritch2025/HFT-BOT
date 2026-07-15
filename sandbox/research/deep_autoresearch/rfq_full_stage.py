@@ -525,6 +525,179 @@ REPAIR06_PARENT_AUTHORITY_SHA256 = (
 REPAIR06_PRESERVED_SCRATCH_POLICY = (
     "FRESH_SCRATCH_REQUIRED_NO_RESUME_NO_PRIOR_SCRATCH_OR_WAL"
 )
+# Repair-07 freezes the exact hour partition observed in attempt-07's retained
+# 282-object scratch.  The partition is a physical execution strategy only:
+# the pre-existing deduplication partition key contains exchange_ts_text, so a
+# duplicate group can never cross the deterministic UTC hour obtained by
+# parsing that same text.  Keeping the full vector here prevents a coordinated
+# rewrite from replacing the observed 58M-row workload with matching summary
+# totals but a different distribution.
+REPAIR07_RFQ_VALID_CONTRACT_ROWS = 58_142_605
+REPAIR07_RFQ_DEDUP_BUCKET_COUNT = 44
+REPAIR07_RFQ_DEDUP_MAX_BUCKET_ROWS = 2_982_434
+REPAIR07_RFQ_DEDUP_BUCKET_COUNTS_SHA256 = (
+    "5e63b139f17ffe1b17e2c1ab588faac9bc88d0a8b161c1be5e5b54bceb3f069d"
+)
+REPAIR07_RFQ_DEDUP_BUCKET_COUNTS = (
+    (1783836000000000, 800555),
+    (1783839600000000, 952945),
+    (1783843200000000, 804134),
+    (1783846800000000, 637691),
+    (1783850400000000, 601188),
+    (1783854000000000, 598842),
+    (1783857600000000, 764651),
+    (1783861200000000, 760095),
+    (1783864800000000, 1444757),
+    (1783868400000000, 1912187),
+    (1783872000000000, 2445931),
+    (1783875600000000, 2982434),
+    (1783879200000000, 2841151),
+    (1783882800000000, 2581373),
+    (1783886400000000, 2576496),
+    (1783890000000000, 1987054),
+    (1783893600000000, 2594551),
+    (1783897200000000, 1575841),
+    (1783900800000000, 1493462),
+    (1783904400000000, 1017566),
+    (1783908000000000, 1372352),
+    (1783911600000000, 1207232),
+    (1783915200000000, 1109875),
+    (1783918800000000, 964806),
+    (1783922400000000, 822062),
+    (1783926000000000, 710483),
+    (1783929600000000, 542489),
+    (1783933200000000, 491886),
+    (1783936800000000, 505956),
+    (1783940400000000, 533704),
+    (1783944000000000, 636011),
+    (1783947600000000, 819721),
+    (1783951200000000, 1034423),
+    (1783954800000000, 1214545),
+    (1783958400000000, 1273524),
+    (1783962000000000, 1495017),
+    (1783965600000000, 1559214),
+    (1783969200000000, 1181471),
+    (1783972800000000, 1081101),
+    (1783976400000000, 1662110),
+    (1783980000000000, 1809495),
+    (1783983600000000, 545560),
+    (1783987200000000, 1789830),
+    (1783990800000000, 2406834),
+)
+REPAIR07_ROOT = "DATA_INTEGRITY/repairs/repair-07"
+REPAIR07_PRE_ROOT = f"{REPAIR07_ROOT}/pre_repair"
+REPAIR07_REGISTRATION = f"{REPAIR07_ROOT}/REPAIR_REGISTRATION.json"
+REPAIR07_TRANSACTION_JOURNAL = f"{REPAIR07_ROOT}/TRANSACTION_JOURNAL.json"
+REPAIR07_RESOURCE_CONTRACT = (
+    f"{REPAIR07_ROOT}/RFQ_DEDUP_BUCKET_RESOURCE_CONTRACT.json"
+)
+REPAIR07_BLOCKER = f"{REPAIR07_ROOT}/RFQ_REPAIR06_DEDUP_OOM_BLOCKER_07.json"
+REPAIR07_SCRATCH_RECEIPT = f"{REPAIR07_ROOT}/RFQ_FAILED_SCRATCH_RECEIPT_07.json"
+REPAIR07_AUTHORITY_BASIS = f"{REPAIR07_ROOT}/AUTHORITY_BASIS.json"
+REPAIR07_FAILED_RESOURCE_ARCHIVE = (
+    f"{REPAIR07_PRE_ROOT}/logs/resources/rfq_full_stage_repair06.json"
+)
+REPAIR07_FAILED_STATE_ARCHIVE = (
+    f"{REPAIR07_PRE_ROOT}/REPORT/tables/RFQ_FULL_STAGE_STATE.json"
+)
+REPAIR07_FAILED_INPUT_ARCHIVE = (
+    f"{REPAIR07_PRE_ROOT}/DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json"
+)
+REPAIR07_CYCLE1_BINDING_ARCHIVE = (
+    f"{REPAIR07_PRE_ROOT}/{CYCLE1_DUCKDB_BINDING}"
+)
+REPAIR07_PRESERVED_SCRATCH = "cache/rfq_full_scratch.attempt07_failed.duckdb"
+REPAIR07_EXECUTION_QUERY = REPAIR06_EXECUTION_QUERY
+REPAIR07_SUCCESS_RESOURCE_LABEL = "rfq_full_stage_repair07"
+REPAIR07_SUCCESS_RESOURCE_PATH = "logs/resources/rfq_full_stage_repair07.json"
+REPAIR07_STATUS = (
+    "CYCLE1_CORE_COMPLETE_RFQ_BUCKETED_DEDUP_RESOURCE_REPAIR07_REGISTERED"
+)
+REPAIR07_REGISTRATION_STATE = (
+    "RE_FROZEN_AFTER_RFQ_EQUIVALENT_BUCKETED_DEDUP_RESOURCE_REPAIR07_"
+    "BEFORE_RFQ_RESULT"
+)
+REPAIR07_SCHEMA = "sports-autoresearch-equivalent-bucketed-dedup-resource-repair-v1"
+REPAIR07_RESOURCE_SCHEMA = "rfq-equivalent-bucketed-dedup-resource-contract-v1"
+REPAIR07_AUTHORITY_SCHEMA = (
+    "sports-autoresearch-equivalent-performance-resource-repair-authority-v1"
+)
+REPAIR07_FINDING = (
+    "DUCKDB_OUT_OF_MEMORY_DURING_RFQ_DEDUPLICATION_WINDOW_AFTER_REPAIR06"
+)
+REPAIR07_FAILURE_PHASE = "CREATE_TABLE_RFQ_EVENTS_VALID_GLOBAL_ROW_NUMBER_DEDUP"
+REPAIR07_FAILURE_DISPOSITION = "RESOURCE_CAP_FAILURE_BEFORE_RESULT"
+REPAIR07_CHANGE_CLASS = (
+    "EQUIVALENT_DEDUP_HOUR_BUCKET_EXECUTION_SHAPE_AND_RESOURCE_HEADROOM_"
+    "RETUNE_ONLY"
+)
+REPAIR07_REGISTRATION_CHANGE_CLASS = (
+    "EQUIVALENT_DEDUP_HOUR_BUCKET_EXECUTION_SHAPE_AND_RESOURCE_HEADROOM_"
+    "RETUNE_ONLY_NO_DATA_PARSER_QUERY_SEMANTICS_SELECTION_QUARANTINE_OR_"
+    "HYPOTHESIS_CHANGE"
+)
+REPAIR07_RETRY_REQUIREMENT = (
+    "FRESH_SCRATCH_SAME_SELECTION_PARSER_HYPOTHESES_EQUIVALENT_HOUR_BUCKET_"
+    "DEDUP_RETUNED_TEMP_DISK_NO_RESUME"
+)
+REPAIR07_PRESERVED_SCRATCH_POLICY = (
+    "FAILED_SCRATCH_SHA256_VERIFIED_ATOMIC_RENAME_PRESERVED_FRESH_ACTIVE_"
+    "SCRATCH_REQUIRED_NO_RESUME"
+)
+REPAIR07_EXECUTION_SHAPE_CHANGE = (
+    "GLOBAL_DEDUP_WINDOW_TO_EXACT_KEY_DERIVED_HOUR_BUCKETS_AND_MVE_PAYLOAD_"
+    "VERTICALIZATION_ONLY"
+)
+REPAIR07_RESOURCE_CONTRACT_CHANGE = (
+    "TEMP_CAP_70GB_TO_20GB_MIN_FREE_100GIB_TO_80GIB_ONLY"
+)
+REPAIR07_AUTHORITY_CLASS = (
+    "MISSION_AUTHORIZED_EQUIVALENT_RESEARCH_EXECUTION_REPAIR_ON_EXISTING_W09"
+)
+REPAIR07_RUNTIME_CONTRACT = {
+    "memory_limit": "46GB",
+    "max_temp_size": "20GB",
+    "threads": 4,
+    "min_free_gib": 80.0,
+    "clob_max_per_root": 50,
+    "resume": False,
+    "keep_scratch": False,
+}
+REPAIR07_PREVIOUS_RUNTIME_CONTRACT = dict(REPAIR04_RUNTIME_CONTRACT)
+REPAIR07_PARENT_MANIFEST_SHA256 = (
+    "f959329351a0bc52f7d417390ab63641353c37e2ac63ca074ed12b859c6313fd"
+)
+REPAIR07_PARENT_RECEIPT_SHA256 = (
+    "738d5e8db8349d19a4d4e9886405b4f5d0471fcdbe70df8494013880520fe600"
+)
+REPAIR07_PARENT_JOURNAL_SHA256 = (
+    "71a888fcb85a91aac111626794d375bdc2ffbf7743a1d9db0a5be1b6c2de5277"
+)
+REPAIR07_PARENT_STATUS_CONTRACT_SHA256 = (
+    "f568a2854dcb4cc87f59fae6059a12683809a5d7a46b3a4141595c1d420b9808"
+)
+REPAIR07_PARENT_AUTHORITY_SHA256 = (
+    "046cada744b9af6b06eee9bf8af5f1f392c339f85b3e34079b12c6d71a07e396"
+)
+REPAIR07_PARENT_RESOURCE_CONTRACT_SHA256 = (
+    "8c36b2747d9e5f991ecd5cf18e9c44fd5cea5f5725fc2a622113d42102e88325"
+)
+REPAIR07_PARENT_RFQ_QUERY_SHA256 = (
+    "82d6b270e53aef9c04416d19d64feecbfe1c16c3b80235e9c151d20e53511822"
+)
+REPAIR07_FAILED_RESOURCE_SHA256 = (
+    "b58739bb31ddab6f3007df16d766cb50ca6b199e6327130ba1870727291ee6f6"
+)
+REPAIR07_FAILED_STATE_SHA256 = (
+    "dfdf02eaad40455d1bc5f4d49429af46d3cf63c59983a6f35734c34207140599"
+)
+REPAIR07_FAILED_INPUT_SHA256 = (
+    "beb23a7a5142a963c902219ee6b8711c4aa24f866f502bbe3e68f65afded2e7c"
+)
+REPAIR07_FAILED_SCRATCH_SHA256 = (
+    "340a2d67af6b17c22db70672d4f0ff495b101101173227130c3cfef9b9a4801c"
+)
+REPAIR07_FAILED_SCRATCH_BYTES = 28_760_616_960
 REPAIR02_APPROVED_SELECTION_FINGERPRINT = (
     "8b310c37f3989770d1f53a058e5ef396e1eb5c9c3d24d07ac87bd9d8aee5b9e1"
 )
@@ -761,6 +934,16 @@ def table_exists(connection, name: str) -> bool:
             "SELECT count(*) FROM information_schema.tables "
             "WHERE table_schema='main' AND table_name=?",
             [name],
+        ).fetchone()[0]
+    )
+
+
+def column_exists(connection, table_name: str, column_name: str) -> bool:
+    return bool(
+        connection.execute(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name=? AND column_name=?",
+            [table_name, column_name],
         ).fetchone()[0]
     )
 
@@ -3708,6 +3891,172 @@ def _expected_repair06_authority_basis(
     }
 
 
+def _repair07_retry_command(run_id: str) -> list[str]:
+    remote = f"/srv/w09-research/runs/{run_id}"
+    return [
+        "/opt/w09/venv/bin/python", f"{remote}/{REPAIR07_EXECUTION_QUERY}",
+        "--run-dir", remote, "--cache-root", "/srv/w09-research/cache",
+        "--memory-limit", "46GB", "--max-temp-size", "20GB",
+        "--threads", "4", "--min-free-gib", "80",
+        "--clob-max-per-root", "50",
+    ]
+
+
+def _repair07_preflight_contract(run_id: str) -> dict:
+    return {
+        "cli_flags": [
+            "--validate-run-preflight-only",
+            "--validate-run-preflight-overlay",
+        ],
+        "overlay_path": f"{REPAIR07_ROOT}/post_repair",
+        "expected_stdout": f"RFQ_VALIDATE_RUN_PREFLIGHT_COMPLETE run_id={run_id}",
+        "read_only": True,
+        "stop_before_input_discovery": True,
+        "stop_before_repair_replay": True,
+        "stop_before_duckdb_import": True,
+        "stop_before_state_input_scratch_or_result_write": True,
+    }
+
+
+def _expected_repair07_resource_contract(
+    run_id: str,
+    applied_at: str,
+    scratch_receipt_sha256: str,
+    blocker_sha256: str,
+) -> dict:
+    bucket_counts = [
+        {
+            "exchange_hour_epoch_us": hour,
+            "valid_contract_rows": rows,
+        }
+        for hour, rows in REPAIR07_RFQ_DEDUP_BUCKET_COUNTS
+    ]
+    return {
+        "schema_version": REPAIR07_RESOURCE_SCHEMA,
+        "repair_id": "repair-07",
+        "run_id": run_id,
+        "created_at_utc": applied_at,
+        "finding": REPAIR07_FINDING,
+        "failure_disposition": REPAIR07_FAILURE_DISPOSITION,
+        "failure_phase": REPAIR07_FAILURE_PHASE,
+        "failure_evidence": {
+            "resource_path": REPAIR07_FAILED_RESOURCE_ARCHIVE,
+            "resource_sha256": REPAIR07_FAILED_RESOURCE_SHA256,
+            "state_path": REPAIR07_FAILED_STATE_ARCHIVE,
+            "state_sha256": REPAIR07_FAILED_STATE_SHA256,
+            "input_identity_path": REPAIR07_FAILED_INPUT_ARCHIVE,
+            "input_identity_sha256": REPAIR07_FAILED_INPUT_SHA256,
+            "scratch_receipt_path": REPAIR07_SCRATCH_RECEIPT,
+            "scratch_receipt_sha256": scratch_receipt_sha256,
+            "blocker_path": REPAIR07_BLOCKER,
+            "blocker_sha256": blocker_sha256,
+        },
+        "dedup_equivalence": {
+            "original_shape": (
+                "ONE_GLOBAL_ROW_NUMBER_WINDOW_OVER_ALL_VALID_CONTRACT_ROWS"
+            ),
+            "repaired_shape": (
+                "SEQUENTIAL_INSERT_OF_EXACT_EXCHANGE_HOUR_BUCKET_WINDOWS_THEN_"
+                "ONE_TO_ONE_EVENT_KEY_MVE_PAYLOAD_VERTICALIZATION"
+            ),
+            "partition_by": [
+                "event_type", "rfq_id",
+                "coalesce(created_ts_text,deleted_ts_text)", "market_ticker",
+            ],
+            "order_by": [
+                "recv_wall_ns", "recv_mono_ns NULLS LAST", "filename",
+            ],
+            "bucket_expression": "epoch_us(date_trunc('hour',exchange_ts))",
+            "proof": (
+                "exchange_ts is the validated parse of exchange_ts_text; equal dedup "
+                "keys therefore imply equal exchange-hour buckets, so no row_number "
+                "partition crosses a bucket and the per-partition ordering is unchanged"
+            ),
+            "valid_contract_rows": REPAIR07_RFQ_VALID_CONTRACT_ROWS,
+            "exchange_hour_bucket_count": REPAIR07_RFQ_DEDUP_BUCKET_COUNT,
+            "max_exchange_hour_rows": REPAIR07_RFQ_DEDUP_MAX_BUCKET_ROWS,
+            "bucket_counts_sha256": REPAIR07_RFQ_DEDUP_BUCKET_COUNTS_SHA256,
+            "bucket_counts": bucket_counts,
+            "bucket_inventory_canonicalization": (
+                "json.dumps(rows,sort_keys=True,separators=(',',':')).encode('utf-8');"
+                "no trailing newline"
+            ),
+            "runtime_requires_exact_bucket_inventory": True,
+            "payload_verticalization": {
+                "payload_table": "rfq_mve_payload",
+                "payload_columns": [
+                    "event_key", "mve_legs_json", "mve_legs_type",
+                ],
+                "narrow_source": "rfq_events_valid",
+                "narrow_excluded_columns": [
+                    "mve_legs_json", "mve_legs_type",
+                ],
+                "join_key": "event_key",
+                "join_site": "rfq_legs_base",
+                "one_to_one_guards": [
+                    "narrow_rows_equals_dedup_winner_rows",
+                    "payload_rows_equals_created_winner_rows",
+                    "payload_event_key_distinct_equals_payload_rows",
+                    "rfq_creates_rows_equals_payload_rows",
+                ],
+                "payload_dropped_after_legs_complete": True,
+                "proof": (
+                    "the side table carries each created winner's unchanged MVE payload "
+                    "under its unchanged unique event_key and rejoins only for leg expansion"
+                ),
+            },
+            "output_columns_unchanged": True,
+            "event_key_formula_unchanged": True,
+            "query_semantics_change": "NONE",
+            "execution_shape_change": REPAIR07_EXECUTION_SHAPE_CHANGE,
+        },
+        "previous_runtime": dict(REPAIR07_PREVIOUS_RUNTIME_CONTRACT),
+        "current_runtime": dict(REPAIR07_RUNTIME_CONTRACT),
+        "expected_command": _repair07_retry_command(run_id),
+        "expected_success_resource": {
+            "label": REPAIR07_SUCCESS_RESOURCE_LABEL,
+            "path": REPAIR07_SUCCESS_RESOURCE_PATH,
+        },
+        "fresh_scratch": True,
+        "resume": False,
+        "preserved_scratch_policy": REPAIR07_PRESERVED_SCRATCH_POLICY,
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "resource_contract_change": REPAIR07_RESOURCE_CONTRACT_CHANGE,
+        "execution_shape_change": REPAIR07_EXECUTION_SHAPE_CHANGE,
+        "hypothesis_design_change": "NONE",
+        "threshold_feature_test_or_hypothesis_status_changed": False,
+    }
+
+
+def _expected_repair07_authority_basis(
+    run_id: str, applied_at: str, contract_sha256: str
+) -> dict:
+    return {
+        "schema_version": REPAIR07_AUTHORITY_SCHEMA,
+        "repair_id": "repair-07",
+        "run_id": run_id,
+        "created_at_utc": applied_at,
+        "authority_class": REPAIR07_AUTHORITY_CLASS,
+        "mission_sha256": EXPECTED_MISSION_SHA256,
+        "permitted_change": REPAIR07_CHANGE_CLASS,
+        "resource_contract_path": REPAIR07_RESOURCE_CONTRACT,
+        "resource_contract_sha256": contract_sha256,
+        "existing_instance_only": True,
+        "new_instance_or_s3_write_authorized": False,
+        "data_selection_change": "NONE",
+        "parser_contract_change": "NONE",
+        "query_semantics_change": "NONE",
+        "quarantine_change": "NONE",
+        "resource_contract_change": REPAIR07_RESOURCE_CONTRACT_CHANGE,
+        "execution_shape_change": REPAIR07_EXECUTION_SHAPE_CHANGE,
+        "hypothesis_design_change": "NONE",
+        "dependent_rfq_result_opened": False,
+    }
+
+
 def _expected_repair05_trial_rows(
     applied_at: str,
     old_repository: dict,
@@ -5760,6 +6109,8 @@ def _validate_repair06_failure_evidence(
     run_dir: Path,
     repair06: dict,
     repair05: dict,
+    *,
+    descendant_replay: bool = False,
 ) -> dict:
     """Bind attempt-06's validate_run failure and unchanged pre-evidence state."""
     pairs = (
@@ -5776,6 +6127,14 @@ def _validate_repair06_failure_evidence(
         (CYCLE1_DUCKDB_BINDING, REPAIR06_CYCLE1_BINDING_ARCHIVE),
     )
     for active_relative, archive_relative in pairs:
+        if descendant_replay and active_relative in {
+            "REPORT/tables/RFQ_FULL_STAGE_STATE.json",
+            "DATA_INTEGRITY/RFQ_FULL_INPUT_IDENTITY.json",
+        }:
+            # These active paths are expected to advance when the registered
+            # descendant runs.  Repair-06's immutable archived hashes below,
+            # not the descendant's failed-attempt state, remain its authority.
+            continue
         active = _require_run_relative_file(
             run_dir, active_relative, "repair-06 active pre-evidence boundary"
         )
@@ -6040,7 +6399,12 @@ def _apply_repair06_status_wiring(
         inputs,
         descendant_boundary_root=pre_root,
     )
-    evidence = _validate_repair06_failure_evidence(run_dir, repair06, repair05)
+    evidence = _validate_repair06_failure_evidence(
+        run_dir,
+        repair06,
+        repair05,
+        descendant_replay=active_root is not None,
+    )
     resource = evidence["resource"]
     expected_failed_attempt = {
         "attempt_id": "RFQ_FULL_STAGE_REPAIR05_ATTEMPT_06",
@@ -6458,6 +6822,440 @@ def _apply_repair06_status_wiring(
     return result
 
 
+def _apply_repair07_bucket_resource_contract(
+    run_dir: Path,
+    manifest: dict,
+    inputs: dict,
+    *,
+    active_root: Path | None = None,
+) -> dict:
+    """Replay repair-06 and bind repair-07's equivalent bucket contract."""
+    repairs = manifest.get("data_integrity_repairs")
+    repair_ids = [
+        row.get("repair_id") if isinstance(row, dict) else None
+        for row in (repairs if isinstance(repairs, list) else [])
+    ]
+    if repair_ids != [
+        "repair-01", "repair-02", "repair-03", "repair-04", "repair-05",
+        "repair-06", "repair-07",
+    ]:
+        raise RFQStageError("RFQ repair-07 chain must be exactly repair-01 through repair-07")
+    repair07 = repairs[-1]
+    repair07_active_root = active_root or run_dir
+    required_fields = {
+        "schema_version", "repair_id", "parent_repair_id", "applied_at_utc",
+        "pre_repair_status", "post_repair_status", "rfq_result_state",
+        "retry_requirement", "registration_change_class", "finding",
+        "failure_disposition", "failure_phase", "failed_attempt",
+        "blocker_path", "blocker_sha256", "failed_resource_receipt_path",
+        "failed_resource_receipt_sha256", "failed_state_path",
+        "failed_state_sha256", "failed_input_identity_path",
+        "failed_input_identity_sha256", "failed_scratch_receipt_path",
+        "failed_scratch_receipt_sha256", "preserved_scratch_path",
+        "preserved_scratch_sha256", "preserved_scratch_bytes",
+        "parent_manifest_sha256", "parent_repair_registration_path",
+        "parent_repair_registration_sha256", "parent_transaction_journal_path",
+        "parent_transaction_journal_sha256", "parent_status_wiring_contract_path",
+        "parent_status_wiring_contract_sha256", "parent_authority_basis_path",
+        "parent_authority_basis_sha256", "parent_resource_contract_path",
+        "parent_resource_contract_sha256", "previous_repair_record_sha256",
+        "resource_contract", "resource_contract_path", "resource_contract_sha256",
+        "authority_basis", "authority_basis_path", "authority_basis_sha256",
+        "coverage", "cumulative_quarantined_objects", "core_result_artifacts",
+        "core_result_disposition", "core_results_recomputed", "parser_contract",
+        "parser_contract_path", "parser_contract_sha256",
+        "consumer_wiring_contract_path", "consumer_wiring_contract_sha256",
+        "status_wiring_contract_path", "status_wiring_contract_sha256",
+        "cycle1_duckdb_binding", "cycle1_binding_path", "cycle1_binding_sha256",
+        "expected_success_resource", "registered_rfq_query_sha256",
+        "previous_execution_commit", "current_execution_commit",
+        "previous_repository_identity", "current_repository_identity",
+        "repository_identity_chain", "source_verification_mode",
+        "preserved_scratch_policy", "main_preflight", "data_selection_change",
+        "parser_contract_change", "query_semantics_change", "quarantine_change",
+        "resource_contract_change", "execution_shape_change",
+        "hypothesis_design_change",
+        "threshold_feature_test_or_hypothesis_status_changed", "archive_path",
+        "archive_inventory", "trial_registry", "transaction_journal_path",
+        "transaction_journal_sha256", "repair_receipt_path",
+        "repair_receipt_sha256",
+    }
+    if set(repair07) != required_fields:
+        raise RFQStageError("repair-07 registration record field set mismatch")
+    if (
+        manifest.get("status") != REPAIR07_STATUS
+        or manifest.get("registration_state") != REPAIR07_REGISTRATION_STATE
+        or repair07.get("schema_version") != REPAIR07_SCHEMA
+        or repair07.get("repair_id") != "repair-07"
+        or repair07.get("parent_repair_id") != "repair-06"
+        or repair07.get("pre_repair_status") != REPAIR06_STATUS
+        or repair07.get("post_repair_status") != REPAIR07_STATUS
+        or repair07.get("rfq_result_state") != "NO_RFQ_RESULT_OPENED"
+        or repair07.get("retry_requirement") != REPAIR07_RETRY_REQUIREMENT
+        or repair07.get("registration_change_class")
+            != REPAIR07_REGISTRATION_CHANGE_CLASS
+        or repair07.get("finding") != REPAIR07_FINDING
+        or repair07.get("failure_disposition") != REPAIR07_FAILURE_DISPOSITION
+        or repair07.get("failure_phase") != REPAIR07_FAILURE_PHASE
+        or repair07.get("preserved_scratch_policy")
+            != REPAIR07_PRESERVED_SCRATCH_POLICY
+        or repair07.get("source_verification_mode")
+            != "LOCAL_GIT_CLEAN_COMMITTED_HEAD"
+    ):
+        raise RFQStageError("repair-07 identity/governance mismatch")
+    try:
+        applied_at = dt.datetime.fromisoformat(
+            repair07["applied_at_utc"].replace("Z", "+00:00")
+        )
+    except (KeyError, AttributeError, ValueError) as exc:
+        raise RFQStageError("repair-07 timestamp is invalid") from exc
+    if applied_at.utcoffset() != dt.timedelta(0):
+        raise RFQStageError("repair-07 timestamp is not UTC")
+
+    receipt_path = _require_run_relative_file(
+        run_dir, REPAIR07_REGISTRATION, "repair-07 registration receipt"
+    )
+    receipt_sha = sha256(receipt_path)
+    receipt = read_json_object(receipt_path, "repair-07 registration receipt")
+    expected_receipt = {
+        key: value for key, value in repair07.items()
+        if key not in {"repair_receipt_path", "repair_receipt_sha256"}
+    }
+    if (
+        repair07.get("repair_receipt_path") != REPAIR07_REGISTRATION
+        or repair07.get("repair_receipt_sha256") != receipt_sha
+        or receipt != expected_receipt
+    ):
+        raise RFQStageError("repair-07 registration receipt binding mismatch")
+
+    pre_root = run_dir / REPAIR07_PRE_ROOT
+    pre_manifest_path = _require_run_relative_file(
+        run_dir, f"{REPAIR07_PRE_ROOT}/RUN_MANIFEST.json",
+        "repair-07 archived repair-06 manifest",
+    )
+    pre_manifest = read_json_object(pre_manifest_path, "repair-07 parent manifest")
+    if (
+        repair07.get("archive_path") != REPAIR07_PRE_ROOT
+        or repair07.get("archive_inventory") != _archive_inventory(pre_root)
+        or sha256(pre_manifest_path) != REPAIR07_PARENT_MANIFEST_SHA256
+        or repair07.get("parent_manifest_sha256") != REPAIR07_PARENT_MANIFEST_SHA256
+        or pre_manifest.get("status") != REPAIR06_STATUS
+        or pre_manifest.get("registration_state") != REPAIR06_REGISTRATION_STATE
+        or pre_manifest.get("data_integrity_repairs") != repairs[:6]
+    ):
+        raise RFQStageError("repair-07 archive is not the exact repair-06 boundary")
+    base_result = _apply_repair06_status_wiring(
+        run_dir, pre_manifest, inputs, active_root=pre_root
+    )
+    repair06 = repairs[-2]
+
+    immutable_files = (
+        (REPAIR07_FAILED_RESOURCE_ARCHIVE, REPAIR07_FAILED_RESOURCE_SHA256),
+        (REPAIR07_FAILED_STATE_ARCHIVE, REPAIR07_FAILED_STATE_SHA256),
+        (REPAIR07_FAILED_INPUT_ARCHIVE, REPAIR07_FAILED_INPUT_SHA256),
+    )
+    for relative, expected_sha in immutable_files:
+        if sha256(_require_run_relative_file(
+            run_dir, relative, "repair-07 failed-attempt evidence"
+        )) != expected_sha:
+            raise RFQStageError("repair-07 failed-attempt evidence changed")
+    preserved = _require_run_relative_file(
+        run_dir, REPAIR07_PRESERVED_SCRATCH, "repair-07 preserved failed scratch"
+    )
+    if (
+        preserved.stat().st_size != REPAIR07_FAILED_SCRATCH_BYTES
+        or sha256(preserved) != REPAIR07_FAILED_SCRATCH_SHA256
+        or os.path.lexists(run_dir / "cache/rfq_full_scratch.duckdb")
+        or os.path.lexists(run_dir / "cache/rfq_full_scratch.duckdb.wal")
+    ):
+        raise RFQStageError("repair-07 fresh/preserved scratch boundary mismatch")
+
+    scratch_receipt_path = _require_run_relative_file(
+        run_dir, REPAIR07_SCRATCH_RECEIPT, "repair-07 scratch receipt"
+    )
+    blocker_path = _require_run_relative_file(
+        run_dir, REPAIR07_BLOCKER, "repair-07 blocker"
+    )
+    scratch_receipt_sha = sha256(scratch_receipt_path)
+    blocker_sha = sha256(blocker_path)
+    scratch_receipt = read_json_object(scratch_receipt_path, "repair-07 scratch receipt")
+    blocker = read_json_object(blocker_path, "repair-07 blocker")
+    expected_bucket_rows = [
+        {"exchange_hour_epoch_us": hour, "valid_contract_rows": count}
+        for hour, count in REPAIR07_RFQ_DEDUP_BUCKET_COUNTS
+    ]
+    if (
+        scratch_receipt.get("schema_version") != "rfq-failed-scratch-receipt-v7"
+        or scratch_receipt.get("repair_id") != "repair-07"
+        or scratch_receipt.get("run_id") != run_dir.name
+        or scratch_receipt.get("recorded_at_utc") != repair07["applied_at_utc"]
+        or scratch_receipt.get("preserved_path") != REPAIR07_PRESERVED_SCRATCH
+        or scratch_receipt.get("sha256") != REPAIR07_FAILED_SCRATCH_SHA256
+        or scratch_receipt.get("bytes") != REPAIR07_FAILED_SCRATCH_BYTES
+        or scratch_receipt.get("catalog", {}).get("bucket_counts")
+            != expected_bucket_rows
+        or scratch_receipt.get("catalog", {}).get("bucket_counts_sha256")
+            != REPAIR07_RFQ_DEDUP_BUCKET_COUNTS_SHA256
+        or blocker.get("schema_version") != "rfq-repair06-dedup-oom-blocker-v1"
+        or blocker.get("repair_id") != "repair-07"
+        or blocker.get("run_id") != run_dir.name
+        or blocker.get("finding") != REPAIR07_FINDING
+        or blocker.get("failure_phase") != REPAIR07_FAILURE_PHASE
+        or blocker.get("failed_scratch_receipt_sha256") != scratch_receipt_sha
+        or blocker.get("bucket_counts_sha256")
+            != REPAIR07_RFQ_DEDUP_BUCKET_COUNTS_SHA256
+        or blocker.get("valid_contract_rows") != REPAIR07_RFQ_VALID_CONTRACT_ROWS
+    ):
+        raise RFQStageError("repair-07 OOM/scratch evidence mismatch")
+
+    contract_path = _require_run_relative_file(
+        run_dir, REPAIR07_RESOURCE_CONTRACT, "repair-07 resource contract"
+    )
+    contract_sha = sha256(contract_path)
+    contract = read_json_object(contract_path, "repair-07 resource contract")
+    expected_contract = _expected_repair07_resource_contract(
+        run_dir.name, repair07["applied_at_utc"], scratch_receipt_sha, blocker_sha
+    )
+    authority_path = _require_run_relative_file(
+        run_dir, REPAIR07_AUTHORITY_BASIS, "repair-07 authority basis"
+    )
+    authority_sha = sha256(authority_path)
+    authority = read_json_object(authority_path, "repair-07 authority basis")
+    expected_binding = {
+        "path": REPAIR07_RESOURCE_CONTRACT,
+        "sha256": contract_sha,
+        "schema_version": REPAIR07_RESOURCE_SCHEMA,
+        "current_runtime": dict(REPAIR07_RUNTIME_CONTRACT),
+    }
+    if (
+        contract != expected_contract
+        or repair07.get("resource_contract") != expected_binding
+        or repair07.get("resource_contract_path") != REPAIR07_RESOURCE_CONTRACT
+        or repair07.get("resource_contract_sha256") != contract_sha
+        or authority != _expected_repair07_authority_basis(
+            run_dir.name, repair07["applied_at_utc"], contract_sha
+        )
+        or repair07.get("authority_basis_path") != REPAIR07_AUTHORITY_BASIS
+        or repair07.get("authority_basis_sha256") != authority_sha
+        or repair07.get("authority_basis") != {
+            "path": REPAIR07_AUTHORITY_BASIS,
+            "sha256": authority_sha,
+            "schema_version": REPAIR07_AUTHORITY_SCHEMA,
+            "authority_class": REPAIR07_AUTHORITY_CLASS,
+            "permitted_change": REPAIR07_CHANGE_CLASS,
+        }
+    ):
+        raise RFQStageError("repair-07 resource/authority contract mismatch")
+
+    if (
+        repair07.get("parent_repair_registration_path")
+            != repair06.get("repair_receipt_path")
+        or repair07.get("parent_repair_registration_sha256")
+            != REPAIR07_PARENT_RECEIPT_SHA256
+        or repair07.get("parent_transaction_journal_path")
+            != repair06.get("transaction_journal_path")
+        or repair07.get("parent_transaction_journal_sha256")
+            != REPAIR07_PARENT_JOURNAL_SHA256
+        or repair07.get("parent_status_wiring_contract_path")
+            != repair06.get("status_wiring_contract_path")
+        or repair07.get("parent_status_wiring_contract_sha256")
+            != REPAIR07_PARENT_STATUS_CONTRACT_SHA256
+        or repair07.get("parent_authority_basis_path")
+            != repair06.get("authority_basis_path")
+        or repair07.get("parent_authority_basis_sha256")
+            != REPAIR07_PARENT_AUTHORITY_SHA256
+        or repair07.get("parent_resource_contract_path")
+            != repair06.get("resource_contract_path")
+        or repair07.get("parent_resource_contract_sha256")
+            != REPAIR07_PARENT_RESOURCE_CONTRACT_SHA256
+        or repair07.get("previous_repair_record_sha256")
+            != _compact_json_sha256(repair06)
+        or repair07.get("coverage") != repair06.get("coverage")
+        or repair07.get("cumulative_quarantined_objects")
+            != repair06.get("cumulative_quarantined_objects")
+        or repair07.get("core_result_artifacts")
+            != repair06.get("core_result_artifacts")
+        or repair07.get("core_result_disposition")
+            != "CORE_RESULTS_PRESERVED_NOT_RECOMPUTED"
+        or repair07.get("core_results_recomputed") is not False
+        or repair07.get("parser_contract") != repair06.get("parser_contract")
+        or repair07.get("parser_contract_path") != repair06.get("parser_contract_path")
+        or repair07.get("parser_contract_sha256") != repair06.get("parser_contract_sha256")
+        or repair07.get("consumer_wiring_contract_path")
+            != repair06.get("parent_wiring_contract_path")
+        or repair07.get("consumer_wiring_contract_sha256")
+            != repair06.get("parent_wiring_contract_sha256")
+        or repair07.get("status_wiring_contract_path")
+            != repair06.get("status_wiring_contract_path")
+        or repair07.get("status_wiring_contract_sha256")
+            != repair06.get("status_wiring_contract_sha256")
+        or repair07.get("cycle1_duckdb_binding")
+            != repair06.get("cycle1_duckdb_binding")
+        or repair07.get("expected_success_resource") != {
+            "label": REPAIR07_SUCCESS_RESOURCE_LABEL,
+            "path": REPAIR07_SUCCESS_RESOURCE_PATH,
+        }
+        or repair07.get("main_preflight") != _repair07_preflight_contract(run_dir.name)
+        or repair07.get("data_selection_change") != "NONE"
+        or repair07.get("parser_contract_change") != "NONE"
+        or repair07.get("query_semantics_change") != "NONE"
+        or repair07.get("quarantine_change") != "NONE"
+        or repair07.get("resource_contract_change")
+            != REPAIR07_RESOURCE_CONTRACT_CHANGE
+        or repair07.get("execution_shape_change") != REPAIR07_EXECUTION_SHAPE_CHANGE
+        or repair07.get("hypothesis_design_change") != "NONE"
+        or repair07.get("threshold_feature_test_or_hypothesis_status_changed")
+            is not False
+    ):
+        raise RFQStageError("repair-07 changed inherited research semantics")
+
+    pre_repository = pre_manifest.get("repository")
+    repository = manifest.get("repository")
+    if not isinstance(pre_repository, dict) or not isinstance(repository, dict):
+        raise RFQStageError("repair-07 repository identity missing")
+    pre_identity = _repository_identity(pre_repository)
+    current_identity = _repository_identity(repository)
+    identity_chain = repository.get("identity_history")
+    if (
+        not isinstance(identity_chain, list)
+        or len(identity_chain) != 8
+        or identity_chain[:-1] != pre_repository.get("identity_history")
+        or identity_chain[-1] != current_identity
+        or repair07.get("repository_identity_chain") != identity_chain
+        or repair07.get("previous_repository_identity") != pre_identity
+        or repair07.get("current_repository_identity") != current_identity
+        or repair07.get("previous_execution_commit")
+            != pre_repository.get("execution_commit")
+        or repair07.get("current_execution_commit") != repository.get("execution_commit")
+        or repository.get("registration_repair_id") != "repair-07"
+        or repository.get("previous_identity") != pre_identity
+        or repository.get("source_tree_dirty_at_freeze") is not False
+        or sha256(repair07_active_root / "SOURCE_MANIFEST.json")
+            != repository.get("source_manifest_sha256")
+        or sha256(repair07_active_root / "SOURCE_SHA256SUMS.txt")
+            != repository.get("source_sha256s_sha256")
+    ):
+        raise RFQStageError("repair-07 repository transfer mismatch")
+    query_rows = _validate_query_receipt(
+        run_dir, repository, active_root=repair07_active_root
+    )
+    registered_query_sha = query_rows.get(REPAIR07_EXECUTION_QUERY)
+    if (
+        registered_query_sha != repair07.get("registered_rfq_query_sha256")
+        or registered_query_sha == REPAIR07_PARENT_RFQ_QUERY_SHA256
+    ):
+        raise RFQStageError("repair-07 registered RFQ query SHA mismatch")
+
+    pre_registry = _require_run_relative_file(
+        run_dir, f"{REPAIR07_PRE_ROOT}/TRIAL_REGISTRY.jsonl",
+        "repair-07 parent registry",
+    ).read_bytes()
+    active_registry = _require_run_relative_file(
+        repair07_active_root, "TRIAL_REGISTRY.jsonl", "repair-07 active registry"
+    ).read_bytes()
+    trial = repair07.get("trial_registry")
+    expected_trial_ids = [
+        "RFQ_FULL_STAGE_REPAIR06_ATTEMPT_07",
+        "RFQ_EQUIVALENT_BUCKETED_DEDUP_RESOURCE_REPAIR_07",
+    ]
+    if (
+        not isinstance(trial, dict)
+        or active_registry == pre_registry
+        or not active_registry.startswith(pre_registry)
+        or trial.get("previous_sha256") != hashlib.sha256(pre_registry).hexdigest()
+        or trial.get("current_sha256") != hashlib.sha256(active_registry).hexdigest()
+        or trial.get("previous_bytes") != len(pre_registry)
+        or trial.get("current_bytes") != len(active_registry)
+        or trial.get("strict_previous_bytes_prefix") is not True
+        or trial.get("appended_records") != 2
+        or trial.get("trial_registration_ids") != expected_trial_ids
+    ):
+        raise RFQStageError("repair-07 trial-registry boundary mismatch")
+    suffix = _read_registry_rows(
+        active_registry[len(pre_registry):], "repair-07 registry suffix"
+    )
+    if (
+        [row.get("trial_registration_id") for row in suffix] != expected_trial_ids
+        or any(row.get("parent_repair_id") != "repair-06" for row in suffix)
+        or any(row.get("result_opened") is not False for row in suffix)
+        or any(row.get("hypothesis_conclusion_opened") is not False for row in suffix)
+    ):
+        raise RFQStageError("repair-07 trial-registry suffix mismatch")
+
+    journal_path = _require_run_relative_file(
+        run_dir, REPAIR07_TRANSACTION_JOURNAL, "repair-07 transaction journal"
+    )
+    journal = read_json_object(journal_path, "repair-07 transaction journal")
+    repair_root = run_dir / REPAIR07_ROOT
+    if (
+        repair07.get("transaction_journal_path") != REPAIR07_TRANSACTION_JOURNAL
+        or repair07.get("transaction_journal_sha256") != sha256(journal_path)
+        or journal.get("schema_version") != "repair07-registration-transaction-v1"
+        or journal.get("repair_id") != "repair-07"
+        or journal.get("run_id") != run_dir.name
+        or journal.get("state") != "PREPARED_BEFORE_ACTIVE_MUTATION"
+        or journal.get("original_manifest_sha256") != REPAIR07_PARENT_MANIFEST_SHA256
+        or journal.get("scratch_mutation") != {
+            "active_path": "cache/rfq_full_scratch.duckdb",
+            "preserved_path": REPAIR07_PRESERVED_SCRATCH,
+            "sha256": REPAIR07_FAILED_SCRATCH_SHA256,
+            "bytes": REPAIR07_FAILED_SCRATCH_BYTES,
+            "operation": "ATOMIC_RENAME_SAME_FILESYSTEM",
+        }
+        or set(journal.get("expected_repair_files", []))
+            != {row["path"] for row in _archive_inventory(repair_root)}
+    ):
+        raise RFQStageError("repair-07 transaction journal mismatch")
+
+    failed07 = {
+        "repair_id": "repair-07",
+        "attempt_id": "RFQ_FULL_STAGE_REPAIR06_ATTEMPT_07",
+        "failed_resource_receipt_path": repair07["failed_resource_receipt_path"],
+        "failed_resource_receipt_sha256": repair07[
+            "failed_resource_receipt_sha256"
+        ],
+        "failed_state_path": repair07["failed_state_path"],
+        "failed_state_sha256": repair07["failed_state_sha256"],
+        "failed_input_identity_path": repair07["failed_input_identity_path"],
+        "failed_input_identity_sha256": repair07["failed_input_identity_sha256"],
+        "failed_scratch_receipt_path": repair07["failed_scratch_receipt_path"],
+        "failed_scratch_receipt_sha256": repair07[
+            "failed_scratch_receipt_sha256"
+        ],
+        "preserved_scratch_path": repair07["preserved_scratch_path"],
+        "preserved_scratch_sha256": repair07["preserved_scratch_sha256"],
+        "preserved_scratch_bytes": repair07["preserved_scratch_bytes"],
+        "blocker_path": repair07["blocker_path"],
+        "blocker_sha256": repair07["blocker_sha256"],
+        "input_fingerprint": base_result["selection_fingerprint_sha256"],
+        "resource_label": REPAIR06_SUCCESS_RESOURCE_LABEL,
+        "retry_requirement": REPAIR07_RETRY_REQUIREMENT,
+    }
+    chain07 = {
+        "repair_id": "repair-07",
+        "registration_path": REPAIR07_REGISTRATION,
+        "registration_sha256": receipt_sha,
+        "resource_contract_path": REPAIR07_RESOURCE_CONTRACT,
+        "resource_contract_sha256": contract_sha,
+        "authority_basis_path": REPAIR07_AUTHORITY_BASIS,
+        "authority_basis_sha256": authority_sha,
+    }
+    result = dict(base_result)
+    result.update({
+        "repair_chain": [*base_result["repair_chain"], chain07],
+        "failed_attempt_bindings": [
+            *base_result["failed_attempt_bindings"], failed07,
+        ],
+        "expected_success_resource": {
+            "label": REPAIR07_SUCCESS_RESOURCE_LABEL,
+            "path": REPAIR07_SUCCESS_RESOURCE_PATH,
+        },
+        "rfq_resource_contract": expected_binding,
+        "registered_rfq_query_sha256": registered_query_sha,
+    })
+    return result
+
+
 def apply_object_quarantine(
     run_dir: Path,
     manifest: dict,
@@ -6483,6 +7281,13 @@ def apply_object_quarantine(
                 row.get("repair_id") if isinstance(row, dict) else None
                 for row in manifest.get("data_integrity_repairs", [])
             ]
+            if repair_ids == [
+                "repair-01", "repair-02", "repair-03", "repair-04",
+                "repair-05", "repair-06", "repair-07",
+            ]:
+                return _apply_repair07_bucket_resource_contract(
+                    run_dir, manifest, inputs, active_root=_active_root
+                )
             if repair_ids == [
                 "repair-01", "repair-02", "repair-03", "repair-04",
                 "repair-05", "repair-06",
@@ -6844,6 +7649,7 @@ def validate_run(
         REPAIR04_STATUS,
         REPAIR05_STATUS,
         REPAIR06_STATUS,
+        REPAIR07_STATUS,
     }:
         raise RFQStageError("Cycle-1 core is not in an RFQ-stage-compatible state")
     gates = manifest.get("gates", {})
@@ -7158,11 +7964,240 @@ def add_quarantine_observation_boundaries(connection) -> None:
     )
 
 
+def _rfq_dedup_bucket_counts(connection) -> tuple[tuple[int | None, int], ...]:
+    """Return a complete, deterministic partition of valid rows.
+
+    ``exchange_ts`` is non-null for every valid-contract row, but retaining an
+    explicit NULL bucket makes the physical transform complete and fail-safe if
+    that invariant is ever weakened outside the frozen repair-07 input.
+    """
+    rows = connection.execute("""
+      SELECT epoch_us(date_trunc('hour',exchange_ts)) AS exchange_hour_epoch_us,
+        count(*)::BIGINT AS valid_contract_rows
+      FROM rfq_scan_rows WHERE valid_contract
+      GROUP BY exchange_hour_epoch_us
+      ORDER BY exchange_hour_epoch_us NULLS FIRST
+    """).fetchall()
+    return tuple(
+        (None if hour is None else int(hour), int(count))
+        for hour, count in rows
+    )
+
+
+def _rfq_dedup_bucket_counts_sha256(
+    rows: Sequence[tuple[int | None, int]],
+) -> str:
+    canonical = [
+        {
+            "exchange_hour_epoch_us": hour,
+            "valid_contract_rows": count,
+        }
+        for hour, count in rows
+    ]
+    payload = json.dumps(
+        canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_repair07_dedup_bucket_counts(
+    rows: Sequence[tuple[int | None, int]],
+) -> None:
+    total = sum(count for _, count in rows)
+    maximum = max((count for _, count in rows), default=0)
+    if (
+        tuple(rows) != REPAIR07_RFQ_DEDUP_BUCKET_COUNTS
+        or len(rows) != REPAIR07_RFQ_DEDUP_BUCKET_COUNT
+        or total != REPAIR07_RFQ_VALID_CONTRACT_ROWS
+        or maximum != REPAIR07_RFQ_DEDUP_MAX_BUCKET_ROWS
+        or any(hour is None for hour, _ in rows)
+        or _rfq_dedup_bucket_counts_sha256(rows)
+            != REPAIR07_RFQ_DEDUP_BUCKET_COUNTS_SHA256
+    ):
+        raise RFQStageError(
+            "repair-07 RFQ deduplication hour-bucket identity mismatch"
+        )
+
+
+def _build_rfq_events_valid(
+    connection, *, enforce_repair07_contract: bool = False
+) -> None:
+    """Deduplicate in exact exchange-hour partitions with bounded memory.
+
+    The original partition key is
+    ``(event_type, rfq_id, exchange_ts_text, market_ticker)``.  Equal keys have
+    equal timestamp text and therefore the same deterministic parsed UTC hour;
+    no window partition can be split by this execution-only transform.
+    """
+    buckets = _rfq_dedup_bucket_counts(connection)
+    source_rows = int(scalar(
+        connection, "SELECT count(*) FROM rfq_scan_rows WHERE valid_contract"
+    ))
+    if sum(count for _, count in buckets) != source_rows:
+        raise RFQStageError("RFQ deduplication buckets do not cover valid rows")
+    if enforce_repair07_contract:
+        _validate_repair07_dedup_bucket_counts(buckets)
+
+    building = "rfq_events_valid_building"
+    qc_building = "rfq_dedup_bucket_qc_building"
+    connection.execute(f"DROP TABLE IF EXISTS {building}")
+    connection.execute(f"DROP TABLE IF EXISTS {qc_building}")
+    connection.execute(f"""
+      CREATE TABLE {building} AS
+      SELECT release_id,receive_date,receive_us,recv_wall_ns,recv_mono_ns,
+        stream_epoch,event_type,rfq_id,creator_hash,market_ticker,event_ticker,
+        exchange_ts,contracts_e2,target_cost_e6,mve_collection_ticker,
+        mve_legs_json,mve_legs_type,leg_count_raw,
+        sha256(concat_ws('|',event_type,rfq_id,
+          coalesce(created_ts_text,deleted_ts_text),market_ticker)) AS event_key
+      FROM rfq_scan_rows WHERE false
+    """)
+    connection.execute(f"""
+      CREATE TABLE {qc_building}(
+        exchange_hour_epoch_us BIGINT,
+        valid_contract_rows BIGINT NOT NULL,
+        deduplicated_valid_rows BIGINT NOT NULL
+      )
+    """)
+
+    output_rows = 0
+    qc_rows: list[tuple[int | None, int, int]] = []
+    for hour, bucket_source_rows in buckets:
+        if hour is None:
+            predicate = "exchange_ts IS NULL"
+            parameters: list[object] = []
+        else:
+            predicate = (
+                "exchange_ts>=make_timestamptz(?) "
+                "AND exchange_ts<make_timestamptz(?+3600000000)"
+            )
+            parameters = [hour, hour]
+        connection.execute(f"""
+          INSERT INTO {building}
+          WITH ranked AS (
+            SELECT *,coalesce(created_ts_text,deleted_ts_text) AS exchange_ts_text,
+              row_number() OVER (
+                PARTITION BY event_type,rfq_id,
+                  coalesce(created_ts_text,deleted_ts_text),market_ticker
+                ORDER BY recv_wall_ns,recv_mono_ns NULLS LAST,filename
+              ) AS duplicate_rank
+            FROM rfq_scan_rows
+            WHERE valid_contract AND ({predicate})
+          )
+          SELECT release_id,receive_date,receive_us,recv_wall_ns,recv_mono_ns,
+            stream_epoch,event_type,rfq_id,creator_hash,market_ticker,event_ticker,
+            exchange_ts,contracts_e2,target_cost_e6,mve_collection_ticker,
+            mve_legs_json,mve_legs_type,leg_count_raw,
+            sha256(concat_ws('|',event_type,rfq_id,exchange_ts_text,market_ticker))
+              AS event_key
+          FROM ranked WHERE duplicate_rank=1
+        """, parameters)
+        current_rows = int(scalar(connection, f"SELECT count(*) FROM {building}"))
+        bucket_output_rows = current_rows - output_rows
+        if bucket_output_rows < 0 or bucket_output_rows > bucket_source_rows:
+            raise RFQStageError("invalid RFQ hour-bucket deduplication count")
+        output_rows = current_rows
+        qc_rows.append((hour, bucket_source_rows, bucket_output_rows))
+
+    if qc_rows:
+        connection.executemany(
+            f"INSERT INTO {qc_building} VALUES (?,?,?)", qc_rows
+        )
+    if (
+        int(scalar(
+            connection,
+            f"SELECT coalesce(sum(valid_contract_rows),0) FROM {qc_building}",
+        ))
+            != source_rows
+        or int(scalar(
+            connection,
+            f"SELECT coalesce(sum(deduplicated_valid_rows),0) FROM {qc_building}",
+        )) != output_rows
+    ):
+        raise RFQStageError("RFQ deduplication QC totals are inconsistent")
+    if enforce_repair07_contract and output_rows != REPAIR07_RFQ_VALID_CONTRACT_ROWS:
+        raise RFQStageError("repair-07 RFQ deduplication winner count changed")
+
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        connection.execute(
+            f"ALTER TABLE {qc_building} RENAME TO rfq_dedup_bucket_qc"
+        )
+        connection.execute(f"ALTER TABLE {building} RENAME TO rfq_events_valid")
+        connection.execute("COMMIT")
+    except Exception:
+        connection.execute("ROLLBACK")
+        raise
+
+
+def _split_rfq_mve_payload(connection) -> None:
+    """Move the 22-GiB MVE JSON payload out of later global windows."""
+    if not table_exists(connection, "rfq_events_valid"):
+        raise RFQStageError("deduplicated RFQ events missing before payload split")
+    if not column_exists(connection, "rfq_events_valid", "mve_legs_json"):
+        if not table_exists(connection, "rfq_mve_payload"):
+            raise RFQStageError("RFQ MVE payload side table is missing")
+        return
+    for stale in ("rfq_mve_payload_building", "rfq_events_valid_narrow_building"):
+        connection.execute(f"DROP TABLE IF EXISTS {stale}")
+    if table_exists(connection, "rfq_mve_payload"):
+        raise RFQStageError("unexpected RFQ MVE payload table before atomic split")
+    connection.execute("""
+      CREATE TABLE rfq_mve_payload_building AS
+      SELECT event_key,mve_legs_json,mve_legs_type
+      FROM rfq_events_valid WHERE event_type='rfq_created'
+    """)
+    connection.execute("""
+      CREATE TABLE rfq_events_valid_narrow_building AS
+      SELECT * EXCLUDE (mve_legs_json,mve_legs_type) FROM rfq_events_valid
+    """)
+    total_rows = int(scalar(connection, "SELECT count(*) FROM rfq_events_valid"))
+    narrow_rows = int(scalar(
+        connection, "SELECT count(*) FROM rfq_events_valid_narrow_building"
+    ))
+    create_rows = int(scalar(
+        connection,
+        "SELECT count(*) FROM rfq_events_valid WHERE event_type='rfq_created'",
+    ))
+    payload_rows = int(scalar(
+        connection, "SELECT count(*) FROM rfq_mve_payload_building"
+    ))
+    unique_payload_keys = int(scalar(
+        connection,
+        "SELECT count(DISTINCT event_key) FROM rfq_mve_payload_building",
+    ))
+    if (
+        narrow_rows != total_rows
+        or payload_rows != create_rows
+        or unique_payload_keys != payload_rows
+    ):
+        raise RFQStageError("RFQ MVE payload split changed row identity")
+
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        connection.execute(
+            "ALTER TABLE rfq_mve_payload_building RENAME TO rfq_mve_payload"
+        )
+        connection.execute(
+            "ALTER TABLE rfq_events_valid RENAME TO rfq_events_valid_wide_retired"
+        )
+        connection.execute(
+            "ALTER TABLE rfq_events_valid_narrow_building "
+            "RENAME TO rfq_events_valid"
+        )
+        connection.execute("DROP TABLE rfq_events_valid_wide_retired")
+        connection.execute("COMMIT")
+    except Exception:
+        connection.execute("ROLLBACK")
+        raise
+
+
 def build_scan_tables(
     connection,
     paths: Sequence[Path],
     run_id: str = "_TEST",
     quarantine_boundaries: Sequence[dict] = (),
+    enforce_repair07_contract: bool = False,
 ) -> None:
     # A completed normalization phase intentionally drops its two largest
     # intermediates so their pages can be reused by lifecycle construction.
@@ -7278,25 +8313,10 @@ def build_scan_tables(
     install_quarantine_gaps(connection, quarantine_boundaries)
     add_quarantine_observation_boundaries(connection)
     if not table_exists(connection, "rfq_events_valid"):
-        connection.execute("""
-          CREATE TABLE rfq_events_valid AS
-          WITH ranked AS (
-            SELECT *,coalesce(created_ts_text,deleted_ts_text) AS exchange_ts_text,
-              row_number() OVER (
-                PARTITION BY event_type,rfq_id,coalesce(created_ts_text,deleted_ts_text),
-                             market_ticker
-                ORDER BY recv_wall_ns,recv_mono_ns NULLS LAST,filename
-              ) AS duplicate_rank
-            FROM rfq_scan_rows WHERE valid_contract
-          )
-          SELECT release_id,receive_date,receive_us,recv_wall_ns,recv_mono_ns,
-            stream_epoch,event_type,rfq_id,creator_hash,market_ticker,event_ticker,
-            exchange_ts,contracts_e2,target_cost_e6,mve_collection_ticker,
-            mve_legs_json,mve_legs_type,leg_count_raw,
-            sha256(concat_ws('|',event_type,rfq_id,exchange_ts_text,market_ticker))
-              AS event_key
-          FROM ranked WHERE duplicate_rank=1
-        """)
+        _build_rfq_events_valid(
+            connection,
+            enforce_repair07_contract=enforce_repair07_contract,
+        )
     if not table_exists(connection, "rfq_scan_counts"):
         connection.execute("""
           CREATE TABLE rfq_scan_counts AS
@@ -7315,6 +8335,7 @@ def build_scan_tables(
     # DuckDB can reuse these pages for the narrow ordered event table.
     if table_exists(connection, "rfq_scan_rows"):
         connection.execute("DROP TABLE rfq_scan_rows")
+    _split_rfq_mve_payload(connection)
     if not table_exists(connection, "rfq_events_ordered"):
         if not table_exists(connection, "rfq_events_valid"):
             raise RFQStageError("deduplicated RFQ events missing before ordering")
@@ -7327,6 +8348,14 @@ def build_scan_tables(
             )::BIGINT AS cycle_no
           FROM rfq_events_valid
         """)
+        ordered_rows = int(scalar(
+            connection, "SELECT count(*) FROM rfq_events_ordered"
+        ))
+        expected_rows = int(scalar(
+            connection, "SELECT deduplicated_valid_frames FROM rfq_scan_counts"
+        ))
+        if ordered_rows != expected_rows:
+            raise RFQStageError("RFQ lifecycle ordering changed deduplicated row count")
     if table_exists(connection, "rfq_events_valid"):
         connection.execute("DROP TABLE rfq_events_valid")
 
@@ -7340,6 +8369,8 @@ def build_request_tables(connection, run_id: str) -> None:
         return
     if not table_exists(connection, "rfq_events_ordered"):
         raise RFQStageError("normalized RFQ events missing for lifecycle phase")
+    if not table_exists(connection, "rfq_mve_payload"):
+        raise RFQStageError("RFQ MVE payload side table missing before leg expansion")
     if not table_exists(connection, "rfq_creates"):
         connection.execute("""
           CREATE TABLE rfq_creates AS
@@ -7350,6 +8381,10 @@ def build_request_tables(connection, run_id: str) -> None:
             ) AS next_create_recv_ns
           FROM rfq_events_ordered WHERE event_type='rfq_created'
         """)
+        create_rows = int(scalar(connection, "SELECT count(*) FROM rfq_creates"))
+        payload_rows = int(scalar(connection, "SELECT count(*) FROM rfq_mve_payload"))
+        if create_rows != payload_rows:
+            raise RFQStageError("RFQ create/payload row identity changed")
     if not table_exists(connection, "rfq_create_boundaries"):
         connection.execute("""
           CREATE TABLE rfq_create_boundaries AS
@@ -7515,8 +8550,9 @@ def build_request_tables(connection, run_id: str) -> None:
                    OR json_type({leg_value},'$.side')='VARCHAR')
               AND ({settlement} IS NULL OR {fixed_sql(settlement, 6)} IS NOT NULL)
               THEN true ELSE false END AS leg_schema_valid
-          FROM rfq_creates c,json_each(try_cast(c.mve_legs_json AS JSON)) j
-          WHERE c.mve_legs_type='ARRAY'
+          FROM rfq_creates c JOIN rfq_mve_payload p USING(event_key),
+            json_each(try_cast(p.mve_legs_json AS JSON)) j
+          WHERE p.mve_legs_type='ARRAY'
         """)
     if not table_exists(connection, "rfq_unmatched_deletes"):
         connection.execute("""
@@ -7540,6 +8576,7 @@ def build_request_tables(connection, run_id: str) -> None:
     for name in (
         "rfq_delete_cycle_stats", "rfq_matched_deletes", "rfq_delete_candidates",
         "rfq_create_boundaries", "rfq_creates", "rfq_events_ordered",
+        "rfq_mve_payload",
     ):
         connection.execute(f"DROP TABLE {name}")
 
@@ -9006,18 +10043,28 @@ def _enforce_registered_resource_contract(
     registered = inputs.get("rfq_resource_contract")
     if registered is None:
         return
-    if (
+    common_valid = (
         not isinstance(registered, dict)
         or set(registered) != {
             "path", "sha256", "schema_version", "current_runtime",
         }
-        or registered.get("path") != REPAIR04_RESOURCE_CONTRACT_PATH
         or not isinstance(registered.get("sha256"), str)
         or re.fullmatch(r"[0-9a-f]{64}", registered["sha256"]) is None
-        or registered.get("schema_version") != REPAIR04_RESOURCE_SCHEMA
-        or registered.get("current_runtime") != REPAIR04_RUNTIME_CONTRACT
-    ):
-        raise RFQStageError("repair-04 registered resource contract is invalid")
+    )
+    repair07 = (
+        not common_valid
+        and registered.get("path") == REPAIR07_RESOURCE_CONTRACT
+        and registered.get("schema_version") == REPAIR07_RESOURCE_SCHEMA
+        and registered.get("current_runtime") == REPAIR07_RUNTIME_CONTRACT
+    )
+    repair04 = (
+        not common_valid
+        and registered.get("path") == REPAIR04_RESOURCE_CONTRACT_PATH
+        and registered.get("schema_version") == REPAIR04_RESOURCE_SCHEMA
+        and registered.get("current_runtime") == REPAIR04_RUNTIME_CONTRACT
+    )
+    if common_valid or not (repair04 or repair07):
+        raise RFQStageError("registered resource contract is invalid")
     observed = {
         "memory_limit": args.memory_limit,
         "max_temp_size": args.max_temp_size,
@@ -9027,12 +10074,17 @@ def _enforce_registered_resource_contract(
         "resume": bool(args.resume),
         "keep_scratch": bool(args.keep_scratch),
     }
-    if observed != REPAIR04_RUNTIME_CONTRACT:
+    expected_runtime = (
+        REPAIR07_RUNTIME_CONTRACT if repair07 else REPAIR04_RUNTIME_CONTRACT
+    )
+    if observed != expected_runtime:
         raise RFQStageError(
-            "repair-04 runtime arguments differ from the preregistered resource contract"
+            "runtime arguments differ from the registered RFQ resource contract"
         )
     registered_query_sha = inputs.get("registered_rfq_query_sha256")
-    expected_entry = run_dir.resolve() / REPAIR04_EXECUTION_QUERY
+    expected_entry = run_dir.resolve() / (
+        REPAIR07_EXECUTION_QUERY if repair07 else REPAIR04_EXECUTION_QUERY
+    )
     executed_entry = Path(__file__).resolve()
     if (
         not isinstance(registered_query_sha, str)
@@ -9043,8 +10095,30 @@ def _enforce_registered_resource_contract(
         or sha256(expected_entry) != registered_query_sha
     ):
         raise RFQStageError(
-            "repair-04 execution entry is not the registered frozen RFQ query"
+            "execution entry is not the registered frozen RFQ query"
         )
+
+
+def _required_disk_headroom_bytes(args, inputs: dict) -> float:
+    """Return the governed start gate for the active RFQ resource contract.
+
+    Earlier repairs retain the conservative 1.75x-input heuristic. Repair-07
+    explicitly replaces that gate with its registered 80-GiB floor because the
+    failed scratch remains preserved and its equivalent bucketed execution has
+    a separately bounded 20-GB temp cap. The strict resource-contract validator
+    runs before this helper, so the binding cannot select a different floor.
+    """
+    registered = inputs.get("rfq_resource_contract")
+    minimum = args.min_free_gib * 2**30
+    repair07 = (
+        isinstance(registered, dict)
+        and registered.get("path") == REPAIR07_RESOURCE_CONTRACT
+        and registered.get("schema_version") == REPAIR07_RESOURCE_SCHEMA
+        and registered.get("current_runtime") == REPAIR07_RUNTIME_CONTRACT
+    )
+    if repair07:
+        return minimum
+    return max(minimum, inputs["consumed_bytes"] * 1.75)
 
 
 def _enforce_registered_consumer_wiring_contract(
@@ -9124,18 +10198,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise RFQStageError(
                 "validate_run preflight overlay requires preflight-only mode"
             )
-        expected_overlay = (
-            run_dir / REPAIR06_ROOT / "post_repair"
-        ).resolve()
+        allowed_overlays = {
+            (run_dir / root / "post_repair").resolve()
+            for root in (REPAIR06_ROOT, REPAIR07_ROOT)
+        }
         if (
             preflight_overlay.is_symlink()
             or not preflight_overlay.is_dir()
-            or preflight_overlay.resolve() != expected_overlay
+            or preflight_overlay.resolve() not in allowed_overlays
         ):
             raise RFQStageError(
                 "repair-06 validate_run preflight overlay is missing or unsafe"
             )
-        preflight_overlay = expected_overlay
+        preflight_overlay = preflight_overlay.resolve()
     manifest = (
         validate_run(run_dir)
         if preflight_overlay is None
@@ -9250,7 +10325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "validate_run_status_wiring_contract"
         ]
     free = shutil.disk_usage(run_dir).free
-    required = max(args.min_free_gib * 2**30, inputs["consumed_bytes"] * 1.75)
+    required = _required_disk_headroom_bytes(args, inputs)
     if free < required:
         raise RFQStageError(
             f"insufficient disk headroom: free={free/2**30:.1f}GiB "
@@ -9312,7 +10387,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             connection, run_dir, args.memory_limit, args.max_temp_size, args.threads
         )
         build_scan_tables(
-            connection, inputs["paths"], run_dir.name, inputs["quarantine_boundaries"]
+            connection,
+            inputs["paths"],
+            run_dir.name,
+            inputs["quarantine_boundaries"],
+            enforce_repair07_contract=(
+                inputs.get("rfq_resource_contract", {}).get("path")
+                == REPAIR07_RESOURCE_CONTRACT
+            ),
         )
         state.update({"phase": "RAW_SCHEMA_AND_DEDUP_COMPLETE", "updated_at_utc": utc_now()})
         write_json(state_path, state)

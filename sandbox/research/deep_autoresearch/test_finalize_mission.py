@@ -46,13 +46,85 @@ repair06_producer_tests = importlib.util.module_from_spec(repair06_tests_spec)
 assert repair06_tests_spec.loader is not None
 repair06_tests_spec.loader.exec_module(repair06_producer_tests)
 
+repair07_registration_path = Path(__file__).with_name("repair07_registration.py")
+repair07_spec = importlib.util.spec_from_file_location(
+    "repair07_registration_for_finalizer_tests", repair07_registration_path
+)
+repair07_registrar = importlib.util.module_from_spec(repair07_spec)
+assert repair07_spec.loader is not None
+repair07_spec.loader.exec_module(repair07_registrar)
+
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
 
 
-def make_run(tmp_path):
+def make_market_atlas():
+    sport_counts = [
+        ("Tennis", 156, 470, 460, 526_474, 325_325),
+        ("Esports", 124, 405, 405, 152_307, 54_358),
+        ("Baseball", 38, 2_330, 2_330, 1_028_170, 28_382),
+        ("Soccer", 31, 258, 258, 79_830, 2_184),
+        ("Basketball", 17, 472, 472, 190_352, 8_621),
+        ("Cricket", 8, 16, 16, 18_585, 136),
+        ("Boxing", 3, 6, 6, 675, 8),
+        ("Football", 3, 27, 27, 2_216, 1),
+        ("Aussie_Rules", 2, 4, 4, 272, 4),
+    ]
+    return {
+        "study_id": "STUDY-SPORT-ATLAS-01",
+        "status": "DIAGNOSTIC_ONLY",
+        "labels": {
+            "artifact": "DIAGNOSTIC_ONLY",
+            "data": "SEALED_DEGRADED_EVIDENCE",
+            "split": "EXPLORATORY_ONLY",
+            "timestamp": "MIXED",
+        },
+        "mapping_timestamp_detail": (
+            "MIXED: fact observations use TL1 receive clocks; root/title/start "
+            "mappings come from post-hoc daily snapshots and are not causal unless "
+            "dim_effective_us gating is explicitly applied."
+        ),
+        "tl1_receive_clock_market_days_raw": 48_022,
+        "identity_clean_market_days": 48_022,
+        "distinct_identity_clean_markets": 35_148,
+        "market_days_provisional_root": 3_988,
+        "provisional_root_mapping_share": 3_988 / 48_022,
+        "root_events_provisional": 382,
+        "root_mapping_status": copy.deepcopy(mod.MARKET_ATLAS_ROOT_MAPPING_STATUS),
+        "ambiguous_family_root_count": 1,
+        "dimension_occurrence_cast_failures": 0,
+        "fact_identity_conflict_market_days": 0,
+        "dimension_conflict_market_days": 0,
+        "state_duration_contract": (
+            "Each received L1 state is trusted only until the next update, the sealed "
+            "coverage end, a declared gap, or 60 seconds; longer stale intervals are "
+            "not counted."
+        ),
+        "sports": [
+            {
+                "sport": sport,
+                "n_games": games,
+                "n_market_days": market_days,
+                "n_markets": markets,
+                "rows": rows,
+                "trades": trades,
+                "mean_game_spread_logodds": 1.0,
+                "median_game_spread_logodds": 1.0,
+                "mean_game_two_sided_share": 0.9,
+            }
+            for sport, games, market_days, markets, rows, trades in sport_counts
+        ],
+        "mapping_warning": (
+            "Title+occurrence roots are provisional heuristics. Unmapped, "
+            "invariant-conflicting, and family-multi-root rows remain in coverage "
+            "but are excluded from inference."
+        ),
+    }
+
+
+def make_run(tmp_path, *, atlas_case="valid"):
     run = tmp_path / "20260715T112538Z__c21a79a8cff__deep01"
     (run / "REPORT/tables").mkdir(parents=True)
     (run / "REPORT/charts").mkdir(parents=True)
@@ -583,14 +655,27 @@ def make_run(tmp_path):
         }
     )
     write_json(manifest_path, manifest_with_trials)
-    write_json(
-        run / mod.CORE_SUMMARY,
-        {
-            "run_id": run.name,
-            "boundary": "No result is a promotion; RFQ full stage remains pending.",
-            "atlas": {"status": "DIAGNOSTIC_ONLY"},
-        },
-    )
+    atlas = make_market_atlas()
+    standalone_atlas = copy.deepcopy(atlas)
+    if atlas_case == "mismatch":
+        standalone_atlas["mapping_warning"] += " DRIFT"
+    elif atlas_case == "bad_coverage":
+        atlas["identity_clean_market_days"] = 48_021
+        standalone_atlas = copy.deepcopy(atlas)
+    elif atlas_case == "duplicate_sport":
+        atlas["sports"][-1]["sport"] = atlas["sports"][0]["sport"]
+        standalone_atlas = copy.deepcopy(atlas)
+    elif atlas_case not in {"valid", "missing_embedded", "missing_file"}:
+        raise AssertionError(f"unknown atlas fixture case: {atlas_case}")
+    if atlas_case != "missing_file":
+        write_json(run / mod.MARKET_ATLAS_SUMMARY, standalone_atlas)
+    core_summary = {
+        "run_id": run.name,
+        "boundary": "No result is a promotion; RFQ full stage remains pending.",
+    }
+    if atlas_case != "missing_embedded":
+        core_summary["atlas"] = atlas
+    write_json(run / mod.CORE_SUMMARY, core_summary)
     write_json(
         run / mod.CORE_HYPOTHESIS_SUMMARY,
         {
@@ -1022,6 +1107,20 @@ def test_finalizer_is_terminal_idempotent_and_self_contained(tmp_path):
     summary = json.loads(
         (run / "REPORT/tables/FINAL_MISSION_SUMMARY.json").read_text(encoding="utf-8")
     )
+    atlas_binding = {
+        "path": mod.MARKET_ATLAS_SUMMARY.as_posix(),
+        "sha256": mod.sha256(run / mod.MARKET_ATLAS_SUMMARY),
+        "bytes": (run / mod.MARKET_ATLAS_SUMMARY).stat().st_size,
+        "study_id": "STUDY-SPORT-ATLAS-01",
+        "status": "DIAGNOSTIC_ONLY",
+    }
+    assert summary["stage_sources"]["market_atlas"] == atlas_binding
+    assert manifest["finalization"]["market_atlas"] == atlas_binding
+    artifact_lines = (run / "ARTIFACT_SHA256SUMS").read_text(encoding="utf-8")
+    assert (
+        f"{atlas_binding['sha256']}  {mod.MARKET_ATLAS_SUMMARY.as_posix()}"
+        in artifact_lines.splitlines()
+    )
     assert summary["hypotheses_tested"] == 10
     assert summary["promotion_ready"] == 0
     assert summary["formal_verdict_pass"] == 0
@@ -1047,6 +1146,8 @@ def test_finalizer_is_terminal_idempotent_and_self_contained(tmp_path):
     ):
         assert section in full
     assert "root-event-first diagnostic" in full
+    assert "`9` sports" in full
+    assert "`48022` identity-clean market-days" in full
     page = (run / "REPORT/index.html").read_text(encoding="utf-8")
     assert "data:image/png;base64," in page
     assert "<style>" in page and "<script>" in page
@@ -1129,6 +1230,27 @@ def test_finalizer_is_terminal_idempotent_and_self_contained(tmp_path):
     assert (run / "TRIAL_REGISTRY.jsonl").read_bytes() == registry_before
     assert (run / "ARTIFACT_SHA256SUMS").read_bytes() == sums_before
     mod.verify_artifacts(run)
+
+
+@pytest.mark.parametrize(
+    "atlas_case",
+    [
+        "missing_embedded",
+        "missing_file",
+        "mismatch",
+        "bad_coverage",
+        "duplicate_sport",
+    ],
+)
+def test_finalizer_rejects_missing_or_drifted_market_atlas(tmp_path, atlas_case):
+    run = make_run(tmp_path, atlas_case=atlas_case)
+
+    with pytest.raises(mod.MissionFinalizationError, match="(?i)atlas"):
+        mod.finalize(run)
+
+    assert not (run / mod.RFQ_CONCLUSIONS).exists()
+    manifest = json.loads((run / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == mod.REPAIR_PENDING_STATUS
 
 
 def test_completed_archive_rerun_refuses_to_reseal_tampering(tmp_path):
@@ -3586,6 +3708,155 @@ def test_repair06_success_outputs_reject_status_wiring_drift(tmp_path, surface):
         mod._validate_repair05_success_outputs(**args)
 
 
+def repair07_success_outputs_fixture(tmp_path):
+    fixture = repair06_success_outputs_fixture(tmp_path)
+    args06 = fixture["validation_args"]
+    run = fixture["run"]
+    repair06_context = copy.deepcopy(args06["repair06_context"])
+    repair06_context["current_identity"] = args06["current_identity"]
+    repair06_context["registered_rfq_query_sha256"] = (
+        repair06_context["repair06"]["registered_rfq_query_sha256"]
+    )
+    failed_identity = json.loads(
+        fixture["identity_path"].read_text(encoding="utf-8")
+    )
+    receipt_sha = "a" * 64
+    contract_sha = "b" * 64
+    authority_sha = "c" * 64
+    blocker_sha = "d" * 64
+    scratch_receipt_sha = "e" * 64
+    retry = repair07_registrar.RETRY_REQUIREMENT
+    (
+        repair_chain,
+        failed_bindings,
+        parser_binding,
+        _,
+        wiring_binding,
+        status_wiring_binding,
+        resource_binding,
+    ) = mod._repair07_runtime_bindings(
+        repair06_context=repair06_context,
+        repair07_receipt_sha=receipt_sha,
+        bucket_resource_contract_sha=contract_sha,
+        authority_sha=authority_sha,
+        blocker_sha=blocker_sha,
+        scratch_receipt_sha=scratch_receipt_sha,
+        retry_requirement=retry,
+    )
+    expected_resource = {
+        "label": "rfq_full_stage_repair07",
+        "path": mod.ACTIVE_RFQ_REPAIR_RESOURCE_07.as_posix(),
+    }
+    query_sha = repair06_context["registered_rfq_query_sha256"]
+    common = {
+        "repair_chain": repair_chain,
+        "failed_attempt_bindings": failed_bindings,
+        "expected_success_resource": expected_resource,
+        "inner_payload_parser_contract": parser_binding,
+        "rfq_resource_contract": resource_binding,
+        "consumer_wiring_contract": wiring_binding,
+        "validate_run_status_wiring_contract": status_wiring_binding,
+        "registered_rfq_query_sha256": query_sha,
+    }
+    identity = copy.deepcopy(failed_identity)
+    identity.update(common)
+    write_json(fixture["identity_path"], identity)
+    state = json.loads(fixture["state_path"].read_text(encoding="utf-8"))
+    state.update(common)
+    write_json(fixture["state_path"], state)
+    rfq = copy.deepcopy(args06["rfq"])
+    rfq["input"].update(common)
+    write_json(fixture["summary_path"], rfq)
+    resource = json.loads(
+        fixture["resource_path"].read_text(encoding="utf-8")
+    )
+    resource["label"] = "rfq_full_stage_repair07"
+    resource["command"] = [
+        "20GB" if value == "70GB" else "80" if value == "100" else value
+        for value in resource["command"]
+    ]
+    resource_path = run / mod.ACTIVE_RFQ_REPAIR_RESOURCE_07
+    write_json(resource_path, resource)
+    repair07 = {
+        "registered_rfq_query_sha256": query_sha,
+        "retry_requirement": retry,
+    }
+    repair07_context = {
+        "repair07": repair07,
+        "repair07_receipt_sha256": receipt_sha,
+        "resource_contract_sha256": contract_sha,
+        "authority_basis_sha256": authority_sha,
+        "repair06_context": repair06_context,
+        "failed": {
+            "input": failed_identity,
+            "blocker_sha256": blocker_sha,
+            "scratch_receipt_sha256": scratch_receipt_sha,
+        },
+    }
+    current_identity = {
+        "execution_commit": "1" * 40,
+        "source_manifest_sha256": "2" * 64,
+        "source_sha256s_sha256": "3" * 64,
+        "query_set_sha256": "4" * 64,
+    }
+    validation_args = {
+        **args06,
+        "rfq": rfq,
+        "current_identity": current_identity,
+        "repair06_context": repair06_context,
+        "repair07_context": repair07_context,
+    }
+    return {
+        **fixture,
+        "validation_args": validation_args,
+        "resource_path": resource_path,
+        "repair_chain": repair_chain,
+        "failed_bindings": failed_bindings,
+        "resource_binding": resource_binding,
+    }
+
+
+def test_repair07_success_outputs_bind_summary_identity_state_and_resource(tmp_path):
+    fixture = repair07_success_outputs_fixture(tmp_path)
+    result = mod._validate_repair05_success_outputs(
+        **fixture["validation_args"]
+    )
+
+    assert result["repair_chain"] == fixture["repair_chain"]
+    assert result["failed_attempt_bindings"] == fixture["failed_bindings"]
+    assert result["repair_chain"][-1]["repair_id"] == "repair-07"
+    assert result["resource_contract_path"] == (
+        mod.REPAIR_07_RESOURCE_CONTRACT.as_posix()
+    )
+    assert result["successful_resource_receipt_path"] == (
+        mod.ACTIVE_RFQ_REPAIR_RESOURCE_07.as_posix()
+    )
+
+
+@pytest.mark.parametrize("surface", ["identity", "state", "summary"])
+def test_repair07_success_outputs_reject_resource_binding_drift(
+    tmp_path, surface
+):
+    fixture = repair07_success_outputs_fixture(tmp_path)
+    args = fixture["validation_args"]
+    if surface == "identity":
+        path = fixture["identity_path"]
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["rfq_resource_contract"]["sha256"] = "0" * 64
+        write_json(path, payload)
+    elif surface == "state":
+        path = fixture["state_path"]
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["rfq_resource_contract"]["sha256"] = "0" * 64
+        write_json(path, payload)
+    else:
+        args["rfq"]["input"]["rfq_resource_contract"]["sha256"] = "0" * 64
+        write_json(fixture["summary_path"], args["rfq"])
+
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._validate_repair05_success_outputs(**args)
+
+
 def test_repair06_prefix_overlay_replays_repair05_at_archived_boundary(
     tmp_path, monkeypatch
 ):
@@ -3638,6 +3909,127 @@ def test_repair06_dispatches_to_status_wiring_validator(monkeypatch, tmp_path):
     }
 
     assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def test_repair07_prefix_overlay_replays_repair06_at_archived_boundary(
+    tmp_path, monkeypatch
+):
+    run = tmp_path / "synthetic-repair07-prefix"
+    repairs = [{"repair_id": f"repair-0{number}"} for number in range(1, 8)]
+    pre_manifest = {
+        "run_id": run.name,
+        "status": mod.REPAIR06_PENDING_STATUS,
+        "registration_state": (
+            "RE_FROZEN_AFTER_RFQ_STATUS_WIRING_REPAIR06_BEFORE_RFQ_RESULT"
+        ),
+        "data_integrity_repairs": repairs[:6],
+    }
+    write_json(run / mod.REPAIR_07_PRE_ROOT / "RUN_MANIFEST.json", pre_manifest)
+    observed = {}
+
+    def fake_repair06(run_dir, manifest, rfq, **kwargs):
+        observed.update(
+            {
+                "run_dir": run_dir,
+                "manifest": manifest,
+                "rfq": rfq,
+                "kwargs": kwargs,
+            }
+        )
+        return {"prefix_only": True}
+
+    monkeypatch.setattr(mod, "validate_rfq_status_wiring_repair06", fake_repair06)
+    context, observed_manifest, _ = mod._validate_repair07_prefix_overlay(
+        run, run_id=run.name, repairs=repairs, rfq={"fixture": True}
+    )
+
+    assert context == {"prefix_only": True}
+    assert observed_manifest == pre_manifest
+    assert observed["kwargs"] == {
+        "prefix_only": True,
+        "active_boundary_root": mod.REPAIR_07_PRE_ROOT,
+    }
+
+
+def test_repair07_dispatches_to_bucketed_dedup_validator(monkeypatch, tmp_path):
+    expected = {"status": "repair07-validated"}
+    monkeypatch.setattr(
+        mod,
+        "validate_rfq_bucketed_dedup_resource_repair07",
+        lambda *_: expected,
+    )
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": f"repair-0{number}"} for number in range(1, 8)
+        ]
+    }
+
+    assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def test_repair07_frozen_parent_and_command_match_producer():
+    assert mod.EXPECTED_REPAIR06_MANIFEST_SHA256 == (
+        repair07_registrar.PARENT_MANIFEST_SHA256
+    )
+    assert mod._repair07_expected_retry_command("fixture") == (
+        repair07_registrar.expected_command("fixture")
+    )
+
+
+def test_repair07_contract_and_authority_match_producer(tmp_path):
+    run = tmp_path / "repair07-contract-run"
+    applied_at = "2026-07-15T21:00:00Z"
+    scratch_receipt = repair07_registrar.make_scratch_receipt(
+        run.name, applied_at
+    )
+    mod._validate_repair07_bucket_catalog(
+        scratch_receipt["catalog"], "producer catalog"
+    )
+    scratch_sha = "1" * 64
+    blocker = repair07_registrar.make_blocker(
+        run.name,
+        applied_at,
+        scratch_sha,
+        {"error": mod.EXPECTED_RFQ_OOM_ERROR_07},
+    )
+    blocker_sha = "2" * 64
+    contract = repair07_registrar.make_resource_contract(
+        run.name, applied_at, scratch_sha, blocker_sha
+    )
+    write_json(run / mod.REPAIR_07_RESOURCE_CONTRACT, contract)
+    contract_sha = mod.sha256(run / mod.REPAIR_07_RESOURCE_CONTRACT)
+    authority = repair07_registrar.make_authority(
+        run.name, applied_at, contract_sha
+    )
+    write_json(run / mod.REPAIR_07_AUTHORITY_BASIS, authority)
+    authority_sha = mod.sha256(run / mod.REPAIR_07_AUTHORITY_BASIS)
+    repair07 = {
+        "resource_contract_path": mod.REPAIR_07_RESOURCE_CONTRACT.as_posix(),
+        "resource_contract_sha256": contract_sha,
+        "resource_contract": repair07_registrar._resource_binding(contract_sha),
+        "authority_basis_path": mod.REPAIR_07_AUTHORITY_BASIS.as_posix(),
+        "authority_basis_sha256": authority_sha,
+        "authority_basis": {
+            "path": mod.REPAIR_07_AUTHORITY_BASIS.as_posix(),
+            "sha256": authority_sha,
+            "schema_version": repair07_registrar.AUTHORITY_SCHEMA,
+            "authority_class": repair07_registrar.AUTHORITY_CLASS,
+            "permitted_change": repair07_registrar.CHANGE_CLASS,
+        },
+    }
+    failed = {
+        "scratch_receipt": scratch_receipt,
+        "scratch_receipt_sha256": scratch_sha,
+        "blocker": blocker,
+        "blocker_sha256": blocker_sha,
+    }
+
+    observed = mod._validate_repair07_contracts(
+        run, run_id=run.name, repair07=repair07, failed=failed
+    )
+
+    assert observed[0] == contract
+    assert observed[2] == authority
 
 
 def repair06_canonical_transaction_fixture(tmp_path, monkeypatch):

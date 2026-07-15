@@ -55,6 +55,22 @@ repair06_test_helpers = importlib.util.module_from_spec(repair06_test_spec)
 assert repair06_test_spec.loader is not None
 repair06_test_spec.loader.exec_module(repair06_test_helpers)
 
+repair07_path = Path(__file__).with_name("repair07_registration.py")
+repair07_spec = importlib.util.spec_from_file_location(
+    "repair07_registration_for_rfq_consumer_tests", repair07_path
+)
+repair07_producer = importlib.util.module_from_spec(repair07_spec)
+assert repair07_spec.loader is not None
+repair07_spec.loader.exec_module(repair07_producer)
+
+repair07_test_path = Path(__file__).with_name("test_repair07_registration.py")
+repair07_test_spec = importlib.util.spec_from_file_location(
+    "repair07_registration_fixture_for_rfq_consumer", repair07_test_path
+)
+repair07_test_helpers = importlib.util.module_from_spec(repair07_test_spec)
+assert repair07_test_spec.loader is not None
+repair07_test_spec.loader.exec_module(repair07_test_helpers)
+
 
 def recorder(wall_ns, frame=None, *, mono_ns=None, epoch=1, marker=None):
     row = {
@@ -1764,6 +1780,142 @@ def test_mutation_guard_next_create_censors_prior_and_delete_stays_new_cycle(tmp
       SELECT count(*) FROM rfq_unmatched_deletes WHERE disposition='MATCHED_ENDPOINT'
     """).fetchone()[0] == 1
     connection.close()
+
+
+def test_hour_bucket_dedup_is_global_window_equivalent_and_payload_is_vertical(
+    tmp_path,
+):
+    base_ns = int(dt.datetime(
+        2026, 7, 12, 12, tzinfo=dt.timezone.utc
+    ).timestamp() * 1_000_000_000)
+    first = (
+        tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
+        "date=2026-07-12/rfq_12.ndjson"
+    )
+    second = (
+        tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
+        "date=2026-07-12/rfq_12.ndjson.1"
+    )
+    late = frame(
+        "rfq_created", "DUP", "M-DUP", "2026-07-12T12:05:00Z",
+        mve_selected_legs=[{"market_ticker": "M-LATE", "side": "yes"}],
+    )
+    early = frame(
+        "rfq_created", "DUP", "M-DUP", "2026-07-12T12:05:00Z",
+        mve_selected_legs=[{"market_ticker": "M-EARLY", "side": "yes"}],
+    )
+    next_hour = frame(
+        "rfq_created", "NEXT", "M-NEXT", "2026-07-12T13:05:00Z",
+        mve_selected_legs=[{"market_ticker": "M-SECOND", "side": "yes"}],
+    )
+    write_rows(first, [
+        recorder(base_ns + 10_000_000_000, late),
+        recorder(base_ns + 3_900_000_000_000, next_hour),
+    ])
+    write_rows(second, [recorder(base_ns + 5_000_000_000, early)])
+
+    connection = duckdb.connect()
+    connection.execute(mod.scan_sql([first, second], "bucket-equivalence"))
+    connection.execute("""
+      CREATE TABLE reference_events_valid AS
+      WITH ranked AS (
+        SELECT *,coalesce(created_ts_text,deleted_ts_text) AS exchange_ts_text,
+          row_number() OVER (
+            PARTITION BY event_type,rfq_id,
+              coalesce(created_ts_text,deleted_ts_text),market_ticker
+            ORDER BY recv_wall_ns,recv_mono_ns NULLS LAST,filename
+          ) AS duplicate_rank
+        FROM rfq_scan_rows WHERE valid_contract
+      )
+      SELECT release_id,receive_date,receive_us,recv_wall_ns,recv_mono_ns,
+        stream_epoch,event_type,rfq_id,creator_hash,market_ticker,event_ticker,
+        exchange_ts,contracts_e2,target_cost_e6,mve_collection_ticker,
+        mve_legs_json,mve_legs_type,leg_count_raw,
+        sha256(concat_ws('|',event_type,rfq_id,exchange_ts_text,market_ticker))
+          AS event_key
+      FROM ranked WHERE duplicate_rank=1
+    """)
+    mod._build_rfq_events_valid(connection)
+    assert connection.execute("""
+      SELECT count(*) FROM (
+        (SELECT * FROM reference_events_valid EXCEPT ALL SELECT * FROM rfq_events_valid)
+        UNION ALL
+        (SELECT * FROM rfq_events_valid EXCEPT ALL SELECT * FROM reference_events_valid)
+      )
+    """).fetchone()[0] == 0
+    assert connection.execute("""
+      SELECT valid_contract_rows,deduplicated_valid_rows
+      FROM rfq_dedup_bucket_qc ORDER BY exchange_hour_epoch_us
+    """).fetchall() == [(2, 1), (1, 1)]
+    assert not mod.table_exists(connection, "rfq_events_valid_building")
+    assert not mod.table_exists(connection, "rfq_dedup_bucket_qc_building")
+    connection.execute("DROP TABLE reference_events_valid")
+
+    mod.build_scan_tables(connection, [first, second], "bucket-equivalence")
+    ordered_columns = {
+        row[0] for row in connection.execute(
+            "DESCRIBE rfq_events_ordered"
+        ).fetchall()
+    }
+    assert "mve_legs_json" not in ordered_columns
+    assert "mve_legs_type" not in ordered_columns
+    assert connection.execute("""
+      SELECT count(*),count(DISTINCT event_key) FROM rfq_mve_payload
+    """).fetchone() == (2, 2)
+
+    mod.build_request_tables(connection, "bucket-equivalence")
+    assert connection.execute("""
+      SELECT market_ticker FROM rfq_legs_base ORDER BY market_ticker
+    """).fetchall() == [("M-EARLY",), ("M-SECOND",)]
+    assert not mod.table_exists(connection, "rfq_mve_payload")
+    connection.close()
+
+
+def test_hour_bucket_partial_staging_is_never_published_and_is_rebuilt(tmp_path):
+    base_ns = int(dt.datetime(
+        2026, 7, 12, 12, tzinfo=dt.timezone.utc
+    ).timestamp() * 1_000_000_000)
+    source = (
+        tmp_path / "releases" / mod.RELEASE_IDS[0] / "raw_rfq" /
+        "date=2026-07-12/rfq_12.ndjson"
+    )
+    write_rows(source, [
+        recorder(base_ns, frame(
+            "rfq_created", "A", "M-A", "2026-07-12T12:00:00Z"
+        )),
+        recorder(base_ns + 3_600_000_000_000, frame(
+            "rfq_created", "B", "M-B", "2026-07-12T13:00:00Z"
+        )),
+    ])
+    raw = duckdb.connect()
+    raw.execute(mod.scan_sql([source], "bucket-staging"))
+
+    class InterruptSecondBucket:
+        def __init__(self, connection):
+            self.connection = connection
+            self.inserts = 0
+
+        def execute(self, sql, parameters=None):
+            if "INSERT INTO rfq_events_valid_building" in sql:
+                self.inserts += 1
+                if self.inserts == 2:
+                    raise RuntimeError("simulated bucket interruption")
+            return self.connection.execute(sql, parameters or [])
+
+        def executemany(self, sql, rows):
+            return self.connection.executemany(sql, rows)
+
+    with pytest.raises(RuntimeError, match="simulated bucket interruption"):
+        mod._build_rfq_events_valid(InterruptSecondBucket(raw))
+    assert not mod.table_exists(raw, "rfq_events_valid")
+    assert mod.table_exists(raw, "rfq_events_valid_building")
+
+    # A retry removes the stale staging object and publishes only after every
+    # bucket and QC total has completed.
+    mod._build_rfq_events_valid(raw)
+    assert raw.execute("SELECT count(*) FROM rfq_events_valid").fetchone()[0] == 2
+    assert not mod.table_exists(raw, "rfq_events_valid_building")
+    raw.close()
 
 
 def test_manifest_object_key_sha_overlap_is_deduplicated_and_conflict_fails(tmp_path):
@@ -3815,6 +3967,111 @@ def test_repair06_registration_product_is_accepted_by_strict_consumer(
     }
 
 
+def test_repair07_contract_and_authority_match_registration_producer_exactly():
+    run_id = "repair07-producer-parity"
+    applied_at = "2026-07-15T21:00:00Z"
+    scratch_sha = "a" * 64
+    blocker_sha = "b" * 64
+    assert mod._expected_repair07_resource_contract(
+        run_id, applied_at, scratch_sha, blocker_sha
+    ) == repair07_producer.make_resource_contract(
+        run_id, applied_at, scratch_sha, blocker_sha
+    )
+    contract_sha = "c" * 64
+    assert mod._expected_repair07_authority_basis(
+        run_id, applied_at, contract_sha
+    ) == repair07_producer.make_authority(run_id, applied_at, contract_sha)
+    rows = tuple(
+        (row["exchange_hour_epoch_us"], row["valid_contract_rows"])
+        for row in repair07_producer.BUCKET_COUNTS
+    )
+    assert rows == mod.REPAIR07_RFQ_DEDUP_BUCKET_COUNTS
+    assert mod._rfq_dedup_bucket_counts_sha256(rows) == (
+        repair07_producer.BUCKET_COUNTS_SHA256
+    )
+
+
+def test_repair07_registration_product_is_accepted_by_strict_consumer(
+    tmp_path, monkeypatch
+):
+    fixture = repair07_test_helpers.make_fixture(tmp_path, monkeypatch)
+    assert repair07_test_helpers.invoke(fixture)["status"] == (
+        "REGISTRATION_REPAIR07_REFROZEN"
+    )
+    run_dir = fixture["run"]
+    manifest = json.loads((run_dir / "RUN_MANIFEST.json").read_text())
+    parent = manifest["data_integrity_repairs"][5]
+    record = manifest["data_integrity_repairs"][6]
+    fixed = {
+        "REPAIR07_PARENT_MANIFEST_SHA256": record["parent_manifest_sha256"],
+        "REPAIR07_PARENT_RECEIPT_SHA256": record[
+            "parent_repair_registration_sha256"
+        ],
+        "REPAIR07_PARENT_JOURNAL_SHA256": record[
+            "parent_transaction_journal_sha256"
+        ],
+        "REPAIR07_PARENT_STATUS_CONTRACT_SHA256": record[
+            "parent_status_wiring_contract_sha256"
+        ],
+        "REPAIR07_PARENT_AUTHORITY_SHA256": record[
+            "parent_authority_basis_sha256"
+        ],
+        "REPAIR07_PARENT_RESOURCE_CONTRACT_SHA256": record[
+            "parent_resource_contract_sha256"
+        ],
+        "REPAIR07_PARENT_RFQ_QUERY_SHA256": parent[
+            "registered_rfq_query_sha256"
+        ],
+        "REPAIR07_FAILED_RESOURCE_SHA256": record[
+            "failed_resource_receipt_sha256"
+        ],
+        "REPAIR07_FAILED_STATE_SHA256": record["failed_state_sha256"],
+        "REPAIR07_FAILED_INPUT_SHA256": record[
+            "failed_input_identity_sha256"
+        ],
+        "REPAIR07_FAILED_SCRATCH_SHA256": record["preserved_scratch_sha256"],
+        "REPAIR07_FAILED_SCRATCH_BYTES": record["preserved_scratch_bytes"],
+    }
+    for name, value in fixed.items():
+        monkeypatch.setattr(mod, name, value)
+    base_result = {
+        "selection_fingerprint_sha256": (
+            "8b310c37f3989770d1f53a058e5ef396e1eb5c9c3d24d07ac87bd9d8aee5b9e1"
+        ),
+        "repair_chain": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 7)
+        ],
+        "failed_attempt_bindings": [
+            {"repair_id": f"repair-0{index}"} for index in range(1, 7)
+        ],
+        "consumer_wiring_contract": {"parent": "repair-05"},
+        "validate_run_status_wiring_contract": {"parent": "repair-06"},
+        "rfq_resource_contract": copy.deepcopy(parent["resource_contract"]),
+        "registered_rfq_query_sha256": parent["registered_rfq_query_sha256"],
+    }
+    monkeypatch.setattr(
+        mod,
+        "_apply_repair06_status_wiring",
+        lambda *_args, **_kwargs: copy.deepcopy(base_result),
+    )
+    result = mod._apply_repair07_bucket_resource_contract(
+        run_dir, manifest, {"synthetic": True}
+    )
+    assert [row["repair_id"] for row in result["repair_chain"]] == [
+        "repair-01", "repair-02", "repair-03", "repair-04", "repair-05",
+        "repair-06", "repair-07",
+    ]
+    assert result["rfq_resource_contract"] == record["resource_contract"]
+    assert result["expected_success_resource"] == {
+        "label": mod.REPAIR07_SUCCESS_RESOURCE_LABEL,
+        "path": mod.REPAIR07_SUCCESS_RESOURCE_PATH,
+    }
+    assert result["consumer_wiring_contract"] == {"parent": "repair-05"}
+    assert result["validate_run_status_wiring_contract"] == {
+        "parent": "repair-06"
+    }
+
+
 def test_repair06_runtime_status_wiring_gate_rejects_contract_drift(tmp_path):
     contract = tmp_path / mod.REPAIR06_STATUS_WIRING_CONTRACT
     contract.parent.mkdir(parents=True)
@@ -3928,6 +4185,28 @@ def test_main_disk_headroom_failure_does_not_mutate_failed03_evidence(
     assert fixture["input_path"].read_bytes() == fixture["input_before"]
     assert fixture["state_path"].read_bytes() == fixture["state_before"]
     assert not fixture["scratch"].exists()
+
+
+def test_repair07_registered_disk_gate_uses_exact_80_gib_floor():
+    args = type("Args", (), {"min_free_gib": 80.0})()
+    inputs = {
+        "consumed_bytes": 59_185_856_724,
+        "rfq_resource_contract": {
+            "path": mod.REPAIR07_RESOURCE_CONTRACT,
+            "sha256": "a" * 64,
+            "schema_version": mod.REPAIR07_RESOURCE_SCHEMA,
+            "current_runtime": dict(mod.REPAIR07_RUNTIME_CONTRACT),
+        },
+    }
+
+    required = mod._required_disk_headroom_bytes(args, inputs)
+
+    assert required == 80 * 2**30
+    assert 94_802_395_136 >= required  # Current W09 boundary: about 88.3 GiB.
+    assert 79 * 2**30 < required
+    assert mod._required_disk_headroom_bytes(
+        args, {"consumed_bytes": inputs["consumed_bytes"]}
+    ) > 94_802_395_136
 
 
 def test_main_connect_failure_writes_governed_repair03_state_and_keeps_scratch(
