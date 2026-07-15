@@ -1128,6 +1128,7 @@ def test_finalizer_requires_resource_finalize_hash_binding(tmp_path):
         "successful_resource_failed",
         "successful_resource_resume",
         "successful_resource_wrong_source",
+        "successful_resource_relative_source",
         "repair_receipt_mutation",
         "current_source_sums_mutation",
         "archive_file_mutation",
@@ -1245,6 +1246,11 @@ def test_rfq_partial_quarantine_mutations_fail_closed(tmp_path, mutation):
         resource = json.loads(resource_path.read_text(encoding="utf-8"))
         resource["command"][1] = "/tmp/source/not_the_repair.py"
         write_json(resource_path, resource)
+    elif mutation == "successful_resource_relative_source":
+        resource_path = run / mod.ACTIVE_RFQ_REPAIR_RESOURCE
+        resource = json.loads(resource_path.read_text(encoding="utf-8"))
+        resource["command"][1] = f"{run.name}/source/rfq_full_stage.py"
+        write_json(resource_path, resource)
     elif mutation == "repair_receipt_mutation":
         receipt_path = run / mod.REPAIR_REGISTRATION_RECEIPT
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -1347,3 +1353,224 @@ def test_finalizer_rejects_forbidden_l2_status_and_rfq_zero_is_data_starved(tmp_
     write_json(l2_path, l2)
     with pytest.raises(mod.MissionFinalizationError, match="preserved core-result artifact changed"):
         mod.finalize(run)
+
+
+def test_repair02_selection_fingerprint_contract_is_exact():
+    payload = {
+        "schema": "rfq-partial-object-selection-v2",
+        "total": mod.EXPECTED_RFQ_FULL_SET_SHA256,
+        "retained": mod.EXPECTED_RFQ_RETAINED_SET_SHA256,
+        "quarantined": mod.EXPECTED_RFQ_QUARANTINED_SET_SHA256,
+        "declaration": (
+            "f1311f2824742f7d2da6ba3416b802b0fa5a844642f1e631f566cc2a5e1ec07d"
+        ),
+        "receipts": [
+            "dca39e5781578fd667b83eaa6286d6b7762b2fa22404fe89c55a66409619a4ac",
+            "7890f86055b6c730a15acdbfee776496de5b8bb86cf55195f66f882ffb661b90",
+        ],
+    }
+    assert mod.canonical_json_sha256(payload) == (
+        mod.EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+    )
+
+
+def test_repair02_boundary_count_distinguishes_quarantine_from_other_boundaries():
+    coverage = {
+        "quarantine_gap_count": 1,
+        "quarantined_object_count": 2,
+        "quarantine_observation_boundary_count": 2,
+    }
+    # Loss/error/epoch boundaries can increase the global count; the quarantine
+    # contribution remains exactly two timestamps for the one contiguous gap.
+    mod._validate_rfq_quarantine_boundary_counts(
+        coverage, {"observation_boundary_timestamps": 47}
+    )
+
+
+def repair02_success_envelope_fixture():
+    repair_chain = [
+        {"repair_id": "repair-01", "registration_sha256": "1" * 64},
+        {"repair_id": "repair-02", "registration_sha256": "2" * 64},
+    ]
+    failed_bindings = [
+        {"repair_id": "repair-01", "attempt_id": "RFQ_FULL_STAGE_ATTEMPT_01"},
+        {"repair_id": "repair-02", "attempt_id": "RFQ_FULL_STAGE_REPAIR01_ATTEMPT_02"},
+    ]
+    gap_plan = {
+        "quarantined_object_count": 2,
+        "contiguous_gap_count": 1,
+        "observation_boundary_count": 2,
+        "contiguous_runs": [{
+            "anchor_key": "raw_rfq/date=2026-07-13/rfq_23.ndjson.2",
+            "quarantined_keys": [
+                "raw_rfq/date=2026-07-13/rfq_23.ndjson.2",
+                "raw_rfq/date=2026-07-14/rfq_00.ndjson",
+            ],
+        }],
+    }
+    resource = {
+        "label": "rfq_full_stage_repair02",
+        "path": "logs/resources/rfq_full_stage_repair02.json",
+    }
+    selection = mod.EXPECTED_RFQ_REPAIR02_SELECTION_SHA256
+    summary_expected = {
+        "coverage_status": mod.RFQ_PARTIAL_STATUS,
+        "consumed_unique_objects": 282,
+        "quarantined_unique_objects": 2,
+        "line_salvage": False,
+        "repair_chain": repair_chain,
+        "failed_attempt_bindings": failed_bindings,
+        "quarantine_gap_plan": gap_plan,
+        "expected_success_resource": resource,
+        "selection_fingerprint_sha256": selection,
+    }
+    identity_expected = {
+        "schema": "rfq-full-input-identity-v2",
+        "run_id": "synthetic-repair02",
+        **summary_expected,
+        "consumed_objects": [{"key": "retained"}],
+    }
+    state = {
+        "schema": "rfq-full-stage-state-v1",
+        "run_id": "synthetic-repair02",
+        "status": "COMPLETE_PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "phase": "COMPLETE",
+        "resume": False,
+        "input_fingerprint": selection,
+        "summary": mod.RFQ_SUMMARY.as_posix(),
+        "repair_chain": repair_chain,
+        "failed_attempt_bindings": failed_bindings,
+        "quarantine_gap_plan": gap_plan,
+        "expected_success_resource": resource,
+        "completed_at_utc": "2026-07-15T18:00:00Z",
+    }
+    return {
+        "rfq_input": dict(summary_expected),
+        "active_identity": dict(identity_expected),
+        "active_state": state,
+        "summary_expected": summary_expected,
+        "identity_expected": identity_expected,
+        "run_id": "synthetic-repair02",
+        "selection_sha": selection,
+        "repair_chain": repair_chain,
+        "failed_bindings": failed_bindings,
+        "gap_plan": gap_plan,
+        "expected_resource": resource,
+    }
+
+
+def test_repair02_synthetic_success_envelope_is_exact():
+    mod._validate_repair02_success_envelope(**repair02_success_envelope_fixture())
+
+
+@pytest.mark.parametrize("mutation", ["summary", "identity", "state"])
+def test_repair02_synthetic_success_mutations_fail_closed(mutation):
+    fixture = repair02_success_envelope_fixture()
+    if mutation == "summary":
+        fixture["rfq_input"]["failed_attempt_bindings"] = []
+    elif mutation == "identity":
+        fixture["active_identity"]["consumed_objects"] = []
+    else:
+        fixture["active_state"]["quarantine_gap_plan"] = {
+            "quarantined_object_count": 2,
+            "contiguous_gap_count": 2,
+            "observation_boundary_count": 4,
+            "contiguous_runs": [],
+        }
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._validate_repair02_success_envelope(**fixture)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("quarantine_gap_count", 2),
+        ("quarantined_object_count", 1),
+        ("quarantine_observation_boundary_count", 4),
+    ],
+)
+def test_repair02_quarantine_boundary_mutations_fail_closed(field, value):
+    coverage = {
+        "quarantine_gap_count": 1,
+        "quarantined_object_count": 2,
+        "quarantine_observation_boundary_count": 2,
+    }
+    coverage[field] = value
+    with pytest.raises(mod.MissionFinalizationError, match="quarantine boundaries"):
+        mod._validate_rfq_quarantine_boundary_counts(
+            coverage, {"observation_boundary_timestamps": 9}
+        )
+
+
+def test_repair02_manifest_status_reaches_frozen_source_validation(tmp_path, monkeypatch):
+    class ReachedFrozenSource(Exception):
+        pass
+
+    manifest = {
+        "status": mod.REPAIR02_PENDING_STATUS,
+        "data_integrity_repairs": [
+            {"repair_id": "repair-01"},
+            {"repair_id": "repair-02"},
+        ],
+    }
+    monkeypatch.setattr(mod, "validate_run_identity", lambda *_: (manifest, {}))
+    monkeypatch.setattr(
+        mod,
+        "validate_frozen_query_source",
+        lambda *_: (_ for _ in ()).throw(ReachedFrozenSource()),
+    )
+    with pytest.raises(ReachedFrozenSource):
+        mod.finalize(tmp_path)
+
+
+def test_repair02_dispatches_to_double_quarantine_validator(monkeypatch, tmp_path):
+    expected = {"status": "double-validated"}
+    monkeypatch.setattr(
+        mod, "validate_rfq_double_quarantine", lambda *_: expected
+    )
+    manifest = {
+        "data_integrity_repairs": [
+            {"repair_id": "repair-01"},
+            {"repair_id": "repair-02"},
+        ]
+    }
+    assert mod.validate_rfq_partial_quarantine(tmp_path, manifest, {}) is expected
+
+
+def test_repair02_claim_boundary_is_two_adjacent_objects_one_gap():
+    assert "exactly two registered adjacent whole-object quarantines" in (
+        mod.RFQ_PARTIAL_BOUNDARY
+    )
+    assert "one contiguous missing interval" in mod.RFQ_PARTIAL_BOUNDARY
+    assert "two missing intervals" not in mod.RFQ_PARTIAL_BOUNDARY
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-07-15T14:24:04Z",
+        "2026-07-15T14:24:04+00:00",
+        "2026-07-15T14:24:04.4Z",
+        "2026-07-15T14:24:04.437126+00:00",
+        "2026-07-15T14:24:04.437126672+00:00",
+    ],
+)
+def test_require_utc_timestamp_accepts_strict_rfc3339_and_preserves_text(value):
+    assert mod._require_utc_timestamp(value, "attempt-02 scratch mtime") == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-07-15T14:24:04.437126672-04:00",
+        "2026-07-15T14:24:04.437126672-00:00",
+        "2026-02-30T14:24:04Z",
+        "2026-07-15T14:24:04.1234567890Z",
+        "2026-07-15T14:24:04.Z",
+        "2026-07-15 14:24:04Z",
+        "2026-07-15T14:24:04Zgarbage",
+    ],
+)
+def test_require_utc_timestamp_rejects_non_utc_or_malformed_mutations(value):
+    with pytest.raises(mod.MissionFinalizationError):
+        mod._require_utc_timestamp(value, "attempt-02 scratch mtime")

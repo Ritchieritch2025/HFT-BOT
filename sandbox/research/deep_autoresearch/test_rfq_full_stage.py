@@ -301,6 +301,200 @@ def cycle1_binding_fixture(tmp_path):
     }
 
 
+def double_quarantine_contract_fixture(tmp_path):
+    run_dir = tmp_path / "double-contract-run"
+    run_dir.mkdir()
+    release_id = mod.RELEASE_IDS[1]
+    manifest_sha = "9" * 64
+    rows = []
+    specs = [
+        ("raw_rfq/date=2026-07-13/rfq_23.ndjson.1", 101, "1" * 64),
+        ("raw_rfq/date=2026-07-13/rfq_23.ndjson.2", 102, "2" * 64),
+        ("raw_rfq/date=2026-07-14/rfq_00.ndjson", 103, "3" * 64),
+        ("raw_rfq/date=2026-07-14/rfq_00.ndjson.1", 104, "4" * 64),
+    ]
+    for key, size, digest in specs:
+        rows.append({
+            "key": key, "size": size, "sha256": digest,
+            "path": tmp_path / "cache" / release_id / key,
+            "bound_release_ids": [release_id],
+        })
+    full_fp = mod._object_fingerprint(rows)
+    inputs = {
+        "release_ids": list(mod.RELEASE_IDS),
+        "releases": [{"release_id": release_id, "manifest_sha256": manifest_sha}],
+        "paths": [row["path"] for row in rows],
+        "objects_detail": rows,
+        "objects": 4,
+        "logical_manifest_bindings": 4,
+        "deduplicated_overlapping_objects": 0,
+        "overlap_keys": [],
+        "bytes": sum(row["size"] for row in rows),
+        "path_size_fingerprint_sha256": full_fp,
+    }
+    version_path = "DATA_INTEGRITY/version_ids/double.jsonl"
+    version_file = run_dir / version_path
+    version_file.parent.mkdir(parents=True)
+    version_rows = []
+    for index, row in enumerate(rows):
+        version_rows.append({
+            "key": row["key"], "size": row["size"], "sha256": row["sha256"],
+            "version_id": f"version-{index}",
+        })
+    version_file.write_text(
+        "".join(json.dumps(row) + "\n" for row in version_rows), encoding="utf-8"
+    )
+    first_object = {
+        "release_id": release_id,
+        "key": rows[2]["key"], "size": rows[2]["size"],
+        "sha256": rows[2]["sha256"], "version_id": "version-2",
+        "manifest_sha256": manifest_sha, "invalid_line_count": 1,
+        "reason": "repair-01 no line-level salvage",
+        "receipt": mod.MALFORMED_OBJECT_RECEIPT,
+    }
+    second_object = {
+        "release_id": release_id,
+        "key": rows[1]["key"], "size": rows[1]["size"],
+        "sha256": rows[1]["sha256"], "version_id": "version-1",
+        "manifest_sha256": manifest_sha, "invalid_line_count": 1,
+        "reason": "repair-02 no line-level salvage",
+        "receipt": mod.MALFORMED_OBJECT_RECEIPT_02,
+    }
+    cumulative = [second_object, first_object]
+    old_commit, new_commit = "a" * 40, "b" * 40
+    auth = {
+        "schema_version": "sports-autoresearch-repair-authorization-v1",
+        "run_id": run_dir.name,
+        "repair_id": "repair-02",
+        "authorized_at_utc": "2026-07-15T14:40:39Z",
+        "authority_source": "operator_chat_message",
+        "authorized_action": mod.REPAIR02_AUTHORIZED_ACTION,
+    }
+    auth_path = run_dir / "DATA_INTEGRITY/REPAIR_02_USER_AUTHORIZATION.json"
+    write_json(auth_path, auth)
+    declaration = {
+        "schema_version": "rfq-object-quarantine-v2", "run_id": run_dir.name,
+        "mode": "EXPLORATORY_AUTORESEARCH",
+        "finding": "SECOND_DISTINCT_MANIFEST_BOUND_MALFORMED_RFQ_OBJECT",
+        "disposition": "WHOLE_OBJECT_QUARANTINE",
+        "authority_basis": "EXPLICIT_OPERATOR_AUTHORIZATION_REPAIR_02",
+        "created_at_utc": "2026-07-15T14:42:31Z",
+        "created_after_structural_failure_before_rfq_result": True,
+        "dependent_rfq_result_opened": False,
+        "source_execution_commit": old_commit,
+        "parent_repair_id": "repair-01",
+        "previous_declaration_path": mod.REPAIR_DECLARATION_ARCHIVE,
+        "previous_declaration_sha256": "5" * 64,
+        "authorization_evidence_path": "DATA_INTEGRITY/REPAIR_02_USER_AUTHORIZATION.json",
+        "authorization_evidence_sha256": mod.sha256(auth_path),
+        "newly_quarantined_objects": [second_object],
+        "cumulative_quarantined_objects": cumulative,
+        "remaining_object_parse_policy": mod.STRICT_REMAINING_PARSE_POLICY,
+        "selection_rule": "Exclude exactly two objects.",
+        "result_use_prohibited": "No result; no line-level salvage is permitted.",
+        "trial_disposition_if_repair_fails": (
+            "ABORT_WITHOUT_RFQ_RESULT; new preregistration required."
+        ),
+    }
+    declaration_path = run_dir / mod.QUARANTINE_DECLARATION_02
+    write_json(declaration_path, declaration)
+    receipt = {
+        "schema_version": "rfq-malformed-object-receipt-v1",
+        "run_id": run_dir.name, "release_id": release_id,
+        "key": second_object["key"], "expected_size": second_object["size"],
+        "observed_size": second_object["size"],
+        "expected_sha256": second_object["sha256"],
+        "observed_sha256": second_object["sha256"],
+        "manifest_sha256": manifest_sha, "version_id": "version-1",
+        "invalid_line_count": 1,
+        "invalid_lines": [{
+            "line_number": 1, "line_sha256": "6" * 64,
+            "error_type": "JSONDecodeError",
+        }],
+        "total_lines": 1, "raw_payload_redacted": True,
+        "final_line_newline_terminated": True,
+        "quarantine_authorized": False,
+        "disposition": "CHANNEL_OBJECT_QUARANTINE_REQUIRED",
+    }
+    receipt_path = run_dir / mod.MALFORMED_OBJECT_RECEIPT_02
+    write_json(receipt_path, receipt)
+    repair01 = {
+        "schema_version": "sports-autoresearch-data-integrity-repair-v1",
+        "repair_id": "repair-01", "current_execution_commit": old_commit,
+        "current_source_manifest_sha256": "7" * 64,
+        "current_query_set_sha256": "8" * 64,
+        "declaration_sha256": "5" * 64,
+        "receipt_sha256": "4" * 64,
+        "quarantined_objects": [first_object],
+    }
+    retained = [rows[0], rows[3]]
+    quarantined = [rows[1], rows[2]]
+    selection = mod._repair02_selection_fingerprint(
+        full_fp, retained, quarantined, mod.sha256(declaration_path),
+        [repair01["receipt_sha256"], mod.sha256(receipt_path)],
+    )
+    coverage = {
+        "status": "PARTIAL_OBJECT_COVERAGE_QUARANTINED",
+        "full_unique_objects": 4, "full_logical_manifest_bindings": 4,
+        "full_unique_bytes": inputs["bytes"],
+        "retained_unique_objects": 2, "retained_logical_manifest_bindings": 2,
+        "retained_bytes": sum(row["size"] for row in retained),
+        "quarantined_unique_objects": 2,
+        "quarantined_logical_manifest_bindings": 2,
+        "quarantined_bytes": sum(row["size"] for row in quarantined),
+        "full_object_set_sha256": full_fp,
+        "retained_object_set_sha256": mod._object_fingerprint(retained),
+        "quarantined_object_set_sha256": mod._object_fingerprint(quarantined),
+        "retained_selection_fingerprint_sha256": selection,
+        "whole_object_quarantine": True, "line_salvage": False,
+    }
+    repair02 = {
+        "schema_version": "sports-autoresearch-data-integrity-repair-v2",
+        "repair_id": "repair-02", "parent_repair_id": "repair-01",
+        "finding": "SECOND_DISTINCT_MANIFEST_BOUND_MALFORMED_RFQ_OBJECT",
+        "pre_repair_status": "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR_REGISTERED",
+        "post_repair_status": "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED",
+        "previous_execution_commit": old_commit,
+        "current_execution_commit": new_commit,
+        "previous_source_manifest_sha256": "7" * 64,
+        "current_source_manifest_sha256": "c" * 64,
+        "previous_query_set_sha256": "8" * 64,
+        "current_query_set_sha256": "d" * 64,
+        "newly_quarantined_objects": [second_object],
+        "cumulative_quarantined_objects": cumulative,
+        "coverage": coverage,
+    }
+    manifest = {
+        "status": "CYCLE1_CORE_COMPLETE_RFQ_QUARANTINE_REPAIR02_REGISTERED",
+        "selected_releases": [{
+            "release_id": release_id, "manifest_sha256": manifest_sha,
+            "exact_version_list_path": version_path,
+        }],
+        "repository": {
+            "execution_commit": new_commit, "source_manifest_sha256": "c" * 64,
+            "query_set_sha256": "d" * 64,
+        },
+        "data_integrity_repairs": [repair01, repair02],
+    }
+    first = {
+        "quarantined_unique_objects": 1,
+        "quarantine_details": [{
+            **{key: first_object[key] for key in (
+                "release_id", "key", "size", "sha256", "version_id",
+                "manifest_sha256", "invalid_line_count", "reason",
+            )},
+            "receipt_sha256": repair01["receipt_sha256"],
+            "declaration_sha256": repair01["declaration_sha256"],
+        }],
+        "failed_attempt_binding": {"repair_id": "repair-01"},
+        "selection_fingerprint_sha256": "e" * 64,
+    }
+    return {
+        "run_dir": run_dir, "inputs": inputs, "manifest": manifest,
+        "first": first, "selection": selection, "second": second_object,
+    }
+
+
 def test_fixed_exact_rejects_rounding_and_overflow():
     assert mod.fixed_exact("1.25", 2) == 125
     assert mod.fixed_exact(10, 6) == 10_000_000
@@ -1001,6 +1195,172 @@ def test_manifest_bound_whole_object_quarantine_is_gap_safe(tmp_path):
     assert "Full-scan RFQ" not in source_text
     assert "# Full RFQ exploratory stage" not in source_text
     connection.close()
+
+
+def test_adjacent_double_quarantine_is_one_contiguous_gap_with_two_boundaries(
+    tmp_path,
+):
+    base_ns = 10_000_000_000
+    before = tmp_path / "raw_rfq/date=2026-07-13/rfq_23.ndjson.1"
+    after = tmp_path / "raw_rfq/date=2026-07-14/rfq_00.ndjson.1"
+    write_rows(before, [
+        recorder(base_ns, frame(
+            "rfq_created", "CROSS-DOUBLE-GAP", "M-A", "2026-07-13T23:59:59Z"
+        )),
+        recorder(base_ns + 1_000_000_000, {"type": "subscribed", "sid": 7}),
+    ])
+    write_rows(after, [
+        recorder(base_ns + 8_000_000_000, frame(
+            "rfq_deleted", "CROSS-DOUBLE-GAP", "M-A", "2026-07-14T00:00:07Z"
+        )),
+        recorder(base_ns + 9_000_000_000, frame(
+            "rfq_created", "AFTER", "M-B", "2026-07-14T00:00:08Z"
+        )),
+    ])
+    bad_keys = [
+        "raw_rfq/date=2026-07-13/rfq_23.ndjson.2",
+        "raw_rfq/date=2026-07-14/rfq_00.ndjson",
+    ]
+    boundary = {
+        "release_id": mod.RELEASE_IDS[1],
+        "key": bad_keys[0],
+        "sha256": "1" * 64,
+        "quarantined_keys": bad_keys,
+        "quarantined_object_set_sha256": "2" * 64,
+        "previous_path": before,
+        "next_path": after,
+    }
+    connection = duckdb.connect()
+    mod.build_scan_tables(connection, [before, after], "double-gap", [boundary])
+    gap = connection.execute("""
+      SELECT key,quarantined_keys_json,quarantined_object_count,
+        quarantined_object_set_sha256,gap_start_ns,gap_end_ns
+      FROM rfq_quarantine_gaps
+    """).fetchone()
+    assert gap == (
+        bad_keys[0],
+        json.dumps(bad_keys, separators=(",", ":")),
+        2,
+        "2" * 64,
+        base_ns + 1_000_000_001,
+        base_ns + 8_000_000_000,
+    )
+    assert connection.execute("""
+      SELECT count(*) FROM rfq_observation_boundaries
+      WHERE contains(reason,'WHOLE_OBJECT_QUARANTINE_MALFORMED_NDJSON')
+    """).fetchone()[0] == 2
+    mod.build_request_tables(connection, "double-gap")
+    lifecycle = connection.execute("""
+      SELECT endpoint_type,delete_observed,observation_boundary_reason
+      FROM rfq_lifecycle_base
+      WHERE rfq_id_hash=sha256('CROSS-DOUBLE-GAP')
+    """).fetchone()
+    assert lifecycle[0] == "RIGHT_CENSORED_AT_OBSERVATION_BOUNDARY"
+    assert lifecycle[1] is False
+    assert "_GAP_START" in lifecycle[2]
+    assert connection.execute("""
+      SELECT count(*) FROM rfq_unmatched_deletes
+      WHERE disposition='CROSS_OBSERVATION_BOUNDARY_DELETE'
+    """).fetchone()[0] == 1
+    connection.close()
+
+
+def test_repair02_selection_fingerprint_is_deterministic_and_binds_evidence():
+    rows = [
+        {"key": "b", "size": 2, "sha256": "2" * 64},
+        {"key": "a", "size": 1, "sha256": "1" * 64},
+        {"key": "c", "size": 3, "sha256": "3" * 64},
+    ]
+    first = mod._repair02_selection_fingerprint(
+        "f" * 64, rows[1:], rows[:1], "d" * 64, ["a" * 64, "b" * 64]
+    )
+    assert first == mod._repair02_selection_fingerprint(
+        "f" * 64, list(reversed(rows[1:])), rows[:1], "d" * 64,
+        ["a" * 64, "b" * 64],
+    )
+    assert first != mod._repair02_selection_fingerprint(
+        "f" * 64, rows[1:], rows[:1], "e" * 64, ["a" * 64, "b" * 64]
+    )
+    assert first != mod._repair02_selection_fingerprint(
+        "f" * 64, rows[1:], rows[:1], "d" * 64, ["b" * 64, "a" * 64]
+    )
+
+
+def test_repair02_contract_excludes_exactly_two_adjacent_whole_objects(
+    tmp_path, monkeypatch
+):
+    fixture = double_quarantine_contract_fixture(tmp_path)
+    monkeypatch.setattr(
+        mod, "apply_object_quarantine",
+        lambda run_dir, manifest, inputs, _ignore_repair02=False: fixture["first"],
+    )
+    monkeypatch.setattr(
+        mod, "_validate_repair02_archives",
+        lambda *args: ([{"repair_id": "repair-01"}, {"repair_id": "repair-02"}],
+                       [{"repair_id": "repair-01"}, {"repair_id": "repair-02"}]),
+    )
+    result = mod._apply_double_object_quarantine(
+        fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+    )
+    assert result["consumed_unique_objects"] == 2
+    assert result["consumed_logical_bindings"] == 2
+    assert result["quarantined_unique_objects"] == 2
+    assert result["quarantined_logical_bindings"] == 2
+    assert result["selection_fingerprint_sha256"] == fixture["selection"]
+    assert [row["key"] for row in result["quarantine_details"]] == [
+        "raw_rfq/date=2026-07-13/rfq_23.ndjson.2",
+        "raw_rfq/date=2026-07-14/rfq_00.ndjson",
+    ]
+    assert len(result["quarantine_boundaries"]) == 1
+    assert result["quarantine_boundaries"][0]["quarantined_keys"] == [
+        "raw_rfq/date=2026-07-13/rfq_23.ndjson.2",
+        "raw_rfq/date=2026-07-14/rfq_00.ndjson",
+    ]
+    assert result["expected_success_resource"] == {
+        "label": "rfq_full_stage_repair02",
+        "path": "logs/resources/rfq_full_stage_repair02.json",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("repair_order", "cumulative_drop", "coverage_fingerprint", "receipt_sha", "auth"),
+)
+def test_repair02_contract_mutations_fail_closed(
+    tmp_path, monkeypatch, mutation
+):
+    fixture = double_quarantine_contract_fixture(tmp_path)
+    monkeypatch.setattr(
+        mod, "apply_object_quarantine",
+        lambda run_dir, manifest, inputs, _ignore_repair02=False: fixture["first"],
+    )
+    monkeypatch.setattr(mod, "_validate_repair02_archives", lambda *args: ([], []))
+    repair02 = fixture["manifest"]["data_integrity_repairs"][1]
+    if mutation == "repair_order":
+        fixture["manifest"]["data_integrity_repairs"].reverse()
+    elif mutation == "cumulative_drop":
+        declaration_path = fixture["run_dir"] / mod.QUARANTINE_DECLARATION_02
+        declaration = json.loads(declaration_path.read_text())
+        declaration["cumulative_quarantined_objects"] = (
+            declaration["cumulative_quarantined_objects"][:1]
+        )
+        write_json(declaration_path, declaration)
+    elif mutation == "coverage_fingerprint":
+        repair02["coverage"]["retained_selection_fingerprint_sha256"] = "0" * 64
+    elif mutation == "receipt_sha":
+        receipt_path = fixture["run_dir"] / mod.MALFORMED_OBJECT_RECEIPT_02
+        receipt = json.loads(receipt_path.read_text())
+        receipt["observed_sha256"] = "0" * 64
+        write_json(receipt_path, receipt)
+    elif mutation == "auth":
+        auth_path = fixture["run_dir"] / "DATA_INTEGRITY/REPAIR_02_USER_AUTHORIZATION.json"
+        auth = json.loads(auth_path.read_text())
+        auth["authorized_action"] = "forged"
+        write_json(auth_path, auth)
+    with pytest.raises(mod.RFQStageError):
+        mod._apply_double_object_quarantine(
+            fixture["run_dir"], fixture["manifest"], fixture["inputs"]
+        )
 
 
 def test_any_second_malformed_consumed_object_still_aborts(tmp_path):
