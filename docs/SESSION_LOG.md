@@ -6,6 +6,53 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-16 05:00 UTC — SPORTS-AUTORESEARCH-02 (deep02) 执行完毕:探索性信号图 + REPORT_VISUAL_01 交付,W09 已停机
+
+- commits:
+  - bcb1431 docs: pin SPORTS-AUTORESEARCH-02 authorization (operator-approved)
+  - 8f8d9cf research: deep02 exploratory signal map + REPORT_VISUAL_01
+- decisions (含文件归属):
+  - 授权书中英文两份 + 收敛条款 + 核查报告全文入库并钉 SHA
+    (docs/SPORTS_AUTORESEARCH_02_AUTHORIZATION*.md,EN sha 3bf073ec…,提交 bcb1431)。
+  - deep02 运行按 §8 第一条关闭:EXPLORATORY signal map complete
+    (work/research/auto_research/20260716T042954Z__bcb14316d48__deep02/RUN_CLOSEOUT.json)。
+  - deep03 目标清单(5 条,按信息/成本排序)在 REPORT_VISUAL_01 §7
+    (docs/research_reports/SPORTS_AUTORESEARCH_VISUAL_REPORT_01.pdf)。
+- context capsule(给零聊天记录的下一会话):
+  - 新 run:20260716T042954Z__bcb14316d48__deep02;框架原样复用 6bcb5cb 的
+    bootstrap.py;7 个非 RFQ 假设登记为继承试验(终局状态更正行见
+    TRIAL_REGISTRY.jsonl——注意登记簿 status 字段是登记时值,终局裁决在
+    deep01 REPORT/tables/TERMINAL_DISPOSITION.json:6 DATA_STARVED、
+    1 COLLECT_MORE=C1-PREMATCH-TTS-01、3 RFQ BLOCKED)。
+  - §4 盘点:合格独立日期=2(07-12 pub-2bf8871ad4750c03、07-13
+    pub-f8e4c0abc742b7d5 为正典);07-13 之后无新封存日期,无需请示。
+    入库审计 665 个非 RFQ 对象 0 异常(非 RFQ 数据仅 ~3GB/天,发布体积大头
+    是 raw_rfq)。deep01 发现的 2 个坏对象都在 raw_rfq(本轮排除范围)。
+  - 四个扫描的关键数字:①网球 202 万 taker 成交,1 分钟 markout 全桶为正
+    (+0.5~1.2¢/张,低于 50¢ 处 ~1.6¢ taker 费),买热门>买冷门;②跨市场
+    sell 侧(缺腿稳健)3251 窗,中位残差 0.74¢、中位寿命 0.2ms,≥1s 且 ≥1¢
+    仅 174 窗、有量(≥10 张)19 窗;buy 侧数字被缺腿假象放大,只能当上限;
+    ③单边盘口:Cycling 98% ask_only、Golf 48%、Baseball 41%,窗口中位
+    秒~分钟级、p90 数百秒;④成交高峰 UTC 0-3,活跃时段价差收窄。
+  - W09 访问:ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192;
+    python 在 /opt/w09/venv/bin/python(duckdb 1.4.5 + matplotlib);
+    长任务必须 sudo /usr/local/bin/w09-run(普通用户 systemd-inhibit 会
+    Access denied,进程根本起不来);30 分钟无 SSH 且无 inhibitor 自动停机。
+  - 死胡同/坑:trades csv 的 taker_side 是 'yes'/'no' 字符串(deep01 用
+    VARCHAR 显式列读);L1 个别行 local_recv_ts_us 为 NULL,所有扫描已加
+    过滤;scan2 初版把从未双边的市场算进事件簿导致同步时间漏计
+    (6338→8198 窗修复);PDF 用 headless Chrome 打(Mac 无 pandoc/poppler)。
+  - F-1 已关闭:repair-04 档案 32 文件回传并指纹核验
+    (deep01 DATA_INTEGRITY/repairs/REPAIR04_RETRIEVAL_RECEIPT.md)。
+  - 合规:§0 刹车 0 触发;修复登记 0/3;W09 计算合计 ~5 分钟、估算成本
+    ~$0.81(上限 $5/6h);RFQ 未读取;deep01 目录全程只读。
+  - 本会话未动仓库代码(deploy/w09/w09_idle_check.py 与
+    tests/test_w09_bringup.py 的未提交改动属于此前会话,原样保留未提交)。
+- blocked / handoff:
+  - deep03 前置:≥20 个独立封存日期(当前 2);每天自动封存持续累积中。
+  - 费率事实仍 fees.verified=false(docs-only),deep03 经济量前需 ratify。
+  - W09 已 sudo poweroff 停机(shutdown behavior=stop,EIP 保留)。
+
 ## 2026-07-15 21:53 UTC — SPORTS-AUTORESEARCH-01 止损关闭：L1/L2/盘口图谱成报，RFQ=DATA_INTEGRITY_BLOCKED，W09 已关机
 
 - **一行裁决：⚠️ 研究按操作员最终终止令关闭；不是
