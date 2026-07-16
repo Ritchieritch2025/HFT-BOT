@@ -6,6 +6,29 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-16 21:40 UTC — Telegram bot 收官:口令合并为 /ack,费用块官方化+账单直读
+
+- commits: 0c4de8a(合并 /ack)· bf1076a(官方费率+两台 EC2 全科目)·
+  6f6ce94(CE 真实账单优先,降级估算)
+- decisions:
+  - 操作员裁定:全部口令合并为一条 /ack = 完整管道日报
+    (deploy/status_bot.py,HELP 与 HANDLERS 已改)。
+  - 费用块费率经 AWS Price List API 官方核验(r8g.2xlarge $0.47128/h、
+    gp3 $0.08/GB-Mo、IPv4 $0.005/h、S3 $0.023/GB-Mo),W09 本月小时数
+    按 SESSION_LOG 台账(~12.1h);合计估算 ≈$444/月。
+  - 操作员批准给 vaultWriter 加只读 ce:GetCostAndUsage(控制台操作
+    已交操作员执行);权限生效后 /ack 自动切换为真实账单。
+- context capsule:
+  - 事故复盘:本会话先重复造了一个 ack bot(kalshi-telegram-ack),与
+    W-TELEGRAM-01 已部署的 status-bot 抢 getUpdates(409),吞掉了操作员
+    的首次 /ack;已拆除重复服务,单消费者恢复。教训:动 Telegram 前先
+    `systemctl list-units | grep -i tg`。
+  - W-TELEGRAM-01 套件现状:kalshi-status-bot(常驻,/ack 唯一口令)+
+    kalshi-tg-alert/daily/intel 三个定时推送 + 旧 alert_notify.sh 仍在。
+  - 测试:tests/test_status_bot_ack.py(离线,降级分支);make check 全绿。
+- blocked / handoff:07-16 午夜封存哨兵仍在值守;发布节奏与回测 Phase A
+  开工令仍待操作员。
+
 ## 2026-07-16 20:45 UTC — 管道体检 + 07-14 补导出补封存成功;deep03 规格六条裁定;回测缺口地图
 
 - commits:
