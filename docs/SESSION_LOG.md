@@ -6,6 +6,50 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-16 17:35 UTC — W-LAT-BENCH-01 完成:Tier 1/2a/3 实测落档 LATENCY_FACTS,Tier 2b 维持 BLOCKED
+
+- commits: (本条目所在提交) W-LAT-BENCH-01 全部产物,单提交。
+- decisions(E2,均已入文件):
+  - 延迟事实唯一引用源建立 → `docs/LATENCY_FACTS.md`(ACTIVE)。
+  - `signing_p99_us: 500`(MEASURED 452.8µs)、`signed_post_rtt_p99_us: 91000`
+    (UNMEASURED_CONSERVATIVE,= Tier 2a 最差端点 p99 72.5ms × 1.25;旧占位
+    60ms 被实测证明偏乐观)→ `config/backtest_latency.yaml`,推导规则写死在
+    LATENCY_FACTS §4;诚实标记制度升级为 MEASURED/UNMEASURED_CONSERVATIVE/
+    PLACEHOLDER 三态,由 tests/test_backtest_clock.py 机器强制。
+  - Tier 2b 操作员裁决(2026-07-16):维持 BLOCKED,不建 demo 支持,
+    正确性验证并入将来的 Tier 4 → LATENCY_FACTS §5。安全层未动。
+  - 签名 p99 453µs < 1ms ⇒ 按验收标准不登记优化债 → LATENCY_FACTS §1。
+- context capsule:
+  - Tier 1(Mac,prod 2048 key,n=10k):sign_request p50=282.6µs p99=452.8µs;
+    payload+json <1µs;链 p99=352µs。工具 build/bench_engine(apps/
+    bench_engine.cpp + bench_engine_core.hpp),冒烟 tests/test_engine_bench.cpp
+    已入 make check(OFFLINE_TESTS)。原始:work/latency_baseline/
+    engine_bench.ndjson(work/ 是 gitignored,数据在盘不入库)。
+  - Tier 2a(Mac→prod,带鉴权,4 窗 15:24-17:16Z,n=1,600,0 错误):
+    /exchange/status 合并 p50=34.7 p99=44.5;/markets p50=38.7 p99=72.5(ms)。
+    工具 tools/latency_probe_auth.py(GET 常量写死;2req/s≈11 token/s,
+    读桶 3.7%,生产管线无感;已登记 tools.json)。C++ bench_rtt n=30 三角
+    验证差 <1ms。时段局限:未覆盖 UTC 0-3 高峰,FACTS §2 如实声明。
+  - Tier 3(操作员开机 W09 解除阻塞;--throwaway 模式,真凭据未上盒,
+    符合 W09 隔离契约):W09 us-east-2 p50=6.2/8.0ms p99=9.4/14.5ms,
+    与同时刻 Mac w4 窗对比白捡 ~28ms。原始:work/latency_baseline/
+    tier3_w09.ndjson;盒上临时文件已清,idle 守卫 active(自动停机)。
+  - 汇总图:docs/research_reports/LATENCY_BENCH_01_FIG.svg(手写 SVG,
+    机器无 matplotlib)。
+  - 顺手修复前置缺陷:f518c53 把 tools/ec2_disk_diagnose.sh 提交上库但未
+    登记 tools.json,导致本分支 make check 的 registry 反向扫描一直是红的;
+    已按 offline 只读诊断登记。
+  - 死胡同(勿重探):Mac 无 aws CLI/控制面凭据,W09 角色无自启权限——
+    W09 开机永远是操作员控制台动作;demo 环境 engine_gate fail-closed 是
+    设计(修正案 A2),不要试图从执行 session 改。
+- blocked / handoff:
+  - Tier 4(生产微基准,真单)默认锁死,操作员另批;届时 Tier 2b 的
+    正确性验证一并做(操作员裁决)。
+  - 部署裁决(执行机搬云端)是操作员决定;W09 预演数字 19000µs 已备
+    在 FACTS §6,未入账。
+  - 本 session 未动 deploy/w09/w09_idle_check.py 与 tests/test_w09_bringup.py
+    的既有未提交改动(他人 session 遗留,不属本 W,保持原样未提交)。
+
 ## 2026-07-16 05:00 UTC — SPORTS-AUTORESEARCH-02 (deep02) 执行完毕:探索性信号图 + REPORT_VISUAL_01 交付,W09 已停机
 
 - commits:

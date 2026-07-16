@@ -237,8 +237,10 @@ def test_legacy_priceless_snapshot_is_not_a_heartbeat():
 
 def test_latency_config_placeholders_and_override(tmp_path, monkeypatch):
     cfg = bt.load_latency_config()                     # committed file
-    assert cfg == {"processing_chain_p99_us": 2000, "signing_p99_us": 5000,
-                   "signed_post_rtt_p99_us": 60000}
+    # W-LAT-BENCH-01 (2026-07-16, docs/LATENCY_FACTS.md): signing measured
+    # (452.8us -> 500), signed POST bound derived from Tier 2a (72.5ms x 1.25).
+    assert cfg == {"processing_chain_p99_us": 2000, "signing_p99_us": 500,
+                   "signed_post_rtt_p99_us": 91000}
     p = tmp_path / "lat.yaml"
     p.write_text("processing_chain_p99_us: 111\nsigning_p99_us: 222\n"
                  "signed_post_rtt_p99_us: 333\n")
@@ -249,4 +251,6 @@ def test_latency_config_placeholders_and_override(tmp_path, monkeypatch):
     assert bt.load_latency_config(str(p))["signing_p99_us"] == 999
     for line in open(os.path.join(ROOT, "config", "backtest_latency.yaml")):
         if line.strip().startswith(tuple(bt.LATENCY_KEYS)):
-            assert "PLACEHOLDER" in line               # honesty marker stays
+            # honesty marker stays: every value declares its provenance class
+            assert ("MEASURED" in line or "UNMEASURED_CONSERVATIVE" in line
+                    or "PLACEHOLDER" in line)

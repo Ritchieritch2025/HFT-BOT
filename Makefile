@@ -39,7 +39,7 @@ BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
         $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost \
         $(BUILD)/fuzz_decode $(BUILD)/account_info $(BUILD)/account_upgrade \
-        $(BUILD)/rate_probe $(PURE_TESTS)
+        $(BUILD)/rate_probe $(BUILD)/bench_engine $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -305,6 +305,12 @@ $(BUILD)/preflight: apps/preflight.cpp $(BUILD)/rest_api.o $(BUILD)/request_exec
 $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_rtt.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
+$(BUILD)/bench_engine: apps/bench_engine.cpp apps/bench_engine_core.hpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/bench_engine.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
+$(BUILD)/test_engine_bench: tests/test_engine_bench.cpp apps/bench_engine_core.hpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) tests/test_engine_bench.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
 $(BUILD)/bench_order: apps/bench_order.cpp include/kalshi/wire.hpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_order.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
@@ -359,7 +365,8 @@ gate:
 
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
-                 $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
+                 $(BUILD)/test_request_spec $(BUILD)/test_batch_cost \
+                 $(BUILD)/test_engine_bench
 PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.

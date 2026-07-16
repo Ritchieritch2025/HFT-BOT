@@ -2,18 +2,18 @@
 # Flat `key: value` (parsed by warehouse_common.load_config-style reader in
 # mm_backtest; comments ignored). Env var of the same UPPER-CASED name overrides.
 #
-# ALL THREE VALUES ARE PLACEHOLDERS — conservative guesses, NOT measurements.
-# The real measurement campaign is a separate follow-up task whose sampling
-# plan goes to the operator BEFORE running (it must not touch live orders):
+# Provenance contract (W-LAT-BENCH-01, 2026-07-16): every value line carries
+# an honesty marker — MEASURED / UNMEASURED_CONSERVATIVE / PLACEHOLDER —
+# enforced by tests/test_backtest_clock.py. The single source of truth for
+# the numbers is docs/LATENCY_FACTS.md; change values only together with it.
+#
 #   processing_chain_p99_us  full local chain p99: WS recv -> ring -> book
 #                            apply -> strategy sees it -> order intent built
 #   signing_p99_us           RSA-PSS request signing p99, local benchmark
 #   signed_post_rtt_p99_us   signed POST round-trip p99 on the order endpoint
 #                            class (NEVER a plain-GET mean — wrong path, wrong
 #                            statistic)
-# Until measured, keep these pessimistic (larger = quotes activate later =
-# fewer fills = honest Q2 bound).
 
-processing_chain_p99_us: 2000     # PLACEHOLDER (measured decode+apply is ~282ns; 2ms is deliberate headroom)
-signing_p99_us: 5000              # PLACEHOLDER RSA-PSS local signing p99
-signed_post_rtt_p99_us: 60000     # PLACEHOLDER signed POST RTT p99 (60ms)
+processing_chain_p99_us: 2000     # UNMEASURED_CONSERVATIVE: decode+apply measured ~282ns/msg, full chain unmeasured; 2ms deliberate headroom
+signing_p99_us: 500               # MEASURED 2026-07-16: RSA-PSS sign_request p99 452.8us n=10000 prod-2048 key (LATENCY_FACTS §1), rounded up
+signed_post_rtt_p99_us: 91000     # UNMEASURED_CONSERVATIVE: Tier 2a auth-GET worst-endpoint p99 72.5ms x 1.25 order-processing margin (LATENCY_FACTS §4); Mac point kept until deploy box measured; replaces optimistic 60ms placeholder
