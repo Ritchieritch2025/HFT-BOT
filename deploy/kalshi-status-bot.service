@@ -1,0 +1,21 @@
+# Read-only Telegram status bot (long-poll). Companion of alert_notify (which
+# PUSHES on state change); this ANSWERS on-demand /status queries. Reads
+# pipeline state only — never mutates. Credentials from ~/.kalshi/env.sh.
+[Unit]
+Description=Kalshi pipeline status bot (read-only Telegram monitor)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hft-bot
+# env.sh holds TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (operator-created, 600)
+ExecStart=/usr/bin/bash -lc 'set -a; . "$HOME/.kalshi/env.sh"; set +a; exec /usr/bin/python3 /home/ubuntu/hft-bot/deploy/status_bot.py'
+Restart=always
+RestartSec=5
+# read-only posture: no write access needed beyond logs
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
