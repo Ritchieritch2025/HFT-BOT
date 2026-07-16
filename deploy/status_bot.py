@@ -162,9 +162,23 @@ def cmd_disk():
         return "disk read error: %s" % e
 
 
+def cmd_balance():
+    """Live READ-ONLY GET /portfolio/balance via the balance probe."""
+    try:
+        import importlib.util
+        p = os.path.join(ROOT, "deploy", "balance_probe.py")
+        spec = importlib.util.spec_from_file_location("balance_probe", p)
+        bp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bp)
+        return bp.balance_line()
+    except Exception as e:
+        return "balance error: %s" % str(e)[:120]
+
+
 HELP = (
     "Kalshi 管道监控 bot(只读)\n"
     "/status — 一屏健康裁决\n"
+    "/balance — Kalshi 账户余额(实时)\n"
     "/seals — 近 7 日封印状态\n"
     "/pipeline — 入库/capture/feed 细节\n"
     "/disk — 磁盘用量\n"
@@ -173,8 +187,9 @@ HELP = (
 )
 
 HANDLERS = {
-    "/status": cmd_status, "/seals": cmd_seals, "/pipeline": cmd_pipeline,
-    "/disk": cmd_disk, "/help": lambda: HELP, "/start": lambda: HELP,
+    "/status": cmd_status, "/balance": cmd_balance, "/seals": cmd_seals,
+    "/pipeline": cmd_pipeline, "/disk": cmd_disk,
+    "/help": lambda: HELP, "/start": lambda: HELP,
 }
 
 
