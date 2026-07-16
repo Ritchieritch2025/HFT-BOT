@@ -6,6 +6,47 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-16 20:45 UTC — 管道体检 + 07-14 补导出补封存成功;deep03 规格六条裁定;回测缺口地图
+
+- commits:
+  - b480ea4 docs: deep03 spec notes (6 operator rulings) + backtest gap map
+- decisions(含文件归属):
+  - deep03 六条方法论裁定(废除热门/冷门二分、卖确定性溢价、90 拉锯区双边报价、
+    niche 分解+删最佳子类、驻军指数选品、外源"失明成本"定价)
+    → docs/research_reports/DEEP03_SPEC_NOTES.md
+  - 回测系统结论:架构已由 PLAN_MM_TEST_PROGRAM 定案,缺口=数据带适配器等四项
+    → docs/DESIGN_BACKTEST_GAP_MAP_2026-07-16.md(Phase A 待操作员开工令)
+- context capsule:
+  - 管道体检:采集/入库/封存健康;07-16 早 07:28Z 一次 4 分钟 capture:gap 自恢复;
+    Telegram 未配置(报警只落日志);S3 研究桶停在 07-13(发布是手动步骤,
+    非故障);warehouse_status.py 在 ingest 持锁时误报 FAIL(工具债)。
+  - **07-14 修复(全天主线,成功)**:根因=RFQ 原始文件长期 checkpoint=None
+    卡住封存闸门,当天从未导出;staging 已被 07-15 封存时裁剪 → 只能从 raw 重放。
+    方案=隔离一次性 staging(work/repair_20260714/),按通道族拆双工人并行
+    (firehose+rfq快速通道 / l2,族间表与去重状态互不相干,保真度与单流一致),
+    105GB 重放约 7.5h(单流估 19h);闸门首封拦截=缺"次日头 2 小时+前日迟到尾巴"
+    36 个边界文件(seal_raw_files cross_day_hours=2 规则),补灌后 --force 重导
+    一次通过。终态:DAY SEAL PASS + VERIFY PASS,324 分区(邻日 317/323),
+    seals 目录 07-10..15 连续。生产采集全程 0 错误 0 丢包。
+  - 07-14 质量记录:firehose 0 缺口(45.8M 记录);L2 坏行 26,881/38.4M(0.07%,
+    采集时写坏,A2 同类,已按"计数不隐藏"入 l2_gaps_2026-07-14.json);
+    l2_gap_check 的 missed 计数器遇坏行溢出(工具债)。
+  - 修复工艺备忘:w09/ec2 上 ingest 一次性模式 + --staging 隔离库是正确回填
+    工具;checkpoint 表在库内,断点续传可靠;systemd-inhibit 需 root;
+    ionice idle 级会被采集写盘饿死,用 -c2 -n6;边界文件规则见
+    warehouse_common.seal_raw_files。
+  - 即席研究(操作员在环,正典 07-12/13,全部读 only,已记 DEEP03_SPEC_NOTES):
+    价格×走向曲线(99 档买方均值 -0.62¢/n=70,515;85¢ 以下全区间正但低于费用墙);
+    摸 90 网球盘翻盘率 5.1%(511 场,单日 4.6/5.5 稳定),穿越 90 中位 7 次;
+    联赛分解 ITF 女子穿越 14.8 vs ATP 8.6;放量前价差 1.23× 张开(n=37,108)。
+    入站延迟实测中位 5.1ms(146.7 万笔)。
+  - 数据样例包 + 价格曲线交付至 Desktop/TradingSys Report/data-samples/。
+- blocked / handoff:
+  - 今晚 00:10Z 后核验 07-16 正常封存(哨兵已挂,亦是"修复未拖累生产"终证)。
+  - 等操作员:①发布节奏(07-14/15 已封待发布);②Telegram token;
+    ③回测 Phase A 开工令。
+  - repair_20260714/ 目录(含两个隔离库 ~2.7GB)保留作审计痕迹,可择日清理。
+
 ## 2026-07-16 18:00 UTC — W-TELEGRAM-01 执行完毕:Telegram 监控台(只报不控)上线
 
 - **一行裁决:✅ 实现+部署完成,三样验收系统侧全发出,待操作员手机确认。**
