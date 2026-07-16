@@ -187,23 +187,105 @@ def cmd_dates():
     return "\n".join(rows)
 
 
-def cmd_cost():
-    """本月费用估算:S3 研究存储 + W09 运行(best-effort)。"""
+def _s3_total_gb():
+    """整桶(不只 research/)字节 → GB;失败返回 None。"""
     try:
         out = subprocess.run(
             ["bash", "-lc", ". ~/.kalshi/env.sh 2>/dev/null; "
-             "aws s3 ls s3://kalshi-vault-ritcardo/research/ --recursive --summarize "
+             "aws s3 ls s3://kalshi-vault-ritcardo --recursive --summarize "
              "2>/dev/null | awk '/Total Size/{print $3}'"],
-            capture_output=True, text=True, timeout=60)
-        b = float(out.stdout.strip() or 0)
-        gb = b / (1024 ** 3)
-        store = gb * 0.023
-        return ("本月费用估算(us-east-2 rate card):\n"
-                "  S3 研究存储: %.1f GB ≈ $%.2f/月\n"
-                "  W09 计算: 停机时仅存储/EIP;运行 $0.4713/h\n"
-                "  (精确账以 AWS 账单为准)" % (gb, store))
-    except Exception as e:
-        return "cost estimate error: %s" % str(e)[:100]
+            capture_output=True, text=True, timeout=90)
+        return float(out.stdout.strip()) / 1e9
+    except Exception:
+        return None
+
+
+def cmd_cost():
+    """月费用估算 — 覆盖全部主要科目(操作员更正 2026-07-16:旧版只算
+    research/ 前缀,漏了生产 EC2/EBS/EIP/全桶,低估两个数量级)。
+
+    费率出处:$0.4713/h r8g.2xlarge、gp3、IPv4 与 us-east-2 rate card 见
+    deploy/w09/cost-contract.json 及 tools/research_data.py 同一费率卡;
+    生产机与 W09 同型号同区。精确账永远以 AWS 账单为准。"""
+    ec2 = 0.4713 * 730                      # 生产 r8g.2xlarge,24/7
+    ebs = (600 + 300) * 0.08                # 生产 600GB + W09 300GB,gp3
+    ipv4 = 2 * 0.005 * 730                  # 两个公网 IPv4
+    gb = _s3_total_gb()
+    s3 = gb * 0.023 if gb is not None else None
+    parts = [
+        "月费用估算(us-east-2 费率卡,精确以账单为准):",
+        "  生产 EC2 r8g.2xlarge 24/7: $%.0f" % ec2,
+        "  EBS 磁盘 900GB gp3: $%.0f" % ebs,
+        ("  S3 全桶 %.0f GB: $%.1f(每日 +~27GB ≈ +$0.6/日)" % (gb, s3))
+        if s3 is not None else "  S3 全桶: (读取失败)",
+        "  公网 IPv4 ×2: $%.1f" % ipv4,
+        "  W09 研究机: 按小时计,仅运行时 $0.4713/h",
+        "  —— 合计 ≈ $%.0f/月 + W09 使用小时" % (
+            ec2 + ebs + ipv4 + (s3 or 0)),
+    ]
+    return "\n".join(parts)
+
+
+def _alerts_24h():
+    """近 24h 报警事件(过滤 telegram 噪声行)。"""
+    path = os.path.join(LIVE, "alerts.log")
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(hours=24))
+    out = []
+    try:
+        for line in open(path, encoding="utf-8", errors="replace"):
+            try:
+                when = datetime.datetime.strptime(
+                    line[:20].strip(), "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=datetime.timezone.utc)
+            except ValueError:
+                continue
+            if when >= cutoff and "telegram" not in line:
+                out.append(line.strip())
+    except FileNotFoundError:
+        pass
+    return out[-6:]
+
+
+def _raw_today_gb():
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    total = 0
+    for p in glob.glob(os.path.join(RAW, "date=%s" % today, "*")):
+        try:
+            total += os.path.getsize(p)
+        except OSError:
+            pass
+    return total / 1e9
+
+
+def cmd_ack():
+    """唯一口令(操作员裁定 2026-07-16):一条消息 = 完整管道日报。"""
+    yesterday = (datetime.datetime.now(datetime.timezone.utc).date()
+                 - datetime.timedelta(days=1)).isoformat()
+    days = _sealed_days(30)
+    seal_y = "✅" if yesterday in days else "❌ 缺昨日封存!"
+    alerts = _alerts_24h()
+    alert_block = ("\n".join("  " + a for a in alerts)
+                   if alerts else "  (无事件)")
+    try:
+        balance = cmd_balance()
+    except Exception:
+        balance = "balance: n/a"
+    return "\n".join([
+        cmd_status(),
+        "",
+        "今日原始数据: %.1f GB" % _raw_today_gb(),
+        "昨日(%s)封存: %s" % (yesterday, seal_y),
+        "",
+        cmd_dates(),
+        "",
+        balance,
+        "",
+        cmd_cost(),
+        "",
+        "近 24h 报警:",
+        alert_block,
+    ])
 
 
 def cmd_last():
@@ -228,22 +310,15 @@ def cmd_last():
 
 HELP = (
     "Kalshi 管道监控 bot(只读)\n"
-    "/status — 一屏健康裁决\n"
-    "/balance — Kalshi 账户余额(实时)\n"
-    "/dates — 研究桶日期 + deep03 倒计时\n"
-    "/cost — 本月费用估算\n"
-    "/last — 最近封存/发布详情\n"
-    "/seals — 近 7 日封印状态\n"
-    "/pipeline — 入库/capture/feed 细节\n"
-    "/disk — 磁盘用量\n"
-    "/help — 本帮助\n"
+    "唯一口令:/ack — 一条消息返回完整管道日报\n"
+    "(健康裁决 · 采集/入库 · 封存 · deep03 倒计时 · 余额 · 费用 · 24h 报警)\n"
     "\n只读监控,不含任何控制/下单命令。"
 )
 
+# 操作员裁定 2026-07-16:全部口令合并为一条 /ack。
+# 旧命令函数保留为 /ack 的组成部件,不再单独暴露。
 HANDLERS = {
-    "/status": cmd_status, "/balance": cmd_balance, "/dates": cmd_dates,
-    "/cost": cmd_cost, "/last": cmd_last, "/seals": cmd_seals,
-    "/pipeline": cmd_pipeline, "/disk": cmd_disk,
+    "/ack": cmd_ack,
     "/help": lambda: HELP, "/start": lambda: HELP,
 }
 
@@ -274,7 +349,7 @@ def main():
             cmd = cmd.split("@")[0]  # strip @botname suffix
             fn = HANDLERS.get(cmd)
             try:
-                send(fn() if fn else "未知命令。/help 看可用命令。")
+                send(fn() if fn else "只有一条口令:/ack(管道日报)")
             except Exception as e:
                 send("命令出错: %s" % e)
 
