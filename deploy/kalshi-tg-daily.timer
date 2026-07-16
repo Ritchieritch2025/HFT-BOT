@@ -1,0 +1,9 @@
+# Daily health summary at 12:00 UTC (= 20:00 Beijing). Independent unit.
+[Unit]
+Description=Kalshi Telegram daily summary (12:00 UTC)
+[Timer]
+OnCalendar=*-*-* 12:00:00
+Persistent=true
+AccuracySec=30s
+[Install]
+WantedBy=timers.target

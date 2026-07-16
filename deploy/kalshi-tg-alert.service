@@ -1,0 +1,9 @@
+# W-TELEGRAM-01 §1 alert engine (oneshot, every minute via .timer).
+# Independent monitoring unit — shares nothing with capture/ingest/export.
+[Unit]
+Description=Kalshi Telegram alert engine (three-tier, read-only)
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hft-bot/deploy
+ExecStart=/usr/bin/bash -lc 'set -a; . "$HOME/.kalshi/env.sh"; set +a; exec /usr/bin/python3 /home/ubuntu/hft-bot/deploy/tg_alert.py'

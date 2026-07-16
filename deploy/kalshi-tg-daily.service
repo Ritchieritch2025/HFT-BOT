@@ -1,0 +1,8 @@
+# W-TELEGRAM-01 §2 daily health summary (oneshot at SUMMARY_HOUR_UTC via .timer).
+[Unit]
+Description=Kalshi Telegram daily health summary
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hft-bot/deploy
+ExecStart=/usr/bin/bash -lc 'set -a; . "$HOME/.kalshi/env.sh"; set +a; exec /usr/bin/python3 /home/ubuntu/hft-bot/deploy/tg_daily.py'

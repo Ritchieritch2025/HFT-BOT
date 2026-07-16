@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- W-TELEGRAM-01 §3 watchdog on the Mac (independent of the EC2 monitors).
+     Runs every 2 hours; sources ~/.kalshi/env.sh for TELEGRAM creds
+     (operator-written). Install: cp to ~/Library/LaunchAgents/ then
+     `launchctl load ~/Library/LaunchAgents/com.ritcardo.kalshi-tg-watchdog.plist`.
+     Edit the two paths below if the repo lives elsewhere. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ritcardo.kalshi-tg-watchdog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>set -a; . "$HOME/.kalshi/env.sh"; set +a; exec /usr/bin/python3 "$HOME/HFT BOT/deploy/tg_watchdog.py"</string>
+  </array>
+  <key>StartInterval</key><integer>7200</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/kalshi-tg-watchdog.err</string>
+  <key>StandardOutPath</key><string>/tmp/kalshi-tg-watchdog.out</string>
+</dict>
+</plist>

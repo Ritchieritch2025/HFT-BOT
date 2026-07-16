@@ -175,10 +175,64 @@ def cmd_balance():
         return "balance error: %s" % str(e)[:120]
 
 
+def cmd_dates():
+    """研究桶已封存可研究日期 + deep03 20 天倒计时。"""
+    days = sorted(os.path.basename(f)[5:-5]
+                  for f in glob.glob(os.path.join(SEALS, "date=*.json")))
+    qual = [d for d in days if d >= "2026-07-12"]
+    countdown = max(0, 20 - len(qual))
+    rows = ["研究桶(已封存日期,合格口径以研究会话盘点为准):"]
+    rows += ["  %s" % d for d in qual] or ["  (无)"]
+    rows.append("deep03 倒计时: %d/20,还需 ~%d 天" % (len(qual), countdown))
+    return "\n".join(rows)
+
+
+def cmd_cost():
+    """本月费用估算:S3 研究存储 + W09 运行(best-effort)。"""
+    try:
+        out = subprocess.run(
+            ["bash", "-lc", ". ~/.kalshi/env.sh 2>/dev/null; "
+             "aws s3 ls s3://kalshi-vault-ritcardo/research/ --recursive --summarize "
+             "2>/dev/null | awk '/Total Size/{print $3}'"],
+            capture_output=True, text=True, timeout=60)
+        b = float(out.stdout.strip() or 0)
+        gb = b / (1024 ** 3)
+        store = gb * 0.023
+        return ("本月费用估算(us-east-2 rate card):\n"
+                "  S3 研究存储: %.1f GB ≈ $%.2f/月\n"
+                "  W09 计算: 停机时仅存储/EIP;运行 $0.4713/h\n"
+                "  (精确账以 AWS 账单为准)" % (gb, store))
+    except Exception as e:
+        return "cost estimate error: %s" % str(e)[:100]
+
+
+def cmd_last():
+    """最近一次封存 + 发布详情。"""
+    days = sorted(os.path.basename(f)[5:-5]
+                  for f in glob.glob(os.path.join(SEALS, "date=*.json")))
+    if not days:
+        return "无封存记录"
+    last = days[-1]
+    info = ["最近封存: %s" % last]
+    try:
+        s = json.load(open(os.path.join(SEALS, "date=%s.json" % last)))
+        rows = s.get("archive_rows")
+        if rows:
+            info.append("  归档行数: %s" % f"{rows:,}")
+        info.append("  method: %s" % s.get("method", "?"))
+        info.append("  status: %s" % s.get("status", "?"))
+    except Exception:
+        pass
+    return "\n".join(info)
+
+
 HELP = (
     "Kalshi 管道监控 bot(只读)\n"
     "/status — 一屏健康裁决\n"
     "/balance — Kalshi 账户余额(实时)\n"
+    "/dates — 研究桶日期 + deep03 倒计时\n"
+    "/cost — 本月费用估算\n"
+    "/last — 最近封存/发布详情\n"
     "/seals — 近 7 日封印状态\n"
     "/pipeline — 入库/capture/feed 细节\n"
     "/disk — 磁盘用量\n"
@@ -187,7 +241,8 @@ HELP = (
 )
 
 HANDLERS = {
-    "/status": cmd_status, "/balance": cmd_balance, "/seals": cmd_seals,
+    "/status": cmd_status, "/balance": cmd_balance, "/dates": cmd_dates,
+    "/cost": cmd_cost, "/last": cmd_last, "/seals": cmd_seals,
     "/pipeline": cmd_pipeline, "/disk": cmd_disk,
     "/help": lambda: HELP, "/start": lambda: HELP,
 }
