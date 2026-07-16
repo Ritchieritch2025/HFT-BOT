@@ -200,28 +200,40 @@ def _s3_total_gb():
         return None
 
 
-def cmd_cost():
-    """月费用估算 — 覆盖全部主要科目(操作员更正 2026-07-16:旧版只算
-    research/ 前缀,漏了生产 EC2/EBS/EIP/全桶,低估两个数量级)。
+# 费率:2026-07-16 经 AWS Price List API(官方公开价目,us-east-2)逐项核验:
+#   r8g.2xlarge OnDemand Linux Shared = $0.47128/h
+#   EBS gp3 = $0.08/GB-Mo;Public IPv4(InUse/Idle 同价)= $0.005/h
+#   S3 Standard 首 50TB 档 = $0.023/GB-Mo
+# 与 deploy/w09/cost-contract.json 记录一致。精确账永远以 AWS 账单为准。
+RATE_R8G_2XL_H = 0.47128
+RATE_GP3_GB_MO = 0.08
+RATE_IPV4_H = 0.005
+RATE_S3_GB_MO = 0.023
+# W09 本月已知使用小时(人工台账,出处 SESSION_LOG:07-15 deep01 ≈10.5h,
+# 07-16 deep02 ≈1.6h)。精确小时数需 ce:GetCostAndUsage 权限或账单。
+W09_MTD_HOURS = 12.1
 
-    费率出处:$0.4713/h r8g.2xlarge、gp3、IPv4 与 us-east-2 rate card 见
-    deploy/w09/cost-contract.json 及 tools/research_data.py 同一费率卡;
-    生产机与 W09 同型号同区。精确账永远以 AWS 账单为准。"""
-    ec2 = 0.4713 * 730                      # 生产 r8g.2xlarge,24/7
-    ebs = (600 + 300) * 0.08                # 生产 600GB + W09 300GB,gp3
-    ipv4 = 2 * 0.005 * 730                  # 两个公网 IPv4
+
+def cmd_cost():
+    """月费用估算 — 两台 EC2 全科目(操作员更正 2026-07-16 ×2:
+    ①旧版只算 research/ 前缀,低估两个数量级;②费率须有官方出处,
+    已改为 AWS Price List API 核验值;W09 补充本月实际使用小时台账。"""
+    ec2 = RATE_R8G_2XL_H * 730              # 生产 r8g.2xlarge,24/7
+    ebs = (600 + 300) * RATE_GP3_GB_MO      # 生产 600GB + W09 300GB,gp3
+    ipv4 = 2 * RATE_IPV4_H * 730            # 生产 + W09 各一个公网 IPv4
+    w09 = RATE_R8G_2XL_H * W09_MTD_HOURS
     gb = _s3_total_gb()
-    s3 = gb * 0.023 if gb is not None else None
+    s3 = gb * RATE_S3_GB_MO if gb is not None else None
     parts = [
-        "月费用估算(us-east-2 费率卡,精确以账单为准):",
+        "月费用估算(费率经 AWS 官方价目核验 2026-07-16;精确以账单为准):",
         "  生产 EC2 r8g.2xlarge 24/7: $%.0f" % ec2,
-        "  EBS 磁盘 900GB gp3: $%.0f" % ebs,
+        "  W09 研究机 本月已用 ~%.0fh: $%.1f(停机时不产生计算费)"
+        % (W09_MTD_HOURS, w09),
+        "  EBS 磁盘 900GB gp3(两台): $%.0f" % ebs,
         ("  S3 全桶 %.0f GB: $%.1f(每日 +~27GB ≈ +$0.6/日)" % (gb, s3))
         if s3 is not None else "  S3 全桶: (读取失败)",
-        "  公网 IPv4 ×2: $%.1f" % ipv4,
-        "  W09 研究机: 按小时计,仅运行时 $0.4713/h",
-        "  —— 合计 ≈ $%.0f/月 + W09 使用小时" % (
-            ec2 + ebs + ipv4 + (s3 or 0)),
+        "  公网 IPv4 ×2(两台): $%.1f" % ipv4,
+        "  —— 合计 ≈ $%.0f/月" % (ec2 + w09 + ebs + ipv4 + (s3 or 0)),
     ]
     return "\n".join(parts)
 
