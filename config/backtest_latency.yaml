@@ -16,4 +16,4 @@
 
 processing_chain_p99_us: 2000     # UNMEASURED_CONSERVATIVE: decode+apply measured ~282ns/msg, full chain unmeasured; 2ms deliberate headroom
 signing_p99_us: 500               # MEASURED 2026-07-16: RSA-PSS sign_request p99 452.8us n=10000 prod-2048 key (LATENCY_FACTS §1), rounded up
-signed_post_rtt_p99_us: 91000     # UNMEASURED_CONSERVATIVE: Tier 2a auth-GET worst-endpoint p99 72.5ms x 1.25 order-processing margin (LATENCY_FACTS §4); Mac point kept until deploy box measured; replaces optimistic 60ms placeholder
+signed_post_rtt_p99_us: 91000     # UNMEASURED_CONSERVATIVE: Tier 2a pooled worst-endpoint p99 72.5ms (w1-w3, booking time) x 1.25 margin (LATENCY_FACTS §4, pooled quantile + upward-only ratchet; w1-w4 pooled 60.8ms known, NOT auto-lowered); Mac point kept until deploy box measured; replaces optimistic 60ms placeholder

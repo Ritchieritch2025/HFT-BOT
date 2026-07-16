@@ -78,15 +78,17 @@
 <circle cx="714" cy="340" r="4" fill="#2563eb"/>
 <circle cx="732" cy="340" r="4" fill="#f59e0b"/>
 <circle cx="744" cy="340" r="4" fill="#dc2626"/>
-<text x="445" y="380" font-weight="bold">ALL-mac status</text>
-<line x1="699" y1="376" x2="738" y2="376" stroke="#2563eb" stroke-width="3"/>
+<text x="445" y="380" font-weight="bold">ALL w1-4 status</text>
+<line x1="699" y1="376" x2="775" y2="376" stroke="#2563eb" stroke-width="3"/>
 <circle cx="699" cy="376" r="4" fill="#2563eb"/>
-<circle cx="713" cy="376" r="4" fill="#f59e0b"/>
+<circle cx="714" cy="376" r="4" fill="#f59e0b"/>
+<circle cx="775" cy="376" r="4" fill="#dc2626"/>
 <circle cx="738" cy="376" r="4" fill="#dc2626"/>
-<text x="445" y="416" font-weight="bold">ALL-mac markets</text>
-<line x1="715" y1="412" x2="850" y2="412" stroke="#2563eb" stroke-width="3"/>
+<text x="445" y="416" font-weight="bold">ALL w1-4 markets</text>
+<line x1="715" y1="412" x2="803" y2="412" stroke="#2563eb" stroke-width="3"/>
 <circle cx="715" cy="412" r="4" fill="#2563eb"/>
 <circle cx="732" cy="412" r="4" fill="#f59e0b"/>
+<circle cx="803" cy="412" r="4" fill="#dc2626"/>
 <circle cx="850" cy="412" r="4" fill="#dc2626"/>
 <text x="445" y="452" font-weight="bold">W09 status</text>
 <line x1="585" y1="448" x2="598" y2="448" stroke="#059669" stroke-width="3"/>
