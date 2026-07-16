@@ -214,10 +214,44 @@ RATE_S3_GB_MO = 0.023
 W09_MTD_HOURS = 12.1
 
 
+def _bill_mtd():
+    """真实账单(Cost Explorer,月初至今,按服务)。需 ce:GetCostAndUsage;
+    无权限/失败返回 None,cmd_cost 自动降级为费率估算。"""
+    try:
+        first = datetime.datetime.now(datetime.timezone.utc).date().replace(day=1)
+        tomorrow = (datetime.datetime.now(datetime.timezone.utc).date()
+                    + datetime.timedelta(days=1))
+        out = subprocess.run(
+            ["bash", "-lc",
+             ". ~/.kalshi/env.sh 2>/dev/null; aws ce get-cost-and-usage "
+             "--time-period Start=%s,End=%s --granularity MONTHLY "
+             "--metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE "
+             "--output json 2>/dev/null" % (first, tomorrow)],
+            capture_output=True, text=True, timeout=45)
+        data = json.loads(out.stdout)
+        groups = data["ResultsByTime"][0]["Groups"]
+        items = sorted(
+            ((g["Keys"][0], float(g["Metrics"]["UnblendedCost"]["Amount"]))
+             for g in groups), key=lambda kv: -kv[1])
+        total = sum(v for _, v in items)
+        lines = ["真实账单(AWS Cost Explorer,%s 起至今): $%.2f"
+                 % (first, total)]
+        for name, v in items[:5]:
+            if v >= 0.01:
+                lines.append("  %s: $%.2f" % (name.replace("Amazon ", ""), v))
+        return "\n".join(lines)
+    except Exception:
+        return None
+
+
 def cmd_cost():
-    """月费用估算 — 两台 EC2 全科目(操作员更正 2026-07-16 ×2:
-    ①旧版只算 research/ 前缀,低估两个数量级;②费率须有官方出处,
-    已改为 AWS Price List API 核验值;W09 补充本月实际使用小时台账。"""
+    """月费用 — 优先真实账单(CE),无权限时降级为官方费率估算。
+    (操作员更正 2026-07-16 ×2:①旧版只算 research/ 前缀,低估两个
+    数量级;②费率须有官方出处,已改为 AWS Price List API 核验值;
+    W09 补充本月实际使用小时台账。)"""
+    bill = _bill_mtd()
+    if bill:
+        return bill
     ec2 = RATE_R8G_2XL_H * 730              # 生产 r8g.2xlarge,24/7
     ebs = (600 + 300) * RATE_GP3_GB_MO      # 生产 600GB + W09 300GB,gp3
     ipv4 = 2 * RATE_IPV4_H * 730            # 生产 + W09 各一个公网 IPv4
