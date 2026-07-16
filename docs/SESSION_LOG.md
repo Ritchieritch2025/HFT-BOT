@@ -6,6 +6,39 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-16 18:00 UTC — W-TELEGRAM-01 执行完毕:Telegram 监控台(只报不控)上线
+
+- **一行裁决:✅ 实现+部署完成,三样验收系统侧全发出,待操作员手机确认。**
+- commits:`20d58cf`(全组件 + 上线记录);另本条目 commit。此前同源已建
+  `9dade05`/`76e5d25`(status_bot + balance_probe 基础)。
+- decisions(均落文件):完整上线记录 + 待办 + 遗留决定见
+  `docs/PLAN_TELEGRAM_MONITOR_2026-07-16.md` 文末"上线记录"节。
+- context capsule:
+  - 生产 EC2 新增独立 systemd:kalshi-tg-alert.timer(60s 三级报警)、
+    kalshi-tg-daily.timer(12:00 UTC 日报)、kalshi-tg-intel.timer(日情报)、
+    kalshi-status-bot.service(交互查询长轮询)。**零触碰采集/入库/导出**;
+    部署前/中/后 capture 三检均 ok、ingest pid 568840 不变。
+  - 只报不控铁律:bot 无任何写命令;余额只读 GET /portfolio/balance
+    (balance_probe openssl 自签名,不 import live_order);报警进程与管道
+    路径零共享,发送失败重试+落 work/live/monitor/telegram.log,永不 raise。
+  - 阈值全在 deploy/telegram_monitor.conf;§4-bis 认知健康只预埋
+    COGNITIVE_HEALTH_ACTIVE=0 不激活。
+  - 情报两路实测可达:changelog HTTP200(快照 baseline 1537 行已存),
+    announcements 需浏览器 UA(裸请求 403),关键词命中 "New Customer
+    Protection Measures" 已推信息级。
+  - 凭据:TELEGRAM_BOT_TOKEN/CHAT_ID 已在生产盒子 env.sh(600,不回显);
+    **Mac 侧 watchdog 凭据按铁律②待操作员亲写**(分类器正确拦了我写 Mac 凭据)。
+    chat 白名单=7250788877(@ritch404);bot=@PrintMsBot。token 曾在聊天
+    出现,操作员可 @BotFather /revoke 换新。
+  - 余额实测 $24.03→$33.84(操作员手动交易变动,已从记忆清除余额数字,
+    改为"实时查 /balance 不入记忆")。
+- blocked / handoff:
+  1. 操作员手机确认收到 gap 黄报+日报+四命令回包(验收人侧三样)。
+  2. Mac watchdog 激活:两行凭据写 Mac env.sh + launchctl load plist。
+  3. 遗留决定:停不停旧 kalshi-alert.timer(与新引擎双推)。
+  4. mirror 本条目后同步。
+
+
 ## 2026-07-16 17:35 UTC — W-LAT-BENCH-01 完成:Tier 1/2a/3 实测落档 LATENCY_FACTS,Tier 2b 维持 BLOCKED
 
 - commits: (本条目所在提交) W-LAT-BENCH-01 全部产物,单提交。
