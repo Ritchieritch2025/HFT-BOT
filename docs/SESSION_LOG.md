@@ -6,6 +6,33 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-17 13:29 UTC — zero-copy canonical path verified and durable receipt published
+
+- code/evidence base: `4ed311c` on isolated branch
+  `w-pub-ref-01b-v3-dual-consumer`; production main checkout remained
+  untouched. Operator adjudicated the existing production credential as
+  authorized for continued bounded use and confirmed W09 remains at
+  `18.226.151.192` but is stopped.
+- production result: stable auxiliary set `ada72c93d...`; four small controls
+  verified with zero large-data upload; five stale catalog objects updated
+  under an exact allowlist and no-delete rule; metadata shadow PASS 577/577,
+  61,212,551,314 bytes, 337 research candidates, zero failures/writes/tags/
+  prune changes.
+- durable result: all 577 exact VersionIds passed full SHA-256; 22m38s,
+  maximum RSS 132,764 KiB, swap 0. One 823,320-byte immutable receipt was
+  written at VersionId `U19yyf4MDY790MK5mlndQ5IrOB8KDxbk`; receipt set
+  `763dfaa04f226d5e25aa3564629f3f7e7fd2d23b902d9f8bf3a37aa6d52a00d2`.
+  No data was copied into a research bucket. RFQ objects=0 and the RFQ family
+  remains `NOT_APPLICABLE / RFQ_BRANCH_CLOSED_NO_REPAIR`.
+- shutdown checks: verification temp empty, owned REST/catalog pause cleared,
+  `kalshi-pipeline` and `kalshi-rfq-capture` active.
+- blocked/handoff: current `vaultWriter` cannot read/write exact-version tags;
+  no installed tagger role/profile/instance profile exists and policy
+  artifacts remain draft. Next: provision/audit the single-writer tagger,
+  pass exact-version tag gates, publish v3 manifest, start unchanged-address
+  W09, then run the strict consumer canary. Do not bypass tagging; do not
+  repair or compute RFQ.
+
 ## 2026-07-17 04:47 UTC — v3 zero-copy large-correction path bounded and re-audited
 
 - commits: `7b21b36` (zero-copy base) + `(this commit)` (large correction
