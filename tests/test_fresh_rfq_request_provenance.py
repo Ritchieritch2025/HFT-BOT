@@ -576,3 +576,20 @@ def test_validator_binds_original_exact_bodies_and_all_control_shas() -> None:
         wrong = copy.deepcopy(inputs)
         wrong[field] = "d" * 64
         _assert_code("PROVENANCE_REBUILD_MISMATCH", _validate, result, wrong)
+
+
+def test_builder_derives_exact_bodies_once(monkeypatch) -> None:
+    inputs = _inputs(_happy_rows())
+    original = provenance._derive_request_provenance
+    calls = 0
+
+    def counted(**kwargs):
+        nonlocal calls
+        calls += 1
+        return original(**kwargs)
+
+    monkeypatch.setattr(provenance, "_derive_request_provenance", counted)
+    result = provenance.build_request_provenance(**inputs)
+
+    assert calls == 1
+    assert result["all_object_bytes_parsed"] is True

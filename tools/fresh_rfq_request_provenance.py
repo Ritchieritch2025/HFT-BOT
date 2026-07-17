@@ -765,16 +765,7 @@ def build_request_provenance(
     exact_analysis_rfq_objects: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build one body-free receipt from the complete bound analysis objects."""
-    result = _derive_request_provenance(
-        analysis_date=analysis_date,
-        authority_sha256=authority_sha256,
-        source_evidence_sha256=source_evidence_sha256,
-        time_contract_sha256=time_contract_sha256,
-        analysis_rfq_objects=analysis_rfq_objects,
-        exact_analysis_rfq_objects=exact_analysis_rfq_objects,
-    )
-    return validate_request_provenance(
-        result,
+    return _derive_request_provenance(
         analysis_date=analysis_date,
         authority_sha256=authority_sha256,
         source_evidence_sha256=source_evidence_sha256,
