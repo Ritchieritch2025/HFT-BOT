@@ -6,7 +6,9 @@ import copy
 from contextlib import contextmanager
 import datetime as dt
 import hashlib
+import io
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -262,6 +264,27 @@ def _contains_bytes(value) -> bool:
     if isinstance(value, list):
         return any(_contains_bytes(item) for item in value)
     return False
+
+
+def _accumulator(inputs: dict) -> provenance.RequestProvenanceAccumulator:
+    return provenance.prepare_request_provenance_accumulator(
+        analysis_date=inputs["analysis_date"],
+        authority_sha256=inputs["authority_sha256"],
+        time_contract_sha256=inputs["time_contract_sha256"],
+        analysis_rfq_objects=copy.deepcopy(inputs["analysis_rfq_objects"]),
+        exact_analysis_rfq_objects=[
+            {key: copy.deepcopy(value) for key, value in row.items()
+             if key != "body"}
+            for row in inputs["exact_analysis_rfq_objects"]
+        ],
+    )
+
+
+def _bodies_by_key(inputs: dict) -> dict[str, bytes]:
+    return {
+        row["key"]: row["body"]
+        for row in inputs["exact_analysis_rfq_objects"]
+    }
 
 
 def test_all_objects_bytes_rows_requests_and_exact_duplicates_are_conserved() -> None:
@@ -638,6 +661,239 @@ def test_builder_derives_exact_bodies_once(monkeypatch) -> None:
 
     assert calls == 1
     assert result["all_object_bytes_parsed"] is True
+
+
+def test_accumulator_delays_source_binding_and_matches_legacy_output() -> None:
+    inputs = _inputs(_happy_rows())
+    expected = provenance.build_request_provenance(**inputs)
+    bodies = _bodies_by_key(inputs)
+    prepared_inputs = copy.deepcopy(inputs)
+    prepared_inputs["exact_analysis_rfq_objects"].reverse()
+    accumulator = _accumulator(prepared_inputs)
+
+    expected_order = [
+        f"ec2/raw/date={DATE}/rfq_{hour:02d}.ndjson"
+        for hour in range(24)
+    ]
+    assert [row["key"] for row in accumulator.expected_objects] == expected_order
+    for identity in accumulator.expected_objects:
+        stream = io.BytesIO(bodies[identity["key"]])
+        # Model the source-evidence verifier having already scanned this same
+        # open stream. The accumulator must rewind it without taking ownership.
+        assert stream.read() == bodies[identity["key"]]
+        accumulator.consume_stream(identity, stream)
+        assert stream.closed is False
+
+    result = accumulator.finalize(
+        source_evidence_sha256=SOURCE_EVIDENCE_SHA,
+    )
+    assert result == expected
+    assert result["source_evidence_sha256"] == SOURCE_EVIDENCE_SHA
+    assert result["source_objects_exact_get_verified"] is False
+    assert result["research_ready"] is False
+    _assert_code(
+        "ACCUMULATOR_FINALIZED",
+        accumulator.finalize,
+        source_evidence_sha256=SOURCE_EVIDENCE_SHA,
+    )
+
+
+def test_accumulator_preflight_rejects_incomplete_set_before_stream_use() -> None:
+    inputs = _inputs()
+    exact = [
+        {key: copy.deepcopy(value) for key, value in row.items()
+         if key != "body"}
+        for row in inputs["exact_analysis_rfq_objects"]
+    ]
+    exact.pop()
+
+    _assert_code(
+        "OBJECT_SET_MISMATCH",
+        provenance.prepare_request_provenance_accumulator,
+        analysis_date=inputs["analysis_date"],
+        authority_sha256=inputs["authority_sha256"],
+        time_contract_sha256=inputs["time_contract_sha256"],
+        analysis_rfq_objects=inputs["analysis_rfq_objects"],
+        exact_analysis_rfq_objects=exact,
+    )
+
+
+@pytest.mark.parametrize(
+    ("suffix", "expected"),
+    [
+        (str(provenance.MAX_SHARD_ORDINAL + 1), "SHARD_ORDINAL_INVALID"),
+        ("9" * (provenance.MAX_S3_KEY_BYTES + 1), "OBJECT_KEY_INVALID"),
+    ],
+)
+def test_accumulator_preflight_bounds_shard_suffix_before_any_stream(
+    suffix: str, expected: str,
+) -> None:
+    inputs = _inputs()
+    original = inputs["analysis_rfq_objects"][0]["key"]
+    malicious = original + "." + suffix
+    inputs["analysis_rfq_objects"][0]["key"] = malicious
+    exact = [
+        {key: copy.deepcopy(value) for key, value in row.items()
+         if key != "body"}
+        for row in inputs["exact_analysis_rfq_objects"]
+    ]
+    exact[0]["key"] = malicious
+
+    _assert_code(
+        expected,
+        provenance.prepare_request_provenance_accumulator,
+        analysis_date=inputs["analysis_date"],
+        authority_sha256=inputs["authority_sha256"],
+        time_contract_sha256=inputs["time_contract_sha256"],
+        analysis_rfq_objects=inputs["analysis_rfq_objects"],
+        exact_analysis_rfq_objects=exact,
+    )
+
+
+def test_accumulator_wrong_order_is_fail_closed_and_poisoned() -> None:
+    inputs = _inputs()
+    accumulator = _accumulator(inputs)
+    expected = accumulator.expected_objects
+    bodies = _bodies_by_key(inputs)
+
+    _assert_code(
+        "OBJECT_ORDER_MISMATCH",
+        accumulator.consume_stream,
+        expected[1],
+        io.BytesIO(bodies[expected[1]["key"]]),
+    )
+    _assert_code(
+        "ACCUMULATOR_POISONED",
+        accumulator.consume_stream,
+        expected[0],
+        io.BytesIO(bodies[expected[0]["key"]]),
+    )
+
+
+def test_accumulator_duplicate_consume_poison_and_incomplete_finalize() -> None:
+    inputs = _inputs()
+    bodies = _bodies_by_key(inputs)
+
+    duplicate = _accumulator(inputs)
+    first = duplicate.expected_objects[0]
+    duplicate.consume_stream(first, io.BytesIO(bodies[first["key"]]))
+    _assert_code(
+        "DUPLICATE_OBJECT_CONSUME",
+        duplicate.consume_stream,
+        first,
+        io.BytesIO(bodies[first["key"]]),
+    )
+    _assert_code(
+        "ACCUMULATOR_POISONED",
+        duplicate.finalize,
+        source_evidence_sha256=SOURCE_EVIDENCE_SHA,
+    )
+
+    incomplete = _accumulator(inputs)
+    first = incomplete.expected_objects[0]
+    incomplete.consume_stream(first, io.BytesIO(bodies[first["key"]]))
+    _assert_code(
+        "INCOMPLETE_OBJECT_SET",
+        incomplete.finalize,
+        source_evidence_sha256=SOURCE_EVIDENCE_SHA,
+    )
+    _assert_code(
+        "ACCUMULATOR_POISONED",
+        incomplete.consume_stream,
+        incomplete.expected_objects[1],
+        io.BytesIO(bodies[incomplete.expected_objects[1]["key"]]),
+    )
+
+
+def test_accumulator_parser_failure_is_permanent_poison() -> None:
+    inputs = _inputs()
+    bad_body = inputs["exact_analysis_rfq_objects"][0]["body"][:-1]
+    _replace_body(inputs, 0, bad_body, refresh_identity=True)
+    accumulator = _accumulator(inputs)
+    first, second = accumulator.expected_objects[:2]
+    bodies = _bodies_by_key(inputs)
+
+    _assert_code(
+        "UNTERMINATED_LINE",
+        accumulator.consume_stream,
+        first,
+        io.BytesIO(bodies[first["key"]]),
+    )
+    _assert_code(
+        "ACCUMULATOR_POISONED",
+        accumulator.consume_stream,
+        second,
+        io.BytesIO(bodies[second["key"]]),
+    )
+
+
+def test_accumulator_rewinds_same_stream_and_uses_only_bounded_readline() -> None:
+    inputs = _inputs()
+    accumulator = _accumulator(inputs)
+    first = accumulator.expected_objects[0]
+    body = _bodies_by_key(inputs)[first["key"]]
+    seeks = []
+    limits = []
+
+    class GuardedSameStream:
+        def __init__(self, raw: bytes):
+            self.stream = io.BytesIO(raw)
+            self.stream.seek(0, os.SEEK_END)
+            self.closed = False
+
+        def seek(self, offset, whence=os.SEEK_SET):
+            seeks.append((offset, whence))
+            return self.stream.seek(offset, whence)
+
+        def readline(self, limit=-1):
+            assert limit == provenance.MAX_JSON_LINE_BYTES + 1
+            limits.append(limit)
+            return self.stream.readline(limit)
+
+        def read(self, *_args, **_kwargs):
+            raise AssertionError("consume_stream must not make unbounded reads")
+
+    stream = GuardedSameStream(body)
+    accumulator.consume_stream(first, stream)
+
+    assert seeks == [(0, os.SEEK_SET)]
+    assert limits
+    assert stream.closed is False
+
+
+def test_accumulator_stops_as_soon_as_stream_exceeds_declared_size() -> None:
+    inputs = _inputs()
+    accumulator = _accumulator(inputs)
+    first = accumulator.expected_objects[0]
+    body = _bodies_by_key(inputs)[first["key"]]
+
+    class OversizedStream:
+        def __init__(self):
+            self.rows = iter((body, b"extra\n", b"must-not-be-read\n"))
+            self.readline_calls = 0
+
+        def seek(self, offset, whence=os.SEEK_SET):
+            assert (offset, whence) == (0, os.SEEK_SET)
+            return 0
+
+        def readline(self, limit=-1):
+            assert limit == provenance.MAX_JSON_LINE_BYTES + 1
+            self.readline_calls += 1
+            return next(self.rows, b"")
+
+    stream = OversizedStream()
+    _assert_code(
+        "OBJECT_SIZE_MISMATCH",
+        accumulator.consume_stream,
+        first,
+        stream,
+    )
+    assert stream.readline_calls == 2
+    _assert_code(
+        "ACCUMULATOR_POISONED",
+        accumulator.finalize,
+        source_evidence_sha256=SOURCE_EVIDENCE_SHA,
+    )
 
 
 def test_reader_api_matches_bytes_api_and_opens_once_in_natural_order(

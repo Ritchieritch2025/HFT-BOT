@@ -27,7 +27,7 @@ import hashlib
 import json
 import os
 import re
-from typing import Any, Callable, Iterator
+from typing import Any, BinaryIO, Callable, Iterable, Iterator
 
 
 SCHEMA = "fresh-rfq-request-provenance-v1"
@@ -35,6 +35,8 @@ STATE = "ALL_BOUND_ANALYSIS_OBJECT_BYTES_PARSED_UNPUBLISHED"
 VERIFICATION_STATE = "IDENTITY_SIZE_SHA_AND_ALL_PHYSICAL_ROWS_REBUILT"
 SOURCE_BUCKET = "kalshi-vault-ritcardo"
 MAX_JSON_LINE_BYTES = 16 << 20
+MAX_S3_KEY_BYTES = 1024
+MAX_SHARD_ORDINAL = 1_000_000
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -246,13 +248,33 @@ def _parse_capture_key(key: Any, analysis_date: str,
                        label: str) -> tuple[str, int]:
     if not isinstance(key, str) or key.startswith("/") or "\\" in key:
         _fail("OBJECT_KEY_INVALID", f"{label} is not a safe source key")
+    try:
+        key_bytes = key.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        _fail("OBJECT_KEY_INVALID", f"{label} is not valid UTF-8")
+    if len(key_bytes) > MAX_S3_KEY_BYTES:
+        _fail("OBJECT_KEY_INVALID", f"{label} exceeds the S3 key byte limit")
     match = CAPTURE_KEY_RE.fullmatch(key)
     if match is None:
         _fail("OBJECT_KEY_INVALID", f"{label} is not an RFQ capture key")
     if match.group(1) != analysis_date:
         _fail("OBJECT_DATE_MISMATCH", f"{label} is outside analysis date D")
     hour = f"{match.group(1)}T{match.group(2)}"
-    ordinal = 0 if match.group(3) is None else int(match.group(3))
+    ordinal_text = match.group(3)
+    if ordinal_text is None:
+        ordinal = 0
+    else:
+        # Check decimal width before conversion.  This keeps maliciously long
+        # suffixes out of Python's super-linear arbitrary-precision parser and
+        # gives every supported runtime the same stable error contract.
+        if len(ordinal_text) > len(str(MAX_SHARD_ORDINAL)):
+            _fail("SHARD_ORDINAL_INVALID", f"{label} ordinal is too large")
+        try:
+            ordinal = int(ordinal_text)
+        except ValueError as exc:
+            _fail("SHARD_ORDINAL_INVALID", f"{label} ordinal: {exc}")
+        if ordinal > MAX_SHARD_ORDINAL:
+            _fail("SHARD_ORDINAL_INVALID", f"{label} ordinal is too large")
     return hour, ordinal
 
 
@@ -617,40 +639,229 @@ def _counts_list(counts: dict[str, int], key_name: str) -> list[dict[str, Any]]:
     ]
 
 
-def _derive_request_provenance_from_line_sources(
-    *,
-    date_text: str,
-    authority_sha: str,
-    source_evidence_sha: str,
-    time_contract_sha: str,
-    identities: list[dict[str, Any]],
-    path_parts: dict[str, tuple[str, int]],
-    line_source: Callable[[dict[str, Any]], Any],
-) -> dict[str, Any]:
-    """Build the stable receipt while retaining no physical-line ledger."""
-    natural_identities = sorted(
-        identities,
-        key=lambda row: (
-            path_parts[row["key"]][0], path_parts[row["key"]][1], row["key"],
-        ),
-    )
-    physical_line_digest = _CanonicalListSha256()
-    object_coverage: list[dict[str, Any]] = []
-    marker_counts: dict[str, int] = {}
-    irrelevant_counts: dict[str, int] = {}
-    # These ledgers are part of the published schema and remain proportional
-    # to RFQ event volume. Removing them requires a separately versioned schema.
-    rfq_occurrences: list[dict[str, Any]] = []
-    duplicate_ledger: list[dict[str, Any]] = []
-    primary_by_id: dict[str, dict[str, Any]] = {}
+class RequestProvenanceAccumulator:
+    """Consume one preflighted analysis capture set exactly once.
 
-    for identity in natural_identities:
-        key = identity["key"]
-        expected_hour, _ordinal = path_parts[key]
-        offset = 0
-        line_number = 0
-        object_line_digest = _CanonicalListSha256()
-        with line_source(identity) as physical_lines:
+    The accumulator never retains an input object body.  ``consume_stream``
+    rewinds and scans one caller-owned binary stream with bounded ``readline``
+    calls, and it does not close that stream.  The caller may therefore use it
+    while an ``ExactReadSession.open_exact`` context is already active.
+
+    This is deliberately only a *body-byte* memory bound.  The published v1
+    schema requires materialized request, occurrence, and duplicate ledgers,
+    so accumulator state remains proportional to RFQ event volume.  A fully
+    bounded implementation requires a separately versioned, disk-spooled
+    receipt contract.
+    """
+
+    def __init__(
+        self,
+        *,
+        analysis_date: Any,
+        authority_sha256: Any,
+        time_contract_sha256: Any,
+        analysis_rfq_objects: Any,
+        exact_analysis_rfq_objects: Any,
+    ) -> None:
+        date_text = _date(analysis_date)
+        authority_sha = _sha256(authority_sha256, "authority_sha256")
+        time_contract_sha = _sha256(
+            time_contract_sha256, "time_contract_sha256",
+        )
+        identities, path_parts = _normalize_overlay_identities(
+            analysis_rfq_objects, date_text,
+        )
+        # The complete body-free set is checked before any stream can be
+        # consumed.  This is the public preflight boundary used by a future
+        # single-session source/request runner.
+        exact_objects = _normalize_exact_reader_objects(
+            exact_analysis_rfq_objects, identities, date_text,
+        )
+        self._initialize_normalized(
+            date_text=date_text,
+            authority_sha=authority_sha,
+            time_contract_sha=time_contract_sha,
+            identities=identities,
+            path_parts=path_parts,
+            exact_objects=exact_objects,
+        )
+
+    @classmethod
+    def _from_normalized(
+        cls,
+        *,
+        date_text: str,
+        authority_sha: str,
+        time_contract_sha: str,
+        identities: list[dict[str, Any]],
+        path_parts: dict[str, tuple[str, int]],
+    ) -> "RequestProvenanceAccumulator":
+        instance = cls.__new__(cls)
+        exact_objects = {
+            row["key"]: {"bucket": SOURCE_BUCKET, **copy.deepcopy(row)}
+            for row in identities
+        }
+        instance._initialize_normalized(
+            date_text=date_text,
+            authority_sha=authority_sha,
+            time_contract_sha=time_contract_sha,
+            identities=identities,
+            path_parts=path_parts,
+            exact_objects=exact_objects,
+        )
+        return instance
+
+    def _initialize_normalized(
+        self,
+        *,
+        date_text: str,
+        authority_sha: str,
+        time_contract_sha: str,
+        identities: list[dict[str, Any]],
+        path_parts: dict[str, tuple[str, int]],
+        exact_objects: dict[str, dict[str, Any]],
+    ) -> None:
+        self._date_text = date_text
+        self._authority_sha = authority_sha
+        self._time_contract_sha = time_contract_sha
+        self._identities = copy.deepcopy(identities)
+        self._path_parts = copy.deepcopy(path_parts)
+        self._exact_objects = copy.deepcopy(exact_objects)
+        self._natural_identities = sorted(
+            self._identities,
+            key=lambda row: (
+                self._path_parts[row["key"]][0],
+                self._path_parts[row["key"]][1],
+                row["key"],
+            ),
+        )
+        self._next_index = 0
+        self._consumed_keys: set[str] = set()
+        self._poisoned: tuple[str, str] | None = None
+        self._finalized = False
+
+        self._physical_line_digest = _CanonicalListSha256()
+        self._object_coverage: list[dict[str, Any]] = []
+        self._marker_counts: dict[str, int] = {}
+        self._irrelevant_counts: dict[str, int] = {}
+        # These collections are required by the v1 output schema and are
+        # intentionally documented as event-proportional, not fully bounded.
+        self._rfq_occurrences: list[dict[str, Any]] = []
+        self._duplicate_ledger: list[dict[str, Any]] = []
+        self._primary_by_id: dict[str, dict[str, Any]] = {}
+
+    @property
+    def expected_objects(self) -> list[dict[str, Any]]:
+        """Return the natural-order, body-free exact set for stream callers."""
+        return [
+            copy.deepcopy(self._exact_objects[row["key"]])
+            for row in self._natural_identities
+        ]
+
+    @property
+    def analysis_rfq_objects(self) -> list[dict[str, Any]]:
+        """Return the canonical overlay projection bound at preflight."""
+        return copy.deepcopy(self._identities)
+
+    def _remember_failure(self, exc: BaseException) -> None:
+        if self._poisoned is not None:
+            return
+        if isinstance(exc, FreshRfqRequestProvenanceError):
+            self._poisoned = (exc.code, exc.detail)
+        else:
+            self._poisoned = (
+                "ACCUMULATOR_CONSUMER_FAILED", exc.__class__.__name__,
+            )
+
+    def _require_active(self) -> None:
+        if self._finalized:
+            _fail("ACCUMULATOR_FINALIZED", "request accumulator is single-use")
+        if self._poisoned is not None:
+            code, detail = self._poisoned
+            _fail("ACCUMULATOR_POISONED", f"{code}: {detail}")
+
+    def _expected_for_consume(
+        self, identity: dict[str, Any], *, exact_identity: bool,
+    ) -> dict[str, Any]:
+        if exact_identity:
+            row = _exact_keys(
+                identity, EXACT_READER_OBJECT_FIELDS,
+                "consume_stream.identity",
+            )
+            if row["bucket"] != SOURCE_BUCKET:
+                _fail(
+                    "OBJECT_BUCKET_MISMATCH",
+                    "consume_stream.identity.bucket is not fixed source",
+                )
+            key = row["key"]
+            _parse_capture_key(
+                key, self._date_text, "consume_stream.identity.key",
+            )
+            normalized = {
+                "bucket": SOURCE_BUCKET,
+                "key": key,
+                "version_id": _version(
+                    row["version_id"],
+                    "consume_stream.identity.version_id",
+                ),
+                "size": _integer(
+                    row["size"], "consume_stream.identity.size", minimum=1,
+                ),
+                "sha256": _sha256(
+                    row["sha256"], "consume_stream.identity.sha256",
+                ),
+            }
+            supplied_key = normalized["key"]
+            expected_exact = self._exact_objects.get(supplied_key)
+            if expected_exact is None:
+                _fail(
+                    "UNEXPECTED_OBJECT",
+                    f"capture is outside the preflighted set: {supplied_key}",
+                )
+            if not _canonical_exact_equal(normalized, expected_exact):
+                _fail(
+                    "OBJECT_IDENTITY_MISMATCH",
+                    f"exact identity differs for {supplied_key}",
+                )
+        else:
+            supplied_key = identity["key"]
+
+        if supplied_key in self._consumed_keys:
+            _fail(
+                "DUPLICATE_OBJECT_CONSUME",
+                f"capture was already consumed: {supplied_key}",
+            )
+        if self._next_index >= len(self._natural_identities):
+            _fail(
+                "UNEXPECTED_OBJECT",
+                f"capture is outside the remaining set: {supplied_key}",
+            )
+        expected = self._natural_identities[self._next_index]
+        if supplied_key != expected["key"]:
+            _fail(
+                "OBJECT_ORDER_MISMATCH",
+                f"expected {expected['key']} before {supplied_key}",
+            )
+        return expected
+
+    def _consume_physical_lines(
+        self,
+        identity: dict[str, Any],
+        physical_lines: Iterable[bytes],
+        *,
+        exact_identity: bool,
+    ) -> None:
+        self._require_active()
+        try:
+            expected = self._expected_for_consume(
+                identity, exact_identity=exact_identity,
+            )
+            key = expected["key"]
+            expected_hour, _ordinal = self._path_parts[key]
+            offset = 0
+            line_number = 0
+            object_line_digest = _CanonicalListSha256()
+
             for physical in physical_lines:
                 if type(physical) is not bytes:
                     _fail("READER_PROTOCOL", f"{key} yielded a non-bytes row")
@@ -658,6 +869,11 @@ def _derive_request_provenance_from_line_sources(
                 label = f"{key} line {line_number}"
                 if len(physical) > MAX_JSON_LINE_BYTES:
                     _fail("LINE_TOO_LARGE", f"{label} exceeds limit")
+                if offset + len(physical) > expected["size"]:
+                    _fail(
+                        "BYTE_COVERAGE_MISMATCH",
+                        f"{key} byte cursor exceeds declared size",
+                    )
                 if not physical.endswith(b"\n"):
                     _fail("UNTERMINATED_LINE", f"{key} final row has no LF")
                 payload = physical[:-1]
@@ -678,33 +894,32 @@ def _derive_request_provenance_from_line_sources(
                 if "marker" in outer:
                     classification = "MARKER"
                     record_type = outer["marker"]
-                    _count_rows(marker_counts, record_type)
+                    _count_rows(self._marker_counts, record_type)
                 else:
                     frame = _parse_inner_frame(outer, label)
                     record_type = frame["type"]
                     if record_type != "rfq_created":
                         classification = "IRRELEVANT_FRAME"
-                        _count_rows(irrelevant_counts, record_type)
+                        _count_rows(self._irrelevant_counts, record_type)
                     else:
-                        request = _project_rfq_created(frame, date_text, label)
+                        request = _project_rfq_created(
+                            frame, self._date_text, label,
+                        )
                         raw_bytes = outer["raw"].encode("utf-8")
                         raw_sha = hashlib.sha256(raw_bytes).hexdigest()
                         request_sha = canonical_sha256(request)
                         locator = {
                             "object_key": key,
-                            "version_id": identity["version_id"],
+                            "version_id": expected["version_id"],
                             "line_number": line_number,
                         }
-                        previous = primary_by_id.get(request["request_id"])
+                        previous = self._primary_by_id.get(
+                            request["request_id"],
+                        )
                         if previous is None:
                             classification = "RFQ_CREATED_PRIMARY"
                             primary = locator
-                            primary_by_id[request["request_id"]] = {
-                                # Retaining every raw frame made resident memory
-                                # proportional to almost all RFQ input bytes.  A
-                                # full SHA-256 is already the system's immutable
-                                # byte identity, so keep only that fixed-size
-                                # collision key plus the projected request.
+                            self._primary_by_id[request["request_id"]] = {
                                 "raw_sha256": raw_sha,
                                 "request": request,
                                 "locator": locator,
@@ -712,7 +927,8 @@ def _derive_request_provenance_from_line_sources(
                             occurrence_kind = "PRIMARY"
                         elif previous["raw_sha256"] == raw_sha:
                             if not _canonical_exact_equal(
-                                    previous["request"], request):
+                                previous["request"], request,
+                            ):
                                 _fail(
                                     "RFQ_ID_COLLISION",
                                     f"{label} exact raw rebuilt a different request",
@@ -735,13 +951,15 @@ def _derive_request_provenance_from_line_sources(
                             "primary_version_id": primary["version_id"],
                             "primary_line_number": primary["line_number"],
                         }
-                        rfq_occurrences.append(occurrence)
+                        self._rfq_occurrences.append(occurrence)
                         if occurrence_kind == "EXACT_RAW_DUPLICATE":
-                            duplicate_ledger.append(copy.deepcopy(occurrence))
+                            self._duplicate_ledger.append(
+                                copy.deepcopy(occurrence),
+                            )
 
                 ledger_row = {
                     "object_key": key,
-                    "version_id": identity["version_id"],
+                    "version_id": expected["version_id"],
                     "line_number": line_number,
                     "byte_offset": offset,
                     "byte_length": len(physical),
@@ -749,83 +967,273 @@ def _derive_request_provenance_from_line_sources(
                     "classification": classification,
                     "record_type": record_type,
                 }
-                physical_line_digest.add(ledger_row)
+                self._physical_line_digest.add(ledger_row)
                 object_line_digest.add(ledger_row)
                 offset += len(physical)
-        if offset != identity["size"]:
-            _fail("BYTE_COVERAGE_MISMATCH", f"{key} byte cursor differs from size")
-        object_coverage.append({
-            **identity,
-            "physical_line_count": line_number,
-            "parsed_bytes": offset,
-            "line_ledger_sha256": object_line_digest.hexdigest(),
-        })
 
-    requests = sorted(
-        (row["request"] for row in primary_by_id.values()),
-        key=lambda row: row["request_id"],
+            if offset != expected["size"]:
+                _fail(
+                    "BYTE_COVERAGE_MISMATCH",
+                    f"{key} byte cursor differs from size",
+                )
+            self._object_coverage.append({
+                **expected,
+                "physical_line_count": line_number,
+                "parsed_bytes": offset,
+                "line_ledger_sha256": object_line_digest.hexdigest(),
+            })
+            self._consumed_keys.add(key)
+            self._next_index += 1
+        except BaseException as exc:
+            self._remember_failure(exc)
+            raise
+
+    def consume_stream(
+        self, identity: dict[str, Any], stream: BinaryIO,
+    ) -> None:
+        """Rewind and consume one caller-owned verified binary stream.
+
+        The stream remains open.  Reads are limited to
+        ``MAX_JSON_LINE_BYTES + 1`` and stop immediately if the observed byte
+        cursor would exceed the preflighted object size.
+        """
+        self._require_active()
+        try:
+            expected = self._expected_for_consume(
+                identity, exact_identity=True,
+            )
+            if not callable(getattr(stream, "seek", None)) or not callable(
+                getattr(stream, "readline", None),
+            ):
+                _fail(
+                    "READER_PROTOCOL",
+                    "consume_stream requires a seekable binary stream",
+                )
+            try:
+                position = stream.seek(0, os.SEEK_SET)
+            except Exception as exc:
+                _fail("READER_IO", f"cannot rewind {expected['key']}: {exc}")
+            if position not in (None, 0):
+                _fail(
+                    "READER_PROTOCOL",
+                    f"rewind did not reach byte zero for {expected['key']}",
+                )
+
+            digest = hashlib.sha256()
+            total = 0
+            stream_completed_and_verified = False
+
+            def rows() -> Iterator[bytes]:
+                nonlocal total, stream_completed_and_verified
+                while True:
+                    try:
+                        physical = stream.readline(MAX_JSON_LINE_BYTES + 1)
+                    except Exception as exc:
+                        _fail(
+                            "READER_IO",
+                            f"cannot read exact body for {expected['key']}: {exc}",
+                        )
+                    if not physical:
+                        break
+                    if type(physical) is not bytes:
+                        _fail(
+                            "READER_PROTOCOL",
+                            f"{expected['key']} yielded a non-bytes row",
+                        )
+                    total += len(physical)
+                    if total > expected["size"]:
+                        _fail(
+                            "OBJECT_SIZE_MISMATCH",
+                            f"body is oversized for {expected['key']}",
+                        )
+                    digest.update(physical)
+                    yield physical
+                if total != expected["size"]:
+                    _fail(
+                        "OBJECT_SIZE_MISMATCH",
+                        f"body size differs for {expected['key']}",
+                    )
+                if digest.hexdigest() != expected["sha256"]:
+                    _fail(
+                        "OBJECT_SHA_MISMATCH",
+                        f"body SHA-256 differs for {expected['key']}",
+                    )
+                stream_completed_and_verified = True
+
+            self._consume_physical_lines(
+                expected, rows(), exact_identity=False,
+            )
+            if not stream_completed_and_verified:
+                _fail(
+                    "READER_VERIFICATION_INCOMPLETE",
+                    f"exact body was not fully verified for {expected['key']}",
+                )
+        except BaseException as exc:
+            self._remember_failure(exc)
+            raise
+
+    def finalize(self, *, source_evidence_sha256: Any) -> dict[str, Any]:
+        """Inject the final source-evidence digest and seal the v1 receipt."""
+        self._require_active()
+        try:
+            source_evidence_sha = _sha256(
+                source_evidence_sha256, "source_evidence_sha256",
+            )
+            if self._next_index != len(self._natural_identities):
+                missing = [
+                    row["key"] for row in
+                    self._natural_identities[self._next_index:]
+                ]
+                _fail(
+                    "INCOMPLETE_OBJECT_SET",
+                    f"not every preflighted capture was consumed: {missing}",
+                )
+
+            requests = sorted(
+                (row["request"] for row in self._primary_by_id.values()),
+                key=lambda row: row["request_id"],
+            )
+            marker_type_counts = _counts_list(self._marker_counts, "marker")
+            irrelevant_type_counts = _counts_list(
+                self._irrelevant_counts, "frame_type",
+            )
+            marker_row_count = sum(self._marker_counts.values())
+            irrelevant_row_count = sum(self._irrelevant_counts.values())
+            occurrence_count = len(self._rfq_occurrences)
+            unique_count = len(requests)
+            duplicate_count = len(self._duplicate_ledger)
+            physical_count = self._physical_line_digest.count
+            if physical_count != (
+                marker_row_count + irrelevant_row_count + occurrence_count
+            ):
+                _fail(
+                    "CLASSIFICATION_CONSERVATION",
+                    "not every physical row was classified",
+                )
+            if occurrence_count != unique_count + duplicate_count:
+                _fail(
+                    "RFQ_OCCURRENCE_CONSERVATION",
+                    "RFQ occurrence counts do not conserve",
+                )
+
+            result = {
+                "schema": SCHEMA,
+                "state": STATE,
+                "verification_state": VERIFICATION_STATE,
+                "source_bucket": SOURCE_BUCKET,
+                "analysis_date": self._date_text,
+                "authority_sha256": self._authority_sha,
+                "source_evidence_sha256": source_evidence_sha,
+                "time_contract_sha256": self._time_contract_sha,
+                "analysis_rfq_objects": copy.deepcopy(self._identities),
+                "analysis_rfq_object_set_sha256": canonical_sha256(
+                    self._identities,
+                ),
+                "analysis_rfq_object_count": len(self._identities),
+                "analysis_rfq_total_bytes": sum(
+                    row["size"] for row in self._identities
+                ),
+                "object_coverage": copy.deepcopy(self._object_coverage),
+                "object_coverage_sha256": canonical_sha256(
+                    self._object_coverage,
+                ),
+                "physical_line_count": physical_count,
+                "physical_line_ledger_sha256": (
+                    self._physical_line_digest.hexdigest()
+                ),
+                "marker_row_count": marker_row_count,
+                "marker_type_counts": marker_type_counts,
+                "marker_type_counts_sha256": canonical_sha256(
+                    marker_type_counts,
+                ),
+                "irrelevant_frame_row_count": irrelevant_row_count,
+                "irrelevant_type_counts": irrelevant_type_counts,
+                "irrelevant_type_counts_sha256": canonical_sha256(
+                    irrelevant_type_counts,
+                ),
+                "rfq_created_occurrence_count": occurrence_count,
+                "rfq_created_occurrences": copy.deepcopy(
+                    self._rfq_occurrences,
+                ),
+                "rfq_created_occurrence_ledger_sha256": canonical_sha256(
+                    self._rfq_occurrences,
+                ),
+                "rfq_created_unique_count": unique_count,
+                "rfq_created_exact_duplicate_count": duplicate_count,
+                "exact_duplicate_ledger": copy.deepcopy(
+                    self._duplicate_ledger,
+                ),
+                "exact_duplicate_ledger_sha256": canonical_sha256(
+                    self._duplicate_ledger,
+                ),
+                "rfq_requests": copy.deepcopy(requests),
+                "rfq_input_sha256": canonical_sha256(requests),
+                "id_collision_count": 0,
+                "invalid_relevant_frame_count": 0,
+                "all_input_objects_matched": True,
+                "all_object_bytes_parsed": True,
+                "all_physical_rows_classified": True,
+                "all_unique_created_projected": True,
+                "input_bodies_omitted": True,
+                "source_objects_exact_get_verified": False,
+                "data_objects_copied": 0,
+                "aws_read_performed_by_module": False,
+                "aws_write_authorized": False,
+                "research_eligible": False,
+                "research_ready": False,
+            }
+            result["receipt_sha256"] = canonical_sha256(result)
+            self._finalized = True
+            return result
+        except BaseException as exc:
+            self._remember_failure(exc)
+            raise
+
+
+def prepare_request_provenance_accumulator(
+    *,
+    analysis_date: str,
+    authority_sha256: str,
+    time_contract_sha256: str,
+    analysis_rfq_objects: list[dict[str, Any]],
+    exact_analysis_rfq_objects: list[dict[str, Any]],
+) -> RequestProvenanceAccumulator:
+    """Preflight a body-free set without reading or retaining any body."""
+    return RequestProvenanceAccumulator(
+        analysis_date=analysis_date,
+        authority_sha256=authority_sha256,
+        time_contract_sha256=time_contract_sha256,
+        analysis_rfq_objects=analysis_rfq_objects,
+        exact_analysis_rfq_objects=exact_analysis_rfq_objects,
     )
-    marker_type_counts = _counts_list(marker_counts, "marker")
-    irrelevant_type_counts = _counts_list(irrelevant_counts, "frame_type")
-    marker_row_count = sum(marker_counts.values())
-    irrelevant_row_count = sum(irrelevant_counts.values())
-    occurrence_count = len(rfq_occurrences)
-    unique_count = len(requests)
-    duplicate_count = len(duplicate_ledger)
-    physical_count = physical_line_digest.count
-    if physical_count != marker_row_count + irrelevant_row_count + occurrence_count:
-        _fail("CLASSIFICATION_CONSERVATION", "not every physical row was classified")
-    if occurrence_count != unique_count + duplicate_count:
-        _fail("RFQ_OCCURRENCE_CONSERVATION", "RFQ occurrence counts do not conserve")
 
-    result = {
-        "schema": SCHEMA,
-        "state": STATE,
-        "verification_state": VERIFICATION_STATE,
-        "source_bucket": SOURCE_BUCKET,
-        "analysis_date": date_text,
-        "authority_sha256": authority_sha,
-        "source_evidence_sha256": source_evidence_sha,
-        "time_contract_sha256": time_contract_sha,
-        "analysis_rfq_objects": identities,
-        "analysis_rfq_object_set_sha256": canonical_sha256(identities),
-        "analysis_rfq_object_count": len(identities),
-        "analysis_rfq_total_bytes": sum(row["size"] for row in identities),
-        "object_coverage": object_coverage,
-        "object_coverage_sha256": canonical_sha256(object_coverage),
-        "physical_line_count": physical_count,
-        "physical_line_ledger_sha256": physical_line_digest.hexdigest(),
-        "marker_row_count": marker_row_count,
-        "marker_type_counts": marker_type_counts,
-        "marker_type_counts_sha256": canonical_sha256(marker_type_counts),
-        "irrelevant_frame_row_count": irrelevant_row_count,
-        "irrelevant_type_counts": irrelevant_type_counts,
-        "irrelevant_type_counts_sha256": canonical_sha256(irrelevant_type_counts),
-        "rfq_created_occurrence_count": occurrence_count,
-        "rfq_created_occurrences": rfq_occurrences,
-        "rfq_created_occurrence_ledger_sha256": canonical_sha256(rfq_occurrences),
-        "rfq_created_unique_count": unique_count,
-        "rfq_created_exact_duplicate_count": duplicate_count,
-        "exact_duplicate_ledger": duplicate_ledger,
-        "exact_duplicate_ledger_sha256": canonical_sha256(duplicate_ledger),
-        "rfq_requests": requests,
-        "rfq_input_sha256": canonical_sha256(requests),
-        "id_collision_count": 0,
-        "invalid_relevant_frame_count": 0,
-        "all_input_objects_matched": True,
-        "all_object_bytes_parsed": True,
-        "all_physical_rows_classified": True,
-        "all_unique_created_projected": True,
-        "input_bodies_omitted": True,
-        "source_objects_exact_get_verified": False,
-        "data_objects_copied": 0,
-        "aws_read_performed_by_module": False,
-        "aws_write_authorized": False,
-        "research_eligible": False,
-        "research_ready": False,
-    }
-    result["receipt_sha256"] = canonical_sha256(result)
-    return result
+
+def _derive_request_provenance_from_line_sources(
+    *,
+    date_text: str,
+    authority_sha: str,
+    source_evidence_sha: str,
+    time_contract_sha: str,
+    identities: list[dict[str, Any]],
+    path_parts: dict[str, tuple[str, int]],
+    line_source: Callable[[dict[str, Any]], Any],
+) -> dict[str, Any]:
+    """Compatibility adapter over the incremental accumulator."""
+    accumulator = RequestProvenanceAccumulator._from_normalized(
+        date_text=date_text,
+        authority_sha=authority_sha,
+        time_contract_sha=time_contract_sha,
+        identities=identities,
+        path_parts=path_parts,
+    )
+    for identity in accumulator._natural_identities:
+        with line_source(identity) as physical_lines:
+            accumulator._consume_physical_lines(
+                identity, physical_lines, exact_identity=False,
+            )
+    return accumulator.finalize(
+        source_evidence_sha256=source_evidence_sha,
+    )
 
 
 def _body_line_source(bodies: dict[str, bytes]) -> Callable[[dict[str, Any]], Any]:
@@ -904,6 +1312,11 @@ def _reader_line_source(
                         if not physical:
                             break
                         total += len(physical)
+                        if total > identity["size"]:
+                            _fail(
+                                "OBJECT_SIZE_MISMATCH",
+                                f"body is oversized for {identity['key']}",
+                            )
                         digest.update(physical)
                         yield physical
                     if total != identity["size"]:
