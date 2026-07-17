@@ -6,6 +6,53 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-17 15:38 UTC — 六项检测实测交付：三层假绿修复，L2 07-14 重算，生产重建/RFQ 风险记账
+
+- commits:
+  - `5c6db3e fix make check exit-code propagation`：修复 `test | tail` 掩盖
+    子进程失败，永久 contract test 覆盖红/绿双向。
+  - `50d0999 fix L2 gap counters on corrupt rows`：引入 envelope/raw sequence
+    identity 校验、整小时 quarantine 与回归接线。
+  - `bc70b6b harden L2 receipt validation and audit provenance`：补 marker/raw
+    duplicate/schema/type/ticker 校验、marker 按 base 归属和只读 S3 receipt adapter。
+  - `6d518cf fix lifecycle pytest receipt identity`：37 个 pytest 固定 target
+    移入真实 cmd，args_template 保持 display-only，registry 防复发。
+  - （本条目所在提交）六项审计报告与两份带 SHA 的 evidence summary。
+- decisions:
+  - 完整裁决、exact SQL、生产只读证据、限制与来源均落在
+    `docs/plan_audits/DETECTION_RUN_2026-07-17.md`；L2/readiness 原始摘要落在
+    `docs/plan_audits/evidence/DETECTION_RUN_2026-07-17_*_SUMMARY.json`。
+  - 旧 SESSION_LOG 的“L2 坏行 26,881”降级为 legacy parser 无法抠出
+    channel/sid/seq 的口径，不能再解释为全部 corruption。v3 当前规则拒绝
+    `232,158 / 38,450,029 = 0.603791482%`，全部集中在 `l2_00`。
+  - 07-14 可用于 continuity 裁决的是 v3-accepted `l2_01..l2_23`：`74`
+    gap events / `11,420` missed；唯一 loss marker 位于 `l2_17` 且总值
+    `11,420`。这是 aggregate equality，不是逐 gap 归因；全日精确值未知。
+  - readiness 不得再写 `77/77`：正规 targeted run 是 `76` pass / `1` fail。
+    失败项 `test_kalshi_golden` 被官方 OpenAPI/AsyncAPI 未审阅 hash change 的
+    V12 gate 阻断；只读刷新未接受 baseline。overall `LIFECYCLE FAIL`。
+- context capsule:
+  - 生产代码 HEAD `e287778d30b56170f427d2b03eb17ee31e61a5ec` tracked clean、
+    stash 空，但有 `6,355` 个 untracked paths；7 个 deploy artifacts 被监控
+    units 引用，核心 pipeline 又依赖未跟踪 `.venv` 且无完整 dependency lock，
+    所以 runtime 不能只从 HEAD 重建。按任务要求未改生产。
+  - RFQ 静态防护提交 `5c6d7b9` / `ef85dea` 都在生产 HEAD；本次只读观察到
+    capture 文件增长。实时 checkpoint 因正常 DuckDB writer lock 未观测到，
+    只能记 `advance=UNPROVEN`，不能误报机制失败。
+  - 07-12～16 精确复算：Tennis trades `6,338,016`（2,730 event / 5,774
+    market）、Baseball `1,894,909`（2,964 / 7,941）、Golf `447,434`
+    （178 / 2,978）、Tennis L2 `84,094,616`；四个旧近似全在 1% 内。
+  - 最终 `make check` 与 `tests/run_pipeline.sh` 于 15:02:18Z 全绿；readiness
+    15:02:42Z 仍因 spec gate 为 core fail。没有发送订单、没有触碰采集控制面，
+    也没有提交工作树里其他人的 Telegram/research/config/test 改动。
+- blocked / handoff:
+  - 操作员 15:37:23Z 要求立即交付，故取消等待；07-17 seal 的自动首窗是
+    2026-07-18T02:00Z，第 3 项以 PARTIAL 交付。若补证，02:10Z 后只读核验
+    seal identity、EXPORT/SEAL/VERIFY、RFQ null/equal/lt/gt/partial/unconsumed，
+    异常则跟到 03:00Z `seal_alarm.json`；前五项无需重做。
+  - 官方 OpenAPI/AsyncAPI hash change 必须人工审阅后才能决定是否接受 baseline；
+    本任务没有擅自升级 baseline，也没有扩建 receipt 的 commit/dirty/config 绑定。
+
 ## 2026-07-16 21:45 UTC — W-LAT-BENCH-01 自检(操作员令):清点幻想指标,4 处失实已修正,记账值维持
 
 - commits: (本条目所在提交)自检修正,单提交。核心账面值未变

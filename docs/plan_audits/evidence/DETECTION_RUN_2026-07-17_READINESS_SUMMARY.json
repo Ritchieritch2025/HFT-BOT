@@ -1,0 +1,79 @@
+{
+  "audit_schema": "readiness-receipt-audit-v1",
+  "code_commit": "6d518cf",
+  "initial_reproduction": {
+    "lifecycle_generated_utc": "2026-07-17T12:59:10.661Z",
+    "core_registry_keys": 76,
+    "reported_not_started": 15,
+    "keys_with_pass_in_ndjson_but_missing_from_latest": 14,
+    "aggregate_only_key_without_individual_latest": 1,
+    "aggregate_only_suite": "test_engine_bench"
+  },
+  "receipt_identity_bug": {
+    "pytest_registry_keys_affected": 37,
+    "old_command": "./tests/run_pytest.sh",
+    "target_was_only_in_display_args_template": true,
+    "observed_old_duration_seconds_min": 17.743,
+    "observed_old_duration_seconds_max": 20.075,
+    "observed_old_test_l2_gap_check_duration_seconds": 19.027,
+    "old_behavior": "Each affected registry key reran repository-wide pytest instead of its named target."
+  },
+  "fix": {
+    "pytest_registry_keys_migrated": 37,
+    "required_target_moved_into_cmd": true,
+    "args_template_is_display_only": true,
+    "registry_regression_enforced": true
+  },
+  "post_fix_core_run": {
+    "final_latest_reread_utc": "2026-07-17T15:02:42Z",
+    "core_registry_keys": 77,
+    "pytest_registry_keys": 37,
+    "status_pass": 76,
+    "status_fail": 1,
+    "pytest_status_pass": 36,
+    "pytest_status_fail": 1,
+    "targeted_pytest_duration_ms_min": 160,
+    "targeted_pytest_duration_ms_max": 9899,
+    "test_l2_gap_check": {
+      "status": "pass",
+      "duration_ms": 173,
+      "pytest_summary": "17 passed in 0.03s"
+    },
+    "test_kalshi_golden": {
+      "status": "fail",
+      "duration_ms": 202,
+      "pytest_summary": "1 skipped in 0.03s",
+      "reason": "The module-level V12 gate refused to run against a stale or drifted saved official-spec alignment receipt."
+    },
+    "lifecycle_core_status": "fail",
+    "lifecycle_api_spec_alignment_status": "fail",
+    "lifecycle_overall": "LIFECYCLE FAIL"
+  },
+  "official_spec_read_only_refresh": {
+    "generated_utc": "2026-07-17T14:44:52.021Z",
+    "accepted_baseline": false,
+    "fetch_errors": 0,
+    "status": "fail",
+    "summary": "Spec alignment found implementation drift.",
+    "error_hash_changes": {
+      "openapi": {
+        "baseline_sha256": "557683c9375b6ab29a68a6cd0640ac18ee0236a529557207b1fa2f34955b4cbe",
+        "fetched_sha256": "71fbc7d73edde1879b36868fa739a6a3bcf9067cab54bde7cbd4847bb279059e",
+        "fetched_bytes": 307951
+      },
+      "asyncapi": {
+        "baseline_sha256": "00858d5a892eb7066a8da247660622721e8ee80bfdd89b1b9a24278c15d7d421",
+        "fetched_sha256": "e86105374ec9eadb2a0d96278280a0319f1499385599af0f6dcd8c71a9b1372f",
+        "fetched_bytes": 142396
+      }
+    },
+    "informational_hash_changes": 3,
+    "temporary_snapshot_was_not_accepted_or_committed": true
+  },
+  "receipt_schema_remaining_debt": {
+    "binds_commit": false,
+    "binds_tree_or_dirty_diff": false,
+    "binds_config_hash": false,
+    "expanded_in_this_task": false
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "audit_schema": "l2-gap-s3-readonly-derived-summary-v1",
+  "source_full_receipt_payload_sha256": "37ad18b4eb188d974f0489a76d052c5c731e1909aa5aaa0d83e6c655ba1720a4",
+  "input_manifest_sha256": "4a26bd63b5081bb213fdb64a12e429586d3f118d8ae7c811a4012313e3f38591",
+  "input_etag_count": 86,
+  "code_commit": "bc70b6bdd9c15887d17c669aad905a7f22e96f3a",
+  "detector_sha256": "1949b4dcec26579ca3df3508ad066f8487db835f2855435ba893a1e00419bf89",
+  "adapter_sha256": "90116ac54e8d2a31bf2c47cadc9ce51324918ffff9f5c4ebe57dfef6638f39b1",
+  "execution": {
+    "host": "ubuntu@3.130.232.109",
+    "python": "/usr/bin/python3",
+    "priority": "ionice -c3; nice -n19",
+    "transport": "detector and adapter tar stream over SSH stdin; executed in memory",
+    "s3_operations": [
+      "ListObjectsV2",
+      "GetObject"
+    ],
+    "production_files_written": 0,
+    "scan_started_utc": "2026-07-17T14:46:29Z",
+    "scan_finished_utc": "2026-07-17T14:56:13Z",
+    "scan_elapsed_seconds": 583.831
+  },
+  "input": {
+    "date": "2026-07-14",
+    "root": "s3://kalshi-vault-ritcardo/ec2/raw/date=2026-07-14",
+    "files": 86,
+    "bytes": 20318050056,
+    "lines": 38450029
+  },
+  "legacy_splice_reproduction": [
+    {
+      "file": "l2_00.ndjson",
+      "line": 34632,
+      "previous_sequence": 27090,
+      "corrupt_envelope_first_sequence": 270913987261794270075,
+      "same_row_final_envelope_and_raw_sequence": 7540,
+      "legacy_single_step_false_missed": 270913987261794242984
+    },
+    {
+      "file": "l2_00.ndjson",
+      "line": 589894,
+      "previous_sequence": 174675,
+      "corrupt_envelope_sequence": 174676415217,
+      "raw_sequence": 415217,
+      "legacy_single_step_false_missed": 174676240541
+    }
+  ],
+  "detector": {
+    "schema_version": "l2-gap-receipt-v3",
+    "corrupt_rows": 232158,
+    "corrupt_row_rate_percent": 0.6037914821858782,
+    "corrupt_sequence_rows": 8538,
+    "corrupt_sequence_row_rate_percent": 0.02220544489056172,
+    "corrupt_row_reasons": {
+      "channel_mismatch": 503,
+      "duplicate_envelope_key": 16677,
+      "duplicate_raw_key": 5753,
+      "incomplete_envelope": 9582,
+      "incomplete_sequence_identity": 75,
+      "invalid_envelope": 48,
+      "invalid_recv_mono_ns": 51,
+      "invalid_recv_wall_ns": 151,
+      "invalid_sequence_value": 8,
+      "missing_orderbook_ticker": 787,
+      "outer_json": 133140,
+      "raw_json": 51687,
+      "raw_member_count": 7777,
+      "sequence_identity_mismatch": 224,
+      "ticker_mismatch": 4342,
+      "unknown_envelope_key": 1353
+    },
+    "seq_continuity_complete": false,
+    "seq_counts_are_lower_bound": true,
+    "trusted_file_bases": [
+      "l2_01",
+      "l2_02",
+      "l2_03",
+      "l2_04",
+      "l2_05",
+      "l2_06",
+      "l2_07",
+      "l2_08",
+      "l2_09",
+      "l2_10",
+      "l2_11",
+      "l2_12",
+      "l2_13",
+      "l2_14",
+      "l2_15",
+      "l2_16",
+      "l2_17",
+      "l2_18",
+      "l2_19",
+      "l2_20",
+      "l2_21",
+      "l2_22",
+      "l2_23"
+    ],
+    "untrusted_file_bases": [
+      "l2_00"
+    ],
+    "sids_total": 24,
+    "sids_with_seq_gaps": 1,
+    "seq_gap_events": 74,
+    "seq_missed_total": 11420,
+    "seq_regressions": 0,
+    "stream_restarts": 0,
+    "seq_gap_events_discarded_untrusted": 3168,
+    "seq_missed_total_discarded_untrusted": 1161280190,
+    "seq_regressions_discarded_untrusted": 3186,
+    "stream_restarts_discarded_untrusted": 0,
+    "recorder_markers_trusted": {
+      "loss": 1,
+      "transport_close": 23
+    },
+    "recorder_markers_all": {
+      "loss": 1,
+      "transport_close": 25
+    },
+    "recorder_markers_discarded_untrusted": {
+      "transport_close": 2
+    },
+    "markers_lost_frames_trusted": 11420,
+    "markers_lost_frames_all": 11420,
+    "markers_lost_frames_discarded_untrusted": 0,
+    "loss_marker_base": "l2_17",
+    "markers_lost_frames_by_base_l2_17": 11420,
+    "markers_lost_frames_by_base_l2_00": 0,
+    "snapshot_re_anchors_total": 246,
+    "per_market_count": 335
+  },
+  "interpretation": "This committed file is a compact transcription of the hashed full stdout receipt. Gap totals cover the 23 bases in trusted_file_bases under detector v3; they are a whole-day lower bound because l2_00 is quarantined. Equality between seq_missed_total and markers_lost_frames_trusted is aggregate evidence, not a one-to-one mapping of all 74 gap events."
+}
