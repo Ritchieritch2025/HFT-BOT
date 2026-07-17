@@ -21,7 +21,8 @@ from test_research_reference_consumer import build_release  # noqa: E402
 
 
 DATE = "2026-07-13"
-CUTOFF = "2026-07-14T05:00:00Z"
+PUBLISHED = "2026-07-14T04:00:00Z"
+ANALYSIS_END = "2026-07-14T00:00:00Z"
 
 
 def _sha(raw: bytes) -> str:
@@ -94,7 +95,6 @@ def _build(manifest: dict | None = None) -> dict:
         manifest_bytes=raw,
         manifest_exact_identity=identity,
         date=DATE,
-        as_of_cutoff_utc=CUTOFF,
     )
 
 
@@ -103,7 +103,13 @@ def test_builds_body_free_exact_binding_for_all_required_base_families():
     two = _build()
     assert one == two
     assert one["schema"] == "fresh-rfq-base-binding-v1"
-    assert one["verification_state"] == "REFERENCE_V3_VERIFIED"
+    assert one["verification_state"] == (
+        "REFERENCE_V3_MANIFEST_EXACT_VALIDATED"
+    )
+    assert one["source_objects_exact_get_verified"] is False
+    assert one["durable_receipt_exact_get_verified"] is False
+    assert one["as_of_cutoff_utc"] == PUBLISHED
+    assert one["analysis_data_end_utc"] == ANALYSIS_END
     assert one["data_objects_copied"] == 0
     assert one["aws_write_authorized"] is False
     assert one["research_eligible"] is False
@@ -226,7 +232,6 @@ def test_rejects_wrong_object_date_and_null_source_version():
             manifest_bytes=raw,
             manifest_exact_identity=identity,
             date=DATE,
-            as_of_cutoff_utc=CUTOFF,
         )
     assert error.value.code == "REFERENCE_MANIFEST_INVALID"
 
@@ -240,7 +245,6 @@ def test_rejects_wrong_object_date_and_null_source_version():
             manifest_bytes=raw,
             manifest_exact_identity=identity,
             date=DATE,
-            as_of_cutoff_utc=CUTOFF,
         )
     assert error.value.code == "REFERENCE_MANIFEST_INVALID"
 
@@ -292,7 +296,6 @@ def test_rejects_manifest_exact_identity_mismatch(mutation):
             manifest_bytes=raw,
             manifest_exact_identity=identity,
             date=DATE,
-            as_of_cutoff_utc=CUTOFF,
         )
 
 
@@ -304,14 +307,42 @@ def test_rejects_wrong_requested_date_and_cutoff_before_publication():
             manifest_bytes=raw,
             manifest_exact_identity=identity,
             date="2026-07-12",
-            as_of_cutoff_utc=CUTOFF,
         )
     assert error.value.code == "DATE_MISMATCH"
+    for arbitrary_cutoff in (
+        "2026-07-14T03:59:59Z",
+        "2099-01-01T00:00:00Z",
+    ):
+        with pytest.raises(binding.FreshRfqBaseBindingError) as error:
+            binding.build_base_binding(
+                manifest_bytes=raw,
+                manifest_exact_identity=identity,
+                date=DATE,
+                as_of_cutoff_utc=arbitrary_cutoff,
+            )
+        assert error.value.code == "CUTOFF_INVALID"
+
+
+def test_accepts_only_redundant_as_of_equal_to_exact_manifest_publication():
+    manifest = _complete_manifest()
+    raw, identity = _raw_and_identity(manifest)
+    result = binding.build_base_binding(
+        manifest_bytes=raw,
+        manifest_exact_identity=identity,
+        date=DATE,
+        as_of_cutoff_utc=PUBLISHED,
+    )
+    assert result["as_of_cutoff_utc"] == manifest["published_at_utc"]
+
+
+def test_rejects_manifest_published_before_the_complete_analysis_day():
+    manifest = _complete_manifest()
+    manifest["published_at_utc"] = "2026-07-13T23:59:59Z"
+    raw, identity = _raw_and_identity(manifest)
     with pytest.raises(binding.FreshRfqBaseBindingError) as error:
         binding.build_base_binding(
             manifest_bytes=raw,
             manifest_exact_identity=identity,
             date=DATE,
-            as_of_cutoff_utc="2026-07-14T03:59:59Z",
         )
     assert error.value.code == "CUTOFF_INVALID"

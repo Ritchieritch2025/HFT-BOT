@@ -290,7 +290,7 @@ def build_base_binding(
     manifest_bytes: bytes,
     manifest_exact_identity: dict[str, Any],
     date: str,
-    as_of_cutoff_utc: str,
+    as_of_cutoff_utc: str | None = None,
 ) -> dict[str, Any]:
     """Build a body-free, local-only exact binding for base market data.
 
@@ -309,10 +309,25 @@ def build_base_binding(
     exact_manifest = _manifest_identity(
         manifest_exact_identity, manifest_bytes, descriptor["release_id"]
     )
-    cutoff_text, cutoff = _utc(as_of_cutoff_utc, "as_of_cutoff_utc")
-    _, published = _utc(descriptor["published_at_utc"], "published_at_utc")
-    if cutoff < published:
-        _fail("CUTOFF_INVALID", "as-of cutoff precedes manifest publication")
+    published_text, published = _utc(
+        descriptor["published_at_utc"], "published_at_utc"
+    )
+    if as_of_cutoff_utc is not None:
+        supplied_cutoff, _ = _utc(as_of_cutoff_utc, "as_of_cutoff_utc")
+        if supplied_cutoff != published_text:
+            _fail(
+                "CUTOFF_INVALID",
+                "as-of cutoff must equal the exact manifest published_at_utc",
+            )
+    analysis_end_text = (
+        dt.date.fromisoformat(date) + dt.timedelta(days=1)
+    ).isoformat() + "T00:00:00Z"
+    _, analysis_end = _utc(analysis_end_text, "analysis_data_end_utc")
+    if published < analysis_end:
+        _fail(
+            "CUTOFF_INVALID",
+            "manifest publication precedes the complete analysis day",
+        )
 
     families = _extract_families(descriptor, date)
     all_rows = sorted(
@@ -335,10 +350,13 @@ def build_base_binding(
         "schema": SCHEMA,
         "state": STATE,
         "storage_mode": reference.STORAGE_MODE,
-        "verification_state": "REFERENCE_V3_VERIFIED",
+        "verification_state": "REFERENCE_V3_MANIFEST_EXACT_VALIDATED",
+        "source_objects_exact_get_verified": False,
+        "durable_receipt_exact_get_verified": False,
         "date": date,
         "release_id": descriptor["release_id"],
-        "as_of_cutoff_utc": cutoff_text,
+        "as_of_cutoff_utc": published_text,
+        "analysis_data_end_utc": analysis_end_text,
         "manifest_exact_identity": exact_manifest,
         "manifest_reference_set_sha256": descriptor["reference_set_sha256"],
         "manifest_object_semantics_sha256": descriptor[
@@ -346,9 +364,9 @@ def build_base_binding(
         ],
         "source_seal": {
             **_control_identity(descriptor["source_seal"]),
-            "verification_state": descriptor["source_seal"][
-                "verification_state"
-            ],
+            "manifest_declared_verification_state": descriptor[
+                "source_seal"
+            ]["verification_state"],
         },
         "canonical_receipt": {
             "receipt_set_sha256": descriptor[
