@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Exact-body RFQ request provenance for the isolated fresh-RFQ lane.
+"""Exact-object RFQ request provenance for the isolated fresh-RFQ lane.
 
-The caller supplies the analysis RFQ identities already derived from a valid
-overlay and the corresponding exact object bodies.  This module performs no
-filesystem, network, AWS, resolver, deployment, or publication I/O.  It
-verifies the identity/size/SHA binding, parses every physical NDJSON byte, and
-projects only valid ``rfq_created`` frames into the request schema consumed by
-``fresh_rfq_market_mapping``.
+The original API accepts the analysis RFQ identities already derived from a
+valid overlay plus their exact object bodies.  The bounded reader API instead
+accepts the same identities without bodies and an ``open_exact`` context
+manager that yields one local ``.path`` at a time.  It never retains an
+all-day body map or physical-line ledger.  Both paths verify the
+identity/size/SHA binding, parse every physical NDJSON byte, and project only
+valid ``rfq_created`` frames into the request schema consumed by
+``fresh_rfq_market_mapping``.  The module itself performs no network, AWS,
+resolver, deployment, or publication I/O.
 
 The resulting receipt is body-free.  Matching caller-supplied bytes to an S3
 VersionId does *not* attest that an exact-VersionId GET actually occurred, so
@@ -17,12 +20,14 @@ omission relative to the exact analysis object set that layer supplied.
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+import os
 import re
-from typing import Any
+from typing import Any, Callable, Iterator
 
 
 SCHEMA = "fresh-rfq-request-provenance-v1"
@@ -45,6 +50,9 @@ CAPTURE_KEY_RE = re.compile(
 OVERLAY_IDENTITY_FIELDS = {"key", "version_id", "size", "sha256"}
 EXACT_OBJECT_FIELDS = {
     "bucket", "key", "version_id", "size", "sha256", "body",
+}
+EXACT_READER_OBJECT_FIELDS = {
+    "bucket", "key", "version_id", "size", "sha256",
 }
 REQUEST_FIELDS = {
     "request_id", "created_ts", "market_ticker", "mve_collection_ticker",
@@ -120,6 +128,26 @@ def canonical_bytes(value: Any) -> bytes:
 
 def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+class _CanonicalListSha256:
+    """Incrementally hash the exact canonical JSON encoding of a list."""
+
+    def __init__(self) -> None:
+        self._hash = hashlib.sha256()
+        self._hash.update(b"[")
+        self.count = 0
+
+    def add(self, value: Any) -> None:
+        if self.count:
+            self._hash.update(b",")
+        self._hash.update(canonical_bytes(value))
+        self.count += 1
+
+    def hexdigest(self) -> str:
+        finalized = self._hash.copy()
+        finalized.update(b"]")
+        return finalized.hexdigest()
 
 
 def _canonical_exact_equal(left: Any, right: Any) -> bool:
@@ -316,6 +344,50 @@ def _normalize_exact_objects(
             _fail("OBJECT_SHA_MISMATCH", f"body SHA-256 differs for {key}")
         bodies[key] = body
     return bodies
+
+
+def _normalize_exact_reader_objects(
+    value: Any,
+    expected: list[dict[str, Any]],
+    analysis_date: str,
+) -> dict[str, dict[str, Any]]:
+    """Validate the complete body-free reader identity set before any I/O."""
+    if not isinstance(value, list):
+        _fail("OBJECT_LIST", "exact_analysis_rfq_objects must be a list")
+    observed: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(value):
+        label = f"exact_analysis_rfq_objects[{index}]"
+        row = _exact_keys(raw, EXACT_READER_OBJECT_FIELDS, label)
+        if row["bucket"] != SOURCE_BUCKET:
+            _fail("OBJECT_BUCKET_MISMATCH", f"{label}.bucket is not fixed source")
+        key = row["key"]
+        _parse_capture_key(key, analysis_date, f"{label}.key")
+        identity = {
+            "bucket": SOURCE_BUCKET,
+            "key": key,
+            "version_id": _version(
+                row["version_id"], f"{label}.version_id",
+            ),
+            "size": _integer(row["size"], f"{label}.size", minimum=1),
+            "sha256": _sha256(row["sha256"], f"{label}.sha256"),
+        }
+        if key in observed:
+            _fail("OBJECT_DUPLICATE", f"duplicate exact object key {key}")
+        observed[key] = identity
+
+    expected_by_key = {row["key"]: row for row in expected}
+    if set(observed) != set(expected_by_key):
+        _fail(
+            "OBJECT_SET_MISMATCH",
+            "exact reader objects do not equal overlay analysis RFQ objects",
+        )
+    for key, expected_identity in expected_by_key.items():
+        projected = {
+            field: observed[key][field] for field in OVERLAY_IDENTITY_FIELDS
+        }
+        if not _canonical_exact_equal(projected, expected_identity):
+            _fail("OBJECT_IDENTITY_MISMATCH", f"identity differs for {key}")
+    return observed
 
 
 def _outer_integer_fields(outer: dict[str, Any], label: str) -> None:
@@ -545,38 +617,29 @@ def _counts_list(counts: dict[str, int], key_name: str) -> list[dict[str, Any]]:
     ]
 
 
-def _derive_request_provenance(
+def _derive_request_provenance_from_line_sources(
     *,
-    analysis_date: Any,
-    authority_sha256: Any,
-    source_evidence_sha256: Any,
-    time_contract_sha256: Any,
-    analysis_rfq_objects: Any,
-    exact_analysis_rfq_objects: Any,
+    date_text: str,
+    authority_sha: str,
+    source_evidence_sha: str,
+    time_contract_sha: str,
+    identities: list[dict[str, Any]],
+    path_parts: dict[str, tuple[str, int]],
+    line_source: Callable[[dict[str, Any]], Any],
 ) -> dict[str, Any]:
-    date_text = _date(analysis_date)
-    authority_sha = _sha256(authority_sha256, "authority_sha256")
-    source_evidence_sha = _sha256(
-        source_evidence_sha256, "source_evidence_sha256",
-    )
-    time_contract_sha = _sha256(time_contract_sha256, "time_contract_sha256")
-    identities, path_parts = _normalize_overlay_identities(
-        analysis_rfq_objects, date_text,
-    )
-    bodies = _normalize_exact_objects(
-        exact_analysis_rfq_objects, identities, date_text,
-    )
-
+    """Build the stable receipt while retaining no physical-line ledger."""
     natural_identities = sorted(
         identities,
         key=lambda row: (
             path_parts[row["key"]][0], path_parts[row["key"]][1], row["key"],
         ),
     )
-    physical_line_ledger: list[dict[str, Any]] = []
+    physical_line_digest = _CanonicalListSha256()
     object_coverage: list[dict[str, Any]] = []
     marker_counts: dict[str, int] = {}
     irrelevant_counts: dict[str, int] = {}
+    # These ledgers are part of the published schema and remain proportional
+    # to RFQ event volume. Removing them requires a separately versioned schema.
     rfq_occurrences: list[dict[str, Any]] = []
     duplicate_ledger: list[dict[str, Any]] = []
     primary_by_id: dict[str, dict[str, Any]] = {}
@@ -584,108 +647,113 @@ def _derive_request_provenance(
     for identity in natural_identities:
         key = identity["key"]
         expected_hour, _ordinal = path_parts[key]
-        body = bodies[key]
         offset = 0
         line_number = 0
-        first_ledger_index = len(physical_line_ledger)
-        while offset < len(body):
-            newline = body.find(b"\n", offset)
-            if newline < 0:
-                _fail("UNTERMINATED_LINE", f"{key} final row has no LF")
-            physical = body[offset:newline + 1]
-            payload = body[offset:newline]
-            line_number += 1
-            label = f"{key} line {line_number}"
-            if len(physical) > MAX_JSON_LINE_BYTES:
-                _fail("LINE_TOO_LARGE", f"{label} exceeds limit")
-            if not payload:
-                _fail("BLANK_LINE", f"{label} is blank")
-            if payload.endswith(b"\r"):
-                _fail("CRLF_FORBIDDEN", f"{label} is not LF-only")
-            if payload != payload.strip():
-                _fail("OUTER_NONCANONICAL_WHITESPACE", f"{label} has edge whitespace")
-            outer = _normalize_outer(
-                _strict_json_bytes(payload, label), expected_hour, label,
-            )
-            classification: str
-            record_type: str
-            if "marker" in outer:
-                classification = "MARKER"
-                record_type = outer["marker"]
-                _count_rows(marker_counts, record_type)
-            else:
-                frame = _parse_inner_frame(outer, label)
-                record_type = frame["type"]
-                if record_type != "rfq_created":
-                    classification = "IRRELEVANT_FRAME"
-                    _count_rows(irrelevant_counts, record_type)
+        object_line_digest = _CanonicalListSha256()
+        with line_source(identity) as physical_lines:
+            for physical in physical_lines:
+                if type(physical) is not bytes:
+                    _fail("READER_PROTOCOL", f"{key} yielded a non-bytes row")
+                line_number += 1
+                label = f"{key} line {line_number}"
+                if len(physical) > MAX_JSON_LINE_BYTES:
+                    _fail("LINE_TOO_LARGE", f"{label} exceeds limit")
+                if not physical.endswith(b"\n"):
+                    _fail("UNTERMINATED_LINE", f"{key} final row has no LF")
+                payload = physical[:-1]
+                if not payload:
+                    _fail("BLANK_LINE", f"{label} is blank")
+                if payload.endswith(b"\r"):
+                    _fail("CRLF_FORBIDDEN", f"{label} is not LF-only")
+                if payload != payload.strip():
+                    _fail(
+                        "OUTER_NONCANONICAL_WHITESPACE",
+                        f"{label} has edge whitespace",
+                    )
+                outer = _normalize_outer(
+                    _strict_json_bytes(payload, label), expected_hour, label,
+                )
+                classification: str
+                record_type: str
+                if "marker" in outer:
+                    classification = "MARKER"
+                    record_type = outer["marker"]
+                    _count_rows(marker_counts, record_type)
                 else:
-                    request = _project_rfq_created(frame, date_text, label)
-                    raw_bytes = outer["raw"].encode("utf-8")
-                    raw_sha = hashlib.sha256(raw_bytes).hexdigest()
-                    request_sha = canonical_sha256(request)
-                    locator = {
-                        "object_key": key,
-                        "version_id": identity["version_id"],
-                        "line_number": line_number,
-                    }
-                    previous = primary_by_id.get(request["request_id"])
-                    if previous is None:
-                        classification = "RFQ_CREATED_PRIMARY"
-                        primary = locator
-                        primary_by_id[request["request_id"]] = {
-                            "raw_bytes": raw_bytes,
-                            "request": request,
-                            "locator": locator,
+                    frame = _parse_inner_frame(outer, label)
+                    record_type = frame["type"]
+                    if record_type != "rfq_created":
+                        classification = "IRRELEVANT_FRAME"
+                        _count_rows(irrelevant_counts, record_type)
+                    else:
+                        request = _project_rfq_created(frame, date_text, label)
+                        raw_bytes = outer["raw"].encode("utf-8")
+                        raw_sha = hashlib.sha256(raw_bytes).hexdigest()
+                        request_sha = canonical_sha256(request)
+                        locator = {
+                            "object_key": key,
+                            "version_id": identity["version_id"],
+                            "line_number": line_number,
                         }
-                        occurrence_kind = "PRIMARY"
-                    elif previous["raw_bytes"] == raw_bytes:
-                        if not _canonical_exact_equal(previous["request"], request):
+                        previous = primary_by_id.get(request["request_id"])
+                        if previous is None:
+                            classification = "RFQ_CREATED_PRIMARY"
+                            primary = locator
+                            primary_by_id[request["request_id"]] = {
+                                "raw_bytes": raw_bytes,
+                                "request": request,
+                                "locator": locator,
+                            }
+                            occurrence_kind = "PRIMARY"
+                        elif previous["raw_bytes"] == raw_bytes:
+                            if not _canonical_exact_equal(
+                                    previous["request"], request):
+                                _fail(
+                                    "RFQ_ID_COLLISION",
+                                    f"{label} exact raw rebuilt a different request",
+                                )
+                            classification = "RFQ_CREATED_EXACT_DUPLICATE"
+                            primary = previous["locator"]
+                            occurrence_kind = "EXACT_RAW_DUPLICATE"
+                        else:
                             _fail(
                                 "RFQ_ID_COLLISION",
-                                f"{label} exact raw rebuilt a different request",
+                                f"{label} repeats request_id with different raw bytes",
                             )
-                        classification = "RFQ_CREATED_EXACT_DUPLICATE"
-                        primary = previous["locator"]
-                        occurrence_kind = "EXACT_RAW_DUPLICATE"
-                    else:
-                        _fail(
-                            "RFQ_ID_COLLISION",
-                            f"{label} repeats request_id with different raw bytes",
-                        )
-                    occurrence = {
-                        "request_id": request["request_id"],
-                        **locator,
-                        "raw_sha256": raw_sha,
-                        "request_sha256": request_sha,
-                        "occurrence_kind": occurrence_kind,
-                        "primary_object_key": primary["object_key"],
-                        "primary_version_id": primary["version_id"],
-                        "primary_line_number": primary["line_number"],
-                    }
-                    rfq_occurrences.append(occurrence)
-                    if occurrence_kind == "EXACT_RAW_DUPLICATE":
-                        duplicate_ledger.append(copy.deepcopy(occurrence))
+                        occurrence = {
+                            "request_id": request["request_id"],
+                            **locator,
+                            "raw_sha256": raw_sha,
+                            "request_sha256": request_sha,
+                            "occurrence_kind": occurrence_kind,
+                            "primary_object_key": primary["object_key"],
+                            "primary_version_id": primary["version_id"],
+                            "primary_line_number": primary["line_number"],
+                        }
+                        rfq_occurrences.append(occurrence)
+                        if occurrence_kind == "EXACT_RAW_DUPLICATE":
+                            duplicate_ledger.append(copy.deepcopy(occurrence))
 
-            physical_line_ledger.append({
-                "object_key": key,
-                "version_id": identity["version_id"],
-                "line_number": line_number,
-                "byte_offset": offset,
-                "byte_length": len(physical),
-                "physical_line_sha256": hashlib.sha256(physical).hexdigest(),
-                "classification": classification,
-                "record_type": record_type,
-            })
-            offset = newline + 1
+                ledger_row = {
+                    "object_key": key,
+                    "version_id": identity["version_id"],
+                    "line_number": line_number,
+                    "byte_offset": offset,
+                    "byte_length": len(physical),
+                    "physical_line_sha256": hashlib.sha256(physical).hexdigest(),
+                    "classification": classification,
+                    "record_type": record_type,
+                }
+                physical_line_digest.add(ledger_row)
+                object_line_digest.add(ledger_row)
+                offset += len(physical)
         if offset != identity["size"]:
             _fail("BYTE_COVERAGE_MISMATCH", f"{key} byte cursor differs from size")
-        object_lines = physical_line_ledger[first_ledger_index:]
         object_coverage.append({
             **identity,
             "physical_line_count": line_number,
             "parsed_bytes": offset,
-            "line_ledger_sha256": canonical_sha256(object_lines),
+            "line_ledger_sha256": object_line_digest.hexdigest(),
         })
 
     requests = sorted(
@@ -699,7 +767,7 @@ def _derive_request_provenance(
     occurrence_count = len(rfq_occurrences)
     unique_count = len(requests)
     duplicate_count = len(duplicate_ledger)
-    physical_count = len(physical_line_ledger)
+    physical_count = physical_line_digest.count
     if physical_count != marker_row_count + irrelevant_row_count + occurrence_count:
         _fail("CLASSIFICATION_CONSERVATION", "not every physical row was classified")
     if occurrence_count != unique_count + duplicate_count:
@@ -721,7 +789,7 @@ def _derive_request_provenance(
         "object_coverage": object_coverage,
         "object_coverage_sha256": canonical_sha256(object_coverage),
         "physical_line_count": physical_count,
-        "physical_line_ledger_sha256": canonical_sha256(physical_line_ledger),
+        "physical_line_ledger_sha256": physical_line_digest.hexdigest(),
         "marker_row_count": marker_row_count,
         "marker_type_counts": marker_type_counts,
         "marker_type_counts_sha256": canonical_sha256(marker_type_counts),
@@ -755,6 +823,164 @@ def _derive_request_provenance(
     return result
 
 
+def _body_line_source(bodies: dict[str, bytes]) -> Callable[[dict[str, Any]], Any]:
+    @contextmanager
+    def source(identity: dict[str, Any]) -> Iterator[Iterator[bytes]]:
+        body = bodies[identity["key"]]
+
+        def rows() -> Iterator[bytes]:
+            offset = 0
+            while offset < len(body):
+                newline = body.find(b"\n", offset)
+                if newline < 0:
+                    _fail(
+                        "UNTERMINATED_LINE",
+                        f"{identity['key']} final row has no LF",
+                    )
+                yield body[offset:newline + 1]
+                offset = newline + 1
+
+        yield rows()
+
+    return source
+
+
+def _reader_line_source(
+    exact_objects: dict[str, dict[str, Any]],
+    open_exact: Callable[[dict[str, Any]], Any],
+) -> Callable[[dict[str, Any]], Any]:
+    if not callable(open_exact):
+        _fail("READER_REQUIRED", "open_exact must be callable")
+
+    @contextmanager
+    def source(identity: dict[str, Any]) -> Iterator[Iterator[bytes]]:
+        exact_identity = exact_objects[identity["key"]]
+        manager = open_exact(copy.deepcopy(exact_identity))
+        if (not hasattr(manager, "__enter__") or
+                not hasattr(manager, "__exit__")):
+            _fail(
+                "READER_PROTOCOL",
+                f"open_exact for {identity['key']} must return a context manager",
+            )
+        with manager as opened:
+            if not hasattr(opened, "path"):
+                _fail(
+                    "READER_PROTOCOL",
+                    f"open_exact for {identity['key']} yielded no .path",
+                )
+            try:
+                path = os.fspath(opened.path)
+            except TypeError:
+                _fail(
+                    "READER_PROTOCOL",
+                    f"open_exact for {identity['key']} yielded an invalid .path",
+                )
+            try:
+                stream = open(path, "rb")
+            except OSError as exc:
+                _fail(
+                    "READER_IO",
+                    f"cannot open exact body for {identity['key']}: {exc}",
+                )
+            with stream:
+                def rows() -> Iterator[bytes]:
+                    digest = hashlib.sha256()
+                    total = 0
+                    while True:
+                        try:
+                            physical = stream.readline(MAX_JSON_LINE_BYTES + 1)
+                        except OSError as exc:
+                            _fail(
+                                "READER_IO",
+                                f"cannot read exact body for {identity['key']}: {exc}",
+                            )
+                        if not physical:
+                            break
+                        total += len(physical)
+                        digest.update(physical)
+                        yield physical
+                    if total != identity["size"]:
+                        _fail(
+                            "OBJECT_SIZE_MISMATCH",
+                            f"body size differs for {identity['key']}",
+                        )
+                    if digest.hexdigest() != identity["sha256"]:
+                        _fail(
+                            "OBJECT_SHA_MISMATCH",
+                            f"body SHA-256 differs for {identity['key']}",
+                        )
+
+                yield rows()
+
+    return source
+
+
+def _derive_request_provenance(
+    *,
+    analysis_date: Any,
+    authority_sha256: Any,
+    source_evidence_sha256: Any,
+    time_contract_sha256: Any,
+    analysis_rfq_objects: Any,
+    exact_analysis_rfq_objects: Any,
+) -> dict[str, Any]:
+    date_text = _date(analysis_date)
+    authority_sha = _sha256(authority_sha256, "authority_sha256")
+    source_evidence_sha = _sha256(
+        source_evidence_sha256, "source_evidence_sha256",
+    )
+    time_contract_sha = _sha256(time_contract_sha256, "time_contract_sha256")
+    identities, path_parts = _normalize_overlay_identities(
+        analysis_rfq_objects, date_text,
+    )
+    bodies = _normalize_exact_objects(
+        exact_analysis_rfq_objects, identities, date_text,
+    )
+    return _derive_request_provenance_from_line_sources(
+        date_text=date_text,
+        authority_sha=authority_sha,
+        source_evidence_sha=source_evidence_sha,
+        time_contract_sha=time_contract_sha,
+        identities=identities,
+        path_parts=path_parts,
+        line_source=_body_line_source(bodies),
+    )
+
+
+def _derive_request_provenance_from_reader(
+    *,
+    analysis_date: Any,
+    authority_sha256: Any,
+    source_evidence_sha256: Any,
+    time_contract_sha256: Any,
+    analysis_rfq_objects: Any,
+    exact_analysis_rfq_objects: Any,
+    open_exact: Any,
+) -> dict[str, Any]:
+    date_text = _date(analysis_date)
+    authority_sha = _sha256(authority_sha256, "authority_sha256")
+    source_evidence_sha = _sha256(
+        source_evidence_sha256, "source_evidence_sha256",
+    )
+    time_contract_sha = _sha256(time_contract_sha256, "time_contract_sha256")
+    identities, path_parts = _normalize_overlay_identities(
+        analysis_rfq_objects, date_text,
+    )
+    # The complete set and every identity are checked before open_exact can run.
+    reader_objects = _normalize_exact_reader_objects(
+        exact_analysis_rfq_objects, identities, date_text,
+    )
+    return _derive_request_provenance_from_line_sources(
+        date_text=date_text,
+        authority_sha=authority_sha,
+        source_evidence_sha=source_evidence_sha,
+        time_contract_sha=time_contract_sha,
+        identities=identities,
+        path_parts=path_parts,
+        line_source=_reader_line_source(reader_objects, open_exact),
+    )
+
+
 def build_request_provenance(
     *,
     analysis_date: str,
@@ -772,6 +998,35 @@ def build_request_provenance(
         time_contract_sha256=time_contract_sha256,
         analysis_rfq_objects=analysis_rfq_objects,
         exact_analysis_rfq_objects=exact_analysis_rfq_objects,
+    )
+
+
+def build_request_provenance_from_reader(
+    *,
+    analysis_date: str,
+    authority_sha256: str,
+    source_evidence_sha256: str,
+    time_contract_sha256: str,
+    analysis_rfq_objects: list[dict[str, Any]],
+    exact_analysis_rfq_objects: list[dict[str, Any]],
+    open_exact: Callable[[dict[str, Any]], Any],
+) -> dict[str, Any]:
+    """Build from body-free identities, opening one exact object at a time.
+
+    ``open_exact(identity)`` must return a context manager whose yielded value
+    has a filesystem ``.path``. The file is consumed once with bounded
+    ``readline`` calls while size and SHA-256 are recomputed. The receipt flags
+    remain conservative because this module does not attest the reader's AWS
+    implementation or authorize publication.
+    """
+    return _derive_request_provenance_from_reader(
+        analysis_date=analysis_date,
+        authority_sha256=authority_sha256,
+        source_evidence_sha256=source_evidence_sha256,
+        time_contract_sha256=time_contract_sha256,
+        analysis_rfq_objects=analysis_rfq_objects,
+        exact_analysis_rfq_objects=exact_analysis_rfq_objects,
+        open_exact=open_exact,
     )
 
 
@@ -804,5 +1059,40 @@ def validate_request_provenance(
         _fail(
             "PROVENANCE_REBUILD_MISMATCH",
             "receipt differs from exact-body deterministic rebuild",
+        )
+    return copy.deepcopy(value)
+
+
+def validate_request_provenance_from_reader(
+    value: Any,
+    *,
+    analysis_date: str,
+    authority_sha256: str,
+    source_evidence_sha256: str,
+    time_contract_sha256: str,
+    analysis_rfq_objects: list[dict[str, Any]],
+    exact_analysis_rfq_objects: list[dict[str, Any]],
+    open_exact: Callable[[dict[str, Any]], Any],
+) -> dict[str, Any]:
+    """Rebuild through the bounded reader and compare the receipt exactly."""
+    value = _exact_keys(value, OUTPUT_FIELDS, "request provenance receipt")
+    supplied = _sha256(value["receipt_sha256"], "receipt_sha256")
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("receipt_sha256")
+    if supplied != canonical_sha256(unsigned):
+        _fail("RECEIPT_DIGEST_MISMATCH", "receipt_sha256 mismatch")
+    expected = _derive_request_provenance_from_reader(
+        analysis_date=analysis_date,
+        authority_sha256=authority_sha256,
+        source_evidence_sha256=source_evidence_sha256,
+        time_contract_sha256=time_contract_sha256,
+        analysis_rfq_objects=analysis_rfq_objects,
+        exact_analysis_rfq_objects=exact_analysis_rfq_objects,
+        open_exact=open_exact,
+    )
+    if not _canonical_exact_equal(value, expected):
+        _fail(
+            "PROVENANCE_REBUILD_MISMATCH",
+            "receipt differs from exact-reader deterministic rebuild",
         )
     return copy.deepcopy(value)

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import datetime as dt
 import hashlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,6 +172,49 @@ def _inputs(extra_rows: dict[int, list[bytes]] | None = None) -> dict:
         "analysis_rfq_objects": identities,
         "exact_analysis_rfq_objects": exact,
     }
+
+
+def _reader_fixture(tmp_path: Path, inputs: dict):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    reader_identities = []
+    paths = {}
+    for index, row in enumerate(inputs["exact_analysis_rfq_objects"]):
+        identity = {key: copy.deepcopy(value) for key, value in row.items()
+                    if key != "body"}
+        reader_identities.append(identity)
+        path = tmp_path / f"exact-{index:03d}.ndjson"
+        path.write_bytes(row["body"])
+        paths[row["key"]] = path
+
+    tracker = {
+        "opened": [],
+        "closed": [],
+        "active": 0,
+        "max_active": 0,
+    }
+
+    @contextmanager
+    def open_exact(identity):
+        assert set(identity) == provenance.EXACT_READER_OBJECT_FIELDS
+        assert identity in reader_identities
+        tracker["opened"].append(identity["key"])
+        tracker["active"] += 1
+        tracker["max_active"] = max(
+            tracker["max_active"], tracker["active"],
+        )
+        try:
+            yield SimpleNamespace(path=paths[identity["key"]])
+        finally:
+            tracker["active"] -= 1
+            tracker["closed"].append(identity["key"])
+
+    reader_inputs = {
+        key: copy.deepcopy(value) for key, value in inputs.items()
+        if key != "exact_analysis_rfq_objects"
+    }
+    reader_inputs["exact_analysis_rfq_objects"] = reader_identities
+    reader_inputs["open_exact"] = open_exact
+    return reader_inputs, paths, tracker
 
 
 def _build(inputs: dict | None = None) -> dict:
@@ -593,3 +638,174 @@ def test_builder_derives_exact_bodies_once(monkeypatch) -> None:
 
     assert calls == 1
     assert result["all_object_bytes_parsed"] is True
+
+
+def test_reader_api_matches_bytes_api_and_opens_once_in_natural_order(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(_happy_rows())
+    hour = 7
+    body = _marker_line(hour, "shard_open")
+    identity = {
+        "key": f"ec2/raw/date={DATE}/rfq_07.ndjson.1",
+        "version_id": "version-07-1",
+        "size": len(body),
+        "sha256": hashlib.sha256(body).hexdigest(),
+    }
+    inputs["analysis_rfq_objects"].append(copy.deepcopy(identity))
+    inputs["exact_analysis_rfq_objects"].append({
+        "bucket": provenance.SOURCE_BUCKET,
+        **identity,
+        "body": body,
+    })
+    expected = provenance.build_request_provenance(**inputs)
+    reader_inputs, _paths, tracker = _reader_fixture(tmp_path, inputs)
+    reader_inputs["exact_analysis_rfq_objects"].reverse()
+
+    result = provenance.build_request_provenance_from_reader(**reader_inputs)
+
+    natural = [
+        row["key"] for row in sorted(
+            inputs["analysis_rfq_objects"],
+            key=lambda row: (
+                *provenance._parse_capture_key(
+                    row["key"], DATE, "test identity",
+                ),
+                row["key"],
+            ),
+        )
+    ]
+    assert result == expected
+    assert tracker["opened"] == natural
+    assert tracker["closed"] == natural
+    assert tracker["active"] == 0
+    assert tracker["max_active"] == 1
+    assert all(tracker["opened"].count(key) == 1 for key in natural)
+    assert result["source_objects_exact_get_verified"] is False
+    assert result["aws_read_performed_by_module"] is False
+    assert result["aws_write_authorized"] is False
+    assert _contains_bytes(result) is False
+
+    validate_inputs, _paths, validate_tracker = _reader_fixture(
+        tmp_path / "validate", inputs,
+    )
+    assert provenance.validate_request_provenance_from_reader(
+        expected, **validate_inputs,
+    ) == expected
+    assert validate_tracker["opened"] == natural
+    assert validate_tracker["closed"] == natural
+    assert validate_tracker["max_active"] == 1
+
+
+@pytest.mark.parametrize("change", ["missing", "identity"])
+def test_reader_identity_failures_happen_before_open_exact(
+    tmp_path: Path, change: str,
+) -> None:
+    inputs = _inputs()
+    reader_inputs, _paths, tracker = _reader_fixture(tmp_path, inputs)
+    if change == "missing":
+        reader_inputs["exact_analysis_rfq_objects"].pop()
+        expected_code = "OBJECT_SET_MISMATCH"
+    else:
+        reader_inputs["exact_analysis_rfq_objects"][0]["version_id"] = \
+            "different-version"
+        expected_code = "OBJECT_IDENTITY_MISMATCH"
+
+    _assert_code(
+        expected_code,
+        provenance.build_request_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert tracker["opened"] == []
+    assert tracker["closed"] == []
+    assert tracker["active"] == 0
+
+
+def test_reader_parser_failure_closes_active_exact_object(tmp_path: Path) -> None:
+    inputs = _inputs()
+    body = inputs["exact_analysis_rfq_objects"][0]["body"][:-1]
+    _replace_body(inputs, 0, body, refresh_identity=True)
+    reader_inputs, _paths, tracker = _reader_fixture(tmp_path, inputs)
+
+    _assert_code(
+        "UNTERMINATED_LINE",
+        provenance.build_request_provenance_from_reader,
+        **reader_inputs,
+    )
+    first_key = f"ec2/raw/date={DATE}/rfq_00.ndjson"
+    assert tracker["opened"] == [first_key]
+    assert tracker["closed"] == [first_key]
+    assert tracker["active"] == 0
+    assert tracker["max_active"] == 1
+
+
+def test_reader_stream_recomputes_sha_and_cleans_up(tmp_path: Path) -> None:
+    inputs = _inputs()
+    reader_inputs, paths, tracker = _reader_fixture(tmp_path, inputs)
+    first_key = f"ec2/raw/date={DATE}/rfq_00.ndjson"
+    original = paths[first_key].read_bytes()
+    changed = original.replace(b"hour_open", b"hour_fake", 1)
+    assert len(changed) == len(original)
+    paths[first_key].write_bytes(changed)
+
+    _assert_code(
+        "OBJECT_SHA_MISMATCH",
+        provenance.build_request_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert tracker["opened"] == [first_key]
+    assert tracker["closed"] == [first_key]
+    assert tracker["active"] == 0
+
+
+def test_reader_uses_bounded_readline_only(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    inputs = _inputs(_happy_rows())
+    expected = provenance.build_request_provenance(**inputs)
+    reader_inputs, _paths, _tracker = _reader_fixture(tmp_path, inputs)
+    real_open = open
+    observed_limits = []
+
+    class GuardedBinaryReader:
+        def __init__(self, path, mode):
+            self._stream = real_open(path, mode)
+
+        def __enter__(self):
+            self._stream.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return self._stream.__exit__(exc_type, exc, traceback)
+
+        def readline(self, limit=-1):
+            assert limit == provenance.MAX_JSON_LINE_BYTES + 1
+            observed_limits.append(limit)
+            return self._stream.readline(limit)
+
+        def read(self, *_args, **_kwargs):
+            raise AssertionError("reader API must not materialize a whole body")
+
+    monkeypatch.setattr(
+        provenance,
+        "open",
+        lambda path, mode: GuardedBinaryReader(path, mode),
+        raising=False,
+    )
+    result = provenance.build_request_provenance_from_reader(**reader_inputs)
+
+    assert result == expected
+    assert observed_limits
+
+
+def test_incremental_canonical_list_digest_matches_materialized_list() -> None:
+    rows = [
+        {"z": 1, "a": "one"},
+        {"nested": [1, 2, {"ok": True}]},
+        [],
+    ]
+    digest = provenance._CanonicalListSha256()
+    for row in rows:
+        digest.add(row)
+    assert digest.count == len(rows)
+    assert digest.hexdigest() == provenance.canonical_sha256(rows)
