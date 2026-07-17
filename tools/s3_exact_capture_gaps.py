@@ -29,6 +29,7 @@ from array import array
 import contextlib
 import csv
 import datetime as dt
+import errno
 import hashlib
 import heapq
 import io
@@ -36,7 +37,9 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -112,8 +115,9 @@ def _valid_date(value: Any) -> str:
     return value
 
 
-def _regular_file_bytes(path: str | os.PathLike[str], label: str,
-                        max_bytes: int) -> bytes:
+def _regular_file_snapshot(
+    path: str | os.PathLike[str], label: str, max_bytes: int,
+) -> tuple[bytes, tuple[int, int, int, int, int, str]]:
     try:
         observed = os.lstat(path)
     except OSError as exc:
@@ -155,10 +159,22 @@ def _regular_file_bytes(path: str | os.PathLike[str], label: str,
             (opened.st_dev, opened.st_ino, opened.st_size,
              opened.st_mtime_ns, opened.st_ctime_ns)):
         _fail("LOCAL_INPUT_CHANGED", f"{label} changed during read")
-    return b"".join(chunks)
+    payload = b"".join(chunks)
+    fingerprint = (
+        after.st_dev, after.st_ino, after.st_size,
+        after.st_mtime_ns, after.st_ctime_ns,
+        hashlib.sha256(payload).hexdigest(),
+    )
+    return payload, fingerprint
 
 
-def _strict_json(payload: bytes, label: str) -> Any:
+def _regular_file_bytes(path: str | os.PathLike[str], label: str,
+                        max_bytes: int) -> bytes:
+    return _regular_file_snapshot(path, label, max_bytes)[0]
+
+
+def _strict_json(payload: bytes, label: str,
+                 error_code: str = "SEAL_INVALID_JSON") -> Any:
     def pairs(pairs_value):
         out = {}
         for key, value in pairs_value:
@@ -175,7 +191,7 @@ def _strict_json(payload: bytes, label: str) -> Any:
             payload.decode("utf-8"), object_pairs_hook=pairs,
             parse_constant=bad_constant)
     except (UnicodeDecodeError, ValueError):
-        _fail("SEAL_INVALID_JSON", f"{label} is not strict JSON")
+        _fail(error_code, f"{label} is not strict JSON")
 
 
 def _safe_sealed_rel(value: Any, date: str) -> tuple[str, str] | None:
@@ -278,8 +294,23 @@ class AwsCliExactGetStream:
         self.observed = 0
         self.saw_eof = False
         self.metadata: dict[str, Any] | None = None
+        self.deadline: float | None = None
+
+    @staticmethod
+    def _cli_timeout(value: float, cap: int) -> str:
+        return str(max(1, min(cap, int(value))))
+
+    def _remaining(self) -> float:
+        if self.deadline is None:
+            _fail("S3_GET_STATE_INVALID", "GET deadline is not initialized")
+        return self.deadline - time.monotonic()
+
+    def _deadline_expired(self) -> None:
+        self._stop()
+        _fail("S3_GET_TIMEOUT", f"exact GET timed out for {self.key}")
 
     def __enter__(self) -> "AwsCliExactGetStream":
+        self.deadline = time.monotonic() + self.timeout
         try:
             read_fd, write_fd = os.pipe()
         except OSError as exc:
@@ -293,12 +324,14 @@ class AwsCliExactGetStream:
             f"/dev/fd/{write_fd}",
             "--output", "json",
             "--no-cli-pager",
+            "--cli-connect-timeout", self._cli_timeout(self.timeout, 60),
+            "--cli-read-timeout", self._cli_timeout(self.timeout, 300),
         ]
         try:
             self.process = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, env=self.env, close_fds=True,
-                pass_fds=(write_fd,))
+                pass_fds=(write_fd,), start_new_session=True)
         except (OSError, subprocess.SubprocessError) as exc:
             os.close(read_fd)
             os.close(write_fd)
@@ -312,10 +345,26 @@ class AwsCliExactGetStream:
             _fail("S3_GET_STATE_INVALID", "GET stream is not open")
         if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
             _fail("S3_GET_STATE_INVALID", "read size must be positive")
-        try:
-            chunk = self.body.read(size)
-        except OSError as exc:
-            _fail("S3_GET_BODY_FAILED", type(exc).__name__)
+        while True:
+            remaining = self._remaining()
+            if remaining <= 0:
+                self._deadline_expired()
+            try:
+                readable, _writable, _exceptional = select.select(
+                    [self.body.fileno()], [], [], remaining)
+            except InterruptedError:
+                continue
+            except OSError as exc:
+                _fail("S3_GET_BODY_FAILED", type(exc).__name__)
+            if not readable:
+                self._deadline_expired()
+            try:
+                chunk = os.read(self.body.fileno(), size)
+            except InterruptedError:
+                continue
+            except OSError as exc:
+                _fail("S3_GET_BODY_FAILED", type(exc).__name__)
+            break
         if not isinstance(chunk, bytes):
             _fail("S3_GET_BODY_INVALID", "GET stream yielded non-bytes")
         if not chunk:
@@ -332,13 +381,22 @@ class AwsCliExactGetStream:
                 self.body.close()
             self.body = None
         if self.process is not None and self.process.poll() is None:
-            with contextlib.suppress(OSError):
-                self.process.terminate()
+            pid = getattr(self.process, "pid", None)
+            if isinstance(pid, int) and pid > 0:
+                with contextlib.suppress(OSError):
+                    os.killpg(pid, signal.SIGTERM)
+            else:
+                with contextlib.suppress(OSError):
+                    self.process.terminate()
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                with contextlib.suppress(OSError):
-                    self.process.kill()
+                if isinstance(pid, int) and pid > 0:
+                    with contextlib.suppress(OSError):
+                        os.killpg(pid, signal.SIGKILL)
+                else:
+                    with contextlib.suppress(OSError):
+                        self.process.kill()
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     self.process.wait(timeout=5)
 
@@ -353,11 +411,13 @@ class AwsCliExactGetStream:
             self.body.close()
             self.body = None
         assert self.process is not None
+        remaining = self._remaining()
+        if remaining <= 0:
+            self._deadline_expired()
         try:
-            stdout, stderr = self.process.communicate(timeout=self.timeout)
+            stdout, stderr = self.process.communicate(timeout=remaining)
         except subprocess.TimeoutExpired:
-            self._stop()
-            _fail("S3_GET_TIMEOUT", f"exact GET timed out for {self.key}")
+            self._deadline_expired()
         if self.process.returncode != 0:
             code = _aws_error_code(stderr.decode("utf-8", "replace"))
             _fail("S3_GET_FAILED", f"AWS CLI rc={self.process.returncode} code={code}")
@@ -398,6 +458,10 @@ class AwsCliExactS3Client:
             "--bucket", bucket, "--key", key,
             "--checksum-mode", "ENABLED",
             "--output", "json", "--no-cli-pager",
+            "--cli-connect-timeout",
+            AwsCliExactGetStream._cli_timeout(self.timeout, 60),
+            "--cli-read-timeout",
+            AwsCliExactGetStream._cli_timeout(self.timeout, 300),
         ]
         try:
             result = subprocess.run(
@@ -782,20 +846,24 @@ def _strict_gap_rows(payload: bytes) -> list[tuple[int, int]]:
         _fail("GAP_RECORD_INVALID", "capture_gaps.csv is invalid CSV")
 
 
-def _existing_gap_rows(path: str | os.PathLike[str]) -> list[tuple[int, int]]:
+def _record_snapshot(
+    path: str | os.PathLike[str],
+) -> tuple[bytes, tuple[int, int, int, int, int, str], list[tuple[int, int]]]:
     if not os.path.lexists(path):
-        return []
-    payload = _regular_file_bytes(path, "capture_gaps.csv", 64 << 20)
-    return _strict_gap_rows(payload)
+        _fail("GAP_RECORD_MISSING", "capture_gaps.csv does not exist")
+    payload, fingerprint = _regular_file_snapshot(
+        path, "capture_gaps.csv", 64 << 20)
+    return payload, fingerprint, _strict_gap_rows(payload)
 
 
-def _render_gap_record(existing: list[tuple[int, int]], receipt: Mapping[str, Any]) -> bytes:
-    date = receipt["date"]
+def _receipt_gap_rows(receipt: Mapping[str, Any], date: str) -> list[tuple[int, int]]:
+    raw = receipt.get("gaps")
+    if not isinstance(raw, list):
+        _fail("RECEIPT_INVALID", "receipt gaps is not a list")
     day_start, day_end = cg._day_bounds_us(date)
-    kept = [(start, end) for start, end in existing
-            if not (day_start <= start < day_end)]
-    current = []
-    for index, row in enumerate(receipt.get("gaps") or []):
+    rows = []
+    previous_end = None
+    for index, row in enumerate(raw):
         if not isinstance(row, dict) or set(row) != {"start_us", "end_us"}:
             _fail("RECEIPT_INVALID", f"gaps[{index}] shape invalid")
         start, end = row["start_us"], row["end_us"]
@@ -803,19 +871,145 @@ def _render_gap_record(existing: list[tuple[int, int]], receipt: Mapping[str, An
                 or not isinstance(end, int) or isinstance(end, bool)
                 or not day_start <= start < end <= day_end):
             _fail("RECEIPT_INVALID", f"gaps[{index}] is outside the day")
-        current.append((start, end))
-    rows = sorted(set(kept + current))
-    for prior, later in zip(rows, rows[1:]):
-        if later[0] < prior[1]:
-            _fail("GAP_RECORD_INVALID", "merged gaps overlap")
-    output = io.StringIO(newline="")
-    writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(["start_us", "end_us"])
-    writer.writerows(rows)
-    return output.getvalue().encode("utf-8")
+        if previous_end is not None and start < previous_end:
+            _fail("RECEIPT_INVALID", "receipt gaps overlap or are unsorted")
+        rows.append((start, end))
+        previous_end = end
+    return rows
+
+
+def _target_gap_rows(existing: list[tuple[int, int]], date: str) -> list[tuple[int, int]]:
+    day_start, day_end = cg._day_bounds_us(date)
+    selected = []
+    for start, end in existing:
+        if start < day_end and end > day_start:
+            if not day_start <= start < end <= day_end:
+                _fail(
+                    "GAP_RECORD_INVALID",
+                    "capture_gaps.csv interval crosses the target date boundary")
+            selected.append((start, end))
+    return selected
+
+
+def _verify_record_snapshot(
+    receipt: Mapping[str, Any], record_path: str | os.PathLike[str],
+) -> tuple[bytes, tuple[int, int, int, int, int, str]]:
+    payload, fingerprint, rows = _record_snapshot(record_path)
+    expected = _receipt_gap_rows(receipt, receipt["date"])
+    observed = _target_gap_rows(rows, receipt["date"])
+    if observed != expected:
+        _fail(
+            "GAP_RECORD_MISMATCH",
+            "existing target-date rows differ from exact scan "
+            f"(existing={len(observed)} scanned={len(expected)})")
+    return payload, fingerprint
+
+
+_RECEIPT_FIELDS = {
+    "schema_version", "date", "raw_root", "files", "n_files",
+    "total_bytes", "records", "unparsed", "unreadable", "gaps",
+    "generated_at_utc", "source_attestation",
+}
+_SOURCE_FIELDS = {
+    "schema_version", "bucket", "prefix", "seal_sha256", "selection",
+    "transport", "objects", "exact_version_set_sha256",
+    "sort_memory_limit_bytes", "sort_record_capacity",
+    "timestamp_spill_bytes", "raw_payload_bytes_written_to_disk",
+}
+_SOURCE_RUNTIME_FIELDS = {
+    "sort_memory_limit_bytes", "sort_record_capacity", "timestamp_spill_bytes",
+}
+_SOURCE_OBJECT_FIELDS = {"file", "key", "VersionId", "bytes", "sha256"}
+
+
+def _receipt_semantics(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    """Return immutable evidence semantics, excluding time/resource telemetry."""
+    if not isinstance(receipt, dict) or set(receipt) != _RECEIPT_FIELDS:
+        _fail("RECEIPT_INVALID", "capture receipt top-level shape is invalid")
+    if receipt.get("schema_version") != RECEIPT_SCHEMA:
+        _fail("RECEIPT_INVALID", "capture receipt schema is invalid")
+    date = _valid_date(receipt.get("date"))
+    if not isinstance(receipt.get("raw_root"), str) or not receipt["raw_root"]:
+        _fail("RECEIPT_INVALID", "capture receipt raw_root is invalid")
+    files = receipt.get("files")
+    if not isinstance(files, list) or not files:
+        _fail("RECEIPT_INVALID", "capture receipt inventory is empty")
+    total_bytes = 0
+    seen = set()
+    for index, row in enumerate(files):
+        if (not isinstance(row, dict) or set(row) != {"file", "bytes"}
+                or not isinstance(row.get("file"), str) or not row["file"]
+                or not isinstance(row.get("bytes"), int)
+                or isinstance(row.get("bytes"), bool) or row["bytes"] < 0
+                or row["file"] in seen):
+            _fail("RECEIPT_INVALID", f"files[{index}] is invalid")
+        seen.add(row["file"])
+        total_bytes += row["bytes"]
+    if receipt.get("n_files") != len(files) or receipt.get("total_bytes") != total_bytes:
+        _fail("RECEIPT_INVALID", "capture receipt inventory counts differ")
+    records = receipt.get("records")
+    if not isinstance(records, int) or isinstance(records, bool) or records <= 0:
+        _fail("RECEIPT_INVALID", "capture receipt record count is invalid")
+    if receipt.get("unparsed") != 0 or receipt.get("unreadable") is not False:
+        _fail("RECEIPT_INVALID", "capture receipt is not affirmative")
+    _receipt_gap_rows(receipt, date)
+    generated = receipt.get("generated_at_utc")
+    try:
+        parsed = dt.datetime.strptime(generated, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        _fail("RECEIPT_INVALID", "generated_at_utc is not canonical UTC")
+    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != generated:
+        _fail("RECEIPT_INVALID", "generated_at_utc is not canonical UTC")
+
+    source = receipt.get("source_attestation")
+    if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS:
+        _fail("RECEIPT_INVALID", "source attestation shape is invalid")
+    if (source.get("schema_version") != SOURCE_ATTESTATION_SCHEMA
+            or source.get("bucket") != SOURCE_BUCKET
+            or source.get("prefix") != f"{SOURCE_PREFIX}/raw"
+            or source.get("selection")
+            != "SAME_DATE_SEALED_FIREHOSE_ONLY_RFQ_L2_EXCLUDED"
+            or source.get("transport")
+            != "AWS_CLI_HEAD_CURRENT_THEN_GET_EXACT_VERSION"
+            or not isinstance(source.get("seal_sha256"), str)
+            or SHA256_RE.fullmatch(source["seal_sha256"]) is None
+            or source.get("raw_payload_bytes_written_to_disk") != 0):
+        _fail("RECEIPT_INVALID", "source attestation contract is invalid")
+    objects = source.get("objects")
+    if not isinstance(objects, list) or len(objects) != len(files):
+        _fail("RECEIPT_INVALID", "exact-version object set is invalid")
+    for index, row in enumerate(objects):
+        if (not isinstance(row, dict) or set(row) != _SOURCE_OBJECT_FIELDS
+                or not isinstance(row.get("file"), str) or not row["file"]
+                or not isinstance(row.get("key"), str) or not row["key"]
+                or not isinstance(row.get("bytes"), int)
+                or isinstance(row.get("bytes"), bool) or row["bytes"] < 0
+                or not isinstance(row.get("sha256"), str)
+                or SHA256_RE.fullmatch(row["sha256"]) is None):
+            _fail("RECEIPT_INVALID", f"source objects[{index}] is invalid")
+        _version(row.get("VersionId"), "source attestation object")
+    if source.get("exact_version_set_sha256") != _canonical_sha256(objects):
+        _fail("RECEIPT_INVALID", "exact-version object digest differs")
+    for field in ("sort_memory_limit_bytes", "sort_record_capacity"):
+        value = source.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            _fail("RECEIPT_INVALID", f"{field} is invalid")
+    spill = source.get("timestamp_spill_bytes")
+    if not isinstance(spill, int) or isinstance(spill, bool) or spill < 0:
+        _fail("RECEIPT_INVALID", "timestamp_spill_bytes is invalid")
+
+    normalized = {key: value for key, value in receipt.items()
+                  if key != "generated_at_utc"}
+    normalized_source = {
+        key: value for key, value in source.items()
+        if key not in _SOURCE_RUNTIME_FIELDS
+    }
+    normalized["source_attestation"] = normalized_source
+    return normalized
 
 
 def _stage_atomic(path: Path, payload: bytes) -> Path:
+    pending = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.parent.is_symlink() or not path.parent.is_dir():
@@ -835,53 +1029,108 @@ def _stage_atomic(path: Path, payload: bytes) -> Path:
             os.close(fd)
         return pending
     except ExactCaptureError:
+        if pending is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(pending)
         raise
     except OSError as exc:
+        if pending is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(pending)
         _fail("OUTPUT_WRITE_FAILED", type(exc).__name__)
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        _fail("OUTPUT_COMMIT_FAILED", type(exc).__name__)
+
+
+def _assert_existing_receipt(
+    path: Path, expected_semantics: Mapping[str, Any],
+) -> None:
+    payload = _regular_file_bytes(path, "capture receipt", 64 << 20)
+    existing = _strict_json(payload, "capture receipt", "RECEIPT_INVALID")
+    if _receipt_semantics(existing) != expected_semantics:
+        _fail("RECEIPT_CONFLICT", "existing capture receipt has different semantics")
+
+
+def _create_receipt_no_clobber(
+    path: Path, payload: bytes, expected_semantics: Mapping[str, Any],
+) -> tuple[bool, tuple[int, int, int] | None]:
+    pending = _stage_atomic(path, payload)
+    try:
+        try:
+            os.link(pending, path, follow_symlinks=False)
+        except OSError as exc:
+            if exc.errno != errno.EEXIST:
+                _fail("OUTPUT_COMMIT_FAILED", type(exc).__name__)
+            _assert_existing_receipt(path, expected_semantics)
+            return False, None
+        pending_stat = os.lstat(pending)
+        target_stat = os.lstat(path)
+        if (not stat.S_ISREG(target_stat.st_mode)
+                or (pending_stat.st_dev, pending_stat.st_ino, pending_stat.st_size)
+                != (target_stat.st_dev, target_stat.st_ino, target_stat.st_size)):
+            _fail("OUTPUT_COMMIT_FAILED", "no-clobber receipt identity differs")
+        identity = (target_stat.st_dev, target_stat.st_ino, target_stat.st_size)
+        os.unlink(pending)
+        pending = None
+        _fsync_directory(path.parent)
+        return True, identity
+    finally:
+        if pending is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(pending)
+
+
+def _rollback_created_receipt(path: Path, identity: tuple[int, int, int]) -> None:
+    try:
+        observed = os.lstat(path)
+        if (not stat.S_ISREG(observed.st_mode)
+                or (observed.st_dev, observed.st_ino, observed.st_size) != identity):
+            _fail("OUTPUT_ROLLBACK_FAILED", "created receipt identity changed")
+        os.unlink(path)
+        _fsync_directory(path.parent)
+    except ExactCaptureError:
+        raise
+    except OSError as exc:
+        _fail("OUTPUT_ROLLBACK_FAILED", type(exc).__name__)
 
 
 def publish_outputs(
     receipt: Mapping[str, Any], record_path: str | os.PathLike[str],
     receipt_dir: str | os.PathLike[str],
-) -> tuple[str, str]:
-    """Atomically replace the target day's gap rows and its scan receipt."""
-    date = _valid_date(receipt.get("date"))
-    expected = receipt.get("files")
-    if (receipt.get("schema_version") != RECEIPT_SCHEMA
-            or not isinstance(expected, list) or not expected):
-        _fail("RECEIPT_INVALID", "receipt contract gate failed")
+) -> tuple[str, str, bool]:
+    """Verify the immutable CSV projection, then create only the receipt."""
+    expected_semantics = _receipt_semantics(receipt)
+    date = receipt["date"]
     record = Path(record_path)
     receipt_path = Path(receipt_dir) / f"capture_gap_receipt_{date}.json"
-    existing = _existing_gap_rows(record)
-    gap_payload = _render_gap_record(existing, receipt)
+    _before_payload, before_fingerprint = _verify_record_snapshot(receipt, record)
     receipt_payload = json.dumps(
         receipt, sort_keys=True, indent=2, ensure_ascii=True,
         allow_nan=False).encode("utf-8")
-    pending_gap = pending_receipt = None
+    created = False
+    identity = None
     try:
-        pending_gap = _stage_atomic(record, gap_payload)
-        pending_receipt = _stage_atomic(receipt_path, receipt_payload)
-        os.replace(pending_gap, record)
-        pending_gap = None
-        os.replace(pending_receipt, receipt_path)
-        pending_receipt = None
-        for parent in {record.parent, receipt_path.parent}:
-            with contextlib.suppress(OSError):
-                fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-                try:
-                    os.fsync(fd)
-                finally:
-                    os.close(fd)
+        created, identity = _create_receipt_no_clobber(
+            receipt_path, receipt_payload, expected_semantics)
+        _after_payload, after_fingerprint = _verify_record_snapshot(receipt, record)
+        if after_fingerprint != before_fingerprint:
+            _fail("GAP_RECORD_CHANGED", "capture_gaps.csv changed during publication")
     except ExactCaptureError:
+        if created and identity is not None:
+            _rollback_created_receipt(receipt_path, identity)
         raise
-    except OSError as exc:
-        _fail("OUTPUT_COMMIT_FAILED", type(exc).__name__)
-    finally:
-        for pending in (pending_gap, pending_receipt):
-            if pending is not None:
-                with contextlib.suppress(OSError):
-                    os.unlink(pending)
-    return str(record), str(receipt_path)
+    return str(record), str(receipt_path), created
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -889,7 +1138,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", required=True, help="elapsed UTC date YYYY-MM-DD")
     parser.add_argument("--seal", required=True, help="local full_v2 seal JSON")
     parser.add_argument("--record", required=True,
-                        help="capture_gaps.csv to update after a complete scan")
+                        help="immutable capture_gaps.csv projection to verify")
     parser.add_argument("--receipt-dir", required=True,
                         help="directory for capture_gap_receipt_DATE.json")
     parser.add_argument("--aws-cli", default="aws",
@@ -918,7 +1167,7 @@ def main(argv: list[str] | None = None) -> int:
             firehose=firehose, client=client,
             memory_limit_bytes=args.sort_memory_mib << 20,
             scratch_parent=args.scratch_dir)
-        record, receipt_path = publish_outputs(
+        record, receipt_path, receipt_created = publish_outputs(
             receipt, args.record, args.receipt_dir)
     except ExactCaptureError as exc:
         # Error details are deliberately credential-free.  Raw records and
@@ -934,6 +1183,8 @@ def main(argv: list[str] | None = None) -> int:
         "gaps": len(receipt["gaps"]),
         "record": record,
         "receipt": receipt_path,
+        "receipt_created": receipt_created,
+        "record_writes": 0,
         "s3_writes": 0,
         "raw_payload_bytes_written_to_disk": 0,
     }, sort_keys=True))

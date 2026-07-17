@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import errno
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -327,31 +331,221 @@ def test_explicit_small_sort_budget_spills_only_timestamps_and_cleans(tmp_path):
     assert receipt["records"] == len(timestamps)
 
 
-def test_publish_outputs_replaces_only_target_day_atomically(tmp_path):
+def _record_bytes(*rows):
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(["start_us", "end_us"])
+    writer.writerows(rows)
+    return output.getvalue().encode()
+
+
+def test_publish_outputs_is_receipt_only_and_never_mutates_record(tmp_path):
     receipt, _client = _scan()
     record = tmp_path / "quality" / "capture_gaps.csv"
     record.parent.mkdir()
     prior = (DAY_START - 3_600_000_000, DAY_START - 3_000_000_000)
-    stale = (DAY_START + 1_000_000, DAY_START + 2_000_000)
-    record.write_text(
-        "start_us,end_us\n%d,%d\n%d,%d\n" % (*prior, *stale),
-        encoding="utf-8")
+    exact_gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    original = _record_bytes(prior, exact_gap)
+    record.write_bytes(original)
+    before = record.stat()
 
-    record_path, receipt_path = exact.publish_outputs(
+    record_path, receipt_path, created = exact.publish_outputs(
         receipt, record, record.parent)
 
     assert record_path == str(record)
     assert receipt_path == str(
         record.parent / f"capture_gap_receipt_{DATE}.json")
-    rows = list(csv.DictReader(io.StringIO(record.read_text())))
-    assert rows == [
-        {"start_us": str(prior[0]), "end_us": str(prior[1])},
-        {"start_us": str(receipt["gaps"][0]["start_us"]),
-         "end_us": str(receipt["gaps"][0]["end_us"])},
-    ]
+    assert created is True
+    after = record.stat()
+    assert record.read_bytes() == original
+    assert (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns,
+            after.st_ctime_ns) == \
+           (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns,
+            before.st_ctime_ns)
     persisted = json.loads(Path(receipt_path).read_text())
     assert persisted == receipt
     assert not list(record.parent.glob(".*.pending-*"))
+
+
+def test_zero_gap_receipt_requires_and_accepts_header_only_target_day(tmp_path):
+    receipt, _client = _scan()
+    receipt["gaps"] = []
+    record = tmp_path / "capture_gaps.csv"
+    original = _record_bytes()
+    record.write_bytes(original)
+
+    _record, receipt_path, created = exact.publish_outputs(
+        receipt, record, tmp_path)
+
+    assert created is True
+    assert record.read_bytes() == original
+    assert json.loads(Path(receipt_path).read_text())["gaps"] == []
+
+
+def test_record_mismatch_fails_closed_without_any_write(tmp_path):
+    receipt, _client = _scan()
+    record = tmp_path / "capture_gaps.csv"
+    original = _record_bytes((DAY_START + 1, DAY_START + 2))
+    record.write_bytes(original)
+
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+
+    assert caught.value.code == "GAP_RECORD_MISMATCH"
+    assert record.read_bytes() == original
+    assert not (tmp_path / f"capture_gap_receipt_{DATE}.json").exists()
+
+
+def test_existing_semantically_equal_receipt_is_idempotent_no_clobber(tmp_path):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    record = tmp_path / "capture_gaps.csv"
+    record.write_bytes(_record_bytes(gap))
+    _record, receipt_path, created = exact.publish_outputs(receipt, record, tmp_path)
+    assert created is True
+    target = Path(receipt_path)
+    original = target.read_bytes()
+    before = target.stat()
+
+    rerun = json.loads(json.dumps(receipt))
+    rerun["generated_at_utc"] = "2026-07-17T01:02:03Z"
+    rerun["source_attestation"]["sort_memory_limit_bytes"] += 1024
+    rerun["source_attestation"]["sort_record_capacity"] += 1
+    _record, same_path, created = exact.publish_outputs(rerun, record, tmp_path)
+
+    assert same_path == receipt_path
+    assert created is False
+    after = target.stat()
+    assert target.read_bytes() == original
+    assert (after.st_dev, after.st_ino, after.st_mtime_ns) == \
+           (before.st_dev, before.st_ino, before.st_mtime_ns)
+
+
+def test_existing_conflicting_or_corrupt_receipt_is_never_overwritten(tmp_path):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    record = tmp_path / "capture_gaps.csv"
+    record.write_bytes(_record_bytes(gap))
+    target = tmp_path / f"capture_gap_receipt_{DATE}.json"
+    corrupt = b"{not-json"
+    target.write_bytes(corrupt)
+
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+
+    assert caught.value.code == "RECEIPT_INVALID"
+    assert target.read_bytes() == corrupt
+    target.unlink()
+    conflicting = json.loads(json.dumps(receipt))
+    conflicting["source_attestation"]["seal_sha256"] = "b" * 64
+    target.write_text(json.dumps(conflicting))
+    conflict_bytes = target.read_bytes()
+
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+
+    assert caught.value.code == "RECEIPT_CONFLICT"
+    assert target.read_bytes() == conflict_bytes
+
+
+def test_existing_receipt_symlink_is_rejected_without_touching_target(tmp_path):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    record = tmp_path / "capture_gaps.csv"
+    record.write_bytes(_record_bytes(gap))
+    harmless = tmp_path / "harmless"
+    harmless.write_bytes(b"do-not-touch")
+    target = tmp_path / f"capture_gap_receipt_{DATE}.json"
+    target.symlink_to(harmless)
+
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+
+    assert caught.value.code == "LOCAL_INPUT_INVALID"
+    assert target.is_symlink()
+    assert harmless.read_bytes() == b"do-not-touch"
+
+
+def test_no_clobber_link_failure_leaves_no_receipt_or_pending(tmp_path, monkeypatch):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    record = tmp_path / "capture_gaps.csv"
+    original = _record_bytes(gap)
+    record.write_bytes(original)
+
+    def fail_link(*_args, **_kwargs):
+        raise OSError(errno.EIO, "injected")
+
+    monkeypatch.setattr(exact.os, "link", fail_link)
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+
+    assert caught.value.code == "OUTPUT_COMMIT_FAILED"
+    assert record.read_bytes() == original
+    assert not (tmp_path / f"capture_gap_receipt_{DATE}.json").exists()
+    assert not list(tmp_path.glob(".*.pending-*"))
+
+
+def test_post_link_fsync_failure_is_recoverable_without_overwrite(
+        tmp_path, monkeypatch):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    record = tmp_path / "capture_gaps.csv"
+    record.write_bytes(_record_bytes(gap))
+    target = tmp_path / f"capture_gap_receipt_{DATE}.json"
+    original_fsync = exact._fsync_directory
+
+    def fail_fsync(_path):
+        exact._fail("OUTPUT_COMMIT_FAILED", "injected fsync")
+
+    monkeypatch.setattr(exact, "_fsync_directory", fail_fsync)
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+    assert caught.value.code == "OUTPUT_COMMIT_FAILED"
+    assert json.loads(target.read_text()) == receipt
+
+    monkeypatch.setattr(exact, "_fsync_directory", original_fsync)
+    _record, same, created = exact.publish_outputs(receipt, record, tmp_path)
+    assert same == str(target)
+    assert created is False
+
+
+def test_concurrent_record_replace_is_detected_and_own_receipt_rolled_back(
+        tmp_path, monkeypatch):
+    receipt, _client = _scan()
+    gap = (receipt["gaps"][0]["start_us"], receipt["gaps"][0]["end_us"])
+    prior = (DAY_START - 1000, DAY_START - 500)
+    later = (DAY_END + 100, DAY_END + 200)
+    record = tmp_path / "capture_gaps.csv"
+    record.write_bytes(_record_bytes(prior, gap))
+    target = tmp_path / f"capture_gap_receipt_{DATE}.json"
+    original_create = exact._create_receipt_no_clobber
+    linked = threading.Event()
+    changed = threading.Event()
+
+    def coordinated_create(*args, **kwargs):
+        result = original_create(*args, **kwargs)
+        linked.set()
+        assert changed.wait(2)
+        return result
+
+    def concurrent_writer():
+        assert linked.wait(2)
+        replacement = tmp_path / "replacement.csv"
+        replacement.write_bytes(_record_bytes(prior, gap, later))
+        os.replace(replacement, record)
+        changed.set()
+
+    monkeypatch.setattr(exact, "_create_receipt_no_clobber", coordinated_create)
+    writer = threading.Thread(target=concurrent_writer)
+    writer.start()
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        exact.publish_outputs(receipt, record, tmp_path)
+    writer.join(timeout=2)
+
+    assert caught.value.code == "GAP_RECORD_CHANGED"
+    assert record.read_bytes() == _record_bytes(prior, gap, later)
+    assert not target.exists()
 
 
 def test_failed_scan_creates_no_outputs(tmp_path):
@@ -370,9 +564,11 @@ def test_failed_scan_creates_no_outputs(tmp_path):
 class _FakePopen:
     def __init__(self, command, *, body, version, **_kwargs):
         self.command = command
+        self.kwargs = dict(_kwargs)
         self.returncode = 0
         self._body = body
         self._version = version
+        self.communicate_timeout = None
         fd_path = next(part for part in command if part.startswith("/dev/fd/"))
         inherited = int(fd_path.rsplit("/", 1)[1])
         duplicate = os.dup(inherited)
@@ -384,6 +580,7 @@ class _FakePopen:
 
     def communicate(self, timeout=None):
         assert timeout is not None
+        self.communicate_timeout = timeout
         return (json.dumps({
             "VersionId": self._version,
             "ContentLength": len(self._body),
@@ -432,9 +629,114 @@ def test_aws_cli_transport_get_body_uses_pipe_and_exact_version(monkeypatch):
     command = calls[0].command
     assert command[:3] == ["aws", "s3api", "get-object"]
     assert command[command.index("--version-id") + 1] == version
+    assert command[command.index("--cli-connect-timeout") + 1] == "30"
+    assert command[command.index("--cli-read-timeout") + 1] == "30"
     assert any(part.startswith("/dev/fd/") for part in command)
     assert all("put-object" not in part and "delete" not in part
                and "list" not in part for part in command)
+    assert calls[0].kwargs["start_new_session"] is True
+    assert 0 < calls[0].communicate_timeout <= 30
+
+
+class _StalledPopen:
+    def __init__(self, command, **_kwargs):
+        self.command = command
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+        fd_path = next(part for part in command if part.startswith("/dev/fd/"))
+        inherited = int(fd_path.rsplit("/", 1)[1])
+        self.writer = os.dup(inherited)
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        if self.writer is not None:
+            os.close(self.writer)
+            self.writer = None
+        self.returncode = -15
+
+    def kill(self):
+        self.killed = True
+        if self.writer is not None:
+            os.close(self.writer)
+            self.writer = None
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def communicate(self, timeout=None):
+        raise AssertionError("stalled process must be stopped before communicate")
+
+
+def test_exact_get_absolute_deadline_stops_a_stalled_body(monkeypatch):
+    processes = []
+
+    def fake_popen(command, **kwargs):
+        process = _StalledPopen(command, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(exact.subprocess, "Popen", fake_popen)
+    stream = exact.AwsCliExactGetStream(
+        "aws", {}, exact.SOURCE_BUCKET,
+        f"{exact.SOURCE_PREFIX}/raw/date={DATE}/firehose_00.ndjson",
+        "version-1", 1, 0.05)
+    started = time.monotonic()
+
+    with pytest.raises(exact.ExactCaptureError) as caught:
+        with stream as opened:
+            opened.read(1)
+
+    assert caught.value.code == "S3_GET_TIMEOUT"
+    assert time.monotonic() - started < 1
+    assert processes[0].terminated is True
+    assert processes[0].returncode == -15
+
+
+def test_stop_escalates_process_group_from_term_to_kill(monkeypatch):
+    class Process:
+        pid = 424242
+
+        def __init__(self):
+            self.returncode = None
+            self.waits = 0
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            self.waits += 1
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired("aws", timeout)
+            return self.returncode
+
+    process = Process()
+    signals = []
+
+    def fake_killpg(pid, sent):
+        signals.append((pid, sent))
+        if sent == exact.signal.SIGKILL:
+            process.returncode = -9
+
+    read_fd, write_fd = os.pipe()
+    stream = exact.AwsCliExactGetStream(
+        "aws", {}, exact.SOURCE_BUCKET, "key", "version-1", 1, 1)
+    stream.process = process
+    stream.body = os.fdopen(read_fd, "rb", buffering=0)
+    monkeypatch.setattr(exact.os, "killpg", fake_killpg)
+
+    stream._stop()
+    os.close(write_fd)
+
+    assert signals == [
+        (process.pid, exact.signal.SIGTERM),
+        (process.pid, exact.signal.SIGKILL),
+    ]
+    assert stream.body is None
 
 
 def test_head_transport_is_version_resolving_read_only(monkeypatch):
@@ -460,5 +762,7 @@ def test_head_transport_is_version_resolving_read_only(monkeypatch):
     assert result == {"VersionId": "version-1", "ContentLength": 123}
     assert calls[0][:3] == ["/snap/bin/aws", "s3api", "head-object"]
     assert "--version-id" not in calls[0]
+    assert calls[0][calls[0].index("--cli-connect-timeout") + 1] == "30"
+    assert calls[0][calls[0].index("--cli-read-timeout") + 1] == "30"
     assert all("put-object" not in part and "delete" not in part
                and "list" not in part for part in calls[0])
