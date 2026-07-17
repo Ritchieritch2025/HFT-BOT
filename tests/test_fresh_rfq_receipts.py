@@ -1037,17 +1037,89 @@ def overlay_inputs(monkeypatch):
     return auth, receipts, manifest, manifest_bytes, manifest_identity, evidence
 
 
-def build_overlay(auth, receipts, manifest_bytes, manifest_identity, evidence):
+def market_mapping_inputs(**overrides):
+    value = {
+        "rfq_requests": [
+            {
+                "request_id": "rfq-single",
+                "created_ts": "2026-07-17T12:00:00Z",
+                "market_ticker": "KX-BOTH",
+                "mve_collection_ticker": None,
+                "mve_selected_legs": [],
+            },
+            {
+                "request_id": "rfq-combo",
+                "created_ts": "2026-07-17T13:00:00Z",
+                "market_ticker": "KX-COMBO-TOP",
+                "mve_collection_ticker": "KX-COLLECTION",
+                "mve_selected_legs": [
+                    {"market_ticker": "KX-L2-ONLY"},
+                    {"market_ticker": "KX-L1-ONLY"},
+                ],
+            },
+        ],
+        "l1_market_universe": [
+            {"analysis_date": "2026-07-17", "market_ticker": "KX-BOTH"},
+            {
+                "analysis_date": "2026-07-17",
+                "market_ticker": "KX-L1-ONLY",
+            },
+        ],
+        "l2_market_universe": [
+            {
+                "analysis_date": "2026-07-17",
+                "market_ticker": "KX-L2-ONLY",
+            },
+            {"analysis_date": "2026-07-17", "market_ticker": "KX-BOTH"},
+        ],
+        "pre_event_window_ms": 0,
+        "post_event_window_ms": 0,
+    }
+    value.update(overrides)
+    return value
+
+
+def build_overlay(
+        auth, receipts, manifest_bytes, manifest_identity, evidence,
+        mapping_inputs=None):
+    if mapping_inputs is None:
+        mapping_inputs = market_mapping_inputs()
     return fresh.build_overlay_manifest(
         authority=auth, base_manifest_bytes=manifest_bytes,
         base_manifest_exact_identity=manifest_identity,
-        hour_receipts=receipts, source_evidence=evidence)
+        hour_receipts=receipts, source_evidence=evidence,
+        market_mapping_inputs=mapping_inputs)
 
 
-def validate_overlay(value, auth, manifest_bytes, manifest_identity):
+def validate_overlay(
+        value, auth, manifest_bytes, manifest_identity, mapping_inputs=None):
+    if mapping_inputs is None:
+        mapping_inputs = market_mapping_inputs()
     return fresh.validate_overlay_manifest(
         value, auth, base_manifest_bytes=manifest_bytes,
-        base_manifest_exact_identity=manifest_identity)
+        base_manifest_exact_identity=manifest_identity,
+        market_mapping_inputs=mapping_inputs)
+
+
+def reseal_market_mapping(value):
+    value["mapping_input_ticker_count"] = len(value["mapping_rows"])
+    value["mapping_row_set_sha256"] = fresh.canonical_sha256(
+        value["mapping_rows"])
+    value["dq_count"] = len(value["dq_ledger"])
+    value["dq_ledger_sha256"] = fresh.canonical_sha256(value["dq_ledger"])
+    value["ignored_combo_top_level_count"] = len(
+        value["ignored_combo_top_levels"])
+    value["ignored_combo_top_level_sha256"] = fresh.canonical_sha256(
+        value["ignored_combo_top_levels"])
+    value["mapping_sha256"] = fresh.canonical_sha256({
+        key: item for key, item in value.items() if key != "mapping_sha256"})
+
+
+def reseal_overlay(value):
+    value["market_mapping_sha256"] = value["market_mapping"][
+        "mapping_sha256"]
+    value["manifest_sha256"] = fresh.canonical_sha256({
+        key: item for key, item in value.items() if key != "manifest_sha256"})
 
 
 def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch):
@@ -1056,7 +1128,7 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     two = build_overlay(
         auth, list(reversed(receipts)), raw, identity, evidence)
     assert one == two
-    assert one["schema"] == "research-rfq-overlay-manifest-v2"
+    assert one["schema"] == "research-rfq-overlay-manifest-v3"
     assert len(one["analysis_hours"]) == 24
     assert len(one["watermark_hours"]) == 2
     assert one["analysis_hours"][0]["segment_hour"] == "2026-07-17T00"
@@ -1098,10 +1170,229 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     assert "post_event_window_ms" not in one["time_contract"]
     assert one["time_contract"]["analysis_end_utc_exclusive"] == \
         base["analysis_data_end_utc"]
+    mapping = one["market_mapping"]
+    assert one["market_mapping_sha256"] == mapping["mapping_sha256"]
+    assert mapping["base_binding_sha256"] == one["base_binding_sha256"]
+    assert mapping["analysis_rfq_object_set_sha256"] == one[
+        "analysis_rfq_object_set_sha256"]
+    assert mapping["time_contract_sha256"] == one["time_contract_sha256"]
+    assert mapping["analysis_date"] == one["eligible_date"]
+    assert mapping["source_objects_exact_get_verified"] is False
+    assert mapping["research_eligible"] is False
+    assert mapping["research_ready"] is False
+    assert mapping["ignored_combo_top_level_count"] == 1
+    assert {row["mapping_state"] for row in mapping["mapping_rows"]} == {
+        "MAPPED_L1_L2", "MISSING_L1", "MISSING_L2"}
     assert one["watermark_objects_in_analysis"] is False
     assert one["data_objects_copied"] == 0
     assert one["aws_write_authorized"] is False
     assert one["research_eligible"] is False
+    assert one["research_ready"] is False
+
+
+def test_overlay_mapping_universes_exclude_watermark_objects(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    inputs = market_mapping_inputs()
+    built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
+    mapping = built["market_mapping"]
+    expected_l1 = sorted(
+        inputs["l1_market_universe"], key=lambda row: row["market_ticker"])
+    expected_l2 = sorted(
+        inputs["l2_market_universe"], key=lambda row: row["market_ticker"])
+
+    assert mapping["l1_market_universe_sha256"] == fresh.canonical_sha256(
+        expected_l1)
+    assert mapping["l2_market_universe_sha256"] == fresh.canonical_sha256(
+        expected_l2)
+    assert mapping["analysis_rfq_object_set_sha256"] == fresh.canonical_sha256(
+        built["analysis_rfq_objects"])
+    assert mapping["analysis_rfq_object_set_sha256"] != fresh.canonical_sha256(
+        built["watermark_rfq_objects"])
+    assert built["time_contract"]["watermark_is_market_data"] is False
+
+
+@pytest.mark.parametrize("mutation", ["mapping_row", "dq", "ignored_top"])
+def test_overlay_rejects_fully_rehashed_mapping_audit_tamper(
+        monkeypatch, mutation):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    mapping = tampered["market_mapping"]
+    if mutation == "mapping_row":
+        mapping["mapping_rows"][0]["market_ticker"] = "KX-FORGED"
+    elif mutation == "dq":
+        mapping["dq_ledger"].pop()
+    else:
+        mapping["ignored_combo_top_levels"][0][
+            "market_ticker"] = "KX-HIDDEN-COMBO"
+    reseal_market_mapping(mapping)
+    reseal_overlay(tampered)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
+
+
+@pytest.mark.parametrize(
+    "binding_source",
+    ["base", "analysis_rfq", "time", "watermark_rfq", "combined_rfq"],
+)
+def test_overlay_rejects_fully_rehashed_mapping_binding_cross_splice(
+        monkeypatch, binding_source):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    mapping = tampered["market_mapping"]
+    if binding_source == "base":
+        mapping["base_binding_sha256"] = "d" * 64
+    elif binding_source == "analysis_rfq":
+        mapping["analysis_rfq_object_set_sha256"] = "e" * 64
+    elif binding_source == "time":
+        mapping["time_contract_sha256"] = "f" * 64
+    elif binding_source == "watermark_rfq":
+        mapping["analysis_rfq_object_set_sha256"] = tampered[
+            "watermark_rfq_object_set_sha256"]
+    else:
+        mapping["analysis_rfq_object_set_sha256"] = fresh.canonical_sha256(
+            tampered["analysis_rfq_objects"] + tampered[
+                "watermark_rfq_objects"])
+    reseal_market_mapping(mapping)
+    reseal_overlay(tampered)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("missing", "MARKET_MAPPING_INPUTS"),
+        ("extra", "MARKET_MAPPING_INPUTS"),
+        ("self_reported_binding", "MARKET_MAPPING_INPUTS"),
+    ],
+)
+def test_overlay_build_and_validate_require_exact_mapping_input_keys(
+        monkeypatch, mutation, expected_code):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
+    inputs = market_mapping_inputs()
+    if mutation == "missing":
+        inputs.pop("l2_market_universe")
+    elif mutation == "extra":
+        inputs["extra"] = None
+    else:
+        inputs["base_binding_sha256"] = built["base_binding_sha256"]
+
+    with pytest.raises(fresh.FreshRfqError) as build_error:
+        build_overlay(auth, receipts, raw, identity, evidence, inputs)
+    assert build_error.value.code == expected_code
+    with pytest.raises(fresh.FreshRfqError) as validate_error:
+        validate_overlay(built, auth, raw, identity, inputs)
+    assert validate_error.value.code == expected_code
+
+
+@pytest.mark.parametrize("changed_input", ["requests", "l1", "l2", "window"])
+def test_overlay_rejects_a_different_valid_external_mapping_input_set(
+        monkeypatch, changed_input):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
+    changed = market_mapping_inputs()
+    if changed_input == "requests":
+        changed["rfq_requests"][0]["market_ticker"] = "KX-CHANGED"
+    elif changed_input == "l1":
+        changed["l1_market_universe"].pop()
+    elif changed_input == "l2":
+        changed["l2_market_universe"].append({
+            "analysis_date": "2026-07-17",
+            "market_ticker": "KX-L1-ONLY",
+        })
+    else:
+        changed["post_event_window_ms"] = 1
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(built, auth, raw, identity, changed)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
+
+
+@pytest.mark.parametrize("operation", ["build", "validate"])
+def test_overlay_wraps_bool_window_attack_as_fresh_rfq_error(
+        monkeypatch, operation):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    inputs = market_mapping_inputs(pre_event_window_ms=True)
+    with pytest.raises(fresh.FreshRfqError) as error:
+        if operation == "build":
+            build_overlay(auth, receipts, raw, identity, evidence, inputs)
+        else:
+            built = build_overlay(auth, receipts, raw, identity, evidence)
+            validate_overlay(built, auth, raw, identity, inputs)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
+    assert "INVALID_EVENT_WINDOW" in error.value.detail
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    [("research_ready", 0), ("dq_count", False)],
+)
+def test_overlay_rejects_mapping_bool_integer_attack_after_full_rehash(
+        monkeypatch, field, wrong_value):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    tampered["market_mapping"][field] = wrong_value
+    reseal_market_mapping(tampered["market_mapping"])
+    if field == "dq_count":
+        tampered["market_mapping"][field] = wrong_value
+        tampered["market_mapping"]["mapping_sha256"] = fresh.canonical_sha256({
+            key: item for key, item in tampered["market_mapping"].items()
+            if key != "mapping_sha256"})
+    reseal_overlay(tampered)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
+
+
+def test_zero_dq_mapping_does_not_upgrade_research_state(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    both_universes = [
+        {"analysis_date": "2026-07-17", "market_ticker": ticker}
+        for ticker in ("KX-BOTH", "KX-L1-ONLY", "KX-L2-ONLY")
+    ]
+    inputs = market_mapping_inputs(
+        l1_market_universe=copy.deepcopy(both_universes),
+        l2_market_universe=copy.deepcopy(both_universes),
+    )
+    built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
+
+    assert built["market_mapping"]["dq_count"] == 0
+    assert built["market_mapping"]["dq_ledger"] == []
+    assert built["market_mapping"]["research_eligible"] is False
+    assert built["market_mapping"]["research_ready"] is False
+    assert built["research_eligible"] is False
+    assert built["research_ready"] is False
+    assert validate_overlay(built, auth, raw, identity, inputs) == built
+
+
+def test_overlay_rejects_whole_mapping_spliced_from_other_valid_inputs(
+        monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    original = build_overlay(auth, receipts, raw, identity, evidence)
+    alternate_inputs = market_mapping_inputs(post_event_window_ms=1)
+    alternate = build_overlay(
+        auth, receipts, raw, identity, evidence, alternate_inputs)
+    original["market_mapping"] = alternate["market_mapping"]
+    reseal_overlay(original)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(original, auth, raw, identity)
+    assert error.value.code == "MARKET_MAPPING_INVALID"
 
 
 @pytest.mark.parametrize(("published_at", "accepted"), [
@@ -1185,7 +1476,7 @@ def test_overlay_rejects_rehashed_embedded_base_analysis_end_tamper(monkeypatch)
     assert error.value.code == "TIME_CONTRACT_INVALID"
 
 
-def test_overlay_v2_without_time_contract_is_mechanically_rejected(monkeypatch):
+def test_overlay_v3_without_time_contract_is_mechanically_rejected(monkeypatch):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
     old_shape = build_overlay(auth, receipts, raw, identity, evidence)
@@ -1342,6 +1633,7 @@ def test_overlay_rejects_generation_rollover_without_raw_hour_ack(monkeypatch):
     ("watermark_objects_in_analysis", 0),
     ("aws_write_authorized", 0),
     ("research_eligible", 0),
+    ("research_ready", 0),
     ("data_objects_copied", False),
     ("analysis_hour_count", True),
     ("watermark_hour_count", True),
@@ -1459,7 +1751,20 @@ def test_overlay_strict_validation_requires_original_manifest_inputs(monkeypatch
         monkeypatch)
     built = build_overlay(auth, receipts, raw, identity, evidence)
     with pytest.raises(TypeError):
-        fresh.validate_overlay_manifest(built, auth)
+        fresh.build_overlay_manifest(
+            authority=auth,
+            base_manifest_bytes=raw,
+            base_manifest_exact_identity=identity,
+            hour_receipts=receipts,
+            source_evidence=evidence,
+        )
+    with pytest.raises(TypeError):
+        fresh.validate_overlay_manifest(
+            built,
+            auth,
+            base_manifest_bytes=raw,
+            base_manifest_exact_identity=identity,
+        )
 
     wrong_identity = copy.deepcopy(identity)
     wrong_identity["version_id"] = "another-exact-version"
@@ -1480,7 +1785,7 @@ def test_legacy_hour_and_overlay_schemas_are_mechanically_rejected(monkeypatch):
     assert error.value.code == "HOUR_RECEIPT_INVALID"
 
     old_overlay = build_overlay(auth, receipts, raw, identity, evidence)
-    old_overlay["schema"] = "research-rfq-overlay-manifest-v1"
+    old_overlay["schema"] = "research-rfq-overlay-manifest-v2"
     old_overlay["manifest_sha256"] = fresh.canonical_sha256({
         key: value for key, value in old_overlay.items()
         if key != "manifest_sha256"})

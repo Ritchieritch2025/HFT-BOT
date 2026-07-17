@@ -16,11 +16,12 @@ import re
 from typing import Any, Callable
 
 import fresh_rfq_base_binding as rfq_base_binding
+import fresh_rfq_market_mapping as rfq_market_mapping
 
 
 AUTHORITY_SCHEMA = "fresh-rfq-epoch-authority-v1"
 HOUR_SCHEMA = "canonical-rfq-hour-receipt-v2"
-OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v2"
+OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v3"
 SOURCE_EVIDENCE_SCHEMA = "fresh-rfq-source-evidence-v1"
 LANE_ID = "W-RFQ-FRESH-01"
 OPERATOR_AUTHORIZATION_SHA256 = (
@@ -51,6 +52,10 @@ READ_ONLY_SCOPE = {
     "kalshi_api_key_scope": "read",
     "kalshi_mode": "data_collect",
     "aws_source_access": "read-only",
+}
+MARKET_MAPPING_INPUT_FIELDS = {
+    "rfq_requests", "l1_market_universe", "l2_market_universe",
+    "pre_event_window_ms", "post_event_window_ms",
 }
 
 
@@ -1005,6 +1010,49 @@ def _canonical_exact_equal(left: Any, right: Any) -> bool:
     return canonical_bytes(left) == canonical_bytes(right)
 
 
+def _market_mapping_inputs(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != MARKET_MAPPING_INPUT_FIELDS:
+        _fail(
+            "MARKET_MAPPING_INPUTS",
+            "market_mapping_inputs fields differ from the exact contract",
+        )
+    return value
+
+
+def _build_market_mapping(
+    *, base: dict[str, Any], analysis_objects: list[dict[str, Any]],
+    time_contract: dict[str, Any], market_mapping_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return rfq_market_mapping.build_market_mapping(
+            analysis_date=base["date"],
+            base_binding_sha256=base["binding_sha256"],
+            analysis_rfq_object_set_sha256=canonical_sha256(analysis_objects),
+            time_contract_sha256=canonical_sha256(time_contract),
+            **market_mapping_inputs,
+        )
+    except rfq_market_mapping.FreshRfqMarketMappingError as exc:
+        _fail("MARKET_MAPPING_INVALID", f"{exc.code}: {exc.detail}")
+
+
+def _validate_market_mapping(
+    value: Any, *, base: dict[str, Any],
+    analysis_objects: list[dict[str, Any]],
+    time_contract: dict[str, Any], market_mapping_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return rfq_market_mapping.validate_market_mapping(
+            value,
+            analysis_date=base["date"],
+            base_binding_sha256=base["binding_sha256"],
+            analysis_rfq_object_set_sha256=canonical_sha256(analysis_objects),
+            time_contract_sha256=canonical_sha256(time_contract),
+            **market_mapping_inputs,
+        )
+    except rfq_market_mapping.FreshRfqMarketMappingError as exc:
+        _fail("MARKET_MAPPING_INVALID", f"{exc.code}: {exc.detail}")
+
+
 def _derive_time_contract(base: dict[str, Any]) -> dict[str, Any]:
     """Derive the immutable overlay clocks from one exact base binding.
 
@@ -1732,8 +1780,9 @@ def build_overlay_manifest(
     *, authority: Any, base_manifest_bytes: bytes,
     base_manifest_exact_identity: dict[str, Any],
     hour_receipts: list[dict[str, Any]],
-    source_evidence: Any,
+    source_evidence: Any, market_mapping_inputs: Any,
 ) -> dict[str, Any]:
+    market_mapping_inputs = _market_mapping_inputs(market_mapping_inputs)
     authority = validate_fresh_epoch_authority(authority)
     if not isinstance(source_evidence, dict):
         _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
@@ -1750,6 +1799,12 @@ def build_overlay_manifest(
         source_evidence, authority, base, analysis, watermark,
         analysis_objects, watermark_objects)
     time_contract = _derive_time_contract(base)
+    market_mapping = _build_market_mapping(
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        market_mapping_inputs=market_mapping_inputs,
+    )
     result = {
         "schema": OVERLAY_SCHEMA,
         "lane_id": LANE_ID,
@@ -1760,6 +1815,8 @@ def build_overlay_manifest(
         "base_binding_sha256": base["binding_sha256"],
         "time_contract": time_contract,
         "time_contract_sha256": canonical_sha256(time_contract),
+        "market_mapping": market_mapping,
+        "market_mapping_sha256": market_mapping["mapping_sha256"],
         "source_evidence": source_evidence,
         "source_evidence_sha256": source_evidence["evidence_sha256"],
         "analysis_hours": analysis,
@@ -1778,24 +1835,29 @@ def build_overlay_manifest(
         "data_objects_copied": 0,
         "aws_write_authorized": False,
         "research_eligible": False,
+        "research_ready": False,
     }
     result["manifest_sha256"] = canonical_sha256(result)
     return validate_overlay_manifest(
         result, authority,
         base_manifest_bytes=base_manifest_bytes,
         base_manifest_exact_identity=base_manifest_exact_identity,
+        market_mapping_inputs=market_mapping_inputs,
     )
 
 
 def validate_overlay_manifest(
     value: Any, authority: Any, *, base_manifest_bytes: bytes,
     base_manifest_exact_identity: dict[str, Any],
+    market_mapping_inputs: Any,
 ) -> dict[str, Any]:
+    market_mapping_inputs = _market_mapping_inputs(market_mapping_inputs)
     authority = validate_fresh_epoch_authority(authority)
     fields = {
         "schema", "lane_id", "state", "authority_sha256", "eligible_date",
         "base_binding", "base_binding_sha256", "time_contract",
-        "time_contract_sha256", "analysis_hours",
+        "time_contract_sha256", "market_mapping", "market_mapping_sha256",
+        "analysis_hours",
         "source_evidence", "source_evidence_sha256",
         "analysis_hour_receipt_set_sha256", "watermark_hours",
         "watermark_hour_receipt_set_sha256", "analysis_rfq_objects",
@@ -1803,7 +1865,7 @@ def validate_overlay_manifest(
         "watermark_rfq_object_set_sha256", "analysis_hour_count",
         "watermark_hour_count", "watermark_objects_in_analysis",
         "data_objects_copied", "aws_write_authorized", "research_eligible",
-        "manifest_sha256",
+        "research_ready", "manifest_sha256",
     }
     value = _exact_keys(value, fields, "RFQ overlay manifest")
     fixed = {
@@ -1813,6 +1875,7 @@ def validate_overlay_manifest(
         "analysis_hour_count": 24, "watermark_hour_count": 2,
         "watermark_objects_in_analysis": False, "data_objects_copied": 0,
         "aws_write_authorized": False, "research_eligible": False,
+        "research_ready": False,
     }
     if (any(value.get(key) != expected for key, expected in fixed.items()) or
             type(value.get("analysis_hour_count")) is not int or
@@ -1820,7 +1883,8 @@ def validate_overlay_manifest(
             value.get("watermark_objects_in_analysis") is not False or
             type(value.get("data_objects_copied")) is not int or
             value.get("aws_write_authorized") is not False or
-            value.get("research_eligible") is not False):
+            value.get("research_eligible") is not False or
+            value.get("research_ready") is not False):
         _fail("OVERLAY_INVALID", "fixed local-only overlay contract changed")
     eligible_date = value.get("eligible_date")
     _date(eligible_date, "overlay eligible_date")
@@ -1877,6 +1941,21 @@ def validate_overlay_manifest(
     if any(not _canonical_exact_equal(value.get(key), expected)
            for key, expected in bindings.items()):
         _fail("OVERLAY_BINDING", "hour/object set binding mismatch")
+    market_mapping = _validate_market_mapping(
+        value.get("market_mapping"),
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        market_mapping_inputs=market_mapping_inputs,
+    )
+    supplied_mapping_sha = _sha(
+        value.get("market_mapping_sha256"), "market_mapping_sha256")
+    if (not _canonical_exact_equal(value.get("market_mapping"), market_mapping)
+            or supplied_mapping_sha != market_mapping["mapping_sha256"]):
+        _fail(
+            "MARKET_MAPPING_INVALID",
+            "overlay market mapping binding differs from exact rebuild",
+        )
     supplied = _sha(value["manifest_sha256"], "manifest_sha256")
     unsigned = copy.deepcopy(value)
     unsigned.pop("manifest_sha256")
