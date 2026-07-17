@@ -367,14 +367,23 @@ gate:
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
                  $(BUILD)/test_request_spec $(BUILD)/test_batch_cost \
                  $(BUILD)/test_engine_bench
-PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py
+PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py \
+		      tests/test_make_check_contract.py
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 # Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest
 # ignore it — so no test litters the repo root.
 check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
-	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
-	@set -e; for t in $(PY_WAREHOUSE_TESTS); do echo "== $$t"; python3 $$t | tail -1; done
+	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do \
+	  echo "== $$t"; log="$(SCRATCH)/make-check-$$(basename $$t).log"; \
+	  if $$t $(SCRATCH) >"$$log" 2>&1; then tail -1 "$$log"; \
+	  else rc=$$?; tail -1 "$$log"; exit $$rc; fi; \
+	done
+	@set -e; for t in $(PY_WAREHOUSE_TESTS); do \
+	  echo "== $$t"; log="$(SCRATCH)/make-check-$$(basename $$t).log"; \
+	  if python3 $$t >"$$log" 2>&1; then tail -1 "$$log"; \
+	  else rc=$$?; tail -1 "$$log"; exit $$rc; fi; \
+	done
 
 # pytest contract suites (EXECUTION_PLAN WP-00). Empty scaffold is green;
 # legacy suites remain under `make check` (see tests/conftest.py). The old
