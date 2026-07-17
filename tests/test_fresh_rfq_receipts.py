@@ -73,6 +73,18 @@ def segment(auth, hour="2026-07-17T00", *, shard_count=1,
             "parsed_bytes_at_close": 100 + ordinal,
             "sha256": sha(f"{hour}-shard-{ordinal}"),
         })
+    if subscription_acks:
+        child_ack_wall_ns = start_ns + 1_000_000_000
+        child_started_wall_ns = start_ns - 1_000_000
+    else:
+        epoch = dt.datetime.strptime(
+            auth["strict_t0_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+        child_ack_wall_ns = int(epoch.timestamp()) * 1_000_000_000 + 1_000_000_000
+        child_started_wall_ns = int(epoch.timestamp()) * 1_000_000_000 - 1_000_000
+    child_ack_identity = sha(
+        f"child-{child_generation}-communications-subscription-ack")
+    raw_paths = [f"/srv/rfq/{row['relpath']}" for row in shards]
     return {
         "type": "rfq_segment_receipt",
         "schema": "rfq-segment-receipt-v3",
@@ -84,10 +96,13 @@ def segment(auth, hour="2026-07-17T00", *, shard_count=1,
         "supervisor_pid": supervisor_pid,
         "child_pid": child_pid,
         "child_generation": child_generation,
+        "child_subscription_ack_wall_ns": child_ack_wall_ns,
+        "child_subscription_ack_identity_sha256": child_ack_identity,
+        "child_subscription_ack_count": 1,
         "segment_hour": hour,
         "expected_start_wall_ns": start_ns,
         "expected_end_wall_ns": start_ns + 3_600_000_000_000,
-        "child_started_wall_ns": start_ns - 1_000_000,
+        "child_started_wall_ns": child_started_wall_ns,
         "segment_started_wall_ns": start_ns,
         "receipt_observed_wall_ns": start_ns + 3_601_000_000_000,
         "start_lag_ms": 0,
@@ -111,19 +126,24 @@ def segment(auth, hour="2026-07-17T00", *, shard_count=1,
             "findings": [], "recorder_rows": 3,
             "subscribed_communications": subscription_acks,
             "subscription_ack_wall_ns":
-                start_ns + 1_000_000_000 if subscription_acks else None,
+                child_ack_wall_ns if subscription_acks else None,
+            "subscription_ack_identity_sha256":
+                child_ack_identity if subscription_acks else None,
             "rfq_created": 0, "rfq_deleted": 0,
             "markers": {"hour_open": 1}, "partition_mismatches": 0,
             "max_stream_epoch": 1,
             "subscription_invalidations": 0,
             "subscription_proven_at_end": subscription_end,
-            "start_offsets": {},
-            "end_offsets": {f"/srv/rfq/{base}": sum(
-                row["size"] for row in shards)},
-            "shards": [f"/srv/rfq/{row['relpath']}" for row in shards],
+            "start_offsets": {
+                path: row["bytes_before"]
+                for path, row in zip(raw_paths, shards)},
+            "end_offsets": {
+                path: row["parsed_bytes_at_close"]
+                for path, row in zip(raw_paths, shards)},
+            "shards": raw_paths,
         },
         "metrics_evidence": {
-            "findings": [], "feed_rows": 60, "connected_valid_rows": 60,
+            "findings": [], "feed_rows": 3600, "connected_valid_rows": 3600,
             "min_reconnects": 0, "min_disconnects": 0, "min_errors": 0,
             "first_ts_ms": start_ns // 1_000_000,
             "last_ts_ms": (start_ns + 3_600_000_000_000) // 1_000_000 - 1,
@@ -237,6 +257,54 @@ def test_segment_accepts_complete_contiguous_multishard_set(monkeypatch):
     assert [row["ordinal"] for row in got["capture_shards"]] == [0, 1, 2]
     assert got["capture_shard_set_sha256"] == fresh.canonical_sha256(
         got["capture_shards"])
+    paths = [f"/srv/rfq/{row['relpath']}" for row in got["capture_shards"]]
+    assert got["raw_evidence"]["shards"] == paths
+    assert got["raw_evidence"]["start_offsets"] == {
+        path: row["bytes_before"] for path, row in zip(
+            paths, got["capture_shards"])}
+    assert got["raw_evidence"]["end_offsets"] == {
+        path: row["size"] for path, row in zip(paths, got["capture_shards"])}
+
+
+@pytest.mark.parametrize("mutation", [
+    "shards_reordered", "shards_extra", "start_missing", "start_extra",
+    "start_wrong", "end_collapsed", "end_extra", "end_wrong",
+    "origin_wrong_base", "origin_traversal", "origin_double_slash",
+])
+def test_segment_raw_offsets_and_paths_must_exactly_bind_capture_shards(
+        monkeypatch, mutation):
+    auth = authority(monkeypatch)
+    receipt = segment(auth, shard_count=3)
+    raw = receipt["raw_evidence"]
+    paths = list(raw["shards"])
+    if mutation == "shards_reordered":
+        raw["shards"] = [paths[1], paths[0], paths[2]]
+    elif mutation == "shards_extra":
+        raw["shards"].append(paths[-1] + ".3")
+    elif mutation == "start_missing":
+        raw["start_offsets"].pop(paths[1])
+    elif mutation == "start_extra":
+        raw["start_offsets"][paths[-1] + ".3"] = 0
+    elif mutation == "start_wrong":
+        raw["start_offsets"][paths[1]] = 1
+    elif mutation == "end_collapsed":
+        raw["end_offsets"] = {
+            paths[0]: sum(row["size"] for row in receipt["capture_shards"])}
+    elif mutation == "end_extra":
+        raw["end_offsets"][paths[-1] + ".3"] = 1
+    elif mutation == "end_wrong":
+        raw["end_offsets"][paths[1]] += 1
+    elif mutation == "origin_wrong_base":
+        receipt["capture_origin_path"] = "/srv/rfq/date=2026-07-17/rfq_01.ndjson"
+    elif mutation == "origin_traversal":
+        receipt["capture_origin_path"] = "/srv/rfq/../" + \
+            receipt["capture_relpath"]
+    else:
+        receipt["capture_origin_path"] = "/srv//rfq/" + \
+            receipt["capture_relpath"]
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_v3_segment_receipt(receipt, auth)
+    assert error.value.code == "RAW_SHARD_BINDING"
 
 
 @pytest.mark.parametrize("field,value", [
@@ -262,10 +330,19 @@ def test_segment_requires_bound_authority_and_positive_process_generation(
 
 def test_persistent_generation_carries_subscription_proof_across_hours(monkeypatch):
     auth = authority(monkeypatch)
+    first = segment(auth)
     receipt = segment(
         auth, "2026-07-17T01", subscription_acks=0,
         subscription_end=None)
     assert receipt["subscription_proven"] is True
+    assert receipt["child_subscription_ack_count"] == 1
+    assert (receipt["child_subscription_ack_wall_ns"],
+            receipt["child_subscription_ack_identity_sha256"]) == (
+                first["child_subscription_ack_wall_ns"],
+                first["child_subscription_ack_identity_sha256"])
+    assert receipt["raw_evidence"]["subscription_ack_wall_ns"] is None
+    assert receipt["raw_evidence"][
+        "subscription_ack_identity_sha256"] is None
     got = fresh.validate_v3_segment_receipt(receipt, auth)
     assert got["raw_evidence"]["subscription_proven_at_end"] is None
 
@@ -273,6 +350,92 @@ def test_persistent_generation_carries_subscription_proof_across_hours(monkeypat
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.validate_v3_segment_receipt(receipt, auth)
     assert error.value.code == "RAW_COVERAGE"
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("missing_ack_top_field", "SEGMENT_SCHEMA"),
+    ("extra_top_field", "SEGMENT_SCHEMA"),
+    ("bool_ack_count", "SEGMENT_AUTHORITY_BINDING"),
+    ("ack_at_hour_end", "SEGMENT_AUTHORITY_BINDING"),
+    ("raw_ack_identity_mismatch", "RAW_COVERAGE"),
+    ("metrics_under_cadence", "METRICS_COVERAGE"),
+    ("metrics_over_cadence", "METRICS_COVERAGE"),
+    ("metrics_bool_counter", "METRICS_COVERAGE"),
+    ("metrics_zero_offset", "METRICS_COVERAGE"),
+    ("metrics_late_start", "METRICS_COVERAGE"),
+    ("metrics_early_end", "METRICS_COVERAGE"),
+])
+def test_segment_rejects_non_exact_ack_schema_or_metrics(
+        monkeypatch, mutation, code):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    if mutation == "missing_ack_top_field":
+        receipt.pop("child_subscription_ack_identity_sha256")
+    elif mutation == "extra_top_field":
+        receipt["trusted_because_findings_empty"] = True
+    elif mutation == "bool_ack_count":
+        receipt["child_subscription_ack_count"] = True
+    elif mutation == "ack_at_hour_end":
+        receipt["child_subscription_ack_wall_ns"] = \
+            receipt["expected_end_wall_ns"]
+    elif mutation == "raw_ack_identity_mismatch":
+        receipt["raw_evidence"]["subscription_ack_identity_sha256"] = sha(
+            "another physical ACK row")
+    elif mutation == "metrics_under_cadence":
+        receipt["metrics_evidence"]["feed_rows"] = 3499
+        receipt["metrics_evidence"]["connected_valid_rows"] = 3499
+    elif mutation == "metrics_over_cadence":
+        receipt["metrics_evidence"]["feed_rows"] = 3701
+        receipt["metrics_evidence"]["connected_valid_rows"] = 3701
+    elif mutation == "metrics_bool_counter":
+        receipt["metrics_evidence"]["max_errors"] = False
+    elif mutation == "metrics_zero_offset":
+        receipt["metrics_evidence"]["next_window_offset"] = 0
+    elif mutation == "metrics_late_start":
+        receipt["metrics_evidence"]["first_ts_ms"] += 5001
+    else:
+        receipt["metrics_evidence"]["last_ts_ms"] -= 5000
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_v3_segment_receipt(receipt, auth)
+    assert error.value.code == code
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("start_lag", "SEGMENT_BOUNDARY"),
+    ("end_early", "SEGMENT_BOUNDARY"),
+    ("hour_open", "RAW_COVERAGE"),
+    ("partition_mismatches", "RAW_COVERAGE"),
+    ("subscription_invalidations", "RAW_COVERAGE"),
+    ("shard_ordinal", "SHARD_GAP"),
+    ("bytes_before", "PREEXISTING_BYTES"),
+    ("capture_bytes_before", "SHARD_SET_DIGEST"),
+    ("capture_shard_count", "SHARD_SET_DIGEST"),
+])
+def test_segment_exact_integer_fields_reject_json_booleans(
+        monkeypatch, mutation, code):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    if mutation == "start_lag":
+        receipt["start_lag_ms"] = False
+    elif mutation == "end_early":
+        receipt["end_early_ms"] = False
+    elif mutation == "hour_open":
+        receipt["raw_evidence"]["markers"]["hour_open"] = True
+    elif mutation == "partition_mismatches":
+        receipt["raw_evidence"]["partition_mismatches"] = False
+    elif mutation == "subscription_invalidations":
+        receipt["raw_evidence"]["subscription_invalidations"] = False
+    elif mutation == "shard_ordinal":
+        receipt["capture_shards"][0]["ordinal"] = False
+    elif mutation == "bytes_before":
+        receipt["capture_shards"][0]["bytes_before"] = False
+    elif mutation == "capture_bytes_before":
+        receipt["capture_bytes_before"] = False
+    else:
+        receipt["capture_shard_count"] = True
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_v3_segment_receipt(receipt, auth)
+    assert error.value.code == code
 
 
 @pytest.mark.parametrize("mutation,code", [

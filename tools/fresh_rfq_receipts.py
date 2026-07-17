@@ -353,7 +353,8 @@ def validate_v3_segment_receipt(
     child_ack_identity = receipt.get("child_subscription_ack_identity_sha256")
     child_ack_count = receipt.get("child_subscription_ack_count")
     if (type(child_ack_wall) is not int or child_ack_wall <= 0 or
-            child_ack_wall > expected_end or child_ack_count != 1 or
+            child_ack_wall >= expected_end or
+            type(child_ack_count) is not int or child_ack_count != 1 or
             not isinstance(child_ack_identity, str) or
             SHA_RE.fullmatch(child_ack_identity) is None):
         _fail("SEGMENT_AUTHORITY_BINDING",
@@ -364,15 +365,17 @@ def validate_v3_segment_receipt(
     child_started = receipt.get("child_started_wall_ns")
     segment_started = receipt.get("segment_started_wall_ns")
     observed = receipt.get("receipt_observed_wall_ns")
+    start_lag_ms = receipt.get("start_lag_ms")
+    end_early_ms = receipt.get("end_early_ms")
     if (type(child_started) is not int or child_started <= 0 or
             child_ack_wall < child_started or
             type(segment_started) is not int or
             not expected_start <= segment_started <= expected_start + 5_000_000_000 or
             child_started > segment_started or
             type(observed) is not int or observed < expected_end or
-            receipt.get("start_lag_ms") !=
+            type(start_lag_ms) is not int or start_lag_ms !=
             max(0, (segment_started - expected_start) // 1_000_000) or
-            receipt.get("end_early_ms") != 0):
+            type(end_early_ms) is not int or end_early_ms != 0):
         _fail("SEGMENT_BOUNDARY", "segment start/end timing proof is invalid")
     if (receipt.get("status") != "PASS" or receipt.get("findings") != [] or
             receipt.get("boundary_closed") is not True or
@@ -411,13 +414,17 @@ def validate_v3_segment_receipt(
         for mapping in (raw.get("start_offsets"), raw.get("end_offsets")))
     if (type(recorder_rows) is not int or recorder_rows <= 0 or
             type(subscribed) is not int or not 0 <= subscribed <= recorder_rows or
-            not isinstance(markers, dict) or markers != {"hour_open": 1} or
+            not isinstance(markers, dict) or set(markers) != {"hour_open"} or
+            type(markers.get("hour_open")) is not int or
+            markers["hour_open"] != 1 or
             type(raw.get("rfq_created")) is not int or raw["rfq_created"] < 0 or
             type(raw.get("rfq_deleted")) is not int or raw["rfq_deleted"] < 0 or
-            raw.get("partition_mismatches") != 0 or
+            type(raw.get("partition_mismatches")) is not int or
+            raw["partition_mismatches"] != 0 or
             type(raw.get("max_stream_epoch")) is not int or
             raw["max_stream_epoch"] < 0 or
-            raw.get("subscription_invalidations") != 0 or
+            type(raw.get("subscription_invalidations")) is not int or
+            raw["subscription_invalidations"] != 0 or
             "subscription_proven_at_end" not in raw or
             not (raw_subscription_end is True or raw_subscription_end is None) or
             ((subscribed > 0) != (type(ack_wall) is int)) or
@@ -448,19 +455,20 @@ def validate_v3_segment_receipt(
     feed_rows = metrics.get("feed_rows")
     connected = metrics.get("connected_valid_rows")
     lo_ms, hi_ms = expected_start // 1_000_000, expected_end // 1_000_000
-    if (type(feed_rows) is not int or feed_rows < 3500 or
+    if (type(feed_rows) is not int or not 3500 <= feed_rows <= 3700 or
             type(connected) is not int or connected != feed_rows or
             type(metrics.get("first_ts_ms")) is not int or
             not lo_ms <= metrics["first_ts_ms"] <= lo_ms + 5_000 or
             type(metrics.get("last_ts_ms")) is not int or
             not hi_ms - 5_000 <= metrics["last_ts_ms"] < hi_ms or
-            any(metrics.get(field) != 0 for field in (
+            any(type(metrics.get(field)) is not int or metrics[field] != 0
+                for field in (
                 "min_reconnects", "min_disconnects", "min_errors",
                 "max_reconnects", "max_disconnects", "max_errors",
                 "max_recorder_dropped", "max_recorder_write_failures")) or
             type(metrics.get("end_offset")) is not int or
             type(metrics.get("next_window_offset")) is not int or
-            not 0 <= metrics["next_window_offset"] <= metrics["end_offset"]):
+            not 0 < metrics["next_window_offset"] <= metrics["end_offset"]):
         _fail("METRICS_COVERAGE", "metrics do not prove full connected coverage")
     shards = receipt.get("capture_shards")
     if not isinstance(shards, list) or not shards:
@@ -468,17 +476,25 @@ def validate_v3_segment_receipt(
     normalized_shards = []
     date_text, hour_number = hour_text.split("T")
     base_rel = f"date={date_text}/rfq_{hour_number}.ndjson"
+    origin = receipt.get("capture_origin_path")
+    if (not isinstance(origin, str) or not origin.startswith("/") or
+            "\\" in origin or "\x00" in origin or
+            any(part in ("", ".", "..") for part in origin.split("/")[1:]) or
+            not origin.endswith("/" + base_rel)):
+        _fail("RAW_SHARD_BINDING",
+              "capture_origin_path is not the exact absolute base shard path")
+    origin_prefix = origin[:-len(base_rel)]
     shard_fields = {"ordinal", "relpath", "bytes_before", "size",
                     "parsed_bytes_at_close", "sha256"}
     for index, row in enumerate(shards):
         row = _exact_keys(row, shard_fields, f"capture_shards[{index}]")
-        if row["ordinal"] != index:
+        if type(row["ordinal"]) is not int or row["ordinal"] != index:
             _fail("SHARD_GAP", "shard ordinals must be contiguous from zero")
         expected_rel = base_rel if index == 0 else f"{base_rel}.{index}"
         relpath = _safe_rel(row["relpath"], f"capture_shards[{index}].relpath")
         if relpath != expected_rel:
             _fail("SHARD_PATH", "shard path does not match its hour/ordinal")
-        if row["bytes_before"] != 0:
+        if type(row["bytes_before"]) is not int or row["bytes_before"] != 0:
             _fail("PREEXISTING_BYTES", "fresh shard bytes_before must be zero")
         size = _size(row["size"], f"capture_shards[{index}].size")
         if row["parsed_bytes_at_close"] != size:
@@ -491,11 +507,29 @@ def validate_v3_segment_receipt(
             "parsed_bytes_at_close": size,
             "sha256": _sha(row["sha256"], f"capture_shards[{index}].sha256"),
         })
+    expected_raw_paths = [origin_prefix + row["relpath"]
+                          for row in normalized_shards]
+    expected_start_offsets = {
+        path: row["bytes_before"]
+        for path, row in zip(expected_raw_paths, normalized_shards)
+    }
+    expected_end_offsets = {
+        path: row["parsed_bytes_at_close"]
+        for path, row in zip(expected_raw_paths, normalized_shards)
+    }
+    if (raw.get("shards") != expected_raw_paths or
+            raw.get("start_offsets") != expected_start_offsets or
+            raw.get("end_offsets") != expected_end_offsets):
+        _fail("RAW_SHARD_BINDING",
+              "raw paths/start/end offsets differ from attested capture shards")
     total = sum(row["size"] for row in normalized_shards)
     if (receipt.get("capture_relpath") != base_rel or
-            receipt.get("capture_bytes_before") != 0 or
-            receipt.get("capture_bytes_at_close") != total or
-            receipt.get("capture_shard_count") != len(normalized_shards) or
+            type(receipt.get("capture_bytes_before")) is not int or
+            receipt["capture_bytes_before"] != 0 or
+            type(receipt.get("capture_bytes_at_close")) is not int or
+            receipt["capture_bytes_at_close"] != total or
+            type(receipt.get("capture_shard_count")) is not int or
+            receipt["capture_shard_count"] != len(normalized_shards) or
             receipt.get("capture_shard_set_sha256") !=
             canonical_sha256(normalized_shards)):
         _fail("SHARD_SET_DIGEST", "capture shard aggregate binding mismatch")
