@@ -58,6 +58,9 @@ OFFICIAL_ASYNCAPI_SHA256 = (
     "00858d5a892eb7066a8da247660622721e8ee80bfdd89b1b9a24278c15d7d421"
 )
 HASH_CHUNK_BYTES = 1024 * 1024
+MAX_CAPTURE_LINE_BYTES = 16 * 1024 * 1024
+MAX_METRICS_LINE_BYTES = 1024 * 1024
+MAX_FEED_HEARTBEAT_GAP_MS = 5000
 FRESH_AUTHORITY_MAX_BYTES = 1024 * 1024
 FRESH_AUTHORITY_READ_BYTES = 1024 * 1024
 FRESH_PRECOMMIT_CTIME_TOLERANCE_SECONDS = 5.0
@@ -438,15 +441,23 @@ def metrics_evidence_since(path: Path, byte_offset: int, *,
         "first_ts_ms": None, "last_ts_ms": None, "findings": [],
         "end_offset": byte_offset, "next_window_offset": None,
     }
+    previous_ts = None
     try:
         with path.open("rb") as fh:
             fh.seek(byte_offset)
             while True:
                 line_start = fh.tell()
-                raw = fh.readline()
+                raw = fh.readline(MAX_METRICS_LINE_BYTES + 1)
                 if not raw:
                     evidence["end_offset"] = fh.tell()
                     break
+                if len(raw) > MAX_METRICS_LINE_BYTES:
+                    evidence["findings"].append(
+                        "RFQ metrics row exceeds bounded parser limit")
+                    while raw and not raw.endswith(b"\n"):
+                        raw = fh.readline(MAX_METRICS_LINE_BYTES + 1)
+                    evidence["end_offset"] = fh.tell()
+                    continue
                 if not raw.endswith(b"\n"):
                     # Active writer may be between fwrite calls. Re-read this
                     # incomplete row on the next incremental pass.
@@ -454,8 +465,13 @@ def metrics_evidence_since(path: Path, byte_offset: int, *,
                     break
                 evidence["end_offset"] = fh.tell()
                 try:
-                    row = json.loads(raw)
-                except (ValueError, TypeError):
+                    row = json.loads(
+                        raw, object_pairs_hook=_json_without_duplicate_keys)
+                except (ValueError, TypeError, UnicodeDecodeError):
+                    evidence["findings"].append("malformed RFQ metrics row")
+                    continue
+                if not isinstance(row, dict):
+                    evidence["findings"].append("non-object RFQ metrics row")
                     continue
                 ts = row.get("ts_ms")
                 if (end_ms is not None and type(ts) is int and ts >= end_ms and
@@ -463,26 +479,56 @@ def metrics_evidence_since(path: Path, byte_offset: int, *,
                     evidence["next_window_offset"] = line_start
                 if row.get("type") != "feed":
                     continue
+                if type(ts) is not int or ts <= 0:
+                    evidence["findings"].append(
+                        "feed metric has invalid/missing ts_ms")
+                    continue
                 if start_ms is not None and (type(ts) is not int or ts < start_ms):
                     continue
                 if end_ms is not None and (type(ts) is not int or ts >= end_ms):
                     continue
+                counter_fields = (
+                    "reconnects", "disconnects", "errors",
+                    "recorder_dropped", "recorder_write_failures")
+                fixed_valid = (
+                    row.get("synthetic") is False and
+                    row.get("source") == "kalshi_ws" and
+                    row.get("mode") == "data_collect" and
+                    row.get("env") == "prod" and
+                    isinstance(row.get("capture"), str) and
+                    bool(row.get("capture")) and
+                    type(row.get("connected")) is bool and
+                    type(row.get("valid")) is bool and
+                    all(type(row.get(field)) is int and row[field] >= 0
+                        for field in counter_fields))
+                if not fixed_valid:
+                    evidence["findings"].append(
+                        "feed metric fields differ from capture contract")
+                    continue
+                if previous_ts is not None:
+                    if ts <= previous_ts:
+                        evidence["findings"].append(
+                            "feed heartbeat timestamps are not strictly increasing")
+                    elif ts - previous_ts > MAX_FEED_HEARTBEAT_GAP_MS:
+                        evidence["findings"].append(
+                            "feed heartbeat gap exceeds %dms" %
+                            MAX_FEED_HEARTBEAT_GAP_MS)
+                previous_ts = ts
                 evidence["feed_rows"] += 1
-                if type(ts) is int:
-                    if evidence["first_ts_ms"] is None:
-                        evidence["first_ts_ms"] = ts
-                    evidence["last_ts_ms"] = ts
+                if evidence["first_ts_ms"] is None:
+                    evidence["first_ts_ms"] = ts
+                evidence["last_ts_ms"] = ts
                 if row.get("connected") is True and row.get("valid") is True:
                     evidence["connected_valid_rows"] += 1
-                reconnects = int(row.get("reconnects", 0) or 0)
+                reconnects = row["reconnects"]
                 if evidence["min_reconnects"] is None:
                     evidence["min_reconnects"] = reconnects
                 evidence["min_reconnects"] = min(
                     evidence["min_reconnects"], reconnects)
                 evidence["max_reconnects"] = max(
                     evidence["max_reconnects"], reconnects)
-                disconnects = int(row.get("disconnects", 0) or 0)
-                errors = int(row.get("errors", 0) or 0)
+                disconnects = row["disconnects"]
+                errors = row["errors"]
                 if evidence["min_disconnects"] is None:
                     evidence["min_disconnects"] = disconnects
                 if evidence["min_errors"] is None:
@@ -493,8 +539,8 @@ def metrics_evidence_since(path: Path, byte_offset: int, *,
                     evidence["max_disconnects"], disconnects)
                 evidence["min_errors"] = min(evidence["min_errors"], errors)
                 evidence["max_errors"] = max(evidence["max_errors"], errors)
-                dropped = int(row.get("recorder_dropped", 0) or 0)
-                write_failures = int(row.get("recorder_write_failures", 0) or 0)
+                dropped = row["recorder_dropped"]
+                write_failures = row["recorder_write_failures"]
                 evidence["max_recorder_dropped"] = max(
                     evidence["max_recorder_dropped"], dropped)
                 evidence["max_recorder_write_failures"] = max(
@@ -800,19 +846,25 @@ def _merge_capture_evidence(total: dict, chunk: dict) -> dict:
 def _consume_capture_line(evidence: dict, raw_line: bytes,
                           expected_hour: str) -> None:
     try:
-        outer = json.loads(raw_line)
+        outer = json.loads(
+            raw_line, object_pairs_hook=_json_without_duplicate_keys)
+        if not isinstance(outer, dict):
+            raise ValueError("recorder row is not an object")
         wall = outer.get("recv_wall_ns")
         if type(wall) is not int or wall <= 0:
             raise ValueError("bad wall clock")
-    except (ValueError, TypeError):
+        # Keep nanoseconds integer-exact.  Float conversion rounds the final
+        # nanosecond before an hour boundary into the following partition.
+        actual_hour = dt.datetime.fromtimestamp(
+            wall // 1_000_000_000,
+            tz=dt.timezone.utc).strftime("%Y-%m-%dT%H")
+    except (ValueError, TypeError, OverflowError, OSError):
         evidence["findings"].append("malformed recorder row")
         return
     evidence["recorder_rows"] += 1
     epoch = outer.get("stream_epoch")
     if type(epoch) is int:
         evidence["max_stream_epoch"] = max(evidence["max_stream_epoch"], epoch)
-    actual_hour = dt.datetime.fromtimestamp(
-        wall / 1e9, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H")
     if actual_hour != expected_hour:
         evidence["partition_mismatches"] += 1
     marker = outer.get("marker")
@@ -826,7 +878,10 @@ def _consume_capture_line(evidence: dict, raw_line: bytes,
                 "transport boundary marker present: %s" % key)
         return
     try:
-        frame = json.loads(outer["raw"])
+        frame = json.loads(
+            outer["raw"], object_pairs_hook=_json_without_duplicate_keys)
+        if not isinstance(frame, dict):
+            raise ValueError("inner WS frame is not an object")
     except (ValueError, KeyError, TypeError):
         evidence["findings"].append("malformed inner WS frame")
         return
@@ -913,6 +968,122 @@ def capture_evidence_since_shards(base_path: Path, offsets: dict[str, int],
         evidence["findings"].append("raw recorder loss/gap marker present")
     evidence["findings"] = sorted(set(evidence["findings"]))
     return evidence
+
+
+def parse_and_attest_hour_shards(
+    base_path: Path, raw_root: Path, offsets_before: dict[str, int],
+    expected_hour: str,
+) -> tuple[dict, list[dict], list[str]]:
+    """Parse and hash one fixed final shard set in the same streaming pass.
+
+    Final receipt facts must describe the exact bytes whose SHA-256 is stored.
+    Reusing an earlier incremental parse would allow an equal-length rewrite
+    to pair stale ACK/event facts with a later digest.  This routine pins each
+    non-symlink inode, hashes every byte, parses the same byte stream through
+    exact complete-line boundaries, and rechecks both the FD and path identity.
+    """
+    evidence = _empty_capture_evidence()
+    paths, findings = discover_hour_shards(base_path, require_base=True)
+    objects: list[dict] = []
+    for path in paths:
+        key = str(path)
+        evidence["shards"].append(key)
+        start = int(offsets_before.get(key, 0))
+        evidence["start_offsets"][key] = start
+        parsed_end: int | None = 0
+        try:
+            before = path.lstat()
+            if (stat.S_ISLNK(before.st_mode) or
+                    not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
+                raise OSError("not a single-link regular file")
+            if start < 0 or start > before.st_size:
+                raise OSError("invalid pre-capture byte cursor")
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(path, flags)
+            digest = hashlib.sha256()
+            total = 0
+            buffer = bytearray()
+            parse_incomplete = False
+            discarding_long_line = False
+            try:
+                opened = os.fstat(fd)
+                fingerprint = lambda item: (  # noqa: E731
+                    item.st_dev, item.st_ino, item.st_mode, item.st_nlink,
+                    item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+                if fingerprint(opened) != fingerprint(before):
+                    raise OSError("identity changed during final open")
+                while True:
+                    chunk = os.read(fd, HASH_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    total += len(chunk)
+                    cursor = 0
+                    while cursor < len(chunk):
+                        if discarding_long_line:
+                            newline = chunk.find(b"\n", cursor)
+                            if newline < 0:
+                                break
+                            discarding_long_line = False
+                            cursor = newline + 1
+                            continue
+                        newline = chunk.find(b"\n", cursor)
+                        stop = len(chunk) if newline < 0 else newline + 1
+                        piece = chunk[cursor:stop]
+                        if len(buffer) + len(piece) > MAX_CAPTURE_LINE_BYTES:
+                            parse_incomplete = True
+                            buffer.clear()
+                            evidence["findings"].append(
+                                "RFQ recorder line exceeds bounded parser limit")
+                            discarding_long_line = newline < 0
+                        else:
+                            buffer.extend(piece)
+                            if newline >= 0:
+                                _consume_capture_line(
+                                    evidence, bytes(buffer), expected_hour)
+                                buffer.clear()
+                        cursor = stop
+                        if newline < 0:
+                            break
+                after = os.fstat(fd)
+            finally:
+                os.close(fd)
+            named = path.lstat()
+            if (fingerprint(after) != fingerprint(before) or
+                    fingerprint(named) != fingerprint(before) or
+                    total != before.st_size):
+                raise OSError("file changed during final parse/hash")
+            if parse_incomplete:
+                parsed_end = None
+            elif buffer:
+                parsed_end = total - len(buffer)
+                evidence["findings"].append(
+                    "RFQ shard has a non-newline-terminated final row")
+            else:
+                parsed_end = total
+            evidence["end_offsets"][key] = parsed_end
+            relpath = path.relative_to(raw_root).as_posix()
+            suffix = path.name[len(base_path.name):]
+            ordinal = 0 if not suffix else int(suffix[1:])
+            objects.append({
+                "ordinal": ordinal, "relpath": relpath,
+                "bytes_before": start, "size": total,
+                "parsed_bytes_at_close": parsed_end,
+                "sha256": digest.hexdigest(),
+            })
+        except (OSError, ValueError) as exc:
+            findings.append(
+                "RFQ final parse/attestation failed %s: %s" % (path, exc))
+            evidence["end_offsets"][key] = parsed_end
+    if evidence["partition_mismatches"]:
+        evidence["findings"].append(
+            "recv-hour/path partition mismatch=%d" %
+            evidence["partition_mismatches"])
+    if evidence["markers"].get("loss", 0) or \
+            evidence["markers"].get("gap", 0):
+        evidence["findings"].append("raw recorder loss/gap marker present")
+    evidence["findings"] = sorted(set(evidence["findings"]))
+    return evidence, objects, sorted(set(findings))
 
 
 def _stream_file_attestation(path: Path, *, chunk_bytes: int = HASH_CHUNK_BYTES
@@ -1336,11 +1507,33 @@ def run(args: argparse.Namespace) -> int:
                     cap, capture_cursor, segment_hour, require_base=True)
                 capture_cursor = dict(raw_chunk.get("end_offsets", capture_cursor))
                 absorb_child_subscription_ack(raw_chunk)
-                # Finalization builds a receipt snapshot without mutating the
-                # live accumulated evidence object retained by the health loop.
-                raw_evidence = _empty_capture_evidence()
-                _merge_capture_evidence(raw_evidence, segment_raw_evidence)
-                _merge_capture_evidence(raw_evidence, raw_chunk)
+                incremental_raw_findings = sorted(set(
+                    segment_raw_evidence.get("findings", [])) |
+                    set(raw_chunk.get("findings", [])))
+                attestation_snapshot_before = hour_shard_snapshot(
+                    cap, require_base=True)
+                raw_evidence, capture_shards, attestation_findings = \
+                    parse_and_attest_hour_shards(
+                        cap, raw_root, capture_offsets_before, segment_hour)
+                capture_cursor = dict(raw_evidence.get("end_offsets", {}))
+                final_ack_count = raw_evidence["subscribed_communications"]
+                final_ack_wall = raw_evidence["subscription_ack_wall_ns"]
+                final_ack_identity = raw_evidence[
+                    "subscription_ack_identity_sha256"]
+                if final_ack_count and (
+                        final_ack_count != 1 or
+                        child_subscription_ack_count != 1 or
+                        final_ack_wall != child_subscription_ack_wall_ns or
+                        final_ack_identity !=
+                        child_subscription_ack_identity_sha256):
+                    raw_evidence["findings"].append(
+                        "final ACK bytes differ from persistent child ACK identity")
+                if (type(child_subscription_ack_wall_ns) is int and
+                        expected_start_ns <= child_subscription_ack_wall_ns <
+                        expected_end_ns and final_ack_count != 1):
+                    raw_evidence["findings"].append(
+                        "same-hour persistent child ACK is absent from final bytes")
+                raw_evidence["findings"] = sorted(set(raw_evidence["findings"]))
                 metric_evidence = metrics_evidence_since(
                     metrics, segment_metrics_offset, start_ms=lo_ms, end_ms=hi_ms)
                 if raw_evidence["subscription_proven_at_end"] is not None:
@@ -1365,7 +1558,9 @@ def run(args: argparse.Namespace) -> int:
 
                 findings = list(runtime_findings)
                 findings.extend(authority_findings)
+                findings.extend(incremental_raw_findings)
                 findings.extend(raw_evidence["findings"])
+                findings.extend(attestation_findings)
                 findings.extend(metric_evidence["findings"])
                 if raw_evidence["markers"].get("hour_open", 0) == 0:
                     findings.append("missing durable hour_open marker")
@@ -1377,10 +1572,11 @@ def run(args: argparse.Namespace) -> int:
                     findings.append("no authenticated communications subscription proof")
                 if reason == "boundary" and not boundary_closed:
                     findings.append("hour-close writer barrier/stability not proven")
-                if metric_evidence["feed_rows"] and (
-                        metric_evidence["connected_valid_rows"] * 10 <
-                        metric_evidence["feed_rows"] * 8):
-                    findings.append("connected+valid heartbeat coverage below 80%")
+                if metric_evidence["feed_rows"] < 3500:
+                    findings.append("fewer than 3500 full-hour feed heartbeats")
+                if (metric_evidence["connected_valid_rows"] !=
+                        metric_evidence["feed_rows"]):
+                    findings.append("not every feed heartbeat is connected+valid")
                 if reason == "boundary":
                     first = metric_evidence["first_ts_ms"]
                     last = metric_evidence["last_ts_ms"]
@@ -1410,14 +1606,6 @@ def run(args: argparse.Namespace) -> int:
                          raw_evidence["subscription_invalidations"]))
                 if child_rc not in (None, 0) and reason not in ("disable", "stop"):
                     findings.append("ws_shadow child rc=%d" % child_rc)
-                attestation_snapshot_before = hour_shard_snapshot(
-                    cap, require_base=True)
-                capture_shards, attestation_findings = attest_hour_shards(
-                    cap, raw_root, capture_offsets_before)
-                findings.extend(attestation_findings)
-                capture_shards, eof_findings = bind_complete_line_eof(
-                    capture_shards, capture_cursor, raw_root)
-                findings.extend(eof_findings)
                 try:
                     capture_shard_set_sha = capture_shard_set_sha256(
                         capture_shards)

@@ -166,7 +166,7 @@ def _fresh_authority_file(tmp_path, monkeypatch, *, t0=None):
 
 def _load_authority(path, authority, **kwargs):
     kwargs.setdefault("expected_owner_uid", os.geteuid())
-    kwargs.setdefault("runtime_commit", authority["deployment_commit"])
+    kwargs.setdefault("git_probe", lambda _root: authority["deployment_commit"])
     kwargs.setdefault("expected_generation", authority["generation"])
     return rfq.load_fresh_lane_authority(path, **kwargs)
 
@@ -180,6 +180,9 @@ def _strict_v3_segment(authority, provenance):
     end_ns = start_ns + 3_600_000_000_000
     date_text, hour_text = hour.split("T")
     relpath = f"date={date_text}/rfq_{hour_text}.ndjson"
+    origin = f"/raw/{relpath}"
+    ack_wall = provenance["child_subscription_ack_wall_ns"]
+    ack_identity = provenance["child_subscription_ack_identity_sha256"]
     shard = {
         "ordinal": 0, "relpath": relpath, "bytes_before": 0,
         "size": 100, "parsed_bytes_at_close": 100,
@@ -208,16 +211,17 @@ def _strict_v3_segment(authority, provenance):
         "capture_shard_set_sha256": fresh.canonical_sha256([shard]),
         "raw_evidence": {
             "recorder_rows": 2, "subscribed_communications": 1,
-            "subscription_ack_wall_ns": start_ns + 1_000_000,
+            "subscription_ack_wall_ns": ack_wall,
+            "subscription_ack_identity_sha256": ack_identity,
             "rfq_created": 0, "rfq_deleted": 0,
             "markers": {"hour_open": 1}, "partition_mismatches": 0,
             "max_stream_epoch": 1, "subscription_invalidations": 0,
             "subscription_proven_at_end": True, "findings": [],
-            "start_offsets": {}, "end_offsets": {f"/raw/{relpath}": 100},
-            "shards": [f"/raw/{relpath}"],
+            "start_offsets": {origin: 0}, "end_offsets": {origin: 100},
+            "shards": [origin],
         },
         "metrics_evidence": {
-            "feed_rows": 60, "connected_valid_rows": 60,
+            "feed_rows": 3600, "connected_valid_rows": 3600,
             "min_reconnects": 0, "max_reconnects": 0,
             "min_disconnects": 0, "max_disconnects": 0,
             "min_errors": 0, "max_errors": 0,
@@ -241,6 +245,9 @@ def test_unbound_receipt_provenance_is_diagnostic_only():
     assert fields == {
         "fresh_lane_state": "UNBOUND_DIAGNOSTIC",
         "supervisor_pid": 10, "child_pid": 20, "child_generation": 3,
+        "child_subscription_ack_wall_ns": None,
+        "child_subscription_ack_identity_sha256": None,
+        "child_subscription_ack_count": 0,
     }
     for forbidden in ("lane_id", "authority_sha256", "deployment_commit",
                       "generation", "fresh_eligible", "research_eligible"):
@@ -260,7 +267,13 @@ def test_valid_authority_binds_receipt_and_pre_t0_stays_diagnostic(
     fields = rfq.fresh_lane_receipt_fields(
         binding, authority["strict_t0_utc"][:13],
         supervisor_pid=11, child_pid=22,
-        child_generation=4)
+        child_generation=4,
+        child_subscription_ack_wall_ns=int(rfq.dt.datetime.strptime(
+            authority["strict_t0_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=rfq.dt.timezone.utc).timestamp() * 1e9) + 1_000_000,
+        child_subscription_ack_identity_sha256=hashlib.sha256(
+            b"persistent-child-ack").hexdigest(),
+        child_subscription_ack_count=1)
     assert fields["fresh_lane_state"] == "BOUND_AUTHORITY"
     assert fields["lane_id"] == authority["lane_id"]
     assert fields["authority_sha256"] == authority["authority_sha256"]
@@ -274,15 +287,26 @@ def test_valid_authority_binds_receipt_and_pre_t0_stays_diagnostic(
     fresh = rfq._fresh_receipts_module()
     strict_segment = _strict_v3_segment(authority, fields)
     validated = fresh.validate_v3_segment_receipt(strict_segment, authority)
-    hour_receipt = fresh.build_hour_receipt(
-        authority=authority, segment_receipt=validated,
-        exact_inventory=[{
-            "key": f"ec2/raw/{validated['capture_shards'][0]['relpath']}",
-            "version_id": "fresh-version-1", "size": 100,
-            "sha256": validated["capture_shards"][0]["sha256"],
-        }], raw_key_prefix="ec2/raw", resolver=lambda row: row)
-    assert hour_receipt["resolution_state"] == "RESOLVED_EXACT"
-    assert hour_receipt["authority_sha256"] == authority["authority_sha256"]
+    assert validated["authority_sha256"] == authority["authority_sha256"]
+    with pytest.raises(fresh.FreshRfqError, match="SEGMENT_SCHEMA"):
+        fresh.validate_v3_segment_receipt(
+            dict(strict_segment, unexpected_field=True), authority)
+
+    # A persistent socket may have authenticated before this hour.  The child
+    # ACK tuple stays bound at top level even when this hour's raw bytes contain
+    # no second ACK.
+    persisted = json.loads(json.dumps(strict_segment))
+    persisted_ack_wall = persisted["expected_start_wall_ns"] - 500_000
+    persisted["child_subscription_ack_wall_ns"] = persisted_ack_wall
+    persisted["raw_evidence"].update({
+        "subscribed_communications": 0,
+        "subscription_ack_wall_ns": None,
+        "subscription_ack_identity_sha256": None,
+        "subscription_proven_at_end": None,
+    })
+    assert fresh.validate_v3_segment_receipt(
+        persisted, authority)["child_subscription_ack_wall_ns"] == \
+        persisted_ack_wall
 
     before_hour = (rfq.dt.datetime.strptime(
         authority["strict_t0_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -402,11 +426,43 @@ def test_clean_git_head_probe_uses_fixed_argv_without_shell(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(rfq.subprocess, "run", fake_run)
+    monkeypatch.setenv("GIT_DIR", "/tmp/attacker-controlled.git")
+    monkeypatch.setenv("GIT_WORK_TREE", "/tmp/attacker-controlled-tree")
     assert rfq.probe_clean_git_head(ROOT) == "c" * 40
     assert len(calls) == 2
     assert all(call[1]["shell"] is False for call in calls)
+    assert all(call[0][0] == "/usr/bin/git" for call in calls)
+    assert all("safe.directory=%s" % ROOT.resolve() in call[0]
+               for call in calls)
+    assert all("core.fsmonitor=false" in call[0] and
+               "core.hooksPath=/dev/null" in call[0]
+               for call in calls)
+    assert all("GIT_DIR" not in call[1]["env"] and
+               "GIT_WORK_TREE" not in call[1]["env"]
+               for call in calls)
     assert calls[0][0][-2:] == ["--porcelain=v1", "--untracked-files=all"]
     assert calls[1][0][-3:] == ["rev-parse", "--verify", "HEAD"]
+
+
+@pytest.mark.parametrize("changed", ["dirty", "head"])
+def test_runtime_worktree_change_invalidates_bound_authority(
+        tmp_path, monkeypatch, changed):
+    path, authority = _fresh_authority_file(tmp_path, monkeypatch)
+    calls = 0
+
+    def probe(_root):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return authority["deployment_commit"]
+        if changed == "dirty":
+            raise rfq.Refused("capture worktree is not clean")
+        return "b" * 40
+
+    binding = _load_authority(path, authority, git_probe=probe)
+    valid, findings = rfq.fresh_lane_finalize_guard(binding)
+    assert valid is False
+    assert any("capture worktree" in finding for finding in findings)
 
 
 def test_authority_tamper_blocks_finalize_and_marks_invalid(
@@ -472,6 +528,9 @@ def test_deploy_contract_is_independent_and_active_files_are_excluded():
     assert "--fresh-lane-expected-generation \"${FRESH_RFQ_GENERATION}\"" in unit
     assert "--fresh-lane-authority-owner-uid 0" in unit
     assert "WorkingDirectory=/home/ubuntu/hft-bot-rfq-fresh" in unit
+    assert "Environment=PATH=/usr/local/bin:/usr/bin:/bin" in unit
+    assert "/usr/bin/python3 tools/rfq_capture.py" in unit
+    assert ".venv/bin" not in unit
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
     assert ("ReadOnlyPaths=/home/ubuntu/hft-bot-rfq-fresh "
@@ -530,11 +589,14 @@ def test_segment_health_requires_positive_metrics_and_exact_ack(tmp_path):
     wall = int(rfq.dt.datetime(2026, 7, 12, 4, tzinfo=rfq.dt.timezone.utc).timestamp() * 1e9)
     cap = tmp_path / "rfq_04.ndjson"
     good = {"type": "subscribed", "msg": {"channel": "communications", "sid": 9}}
-    cap.write_text(__import__("json").dumps({
+    physical = __import__("json").dumps({
         "recv_wall_ns": wall, "recv_mono_ns": 1, "raw": __import__("json").dumps(good)
-    }) + "\n")
+    }) + "\n"
+    cap.write_text(physical)
     evidence = rfq.capture_evidence_since(cap, 0, hour)
     assert evidence["subscribed_communications"] == 1
+    assert evidence["subscription_ack_identity_sha256"] == hashlib.sha256(
+        physical.encode()).hexdigest()
     assert evidence["partition_mismatches"] == 0
     assert evidence["findings"] == []
 
@@ -603,8 +665,7 @@ def test_partition_close_requires_new_hour_marker_and_old_file_stability(tmp_pat
 def test_metrics_reader_advances_incrementally_without_lifetime_rescan(tmp_path):
     metrics = tmp_path / "metrics.ndjson"
     prefix = (b'{"type":"system","ts_ms":1}\n' * 10_000)
-    row = (b'{"type":"feed","ts_ms":2000,"connected":true,"valid":true,'
-           b'"reconnects":0,"recorder_dropped":0}\n')
+    row = (_feed_metric(2000) + "\n").encode()
     metrics.write_bytes(prefix + row)
     ev = rfq.metrics_evidence_since(metrics, len(prefix))
     assert ev["feed_rows"] == 1
@@ -613,6 +674,48 @@ def test_metrics_reader_advances_incrementally_without_lifetime_rescan(tmp_path)
     ev2 = rfq.metrics_evidence_since(metrics, ev["end_offset"])
     assert ev2["feed_rows"] == 1
     assert ev2["first_ts_ms"] == 3000
+
+
+def _feed_metric(ts_ms, **overrides):
+    row = {
+        "type": "feed", "ts_ms": ts_ms, "synthetic": False,
+        "source": "kalshi_ws", "connected": True, "valid": True,
+        "reconnects": 0, "disconnects": 0, "errors": 0,
+        "recorder_dropped": 0, "recorder_write_failures": 0,
+        "capture": "/raw/date=2026-07-12/rfq_04.ndjson",
+        "mode": "data_collect", "env": "prod",
+    }
+    row.update(overrides)
+    return json.dumps(row, separators=(",", ":"))
+
+
+def test_metrics_reader_requires_exact_fields_and_contiguous_cadence(
+        tmp_path, monkeypatch):
+    metrics = tmp_path / "metrics.ndjson"
+    start_ms = 1_783_826_400_000
+    metrics.write_text("\n".join(
+        _feed_metric(start_ms + index * 1000) for index in range(3600)) + "\n")
+    evidence = rfq.metrics_evidence_since(
+        metrics, 0, start_ms=start_ms, end_ms=start_ms + 3_600_000)
+    assert evidence["feed_rows"] == 3600
+    assert evidence["connected_valid_rows"] == 3600
+    assert evidence["findings"] == []
+
+    metrics.write_text(
+        _feed_metric(start_ms) + "\n" +
+        _feed_metric(start_ms + 6000, source="wrong") + "\n" +
+        _feed_metric(start_ms + 7000) + "\n" +
+        '{"type":"feed","ts_ms":1,"ts_ms":2}\n')
+    invalid = rfq.metrics_evidence_since(metrics, 0)
+    assert any("capture contract" in finding for finding in invalid["findings"])
+    assert any("gap exceeds" in finding for finding in invalid["findings"])
+    assert any("malformed" in finding for finding in invalid["findings"])
+
+    monkeypatch.setattr(rfq, "MAX_METRICS_LINE_BYTES", 64)
+    metrics.write_text(_feed_metric(start_ms) + "\n")
+    bounded = rfq.metrics_evidence_since(metrics, 0)
+    assert any("bounded parser limit" in finding
+               for finding in bounded["findings"])
 
 
 def test_capture_shard_offsets_are_snapshotted_before_child_launch():
@@ -632,6 +735,34 @@ def _capture_row(when, *, frame=None, marker=None):
         row["marker"] = marker
         row["raw"] = ""
     return json.dumps(row) + "\n"
+
+
+def test_capture_parser_rejects_ambiguous_shapes_and_keeps_ns_boundary_exact():
+    hour = "2026-07-12T04"
+    evidence = rfq._empty_capture_evidence()
+    rfq._consume_capture_line(evidence, b"[]\n", hour)
+    rfq._consume_capture_line(evidence, json.dumps({
+        "recv_wall_ns": 10 ** 1000, "raw": "{}"}).encode() + b"\n", hour)
+    inner_list = json.dumps({
+        "recv_wall_ns": 1_783_826_400_000_000_000, "raw": "[]"}).encode() + b"\n"
+    rfq._consume_capture_line(evidence, inner_list, hour)
+    duplicate = json.dumps({
+        "recv_wall_ns": 1_783_826_400_000_000_000,
+        "raw": ('{"type":"error","type":"subscribed",'
+                '"msg":{"channel":"communications","sid":9}}'),
+    }).encode() + b"\n"
+    rfq._consume_capture_line(evidence, duplicate, hour)
+    assert evidence["subscribed_communications"] == 0
+    assert evidence["findings"].count("malformed recorder row") == 2
+    assert evidence["findings"].count("malformed inner WS frame") == 2
+
+    exact = rfq._empty_capture_evidence()
+    end_ns = int(rfq.dt.datetime(
+        2026, 7, 12, 5, tzinfo=rfq.dt.timezone.utc).timestamp() * 1e9)
+    before_boundary = json.dumps({
+        "recv_wall_ns": end_ns - 1, "raw": "{}"}).encode() + b"\n"
+    rfq._consume_capture_line(exact, before_boundary, hour)
+    assert exact["partition_mismatches"] == 0
 
 
 def test_capture_reader_advances_across_new_rotation_shards(tmp_path):
@@ -665,6 +796,8 @@ def test_capture_reader_advances_across_new_rotation_shards(tmp_path):
     rfq._merge_capture_evidence(total, second)
     assert total["recorder_rows"] == 4
     assert total["subscription_proven_at_end"] is False
+    assert total["subscription_ack_identity_sha256"] == \
+        first["subscription_ack_identity_sha256"]
     assert total["shards"] == [str(base), str(shard1), str(shard2)]
 
     # A later chunk must not erase an earlier shard inventory. Disappearance
@@ -758,6 +891,84 @@ def test_multishard_attestation_is_streaming_and_binds_order(tmp_path, monkeypat
     assert "read_bytes(" not in TOOL.read_text()
 
 
+def test_final_parse_and_hash_use_identical_bytes_and_exact_offsets(
+        tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    first = _capture_row(when, marker="hour_open").encode()
+    ack = _capture_row(
+        when, frame={"type": "subscribed",
+                     "msg": {"channel": "communications", "sid": 9}}).encode()
+    base.write_bytes(first)
+    shard = day / "rfq_04.ndjson.1"
+    shard.write_bytes(ack)
+    requested = []
+    original_read = os.read
+
+    def bounded_read(fd, count):
+        requested.append(count)
+        return original_read(fd, count)
+
+    monkeypatch.setattr(rfq.os, "read", bounded_read)
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): 0, str(shard): 0}, "2026-07-12T04")
+    assert findings == [] and evidence["findings"] == []
+    assert evidence["subscribed_communications"] == 1
+    assert evidence["subscription_ack_identity_sha256"] == \
+        hashlib.sha256(ack).hexdigest()
+    assert evidence["start_offsets"] == {str(base): 0, str(shard): 0}
+    assert evidence["end_offsets"] == {
+        str(base): len(first), str(shard): len(ack)}
+    assert [row["sha256"] for row in objects] == [
+        hashlib.sha256(first).hexdigest(), hashlib.sha256(ack).hexdigest()]
+    assert all(row["parsed_bytes_at_close"] == row["size"] for row in objects)
+    assert max(requested) <= rfq.HASH_CHUNK_BYTES
+
+
+def test_equal_length_rewrite_cannot_pair_stale_ack_with_new_hash(tmp_path):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    original = _capture_row(
+        when, frame={"type": "subscribed",
+                     "msg": {"channel": "communications", "sid": 9}}).encode()
+    base.write_bytes(original)
+    stale = rfq.capture_evidence_since_shards(base, {}, "2026-07-12T04")
+    assert stale["subscribed_communications"] == 1
+    rewritten = original.replace(b"subscribed", b"not_subbed")
+    assert len(rewritten) == len(original)
+    base.write_bytes(rewritten)
+    final, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {}, "2026-07-12T04")
+    assert findings == []
+    assert final["subscribed_communications"] == 0
+    assert final["subscription_ack_identity_sha256"] is None
+    assert objects[0]["sha256"] == hashlib.sha256(rewritten).hexdigest()
+
+
+def test_final_capture_parser_enforces_line_bound_before_json_decode(
+        tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    base.write_bytes(b'{"padding":"' + b"x" * 100 + b'"}\n')
+    monkeypatch.setattr(rfq, "MAX_CAPTURE_LINE_BYTES", 64)
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {}, "2026-07-12T04")
+    assert findings == []
+    assert any("bounded parser limit" in finding
+               for finding in evidence["findings"])
+    assert objects[0]["parsed_bytes_at_close"] is None
+
+
 def test_capture_shard_set_digest_is_order_independent_and_fail_closed():
     base = {
         "ordinal": 0, "relpath": "date=2026-07-12/rfq_04.ndjson",
@@ -842,10 +1053,19 @@ def test_final_snapshot_rescan_rejects_late_shard_mutation(tmp_path, mutation):
 def test_second_authority_guard_runs_after_final_hash_and_snapshot_rescan():
     source = TOOL.read_text()
     finalize = source[source.index("def finalize_current"):]
+    same_source = finalize.index("parse_and_attest_hour_shards(")
     final_hash = finalize.index("capture_shard_set_sha256(")
     second_guard = finalize.index("final_authority_valid, final_authority_findings")
     snapshot_after = finalize.index("attestation_snapshot_after =")
-    assert final_hash < snapshot_after < second_guard
+    assert same_source < final_hash < snapshot_after < second_guard
+
+
+def test_clean_head_guard_runs_before_child_launch():
+    source = TOOL.read_text()
+    loop = source[source.index("while not stopping:"):]
+    guard = loop.index("fresh_lane_finalize_guard(fresh_authority_binding)")
+    launch = loop.index("child = subprocess.Popen([str(binary)]")
+    assert guard < launch
 
 
 def test_missing_subscription_ack_fails_closed_after_bounded_grace():
