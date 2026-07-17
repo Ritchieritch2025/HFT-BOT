@@ -15,10 +15,12 @@ import json
 import re
 from typing import Any, Callable
 
+import fresh_rfq_base_binding as rfq_base_binding
+
 
 AUTHORITY_SCHEMA = "fresh-rfq-epoch-authority-v1"
-HOUR_SCHEMA = "canonical-rfq-hour-receipt-v1"
-OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v1"
+HOUR_SCHEMA = "canonical-rfq-hour-receipt-v2"
+OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v2"
 SOURCE_EVIDENCE_SCHEMA = "fresh-rfq-source-evidence-v1"
 LANE_ID = "W-RFQ-FRESH-01"
 OPERATOR_AUTHORIZATION_SHA256 = (
@@ -950,7 +952,7 @@ def validate_hour_receipt(
         _normalize_hour_source_evidence(
             source_evidence, authority, value["segment_hour"],
             capture_receipt_sha, normalized)
-    if value["source_proof"] != source_proof:
+    if not _canonical_exact_equal(value["source_proof"], source_proof):
         _fail("SOURCE_PROOF_BINDING",
               "hour receipt proof is not the selected source-evidence proof")
     analysis_date = _source_analysis_date(
@@ -978,54 +980,29 @@ def validate_hour_receipt(
     return normalized_value
 
 
-def _normalize_base_release(value: Any, authority: dict[str, Any]) -> dict[str, Any]:
-    fields = {
-        "release_id", "date", "manifest_bucket", "manifest_key",
-        "manifest_version_id", "manifest_sha256", "reference_set_sha256",
-        "canonical_receipt_set_sha256", "verification_state", "source_seal",
-        "sealed_rfq_objects", "sealed_rfq_object_set_sha256",
-    }
-    value = _exact_keys(value, fields, "base release")
-    release_id = _text(value["release_id"], "base release.release_id")
-    if re.fullmatch(r"[A-Za-z0-9_.-]+", release_id) is None:
-        _fail("BASE_RELEASE_INVALID", "release_id is unsafe")
-    release_date = value["date"]
-    _date(release_date, "base release.date")
-    manifest_key = _safe_key(value["manifest_key"], "base release.manifest_key")
-    if manifest_key != f"research/releases/{release_id}/MANIFEST.json":
-        _fail("BASE_RELEASE_INVALID", "manifest key/release ID binding mismatch")
-    seal = _normalize_source_seal(value["source_seal"])
-    if (seal is None or seal["bucket"] != authority["source_bucket"] or
-            seal["key"] != f"ec2/warehouse/seals/date={release_date}.json"):
-        _fail("BASE_SEAL_INVALID", "base must bind D's verified full-day seal")
-    sealed = _normalize_inventory(value["sealed_rfq_objects"],
-                                  "base release.sealed_rfq_objects")
-    if not sealed:
-        _fail("BASE_SEAL_INVALID", "D seal RFQ subset must be non-empty")
-    sealed_sha = _sha(value["sealed_rfq_object_set_sha256"],
-                      "sealed_rfq_object_set_sha256")
-    if sealed_sha != canonical_sha256(sealed):
-        _fail("BASE_SEAL_INVALID", "sealed RFQ subset digest mismatch")
-    if value["verification_state"] != "REFERENCE_V3_VERIFIED":
-        _fail("BASE_RELEASE_INVALID", "verified REFERENCE_V3 base is required")
+def _build_base_binding(
+    *, manifest_bytes: Any, manifest_exact_identity: Any, date: str,
+) -> dict[str, Any]:
+    try:
+        return rfq_base_binding.build_base_binding(
+            manifest_bytes=manifest_bytes,
+            manifest_exact_identity=manifest_exact_identity,
+            date=date,
+        )
+    except rfq_base_binding.FreshRfqBaseBindingError as exc:
+        _fail("BASE_BINDING_INVALID", str(exc))
+
+
+def _exact_identity_projection(value: dict[str, Any]) -> dict[str, Any]:
     return {
-        "release_id": release_id,
-        "date": release_date,
-        "manifest_bucket": _text(value["manifest_bucket"], "manifest_bucket"),
-        "manifest_key": manifest_key,
-        "manifest_version_id": _version(
-            value["manifest_version_id"], "manifest_version_id"),
-        "manifest_sha256": _sha(value["manifest_sha256"], "manifest_sha256"),
-        "reference_set_sha256": _sha(
-            value["reference_set_sha256"], "reference_set_sha256"),
-        "canonical_receipt_set_sha256": _sha(
-            value["canonical_receipt_set_sha256"],
-            "canonical_receipt_set_sha256"),
-        "verification_state": "REFERENCE_V3_VERIFIED",
-        "source_seal": seal,
-        "sealed_rfq_objects": sealed,
-        "sealed_rfq_object_set_sha256": sealed_sha,
+        key: value[key]
+        for key in ("bucket", "key", "version_id", "size", "sha256")
     }
+
+
+def _canonical_exact_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality coercion."""
+    return canonical_bytes(left) == canonical_bytes(right)
 
 
 def _overlay_components(
@@ -1042,7 +1019,7 @@ def _overlay_components(
     if len({row["segment_hour"] for row in hours}) != len(hours):
         _fail("HOUR_DUPLICATE", "duplicate canonical hour receipt")
     start = dt.datetime.combine(
-        _date(base["date"], "base release.date"), dt.time(),
+        _date(base["date"], "base binding.date"), dt.time(),
         tzinfo=dt.timezone.utc)
     expected_analysis = [
         (start + dt.timedelta(hours=index)).strftime("%Y-%m-%dT%H")
@@ -1104,8 +1081,11 @@ def _overlay_components(
         previous = row
     analysis = hours[:24]
     watermark = hours[24:]
+    base_seal_identity = _exact_identity_projection(base["source_seal"])
     for row in hours:
-        if row["source_seal"] != base["source_seal"]:
+        if not _canonical_exact_equal(
+                _exact_identity_projection(row["source_seal"]),
+                base_seal_identity):
             _fail("BASE_SEAL_INVALID",
                   "all 26 hours must bind analysis D's full_v2 cross-day seal")
     analysis_objects = []
@@ -1122,9 +1102,6 @@ def _overlay_components(
     if len({row["key"] for row in analysis_objects}) != len(analysis_objects) or \
             len({row["key"] for row in watermark_objects}) != len(watermark_objects):
         _fail("INVENTORY_DUPLICATE", "overlay RFQ object keys are duplicated")
-    if analysis_objects != base["sealed_rfq_objects"]:
-        _fail("ANALYSIS_SEAL_MISMATCH",
-              "D analysis objects do not equal the full_v2 seal RFQ subset")
     if {row["key"] for row in analysis_objects} & \
             {row["key"] for row in watermark_objects}:
         _fail("WATERMARK_CONTAMINATION", "watermark objects overlap D analysis set")
@@ -1599,7 +1576,8 @@ def _normalize_source_evidence(
         key: base["source_seal"][key]
         for key in ("bucket", "key", "version_id", "size", "sha256")
     }
-    if (seal_identity != base_seal_identity or seal["date"] != base["date"] or
+    if (not _canonical_exact_equal(seal_identity, base_seal_identity) or
+            seal["date"] != base["date"] or
             seal["version"] != 2 or seal["method"] != "full_v2" or
             seal["status"] != "SEALED" or
             not isinstance(seal["code_commit"], str) or
@@ -1701,12 +1679,21 @@ def _normalize_source_evidence(
 
 
 def build_overlay_manifest(
-    *, authority: Any, base_release: Any,
+    *, authority: Any, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any],
     hour_receipts: list[dict[str, Any]],
     source_evidence: Any,
 ) -> dict[str, Any]:
     authority = validate_fresh_epoch_authority(authority)
-    base = _normalize_base_release(base_release, authority)
+    if not isinstance(source_evidence, dict):
+        _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
+    analysis_date = source_evidence.get("analysis_date")
+    _date(analysis_date, "source evidence.analysis_date")
+    base = _build_base_binding(
+        manifest_bytes=base_manifest_bytes,
+        manifest_exact_identity=base_manifest_exact_identity,
+        date=analysis_date,
+    )
     analysis, watermark, analysis_objects, watermark_objects = \
         _overlay_components(authority, base, hour_receipts, source_evidence)
     source_evidence = _normalize_source_evidence(
@@ -1718,8 +1705,8 @@ def build_overlay_manifest(
         "state": "LOCALLY_VERIFIED_UNPUBLISHED",
         "authority_sha256": authority["authority_sha256"],
         "eligible_date": base["date"],
-        "base_release": base,
-        "base_release_binding_sha256": canonical_sha256(base),
+        "base_binding": base,
+        "base_binding_sha256": base["binding_sha256"],
         "source_evidence": source_evidence,
         "source_evidence_sha256": source_evidence["evidence_sha256"],
         "analysis_hours": analysis,
@@ -1740,14 +1727,21 @@ def build_overlay_manifest(
         "research_eligible": False,
     }
     result["manifest_sha256"] = canonical_sha256(result)
-    return validate_overlay_manifest(result, authority)
+    return validate_overlay_manifest(
+        result, authority,
+        base_manifest_bytes=base_manifest_bytes,
+        base_manifest_exact_identity=base_manifest_exact_identity,
+    )
 
 
-def validate_overlay_manifest(value: Any, authority: Any) -> dict[str, Any]:
+def validate_overlay_manifest(
+    value: Any, authority: Any, *, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any],
+) -> dict[str, Any]:
     authority = validate_fresh_epoch_authority(authority)
     fields = {
         "schema", "lane_id", "state", "authority_sha256", "eligible_date",
-        "base_release", "base_release_binding_sha256", "analysis_hours",
+        "base_binding", "base_binding_sha256", "analysis_hours",
         "source_evidence", "source_evidence_sha256",
         "analysis_hour_receipt_set_sha256", "watermark_hours",
         "watermark_hour_receipt_set_sha256", "analysis_rfq_objects",
@@ -1774,11 +1768,24 @@ def validate_overlay_manifest(value: Any, authority: Any) -> dict[str, Any]:
             value.get("aws_write_authorized") is not False or
             value.get("research_eligible") is not False):
         _fail("OVERLAY_INVALID", "fixed local-only overlay contract changed")
-    base = _normalize_base_release(value["base_release"], authority)
-    if value["base_release"] != base or \
-            value["eligible_date"] != base["date"] or \
-            value["base_release_binding_sha256"] != canonical_sha256(base):
-        _fail("BASE_RELEASE_INVALID", "overlay/base binding mismatch")
+    eligible_date = value.get("eligible_date")
+    _date(eligible_date, "overlay eligible_date")
+    embedded_base = value.get("base_binding")
+    if (not isinstance(embedded_base, dict) or
+            not _canonical_exact_equal(
+                base_manifest_exact_identity,
+                embedded_base.get("manifest_exact_identity"))):
+        _fail("BASE_BINDING_INVALID",
+              "supplied manifest identity differs from embedded base binding")
+    base = _build_base_binding(
+        manifest_bytes=base_manifest_bytes,
+        manifest_exact_identity=base_manifest_exact_identity,
+        date=eligible_date,
+    )
+    if (not _canonical_exact_equal(embedded_base, base) or
+            value.get("base_binding_sha256") != base["binding_sha256"]):
+        _fail("BASE_BINDING_INVALID",
+              "overlay does not embed the exactly rebuilt base binding")
     combined = value["analysis_hours"] + value["watermark_hours"] \
         if isinstance(value["analysis_hours"], list) and \
         isinstance(value["watermark_hours"], list) else None
@@ -1803,7 +1810,8 @@ def validate_overlay_manifest(value: Any, authority: Any) -> dict[str, Any]:
         "source_evidence": source_evidence,
         "source_evidence_sha256": source_evidence["evidence_sha256"],
     }
-    if any(value.get(key) != expected for key, expected in bindings.items()):
+    if any(not _canonical_exact_equal(value.get(key), expected)
+           for key, expected in bindings.items()):
         _fail("OVERLAY_BINDING", "hour/object set binding mismatch")
     supplied = _sha(value["manifest_sha256"], "manifest_sha256")
     unsigned = copy.deepcopy(value)

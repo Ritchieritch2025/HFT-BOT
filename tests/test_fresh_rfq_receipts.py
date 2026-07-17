@@ -6,12 +6,18 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "fresh_rfq_receipts.py"
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import test_fresh_rfq_base_binding as base_fixture  # noqa: E402
+import test_research_reference_consumer as reference_fixture  # noqa: E402
 
 
 def load_module():
@@ -289,8 +295,9 @@ def evidence_for(auth, target_receipt, target_rows=None, *, segments=None):
     seal = {
         "bucket": auth["source_bucket"],
         "key": f"ec2/warehouse/seals/date={date_text}.json",
-        "version_id": "full-v2-seal-version-1", "size": 4096,
-        "sha256": sha(f"full-v2-seal-{date_text}"), "date": date_text,
+        "version_id": "version-518a84e58ce5c3d89dd0", "size": 1476,
+        "sha256": "f89d784dd5a9d6225eb751349d159561c80b7bf71334b3f6ef426b9ad73b1458",
+        "date": date_text,
         "version": 2, "method": "full_v2", "status": "SEALED",
         "code_commit": "b" * 40,
         "manifest_date_sha256": sha(f"manifest-{date_text}"),
@@ -996,6 +1003,25 @@ def test_resolver_mismatch_and_hour_digest_tamper_fail_closed(monkeypatch):
     with pytest.raises(fresh.FreshRfqError):
         fresh.validate_hour_receipt(tampered, auth, source_evidence=evidence)
 
+    proof_type_tamper = copy.deepcopy(built)
+    assert proof_type_tamper["source_proof"]["line_number"] == 1
+    proof_type_tamper["source_proof"]["line_number"] = True
+    proof_type_tamper["receipt_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in proof_type_tamper.items()
+        if key != "receipt_sha256"})
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_hour_receipt(
+            proof_type_tamper, auth, source_evidence=evidence)
+    assert error.value.code == "SOURCE_PROOF_BINDING"
+
+
+def base_manifest_inputs(monkeypatch):
+    monkeypatch.setattr(reference_fixture, "DATE", "2026-07-17")
+    manifest = base_fixture._complete_manifest()
+    manifest["published_at_utc"] = "2026-07-18T04:00:00Z"
+    raw, identity = base_fixture._raw_and_identity(manifest)
+    return manifest, raw, identity
+
 
 def overlay_inputs(monkeypatch):
     auth = authority(monkeypatch)
@@ -1007,53 +1033,57 @@ def overlay_inputs(monkeypatch):
             auth, hour, subscription_acks=1 if offset == 0 else 0,
             subscription_end=True if offset == 0 else None))
     receipts, evidence = receipts_for_segments(auth, segments)
-    sealed = []
-    for receipt in receipts[:24]:
-        sealed.extend({
-            "key": row["key"], "version_id": row["version_id"],
-            "size": row["size"], "sha256": row["sha256"],
-        } for row in receipt["rfq_objects"])
-    sealed.sort(key=lambda row: row["key"])
-    release_id = "2026-07-17__v3ref__seal-deadbeef__pub-0123456789abcdef"
-    base = {
-        "release_id": release_id,
-        "date": "2026-07-17",
-        "manifest_bucket": "research-bucket",
-        "manifest_key": f"research/releases/{release_id}/MANIFEST.json",
-        "manifest_version_id": "manifest-version",
-        "manifest_sha256": sha("manifest"),
-        "reference_set_sha256": sha("reference set"),
-        "canonical_receipt_set_sha256": sha("canonical receipt set"),
-        "verification_state": "REFERENCE_V3_VERIFIED",
-        "source_seal": {
-            **{key: evidence["seal"][key] for key in (
-                "bucket", "key", "version_id", "size", "sha256")},
-            "verification_state": "PASS",
-        },
-        "sealed_rfq_objects": sealed,
-        "sealed_rfq_object_set_sha256": fresh.canonical_sha256(sealed),
-    }
-    return auth, receipts, base, evidence
+    manifest, manifest_bytes, manifest_identity = base_manifest_inputs(monkeypatch)
+    return auth, receipts, manifest, manifest_bytes, manifest_identity, evidence
+
+
+def build_overlay(auth, receipts, manifest_bytes, manifest_identity, evidence):
+    return fresh.build_overlay_manifest(
+        authority=auth, base_manifest_bytes=manifest_bytes,
+        base_manifest_exact_identity=manifest_identity,
+        hour_receipts=receipts, source_evidence=evidence)
+
+
+def validate_overlay(value, auth, manifest_bytes, manifest_identity):
+    return fresh.validate_overlay_manifest(
+        value, auth, base_manifest_bytes=manifest_bytes,
+        base_manifest_exact_identity=manifest_identity)
 
 
 def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
-    one = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts,
-        source_evidence=evidence)
-    two = fresh.build_overlay_manifest(
-        authority=auth, base_release=base,
-        hour_receipts=list(reversed(receipts)), source_evidence=evidence)
+    auth, receipts, manifest, raw, identity, evidence = overlay_inputs(monkeypatch)
+    one = build_overlay(auth, receipts, raw, identity, evidence)
+    two = build_overlay(
+        auth, list(reversed(receipts)), raw, identity, evidence)
     assert one == two
+    assert one["schema"] == "research-rfq-overlay-manifest-v2"
     assert len(one["analysis_hours"]) == 24
     assert len(one["watermark_hours"]) == 2
     assert one["analysis_hours"][0]["segment_hour"] == "2026-07-17T00"
     assert one["analysis_hours"][-1]["segment_hour"] == "2026-07-17T23"
     assert [row["segment_hour"] for row in one["watermark_hours"]] == [
         "2026-07-18T00", "2026-07-18T01"]
-    assert one["analysis_rfq_objects"] == base["sealed_rfq_objects"]
     assert {row["key"] for row in one["analysis_rfq_objects"]}.isdisjoint(
         {row["key"] for row in one["watermark_rfq_objects"]})
+    base = one["base_binding"]
+    assert base["release_id"] == manifest["release_id"]
+    assert base["verification_state"] == \
+        "REFERENCE_V3_MANIFEST_EXACT_VALIDATED"
+    assert base["source_objects_exact_get_verified"] is False
+    assert base["durable_receipt_exact_get_verified"] is False
+    assert base["rfq_objects_in_base"] == 0
+    assert base["data_objects_copied"] == 0
+    assert base["aws_write_authorized"] is False
+    assert base["research_eligible"] is False
+    assert set(base["families"]) == {
+        "orderbooks_l1", "orderbooks_full", "trades", "dated_dim", "catalogs"}
+    assert base["families"]["dated_dim"]["object_count"] == 3
+    assert base["families"]["catalogs"]["object_count"] == 5
+    assert {key: base["source_seal"][key] for key in (
+        "bucket", "key", "version_id", "size", "sha256",
+    )} == {key: evidence["seal"][key] for key in (
+        "bucket", "key", "version_id", "size", "sha256",
+    )}
     assert one["watermark_objects_in_analysis"] is False
     assert one["data_objects_copied"] == 0
     assert one["aws_write_authorized"] is False
@@ -1063,48 +1093,59 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
 @pytest.mark.parametrize("mutation,code", [
     ("gap", "HOUR_CONTINUITY"),
     ("duplicate", "HOUR_DUPLICATE"),
-    ("sealed_subset", "ANALYSIS_SEAL_MISMATCH"),
-    ("base_manifest_sha", "INVALID_SHA256"),
-    ("base_version", "VERSION_REQUIRED"),
 ])
-def test_overlay_rejects_gap_duplicate_or_bad_base_binding(
-        monkeypatch, mutation, code):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+def test_overlay_rejects_gap_or_duplicate(monkeypatch, mutation, code):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
     if mutation == "gap":
         receipts.pop(10)
-    elif mutation == "duplicate":
-        receipts[-1] = receipts[-2]
-    elif mutation == "sealed_subset":
-        base["sealed_rfq_objects"][-1] = {
-            "key": receipts[24]["rfq_objects"][0]["key"],
-            "version_id": receipts[24]["rfq_objects"][0]["version_id"],
-            "size": receipts[24]["rfq_objects"][0]["size"],
-            "sha256": receipts[24]["rfq_objects"][0]["sha256"],
-        }
-        base["sealed_rfq_objects"].sort(key=lambda row: row["key"])
-        base["sealed_rfq_object_set_sha256"] = fresh.canonical_sha256(
-            base["sealed_rfq_objects"])
-    elif mutation == "base_manifest_sha":
-        base["manifest_sha256"] = "bad"
     else:
-        base["manifest_version_id"] = "null"
+        receipts[-1] = receipts[-2]
     with pytest.raises(fresh.FreshRfqError) as error:
-        fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts,
-            source_evidence=evidence)
+        build_overlay(auth, receipts, raw, identity, evidence)
     assert error.value.code == code
 
 
+@pytest.mark.parametrize(
+    "mutation", ["bytes", "identity", "date", "version", "sha256"])
+def test_overlay_rejects_wrong_base_manifest_input(monkeypatch, mutation):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    identity = copy.deepcopy(identity)
+    if mutation == "bytes":
+        raw += b" "
+    elif mutation == "identity":
+        identity["key"] = "research/releases/wrong/MANIFEST.json"
+    elif mutation == "date":
+        evidence["analysis_date"] = "2026-07-16"
+        reseal_evidence(evidence)
+    elif mutation == "version":
+        identity["version_id"] = "null"
+    else:
+        identity["sha256"] = "0" * 64
+    with pytest.raises(fresh.FreshRfqError) as error:
+        build_overlay(auth, receipts, raw, identity, evidence)
+    assert error.value.code == "BASE_BINDING_INVALID"
+
+
+def test_overlay_rejects_legacy_base_release_argument(monkeypatch):
+    auth, receipts, _manifest, _raw, _identity, evidence = overlay_inputs(
+        monkeypatch)
+    with pytest.raises(TypeError):
+        fresh.build_overlay_manifest(
+            authority=auth, base_release={}, hour_receipts=receipts,
+            source_evidence=evidence)
+
+
 def test_overlay_requires_all_26_hours_resolved_exact(monkeypatch):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
     receipts[7]["resolution_state"] = "NOT_REQUESTED"
     receipts[7]["receipt_sha256"] = fresh.canonical_sha256({
         key: value for key, value in receipts[7].items()
         if key != "receipt_sha256"})
     with pytest.raises(fresh.FreshRfqError) as error:
-        fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts,
-            source_evidence=evidence)
+        build_overlay(auth, receipts, raw, identity, evidence)
     assert error.value.code == "SOURCE_RESOLUTION_REQUIRED"
 
 
@@ -1114,7 +1155,8 @@ def test_overlay_requires_all_26_hours_resolved_exact(monkeypatch):
 ])
 def test_overlay_rejects_broken_persistent_subscription_chain(
         monkeypatch, mutation):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
     index = 0 if mutation == "first_missing_ack" else 5
     hour = receipts[index]["segment_hour"]
     kwargs = {"subscription_acks": 0, "subscription_end": None}
@@ -1130,14 +1172,13 @@ def test_overlay_rejects_broken_persistent_subscription_chain(
     segments[index] = seg
     receipts, evidence = receipts_for_segments(auth, segments)
     with pytest.raises(fresh.FreshRfqError) as error:
-        fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts,
-            source_evidence=evidence)
+        build_overlay(auth, receipts, raw, identity, evidence)
     assert error.value.code == "SUBSCRIPTION_CHAIN"
 
 
 def test_overlay_accepts_contiguous_generation_rollover_with_new_ack(monkeypatch):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
     segments = [row["segment_receipt"] for row in receipts]
     for index in range(13, 26):
         hour = receipts[index]["segment_hour"]
@@ -1152,16 +1193,15 @@ def test_overlay_accepts_contiguous_generation_rollover_with_new_ack(monkeypatch
                 "child_subscription_ack_count"):
             segments[index][field] = segments[13][field]
     receipts, evidence = receipts_for_segments(auth, segments)
-    built = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts,
-        source_evidence=evidence)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
     assert built["analysis_hours"][13]["child_generation"] == 4
     assert built["analysis_hours"][13]["subscription_ack_count"] == 1
     assert built["watermark_hours"][0]["subscription_ack_count"] == 0
 
 
 def test_overlay_rejects_generation_rollover_without_raw_hour_ack(monkeypatch):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
     segments = [row["segment_receipt"] for row in receipts]
     rollover_ack = None
     for index in range(13, 26):
@@ -1184,9 +1224,7 @@ def test_overlay_rejects_generation_rollover_without_raw_hour_ack(monkeypatch):
     receipts, evidence = receipts_for_segments(auth, segments)
 
     with pytest.raises(fresh.FreshRfqError) as error:
-        fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts,
-            source_evidence=evidence)
+        build_overlay(auth, receipts, raw, identity, evidence)
     assert error.value.code == "SUBSCRIPTION_CHAIN"
 
 
@@ -1200,41 +1238,158 @@ def test_overlay_rejects_generation_rollover_without_raw_hour_ack(monkeypatch):
 ])
 def test_overlay_fixed_fields_reject_bool_integer_substitution_after_rehash(
         monkeypatch, field, wrong_value):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
-    built = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts,
-        source_evidence=evidence)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
     built[field] = wrong_value
     built["manifest_sha256"] = fresh.canonical_sha256({
         key: value for key, value in built.items()
         if key != "manifest_sha256"})
 
     with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(built, auth, raw, identity)
+    assert error.value.code == "OVERLAY_INVALID"
+
+
+def test_overlay_rebuild_rejects_rehashed_embedded_family_tamper(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    base = tampered["base_binding"]
+    family = base["families"]["orderbooks_l1"]
+    family["objects"][0]["version_id"] = "forged-exact-version"
+    family["set_sha256"] = fresh.canonical_sha256(family["objects"])
+    family_order = (
+        "orderbooks_l1", "orderbooks_full", "trades", "dated_dim", "catalogs")
+    base["family_set_sha256"] = fresh.canonical_sha256([{
+        "family": name,
+        "object_count": base["families"][name]["object_count"],
+        "set_sha256": base["families"][name]["set_sha256"],
+    } for name in family_order])
+    all_rows = sorted([
+        row for name in family_order for row in base["families"][name]["objects"]
+    ], key=lambda row: row["logical_key"])
+    base["base_exact_set_sha256"] = fresh.canonical_sha256(all_rows)
+    base["binding_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in base.items() if key != "binding_sha256"})
+    tampered["base_binding_sha256"] = base["binding_sha256"]
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "BASE_BINDING_INVALID"
+
+
+@pytest.mark.parametrize("mutation", [
+    "data_objects_copied", "rfq_objects_in_base", "family_count",
+    "family_count_float", "source_get_flag", "research_eligible",
+])
+def test_overlay_rebuild_comparison_is_bool_int_type_exact(
+        monkeypatch, mutation):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    base = tampered["base_binding"]
+    if mutation == "data_objects_copied":
+        base["data_objects_copied"] = False
+    elif mutation == "rfq_objects_in_base":
+        base["rfq_objects_in_base"] = False
+    elif mutation in ("family_count", "family_count_float"):
+        assert base["families"]["orderbooks_l1"]["object_count"] == 1
+        base["families"]["orderbooks_l1"]["object_count"] = \
+            True if mutation == "family_count" else 1.0
+    elif mutation == "source_get_flag":
+        base["source_objects_exact_get_verified"] = 0
+    else:
+        base["research_eligible"] = 0
+    # Preserve the original base digests exactly: Python equality used to
+    # treat these substitutions as unchanged.  Only the outer overlay digest
+    # is refreshed to model the adversarial self-rehash.
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "BASE_BINDING_INVALID"
+
+
+def test_overlay_object_projection_is_bool_int_type_exact(monkeypatch):
+    auth, receipts, _manifest, raw, identity, _evidence = overlay_inputs(
+        monkeypatch)
+    segments = [row["segment_receipt"] for row in receipts]
+    first = segments[0]
+    shard = first["capture_shards"][0]
+    shard["size"] = 1
+    shard["parsed_bytes_at_close"] = 1
+    first["capture_bytes_at_close"] = 1
+    first["capture_shard_set_sha256"] = fresh.canonical_sha256(
+        first["capture_shards"])
+    path = first["raw_evidence"]["shards"][0]
+    first["raw_evidence"]["end_offsets"][path] = 1
+    receipts, evidence = receipts_for_segments(auth, segments)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    assert tampered["analysis_rfq_objects"][0]["size"] == 1
+    tampered["analysis_rfq_objects"][0]["size"] = True
+    # Preserve the integer-based object-set digest and only self-rehash the
+    # outer manifest.  Python equality used to accept True as integer 1.
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "OVERLAY_BINDING"
+
+
+def test_overlay_strict_validation_requires_original_manifest_inputs(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
+    with pytest.raises(TypeError):
         fresh.validate_overlay_manifest(built, auth)
+
+    wrong_identity = copy.deepcopy(identity)
+    wrong_identity["version_id"] = "another-exact-version"
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(built, auth, raw, wrong_identity)
+    assert error.value.code == "BASE_BINDING_INVALID"
+
+
+def test_legacy_hour_and_overlay_schemas_are_mechanically_rejected(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    old_hour = copy.deepcopy(receipts[0])
+    old_hour["schema"] = "canonical-rfq-hour-receipt-v1"
+    old_hour["receipt_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in old_hour.items() if key != "receipt_sha256"})
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_hour_receipt(old_hour, auth, source_evidence=evidence)
+    assert error.value.code == "HOUR_RECEIPT_INVALID"
+
+    old_overlay = build_overlay(auth, receipts, raw, identity, evidence)
+    old_overlay["schema"] = "research-rfq-overlay-manifest-v1"
+    old_overlay["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in old_overlay.items()
+        if key != "manifest_sha256"})
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(old_overlay, auth, raw, identity)
     assert error.value.code == "OVERLAY_INVALID"
 
 
 def test_overlay_digest_and_watermark_partition_tamper_fail(monkeypatch):
-    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
-    built = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts,
-        source_evidence=evidence)
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
     tampered = copy.deepcopy(built)
     tampered["manifest_sha256"] = "0" * 64
     with pytest.raises(fresh.FreshRfqError) as error:
-        fresh.validate_overlay_manifest(tampered, auth)
+        validate_overlay(tampered, auth, raw, identity)
     assert error.value.code == "OVERLAY_DIGEST"
 
     moved = copy.deepcopy(built)
     moved["analysis_hours"].append(moved["watermark_hours"].pop(0))
     with pytest.raises(fresh.FreshRfqError):
-        fresh.validate_overlay_manifest(moved, auth)
-
-    base_tamper = copy.deepcopy(built)
-    base_tamper["base_release"]["manifest_sha256"] = sha("other manifest")
-    base_tamper["manifest_sha256"] = fresh.canonical_sha256({
-        key: value for key, value in base_tamper.items()
-        if key != "manifest_sha256"
-    })
-    with pytest.raises(fresh.FreshRfqError, match="BASE_RELEASE_INVALID"):
-        fresh.validate_overlay_manifest(base_tamper, auth)
+        validate_overlay(moved, auth, raw, identity)
