@@ -1740,6 +1740,28 @@
    "docs": "tests/test_event_validate.py"
   },
   {
+   "name": "l2_gap_check",
+   "kind": "tool",
+   "safety": "offline",
+   "autorun": false,
+   "cmd": "python3 tools/l2_gap_check.py",
+   "args_template": "--date YYYY-MM-DD [--raw-root work/raw] [--out-dir work/event_packs]",
+   "needs": [],
+   "description": "Offline per-day L2 quality receipt. Validates envelope/raw sequence identity before continuity accounting, rejects corrupt interleaved rows, and surfaces gap totals as lower bounds whenever continuity is incomplete.",
+   "docs": "tools/l2_gap_check.py"
+  },
+  {
+   "name": "test_l2_gap_check",
+   "kind": "test",
+   "safety": "pure",
+   "cmd": "./tests/run_pytest.sh",
+   "args_template": "tests/test_l2_gap_check.py",
+   "needs": [],
+   "pass_token": "passed",
+   "description": "L2 detector contract: exact clean gaps, numeric shard order, marker accounting, and byte-interleave/decimal-splice rows cannot pollute sequence counters.",
+   "docs": "tests/test_l2_gap_check.py"
+  },
+  {
    "name": "capture_gaps",
    "kind": "tool",
    "safety": "offline",
