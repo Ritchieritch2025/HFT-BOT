@@ -23,6 +23,7 @@ RFQ 当前仍是 **DATA_INTEGRITY_BLOCKED / OFF**。当前 base IAM 包没有 RF
    - 专用 tagger 只可读取/写回 allowlist 内精确版本的标签；canonical 非 RFQ 写标签请求必须包含 `research-eligible=true`。
    - 整个 `ec2/raw/*` 的 tag read/write/delete 被显式拒绝；当前 tagger 无 RFQ 标签能力。
    - tagger 只可在 canonical receipt 路径执行带 `If-None-Match: *` 的 `PutObject`，并仅可列该精确 receipt key 的版本历史、按 `VersionId` 读回。
+   - 大型 `warehouse/corrections/date=D/late_rows.ndjson` 只绑定原 canonical 对象的精确 `VersionId`；不得复制到 publication snapshot，也不得进入 small-controls 上传。只有小型 date-only ledger projection 走 content-addressed control 路径。
    - 显式拒绝 versionless `s3:PutObjectTagging`。
 4. `W-PUB-REF-01C_BUCKET_POLICY_MERGE_FRAGMENT.json`
    - 这不是完整 bucket policy。它只有 `Deny` 语句，必须合并进现有 policy 的 `Statement` 数组。

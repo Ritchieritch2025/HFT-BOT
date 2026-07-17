@@ -76,6 +76,9 @@ CANONICAL_RECEIPT_PROVENANCE_PATHS = (
     "tools/forward_canonical_receipts.py",
     "tools/canonical_receipt_control.py",
 )
+MAX_NDJSON_LINE_BYTES = 64 * 1024 * 1024
+MAX_DATE_CONTROL_BYTES = 64 * 1024 * 1024
+MAX_AUX_DESCRIPTOR_BYTES = 16 * 1024 * 1024
 
 
 class ReceiptError(RuntimeError):
@@ -196,18 +199,28 @@ def _file_attestation(path):
     return after.st_size, digest.hexdigest()
 
 
-def _freeze_file(path):
+def _freeze_file(path, max_bytes=None):
     """Read a small control file once from one pinned, no-follow fd."""
     fd, before = _open_regular_nofollow(path)
     chunks = []
     total = 0
     try:
+        if (max_bytes is not None
+                and (not isinstance(max_bytes, int) or max_bytes < 0
+                     or before.st_size > max_bytes)):
+            raise ReceiptError(
+                "CONTROL_TOO_LARGE",
+                "small control exceeds byte limit: %s" % path)
         while True:
             chunk = os.read(fd, 1 << 20)
             if not chunk:
                 break
             chunks.append(chunk)
             total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ReceiptError(
+                    "CONTROL_TOO_LARGE",
+                    "small control exceeds byte limit: %s" % path)
         after = _assert_fd_and_path_stable(fd, path, before, total)
     finally:
         os.close(fd)
@@ -249,7 +262,7 @@ class _BundleReader:
         except OSError:
             pass
 
-    def read(self, rel):
+    def read(self, rel, max_bytes=None):
         rel = _safe_rel(rel, "bundle relative path")
         parts = rel.split("/")
         current = os.dup(self.fd)
@@ -269,6 +282,12 @@ class _BundleReader:
             if not stat.S_ISREG(before.st_mode):
                 raise ReceiptError("AUX_SET_INVALID",
                                    "bundle entry is not regular: %s" % rel)
+            if (max_bytes is not None
+                    and (not isinstance(max_bytes, int) or max_bytes < 0
+                         or before.st_size > max_bytes)):
+                raise ReceiptError(
+                    "AUX_SET_INVALID",
+                    "bundle entry exceeds byte limit: %s" % rel)
             chunks, total = [], 0
             while True:
                 chunk = os.read(file_fd, 1 << 20)
@@ -276,6 +295,10 @@ class _BundleReader:
                     break
                 chunks.append(chunk)
                 total += len(chunk)
+                if max_bytes is not None and total > max_bytes:
+                    raise ReceiptError(
+                        "AUX_SET_INVALID",
+                        "bundle entry exceeds byte limit: %s" % rel)
             after = os.fstat(file_fd)
             path_after = os.stat(parts[-1], dir_fd=current,
                                  follow_symlinks=False)
@@ -684,14 +707,11 @@ def _validate_correction_date(value, label):
     return value
 
 
-def _ledger_projection(payload, date):
-    """Project current-schema D rows and reject ambiguous legacy dates."""
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ReceiptError("CORRECTIONS_INVALID", str(exc))
-    lines, rows = [], []
-    for lineno, raw in enumerate(text.splitlines(), 1):
+def _ledger_projection_lines(source_lines, date, max_output_bytes=None):
+    """Project current-schema D rows from a bounded-memory line iterator."""
+    selected_lines, rows = [], []
+    output_size = 0
+    for lineno, raw in enumerate(source_lines, 1):
         if not raw.strip():
             continue
         try:
@@ -734,11 +754,115 @@ def _ledger_projection(payload, date):
                     "CORRECTIONS_INVALID",
                     "ledger line %d does not attest seal_untouched" % lineno)
             _correction_source_identity(row, "ledger line %d" % lineno)
-            lines.append(raw.strip())
+            selected = raw.strip()
+            output_size += len(selected.encode("utf-8")) + 1
+            if (max_output_bytes is not None
+                    and output_size > max_output_bytes):
+                raise ReceiptError(
+                    "CORRECTIONS_INVALID",
+                    "date ledger projection exceeds %d bytes" %
+                    max_output_bytes)
+            selected_lines.append(selected)
             rows.append(row)
-    projection = (("\n".join(lines) + "\n").encode("utf-8")
-                  if lines else b"")
+    projection = (("\n".join(selected_lines) + "\n").encode("utf-8")
+                  if selected_lines else b"")
     return projection, rows
+
+
+def _ledger_projection(payload, date):
+    """Project current-schema D rows and reject ambiguous legacy dates."""
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReceiptError("CORRECTIONS_INVALID", str(exc))
+    return _ledger_projection_lines(text.splitlines(), date)
+
+
+def _bounded_binary_lines(handle, label):
+    """Yield raw NDJSON lines while bounding a malformed individual line."""
+    while True:
+        raw = handle.readline(MAX_NDJSON_LINE_BYTES + 1)
+        if not raw:
+            return
+        if len(raw) > MAX_NDJSON_LINE_BYTES:
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "%s line exceeds %d bytes" %
+                (label, MAX_NDJSON_LINE_BYTES))
+        yield raw
+
+
+def _ledger_projection_file(path, date):
+    """Stream a mutable ledger through one pinned no-follow descriptor."""
+    fd, before = _open_regular_nofollow(path)
+    total = 0
+    try:
+        def text_lines():
+            nonlocal total
+            with os.fdopen(os.dup(fd), "rb") as handle:
+                for lineno, raw in enumerate(
+                        _bounded_binary_lines(handle, "ledger"), 1):
+                    total += len(raw)
+                    try:
+                        text = raw.decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise ReceiptError(
+                            "CORRECTIONS_INVALID",
+                            "ledger line %d: %s" % (lineno, exc))
+                    yield text.rstrip("\r\n")
+
+        projection, rows = _ledger_projection_lines(
+            text_lines(), date, max_output_bytes=MAX_DATE_CONTROL_BYTES)
+        after = _assert_fd_and_path_stable(fd, path, before, total)
+        return projection, rows, _stat_key(after)
+    finally:
+        os.close(fd)
+
+
+def _late_correction_key(raw, date, lineno):
+    """Validate one non-empty late-row JSON line and return its source key."""
+    try:
+        row = json.loads(raw)
+    except ValueError as exc:
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "late_rows line %d: %s" % (lineno, exc))
+    if not isinstance(row, dict):
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "late_rows line %d is not an object" % lineno)
+    table = row.get("table")
+    values = row.get("row")
+    if (table not in ("orderbooks_l1", "trades", "orderbooks_full")
+            or not isinstance(values, list) or not values
+            or not isinstance(values[0], int)
+            or isinstance(values[0], bool)):
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows line %d has invalid table/row schema" % lineno)
+    try:
+        exchange_date = wc.day_of_us(values[0])
+    except Exception as exc:
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows line %d has invalid exchange timestamp: %s" %
+            (lineno, exc))
+    if exchange_date != date:
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows line %d belongs to %s, expected %s" %
+            (lineno, exchange_date, date))
+    source = _correction_source_identity(
+        row, "late_rows line %d" % lineno)
+    start = row.get("source_start_offset")
+    end = row.get("source_end_offset")
+    if ((start is None) != (end is None)
+            or start is None
+            or not isinstance(start, int) or isinstance(start, bool)
+            or not isinstance(end, int) or isinstance(end, bool)
+            or start < 0 or end < start):
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows line %d has invalid source offsets" % lineno)
+    return date, source
 
 
 def _late_correction_counts(payload, date):
@@ -750,49 +874,76 @@ def _late_correction_counts(payload, date):
     for lineno, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
-        try:
-            row = json.loads(raw)
-        except ValueError as exc:
-            raise ReceiptError("CORRECTIONS_INVALID",
-                               "late_rows line %d: %s" % (lineno, exc))
-        if not isinstance(row, dict):
-            raise ReceiptError("CORRECTIONS_INVALID",
-                               "late_rows line %d is not an object" % lineno)
-        table = row.get("table")
-        values = row.get("row")
-        if (table not in ("orderbooks_l1", "trades", "orderbooks_full")
-                or not isinstance(values, list) or not values
-                or not isinstance(values[0], int)
-                or isinstance(values[0], bool)):
-            raise ReceiptError(
-                "CORRECTIONS_INVALID",
-                "late_rows line %d has invalid table/row schema" % lineno)
-        try:
-            exchange_date = wc.day_of_us(values[0])
-        except Exception as exc:
-            raise ReceiptError(
-                "CORRECTIONS_INVALID",
-                "late_rows line %d has invalid exchange timestamp: %s" %
-                (lineno, exc))
-        if exchange_date != date:
-            raise ReceiptError(
-                "CORRECTIONS_INVALID",
-                "late_rows line %d belongs to %s, expected %s" %
-                (lineno, exchange_date, date))
-        source = _correction_source_identity(
-            row, "late_rows line %d" % lineno)
-        start = row.get("source_start_offset")
-        end = row.get("source_end_offset")
-        if ((start is None) != (end is None)
-                or start is None
-                or not isinstance(start, int) or isinstance(start, bool)
-                or not isinstance(end, int) or isinstance(end, bool)
-                or start < 0 or end < start):
-            raise ReceiptError(
-                "CORRECTIONS_INVALID",
-                "late_rows line %d has invalid source offsets" % lineno)
-        counts[(date, source)] += 1
+        counts[_late_correction_key(raw, date, lineno)] += 1
     return counts
+
+
+def _correction_counts_projection(date, counts):
+    rows = [{
+        "exchange_date": date,
+        "observed_at_utc": key[1][0],
+        "source_file": key[1][1],
+        "source_raw_rel": key[1][2],
+        "n_rows": value,
+    } for key, value in counts.items()]
+    rows.sort(key=lambda row: (
+        row["observed_at_utc"], row["source_file"], row["source_raw_rel"]))
+    return rows
+
+
+def _correction_validation_from_ledger(ledger_rows, date):
+    counts = collections.Counter()
+    for index, row in enumerate(ledger_rows, 1):
+        source = _correction_source_identity(
+            row, "date ledger row %d" % index)
+        counts[(date, source)] += row["n_rows"]
+    return counts, {
+        "schema_version": "late-correction-stream-validation-v1",
+        "row_count": sum(counts.values()),
+        "source_counts_sha256": canonical_sha256(
+            _correction_counts_projection(date, counts)),
+    }
+
+
+def _late_correction_file_attestation(path, ledger_rows, date):
+    """Validate and hash large late-row bytes without retaining the payload."""
+    ledger_counts, expected_validation = _correction_validation_from_ledger(
+        ledger_rows, date)
+    remaining = ledger_counts.copy()
+    digest = hashlib.sha256()
+    total = row_count = 0
+    fd, before = _open_regular_nofollow(path)
+    try:
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            for lineno, raw in enumerate(
+                    _bounded_binary_lines(handle, "late_rows"), 1):
+                total += len(raw)
+                digest.update(raw)
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ReceiptError(
+                        "CORRECTIONS_INVALID",
+                        "late_rows line %d: %s" % (lineno, exc))
+                if not text.strip():
+                    continue
+                key = _late_correction_key(
+                    text.rstrip("\r\n"), date, lineno)
+                if remaining.get(key, 0) <= 0:
+                    raise ReceiptError(
+                        "CORRECTIONS_INVALID",
+                        "late_rows and ledger source/date groups do not agree")
+                remaining[key] -= 1
+                row_count += 1
+        after = _assert_fd_and_path_stable(fd, path, before, total)
+    finally:
+        os.close(fd)
+    if any(remaining.values()):
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows and ledger source/date groups do not agree")
+    validation = dict(expected_validation, row_count=row_count)
+    return after.st_size, digest.hexdigest(), validation, _stat_key(after)
 
 
 def _validate_correction_pair(late_payload, ledger_rows, date):
@@ -1315,13 +1466,24 @@ def freeze_auxiliary_set(date, bucket, prefix, raw_root, warehouse_root,
             "late_rows.ndjson")
         ledger_path = os.path.join(
             warehouse_root, "corrections", "ledger.ndjson")
-        late_payload = (_freeze_file(late_path)[0]
-                        if os.path.isfile(late_path) else None)
-        ledger_payload = (_freeze_file(ledger_path)[0]
-                          if os.path.isfile(ledger_path) else None)
-        ledger_day, ledger_rows = (
-            _ledger_projection(ledger_payload, date)
-            if ledger_payload is not None else (b"", []))
+        if os.path.lexists(late_path):
+            try:
+                late_payload = _freeze_file(
+                    late_path, max_bytes=MAX_DATE_CONTROL_BYTES)[0]
+            except ReceiptError as exc:
+                if exc.code != "CONTROL_TOO_LARGE":
+                    raise
+                raise ReceiptError(
+                    "LEGACY_AUX_CONTROL_TOO_LARGE",
+                    "late_rows exceeds %d bytes; use freeze-forward" %
+                    MAX_DATE_CONTROL_BYTES)
+        else:
+            late_payload = None
+        if os.path.lexists(ledger_path):
+            ledger_day, ledger_rows, ledger_fingerprint = (
+                _ledger_projection_file(ledger_path, date))
+        else:
+            ledger_day, ledger_rows, ledger_fingerprint = b"", [], None
         if ((late_payload is None) != (not ledger_rows)):
             raise ReceiptError("CORRECTIONS_INVALID",
                                "late_rows and date ledger do not agree")
@@ -1358,6 +1520,7 @@ def freeze_auxiliary_set(date, bucket, prefix, raw_root, warehouse_root,
                 exposure_policy="PENDING_ELIGIBILITY_TAG",
                 version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
                 canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC"))
+            _assert_fingerprint(ledger_path, ledger_fingerprint)
 
         capture_path = os.path.join(
             quality_dir, "capture_gap_receipt_%s.json" % date)
@@ -1480,7 +1643,8 @@ def load_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
     """Validate one explicit frozen auxiliary set; never select a latest set."""
     reader = _BundleReader(path)
     try:
-        descriptor = json.loads(reader.read("AUX_SET.json")[0])
+        descriptor = json.loads(reader.read(
+            "AUX_SET.json", max_bytes=MAX_AUX_DESCRIPTOR_BYTES)[0])
     except (UnicodeDecodeError, ValueError) as exc:
         reader.close()
         raise ReceiptError("AUX_SET_INVALID", str(exc))
@@ -1624,7 +1788,11 @@ def load_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
             local = pathlib.Path(path, *rel.split("/"))
             if local.is_symlink():
                 raise ReceiptError("AUX_SET_INVALID", "symlink in bundle")
-            payload, _fingerprint = reader.read(rel)
+            if row["size"] > MAX_DATE_CONTROL_BYTES:
+                raise ReceiptError(
+                    "AUX_SET_INVALID", "retained control exceeds byte limit")
+            payload, _fingerprint = reader.read(
+                rel, max_bytes=MAX_DATE_CONTROL_BYTES)
             size = len(payload)
             sha = hashlib.sha256(payload).hexdigest()
             if size != row["size"] or sha != row["sha256"]:

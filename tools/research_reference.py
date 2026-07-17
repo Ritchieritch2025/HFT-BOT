@@ -310,8 +310,7 @@ def _classify_object(item: dict, release_date: str) -> tuple[str, str | None]:
             raise ReferenceManifestError(f"correction contract is invalid: {logical}")
         if logical.endswith("late_rows.ndjson"):
             expected = (
-                f"ec2/warehouse/publication-snapshots/v1/date={release_date}/"
-                f"corrections/late_rows/sha256={item['sha256']}/"
+                f"ec2/warehouse/corrections/date={release_date}/"
                 "late_rows.ndjson"
             )
             valid = (

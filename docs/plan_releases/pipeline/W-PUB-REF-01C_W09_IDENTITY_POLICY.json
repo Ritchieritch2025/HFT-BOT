@@ -39,7 +39,7 @@
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series_classified/part-00000.parquet",
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/seals/date=*.json",
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/manifest/sha256=*/manifest.csv",
-        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/late_rows/sha256=*/late_rows.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/corrections/date=????-??-??/late_rows.ndjson",
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/ledger_day/sha256=*/ledger_day.ndjson",
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gap_receipt/sha256=*/capture_gap_receipt.json",
         "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gaps/sha256=*/capture_gaps.csv",

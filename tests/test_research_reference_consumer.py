@@ -545,6 +545,30 @@ def test_dated_ledger_reference_uses_forward_content_addressed_contract():
         ref._classify_object(item, DATE)
 
 
+def test_large_late_rows_reference_uses_original_canonical_exact_key():
+    digest = "b" * 64
+    logical = "warehouse/corrections/date=%s/late_rows.ndjson" % DATE
+    item = {
+        "logical_key": logical,
+        "source_key": (
+            "ec2/warehouse/corrections/date=%s/late_rows.ndjson" % DATE),
+        "sha256": digest,
+        "kind": "correction",
+        "channel": None,
+        "date": DATE,
+        "required": True,
+    }
+    local, special = ref._classify_object(item, DATE)
+    assert local == "corrections/date=%s/late_rows.ndjson" % DATE
+    assert special is None
+
+    item["source_key"] = (
+        "ec2/warehouse/publication-snapshots/v1/date=%s/corrections/"
+        "late_rows/sha256=%s/late_rows.ndjson" % (DATE, digest))
+    with pytest.raises(ref.ReferenceManifestError):
+        ref._classify_object(item, DATE)
+
+
 class RecordingStore:
     def __init__(self, releases, objects, fail_key=None):
         self.releases = releases

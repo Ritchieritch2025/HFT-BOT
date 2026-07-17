@@ -30,6 +30,7 @@ import warehouse_common as wc
 
 FORWARD_AUX_SCHEMA = "canonical-forward-auxiliary-set-v1"
 FORWARD_CATALOG_PROVENANCE = "FORWARD_LOCAL_SNAPSHOT_PENDING_EXACT_VERSION"
+FORWARD_LARGE_ATTESTATION = "LOCAL_LARGE_CANONICAL_ATTESTATION"
 DAY_US = 86_400_000_000
 
 
@@ -226,11 +227,6 @@ def expected_control_key(row, prefix, date):
             prefix, "warehouse", "publication-snapshots", "v1",
             "date=%s" % date, "manifest", "sha256=%s" % digest,
             "manifest.csv")
-    if kind == "correction":
-        return cr._join_key(
-            prefix, "warehouse", "publication-snapshots", "v1",
-            "date=%s" % date, "corrections", "late_rows",
-            "sha256=%s" % digest, "late_rows.ndjson")
     if kind == "corrections_ledger_day":
         return cr._join_key(
             prefix, "warehouse", "publication-snapshots", "v1",
@@ -361,38 +357,55 @@ def freeze_forward_auxiliary_set(date, bucket, prefix, raw_root,
             "late_rows.ndjson")
         ledger_path = os.path.join(
             warehouse_root, "corrections", "ledger.ndjson")
-        late_payload = (cr._freeze_file(late_path)[0]
-                        if os.path.isfile(late_path) else None)
-        ledger_payload = (cr._freeze_file(ledger_path)[0]
-                          if os.path.isfile(ledger_path) else None)
-        ledger_day, ledger_rows = (
-            cr._ledger_projection(ledger_payload, date)
-            if ledger_payload is not None else (b"", []))
-        if ((late_payload is None) != (not ledger_rows)):
+        late_present = os.path.lexists(late_path)
+        ledger_present = os.path.lexists(ledger_path)
+        if ledger_present:
+            ledger_day, ledger_rows, ledger_fingerprint = (
+                cr._ledger_projection_file(ledger_path, date))
+        else:
+            ledger_day, ledger_rows, ledger_fingerprint = b"", [], None
+        if (late_present != bool(ledger_rows)):
             raise cr.ReceiptError(
                 "CORRECTIONS_INVALID",
                 "late_rows and date ledger do not agree")
-        if late_payload is not None:
-            cr._validate_correction_pair(late_payload, ledger_rows, date)
+        if late_present:
+            (late_size, late_sha, late_validation,
+             late_fingerprint) = cr._late_correction_file_attestation(
+                 late_path, ledger_rows, date)
             ledger_sha = hashlib.sha256(ledger_day).hexdigest()
-            corr_evidence = {"ledger_day_sha256": ledger_sha}
-            objects.append(_stage_local(
-                pending, "corrections/late_rows.ndjson", late_payload,
-                bucket=bucket,
-                key=cr._join_key(
-                    prefix, "warehouse", "publication-snapshots", "v1",
-                    "date=%s" % date, "corrections", "late_rows",
-                    "sha256=%s" % hashlib.sha256(late_payload).hexdigest(),
-                    "late_rows.ndjson"),
-                logical_source_key=cr._join_key(
+            corr_evidence = {
+                "ledger_day_sha256": ledger_sha,
+                "late_rows_validation": late_validation,
+            }
+            objects.append({
+                "storage_mode": FORWARD_LARGE_ATTESTATION,
+                "local_relpath": None,
+                "bucket": bucket,
+                "key": cr._join_key(
+                    prefix, "warehouse", "corrections",
+                    "date=%s" % date, "late_rows.ndjson"),
+                "logical_source_key": cr._join_key(
                     "warehouse", "corrections", "date=%s" % date,
                     "late_rows.ndjson"),
-                source_kind="correction", family="corrections_at_cutoff",
-                table=None, channel=None, date=date, seal_binding=seal_sha,
-                evidence_binding=corr_evidence, research_candidate=True,
-                exposure_policy="PENDING_ELIGIBILITY_TAG",
-                version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
-                canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC"))
+                "source_kind": "correction",
+                "family": "corrections_at_cutoff",
+                "table": None,
+                "channel": None,
+                "date": date,
+                "size": late_size,
+                "sha256": late_sha,
+                "seal_binding": seal_sha,
+                "evidence_binding": corr_evidence,
+                "mutable_source": False,
+                "required": True,
+                "durability_scope": True,
+                "research_candidate": True,
+                "exposure_policy": "PENDING_ELIGIBILITY_TAG",
+                "version_resolution": "FORWARD_CURRENT_EXACT",
+                "canonical_source":
+                    "LOCAL_LARGE_ATTESTATION_THEN_EXACT_S3_VERSION",
+                "expected_version_id": None,
+            })
             objects.append(_stage_local(
                 pending, "corrections/ledger_day.ndjson", ledger_day,
                 bucket=bucket,
@@ -404,12 +417,14 @@ def freeze_forward_auxiliary_set(date, bucket, prefix, raw_root,
                     "warehouse", "corrections", "date=%s" % date,
                     "ledger_day.ndjson"),
                 source_kind="corrections_ledger_day",
-                family="corrections_at_cutoff", table=None, channel=None,
-                date=date, seal_binding=seal_sha,
+                family="corrections_at_cutoff",
+                table=None, channel=None, date=date, seal_binding=seal_sha,
                 evidence_binding=corr_evidence, research_candidate=True,
                 exposure_policy="PENDING_ELIGIBILITY_TAG",
                 version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
                 canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC"))
+            cr._assert_fingerprint(ledger_path, ledger_fingerprint)
+            cr._assert_fingerprint(late_path, late_fingerprint)
 
         capture_path = os.path.join(
             quality_dir, "capture_gap_receipt_%s.json" % date)
@@ -659,7 +674,8 @@ def load_forward_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
     """Validate and pin an explicit forward auxiliary bundle."""
     reader = cr._BundleReader(path)
     try:
-        descriptor = json.loads(reader.read("AUX_SET.json")[0])
+        descriptor = json.loads(reader.read(
+            "AUX_SET.json", max_bytes=cr.MAX_AUX_DESCRIPTOR_BYTES)[0])
         if not isinstance(descriptor, dict):
             raise cr.ReceiptError("AUX_SET_INVALID", "root is not an object")
         if descriptor.get("schema_version") != FORWARD_AUX_SCHEMA:
@@ -748,19 +764,50 @@ def load_forward_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
                     "AUX_SET_INVALID", "object eligibility/binding invalid")
             storage_mode = row.get("storage_mode")
             local_rel = row.get("local_relpath")
+            if (row.get("family") == "corrections_at_cutoff"
+                    and row.get("source_kind") == "correction"
+                    and storage_mode != FORWARD_LARGE_ATTESTATION):
+                raise cr.ReceiptError(
+                    "AUX_SET_INVALID",
+                    "late_rows must use the large canonical attestation")
             if storage_mode == "LOCAL_HASH_ATTESTATION":
                 if (row.get("family") != "catalog_at_publication"
                         or local_rel is not None
                         or row.get("expected_version_id") is not None):
                     raise cr.ReceiptError(
                         "AUX_SET_INVALID", "catalog attestation invalid")
+            elif storage_mode == FORWARD_LARGE_ATTESTATION:
+                expected_late_key = cr._join_key(
+                    prefix, "warehouse", "corrections",
+                    "date=%s" % date, "late_rows.ndjson")
+                if (row.get("family") != "corrections_at_cutoff"
+                        or row.get("source_kind") != "correction"
+                        or row.get("logical_source_key") != cr._join_key(
+                            "warehouse", "corrections", "date=%s" % date,
+                            "late_rows.ndjson")
+                        or key != expected_late_key
+                        or local_rel is not None
+                        or row.get("expected_version_id") is not None
+                        or row.get("mutable_source") is not False
+                        or row.get("version_resolution")
+                        != "FORWARD_CURRENT_EXACT"
+                        or row.get("canonical_source")
+                        != "LOCAL_LARGE_ATTESTATION_THEN_EXACT_S3_VERSION"):
+                    raise cr.ReceiptError(
+                        "AUX_SET_INVALID",
+                        "large correction attestation invalid")
             elif storage_mode == "LOCAL_FROZEN_BACKFILL":
                 if row.get("expected_version_id") is not None:
                     raise cr.ReceiptError(
                         "AUX_SET_INVALID", "control preclaims VersionId")
+                if row["size"] > cr.MAX_DATE_CONTROL_BYTES:
+                    raise cr.ReceiptError(
+                        "AUX_SET_INVALID",
+                        "retained control exceeds byte limit")
                 rel = cr._safe_rel(local_rel, "auxiliary local path")
                 declared_files.add(rel)
-                payload, _fingerprint = reader.read(rel)
+                payload, _fingerprint = reader.read(
+                    rel, max_bytes=cr.MAX_DATE_CONTROL_BYTES)
                 if (len(payload) != row["size"]
                         or hashlib.sha256(payload).hexdigest()
                         != row["sha256"]):
@@ -914,16 +961,21 @@ def load_forward_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
             if not late or not ledger:
                 raise cr.ReceiptError(
                     "AUX_SET_INVALID", "corrections roles mismatch")
-            ledger_evidence = {"ledger_day_sha256": ledger["sha256"]}
-            _require_control_contract(
-                late, family="corrections_at_cutoff",
-                source_kind="correction",
-                logical=cr._join_key(
-                    "warehouse", "corrections", "date=%s" % date,
-                    "late_rows.ndjson"),
-                evidence_binding=ledger_evidence,
-                version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
-                canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC")
+            projection_bytes, ledger_rows = cr._ledger_projection(
+                ledger["_local_payload"], date)
+            if projection_bytes != ledger["_local_payload"]:
+                raise cr.ReceiptError(
+                    "AUX_SET_INVALID", "ledger is not date-exact")
+            _counts, validation = cr._correction_validation_from_ledger(
+                ledger_rows, date)
+            ledger_evidence = {
+                "ledger_day_sha256": ledger["sha256"],
+                "late_rows_validation": validation,
+            }
+            if late.get("evidence_binding") != ledger_evidence:
+                raise cr.ReceiptError(
+                    "AUX_SET_INVALID",
+                    "large correction validation evidence mismatch")
             _require_control_contract(
                 ledger, family="corrections_at_cutoff",
                 source_kind="corrections_ledger_day",
@@ -933,13 +985,6 @@ def load_forward_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
                 evidence_binding=ledger_evidence,
                 version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
                 canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC")
-            projection_bytes, ledger_rows = cr._ledger_projection(
-                ledger["_local_payload"], date)
-            if projection_bytes != ledger["_local_payload"]:
-                raise cr.ReceiptError(
-                    "AUX_SET_INVALID", "ledger is not date-exact")
-            cr._validate_correction_pair(
-                late["_local_payload"], ledger_rows, date)
 
         capture_rows = by_family.get("capture_gap_receipt", [])
         if len(capture_rows) != 1:
@@ -1010,6 +1055,70 @@ def load_forward_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
         raise cr.ReceiptError("AUX_SET_INVALID", str(exc))
     finally:
         reader.close()
+
+
+def _revalidate_forward_corrections(date, warehouse_root, auxiliary):
+    """Rebind the frozen large attestation to current local canonical bytes."""
+    corr = [row for row in auxiliary
+            if row.get("family") == "corrections_at_cutoff"]
+    late = next((row for row in corr
+                 if row.get("source_kind") == "correction"), None)
+    ledger = next((row for row in corr
+                   if row.get("source_kind")
+                   == "corrections_ledger_day"), None)
+    late_path = os.path.join(
+        warehouse_root, "corrections", "date=%s" % date,
+        "late_rows.ndjson")
+    ledger_path = os.path.join(
+        warehouse_root, "corrections", "ledger.ndjson")
+    late_present = os.path.lexists(late_path)
+    ledger_present = os.path.lexists(ledger_path)
+    try:
+        if ledger_present:
+            ledger_day, ledger_rows, ledger_fingerprint = (
+                cr._ledger_projection_file(ledger_path, date))
+        else:
+            ledger_day, ledger_rows, ledger_fingerprint = b"", [], None
+        if (late is None) != (ledger is None):
+            raise cr.ReceiptError(
+                "FORWARD_CORRECTIONS_CHANGED",
+                "frozen correction pair is incomplete")
+        if late is None:
+            if late_present or ledger_rows:
+                raise cr.ReceiptError(
+                    "FORWARD_CORRECTIONS_CHANGED",
+                    "corrections appeared after the forward freeze")
+            if ledger_fingerprint is not None:
+                cr._assert_fingerprint(ledger_path, ledger_fingerprint)
+            return
+        if not late_present or not ledger_rows:
+            raise cr.ReceiptError(
+                "FORWARD_CORRECTIONS_CHANGED",
+                "corrections disappeared after the forward freeze")
+        (late_size, late_sha, validation,
+         late_fingerprint) = cr._late_correction_file_attestation(
+             late_path, ledger_rows, date)
+        ledger_sha = hashlib.sha256(ledger_day).hexdigest()
+        evidence = {
+            "ledger_day_sha256": ledger_sha,
+            "late_rows_validation": validation,
+        }
+        if (late.get("size") != late_size
+                or late.get("sha256") != late_sha
+                or late.get("evidence_binding") != evidence
+                or ledger.get("size") != len(ledger_day)
+                or ledger.get("sha256") != ledger_sha
+                or ledger.get("evidence_binding") != evidence
+                or ledger.get("_local_payload") != ledger_day):
+            raise cr.ReceiptError(
+                "FORWARD_CORRECTIONS_CHANGED",
+                "canonical correction bytes differ from the frozen set")
+        cr._assert_fingerprint(ledger_path, ledger_fingerprint)
+        cr._assert_fingerprint(late_path, late_fingerprint)
+    except cr.ReceiptError as exc:
+        if exc.code == "FORWARD_CORRECTIONS_CHANGED":
+            raise
+        raise cr.ReceiptError("FORWARD_CORRECTIONS_CHANGED", exc.detail)
 
 
 def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
@@ -1158,6 +1267,7 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
                     version_resolution="WRITE_ONCE_CURRENT")
     except pg.GenerationError as exc:
         raise cr.ReceiptError("GENERATION_BUSY", str(exc))
+    _revalidate_forward_corrections(date, warehouse_root, auxiliary)
     families.append(cr._family(
         "dim_snapshot", "REQUIRED_RESEARCH", "fixed dated dim contract",
         len(cr.DIM_REQUIRED), dim_present,
@@ -1177,7 +1287,8 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
             local_path=row.get("_local_path"),
             local_payload=row.get("_local_payload"),
             evidence_binding=row.get("evidence_binding"),
-            mutable_source=False, required=True, family=row["family"],
+            mutable_source=False,
+            required=True, family=row["family"],
             attestation_class="PUBLICATION_CUTOFF_FROZEN",
             durability_scope=True,
             research_candidate=row["research_candidate"],

@@ -1894,10 +1894,8 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
                           receipt["date"])
                 if manifest_logical == late:
                     expected = (canonical_prefix +
-                                "/warehouse/publication-snapshots/v1/date=%s/"
-                                "corrections/late_rows/sha256=%s/"
-                                "late_rows.ndjson" %
-                                (receipt["date"], obj["sha256"]))
+                                "/warehouse/corrections/date=%s/"
+                                "late_rows.ndjson" % receipt["date"])
                     valid = (kind == "correction" and channel is None
                              and key == expected)
                 elif manifest_logical == ledger:

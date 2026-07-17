@@ -122,3 +122,26 @@ def test_base_iam_enforces_rfq_aws_hard_off():
     assert "Condition" not in rfq_deny
     assert set(rfq_deny["Action"]) == {
         "s3:PutObjectVersionTagging", "s3:DeleteObjectVersionTagging"}
+
+
+def test_large_corrections_use_direct_canonical_exact_version_scope():
+    expected = (
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/corrections/"
+        "date=????-??-??/late_rows.ndjson"
+    )
+    obsolete = "/publication-snapshots/v1/date=*/corrections/late_rows/"
+    names = [
+        "W-PUB-REF-01C_W09_IDENTITY_POLICY.json",
+        "W-PUB-REF-01C_PUBLISHER_TAG_INSPECTION_DELTA.json",
+        "W-PUB-REF-01C_TAGGER_IDENTITY_POLICY.json",
+        "W-PUB-REF-01C_BUCKET_POLICY_MERGE_FRAGMENT.json",
+    ]
+    for name in names:
+        policy = _policy(name)
+        resources = [
+            resource
+            for statement in policy["Statement"]
+            for resource in _resources(statement)
+        ]
+        assert expected in resources
+        assert not any(obsolete in resource for resource in resources)

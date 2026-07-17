@@ -6,6 +6,36 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-17 04:47 UTC — v3 zero-copy large-correction path bounded and re-audited
+
+- commits: `7b21b36` (zero-copy base) + `(this commit)` (large correction
+  bounded-memory follow-up); isolated branch
+  `w-pub-ref-01b-v3-dual-consumer`. Production main checkout remained
+  untouched.
+- incident/result: the read-only 2026-07-15 forward freeze was stopped after
+  RSS reached 17.7GB. The cause was not the 11GB dim tree: v3 selected only the
+  dated `series/events/markets` files. The actual unbounded path materialized
+  the 5,803,564,237-byte `corrections/date=2026-07-15/late_rows.ndjson`
+  repeatedly. No S3 mutation or RFQ compute occurred; the temporary REST pause
+  flag was cleared and production services remained active.
+- decisions: large `late_rows.ndjson` is canonical data, not a small control.
+  Forward freeze/build now validate it through one pinned no-follow streaming
+  descriptor, retain only size/SHA/semantic evidence, and reference the
+  original canonical S3 key by exact VersionId. It is never copied into the
+  aux bundle or small-controls upload. The date-only ledger remains a bounded
+  content-addressed control. Legacy oversized correction bundles fail closed.
+  W09/publisher/tagger/bucket-policy allowlists and both v3 producer/consumer
+  validators were updated to the direct canonical correction key.
+- verification: independent audit PASS (P0=0/P1=0); `make check` PASS;
+  pytest **841 passed, 1 skipped, 1 expected xfail**; W09 module hashes and all
+  four IAM JSON documents validate.
+- blocked/handoff: no safe AWS credentials are active on production and the
+  static key found in shell history must be revoked/rotated rather than reused.
+  W09's old public IP no longer answers after restart. Before any AWS write:
+  attach/use a clean instance role, recheck exact-version tag permission,
+  discover W09's current address, then run the 2026-07-14 metadata-only shadow
+  canary. RFQ remains DATA_INTEGRITY_BLOCKED/OFF with no repair or compute.
+
 ## 2026-07-12 07:20 UTC — 生产三连:Stage A(W03)+ W07 RFQ 激活 + Stage B(W06 Stage 1)全部部署验收完毕
 
 - 生产 tip:`a755fe5`(=5561115 + 0f8606c RFQ + a755fe5 L2S1);receipts:

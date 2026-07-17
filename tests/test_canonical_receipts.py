@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tracemalloc
 
 import pytest
 
@@ -984,9 +985,9 @@ def test_bundle_files_are_read_once_and_retained_for_semantics(
     calls = []
     real_read = cr._BundleReader.read
 
-    def counted_read(self, rel):
+    def counted_read(self, rel, max_bytes=None):
         calls.append(rel)
-        return real_read(self, rel)
+        return real_read(self, rel, max_bytes=max_bytes)
 
     monkeypatch.setattr(cr._BundleReader, "read", counted_read)
     _build(receipt_tree)
@@ -1007,8 +1008,8 @@ def test_bundle_replacement_after_read_fails_closed(receipt_tree, monkeypatch):
         row for row in receipt_tree["aux_descriptor"]["objects"]
         if row["family"] == "manifest_date_projection")
 
-    def replace_after_read(self, rel):
-        result = real_read(self, rel)
+    def replace_after_read(self, rel, max_bytes=None):
+        result = real_read(self, rel, max_bytes=max_bytes)
         if rel == manifest["local_relpath"] and not changed["done"]:
             path = receipt_tree["aux_bundle"] / rel
             replacement = path.with_suffix(".replacement")
@@ -1623,6 +1624,62 @@ def test_forward_aux_is_deterministic_and_copies_zero_catalog_bytes(
                    for row in descriptor["objects"])
 
 
+def test_forward_large_correction_is_streamed_and_never_copied_or_retained(
+        receipt_tree, tmp_path, monkeypatch):
+    late_path = (receipt_tree["warehouse"] / "corrections"
+                 / ("date=%s" % DATE) / "late_rows.ndjson")
+    line = late_path.read_bytes()
+    repeats = (16 * 1024 * 1024 // len(line)) + 1
+    with late_path.open("wb") as handle:
+        for _index in range(repeats):
+            handle.write(line)
+    ledger_path = (receipt_tree["warehouse"] / "corrections"
+                   / "ledger.ndjson")
+    ledger = [json.loads(raw) for raw in ledger_path.read_text().splitlines()]
+    ledger[0]["n_rows"] = repeats
+    ledger_path.write_text("".join(
+        json.dumps(row, sort_keys=True) + "\n" for row in ledger))
+
+    original_freeze = cr._freeze_file
+
+    def reject_unbounded_correction_read(path):
+        if "%scorrections%s" % (os.sep, os.sep) in os.fspath(path):
+            pytest.fail("large correction/ledger must use the streaming path")
+        return original_freeze(path)
+
+    monkeypatch.setattr(cr, "_freeze_file", reject_unbounded_correction_read)
+    tracemalloc.start()
+    bundle, descriptor = fcr.freeze_forward_auxiliary_set(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(tmp_path / "forward-large"))
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    late = next(row for row in descriptor["objects"]
+                if row["source_kind"] == "correction")
+    assert late["storage_mode"] == fcr.FORWARD_LARGE_ATTESTATION
+    assert late["local_relpath"] is None
+    assert late["size"] == late_path.stat().st_size
+    assert late["sha256"] == cr.sha256_file(str(late_path))
+    assert late["key"] == "%s/warehouse/corrections/date=%s/late_rows.ndjson" \
+        % (PREFIX, DATE)
+    assert peak < 8 * 1024 * 1024
+    local_files = {
+        path.relative_to(bundle).as_posix()
+        for path in Path(bundle).rglob("*") if path.is_file()
+    }
+    assert "corrections/late_rows.ndjson" not in local_files
+    loaded_descriptor, loaded = fcr.load_forward_auxiliary_set(
+        bundle, DATE, BUCKET, PREFIX, receipt_tree["seal"],
+        cr.sha256_file(str(receipt_tree["seal_path"])))
+    assert loaded_descriptor == descriptor
+    loaded_late = next(row for row in loaded
+                       if row["source_kind"] == "correction")
+    assert "_local_payload" not in loaded_late
+    assert "_local_path" not in loaded_late
+
+
 def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
         receipt_tree, tmp_path):
     bundle, _descriptor, _payloads = _forward_bundle(
@@ -1659,6 +1716,147 @@ def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
     catalog = [row for row in objects
                if row["family"] == "catalog_at_publication"]
     assert catalog and all("_expected_version_id" not in row for row in catalog)
+
+
+def test_forward_inventory_rejects_correction_changed_after_freeze(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    late_path = (receipt_tree["warehouse"] / "corrections"
+                 / ("date=%s" % DATE) / "late_rows.ndjson")
+    with late_path.open("ab") as handle:
+        handle.write(late_path.read_bytes().splitlines()[0] + b"\n")
+    with pytest.raises(
+            cr.ReceiptError, match="FORWARD_CORRECTIONS_CHANGED"):
+        fcr.build_forward_inventory(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(bundle))
+
+
+@pytest.mark.parametrize("field", ["size", "sha256", "evidence_binding"])
+def test_forward_inventory_rejects_forged_large_correction_attestation(
+        receipt_tree, tmp_path, field):
+    bundle, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / ("forward-%s" % field))
+    tampered = copy.deepcopy(descriptor)
+    late = next(row for row in tampered["objects"]
+                if row["source_kind"] == "correction")
+    if field == "size":
+        late[field] += 1
+    elif field == "sha256":
+        late[field] = "0" * 64
+    else:
+        late[field]["late_rows_validation"]["row_count"] += 1
+    desired = [{
+        key: row[key] for key in (
+            "bucket", "key", "logical_source_key", "source_kind", "family",
+            "date", "size", "sha256", "seal_binding", "evidence_binding",
+            "required", "durability_scope", "research_candidate",
+            "exposure_policy", "version_resolution", "canonical_source")
+    } for row in tampered["objects"]]
+    desired.sort(key=lambda row: (
+        row["logical_source_key"], row["bucket"], row["key"]))
+    tampered["desired_set_sha256"] = cr.canonical_sha256(desired)
+    projection = {key: value for key, value in tampered.items()
+                  if key != "aux_set_sha256"}
+    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
+    (bundle / "AUX_SET.json").write_text(
+        json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
+    bundle.rename(renamed)
+    with pytest.raises(cr.ReceiptError):
+        fcr.build_forward_inventory(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(renamed))
+
+
+def test_forward_loader_rejects_legacy_large_correction_before_read(
+        receipt_tree, tmp_path, monkeypatch):
+    bundle, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward-legacy-large")
+    tampered = copy.deepcopy(descriptor)
+    late = next(row for row in tampered["objects"]
+                if row["source_kind"] == "correction")
+    late.update({
+        "storage_mode": "LOCAL_FROZEN_BACKFILL",
+        "local_relpath": "corrections/late_rows.ndjson",
+        "key": ("%s/warehouse/publication-snapshots/v1/date=%s/"
+                "corrections/late_rows/sha256=%s/late_rows.ndjson") %
+               (PREFIX, DATE, late["sha256"]),
+        "version_resolution": "WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
+        "canonical_source": "PLANNED_DATE_SCOPED_CONTROL_SYNC",
+    })
+    large = bundle / late["local_relpath"]
+    large.parent.mkdir(parents=True, exist_ok=True)
+    with large.open("xb") as handle:
+        handle.truncate(256 * 1024 * 1024)
+    late["size"] = large.stat().st_size
+    desired = [{
+        key: row[key] for key in (
+            "bucket", "key", "logical_source_key", "source_kind", "family",
+            "date", "size", "sha256", "seal_binding", "evidence_binding",
+            "required", "durability_scope", "research_candidate",
+            "exposure_policy", "version_resolution", "canonical_source")
+    } for row in tampered["objects"]]
+    desired.sort(key=lambda row: (
+        row["logical_source_key"], row["bucket"], row["key"]))
+    tampered["desired_set_sha256"] = cr.canonical_sha256(desired)
+    projection = {key: value for key, value in tampered.items()
+                  if key != "aux_set_sha256"}
+    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
+    (bundle / "AUX_SET.json").write_text(
+        json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
+    bundle.rename(renamed)
+
+    original_read = cr._BundleReader.read
+
+    def forbid_large_read(self, rel, max_bytes=None):
+        if rel == "corrections/late_rows.ndjson":
+            pytest.fail("legacy large correction was read before rejection")
+        return original_read(self, rel, max_bytes=max_bytes)
+
+    monkeypatch.setattr(cr._BundleReader, "read", forbid_large_read)
+    with pytest.raises(cr.ReceiptError, match="large canonical attestation"):
+        fcr.load_forward_auxiliary_set(
+            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+            cr.sha256_file(str(receipt_tree["seal_path"])))
+    with pytest.raises(cr.ReceiptError, match="CONTROL_KEY_FORBIDDEN"):
+        fcr.expected_control_key(late, PREFIX, DATE)
+
+
+def test_legacy_freeze_rejects_large_correction_before_materializing(
+        receipt_tree, tmp_path):
+    late_path = (receipt_tree["warehouse"] / "corrections"
+                 / ("date=%s" % DATE) / "late_rows.ndjson")
+    with late_path.open("r+b") as handle:
+        handle.truncate(cr.MAX_DATE_CONTROL_BYTES + 1)
+    with pytest.raises(
+            cr.ReceiptError, match="LEGACY_AUX_CONTROL_TOO_LARGE.*forward"):
+        _freeze_again(receipt_tree, tmp_path / "legacy-large")
+
+
+def test_bounded_freeze_rejects_append_after_pinned_open(tmp_path,
+                                                         monkeypatch):
+    source = tmp_path / "growing-control.bin"
+    source.write_bytes(b"a" * 512)
+    original_read = cr.os.read
+    appended = False
+
+    def append_during_read(fd, size):
+        nonlocal appended
+        chunk = original_read(fd, size)
+        if chunk and not appended:
+            appended = True
+            with source.open("ab") as handle:
+                handle.write(b"b" * 1024)
+        return chunk
+
+    monkeypatch.setattr(cr.os, "read", append_during_read)
+    with pytest.raises(cr.ReceiptError, match="CONTROL_TOO_LARGE"):
+        cr._freeze_file(str(source), max_bytes=1024)
 
 
 def test_forward_full_verification_captures_version_and_last_modified(
@@ -1893,6 +2091,8 @@ def test_small_control_sync_uploads_only_allowlisted_retained_bytes(
                or "/control/quality/" in key for key in keys)
     assert not any("/facts/" in key or "/raw/" in key
                    or "/catalog/" in key or "/dim/" in key for key in keys)
+    assert "%s/warehouse/corrections/date=%s/late_rows.ndjson" % (
+        PREFIX, DATE) not in keys
     assert all("/sha256=" in key for key in keys)
 
 
