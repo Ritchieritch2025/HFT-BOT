@@ -1,0 +1,135 @@
+{
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObjectVersionTagging",
+        "s3:DeleteObjectVersionTagging"
+      ],
+      "Condition": {
+        "ArnNotEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
+        }
+      },
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_l1/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_full/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/trades/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/series.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/events.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/markets.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/events/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/markets/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/settlements/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series_classified/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/seals/date=*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/manifest/sha256=*/manifest.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/corrections/date=????-??-??/late_rows.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/ledger_day/sha256=*/ledger_day.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gap_receipt/sha256=*/capture_gap_receipt.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gaps/sha256=*/capture_gaps.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/l2_gaps/sha256=*/l2_gaps.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/canonical-receipts/v1/date=*/receipt-*.json"
+      ],
+      "Sid": "DenyCanonicalVersionTagMutationExceptDedicatedTagger"
+    },
+    {
+      "Action": [
+        "s3:PutObjectVersionTagging",
+        "s3:DeleteObjectVersionTagging"
+      ],
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/raw/date=????-??-??/rfq_??.ndjson*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/raw/date=????-??-??/rfq_receipts_??.ndjson*"
+      ],
+      "Sid": "DenyAllRfqVersionTagMutationWhileCapabilityOff"
+    },
+    {
+      "Action": [
+        "s3:PutObjectTagging",
+        "s3:DeleteObjectTagging"
+      ],
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_l1/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_full/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/trades/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/series.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/events.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/markets.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/events/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/markets/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/settlements/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series_classified/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/seals/date=*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/manifest/sha256=*/manifest.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/corrections/date=????-??-??/late_rows.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/ledger_day/sha256=*/ledger_day.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gap_receipt/sha256=*/capture_gap_receipt.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gaps/sha256=*/capture_gaps.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/l2_gaps/sha256=*/l2_gaps.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/canonical-receipts/v1/date=*/receipt-*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/raw/date=????-??-??/rfq_??.ndjson*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/raw/date=????-??-??/rfq_receipts_??.ndjson*"
+      ],
+      "Sid": "DenyAllVersionlessCanonicalTagMutation"
+    },
+    {
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": "arn:aws:s3:::kalshi-vault-ritcardo/research/releases/*/MANIFEST.json",
+      "Sid": "DenyAllResearchManifestDeletion"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Condition": {
+        "Null": {
+          "s3:if-none-match": "true"
+        }
+      },
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": "arn:aws:s3:::kalshi-vault-ritcardo/research/releases/*/MANIFEST.json",
+      "Sid": "DenyResearchManifestPutWithoutConditionalCreate"
+    },
+    {
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/canonical-receipts/v1/date=*/receipt-*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/raw-prune-authority/v1/date=*/receipt-*.json"
+      ],
+      "Sid": "DenyCanonicalControlReceiptDeletion"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Condition": {
+        "Null": {
+          "s3:if-none-match": "true"
+        }
+      },
+      "Effect": "Deny",
+      "Principal": "*",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/canonical-receipts/v1/date=*/receipt-*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/raw-prune-authority/v1/date=*/receipt-*.json"
+      ],
+      "Sid": "DenyCanonicalControlReceiptPutWithoutConditionalCreate"
+    }
+  ],
+  "Version": "2012-10-17"
+}

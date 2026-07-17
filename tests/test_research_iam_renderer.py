@@ -12,6 +12,7 @@ import render_research_iam_bundle as renderer  # noqa: E402
 
 
 ROLE = "arn:aws:iam::321572485933:role/canonical-eligibility-tagger"
+USER = "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
 POLICY_ROOT = os.path.join(ROOT, "docs", "plan_releases", "pipeline")
 
 
@@ -33,36 +34,40 @@ def test_render_replaces_exactly_one_placeholder_without_aws(tmp_path):
     source = tmp_path / "source.json"
     output = tmp_path / "rendered.json"
     _source(source)
-    result = renderer.render(str(source), str(output), ROLE)
+    result = renderer.render(str(source), str(output), USER)
     value = json.loads(output.read_text())
     assert value["Statement"][0]["Condition"]["ArnNotEquals"][
-        "aws:PrincipalArn"] == ROLE
+        "aws:PrincipalArn"] == USER
     assert "TAGGER_ARN" not in output.read_text()
     assert result["aws_writes"] == 0
     assert result["state"] == "IAM_BUCKET_FRAGMENT_RENDERED_NOT_APPLIED"
+    assert result["tagger_principal_arn"] == USER
 
 
-@pytest.mark.parametrize("role", [
+@pytest.mark.parametrize("principal", [
     "TAGGER_ARN",
+    ROLE,
     "arn:aws:sts::321572485933:assumed-role/tagger/session",
     "arn:aws:iam::321572485933:role/service-role/tagger",
-    "arn:aws:iam::123:role/tagger",
+    "arn:aws:iam::321572485933:user/service-user/tagger",
+    "arn:aws:iam::123456789012:user/canonical-eligibility-tagger",
 ])
-def test_render_rejects_placeholder_sts_path_or_bad_account(tmp_path, role):
+def test_render_rejects_placeholder_sts_path_or_bad_account(
+        tmp_path, principal):
     source = tmp_path / "source.json"
     _source(source)
-    with pytest.raises(renderer.RenderError, match="pathless IAM role ARN"):
-        renderer.render(str(source), str(tmp_path / "out.json"), role)
+    with pytest.raises(renderer.RenderError, match="approved pathless IAM user"):
+        renderer.render(str(source), str(tmp_path / "out.json"), principal)
 
 
 def test_render_refuses_missing_or_duplicate_placeholder(tmp_path):
     source = tmp_path / "source.json"
     _source(source, principal="arn:aws:iam::321572485933:role/already-set")
     with pytest.raises(renderer.RenderError, match="exactly once"):
-        renderer.render(str(source), str(tmp_path / "out.json"), ROLE)
+        renderer.render(str(source), str(tmp_path / "out.json"), USER)
     _source(source, principal=["TAGGER_ARN", "TAGGER_ARN"])
     with pytest.raises(renderer.RenderError, match="exactly once"):
-        renderer.render(str(source), str(tmp_path / "out.json"), ROLE)
+        renderer.render(str(source), str(tmp_path / "out.json"), USER)
 
 
 def test_render_never_overwrites_existing_output(tmp_path):
@@ -71,7 +76,7 @@ def test_render_never_overwrites_existing_output(tmp_path):
     _source(source)
     output.write_text("operator-owned\n")
     with pytest.raises(renderer.RenderError, match="existing output"):
-        renderer.render(str(source), str(output), ROLE)
+        renderer.render(str(source), str(output), USER)
     assert output.read_text() == "operator-owned\n"
 
 

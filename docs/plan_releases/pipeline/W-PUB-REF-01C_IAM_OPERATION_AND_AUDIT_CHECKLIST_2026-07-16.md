@@ -43,14 +43,14 @@ RFQ 当前仍是 **DATA_INTEGRITY_BLOCKED / OFF**。当前 base IAM 包没有 RF
 
 ## 上线前必须做，顺序不可交换
 
-1. 从 IAM 获取专用 tagger 的 **pathless IAM role ARN**，例如 `arn:aws:iam::321572485933:role/role-name`。不要填带 IAM path 的 role，也不要填 STS `assumed-role/.../session` ARN。源 fragment 含 `TAGGER_ARN`，**绝不能原样应用**；原样应用会把所有真实 principal 锁死。只允许使用仓库渲染/校验工具生成且确认已无占位符的版本，再进入合并步骤。
+1. 创建专用 pathless IAM user `canonical-eligibility-tagger`，并核对实际 ARN 必须精确等于 `arn:aws:iam::321572485933:user/canonical-eligibility-tagger`；同时记录 `UserId`。不要用 role、带 IAM path 的 user 或 STS `assumed-role/.../session` ARN。源 fragment 含 `TAGGER_ARN`，**绝不能原样应用**；原样应用会把所有真实 principal 锁死。只允许使用仓库渲染/校验工具生成且确认已无占位符的版本，再进入合并步骤。
 2. 导出现有 bucket policy 原文并记录 SHA-256。确认它包含的复制、生命周期、日志、KMS 或其他生产规则不会被新 Deny 意外破坏。
 3. 只把 fragment 的 `Statement` 合并到现有 policy。**禁止把 fragment 单独执行 `PutBucketPolicy`，否则会覆盖现有 policy。** 合并后再次保存全文及 SHA-256，并检查 policy 大小限制。
-4. 把 tagger identity policy 只附加到新建的专用 tagger role。核对 trust policy、permissions boundary、session policy、SCP、access point policy 与 bucket policy；不得让 publisher、W09 或其他 automation assume 该角色。
+4. tagger identity policy 去空白后约 5,354 字符，超过 IAM user inline policy 的 2,048 字符总限额；必须先创建 customer-managed policy，再只附加到新建的专用 tagger user。核对该 managed policy 的全部 attachments、permissions boundary、SCP、access point policy 与 bucket policy；不得附加给 publisher、W09 或其他 automation。
 5. 把 publisher delta 合并/附加到 publisher role。检查所有 inline/managed policy，确认 publisher 没有任何 object-tag 写权限；bucket policy 的显式 Deny 是第二层保护。
 6. W09 policy 先在 canary role 上测试。原有 `research/*` broad read policy 若继续存在，会使“只读 manifest”边界失效；必须在 v3 canary 通过并明确切换时再移除/替换，不能静默叠加后声称已收紧。
 7. 如果对象使用 SSE-KMS，另行确认精确 KMS key 及最小 `kms:Decrypt`/写入所需权限。本包没有猜测或授予任何 KMS 权限。
-8. 用 IAM Access Analyzer `ValidatePolicy` 检查四份替换占位符后的完整策略；再用目标角色真实临时凭证做正反测试。JSON 可解析不等于 IAM/bucket policy 已安全上线。
+8. 用 IAM Access Analyzer `ValidatePolicy` 检查四份替换占位符后的完整策略；再用目标 user 的真实凭证做正反测试。JSON 可解析不等于 IAM/bucket policy 已安全上线。
 9. RFQ 保持 AWS HARD OFF：四份 base policy 不得添加 RFQ Allow，不得附加 future delta，不得使用 RFQ include/enable 参数，不得创建 RFQ eligibility evidence，不得把旧 repair 收据解释为授权。
 10. canary 与 rollback drill PASS 前，**不得**创建 `~/.kalshi/research_zero_copy_v3_cutover_approved`。此时 post-seal 仍发布 copied-v2 作为回滚路径，但命令行强制 `--no-rfq`。只有 operator 审阅 canary 证据并明确批准 cutover 后才创建该文件；创建后旧入口只记 `LEGACY_RESEARCH_COPY_DISABLED`，不再上传大对象。
 11. canary 后立即用 `tools/research_reference_patrol.py` 对已下载 v3 MANIFEST 执行 exact-version HEAD/tag patrol，并提供 24 小时内、digest 绑定的真实 policy evidence。alert 路径必须是主生产 live root 下的 `research_reference_patrol/YELLOW.json`；detached code worktree 不得另起一份。任何 YELLOW 都冻结新 v3 publish，后续 PASS 也不会自动清除，必须人工审阅。
@@ -63,7 +63,7 @@ RFQ 当前仍是 **DATA_INTEGRITY_BLOCKED / OFF**。当前 base IAM 包没有 RF
 - W09：带 receipt 指定 VersionId 且有 eligibility tag 的 warehouse/control 对象可读；无 tag、tag=false、错误 VersionId、非 allowlist 路径都拒绝。
 - W09：Put、Delete、Put/Delete Tagging、Restore 全部拒绝。
 - publisher delta：只为 canonical 新增精确 `GetObjectVersionTagging`，并只列 manifest version history；文件中不得出现 `ec2/raw`，任何 tag write 都不得授予。
-- tagger：`GetCallerIdentity` 必须与审计记录角色一致；普通 canonical 精确版本 tag preflight/readback 可用；任何 raw/RFQ tag read/write/delete 都被拒绝。
+- tagger：`GetCallerIdentity` 必须与审计记录的 IAM user ARN 一致；普通 canonical 精确版本 tag preflight/readback 可用；任何 raw/RFQ tag read/write/delete 都被拒绝。
 - tagger：不带 `versionId` 的 PutObjectTagging 拒绝；其他 principal 的 versioned tag write/delete 被 bucket policy 拒绝。
 - receipt：首次 `If-None-Match: *` conditional create 成功并返回非 null VersionId；同 key 再写不能产生第二版本；ListObjectVersions 只能看到一个版本且没有 delete marker；随后 exact HEAD/GET 字节验证通过。
 - raw prune authority：只列 receipt 已完整 SHA 验证的同日非 RFQ raw exact versions；RFQ 与跨日对象逐对象 deferred/retain。远端小 receipt conditional-create + exact readback 成功以前，不得写本地 `PRUNE_AUTHORITY.json`。
@@ -73,7 +73,7 @@ RFQ 当前仍是 **DATA_INTEGRITY_BLOCKED / OFF**。当前 base IAM 包没有 RF
 
 只有在上述测试全部通过后，才可生成 `canonical-eligibility-single-writer-audit-v1`。证据包至少应保存：
 
-- 完整现有/合并后 bucket policy、tagger/publisher/W09 的 inline 与 managed policy 版本、trust policy、permissions boundary、相关 SCP；
+- 完整现有/合并后 bucket policy、tagger/publisher/W09 的 inline 与 managed policy 版本、managed-policy attachments、permissions boundary、相关 SCP；tagger 是 IAM user，因此没有 role trust policy；
 - 三个实际 `sts:GetCallerIdentity` 输出；
 - 上述正反测试的命令、UTC 时间、request ID、VersionId 与结果；
 - policy evidence 文件的字节数和 SHA-256。

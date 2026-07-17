@@ -3,8 +3,8 @@
 
 This tool is local-only.  It never calls AWS and deliberately refuses to
 overwrite an existing output.  The source fragment remains an audit template;
-only a successfully rendered file with one validated, pathless IAM role ARN is
-eligible for an operator's later merge review.
+only a successfully rendered file with the one approved, pathless IAM user
+ARN is eligible for an operator's later merge review.
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import stat
 
 
@@ -22,8 +21,8 @@ DEFAULT_SOURCE = os.path.join(
     "W-PUB-REF-01C_BUCKET_POLICY_MERGE_FRAGMENT.json")
 PLACEHOLDER = "TAGGER_ARN"
 MAX_POLICY_BYTES = 20 * 1024
-ROLE_ARN_RE = re.compile(
-    r"^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]{1,64}$")
+APPROVED_TAGGER_ARN = (
+    "arn:aws:iam::321572485933:user/canonical-eligibility-tagger")
 
 
 class RenderError(ValueError):
@@ -57,25 +56,25 @@ def _read_json_nofollow(path):
     return value
 
 
-def _replace(value, role_arn, count):
+def _replace(value, principal_arn, count):
     if isinstance(value, dict):
-        return {key: _replace(item, role_arn, count)
+        return {key: _replace(item, principal_arn, count)
                 for key, item in value.items()}
     if isinstance(value, list):
-        return [_replace(item, role_arn, count) for item in value]
+        return [_replace(item, principal_arn, count) for item in value]
     if value == PLACEHOLDER:
         count[0] += 1
-        return role_arn
+        return principal_arn
     return value
 
 
-def render(source, output, role_arn):
-    if not ROLE_ARN_RE.fullmatch(role_arn or ""):
+def render(source, output, principal_arn):
+    if principal_arn != APPROVED_TAGGER_ARN:
         raise RenderError(
-            "tagger ARN must be a pathless IAM role ARN in this account form")
+            "tagger ARN must exactly match the approved pathless IAM user")
     policy = _read_json_nofollow(source)
     count = [0]
-    rendered = _replace(policy, role_arn, count)
+    rendered = _replace(policy, principal_arn, count)
     if count[0] != 1:
         raise RenderError(
             "source policy must contain TAGGER_ARN exactly once (found %d)" %
@@ -105,7 +104,7 @@ def render(source, output, role_arn):
     return {
         "state": "IAM_BUCKET_FRAGMENT_RENDERED_NOT_APPLIED",
         "output": os.path.abspath(output),
-        "tagger_role_arn": role_arn,
+        "tagger_principal_arn": principal_arn,
         "bytes": len(payload),
         "sha256": hashlib.sha256(payload).hexdigest(),
         "aws_writes": 0,
@@ -114,14 +113,14 @@ def render(source, output, role_arn):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tagger-role-arn", required=True)
+    parser.add_argument("--tagger-principal-arn", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--source", default=DEFAULT_SOURCE)
     args = parser.parse_args(argv)
     try:
         result = render(
             os.path.abspath(args.source), os.path.abspath(args.output),
-            args.tagger_role_arn)
+            args.tagger_principal_arn)
     except RenderError as exc:
         print("REFUSED %s" % exc, file=os.sys.stderr)
         return 2
