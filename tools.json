@@ -1751,6 +1751,17 @@
    "docs": "tools/l2_gap_check.py"
   },
   {
+   "name": "l2_gap_s3_readonly",
+   "kind": "tool",
+   "safety": "network_read",
+   "autorun": false,
+   "cmd": "python3 tools/l2_gap_s3_readonly.py",
+   "args_template": "--date YYYY-MM-DD --bucket NAME --prefix KEY_PREFIX --code-commit SHA --detector-sha256 SHA256 --adapter-sha256 SHA256",
+   "needs": [],
+   "description": "Read-only audit adapter: ListObjectsV2/GetObject streams one S3 L2 day through the detector and emits a hashed stdout receipt; writes no production files.",
+   "docs": "tools/l2_gap_s3_readonly.py"
+  },
+  {
    "name": "test_l2_gap_check",
    "kind": "test",
    "safety": "pure",

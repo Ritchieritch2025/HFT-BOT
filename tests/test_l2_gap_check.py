@@ -3,6 +3,8 @@
 import json
 import os
 import sys
+import datetime as dt
+import types
 
 import pytest
 
@@ -12,6 +14,7 @@ ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import l2_gap_check as lgc  # noqa: E402
+import l2_gap_s3_readonly as s3audit  # noqa: E402
 
 
 DATE = "2026-07-11"
@@ -43,7 +46,7 @@ def _line(channel="orderbook_delta", ticker="KXMLB-26JUL12-BOS", sid=None,
 
 def _marker(kind, lost=None):
     outer = {"recv_mono_ns": 1, "recv_wall_ns": WALL, "source": "Kalshi",
-             "channel": "", "source_ticker": "", "marker": kind}
+             "channel": "", "source_ticker": "", "marker": kind, "raw": ""}
     if lost is not None:
         outer["source_sequence"] = lost
     return json.dumps(outer, separators=(",", ":"))
@@ -80,7 +83,7 @@ def test_seq_gaps_markers_restarts_and_reanchors(raw_root):
     ])
 
     record = lgc.scan_date(DATE, raw_root)
-    assert record["schema_version"] == "l2-gap-receipt-v2"
+    assert record["schema_version"] == "l2-gap-receipt-v3"
     assert record["files"] == ["l2_13.ndjson", "l2_13.ndjson.1",
                                "l2_14.ndjson"]
     assert record["lines"] == 9 and record["corrupt_rows"] == 0
@@ -92,6 +95,8 @@ def test_seq_gaps_markers_restarts_and_reanchors(raw_root):
     assert record["sids_with_seq_gaps"] == 1
     assert record["recorder_markers"] == {"gap": 1, "loss": 1}
     assert record["markers_lost_frames"] == 5
+    assert record["recorder_markers_all"] == {"gap": 1, "loss": 1}
+    assert record["markers_lost_frames_by_base"] == {"l2_13": 5}
     assert record["snapshot_re_anchors_total"] == 2
     assert record["seq_continuity_complete"] is True
     assert record["seq_counts_are_lower_bound"] is False
@@ -138,6 +143,83 @@ def test_duplicate_envelope_key_is_rejected_before_last_key_wins(raw_root):
     assert record["seq_regressions"] == 0
 
 
+def test_duplicate_raw_sequence_key_is_rejected(raw_root):
+    day_dir = os.path.join(raw_root, "date=%s" % DATE)
+    raw = ('{"type":"orderbook_delta","sid":1,"seq":99,"seq":2,'
+           '"msg":{"market_ticker":"KXMLB-26JUL12-BOS"}}')
+    _write(day_dir, "l2_00.ndjson", [
+        _line(sid=1, seq=2, raw=raw),
+    ])
+    record = lgc.scan_date(DATE, raw_root)
+    assert record["corrupt_row_reasons"] == {"duplicate_raw_key": 1}
+    assert record["corrupt_sequence_rows"] == 1
+
+
+def test_marker_rows_receive_full_envelope_validation(raw_root):
+    day_dir = os.path.join(raw_root, "date=%s" % DATE)
+    duplicate = _marker("loss", 3).replace(
+        '"marker":"loss"', '"marker":"loss","marker":"loss"', 1)
+    bad_clock = json.loads(_marker("loss", 4))
+    bad_clock["recv_mono_ns"] = 1 << 63
+    bad_payload = json.loads(_marker("loss", 5))
+    bad_payload["raw"] = "not-empty"
+    _write(day_dir, "l2_00.ndjson", [
+        duplicate,
+        json.dumps(bad_clock, separators=(",", ":")),
+        json.dumps(bad_payload, separators=(",", ":")),
+    ])
+    record = lgc.scan_date(DATE, raw_root)
+    assert record["recorder_markers_all"] == {}
+    assert record["markers_lost_frames_all"] == 0
+    assert record["corrupt_row_reasons"] == {
+        "duplicate_envelope_key": 1,
+        "invalid_recv_mono_ns": 1,
+        "invalid_marker_envelope": 1,
+    }
+
+
+def test_integer_bounds_match_raw_record_schema(raw_root):
+    day_dir = os.path.join(raw_root, "date=%s" % DATE)
+    max_sid = (1 << 64) - 1
+    accepted = json.loads(_line(sid=max_sid, seq=1, epoch=(1 << 32) - 1))
+    accepted["recv_mono_ns"] = (1 << 63) - 1
+    bad_epoch = json.loads(_line(sid=1, seq=1, epoch=1 << 32))
+    bad_clock = json.loads(_line(sid=1, seq=1))
+    bad_clock["recv_wall_ns"] = 1 << 63
+    _write(day_dir, "l2_00.ndjson", [
+        json.dumps(accepted, separators=(",", ":")),
+        json.dumps(bad_epoch, separators=(",", ":")),
+        json.dumps(bad_clock, separators=(",", ":")),
+    ])
+    record = lgc.scan_date(DATE, raw_root)
+    assert record["sids_total"] == 1
+    assert record["corrupt_row_reasons"] == {
+        "invalid_stream_epoch": 1,
+        "invalid_recv_wall_ns": 1,
+    }
+
+
+def test_orderbook_requires_sequence_and_ticker_identity(raw_root):
+    day_dir = os.path.join(raw_root, "date=%s" % DATE)
+    raw_without_ticker = json.dumps({
+        "type": "orderbook_delta", "sid": 1, "seq": 1, "msg": {},
+    }, separators=(",", ":"))
+    raw_without_sequence = json.dumps({
+        "type": "orderbook_snapshot",
+        "msg": {"market_ticker": "KXMLB-26JUL12-BOS"},
+    }, separators=(",", ":"))
+    _write(day_dir, "l2_00.ndjson", [
+        _line(ticker="", sid=1, seq=1, raw=raw_without_ticker),
+        _line("orderbook_snapshot", sid=None, seq=None,
+              raw=raw_without_sequence),
+    ])
+    record = lgc.scan_date(DATE, raw_root)
+    assert record["corrupt_row_reasons"] == {
+        "missing_orderbook_ticker": 1,
+        "missing_orderbook_sequence": 1,
+    }
+
+
 def test_malformed_row_breaks_continuity_instead_of_inventing_gap(raw_root):
     day_dir = os.path.join(raw_root, "date=%s" % DATE)
     _write(day_dir, "l2_10.ndjson", [
@@ -165,6 +247,21 @@ def test_corrupt_file_base_is_quarantined_from_reported_gap_totals(raw_root):
     assert record["seq_missed_total"] == 2
     assert record["seq_gap_events_discarded_untrusted"] == 1
     assert record["seq_missed_total_discarded_untrusted"] == 7
+
+
+def test_markers_are_split_between_trusted_and_quarantined_bases(raw_root):
+    day_dir = os.path.join(raw_root, "date=%s" % DATE)
+    _write(day_dir, "l2_00.ndjson", [_marker("loss", 5), "not json"])
+    _write(day_dir, "l2_01.ndjson", [_marker("loss", 7), _marker("gap")])
+    record = lgc.scan_date(DATE, raw_root)
+    assert record["recorder_markers"] == {"loss": 1, "gap": 1}
+    assert record["markers_lost_frames"] == 7
+    assert record["recorder_markers_all"] == {"loss": 2, "gap": 1}
+    assert record["markers_lost_frames_all"] == 12
+    assert record["recorder_markers_discarded_untrusted"] == {"loss": 1}
+    assert record["markers_lost_frames_discarded_untrusted"] == 5
+    assert record["markers_lost_frames_by_base"] == {"l2_00": 5,
+                                                      "l2_01": 7}
 
 
 def test_legitimate_gap_and_regression_still_count(raw_root):
@@ -238,6 +335,60 @@ def test_main_is_atomic_and_surfaces_lower_bound(raw_root, tmp_path):
 def test_bad_date_is_usage_error(raw_root):
     with pytest.raises(SystemExit):
         lgc.main(["--date", "not-a-date", "--raw-root", raw_root])
+
+
+def test_s3_adapter_streams_objects_and_hashes_manifest():
+    class Body:
+        def __init__(self, text):
+            self.text = text
+            self.closed = False
+
+        def iter_lines(self, **_kwargs):
+            yield from self.text.encode().splitlines()
+
+        def close(self):
+            self.closed = True
+
+    class Paginator:
+        def paginate(self, **_kwargs):
+            return [{"Contents": [
+                {"Key": "raw/date=%s/l2_01.ndjson.2" % DATE,
+                 "Size": 11, "ETag": '"etag-2"'},
+                {"Key": "raw/date=%s/l2_01.ndjson" % DATE,
+                 "Size": 10, "ETag": '"etag-1"'},
+                {"Key": "raw/date=%s/rfq_01.ndjson" % DATE,
+                 "Size": 9, "ETag": '"ignored"'},
+            ]}]
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def get_paginator(self, name):
+            assert name == "list_objects_v2"
+            return Paginator()
+
+        def get_object(self, **kwargs):
+            seq = 1 if kwargs["Key"].endswith("l2_01.ndjson") else 2
+            body = Body(_line(sid=1, seq=seq) + "\n")
+            self.bodies.append(body)
+            return {"Body": body}
+
+    client = Client()
+    prefix = "raw/date=%s/" % DATE
+    record, inventory = s3audit.scan_s3(client, DATE, "bucket", prefix)
+    assert record["files"] == ["l2_01.ndjson", "l2_01.ndjson.2"]
+    assert record["seq_gap_events"] == 0
+    assert all(body.closed for body in client.bodies)
+    assert len(s3audit.manifest_sha256(inventory)) == 64
+
+    now = dt.datetime(2026, 7, 17, tzinfo=dt.timezone.utc)
+    args = types.SimpleNamespace(code_commit="abc", detector_sha256="d" * 64,
+                                 adapter_sha256="a" * 64)
+    summary = s3audit.build_summary(record, inventory, args, now, now)
+    assert summary["audit_schema"] == "l2-gap-s3-readonly-v1"
+    assert summary["per_market_count"] == 1
+    assert len(summary["receipt_payload_sha256"]) == 64
 
 
 if __name__ == "__main__":

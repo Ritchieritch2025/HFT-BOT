@@ -29,14 +29,29 @@ QUALITY_LOG_DEFAULT = os.path.join("work", "quality_log.ndjson")
 _SHARD_RE = re.compile(r"^(?P<base>l2_\d{2})\.ndjson(?:\.(?P<shard>\d+))?$")
 _UINT32_MAX = (1 << 32) - 1
 _UINT64_MAX = (1 << 64) - 1
-_CRITICAL_ENVELOPE_KEYS = (
-    b'"channel":',
-    b'"source_ticker":',
-    b'"source_sequence":',
-    b'"sid":',
-    b'"stream_epoch":',
-    b'"marker":',
-)
+_INT64_MAX = (1 << 63) - 1
+_OUTER_REQUIRED = {"recv_mono_ns", "recv_wall_ns", "source", "channel",
+                   "source_ticker"}
+_OUTER_ALLOWED = _OUTER_REQUIRED | {
+    "source_event_time_ms", "source_sequence", "sid", "stream_epoch",
+    "marker", "raw", "raw_b64",
+}
+_ORDERBOOK_CHANNELS = {"orderbook_snapshot", "orderbook_delta"}
+
+
+class _DuplicateKey(ValueError):
+    def __init__(self, key):
+        super().__init__("duplicate JSON object key: %s" % key)
+        self.key = key
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateKey(key)
+        result[key] = value
+    return result
 
 
 def _l2_files_for_date(date_str, raw_root):
@@ -65,50 +80,79 @@ def _decode_row(line):
     """Decode and cross-check one raw-log row.
 
     Full JSON validation is intentional.  Merely bounding the envelope integer
-    is insufficient: a decimal splice can remain below uint64.  Critical key
-    uniqueness is checked separately because json.loads otherwise accepts a
-    duplicate key and silently keeps its final value.
+    is insufficient: a decimal splice can remain below uint64.  Duplicate keys
+    are rejected because json.loads otherwise silently keeps the final value.
     """
     try:
-        outer = json.loads(line)
+        outer = json.loads(line, object_pairs_hook=_unique_object)
+    except _DuplicateKey as exc:
+        affects_sequence = exc.key in {
+            "source_sequence", "sid", "stream_epoch", "marker",
+        }
+        return _corruption("duplicate_envelope_key", affects_sequence)
     except (UnicodeDecodeError, json.JSONDecodeError):
         return _corruption("outer_json")
     if not isinstance(outer, dict):
         return _corruption("outer_not_object")
 
-    marker = outer.get("marker")
-    if marker is not None:
-        if not isinstance(marker, str) or not marker:
-            return _corruption("invalid_marker")
-        lost = outer.get("source_sequence")
-        if lost is not None and not _is_uint(lost, _UINT64_MAX):
-            return _corruption("invalid_marker_sequence", True)
-        return {"kind": "marker", "marker": marker, "lost": lost}
-
-    # RawLogWriter emits every envelope field before the single `,"raw"`
-    # member.  Payload quotes are escaped, so they cannot satisfy these byte
-    # patterns.  Reject duplicates before json.loads' last-key-wins semantics
-    # can hide them.
-    separator = b',"raw"'
-    if line.count(separator) != 1:
+    if not _OUTER_REQUIRED.issubset(outer):
+        return _corruption("incomplete_envelope")
+    if set(outer) - _OUTER_ALLOWED:
+        return _corruption("unknown_envelope_key")
+    if ("raw" in outer) == ("raw_b64" in outer):
         return _corruption("raw_member_count")
-    envelope = line.split(separator, 1)[0]
-    if any(envelope.count(key) > 1 for key in _CRITICAL_ENVELOPE_KEYS):
-        return _corruption("duplicate_envelope_key", True)
+    if "raw_b64" in outer:
+        # L2 continuity requires inspecting the Kalshi JSON payload; a binary
+        # frame cannot provide the independent sid/seq identity copy.
+        return _corruption("raw_b64_unsupported", True)
 
     channel = outer.get("channel")
     ticker = outer.get("source_ticker")
-    if not isinstance(channel, str) or not isinstance(ticker, str):
+    if (outer.get("source") != "Kalshi" or not isinstance(channel, str)
+            or not isinstance(ticker, str)):
         return _corruption("invalid_envelope")
     for clock_key in ("recv_mono_ns", "recv_wall_ns"):
-        if not _is_uint(outer.get(clock_key), _UINT64_MAX):
+        if not _is_uint(outer.get(clock_key), _INT64_MAX):
             return _corruption("invalid_%s" % clock_key)
+    event_ms = outer.get("source_event_time_ms")
+    if event_ms is not None and (not isinstance(event_ms, int)
+                                 or isinstance(event_ms, bool)
+                                 or not -_INT64_MAX - 1 <= event_ms <= _INT64_MAX):
+        return _corruption("invalid_source_event_time_ms")
+
+    sid = outer.get("sid")
+    seq = outer.get("source_sequence")
+    epoch = outer.get("stream_epoch", 0)
+    if sid is not None and not _is_uint(sid, _UINT64_MAX):
+        return _corruption("invalid_sequence_value", True)
+    if seq is not None and not _is_uint(seq, _UINT64_MAX):
+        return _corruption("invalid_sequence_value", True)
+    if not _is_uint(epoch, _UINT32_MAX):
+        return _corruption("invalid_stream_epoch", True)
 
     raw = outer.get("raw")
     if not isinstance(raw, str):
         return _corruption("raw_not_string")
+
+    marker = outer.get("marker")
+    if marker is not None:
+        if not isinstance(marker, str) or not marker:
+            return _corruption("invalid_marker")
+        if raw != "" or channel != "" or ticker != "":
+            return _corruption("invalid_marker_envelope")
+        if marker == "loss":
+            if seq is None or seq == 0 or sid is not None:
+                return _corruption("invalid_loss_marker", True)
+            return {"kind": "marker", "marker": marker, "lost": seq}
+        if seq is not None:
+            return _corruption("invalid_marker_sequence", True)
+        return {"kind": "marker", "marker": marker, "lost": None}
+
     try:
-        payload = json.loads(raw)
+        payload = json.loads(raw, object_pairs_hook=_unique_object)
+    except _DuplicateKey as exc:
+        return _corruption("duplicate_raw_key",
+                           exc.key in {"sid", "seq", "type"})
     except json.JSONDecodeError:
         return _corruption("raw_json")
     if not isinstance(payload, dict):
@@ -118,24 +162,24 @@ def _decode_row(line):
     if raw_type != channel:
         return _corruption("channel_mismatch")
 
-    sid = outer.get("sid")
-    seq = outer.get("source_sequence")
-    epoch = outer.get("stream_epoch", 0)
     raw_sid = payload.get("sid")
     raw_seq = payload.get("seq")
-    values = ((sid, _UINT32_MAX), (raw_sid, _UINT32_MAX),
-              (seq, _UINT64_MAX), (raw_seq, _UINT64_MAX))
+    values = ((raw_sid, _UINT64_MAX), (raw_seq, _UINT64_MAX))
     if any(value is not None and not _is_uint(value, maximum)
            for value, maximum in values):
         return _corruption("invalid_sequence_value", True)
-    if not _is_uint(epoch, _UINT64_MAX):
-        return _corruption("invalid_stream_epoch", True)
     if (sid is None) != (seq is None) or (raw_sid is None) != (raw_seq is None):
         return _corruption("incomplete_sequence_identity", True)
     if sid != raw_sid or seq != raw_seq:
         return _corruption("sequence_identity_mismatch", True)
 
     raw_message = payload.get("msg")
+    if channel in _ORDERBOOK_CHANNELS:
+        if sid is None:
+            return _corruption("missing_orderbook_sequence", True)
+        if (not ticker or not isinstance(raw_message, dict)
+                or "market_ticker" not in raw_message):
+            return _corruption("missing_orderbook_ticker")
     if isinstance(raw_message, dict) and "market_ticker" in raw_message:
         raw_ticker = raw_message["market_ticker"]
         if not isinstance(raw_ticker, str) or raw_ticker != ticker:
@@ -145,18 +189,17 @@ def _decode_row(line):
             "sid": sid, "seq": seq, "epoch": epoch}
 
 
-def _empty_record(date_str, raw_root, files):
+def _empty_record(date_str, raw_root, inventory):
     return {
-        "schema_version": "l2-gap-receipt-v2",
+        "schema_version": "l2-gap-receipt-v3",
         "date": date_str,
         "raw_root": raw_root,
-        "files": [os.path.basename(path) for _base, path in files],
+        "files": [item["name"] for item in inventory],
         "file_inventory": [
-            {"file": "date=%s/%s" % (date_str, os.path.basename(path)),
-             "bytes": os.stat(path).st_size}
-            for _base, path in files
+            {"file": item["file"], "bytes": item["bytes"]}
+            for item in inventory
         ],
-        "no_l2_files": not files,
+        "no_l2_files": not inventory,
         "lines": 0,
         "parse_errors": 0,
         "corrupt_rows": 0,
@@ -179,6 +222,12 @@ def _empty_record(date_str, raw_root, files):
         "stream_restarts_discarded_untrusted": 0,
         "recorder_markers": {},
         "markers_lost_frames": 0,
+        "recorder_markers_all": {},
+        "markers_lost_frames_all": 0,
+        "recorder_markers_discarded_untrusted": {},
+        "markers_lost_frames_discarded_untrusted": 0,
+        "recorder_markers_by_base": {},
+        "markers_lost_frames_by_base": {},
         "snapshot_re_anchors_total": 0,
         "per_market": {},
     }
@@ -195,88 +244,97 @@ def _reset_base_state(base, last_seq, anchored):
     return bool(seq_keys or anchor_keys)
 
 
-def scan_date(date_str, raw_root):
-    """Pure read-only scan returning a receipt dictionary."""
-    files = _l2_files_for_date(date_str, raw_root)
-    record = _empty_record(date_str, raw_root, files)
+def scan_inventory(date_str, raw_root, inventory, iter_lines):
+    """Scan a caller-supplied inventory without writing any receipt.
+
+    Each inventory item has ``base``, ``name``, ``file``, ``bytes`` and an
+    opaque ``ref``.  ``iter_lines(item)`` yields the object's binary lines.
+    This seam lets read-only audits stream S3 objects without staging copies on
+    a production host, while the normal CLI continues to scan local files.
+    """
+    record = _empty_record(date_str, raw_root, inventory)
     last_seq = {}
     seen_streams = set()
     anchored = set()
     per_market = record["per_market"]
     base_stats = {}
+    base_marker_stats = {}
     untrusted_bases = set()
 
-    for base, path in files:
-        with open(path, "rb") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                record["lines"] += 1
-                row = _decode_row(line)
-                if row["kind"] == "corrupt":
-                    untrusted_bases.add(base)
-                    record["parse_errors"] += 1
-                    record["corrupt_rows"] += 1
-                    if row["sequence_related"]:
-                        record["corrupt_sequence_rows"] += 1
-                    reasons = record["corrupt_row_reasons"]
-                    reason = row["reason"]
-                    reasons[reason] = reasons.get(reason, 0) + 1
-                    if _reset_base_state(base, last_seq, anchored):
-                        record["continuity_resets_due_to_corruption"] += 1
-                    continue
+    for item in inventory:
+        base = item["base"]
+        for line in iter_lines(item):
+            if not line.strip():
+                continue
+            record["lines"] += 1
+            row = _decode_row(line)
+            if row["kind"] == "corrupt":
+                untrusted_bases.add(base)
+                record["parse_errors"] += 1
+                record["corrupt_rows"] += 1
+                if row["sequence_related"]:
+                    record["corrupt_sequence_rows"] += 1
+                reasons = record["corrupt_row_reasons"]
+                reason = row["reason"]
+                reasons[reason] = reasons.get(reason, 0) + 1
+                if _reset_base_state(base, last_seq, anchored):
+                    record["continuity_resets_due_to_corruption"] += 1
+                continue
 
-                if row["kind"] == "marker":
-                    markers = record["recorder_markers"]
-                    marker = row["marker"]
-                    markers[marker] = markers.get(marker, 0) + 1
-                    if marker == "loss" and row["lost"] is not None:
-                        record["markers_lost_frames"] += row["lost"]
-                    continue
+            if row["kind"] == "marker":
+                marker_stats = base_marker_stats.setdefault(
+                    base, {"markers": {}, "lost": 0})
+                markers = marker_stats["markers"]
+                marker = row["marker"]
+                markers[marker] = markers.get(marker, 0) + 1
+                if marker == "loss" and row["lost"] is not None:
+                    marker_stats["lost"] += row["lost"]
+                continue
 
-                ticker = row["ticker"]
-                if ticker:
-                    market = per_market.setdefault(
-                        ticker, {"msgs": 0, "snapshots": 0, "re_anchors": 0})
-                    market["msgs"] += 1
-                    if row["channel"] == "orderbook_snapshot":
-                        market["snapshots"] += 1
-                        anchor_key = (base, row["epoch"], row["sid"], ticker)
-                        if anchor_key in anchored:
-                            market["re_anchors"] += 1
-                            record["snapshot_re_anchors_total"] += 1
-                        else:
-                            anchored.add(anchor_key)
+            ticker = row["ticker"]
+            if ticker:
+                market = per_market.setdefault(
+                    ticker, {"msgs": 0, "snapshots": 0, "re_anchors": 0})
+                market["msgs"] += 1
+                if row["channel"] == "orderbook_snapshot":
+                    market["snapshots"] += 1
+                    anchor_key = (base, row["epoch"], row["sid"], ticker)
+                    if anchor_key in anchored:
+                        market["re_anchors"] += 1
+                        record["snapshot_re_anchors_total"] += 1
+                    else:
+                        anchored.add(anchor_key)
 
-                sid = row["sid"]
-                seq = row["seq"]
-                if sid is None:
-                    continue
-                key = (base, row["epoch"], sid)
-                seen_streams.add(key)
-                stats = base_stats.setdefault(base, {
-                    "gap_events": 0, "missed": 0, "regressions": 0,
-                    "restarts": 0, "gap_sids": set(),
-                })
-                previous = last_seq.get(key)
-                if previous is None:
-                    last_seq[key] = seq
-                elif seq == previous + 1:
-                    last_seq[key] = seq
-                elif seq > previous + 1:
-                    stats["gap_events"] += 1
-                    stats["missed"] += seq - previous - 1
-                    stats["gap_sids"].add(key)
-                    last_seq[key] = seq
-                elif seq == 1:
-                    stats["restarts"] += 1
-                    last_seq[key] = seq
-                else:
-                    stats["regressions"] += 1
-                    last_seq[key] = seq
+            sid = row["sid"]
+            seq = row["seq"]
+            if sid is None:
+                continue
+            key = (base, row["epoch"], sid)
+            seen_streams.add(key)
+            stats = base_stats.setdefault(base, {
+                "gap_events": 0, "missed": 0, "regressions": 0,
+                "restarts": 0, "gap_sids": set(),
+            })
+            previous = last_seq.get(key)
+            if previous is None:
+                last_seq[key] = seq
+            elif seq == previous + 1:
+                last_seq[key] = seq
+            elif seq > previous + 1:
+                stats["gap_events"] += 1
+                stats["missed"] += seq - previous - 1
+                stats["gap_sids"].add(key)
+                last_seq[key] = seq
+            elif seq == 1:
+                stats["restarts"] += 1
+                last_seq[key] = seq
+            else:
+                stats["regressions"] += 1
+                last_seq[key] = seq
 
     record["sids_total"] = len(seen_streams)
-    trusted_bases = set(base_stats) - untrusted_bases
+    all_bases = {item["base"] for item in inventory}
+    trusted_bases = all_bases - untrusted_bases
     trusted_gap_sids = set()
     for base, stats in base_stats.items():
         if base in untrusted_bases:
@@ -290,6 +348,23 @@ def scan_date(date_str, raw_root):
         record["seq_regressions"] += stats["regressions"]
         record["stream_restarts"] += stats["restarts"]
         trusted_gap_sids.update(stats["gap_sids"])
+    for base, stats in sorted(base_marker_stats.items()):
+        record["recorder_markers_by_base"][base] = dict(stats["markers"])
+        record["markers_lost_frames_by_base"][base] = stats["lost"]
+        for marker, count in stats["markers"].items():
+            all_markers = record["recorder_markers_all"]
+            all_markers[marker] = all_markers.get(marker, 0) + count
+        record["markers_lost_frames_all"] += stats["lost"]
+        if base in untrusted_bases:
+            discarded = record["recorder_markers_discarded_untrusted"]
+            for marker, count in stats["markers"].items():
+                discarded[marker] = discarded.get(marker, 0) + count
+            record["markers_lost_frames_discarded_untrusted"] += stats["lost"]
+        else:
+            trusted = record["recorder_markers"]
+            for marker, count in stats["markers"].items():
+                trusted[marker] = trusted.get(marker, 0) + count
+            record["markers_lost_frames"] += stats["lost"]
     record["trusted_file_bases"] = sorted(trusted_bases)
     record["untrusted_file_bases"] = sorted(untrusted_bases)
     record["sids_with_seq_gaps"] = len(trusted_gap_sids)
@@ -297,6 +372,24 @@ def scan_date(date_str, raw_root):
         record["seq_continuity_complete"] = False
         record["seq_counts_are_lower_bound"] = True
     return record
+
+
+def scan_date(date_str, raw_root):
+    """Pure read-only local-file scan returning a receipt dictionary."""
+    files = _l2_files_for_date(date_str, raw_root)
+    inventory = [{
+        "base": base,
+        "name": os.path.basename(path),
+        "file": "date=%s/%s" % (date_str, os.path.basename(path)),
+        "bytes": os.stat(path).st_size,
+        "ref": path,
+    } for base, path in files]
+
+    def local_lines(item):
+        with open(item["ref"], "rb") as handle:
+            yield from handle
+
+    return scan_inventory(date_str, raw_root, inventory, local_lines)
 
 
 def write_record(record, out_path):
