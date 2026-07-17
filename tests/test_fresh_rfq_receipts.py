@@ -165,6 +165,205 @@ def inventory(receipt, prefix="ec2/raw"):
     } for row in receipt["capture_shards"]]
 
 
+def source_args(auth, receipt, rows=None, *, role=None,
+                container_suffix=""):
+    """Build the exact single-line proof emitted by source-evidence parsing."""
+    validated = fresh.validate_v3_segment_receipt(receipt, auth)
+    rows = inventory(validated) if rows is None else copy.deepcopy(rows)
+    hour = validated["segment_hour"]
+    start = dt.datetime.strptime(hour, "%Y-%m-%dT%H").replace(
+        tzinfo=dt.timezone.utc)
+    close = start + dt.timedelta(hours=1)
+    close_date = close.strftime("%Y-%m-%d")
+    close_hour = close.strftime("%H")
+    if role is None:
+        role = "ANALYSIS" if hour[:10] == auth["strict_t0_utc"][:10] \
+            else "WATERMARK"
+    inner = fresh.canonical_bytes(validated).decode("utf-8")
+    outer = {
+        "recv_mono_ns": 123456789,
+        "recv_wall_ns": int(close.timestamp()) * 1_000_000_000 + 123,
+        "source": "Kalshi", "channel": "rfq_segment_receipt",
+        "source_ticker": "", "marker": "segment_receipt", "raw": inner,
+    }
+    physical = fresh.canonical_bytes(outer) + b"\n"
+    container_key = (
+        f"ec2/raw/date={close_date}/rfq_receipts_{close_hour}.ndjson" +
+        container_suffix)
+    physical_identities = [{
+        "bucket": auth["source_bucket"], "key": row["key"],
+        "version_id": row["version_id"], "size": row["size"],
+        "sha256": row["sha256"],
+    } for row in rows]
+    proof = {
+        "segment_hour": hour, "role": role, "status": "PASS",
+        "findings": [], "fresh_lane_state": "BOUND_AUTHORITY",
+        "authority_sha256": auth["authority_sha256"],
+        "generation": auth["generation"],
+        "container_bucket": auth["source_bucket"],
+        "container_key": container_key,
+        "container_version_id": "receipt-container-version-1",
+        "container_size": len(physical),
+        "container_sha256": hashlib.sha256(physical).hexdigest(),
+        "container_seal_member": role == "ANALYSIS" or start.hour == 0,
+        "line_number": 1, "byte_offset": 0, "byte_length": len(physical),
+        "outer_row_sha256": hashlib.sha256(physical).hexdigest(),
+        "raw_segment_canonical_sha256": fresh.canonical_sha256(validated),
+        "capture_exact_object_set_sha256": fresh.canonical_sha256(
+            physical_identities),
+    }
+    analysis_date = hour[:10] if role == "ANALYSIS" else \
+        (start.date() - dt.timedelta(days=1)).isoformat()
+    return {
+        "source_proof": proof,
+        # Full evidence-body membership is independently checked at overlay.
+        "source_evidence_sha256": sha(f"source-evidence-{analysis_date}"),
+    }
+
+
+def evidence_for(auth, target_receipt, target_rows=None, *, segments=None):
+    """Build one complete body-free 24+2 source-evidence fixture."""
+    start = dt.datetime.strptime(
+        auth["strict_t0_utc"][:10], "%Y-%m-%d").replace(
+            tzinfo=dt.timezone.utc)
+    hours = [(start + dt.timedelta(hours=index)).strftime("%Y-%m-%dT%H")
+             for index in range(26)]
+    supplied = {row["segment_hour"]: row for row in (segments or [])}
+    supplied[target_receipt["segment_hour"]] = target_receipt
+    analysis_captures = []
+    watermark_captures = []
+    sealed_captures = []
+    containers = []
+    sealed_containers = []
+    analysis_proofs = []
+    watermark_proofs = []
+    for index, hour in enumerate(hours):
+        seg = supplied.get(hour)
+        if seg is None:
+            seg = segment(auth, hour, subscription_acks=1, subscription_end=True)
+        rows = (copy.deepcopy(target_rows) if hour == target_receipt["segment_hour"]
+                and target_rows is not None else inventory(seg))
+        role = "ANALYSIS" if index < 24 else "WATERMARK"
+        proof = source_args(auth, seg, rows, role=role)["source_proof"]
+        proof_target = analysis_proofs if role == "ANALYSIS" else watermark_proofs
+        proof_target.append(proof)
+        capture_target = analysis_captures if role == "ANALYSIS" else \
+            watermark_captures
+        scope = "D_ANALYSIS_MEMBER" if role == "ANALYSIS" else \
+            "D_FULL_V2_CROSS_DAY_MEMBER"
+        for ordinal, row in enumerate(rows):
+            relpath = row["key"][len("ec2/raw/"):]
+            capture_target.append({
+                "bucket": auth["source_bucket"], "key": row["key"],
+                "version_id": row["version_id"], "size": row["size"],
+                "sha256": row["sha256"], "relpath": relpath,
+                "source_hour": hour, "ordinal": ordinal, "role": role,
+                "seal_member": True, "seal_membership_scope": scope,
+            })
+            sealed_captures.append({
+                "file": relpath, "size": row["size"],
+                "sha256": row["sha256"], "checkpoint": row["size"],
+                "source_hour": hour, "ordinal": ordinal, "role": role,
+                "seal_membership_scope": scope,
+            })
+        container_key = proof["container_key"]
+        container_rel = container_key[len("ec2/raw/"):]
+        close_hour = (start + dt.timedelta(hours=index + 1)).strftime(
+            "%Y-%m-%dT%H")
+        container = {
+            "bucket": proof["container_bucket"], "key": container_key,
+            "version_id": proof["container_version_id"],
+            "size": proof["container_size"], "sha256": proof["container_sha256"],
+            "relpath": container_rel, "source_hour": close_hour,
+            "ordinal": 0, "seal_member": proof["container_seal_member"],
+        }
+        containers.append(container)
+        if container["seal_member"]:
+            sealed_containers.append({
+                "file": container_rel, "size": container["size"],
+                "sha256": container["sha256"],
+                "checkpoint": container["size"], "source_hour": close_hour,
+                "ordinal": 0,
+            })
+    date_text = start.strftime("%Y-%m-%d")
+    seal = {
+        "bucket": auth["source_bucket"],
+        "key": f"ec2/warehouse/seals/date={date_text}.json",
+        "version_id": "full-v2-seal-version-1", "size": 4096,
+        "sha256": sha(f"full-v2-seal-{date_text}"), "date": date_text,
+        "version": 2, "method": "full_v2", "status": "SEALED",
+        "code_commit": "b" * 40,
+        "manifest_date_sha256": sha(f"manifest-{date_text}"),
+    }
+    evidence = {
+        "schema": fresh.SOURCE_EVIDENCE_SCHEMA,
+        "state": "ALL_INPUT_EXACT_VERSION_BYTES_VERIFIED",
+        "source_bucket": auth["source_bucket"], "analysis_date": date_text,
+        "expected_hours": hours, "authority_sha256": auth["authority_sha256"],
+        "generation": auth["generation"], "seal": seal,
+        "seal_binding_sha256": fresh.canonical_sha256(seal),
+        "seal_rfq_capture_members": sealed_captures,
+        "seal_rfq_capture_member_set_sha256": fresh.canonical_sha256(
+            sealed_captures),
+        "seal_rfq_receipt_container_members": sealed_containers,
+        "seal_rfq_receipt_container_member_set_sha256": fresh.canonical_sha256(
+            sealed_containers),
+        "analysis_capture_objects": analysis_captures,
+        "analysis_capture_object_set_sha256": fresh.canonical_sha256(
+            analysis_captures),
+        "watermark_capture_objects": watermark_captures,
+        "watermark_capture_object_set_sha256": fresh.canonical_sha256(
+            watermark_captures),
+        "receipt_containers": containers,
+        "receipt_container_object_set_sha256": fresh.canonical_sha256(containers),
+        "container_completeness_state":
+            "CALLER_COMPLETE_IDENTITY_SET_EXACT_BYTES_VERIFIED",
+        "analysis_receipt_proofs": analysis_proofs,
+        "analysis_receipt_proof_set_sha256": fresh.canonical_sha256(
+            analysis_proofs),
+        "watermark_receipt_proofs": watermark_proofs,
+        "watermark_receipt_proof_set_sha256": fresh.canonical_sha256(
+            watermark_proofs),
+        "all_input_bodies_omitted_from_output": True,
+    }
+    evidence["evidence_sha256"] = fresh.canonical_sha256(evidence)
+    return evidence
+
+
+def reseal_evidence(evidence):
+    """Recompute every derived digest after an intentional fixture mutation."""
+    for rows_field, digest_field in (
+            ("seal_rfq_capture_members",
+             "seal_rfq_capture_member_set_sha256"),
+            ("seal_rfq_receipt_container_members",
+             "seal_rfq_receipt_container_member_set_sha256"),
+            ("analysis_capture_objects",
+             "analysis_capture_object_set_sha256"),
+            ("watermark_capture_objects",
+             "watermark_capture_object_set_sha256"),
+            ("receipt_containers", "receipt_container_object_set_sha256"),
+            ("analysis_receipt_proofs",
+             "analysis_receipt_proof_set_sha256"),
+            ("watermark_receipt_proofs",
+             "watermark_receipt_proof_set_sha256")):
+        evidence[digest_field] = fresh.canonical_sha256(evidence[rows_field])
+    evidence["seal_binding_sha256"] = fresh.canonical_sha256(evidence["seal"])
+    evidence["evidence_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in evidence.items()
+        if key != "evidence_sha256"})
+    return evidence
+
+
+def receipts_for_segments(auth, segments):
+    evidence = evidence_for(auth, segments[0], segments=segments)
+    receipts = [fresh.build_hour_receipt(
+        authority=auth, segment_receipt=seg,
+        exact_inventory=inventory(seg), raw_key_prefix="ec2/raw",
+        resolver=lambda row: row, source_evidence=evidence)
+        for seg in segments]
+    return receipts, evidence
+
+
 def test_historical_fingerprint_algorithm_and_fixed_semantics():
     rows = [
         {"key": "raw_rfq/z", "size": 2, "sha256": "b" * 64},
@@ -408,6 +607,7 @@ def test_segment_rejects_non_exact_ack_schema_or_metrics(
     ("subscription_invalidations", "RAW_COVERAGE"),
     ("shard_ordinal", "SHARD_GAP"),
     ("bytes_before", "PREEXISTING_BYTES"),
+    ("parsed_bytes_at_close", "TORN_SHARD"),
     ("capture_bytes_before", "SHARD_SET_DIGEST"),
     ("capture_shard_count", "SHARD_SET_DIGEST"),
 ])
@@ -429,6 +629,8 @@ def test_segment_exact_integer_fields_reject_json_booleans(
         receipt["capture_shards"][0]["ordinal"] = False
     elif mutation == "bytes_before":
         receipt["capture_shards"][0]["bytes_before"] = False
+    elif mutation == "parsed_bytes_at_close":
+        receipt["capture_shards"][0]["parsed_bytes_at_close"] = True
     elif mutation == "capture_bytes_before":
         receipt["capture_bytes_before"] = False
     else:
@@ -513,7 +715,7 @@ def test_pre_t0_fails_before_resolver_callback(monkeypatch):
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
             exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
-            resolver=resolver,
+            resolver=resolver, source_evidence={},
         )
     assert error.value.code == "BEFORE_STRICT_T0"
     assert calls == []
@@ -523,6 +725,7 @@ def test_hour_receipt_binds_exact_versions_and_is_order_stable(monkeypatch):
     auth = authority(monkeypatch)
     receipt = segment(auth, shard_count=3)
     rows = inventory(receipt)
+    evidence = evidence_for(auth, receipt, rows)
     calls = []
 
     def resolver(row):
@@ -531,52 +734,187 @@ def test_hour_receipt_binds_exact_versions_and_is_order_stable(monkeypatch):
 
     one = fresh.build_hour_receipt(
         authority=auth, segment_receipt=receipt, exact_inventory=rows,
-        raw_key_prefix="ec2/raw", resolver=resolver)
+        raw_key_prefix="ec2/raw", resolver=resolver,
+        source_evidence=evidence)
     two = fresh.build_hour_receipt(
         authority=auth, segment_receipt=receipt,
-        exact_inventory=list(reversed(rows)), raw_key_prefix="ec2/raw")
+        exact_inventory=list(reversed(rows)), raw_key_prefix="ec2/raw",
+        resolver=lambda row: row, source_evidence=evidence)
     assert one["resolution_state"] == "RESOLVED_EXACT"
-    assert two["resolution_state"] == "NOT_REQUESTED"
+    assert two["resolution_state"] == "RESOLVED_EXACT"
     assert one["rfq_object_set_sha256"] == two["rfq_object_set_sha256"]
     assert [row["key"] for row in one["rfq_objects"]] == [
         f"ec2/raw/{row['relpath']}" for row in receipt["capture_shards"]]
-    assert len(calls) == 3
+    assert len(calls) == 5
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_hour_receipt(
+            authority=auth, segment_receipt=receipt, exact_inventory=rows,
+            raw_key_prefix="ec2/raw", source_evidence=evidence)
+    assert error.value.code == "SOURCE_RESOLUTION_REQUIRED"
 
 
-def test_optional_source_seal_is_exactly_bound(monkeypatch):
+def test_source_seal_is_derived_from_complete_evidence(monkeypatch):
     auth = authority(monkeypatch)
     receipt = segment(auth)
-    seal = {
-        "bucket": fresh.SOURCE_BUCKET,
-        "key": "ec2/warehouse/seals/date=2026-07-17.json",
-        "version_id": "seal-version",
-        "size": 123,
-        "sha256": sha("seal bytes"),
-        "verification_state": "PASS",
-    }
+    evidence = evidence_for(auth, receipt)
     built = fresh.build_hour_receipt(
         authority=auth, segment_receipt=receipt,
         exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
-        source_seal=seal)
-    assert built["source_seal"] == seal
-    assert built["source_seal_binding_sha256"] == seal["sha256"]
+        resolver=lambda row: row, source_evidence=evidence)
+    expected = {
+        key: evidence["seal"][key]
+        for key in ("bucket", "key", "version_id", "size", "sha256")
+    }
+    expected["verification_state"] = "PASS"
+    assert built["source_seal"] == expected
+    assert built["source_seal_binding_sha256"] == expected["sha256"]
 
-    wrong = dict(seal, bucket="another-bucket")
-    with pytest.raises(fresh.FreshRfqError, match="SOURCE_SEAL_INVALID"):
+    wrong = copy.deepcopy(evidence)
+    wrong["seal"]["bucket"] = "another-bucket"
+    wrong["seal_binding_sha256"] = fresh.canonical_sha256(wrong["seal"])
+    wrong["evidence_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in wrong.items() if key != "evidence_sha256"})
+    with pytest.raises(fresh.FreshRfqError, match="SOURCE_EVIDENCE_SEAL"):
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
             exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
-            source_seal=wrong)
+            resolver=lambda row: row, source_evidence=wrong)
+
+
+def test_source_evidence_seal_date_must_equal_analysis_date(monkeypatch):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
+    evidence["seal"]["date"] = "2026-07-16"
+    reseal_evidence(evidence)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_hour_receipt(
+            authority=auth, segment_receipt=receipt,
+            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+            resolver=lambda row: row, source_evidence=evidence)
+    assert error.value.code == "SOURCE_EVIDENCE_SEAL"
+
+
+def test_source_evidence_rejects_digest_consistent_empty_nonselected_hour(
+        monkeypatch):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
+    missing_hour = evidence["expected_hours"][1]
+    evidence["analysis_capture_objects"] = [
+        row for row in evidence["analysis_capture_objects"]
+        if row["source_hour"] != missing_hour]
+    evidence["seal_rfq_capture_members"] = [
+        row for row in evidence["seal_rfq_capture_members"]
+        if row["source_hour"] != missing_hour]
+    evidence["analysis_receipt_proofs"][1][
+        "capture_exact_object_set_sha256"] = fresh.canonical_sha256([])
+    reseal_evidence(evidence)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_hour_receipt(
+            authority=auth, segment_receipt=receipt,
+            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+            resolver=lambda row: row, source_evidence=evidence)
+    assert error.value.code == "SOURCE_EVIDENCE_CAPTURE"
+
+
+def test_source_evidence_accepts_optional_sealed_d00_container_family(
+        monkeypatch):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
+    optional_d00 = [{
+        "file": "date=2026-07-17/rfq_receipts_00.ndjson",
+        "size": 71, "sha256": sha("prior-day-23-receipt-container-0"),
+        "checkpoint": 71, "source_hour": "2026-07-17T00", "ordinal": 0,
+    }, {
+        "file": "date=2026-07-17/rfq_receipts_00.ndjson.1",
+        "size": 83, "sha256": sha("prior-day-23-receipt-container-1"),
+        "checkpoint": 83, "source_hour": "2026-07-17T00", "ordinal": 1,
+    }]
+    evidence["seal_rfq_receipt_container_members"][:0] = optional_d00
+    reseal_evidence(evidence)
+
+    built = fresh.build_hour_receipt(
+        authority=auth, segment_receipt=receipt,
+        exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+        resolver=lambda row: row, source_evidence=evidence)
+    assert built["source_evidence_sha256"] == evidence["evidence_sha256"]
+
+
+@pytest.mark.parametrize("mutation", ["extra_hour", "d00_ordinal_gap"])
+def test_source_evidence_rejects_invalid_extra_sealed_container_family(
+        monkeypatch, mutation):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
+    if mutation == "extra_hour":
+        row = {
+            "file": "date=2026-07-18/rfq_receipts_02.ndjson",
+            "size": 71, "sha256": sha("out-of-scope-receipt-container"),
+            "checkpoint": 71, "source_hour": "2026-07-18T02",
+            "ordinal": 0,
+        }
+        evidence["seal_rfq_receipt_container_members"].append(row)
+    else:
+        row = {
+            "file": "date=2026-07-17/rfq_receipts_00.ndjson.1",
+            "size": 71, "sha256": sha("gapped-prior-receipt-container"),
+            "checkpoint": 71, "source_hour": "2026-07-17T00",
+            "ordinal": 1,
+        }
+        evidence["seal_rfq_receipt_container_members"].insert(0, row)
+    reseal_evidence(evidence)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_hour_receipt(
+            authority=auth, segment_receipt=receipt,
+            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+            resolver=lambda value: value, source_evidence=evidence)
+    assert error.value.code == "SOURCE_EVIDENCE_SEAL"
+
+
+@pytest.mark.parametrize("proof_index", [0, 1], ids=["selected", "nonselected"])
+@pytest.mark.parametrize(
+    "mutation", ["line_number", "byte_offset", "byte_length", "outer_sha"])
+def test_source_evidence_rejects_forged_single_row_proof_after_digest_reseal(
+        monkeypatch, proof_index, mutation):
+    auth = authority(monkeypatch)
+    receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
+    proof = evidence["analysis_receipt_proofs"][proof_index]
+    if mutation == "line_number":
+        proof["line_number"] = 2
+    elif mutation == "byte_offset":
+        proof["byte_offset"] = 1
+        proof["byte_length"] -= 1
+    elif mutation == "byte_length":
+        proof["byte_length"] -= 1
+    else:
+        proof["outer_row_sha256"] = sha("forged outer receipt row")
+    reseal_evidence(evidence)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_hour_receipt(
+            authority=auth, segment_receipt=receipt,
+            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+            resolver=lambda row: row, source_evidence=evidence)
+    assert error.value.code == "SOURCE_PROOF_CONTAINER"
 
 
 def test_hour_builder_rejects_prefix_outside_authority(monkeypatch):
     auth = authority(monkeypatch)
     receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
             exact_inventory=inventory(receipt, "other/raw"),
-            raw_key_prefix="other/raw")
+            raw_key_prefix="other/raw", resolver=lambda row: row,
+            source_evidence=evidence)
     assert error.value.code == "SOURCE_SCOPE"
 
 
@@ -603,10 +941,12 @@ def test_inventory_is_bidirectionally_exact(monkeypatch, mutation, code):
         rows[0]["sha256"] = "0" * 64
     else:
         rows.append(copy.deepcopy(rows[0]))
+    evidence = evidence_for(auth, receipt)
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
-            exact_inventory=rows, raw_key_prefix="ec2/raw")
+            exact_inventory=rows, raw_key_prefix="ec2/raw",
+            resolver=lambda row: row, source_evidence=evidence)
     assert error.value.code == code
 
 
@@ -624,16 +964,19 @@ def test_content_identity_catches_old_lineage_under_a_different_key(monkeypatch)
     }
     auth = authority(monkeypatch, overlap=overlap)
     receipt = segment(auth, hour)
+    evidence = evidence_for(auth, receipt)
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
-            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw")
+            exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+            resolver=lambda row: row, source_evidence=evidence)
     assert error.value.code == "OLD_LINEAGE_OVERLAP"
 
 
 def test_resolver_mismatch_and_hour_digest_tamper_fail_closed(monkeypatch):
     auth = authority(monkeypatch)
     receipt = segment(auth)
+    evidence = evidence_for(auth, receipt)
 
     def wrong(row):
         row["version_id"] = "different"
@@ -643,29 +986,27 @@ def test_resolver_mismatch_and_hour_digest_tamper_fail_closed(monkeypatch):
         fresh.build_hour_receipt(
             authority=auth, segment_receipt=receipt,
             exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
-            resolver=wrong)
+            resolver=wrong, source_evidence=evidence)
     built = fresh.build_hour_receipt(
         authority=auth, segment_receipt=receipt,
-        exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw")
+        exact_inventory=inventory(receipt), raw_key_prefix="ec2/raw",
+        resolver=lambda row: row, source_evidence=evidence)
     tampered = json.loads(json.dumps(built))
     tampered["rfq_objects"][0]["version_id"] = "changed-after-receipt"
     with pytest.raises(fresh.FreshRfqError):
-        fresh.validate_hour_receipt(tampered, auth)
+        fresh.validate_hour_receipt(tampered, auth, source_evidence=evidence)
 
 
 def overlay_inputs(monkeypatch):
     auth = authority(monkeypatch)
     start = dt.datetime(2026, 7, 17, tzinfo=dt.timezone.utc)
-    receipts = []
+    segments = []
     for offset in range(26):
         hour = (start + dt.timedelta(hours=offset)).strftime("%Y-%m-%dT%H")
-        seg = segment(
+        segments.append(segment(
             auth, hour, subscription_acks=1 if offset == 0 else 0,
-            subscription_end=True if offset == 0 else None)
-        receipts.append(fresh.build_hour_receipt(
-            authority=auth, segment_receipt=seg,
-            exact_inventory=inventory(seg), raw_key_prefix="ec2/raw",
-            resolver=lambda row: row))
+            subscription_end=True if offset == 0 else None))
+    receipts, evidence = receipts_for_segments(auth, segments)
     sealed = []
     for receipt in receipts[:24]:
         sealed.extend({
@@ -685,26 +1026,24 @@ def overlay_inputs(monkeypatch):
         "canonical_receipt_set_sha256": sha("canonical receipt set"),
         "verification_state": "REFERENCE_V3_VERIFIED",
         "source_seal": {
-            "bucket": fresh.SOURCE_BUCKET,
-            "key": "ec2/warehouse/seals/date=2026-07-17.json",
-            "version_id": "seal-version",
-            "size": 1234,
-            "sha256": sha("D seal"),
+            **{key: evidence["seal"][key] for key in (
+                "bucket", "key", "version_id", "size", "sha256")},
             "verification_state": "PASS",
         },
         "sealed_rfq_objects": sealed,
         "sealed_rfq_object_set_sha256": fresh.canonical_sha256(sealed),
     }
-    return auth, receipts, base
+    return auth, receipts, base, evidence
 
 
 def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch):
-    auth, receipts, base = overlay_inputs(monkeypatch)
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
     one = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts)
+        authority=auth, base_release=base, hour_receipts=receipts,
+        source_evidence=evidence)
     two = fresh.build_overlay_manifest(
         authority=auth, base_release=base,
-        hour_receipts=list(reversed(receipts)))
+        hour_receipts=list(reversed(receipts)), source_evidence=evidence)
     assert one == two
     assert len(one["analysis_hours"]) == 24
     assert len(one["watermark_hours"]) == 2
@@ -730,7 +1069,7 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
 ])
 def test_overlay_rejects_gap_duplicate_or_bad_base_binding(
         monkeypatch, mutation, code):
-    auth, receipts, base = overlay_inputs(monkeypatch)
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
     if mutation == "gap":
         receipts.pop(10)
     elif mutation == "duplicate":
@@ -751,22 +1090,22 @@ def test_overlay_rejects_gap_duplicate_or_bad_base_binding(
         base["manifest_version_id"] = "null"
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts)
+            authority=auth, base_release=base, hour_receipts=receipts,
+            source_evidence=evidence)
     assert error.value.code == code
 
 
 def test_overlay_requires_all_26_hours_resolved_exact(monkeypatch):
-    auth, receipts, base = overlay_inputs(monkeypatch)
-    hour = receipts[7]["segment_hour"]
-    seg = segment(auth, hour)
-    receipts[7] = fresh.build_hour_receipt(
-        authority=auth, segment_receipt=seg,
-        exact_inventory=inventory(seg), raw_key_prefix="ec2/raw")
-    assert receipts[7]["resolution_state"] == "NOT_REQUESTED"
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    receipts[7]["resolution_state"] = "NOT_REQUESTED"
+    receipts[7]["receipt_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in receipts[7].items()
+        if key != "receipt_sha256"})
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts)
-    assert error.value.code == "OVERLAY_RESOLUTION"
+            authority=auth, base_release=base, hour_receipts=receipts,
+            source_evidence=evidence)
+    assert error.value.code == "SOURCE_RESOLUTION_REQUIRED"
 
 
 @pytest.mark.parametrize("mutation", [
@@ -775,7 +1114,7 @@ def test_overlay_requires_all_26_hours_resolved_exact(monkeypatch):
 ])
 def test_overlay_rejects_broken_persistent_subscription_chain(
         monkeypatch, mutation):
-    auth, receipts, base = overlay_inputs(monkeypatch)
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
     index = 0 if mutation == "first_missing_ack" else 5
     hour = receipts[index]["segment_hour"]
     kwargs = {"subscription_acks": 0, "subscription_end": None}
@@ -787,39 +1126,99 @@ def test_overlay_rejects_broken_persistent_subscription_chain(
     elif mutation == "supervisor_changes":
         kwargs["supervisor_pid"] = 9999
     seg = segment(auth, hour, **kwargs)
-    receipts[index] = fresh.build_hour_receipt(
-        authority=auth, segment_receipt=seg,
-        exact_inventory=inventory(seg), raw_key_prefix="ec2/raw",
-        resolver=lambda row: row)
+    segments = [row["segment_receipt"] for row in receipts]
+    segments[index] = seg
+    receipts, evidence = receipts_for_segments(auth, segments)
     with pytest.raises(fresh.FreshRfqError) as error:
         fresh.build_overlay_manifest(
-            authority=auth, base_release=base, hour_receipts=receipts)
+            authority=auth, base_release=base, hour_receipts=receipts,
+            source_evidence=evidence)
     assert error.value.code == "SUBSCRIPTION_CHAIN"
 
 
 def test_overlay_accepts_contiguous_generation_rollover_with_new_ack(monkeypatch):
-    auth, receipts, base = overlay_inputs(monkeypatch)
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    segments = [row["segment_receipt"] for row in receipts]
     for index in range(13, 26):
         hour = receipts[index]["segment_hour"]
-        seg = segment(
+        segments[index] = segment(
             auth, hour, child_generation=4, child_pid=4300,
             subscription_acks=1 if index == 13 else 0,
             subscription_end=True if index == 13 else None)
-        receipts[index] = fresh.build_hour_receipt(
-            authority=auth, segment_receipt=seg,
-            exact_inventory=inventory(seg), raw_key_prefix="ec2/raw",
-            resolver=lambda row: row)
+    for index in range(14, 26):
+        for field in (
+                "child_subscription_ack_wall_ns",
+                "child_subscription_ack_identity_sha256",
+                "child_subscription_ack_count"):
+            segments[index][field] = segments[13][field]
+    receipts, evidence = receipts_for_segments(auth, segments)
     built = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts)
+        authority=auth, base_release=base, hour_receipts=receipts,
+        source_evidence=evidence)
     assert built["analysis_hours"][13]["child_generation"] == 4
     assert built["analysis_hours"][13]["subscription_ack_count"] == 1
     assert built["watermark_hours"][0]["subscription_ack_count"] == 0
 
 
-def test_overlay_digest_and_watermark_partition_tamper_fail(monkeypatch):
-    auth, receipts, base = overlay_inputs(monkeypatch)
+def test_overlay_rejects_generation_rollover_without_raw_hour_ack(monkeypatch):
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    segments = [row["segment_receipt"] for row in receipts]
+    rollover_ack = None
+    for index in range(13, 26):
+        hour = receipts[index]["segment_hour"]
+        seg = segment(
+            auth, hour, child_generation=4, child_pid=4300,
+            subscription_acks=0, subscription_end=None)
+        if rollover_ack is None:
+            seg["child_subscription_ack_wall_ns"] = \
+                seg["expected_start_wall_ns"] + 1_000_000_000
+            rollover_ack = {
+                field: seg[field] for field in (
+                    "child_subscription_ack_wall_ns",
+                    "child_subscription_ack_identity_sha256",
+                    "child_subscription_ack_count")
+            }
+        else:
+            seg.update(rollover_ack)
+        segments[index] = seg
+    receipts, evidence = receipts_for_segments(auth, segments)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.build_overlay_manifest(
+            authority=auth, base_release=base, hour_receipts=receipts,
+            source_evidence=evidence)
+    assert error.value.code == "SUBSCRIPTION_CHAIN"
+
+
+@pytest.mark.parametrize(("field", "wrong_value"), [
+    ("watermark_objects_in_analysis", 0),
+    ("aws_write_authorized", 0),
+    ("research_eligible", 0),
+    ("data_objects_copied", False),
+    ("analysis_hour_count", True),
+    ("watermark_hour_count", True),
+])
+def test_overlay_fixed_fields_reject_bool_integer_substitution_after_rehash(
+        monkeypatch, field, wrong_value):
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
     built = fresh.build_overlay_manifest(
-        authority=auth, base_release=base, hour_receipts=receipts)
+        authority=auth, base_release=base, hour_receipts=receipts,
+        source_evidence=evidence)
+    built[field] = wrong_value
+    built["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in built.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh.validate_overlay_manifest(built, auth)
+    assert error.value.code == "OVERLAY_INVALID"
+
+
+def test_overlay_digest_and_watermark_partition_tamper_fail(monkeypatch):
+    auth, receipts, base, evidence = overlay_inputs(monkeypatch)
+    built = fresh.build_overlay_manifest(
+        authority=auth, base_release=base, hour_receipts=receipts,
+        source_evidence=evidence)
     tampered = copy.deepcopy(built)
     tampered["manifest_sha256"] = "0" * 64
     with pytest.raises(fresh.FreshRfqError) as error:
