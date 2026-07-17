@@ -123,9 +123,13 @@ def test_gate_mode_fail_closed_until_verified(tmp_path):
     ver = _facts(tmp_path, verified=True)
     assert lo.trade_fee(0.50, 1, gate_mode=True, facts_path=ver) == \
         pytest.approx(0.0175, abs=1e-12)
-    # the committed repo yaml is still unratified (OQ-1) => gate refuses
-    with pytest.raises(lo.FeeNotVerifiedError):
-        lo.trade_fee(0.50, 1, gate_mode=True)
+    # sentinel: repo yaml is verified=true since the OQ-1 ratification
+    # (D-4 in PLAN_SPORTS_TRADING_DECISIONS.md, 2026-07-16) => gate COMPUTES
+    # on the real config. If this raises, someone flipped fees.verified back
+    # to false — check D-4 status before "fixing" the test.
+    assert lo.trade_fee(0.50, 1, gate_mode=True) == \
+        pytest.approx(0.0175, abs=1e-12), \
+        "repo kalshi_facts.yaml gate-mode fee changed — check D-4 status"
 
 
 def test_behavior_follows_the_yaml_never_hardcoded(tmp_path):

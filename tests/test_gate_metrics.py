@@ -169,16 +169,17 @@ def test_net_profit_gate_mode_refuses_unverified_fees(tmp_path):
     """Mechanical enforcement, BOTH directions (reusing mm_research's guard
     — no second fee implementation exists to drift):
 
-    1. the REAL repo yaml is verified=false today -> gate mode MUST raise.
+    1. the REAL repo yaml is verified=true since D-4 (2026-07-16) -> gate
+       mode computes on the real config.
     2. an explicit verified=false yaml -> raises (flag read, not cached).
     3. verified=true yaml -> does NOT raise (the guard is the flag, nothing
        else) — refusal must not be over-eager or the gate can never run.
     """
     real = mr.load_fee_facts()
-    assert real["verified"] is False, \
-        "repo kalshi_facts.yaml flipped fees.verified — WP-07/WP-09 rerun due"
-    with pytest.raises(mr.FeeNotVerifiedError):
-        gc.signal_net_profit(_episode_96c(), gate_mode=True)
+    assert real["verified"] is True, \
+        "repo kalshi_facts.yaml flipped fees.verified back — check D-4 status"
+    r_real = gc.signal_net_profit(_episode_96c(), gate_mode=True)
+    assert r_real["net_c"] == pytest.approx(-0.57)
 
     off = tmp_path / "facts_false.yaml"
     off.write_text("fees:\n  verified: false\n  params:\n    taker_rate: 0.07\n")

@@ -17,20 +17,36 @@ meta:
 
 fees:
   # Official schedule: https://kalshi.com/docs/kalshi-fee-schedule.pdf
-  # ("Last updated and effective: Feb 5, 2026"). Live URL is bot-gated
-  # (Vercel checkpoint); text obtained from the Internet Archive snapshot of
-  # the SAME official URL, 2026-02-18, sha256
-  # b1a37aa734771f42929ccd9ba90ab845e07303f03f549f1c2f493c08b13d2fc9
-  # (sandbox/discovery/fee_schedule_text_clean.txt). Rates corroborated by
-  # the live API docs (fee_rounding.md, Series.fee_type description) fetched
-  # 2026-07-07. verified=true is subject to R's ratification of archived-PDF
-  # provenance (OPEN QUESTION 1 in the report).
-  # FAIL-CLOSED (WP-05 audit, 2026-07-07): rate constants 0.07/0.0175 rest
-  # solely on a Feb-2026 archived PDF; no live source confirms them. Flipped
-  # to false per GUARDRAILS S2 — gate-mode computations must refuse until R
-  # ratifies OQ-1 (one browser check of the live fee schedule PDF).
-  verified: false
-  evidence: "DOCS-ONLY: kalshi.com/docs/kalshi-fee-schedule.pdf via archive.org 2026-02-18 + docs.kalshi.com/getting_started/fee_rounding.md (live 2026-07-07)"
+  # NOTE: the PDF was UPDATED "7.7.26" (title indexed by search engines:
+  # "Fee Schedule for July 2026 - 7.7.26 Update"). Live PDF remains bot-gated
+  # (429; archive.org's own crawler has been blocked since 2026-03, so the
+  # last full PDF snapshot is 2026-02-18, sha256
+  # b1a37aa734771f42929ccd9ba90ab845e07303f03f549f1c2f493c08b13d2fc9,
+  # sandbox/discovery/fee_schedule_text_clean.txt).
+  # OQ-1 RATIFIED 2026-07-16 (operator delegated resolution in-session;
+  # ruling D-4 in docs/PLAN_SPORTS_TRADING_DECISIONS.md). Evidence chain
+  # replacing the single-archived-PDF provenance:
+  #   1. archive.org snapshot of kalshi.com/fee-schedule 2026-05-08: standard
+  #      markets multiplier x1, fee range per 100 contracts $0.07-$1.75 taker
+  #      (= 0.07*P*(1-P) at P=0.01..0.50 exactly); "No upcoming fee changes".
+  #   2. Search-engine index of the LIVE 7.7.26 PDF: prediction-market
+  #      formula unchanged (round_up(0.07*C*P*(1-P)), max $1.75/100, no
+  #      settlement fee); the 7.7.26 changes = tiered bps fees for PERPETUAL
+  #      FUTURES (separate product line, margin API) + refreshed non-standard
+  #      multiplier table (mitigated by per_series_lookup below — Q3 already
+  #      forbids assuming x1/quadratic).
+  #   3. Two independent 2026 guides (pm.wiki 2026-04-21; marketmath.io
+  #      2026-07-16): taker 7%*P*(1-P), maker 1.75%*P*(1-P) (=25% of taker).
+  #   4. LIVE API 2026-07-16: GET /series/fee_changes -> EMPTY (no scheduled
+  #      changes); per-series fee_type/fee_multiplier examples re-verified
+  #      (see examples below).
+  #   5. Live docs.kalshi.com/getting_started/fee_rounding (2026-07-16):
+  #      rounding regime unchanged (ceil to $0.0001, $0.01 rebate accumulator).
+  # RESIDUAL RISK (stated, accepted in D-4): the live 7.7.26 PDF body itself
+  # is unread by us; per-series scoping MUST keep coming from the API lookup
+  # (never this file) — that path is live-verified and is the runtime truth.
+  verified: true
+  evidence: "OQ-1 ratified 2026-07-16, D-4 in PLAN_SPORTS_TRADING_DECISIONS.md: archive.org fee-schedule page 2026-05-08 + live API fee_changes EMPTY + live fee_rounding.md + 2x independent 2026 guides; constants 0.07/0.0175 multi-source confirmed; live 7.7.26 PDF body unread (bot-gated), per-series scoping stays API-sourced"
   formula: "trade_fee = ceil_to_centicent(rate * fee_multiplier * C * P * (1 - P))"
   params:
     taker_rate: 0.07        # all markets (fee_type quadratic and quadratic_with_maker_fees)
@@ -52,9 +68,12 @@ fees:
   per_series_lookup:
     # fee_type + fee_multiplier come from GET /series/{ticker}; never assume 0 maker fee.
     endpoint: "GET /trade-api/v2/series/{ticker} -> series.fee_type, series.fee_multiplier"
-    examples:  # VERIFIED-LIVE 2026-07-07 (prod, unauthenticated GET)
+    examples:  # VERIFIED-LIVE 2026-07-07, re-verified 2026-07-16 (prod, unauthenticated GET)
       KXBTCD: {fee_type: quadratic, fee_multiplier: 1}
       KXNBA: {fee_type: quadratic_with_maker_fees, fee_multiplier: 1}
+      KXATPMATCH: {fee_type: quadratic_with_maker_fees, fee_multiplier: 1}  # VERIFIED-LIVE 2026-07-16
+      KXWTAMATCH: {fee_type: quadratic_with_maker_fees, fee_multiplier: 1}  # VERIFIED-LIVE 2026-07-16
+      KXATP: {fee_type: quadratic, fee_multiplier: 1}  # tournament-winner series, NO maker fee — VERIFIED-LIVE 2026-07-16
     scheduled_changes: "GET /series/fee_changes + GET /events fee overrides (fee_type_override, fee_multiplier_override)"
   other_fees:  # DOCS-ONLY: official schedule PDF
     settlement: 0

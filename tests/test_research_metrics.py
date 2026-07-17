@@ -137,13 +137,14 @@ def test_interval_distribution():
 def test_fee_placeholder_guard(tmp_path):
     """Gate-mode fee calls MUST raise while fees.verified is false; the flag
     is READ from the yaml, never hardcoded."""
-    # 1. reality: the repo yaml is verified=false right now (WP-05 audit,
-    #    fail-closed) — gate mode must refuse on the real config.
+    # 1. reality: the repo yaml is verified=true since the OQ-1 ratification
+    #    (D-4, 2026-07-16) — gate mode must COMPUTE on the real config.
+    #    (This sentinel fired on the flip as designed; WP-07/WP-09 rerun is
+    #    recorded as due in D-4.)
     facts = mr.load_fee_facts()
-    assert facts["verified"] is False, \
-        "repo kalshi_facts.yaml flipped fees.verified — revisit WP-07"
-    with pytest.raises(mr.FeeNotVerifiedError):
-        mr.trade_fee(0.50, 1, gate_mode=True)
+    assert facts["verified"] is True, \
+        "repo kalshi_facts.yaml flipped fees.verified back — check D-4 status"
+    assert mr.trade_fee(0.50, 1, gate_mode=True) == pytest.approx(0.0175)
 
     # 2. research mode still computes (flagged, not blocked):
     #    0.07 * 1 * 0.50 * 0.50 = 0.0175 exactly (already centicent-aligned)
