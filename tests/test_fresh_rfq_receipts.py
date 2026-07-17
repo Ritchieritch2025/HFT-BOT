@@ -1084,10 +1084,120 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     )} == {key: evidence["seal"][key] for key in (
         "bucket", "key", "version_id", "size", "sha256",
     )}
+    assert one["time_contract"] == {
+        "analysis_start_utc": "2026-07-17T00:00:00Z",
+        "analysis_end_utc_exclusive": "2026-07-18T00:00:00Z",
+        "watermark_end_utc_exclusive": "2026-07-18T02:00:00Z",
+        "base_manifest_published_at_utc": "2026-07-18T04:00:00Z",
+        "out_of_base_window_policy": "DQ_NO_CROSS_DATE_BORROW",
+        "watermark_is_market_data": False,
+    }
+    assert one["time_contract_sha256"] == fresh.canonical_sha256(
+        one["time_contract"])
+    assert "pre_event_window_ms" not in one["time_contract"]
+    assert "post_event_window_ms" not in one["time_contract"]
+    assert one["time_contract"]["analysis_end_utc_exclusive"] == \
+        base["analysis_data_end_utc"]
     assert one["watermark_objects_in_analysis"] is False
     assert one["data_objects_copied"] == 0
     assert one["aws_write_authorized"] is False
     assert one["research_eligible"] is False
+
+
+@pytest.mark.parametrize(("published_at", "accepted"), [
+    ("2026-07-18T01:59:59Z", False),
+    ("2026-07-18T02:00:00Z", True),
+])
+def test_overlay_requires_base_publication_after_complete_watermark_window(
+        monkeypatch, published_at, accepted):
+    auth, receipts, manifest, _raw, _identity, evidence = overlay_inputs(
+        monkeypatch)
+    manifest["published_at_utc"] = published_at
+    raw, identity = base_fixture._raw_and_identity(manifest)
+    if accepted:
+        built = build_overlay(auth, receipts, raw, identity, evidence)
+        assert built["time_contract"][
+            "base_manifest_published_at_utc"] == published_at
+    else:
+        with pytest.raises(fresh.FreshRfqError) as error:
+            build_overlay(auth, receipts, raw, identity, evidence)
+        assert error.value.code == "TIME_CONTRACT_INVALID"
+
+
+@pytest.mark.parametrize(("field", "wrong_value"), [
+    ("analysis_start_utc", "2026-07-17T00:00:01Z"),
+    ("analysis_end_utc_exclusive", "2026-07-18T02:00:00Z"),
+    ("watermark_end_utc_exclusive", "2026-07-18T00:00:00Z"),
+    ("base_manifest_published_at_utc", "2026-07-18T05:00:00Z"),
+    ("out_of_base_window_policy", "ALLOW_CROSS_DATE_BORROW"),
+    ("watermark_is_market_data", True),
+    ("watermark_is_market_data", 0),
+])
+def test_overlay_rejects_rehashed_time_contract_tamper(
+        monkeypatch, field, wrong_value):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    tampered["time_contract"][field] = wrong_value
+    tampered["time_contract_sha256"] = fresh.canonical_sha256(
+        tampered["time_contract"])
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "TIME_CONTRACT_INVALID"
+
+
+def test_overlay_rejects_time_contract_digest_tamper(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    tampered["time_contract_sha256"] = "0" * 64
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "TIME_CONTRACT_INVALID"
+
+
+def test_overlay_rejects_rehashed_embedded_base_analysis_end_tamper(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    base = tampered["base_binding"]
+    base["analysis_data_end_utc"] = "2026-07-18T01:00:00Z"
+    base["binding_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in base.items() if key != "binding_sha256"})
+    tampered["base_binding_sha256"] = base["binding_sha256"]
+    tampered["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in tampered.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "BASE_BINDING_INVALID"
+    with pytest.raises(fresh.FreshRfqError) as error:
+        fresh._derive_time_contract(base)
+    assert error.value.code == "TIME_CONTRACT_INVALID"
+
+
+def test_overlay_v2_without_time_contract_is_mechanically_rejected(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    old_shape = build_overlay(auth, receipts, raw, identity, evidence)
+    old_shape.pop("time_contract")
+    old_shape.pop("time_contract_sha256")
+    old_shape["manifest_sha256"] = fresh.canonical_sha256({
+        key: value for key, value in old_shape.items()
+        if key != "manifest_sha256"})
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(old_shape, auth, raw, identity)
+    assert error.value.code == "SCHEMA_FIELDS"
 
 
 @pytest.mark.parametrize("mutation,code", [

@@ -1005,6 +1005,56 @@ def _canonical_exact_equal(left: Any, right: Any) -> bool:
     return canonical_bytes(left) == canonical_bytes(right)
 
 
+def _derive_time_contract(base: dict[str, Any]) -> dict[str, Any]:
+    """Derive the immutable overlay clocks from one exact base binding.
+
+    ``as_of_cutoff_utc`` is the reference manifest's publication time.  It is
+    deliberately renamed in this overlay contract so consumers cannot mistake
+    control-plane publication for a market-data event cutoff.  The two D+1
+    hours are completeness watermarks only and never extend the D base-data
+    window.
+    """
+    analysis_date = _date(base.get("date"), "base binding.date")
+    analysis_start = dt.datetime.combine(
+        analysis_date, dt.time(), tzinfo=dt.timezone.utc)
+    analysis_end = analysis_start + dt.timedelta(days=1)
+    watermark_end = analysis_end + dt.timedelta(hours=2)
+
+    analysis_start_text = analysis_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    analysis_end_text = analysis_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    watermark_end_text = watermark_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if base.get("analysis_data_end_utc") != analysis_end_text:
+        _fail(
+            "TIME_CONTRACT_INVALID",
+            "base analysis-data end differs from D+1 00:00 UTC",
+        )
+
+    published_text = base.get("as_of_cutoff_utc")
+    if not isinstance(published_text, str) or not published_text.endswith("Z"):
+        _fail(
+            "TIME_CONTRACT_INVALID",
+            "base manifest publication time is not canonical UTC",
+        )
+    try:
+        published = dt.datetime.fromisoformat(published_text[:-1] + "+00:00")
+    except ValueError as exc:
+        _fail("TIME_CONTRACT_INVALID", f"invalid base publication time: {exc}")
+    if published < watermark_end:
+        _fail(
+            "TIME_CONTRACT_INVALID",
+            "base manifest publication predates the complete 24+2 window",
+        )
+
+    return {
+        "analysis_start_utc": analysis_start_text,
+        "analysis_end_utc_exclusive": analysis_end_text,
+        "watermark_end_utc_exclusive": watermark_end_text,
+        "base_manifest_published_at_utc": published_text,
+        "out_of_base_window_policy": "DQ_NO_CROSS_DATE_BORROW",
+        "watermark_is_market_data": False,
+    }
+
+
 def _overlay_components(
     authority: dict[str, Any], base: dict[str, Any], hour_receipts: Any,
     source_evidence: Any,
@@ -1699,6 +1749,7 @@ def build_overlay_manifest(
     source_evidence = _normalize_source_evidence(
         source_evidence, authority, base, analysis, watermark,
         analysis_objects, watermark_objects)
+    time_contract = _derive_time_contract(base)
     result = {
         "schema": OVERLAY_SCHEMA,
         "lane_id": LANE_ID,
@@ -1707,6 +1758,8 @@ def build_overlay_manifest(
         "eligible_date": base["date"],
         "base_binding": base,
         "base_binding_sha256": base["binding_sha256"],
+        "time_contract": time_contract,
+        "time_contract_sha256": canonical_sha256(time_contract),
         "source_evidence": source_evidence,
         "source_evidence_sha256": source_evidence["evidence_sha256"],
         "analysis_hours": analysis,
@@ -1741,7 +1794,8 @@ def validate_overlay_manifest(
     authority = validate_fresh_epoch_authority(authority)
     fields = {
         "schema", "lane_id", "state", "authority_sha256", "eligible_date",
-        "base_binding", "base_binding_sha256", "analysis_hours",
+        "base_binding", "base_binding_sha256", "time_contract",
+        "time_contract_sha256", "analysis_hours",
         "source_evidence", "source_evidence_sha256",
         "analysis_hour_receipt_set_sha256", "watermark_hours",
         "watermark_hour_receipt_set_sha256", "analysis_rfq_objects",
@@ -1786,6 +1840,16 @@ def validate_overlay_manifest(
             value.get("base_binding_sha256") != base["binding_sha256"]):
         _fail("BASE_BINDING_INVALID",
               "overlay does not embed the exactly rebuilt base binding")
+    time_contract = _derive_time_contract(base)
+    supplied_time_contract_sha = _sha(
+        value.get("time_contract_sha256"), "time_contract_sha256")
+    if (not _canonical_exact_equal(
+            value.get("time_contract"), time_contract) or
+            supplied_time_contract_sha != canonical_sha256(time_contract)):
+        _fail(
+            "TIME_CONTRACT_INVALID",
+            "overlay time contract is not the mechanically derived contract",
+        )
     combined = value["analysis_hours"] + value["watermark_hours"] \
         if isinstance(value["analysis_hours"], list) and \
         isinstance(value["watermark_hours"], list) else None
