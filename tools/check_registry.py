@@ -88,7 +88,20 @@ def main():
         names.add(n)
 
         cmd = t.get("cmd", "")
-        cmd0 = cmd.split()[0] if cmd.split() else ""
+        cmd_parts = cmd.split()
+        cmd0 = cmd_parts[0] if cmd_parts else ""
+        if t.get("kind") == "test" and cmd0 == "./tests/run_pytest.sh":
+            if (len(cmd_parts) != 2
+                    or not re.match(r"^tests/test_[A-Za-z0-9_]+\.py$",
+                                    cmd_parts[1])):
+                errs.append("%s: pytest test cmd must include exactly one "
+                            "tests/test_*.py target" % n)
+            elif not os.path.exists(os.path.join(ROOT, cmd_parts[1])):
+                errs.append("%s: pytest target '%s' does not exist"
+                            % (n, cmd_parts[1]))
+            if t.get("args_template"):
+                errs.append("%s: required pytest target belongs in cmd; "
+                            "args_template is display-only" % n)
         m = re.match(r"^\./(build/([A-Za-z0-9_]+))$", cmd0)
         if m:
             build_bins[m.group(2)] = t
@@ -106,9 +119,10 @@ def main():
             referenced.add(rel)
             if not os.path.exists(os.path.join(ROOT, rel)):
                 errs.append("%s: cmd path '%s' does not exist" % (n, cmd))
-        # wrapper entries (e.g. run_pytest.sh <suite>) name their real target
-        # in args_template — count those as referenced too
-        for tok in t.get("args_template", "").split():
+        # Count scripts named anywhere in the fixed command or display-only
+        # template.  Pytest test entries are separately required above to put
+        # their executable target in cmd, so a template cannot fake identity.
+        for tok in (cmd + " " + t.get("args_template", "")).split():
             tok = tok[2:] if tok.startswith("./") else tok
             if tok.endswith((".py", ".sh")):
                 referenced.add(tok)

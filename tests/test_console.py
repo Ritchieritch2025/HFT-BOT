@@ -110,6 +110,25 @@ class TestRegistryRoundTrip(unittest.TestCase):
         for t in runnable:
             self.assertIn(t["safety"], {"pure", "offline"})
 
+    def test_pytest_registry_commands_have_exact_target_identity(self):
+        pytest_tools = []
+        for tool in run_tests.runnable_test_set(run_tests.load_registry()):
+            if os.path.basename(tool["cmd"].split()[0]) != "run_pytest.sh":
+                continue
+            cmd = run_tests.Mocks().build_cmd(tool)
+            pytest_tools.append(tool["name"])
+            self.assertEqual(len(cmd), 2, (tool["name"], cmd))
+            self.assertEqual(tool.get("args_template"), "", tool["name"])
+            self.assertEqual(cmd[1], tool["docs"], tool["name"])
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, cmd[1])), cmd[1])
+        self.assertEqual(len(pytest_tools), 37)
+
+    def test_args_template_is_never_executed(self):
+        tool = {"cmd": "./build/test_ring", "args_template": "[scratch_dir]",
+                "needs": []}
+        self.assertEqual(run_tests.Mocks().build_cmd(tool),
+                         ["./build/test_ring"])
+
 
 class TestDashboardServerPolicy(unittest.TestCase):
     """Start the real server and prove safety is enforced SERVER-SIDE, not just

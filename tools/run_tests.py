@@ -82,6 +82,9 @@ class Mocks:
 
     def build_cmd(self, tool):
         """Return the argv list to run, starting any mocks the tool needs."""
+        # args_template is display/usage metadata, never executable argv.  Any
+        # argument required for an unattended run belongs in cmd; treating a
+        # template such as [--order] or [scratch_dir] as a default is unsafe.
         cmd = tool["cmd"].split()
         needs = tool.get("needs", [])
         if "mini_redis" in needs:
