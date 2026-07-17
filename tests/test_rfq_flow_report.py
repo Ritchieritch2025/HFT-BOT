@@ -72,6 +72,71 @@ def receipt_outer(when, segment_hour, capture_path, status="PASS"):
     }) + "\n"
 
 
+def receipt_outer_v3(when, segment_hour, capture_paths, status="PASS"):
+    import hashlib
+    ordered = sorted((Path(path) for path in capture_paths),
+                     key=lambda path: (0 if path.suffix == ".ndjson" else
+                                       int(path.suffix[1:])))
+    shards = []
+    for ordinal, capture in enumerate(ordered):
+        shards.append({
+            "ordinal": ordinal,
+            "relpath": "/".join(capture.parts[-2:]),
+            "bytes_before": 0,
+            "size": capture.stat().st_size,
+            "parsed_bytes_at_close": capture.stat().st_size,
+            "sha256": hashlib.sha256(capture.read_bytes()).hexdigest(),
+        })
+    segment_start = dt.datetime.strptime(segment_hour, "%Y-%m-%dT%H").replace(
+        tzinfo=UTC)
+    start_ns = int(segment_start.timestamp() * 1_000_000_000)
+    end_ns = int((segment_start + dt.timedelta(hours=1)).timestamp() *
+                 1_000_000_000)
+    receipt = {
+        "type": "rfq_segment_receipt", "schema": "rfq-segment-receipt-v3",
+        "segment_hour": segment_hour, "status": status, "findings": [],
+        "subscription_proven": True, "boundary_closed": True,
+        "end_reason": "boundary", "close_stability_ms": 2_000,
+        "expected_start_wall_ns": start_ns,
+        "expected_end_wall_ns": end_ns,
+        "child_rc": None,
+        # Legacy aliases are informational for v3. capture_shards is the
+        # authoritative complete object set.
+        "capture_bytes_before": 0,
+        "capture_relpath": shards[0]["relpath"],
+        "capture_origin_path": "/home/ubuntu/hft-bot/work/raw/" +
+                               shards[0]["relpath"],
+        "capture_bytes_at_close": sum(row["size"] for row in shards),
+        "capture_sha256_at_close": (shards[0]["sha256"]
+                                     if len(shards) == 1 else None),
+        "capture_shards": shards,
+        "capture_shard_count": len(shards),
+        "capture_shard_set_sha256": rfq.capture_shard_set_sha256(shards),
+        "raw_evidence": {
+            "recorder_rows": 1, "subscribed_communications": 0,
+            "markers": {"hour_open": 1}, "partition_mismatches": 0,
+            "subscription_invalidations": 0, "findings": [],
+        },
+        "metrics_evidence": {
+            "feed_rows": 3600, "connected_valid_rows": 3500,
+            "min_reconnects": 0, "max_reconnects": 0,
+            "min_disconnects": 0, "max_disconnects": 0,
+            "min_errors": 0, "max_errors": 0,
+            "max_recorder_dropped": 0, "max_recorder_write_failures": 0,
+            "first_ts_ms": start_ns // 1_000_000 + 1_000,
+            "last_ts_ms": end_ns // 1_000_000 - 1_000,
+            "findings": [],
+        },
+    }
+    return json.dumps({
+        "recv_mono_ns": int(when.timestamp() * 1e9) - 123,
+        "recv_wall_ns": int(when.timestamp() * 1e9), "source": "Kalshi",
+        "channel": "rfq_segment_receipt", "source_ticker": "",
+        "marker": "segment_receipt",
+        "raw": json.dumps(receipt, separators=(",", ":")),
+    }) + "\n"
+
+
 def seal_index(paths):
     import hashlib
     return {str(Path(p).resolve()): {"size": Path(p).stat().st_size,
@@ -169,6 +234,24 @@ def fixture_48h(tmp_path):
     return paths, sorted(set(receipt_paths))
 
 
+def replace_hour_receipt(receipt_paths, segment_hour, replacement):
+    removed = 0
+    for path in receipt_paths:
+        kept = []
+        for line in Path(path).read_text().splitlines(True):
+            outer_row = json.loads(line)
+            if outer_row.get("marker") == "segment_receipt":
+                receipt = json.loads(outer_row["raw"])
+                if receipt.get("segment_hour") == segment_hour:
+                    removed += 1
+                    continue
+            kept.append(line)
+        Path(path).write_text("".join(kept))
+    assert removed == 1
+    with Path(receipt_paths[0]).open("a") as fh:
+        fh.write(replacement)
+
+
 def test_exact_schema_join_dedupe_combo_and_hvm_lower_bound(tmp_path):
     paths, receipt_paths = fixture_48h(tmp_path)
     all_paths = paths + receipt_paths
@@ -194,6 +277,210 @@ def test_exact_schema_join_dedupe_combo_and_hvm_lower_bound(tmp_path):
     assert report["requesters"]["distinct_known_ids"] == 1
     assert report["requesters"]["top1_share_bps"] == 10_000
     assert report["requests_by_day_category"] == {"2026-07-12": {"Sports": 2}}
+
+
+def test_v3_multishard_receipt_binds_every_shard_and_day_seal(tmp_path):
+    paths, receipt_paths = fixture_48h(tmp_path)
+    base = Path(paths[0])
+    shard1 = Path(str(base) + ".1")
+    shard_when = T0 + dt.timedelta(minutes=10)
+    shard1.write_text(outer(
+        shard_when, {"type": "quote_created", "sid": 15, "msg": {"id": "q"}}))
+    replace_hour_receipt(
+        receipt_paths, "2026-07-12T00",
+        receipt_outer_v3(T0 + dt.timedelta(hours=1, seconds=2),
+                         "2026-07-12T00", [base, shard1]))
+    all_paths = paths + [str(shard1)] + receipt_paths
+    report = rfq.build_report(rfq.parse_paths(all_paths), {}, start=T0, hours=48,
+                              seal_index=seal_index(all_paths))
+    assert report["window"]["complete"] is True
+    receipt = next(row for row in report["segment_receipts"]
+                   if row["segment_hour"] == "2026-07-12T00")
+    assert receipt["schema"] == "rfq-segment-receipt-v3"
+    assert [row["ordinal"] for row in receipt["capture_shards"]] == [0, 1]
+
+
+def test_malformed_v3_shard_member_fails_closed_without_crashing():
+    receipt = {
+        "schema": "rfq-segment-receipt-v3",
+        "status": "PASS",
+        "findings": [],
+        "subscription_proven": True,
+        "boundary_closed": True,
+        "end_reason": "boundary",
+        "close_stability_ms": 1_000,
+        "segment_hour": "2026-07-12T00",
+        "capture_shards": [None],
+        "capture_shard_count": 1,
+        "capture_shard_set_sha256": "0" * 64,
+    }
+    errors = rfq.receipt_contract_errors(receipt)
+    assert "v3 shard member is not an object" in errors
+
+
+def test_flow_shard_set_digest_sorts_and_rejects_unsafe_sets(tmp_path):
+    day = tmp_path / "date=2026-07-12"
+    day.mkdir()
+    base = day / "rfq_00.ndjson"
+    shard1 = day / "rfq_00.ndjson.1"
+    base.write_text("base\n")
+    shard1.write_text("rotated\n")
+    encoded = receipt_outer_v3(T0 + dt.timedelta(hours=1),
+                               "2026-07-12T00", [base, shard1])
+    receipt = json.loads(json.loads(encoded)["raw"])
+    shards = receipt["capture_shards"]
+    assert (rfq.capture_shard_set_sha256(shards) ==
+            rfq.capture_shard_set_sha256(list(reversed(shards))))
+    with pytest.raises(ValueError):
+        rfq.capture_shard_set_sha256([shards[0], dict(
+            shards[1], ordinal=0, relpath=shards[0]["relpath"])])
+    with pytest.raises(ValueError):
+        rfq.capture_shard_set_sha256([shards[0], dict(
+            shards[1], ordinal=2,
+            relpath="date=2026-07-12/rfq_00.ndjson.2")])
+    with pytest.raises(ValueError):
+        rfq.capture_shard_set_sha256([dict(
+            shards[0], relpath="../rfq_00.ndjson")])
+
+
+@pytest.mark.parametrize(("mutation", "expected"), [
+    ("missing_raw", "raw_evidence is missing/invalid"),
+    ("missing_metrics_field", "max_recorder_dropped is missing/non-zero"),
+    ("bad_boundary", "expected_start_wall_ns does not match"),
+    ("bad_child_rc", "child_rc must be null"),
+    ("bad_hour_open", "hour_open count is not exactly one"),
+    ("bad_partition", "partition_mismatches is not zero"),
+    ("bad_raw_invalidation", "subscription_invalidations is not zero"),
+    ("bad_raw_findings", "raw findings are missing/non-empty"),
+    ("bad_metrics_findings", "metrics findings are missing/non-empty"),
+    ("bad_reconnect", "max_reconnects is missing/non-zero"),
+    ("bad_disconnect", "max_disconnects is missing/non-zero"),
+    ("bad_metric_counter", "max_errors is missing/non-zero"),
+    ("bad_drop", "max_recorder_dropped is missing/non-zero"),
+    ("bad_write", "max_recorder_write_failures is missing/non-zero"),
+    ("bad_metric_coverage", "do not cover the hour end"),
+    ("unparsed_eof", "not parsed through exact EOF"),
+])
+def test_v3_receipt_health_evidence_is_required(tmp_path, mutation, expected):
+    day = tmp_path / "date=2026-07-12"
+    day.mkdir()
+    base = day / "rfq_00.ndjson"
+    base.write_text("base\n")
+    encoded = receipt_outer_v3(T0 + dt.timedelta(hours=1),
+                               "2026-07-12T00", [base])
+    receipt = json.loads(json.loads(encoded)["raw"])
+    assert rfq.receipt_contract_errors(receipt) == []
+    if mutation == "missing_raw":
+        receipt.pop("raw_evidence")
+    elif mutation == "missing_metrics_field":
+        receipt["metrics_evidence"].pop("max_recorder_dropped")
+    elif mutation == "bad_boundary":
+        receipt["expected_start_wall_ns"] += 1
+    elif mutation == "bad_child_rc":
+        receipt["child_rc"] = 0
+    elif mutation == "bad_hour_open":
+        receipt["raw_evidence"]["markers"]["hour_open"] = 2
+    elif mutation == "bad_partition":
+        receipt["raw_evidence"]["partition_mismatches"] = 1
+    elif mutation == "bad_raw_invalidation":
+        receipt["raw_evidence"]["subscription_invalidations"] = 1
+    elif mutation == "bad_raw_findings":
+        receipt["raw_evidence"]["findings"] = ["bad"]
+    elif mutation == "bad_metrics_findings":
+        receipt["metrics_evidence"]["findings"] = ["bad"]
+    elif mutation == "bad_reconnect":
+        receipt["metrics_evidence"]["max_reconnects"] = 1
+    elif mutation == "bad_disconnect":
+        receipt["metrics_evidence"]["max_disconnects"] = 1
+    elif mutation == "bad_metric_counter":
+        receipt["metrics_evidence"]["max_errors"] = 1
+    elif mutation == "bad_drop":
+        receipt["metrics_evidence"]["max_recorder_dropped"] = 1
+    elif mutation == "bad_write":
+        receipt["metrics_evidence"]["max_recorder_write_failures"] = 1
+    elif mutation == "bad_metric_coverage":
+        receipt["metrics_evidence"]["last_ts_ms"] -= 10_000
+    elif mutation == "unparsed_eof":
+        receipt["capture_shards"][0]["parsed_bytes_at_close"] -= 1
+    assert any(expected in error
+               for error in rfq.receipt_contract_errors(receipt))
+
+
+def test_v2_reader_is_compatible_but_cannot_attest_extra_shard(tmp_path):
+    paths, receipt_paths = fixture_48h(tmp_path)
+    shard1 = Path(paths[0] + ".1")
+    shard1.write_text(outer(
+        T0 + dt.timedelta(minutes=10),
+        {"type": "quote_created", "sid": 15, "msg": {"id": "q"}}))
+    all_paths = paths + [str(shard1)] + receipt_paths
+    report = rfq.build_report(rfq.parse_paths(all_paths), {}, start=T0, hours=48,
+                              seal_index=seal_index(all_paths))
+    assert any("v2 PASS receipt does not bind complete shard set" in failure
+               for failure in report["window"]["seal_failures"])
+    assert report["window"]["complete"] is False
+
+
+@pytest.mark.parametrize("mutation", ["append", "new_shard"])
+def test_v3_receipt_fails_closed_on_post_receipt_shard_mutation(tmp_path, mutation):
+    paths, receipt_paths = fixture_48h(tmp_path)
+    base = Path(paths[0])
+    shard1 = Path(str(base) + ".1")
+    shard1.write_text(outer(
+        T0 + dt.timedelta(minutes=10),
+        {"type": "quote_created", "sid": 15, "msg": {"id": "q"}}))
+    replace_hour_receipt(
+        receipt_paths, "2026-07-12T00",
+        receipt_outer_v3(T0 + dt.timedelta(hours=1, seconds=2),
+                         "2026-07-12T00", [base, shard1]))
+    capture_paths = paths + [str(shard1)]
+    if mutation == "append":
+        with shard1.open("a") as fh:
+            fh.write(outer(T0 + dt.timedelta(minutes=11),
+                           {"type": "quote_created", "sid": 15,
+                            "msg": {"id": "late"}}))
+    else:
+        shard2 = Path(str(base) + ".2")
+        shard2.write_text(outer(
+            T0 + dt.timedelta(minutes=11),
+            {"type": "quote_created", "sid": 15, "msg": {"id": "late"}}))
+        capture_paths.append(str(shard2))
+    all_paths = capture_paths + receipt_paths
+    report = rfq.build_report(rfq.parse_paths(all_paths), {}, start=T0, hours=48,
+                              seal_index=seal_index(all_paths))
+    failures = report["window"]["seal_failures"]
+    expected = ("post-receipt append" if mutation == "append" else
+                "does not bind complete shard set")
+    assert any(expected in failure for failure in failures)
+    assert report["window"]["complete"] is False
+
+
+def test_noncontiguous_and_symlink_shards_are_blocking(tmp_path):
+    paths, receipt_paths = fixture_48h(tmp_path)
+    gap = Path(paths[0] + ".2")
+    gap.write_text(outer(
+        T0 + dt.timedelta(minutes=10),
+        {"type": "quote_created", "sid": 15, "msg": {"id": "gap"}}))
+    target = tmp_path / "target.ndjson"
+    target.write_text("target\n")
+    link = Path(paths[1] + ".1")
+    link.symlink_to(target)
+    all_paths = paths + [str(gap), str(link)] + receipt_paths
+    parsed = rfq.parse_paths(all_paths)
+    report = rfq.build_report(parsed, {}, start=T0, hours=48,
+                              seal_index=seal_index(paths + [str(gap)] + receipt_paths))
+    dq = report["data_quality"]["parse_and_schema_counts"]
+    assert dq["non_contiguous_capture_shards"] == 1
+    assert dq["unsafe_or_unreadable_file"] == 1
+    assert report["window"]["complete"] is False
+
+
+def test_report_hashing_is_streaming_without_path_read_bytes(tmp_path, monkeypatch):
+    paths, receipt_paths = fixture_48h(tmp_path)
+    monkeypatch.setattr(Path, "read_bytes", lambda _self: (_ for _ in ()).throw(
+        AssertionError("RFQ report must hash incrementally")))
+    parsed = rfq.parse_paths(paths + receipt_paths)
+    assert parsed["input_files"]
+    assert "read_bytes(" not in TOOL.read_text()
 
 
 def test_empty_creator_is_never_grouped_as_a_requester(tmp_path):

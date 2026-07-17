@@ -13,11 +13,16 @@ After=network-online.target chrony.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/hft-bot
-Environment=PATH=/home/ubuntu/hft-bot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/ubuntu/hft-bot-rfq-fresh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Root writes this 0644 file with exactly one safe generation identifier:
+# FRESH_RFQ_GENERATION=fresh-rfq-YYYYMMDD-N
+# The generation-specific authority itself is created directly by root in the
+# root-owned control directory; never chown/chmod an authority after creation.
+EnvironmentFile=/etc/hft-bot/kalshi-rfq-fresh-generation.env
 # Dedicated API key MUST be created with scopes=["read"] and recorded in this
 # separate 0600 env file; Kalshi defaults omitted scopes to read+write.
-ExecStart=/usr/bin/bash -lc 'test -r "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; source "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; exec python3 tools/rfq_capture.py'
+ExecStart=/usr/bin/bash -lc 'test -r "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; source "$HOME/.kalshi/rfq_readonly.env.sh" || exit 78; exec /usr/bin/python3 tools/rfq_capture.py --raw-root /home/ubuntu/hft-bot/work/raw --live-root /home/ubuntu/hft-bot/work/live --disable-flag /home/ubuntu/hft-bot/work/live/rfq_disable --lock-dir /home/ubuntu/hft-bot/work/live/rfq_capture.lock --alert-path /home/ubuntu/hft-bot/work/live/rfq_alert.json --state-path /home/ubuntu/hft-bot/work/live/rfq_state.json --ledger-path /home/ubuntu/hft-bot/work/live/rfq_segments.ndjson --metrics-path /home/ubuntu/hft-bot/work/live/rfq_metrics.ndjson --fresh-lane-authority "/var/lib/kalshi-rfq-fresh/control/${FRESH_RFQ_GENERATION}/authority-envelope.json" --fresh-lane-authority-owner-uid 0 --fresh-lane-expected-generation "${FRESH_RFQ_GENERATION}"'
 Restart=on-failure
 RestartSec=30
 RestartPreventExitStatus=78
@@ -32,6 +37,11 @@ IOSchedulingClass=idle
 CPUWeight=10
 MemoryHigh=256M
 MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/home/ubuntu/hft-bot-rfq-fresh /var/lib/kalshi-rfq-fresh/control
+ReadWritePaths=/home/ubuntu/hft-bot/work/raw /home/ubuntu/hft-bot/work/live
 StandardOutput=append:/home/ubuntu/hft-bot/work/live/rfq_capture.out.log
 StandardError=append:/home/ubuntu/hft-bot/work/live/rfq_capture.err.log
 

@@ -30,6 +30,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 from typing import Iterable
 
@@ -41,7 +42,10 @@ REQUIRED = {
     "rfq_created": ("id", "creator_id", "market_ticker", "created_ts"),
     "rfq_deleted": ("id", "creator_id", "market_ticker", "deleted_ts"),
 }
-HOUR_RE = re.compile(r"[/\\]date=(\d{4}-\d{2}-\d{2})[/\\]rfq_(\d{2})\.ndjson(?:\.\d+)?$")
+HOUR_RE = re.compile(
+    r"[/\\]date=(\d{4}-\d{2}-\d{2})[/\\]rfq_(\d{2})\.ndjson"
+    r"(?:\.([1-9][0-9]*))?$")
+HASH_CHUNK_BYTES = 1024 * 1024
 
 
 class ReportError(RuntimeError):
@@ -103,8 +107,113 @@ def hour_key_from_path(path: str) -> str | None:
     return (m.group(1) + "T" + m.group(2)) if m else None
 
 
+def shard_ordinal_from_path(path: str) -> int | None:
+    m = HOUR_RE.search(path)
+    if not m:
+        return None
+    return int(m.group(3) or 0)
+
+
+def _path_sort_key(path: str) -> tuple:
+    hour = hour_key_from_path(path)
+    ordinal = shard_ordinal_from_path(path)
+    if hour is not None and ordinal is not None:
+        return (0, hour, ordinal, path)
+    return (1, path, 0, path)
+
+
+def _stream_file_identity(path: Path, *, chunk_bytes: int = HASH_CHUNK_BYTES) -> dict:
+    before = path.lstat()
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise OSError("input must be a non-symlink regular file")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise OSError("input identity changed during open")
+        while True:
+            chunk = os.read(fd, chunk_bytes)
+            if not chunk:
+                break
+            digest.update(chunk)
+            total += len(chunk)
+        after = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) !=
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) or
+            total != before.st_size):
+        raise OSError("input changed while hashing")
+    return {"bytes": total, "sha256": digest.hexdigest(),
+            "device": before.st_dev, "inode": before.st_ino}
+
+
+def _canonical_capture_shards(shards: list[dict]) -> list[dict]:
+    """Validate and canonicalize a complete portable RFQ shard identity."""
+    if not isinstance(shards, list) or not shards:
+        raise ValueError("capture shard set must be a non-empty list")
+    canonical: list[dict] = []
+    seen_ordinals: set[int] = set()
+    seen_relpaths: set[str] = set()
+    pattern = re.compile(
+        r"^date=(\d{4}-\d{2}-\d{2})/rfq_(?:[01]\d|2[0-3])\.ndjson"
+        r"(?:\.([1-9][0-9]*))?$")
+    for row in shards:
+        if not isinstance(row, dict):
+            raise ValueError("capture shard member must be an object")
+        ordinal = row.get("ordinal")
+        relpath = row.get("relpath")
+        bytes_before = row.get("bytes_before")
+        size = row.get("size")
+        parsed = row.get("parsed_bytes_at_close")
+        sha256 = row.get("sha256")
+        if type(ordinal) is not int or ordinal < 0:
+            raise ValueError("capture shard ordinal is invalid")
+        if ordinal in seen_ordinals:
+            raise ValueError("duplicate capture shard ordinal")
+        if not isinstance(relpath, str) or "\\" in relpath:
+            raise ValueError("capture shard relpath is unsafe")
+        matched = pattern.fullmatch(relpath)
+        if not matched:
+            raise ValueError("capture shard relpath is unsafe")
+        try:
+            dt.date.fromisoformat(matched.group(1))
+        except ValueError as exc:
+            raise ValueError("capture shard relpath date is invalid") from exc
+        rel_ordinal = 0 if matched.group(2) is None else int(matched.group(2))
+        if rel_ordinal != ordinal or relpath in seen_relpaths:
+            raise ValueError("capture shard relpath/ordinal is duplicated or mismatched")
+        if (type(bytes_before) is not int or bytes_before < 0 or
+                type(size) is not int or size < 0 or bytes_before > size or
+                type(parsed) is not int or parsed != size):
+            raise ValueError("capture shard byte bounds are invalid")
+        if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            raise ValueError("capture shard SHA-256 is invalid")
+        seen_ordinals.add(ordinal)
+        seen_relpaths.add(relpath)
+        canonical.append({
+            "ordinal": ordinal, "relpath": relpath,
+            "bytes_before": bytes_before, "size": size,
+            "parsed_bytes_at_close": parsed, "sha256": sha256,
+        })
+    canonical.sort(key=lambda row: (row["ordinal"], row["relpath"]))
+    if [row["ordinal"] for row in canonical] != list(range(len(canonical))):
+        raise ValueError("capture shard ordinals are not contiguous from zero")
+    return canonical
+
+
+def capture_shard_set_sha256(shards: list[dict]) -> str:
+    canonical = _canonical_capture_shards(shards)
+    return hashlib.sha256(json.dumps(
+        canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def discover(raw_root: str) -> list[str]:
-    return sorted(glob.glob(os.path.join(raw_root, "date=*", "rfq_*.ndjson*")))
+    return sorted(glob.glob(os.path.join(raw_root, "date=*", "rfq_*.ndjson*")),
+                  key=_path_sort_key)
 
 
 def parse_paths(paths: Iterable[str]) -> dict:
@@ -118,26 +227,37 @@ def parse_paths(paths: Iterable[str]) -> dict:
     subscribed_hours: set[str] = set()
     file_hours: set[str] = set()
     input_files: list[dict] = []
+    capture_shard_sets: dict[str, list[dict]] = {}
     recorder_rows = 0
     min_recv_ns = None
     max_recv_ns = None
 
-    for path in sorted(paths):
+    for path in sorted(paths, key=_path_sort_key):
         path_hour = hour_key_from_path(path)
-        if path_hour:
-            file_hours.add(path_hour)
+        ordinal = shard_ordinal_from_path(path)
         try:
-            input_files.append({
+            identity = _stream_file_identity(Path(path))
+            item = {
                 "path": path,
                 "hour": path_hour,
-                "bytes": os.path.getsize(path),
-                "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
-            })
-        except OSError:
-            pass
+                "bytes": identity["bytes"],
+                "sha256": identity["sha256"],
+                "device": identity["device"],
+                "inode": identity["inode"],
+            }
+            if path_hour is not None and ordinal is not None:
+                item["ordinal"] = ordinal
+                file_hours.add(path_hour)
+                capture_shard_sets.setdefault(path_hour, []).append(item)
+            input_files.append(item)
+        except OSError as exc:
+            dq_records.append({"hour": path_hour, "key": "unsafe_or_unreadable_file",
+                               "detail": str(exc)})
+            continue
         try:
-            fh = open(path, "r", encoding="utf-8")
-        except OSError:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            fh = os.fdopen(os.open(path, flags), "r", encoding="utf-8")
+        except OSError as exc:
             dq_records.append({"hour": path_hour, "key": "unreadable_file"})
             continue
         with fh:
@@ -285,6 +405,15 @@ def parse_paths(paths: Iterable[str]) -> dict:
                     "source_file": path,
                     "source_line": line_no,
                 })
+    for hour, rows in capture_shard_sets.items():
+        rows.sort(key=lambda row: int(row["ordinal"]))
+        ordinals = [int(row["ordinal"]) for row in rows]
+        if ordinals != list(range(len(ordinals))):
+            dq_records.append({"hour": hour,
+                               "key": "non_contiguous_capture_shards"})
+        inodes = [(int(row["device"]), int(row["inode"])) for row in rows]
+        if len(set(inodes)) != len(inodes):
+            dq_records.append({"hour": hour, "key": "capture_shard_inode_alias"})
     return {
         "events": events,
         "dq_records": dq_records,
@@ -295,6 +424,7 @@ def parse_paths(paths: Iterable[str]) -> dict:
         "subscribed_hours": subscribed_hours,
         "file_hours": file_hours,
         "input_files": input_files,
+        "capture_shard_sets": capture_shard_sets,
         "recorder_rows": recorder_rows,
         "min_recv_ns": min_recv_ns,
         "max_recv_ns": max_recv_ns,
@@ -384,6 +514,178 @@ def _aggregate_records(records: list[dict], expected: set[str]) -> dict[str, int
     return out
 
 
+def _valid_capture_relpath(value, segment_hour: str,
+                           expected_ordinal: int | None = None) -> bool:
+    if not isinstance(value, str):
+        return False
+    rel = Path(value)
+    if rel.is_absolute() or ".." in rel.parts or len(rel.parts) != 2:
+        return False
+    matched_hour = hour_key_from_path("/" + rel.as_posix())
+    ordinal = shard_ordinal_from_path("/" + rel.as_posix())
+    return (matched_hour == segment_hour and ordinal is not None and
+            (expected_ordinal is None or ordinal == expected_ordinal))
+
+
+def _v3_evidence_contract_errors(row: dict, segment_hour: str) -> list[str]:
+    """Mechanically validate the health evidence required for v3 eligibility."""
+    errors: list[str] = []
+    if row.get("findings") != []:
+        errors.append("v3 receipt findings are missing/non-empty")
+    try:
+        start = dt.datetime.strptime(segment_hour, "%Y-%m-%dT%H").replace(
+            tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError):
+        return ["v3 segment_hour is not an exact UTC hour"]
+    if start.strftime("%Y-%m-%dT%H") != segment_hour:
+        return ["v3 segment_hour is not an exact UTC hour"]
+    start_ns = int(start.timestamp() * 1_000_000_000)
+    end_ns = int((start + dt.timedelta(hours=1)).timestamp() * 1_000_000_000)
+    if (type(row.get("expected_start_wall_ns")) is not int or
+            row.get("expected_start_wall_ns") != start_ns):
+        errors.append("v3 expected_start_wall_ns does not match segment_hour")
+    if (type(row.get("expected_end_wall_ns")) is not int or
+            row.get("expected_end_wall_ns") != end_ns):
+        errors.append("v3 expected_end_wall_ns does not match segment_hour")
+    if "child_rc" not in row or row.get("child_rc") is not None:
+        errors.append("v3 PASS boundary receipt child_rc must be null")
+
+    raw = row.get("raw_evidence")
+    if not isinstance(raw, dict):
+        errors.append("v3 raw_evidence is missing/invalid")
+    else:
+        if type(raw.get("recorder_rows")) is not int or raw["recorder_rows"] < 1:
+            errors.append("v3 raw recorder_rows is missing/invalid")
+        markers = raw.get("markers")
+        if (not isinstance(markers, dict) or
+                type(markers.get("hour_open")) is not int or
+                markers.get("hour_open") != 1):
+            errors.append("v3 raw hour_open count is not exactly one")
+        elif any(type(markers.get(key, 0)) is not int or
+                 markers.get(key, 0) != 0 for key in
+                 ("loss", "gap", "transport_close", "transport_error")):
+            errors.append("v3 raw evidence contains a blocking stream marker")
+        if (type(raw.get("partition_mismatches")) is not int or
+                raw.get("partition_mismatches") != 0):
+            errors.append("v3 raw partition_mismatches is not zero")
+        if (type(raw.get("subscription_invalidations")) is not int or
+                raw.get("subscription_invalidations") != 0):
+            errors.append("v3 raw subscription_invalidations is not zero")
+        if raw.get("findings") != []:
+            errors.append("v3 raw findings are missing/non-empty")
+
+    metrics = row.get("metrics_evidence")
+    if not isinstance(metrics, dict):
+        errors.append("v3 metrics_evidence is missing/invalid")
+    else:
+        if metrics.get("findings") != []:
+            errors.append("v3 metrics findings are missing/non-empty")
+        zero_fields = (
+            "min_reconnects", "max_reconnects",
+            "min_disconnects", "max_disconnects",
+            "min_errors", "max_errors",
+            "max_recorder_dropped", "max_recorder_write_failures",
+        )
+        for field in zero_fields:
+            if type(metrics.get(field)) is not int or metrics[field] != 0:
+                errors.append("v3 metrics %s is missing/non-zero" % field)
+        feed_rows = metrics.get("feed_rows")
+        connected = metrics.get("connected_valid_rows")
+        if type(feed_rows) is not int or feed_rows < 1:
+            errors.append("v3 metrics feed_rows is missing/invalid")
+        if (type(connected) is not int or connected < 1 or
+                type(feed_rows) is not int or connected > feed_rows or
+                connected * 10 < feed_rows * 8):
+            errors.append("v3 connected-valid heartbeat coverage is unhealthy")
+        first_ms = metrics.get("first_ts_ms")
+        last_ms = metrics.get("last_ts_ms")
+        lo_ms, hi_ms = start_ns // 1_000_000, end_ns // 1_000_000
+        if (type(first_ms) is not int or first_ms < lo_ms or
+                first_ms > lo_ms + 5_000):
+            errors.append("v3 metrics do not cover the hour start")
+        if (type(last_ms) is not int or last_ms < hi_ms - 5_000 or
+                last_ms >= hi_ms):
+            errors.append("v3 metrics do not cover the hour end")
+    return errors
+
+
+def receipt_contract_errors(row: dict) -> list[str]:
+    """Validate receipt shape; v2 remains valid only for one legacy object."""
+    errors: list[str] = []
+    stability = row.get("close_stability_ms")
+    if row.get("status") != "PASS":
+        errors.append("status is not PASS")
+    if row.get("findings"):
+        errors.append("receipt findings are non-empty")
+    if row.get("subscription_proven") is not True:
+        errors.append("subscription is not proven")
+    if row.get("boundary_closed") is not True or row.get("end_reason") != "boundary":
+        errors.append("hour boundary is not closed")
+    if type(stability) is not int or stability < 1_000:
+        errors.append("close stability is below 1000ms")
+    schema = row.get("schema")
+    segment_hour = row.get("segment_hour")
+    if not isinstance(segment_hour, str):
+        errors.append("segment_hour is missing")
+        return errors
+    if schema == "rfq-segment-receipt-v2":
+        if row.get("capture_bytes_before") != 0:
+            errors.append("v2 capture has pre-existing bytes")
+        if not _valid_capture_relpath(row.get("capture_relpath"), segment_hour, 0):
+            errors.append("v2 capture_relpath is invalid")
+        if (type(row.get("capture_bytes_at_close")) is not int or
+                row["capture_bytes_at_close"] < 0 or
+                not re.fullmatch(r"[0-9a-f]{64}",
+                                 str(row.get("capture_sha256_at_close") or ""))):
+            errors.append("v2 capture identity is invalid")
+        return errors
+    if schema != "rfq-segment-receipt-v3":
+        errors.append("unsupported receipt schema")
+        return errors
+    errors.extend(_v3_evidence_contract_errors(row, segment_hour))
+    shards = row.get("capture_shards")
+    if not isinstance(shards, list) or not shards:
+        errors.append("v3 capture_shards is empty/invalid")
+        return errors
+    if (type(row.get("capture_shard_count")) is not int or
+            row.get("capture_shard_count") != len(shards)):
+        errors.append("v3 capture_shard_count mismatch")
+    seen_relpaths: set[str] = set()
+    shard_members_valid = True
+    for expected_ordinal, shard in enumerate(shards):
+        if not isinstance(shard, dict):
+            errors.append("v3 shard member is not an object")
+            shard_members_valid = False
+            continue
+        if shard.get("ordinal") != expected_ordinal:
+            errors.append("v3 shard ordinals are not contiguous")
+        relpath = shard.get("relpath")
+        if not _valid_capture_relpath(relpath, segment_hour, expected_ordinal):
+            errors.append("v3 shard relpath/hour/ordinal mismatch")
+        if relpath in seen_relpaths:
+            errors.append("v3 duplicate shard relpath")
+        if isinstance(relpath, str):
+            seen_relpaths.add(relpath)
+        if shard.get("bytes_before") != 0:
+            errors.append("v3 shard has pre-existing bytes")
+        if type(shard.get("size")) is not int or shard["size"] < 0:
+            errors.append("v3 shard size is invalid")
+        if (type(shard.get("parsed_bytes_at_close")) is not int or
+                shard.get("parsed_bytes_at_close") != shard.get("size")):
+            errors.append("v3 shard is not parsed through exact EOF")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(shard.get("sha256") or "")):
+            errors.append("v3 shard SHA-256 is invalid")
+    if shard_members_valid:
+        try:
+            shard_set_sha256 = capture_shard_set_sha256(shards)
+        except ValueError:
+            errors.append("v3 capture_shards canonical set is invalid")
+        else:
+            if row.get("capture_shard_set_sha256") != shard_set_sha256:
+                errors.append("v3 capture_shard_set_sha256 mismatch")
+    return sorted(set(errors))
+
+
 def load_seal_index(seals_root: str, raw_root: str, dates: set[str]) -> tuple[dict, list[str]]:
     """Load full_v2 day-seal raw proofs as absolute-path -> proof."""
     index: dict[str, dict] = {}
@@ -467,17 +769,7 @@ def build_report(parsed: dict, classification: dict[str, str], *,
     def healthy_receipt(rows: list[dict]) -> bool:
         if len(rows) != 1:
             return False
-        row = rows[0]
-        stability = row.get("close_stability_ms")
-        return (
-            row.get("schema") == "rfq-segment-receipt-v2" and
-            row.get("status") == "PASS" and not row.get("findings") and
-            row.get("subscription_proven") is True and
-            row.get("boundary_closed") is True and
-            row.get("end_reason") == "boundary" and
-            type(stability) is int and stability >= 1_000 and
-            row.get("capture_bytes_before") == 0
-        )
+        return not receipt_contract_errors(rows[0])
 
     unhealthy_receipt_hours = sorted(
         h for h, rows in receipt_by_hour.items()
@@ -489,11 +781,6 @@ def build_report(parsed: dict, classification: dict[str, str], *,
     receipt_sources = {r.get("_source_file") for r in receipts if r.get("_source_file")}
     required_files.extend(f for f in parsed["input_files"] if f.get("path") in receipt_sources)
     required_files = list({f["path"]: f for f in required_files}.values())
-    files_by_rel: dict[str, list[dict]] = {}
-    for item in required_files:
-        parts = Path(item["path"]).parts
-        if len(parts) >= 2:
-            files_by_rel.setdefault("/".join(parts[-2:]), []).append(item)
     seal_index = seal_index or {}
     seal_failures = list(seal_errors or [])
     for item in required_files:
@@ -502,26 +789,45 @@ def build_report(parsed: dict, classification: dict[str, str], *,
             seal_failures.append("not present in day seal: %s" % item["path"])
         elif int(proof.get("size", -1)) != item["bytes"] or proof.get("sha256") != item["sha256"]:
             seal_failures.append("day-seal size/SHA mismatch: %s" % item["path"])
+    capture_shard_sets = parsed.get("capture_shard_sets", {})
     for receipt in receipts:
         if receipt.get("status") != "PASS":
             continue
-        capture_relpath = receipt.get("capture_relpath")
-        rel = Path(capture_relpath) if isinstance(capture_relpath, str) else None
-        rel_valid = bool(
-            rel and not rel.is_absolute() and ".." not in rel.parts and
-            len(rel.parts) == 2 and rel.parts[0].startswith("date=") and
-            hour_key_from_path("/" + rel.as_posix()) is not None)
-        matches = files_by_rel.get(rel.as_posix(), []) if rel_valid else []
-        if len(matches) != 1:
-            seal_failures.append(
-                "PASS receipt capture_relpath is invalid/absent/ambiguous: %s" %
-                (capture_relpath or "<missing>"))
+        segment_hour = receipt.get("segment_hour")
+        actual_rows = sorted(capture_shard_sets.get(segment_hour, []),
+                             key=lambda row: int(row.get("ordinal", -1)))
+        actual_relpaths = ["/".join(Path(row["path"]).parts[-2:])
+                           for row in actual_rows]
+        if receipt.get("schema") == "rfq-segment-receipt-v2":
+            capture_relpath = receipt.get("capture_relpath")
+            if len(actual_rows) != 1 or actual_relpaths != [capture_relpath]:
+                seal_failures.append(
+                    "v2 PASS receipt does not bind complete shard set: %s" %
+                    (segment_hour or "<missing>"))
+                continue
+            item = actual_rows[0]
+            if (receipt.get("capture_bytes_at_close") != item["bytes"] or
+                    receipt.get("capture_sha256_at_close") != item["sha256"]):
+                seal_failures.append(
+                    "post-receipt append or receipt SHA mismatch: %s" %
+                    capture_relpath)
             continue
-        item = matches[0]
-        if (receipt.get("capture_bytes_at_close") != item["bytes"] or
-                receipt.get("capture_sha256_at_close") != item["sha256"]):
+        if receipt.get("schema") != "rfq-segment-receipt-v3":
+            continue
+        claimed = receipt.get("capture_shards") or []
+        claimed_relpaths = [row.get("relpath") for row in claimed
+                            if isinstance(row, dict)]
+        if claimed_relpaths != actual_relpaths:
             seal_failures.append(
-                "post-receipt append or receipt SHA mismatch: %s" % capture_relpath)
+                "v3 PASS receipt does not bind complete shard set: %s" %
+                (segment_hour or "<missing>"))
+            continue
+        for claim, item in zip(claimed, actual_rows):
+            if (claim.get("size") != item["bytes"] or
+                    claim.get("sha256") != item["sha256"]):
+                seal_failures.append(
+                    "post-receipt append or receipt SHA mismatch: %s" %
+                    claim.get("relpath"))
 
     created_by_id: dict[str, dict] = {}
     deletes_by_id: dict[str, list[dict]] = {}
