@@ -8,17 +8,28 @@ touch the production EC2 host, publish to S3, or start Track A.
 
 - Instance: `i-0e53d134dceffe166`, Ubuntu 24.04 arm64, `us-east-2`.
 - Role: `w09-research-runner`; IMDSv2 temporary credentials only.
-- S3: canonical `research_data` List/Get/GetObjectVersion reads under the
-  role's `research/*` policy. There is no write code path.
+- S3: versionless reads only for `research/releases/*/MANIFEST.json`, then
+  exact `GetObjectVersion` reads of eligibility-tagged canonical objects.
+  There is no write code path.
 - DuckDB: `1.4.5`, matching production.
 - Cache: `/srv/w09-research/cache` on the 300 GB gp3 root volume.
 - Time: UTC with chrony using Amazon Time Sync.
 - Shutdown: after 1,800 seconds with no SSH and no `w09-run` inhibitor.
 - W09 contains neither the Mac private key nor Kalshi/AWS static credentials.
 
-The canonical CLI is taken only from the clean recovery repository and its
-expected SHA-256 is pinned in `push_and_install.sh`. The W09 wrapper adds
-IMDSv2/session-token signing without adding any S3 operation.
+The dual v2/v3 reader is taken only from the clean recovery repository.  The
+complete import set (`research_data.py`, `research_reference.py`, and
+`warehouse_common.py`) is pinned by `research_reader_modules.sha256`, checked
+before packaging, checked again on the host, and installed non-executable with
+mode `0644`.  The W09 wrapper adds IMDSv2/session-token signing without adding
+any S3 operation.
+
+The general selector remains copied-v2 by default for rollback compatibility.
+The acceptance script is deliberately a separate v3 canary path: it uses an
+isolated `cache-v3-canary`, passes `--require-v3-reference`, refuses copied-v2
+even when that v2 release has a newer data date or publication time,
+and never asks to fetch RFQ. Installing this bundle alone does not publish a
+v3 manifest or enable canonical IAM.
 
 ## 1. Confirm stop-not-terminate, then install
 
@@ -67,12 +78,19 @@ W09_CONTROL_PLANE_STOP_OBSERVED=stopped bash deploy/w09/run_acceptance.sh
 
 Acceptance fails closed unless it finds exactly one prior idle-poweroff event
 with `idle_for_sec >= 1800` and a different boot ID. It then uses the instance
-profile to run `inventory`, chooses the newest **data date** (same date ties by
-publisher time), fetches the exact VersionIds including sealed RFQ when present,
-and runs explicit `verify`. Success ends with `W09_READY`.
+profile to run `inventory`, explicitly selects the newest v3 reference by
+**data date** (same-date ties by publisher time), fetches its exact VersionIds
+with RFQ OFF, and runs explicit `verify`. Success requires
+`REFERENCE_V3/CANONICAL_REFERENCE` and ends with `W09_READY`.
 
 `W09_READY` does not authorize research. Track A remains held until the
 separate `W05_ACCEPTED` operator gate exists.
+
+Copied-v2 rollback is explicit: restore the prior broad `research/*` reader
+policy (after review), use `/srv/w09-research/cache`, and run the selector
+with neither `--require-v3-reference` nor `--include-v3-reference`. Never keep
+the broad v2 policy attached while claiming the v3 least-privilege boundary
+is active.
 
 ## Workloads and rollback
 
@@ -81,6 +99,9 @@ Detached jobs must use:
 ```bash
 w09-run command args...
 ```
+
+`w09-run` uses a narrowly scoped sudo helper only to acquire the shutdown
+inhibitor; the requested workload is then executed as `ubuntu`, never as root.
 
 Emergency disable (keeps the machine running):
 

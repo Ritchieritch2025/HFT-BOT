@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""PIPE-W05 Phase A: Mac-side research data CLI — inventory | fetch | verify | view.
+"""Research data CLI — inventory | fetch | verify | view.
 
-Reads the dedicated research/ S3 prefix (immutable releases published by
-tools/research_release.py as releases/<release_id>/ with MANIFEST.json LAST).
+Reads immutable release manifests from the dedicated research/ S3 prefix.
+Historical v2 releases name copied objects below that prefix; zero-copy v3
+releases contain only exact-version references to the canonical warehouse.
+Both are published by tools/research_release.py as
+releases/<release_id>/MANIFEST.json LAST.
 Release-id addressing only; a release without its MANIFEST.json is treated as
 unpublished (torn) and is never exposed. release_id embeds the full
 publication-state digest (<date>__seal-<8>__pub-<16>): a later correction,
 new gap evidence or a flipped rfq switch is a DISTINCT release. Object
-fetches request the exact VersionId the publisher recorded post-upload
-(null on an unversioned bucket — size+sha256 stay the authoritative freeze).
+fetches request the exact VersionId recorded by the publisher.  V3 refuses a
+missing/null VersionId and verifies every cached object by size and SHA-256.
 
     python3 tools/research_data.py inventory
     python3 tools/research_data.py fetch  --release <release_id> [--with-rfq]
@@ -16,7 +19,8 @@ fetches request the exact VersionId the publisher recorded post-upload
     python3 tools/research_data.py view
 
 No aws CLI and no boto3 required: S3 access is stdlib SigV4 (ListObjectsV2 +
-GetObject), read-only by construction. Credentials come from
+exact-version GetObject), read-only by construction. On the Mac, credentials
+come from
     ~/.kalshi/research_s3.env.sh          (chmod 600; values never printed)
 containing exactly:
     export AWS_ACCESS_KEY_ID=...          # the W05 research read-only key
@@ -25,7 +29,8 @@ containing exactly:
     export KALSHI_RESEARCH_S3_ROOT=...    # optional root override
 The matching least-privilege IAM policy for the operator console is
 docs/plan_releases/pipeline/W05_RESEARCH_READONLY_IAM_POLICY.json.
-The root may also be a local directory (fixture tests / offline use).
+W09 uses the instance-profile-only wrapper in deploy/w09 instead of a static
+key.  The root may also be a local directory (fixture tests / offline use).
 
 verify (a failed release is NOT exposed — loud warning, exit 2):
   * every manifest object present in the local cache with exact byte size +
@@ -42,14 +47,16 @@ Success writes .VERIFIED.json into the cached release and refreshes the
 merged warehouse-shaped `view/` (symlinks, VERIFIED releases only) that the
 Event Intelligence dashboard consumes via --data-root.
 
-Channel truth carried on every verify/inventory output (W05 amendment 4):
+Channel truth carried on every verify/inventory output:
 L1 = conflated change stream, never lossless (gap intervals alongside);
-trades = trade-id identity, duplicates collapse downstream; L2 = NOT
-RESEARCH-EXPOSABLE in Phase A (no L2 facts extraction; generic raw excluded
-from research/ by amendment 1); RFQ = sealed raw form, operator cost switch.
+trades = trade-id identity, duplicates collapse downstream; L2 = full-book
+``orderbooks_full`` facts in eligible v3 releases, with the L2 quality receipt
+verified alongside them (historical v2 releases retain their original scope);
+RFQ = default OFF and only readable when separately sealed, evidenced and
+dual-tagged.
 
 Local caches under work/research_cache/ are prunable; S3, seals and
-production are never touched (this tool holds a read-only credential).
+production are never mutated (this tool has no write implementation).
 """
 import argparse
 import datetime
@@ -68,6 +75,7 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
+import research_reference as ref  # noqa: E402
 
 ROOT_DEFAULT = "s3://kalshi-vault-ritcardo/research"
 
@@ -94,7 +102,9 @@ PRICE_EGRESS_GB = 0.09
 # never touched, only read.
 _RELEASE_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{8}__pub-[0-9a-f]{16}$"
-    r"|^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{12}(-rfq)?$")
+    r"|^(\d{4}-\d{2}-\d{2})__seal-[0-9a-f]{12}(-rfq)?$"
+    r"|^(\d{4}-\d{2}-\d{2})__v3ref__seal-[0-9a-f]{8}"
+    r"__pub-[0-9a-f]{16}$")
 
 
 def sha256_file(path):
@@ -196,6 +206,30 @@ def safe_cache_path(base, key):
         raise SystemExit("REFUSED (cache containment): %r escapes the "
                          "cache root %s" % (key, base))
     return os.path.join(base_real, *parts)
+
+
+def safe_release_object_path(base, key):
+    """Contain a release entry while allowing its final leaf to be a symlink.
+
+    ``safe_cache_path`` intentionally resolves the whole path and is right for
+    regular cache files.  Reference releases use symlinks as their immutable
+    logical leaves, so here only the parent is resolved; it must still remain
+    inside the release directory.
+    """
+    if not key or key.startswith(("/", "\\")) or "\\" in key:
+        raise SystemExit("REFUSED (cache containment): illegal manifest key %r"
+                         % key)
+    parts = key.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise SystemExit("REFUSED (cache containment): traversal manifest key %r"
+                         % key)
+    base_real = os.path.realpath(base)
+    candidate = os.path.join(base_real, *parts)
+    parent_real = os.path.realpath(os.path.dirname(candidate))
+    if parent_real != base_real and not parent_real.startswith(base_real + os.sep):
+        raise SystemExit("REFUSED (cache containment): %r escapes the release %s"
+                         % (key, base))
+    return candidate
 
 
 def contained_remove(path, cache_root, is_dir=False):
@@ -318,6 +352,43 @@ class S3Store:
         with self._signed_request(key=self._full(rel)) as resp:
             return resp.read()
 
+    def get_bytes_with_version(self, rel):
+        """Read a research-namespace control object and retain its VersionId.
+
+        A v3 data reference is never resolved through this method; canonical
+        objects use ``get_source_to`` below with the manifest's exact
+        VersionId.  This versionless lookup is only the unavoidable first
+        lookup of the release MANIFEST itself.
+        """
+        with self._signed_request(key=self._full(rel)) as resp:
+            raw = resp.read()
+            version_id = resp.headers.get("x-amz-version-id")
+        if (not version_id or version_id.strip().lower() == "null"):
+            raise SystemExit(
+                "REFUSED (v3 manifest): research MANIFEST has no non-null "
+                "S3 VersionId; versioning is required")
+        return raw, version_id
+
+    def get_source_to(self, bucket, key, dest, version_id):
+        """Exact-version GET of one allowlisted canonical object.
+
+        Deliberately has no list/latest/versionless fallback.  The manifest
+        validator has already constrained bucket and key; repeat the bucket
+        and VersionId gates here so a future caller cannot bypass them.
+        """
+        if bucket != ref.TRUSTED_BUCKET or bucket != self.bucket:
+            raise SystemExit("REFUSED (v3 source): untrusted bucket %r" % bucket)
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.strip().lower() == "null"):
+            raise SystemExit("REFUSED (v3 source): exact VersionId is required")
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        tmp = dest + ".part"
+        with self._signed_request(
+                key=key, query={"versionId": version_id}) as resp, \
+                open(tmp, "wb") as f:
+            shutil.copyfileobj(resp, f, 1 << 20)
+        os.replace(tmp, dest)
+
     def describe(self):
         return "s3://%s/%s" % (self.bucket, self.prefix)
 
@@ -345,6 +416,25 @@ class LocalStore:
     def get_bytes(self, rel):
         with open(os.path.join(self.root, rel), "rb") as f:
             return f.read()
+
+    def get_bytes_with_version(self, rel):
+        raw = self.get_bytes(rel)
+        # Offline fixtures have no S3 response headers.  The synthetic value
+        # is loud and content-bound; it is never accepted as a production
+        # canonical object VersionId.
+        return raw, "LOCAL-FIXTURE-MANIFEST-%s" % hashlib.sha256(raw).hexdigest()
+
+    def get_source_to(self, bucket, key, dest, version_id):
+        if bucket != ref.TRUSTED_BUCKET:
+            raise SystemExit("REFUSED (v3 source): untrusted bucket %r" % bucket)
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.strip().lower() == "null"):
+            raise SystemExit("REFUSED (v3 source): exact VersionId is required")
+        # Fixture-only canonical namespace, intentionally outside releases/.
+        src_root = os.path.join(self.root, "__canonical__", bucket)
+        src = safe_cache_path(src_root, key)
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        shutil.copyfile(src, dest)
 
     def describe(self):
         return self.root
@@ -394,6 +484,8 @@ def is_quarantined_legacy(manifest):
     """Remediation item 5: releases lacking the v2 publication-state /
     version-binding freeze (e.g. pre-correction-order legacy releases) are
     QUARANTINED — readable only with an explicit branded override."""
+    if ref.is_reference_manifest(manifest):
+        return False
     return (manifest.get("schema_version") != "research-release-manifest-v2"
             or not manifest.get("publication_state_sha256")
             or not isinstance(manifest.get("version_binding"), dict))
@@ -421,16 +513,147 @@ def verified_marker(cache, rid):
     return os.path.join(cache_release_dir(cache, rid), ".VERIFIED.json")
 
 
+def _atomic_write(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    with open(tmp, "wb") as f:
+        f.write(payload)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def _strict_json_bytes(raw, label):
+    def pairs_hook(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate JSON key %r" % key)
+            out[key] = value
+        return out
+
+    def bad_constant(value):
+        raise ValueError("non-finite JSON number %s" % value)
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs_hook,
+                          parse_constant=bad_constant)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise SystemExit("REFUSED (%s): invalid JSON: %s" % (label, exc))
+
+
+def reference_manifest_dir(cache, rid):
+    # Neutral control cache: a manifest alone must never make a release tree
+    # look partially materialized or verified.
+    cache_release_dir(cache, rid)  # validate the externally supplied id
+    return os.path.join(cache, "reference_manifests", rid)
+
+
+def _cache_reference_manifest(cache, rid, raw, version_id):
+    manifest = _strict_json_bytes(raw, "v3 manifest")
+    try:
+        ref.validate_manifest(manifest, rid)
+    except ref.ReferenceManifestError as exc:
+        raise SystemExit("REFUSED (v3 manifest): %s" % exc)
+    digest = hashlib.sha256(raw).hexdigest()
+    if (not isinstance(version_id, str) or not version_id.strip()
+            or version_id.strip().lower() == "null"):
+        raise SystemExit("REFUSED (v3 manifest): non-null VersionId required")
+    mdir = reference_manifest_dir(cache, rid)
+    identity_path = os.path.join(mdir, "IDENTITY.json")
+    if os.path.isfile(identity_path):
+        with open(identity_path, encoding="utf-8") as f:
+            old = json.load(f)
+        if (old.get("manifest_sha256") != digest
+                or old.get("manifest_version_id") != version_id):
+            raise SystemExit(
+                "REFUSED (v3 manifest equivocation): release %s was already "
+                "bound to a different manifest byte/version identity" % rid)
+    _atomic_write(os.path.join(mdir, "MANIFEST.json"), raw)
+    _atomic_write(identity_path, json.dumps({
+        "schema": "research-reference-manifest-cache-v1",
+        "release_id": rid,
+        "manifest_sha256": digest,
+        "manifest_version_id": version_id,
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+    return manifest, raw, version_id, digest
+
+
+def reference_manifest_record(cache, store, rid):
+    """Return validated manifest, exact bytes, VersionId and SHA-256."""
+    final_manifest = os.path.join(cache_release_dir(cache, rid),
+                                  "MANIFEST.json")
+    neutral = reference_manifest_dir(cache, rid)
+    neutral_manifest = os.path.join(neutral, "MANIFEST.json")
+    identity_path = os.path.join(neutral, "IDENTITY.json")
+    cached_path = (final_manifest if os.path.isfile(final_manifest)
+                   else neutral_manifest if os.path.isfile(neutral_manifest)
+                   else None)
+    if cached_path:
+        with open(cached_path, "rb") as f:
+            raw = f.read()
+        manifest = _strict_json_bytes(raw, "cached v3 manifest")
+        try:
+            ref.validate_manifest(manifest, rid)
+        except ref.ReferenceManifestError as exc:
+            raise SystemExit("REFUSED (cached v3 manifest): %s" % exc)
+        identity = None
+        if os.path.isfile(identity_path):
+            with open(identity_path, encoding="utf-8") as f:
+                identity = json.load(f)
+        marker = verified_marker(cache, rid)
+        if identity is None and os.path.isfile(marker):
+            with open(marker, encoding="utf-8") as f:
+                identity = json.load(f)
+        digest = hashlib.sha256(raw).hexdigest()
+        if (not isinstance(identity, dict)
+                or identity.get("manifest_sha256") != digest
+                or not identity.get("manifest_version_id")):
+            raise SystemExit(
+                "REFUSED (cached v3 manifest): manifest identity is missing "
+                "or inconsistent")
+        return (manifest, raw, identity["manifest_version_id"], digest)
+
+    rel = "releases/%s/MANIFEST.json" % rid
+    if not hasattr(store, "get_bytes_with_version"):
+        raise SystemExit("REFUSED (v3 manifest): store cannot retain VersionId")
+    raw, version_id = store.get_bytes_with_version(rel)
+    return _cache_reference_manifest(cache, rid, raw, version_id)
+
+
+def assert_reference_manifest_current(store, rid, raw, version_id):
+    """Close the manifest/data TOCTOU window before materialization."""
+    if not hasattr(store, "get_bytes_with_version"):
+        raise ReferenceVerificationError(
+            "store cannot recheck the v3 manifest VersionId")
+    rel = "releases/%s/MANIFEST.json" % rid
+    current_raw, current_version = store.get_bytes_with_version(rel)
+    if current_version != version_id or current_raw != raw:
+        raise ReferenceVerificationError(
+            "v3 manifest changed while exact-version objects were fetched")
+
+
 def read_manifest(cache, store, rid):
+    if ref.RELEASE_RE.match(rid):
+        return reference_manifest_record(cache, store, rid)[0]
     cached = os.path.join(cache_release_dir(cache, rid), "MANIFEST.json")
     if os.path.isfile(cached):
         with open(cached) as f:
             return json.load(f)
     raw = store.get_bytes("releases/%s/MANIFEST.json" % rid)
+    parsed = _strict_json_bytes(raw, "release manifest")
+    if ref.is_reference_manifest(parsed):
+        # A reference manifest under the copied-v2 namespace is invalid; do
+        # not write it into a release-shaped directory.
+        try:
+            ref.validate_manifest(parsed, rid)
+        except ref.ReferenceManifestError as exc:
+            raise SystemExit("REFUSED (v3 manifest): %s" % exc)
+        raise SystemExit("REFUSED (v3 manifest): v3 release id namespace required")
     os.makedirs(os.path.dirname(cached), exist_ok=True)
     with open(cached, "wb") as f:
         f.write(raw)
-    return json.loads(raw)
+    return parsed
 
 
 def dir_bytes(path):
@@ -460,10 +683,15 @@ def cmd_inventory(store, cache):
         total_bytes += r["bytes"]
         status = "TORN/UNPUBLISHED (no MANIFEST — not exposed)"
         date = rid.split("__")[0] if _RELEASE_RE.match(rid) else "?"
-        tier = tl1 = rfq = l2 = "?"
+        tier = tl1 = rfq = l2 = mode = "?"
+        object_count, object_bytes = len(r["objects"]), r["bytes"]
         if r["exposed"]:
             m = read_manifest(cache, store, rid)
-            tier, tl1 = m.get("evidence_tier", "?"), m.get("tl1_status", "?")
+            is_v3 = ref.is_reference_manifest(m)
+            mode = "REFERENCE_V3" if is_v3 else "COPIED_V2"
+            tier = ((m.get("evidence") or {}).get("tier", "?")
+                    if is_v3 else m.get("evidence_tier", "?"))
+            tl1 = m.get("tl1_status", "?")
             ch = m.get("channels", {})
             rfq = ch.get("rfq", {}).get("status", "?")
             # fix 4: L2 status comes from the manifest per release — sealed
@@ -476,23 +704,28 @@ def cmd_inventory(store, cache):
                 status = "EXPOSED"
                 if os.path.isfile(verified_marker(cache, rid)):
                     status = "EXPOSED+VERIFIED_LOCALLY"
-                bmode = m.get("version_binding", {}).get("mode")
-                if bmode != "VERSION_BOUND":
+                bmode = ("CANONICAL_REFERENCE" if is_v3 else
+                         m.get("version_binding", {}).get("mode"))
+                if bmode not in ("VERSION_BOUND", "CANONICAL_REFERENCE"):
                     status += "!" + str(bmode)
-        rows.append((rid, date, status, len(r["objects"]),
-                     r["bytes"] / 1e9, tier, tl1, l2, rfq))
+            object_count = len(m.get("objects", []))
+            object_bytes = sum(int(o.get("size") or 0)
+                               for o in m.get("objects", []))
+        rows.append((rid, date, mode, status, object_count,
+                     object_bytes / 1e9, tier, tl1, l2, rfq))
     if rows:
-        print("%-44s %-11s %-28s %6s %9s %-26s %-8s %-26s %s"
-              % ("release_id", "date", "status", "files", "GB", "tier",
-                 "tl1", "l2", "rfq"))
+        print("%-55s %-11s %-12s %-28s %6s %9s %-26s %-8s %-26s %s"
+              % ("release_id", "date", "mode", "status", "files", "GB",
+                 "tier", "tl1", "l2", "rfq"))
         for row in rows:
-            print("%-44s %-11s %-28s %6d %9.3f %-26s %-8s %-26s %s" % row)
-        if any("QUARANTINED_LEGACY" in row[2] for row in rows):
+            print("%-55s %-11s %-12s %-28s %6d %9.3f %-26s %-8s %-26s %s"
+                  % row)
+        if any("QUARANTINED_LEGACY" in row[3] for row in rows):
             print("note: QUARANTINED_LEGACY releases lack the "
                   "publication-state/version-binding freeze; fetch/verify "
                   "refuse them without --allow-legacy-quarantined "
                   "(all outputs branded).")
-        if any("LOCAL_FIXTURE" in row[2] for row in rows):
+        if any("LOCAL_FIXTURE" in row[3] for row in rows):
             print("NOTE: releases marked !LOCAL_FIXTURE_DEST_NO_VERSIONS "
                   "came from an offline fixture destination — never a real "
                   "publication (real S3 is VERSION_BOUND or fails closed, "
@@ -526,6 +759,570 @@ def _iter_manifest_objects(manifest, with_rfq):
         yield o
 
 
+class ReferenceVerificationError(RuntimeError):
+    pass
+
+
+def reference_content_path(cache, digest):
+    if not ref.SHA256_RE.match(str(digest)):
+        raise ReferenceVerificationError("invalid content-cache SHA-256")
+    return os.path.join(cache, "objects", "sha256", digest[:2], digest)
+
+
+def _content_matches(path, item):
+    return (os.path.isfile(path)
+            and not os.path.islink(path)
+            and os.stat(path).st_size == item["size"]
+            and sha256_file(path) == item["sha256"])
+
+
+def _quarantine_content(cache, path, digest):
+    if not os.path.lexists(path):
+        return
+    qdir = os.path.join(cache, "quarantine", "objects", digest[:2])
+    os.makedirs(qdir, exist_ok=True)
+    target = os.path.join(qdir, "%s.%s.%d" % (
+        digest, datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y%m%dT%H%M%S%fZ"), os.getpid()))
+    os.replace(path, target)
+
+
+def _fetch_reference_content(store, cache, item):
+    dest = reference_content_path(cache, item["sha256"])
+    if _content_matches(dest, item):
+        return dest, False
+    if os.path.lexists(dest):
+        _quarantine_content(cache, dest, item["sha256"])
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp = os.path.join(os.path.dirname(dest), ".%s.fetch.%d" % (
+        item["sha256"], os.getpid()))
+    for residue in (tmp, tmp + ".part"):
+        if os.path.lexists(residue):
+            contained_remove(residue, cache)
+    try:
+        store.get_source_to(
+            item["source_bucket"], item["source_key"], tmp,
+            item["source_version_id"])
+        if not _content_matches(tmp, item):
+            got_size = os.stat(tmp).st_size if os.path.isfile(tmp) else None
+            got_sha = sha256_file(tmp) if os.path.isfile(tmp) else None
+            raise ReferenceVerificationError(
+                "exact-version bytes mismatch for %s (size=%r sha256=%r)" %
+                (item["logical_key"], got_size, got_sha))
+        os.replace(tmp, dest)
+        return dest, True
+    finally:
+        for residue in (tmp, tmp + ".part"):
+            if os.path.lexists(residue):
+                contained_remove(residue, cache)
+
+
+def _load_reference_json(path, label):
+    try:
+        with open(path, "rb") as f:
+            return _strict_json_bytes(f.read(), label)
+    except OSError as exc:
+        raise ReferenceVerificationError("%s cannot be read: %s" % (label, exc))
+
+
+def _receipt_cache_item(descriptor):
+    binding = descriptor["receipt_object"]
+    return {
+        "logical_key": "canonical_receipt",
+        "source_bucket": binding["bucket"],
+        "source_key": binding["key"],
+        "source_version_id": binding["version_id"],
+        "size": binding["size"],
+        "sha256": binding["sha256"],
+    }
+
+
+def _verify_reference_receipt(cache, descriptor):
+    item = _receipt_cache_item(descriptor)
+    path = reference_content_path(cache, item["sha256"])
+    if not _content_matches(path, item):
+        raise ReferenceVerificationError(
+            "durable canonical receipt is absent or corrupt")
+    receipt = _load_reference_json(path, "durable canonical receipt")
+    try:
+        result = ref.validate_durable_receipt(receipt, descriptor)
+    except ref.ReferenceManifestError as exc:
+        raise ReferenceVerificationError(str(exc))
+    return result
+
+
+def _capture_receipt_quality(receipt, seal, date):
+    if (not isinstance(receipt, dict)
+            or receipt.get("schema_version") != "capture-gap-scan-receipt-v1"
+            or receipt.get("date") != date):
+        raise ReferenceVerificationError(
+            "capture-gap receipt schema/date binding is invalid")
+    files = receipt.get("files")
+    if not isinstance(files, list):
+        raise ReferenceVerificationError("capture-gap receipt inventory missing")
+    want = {
+        row["file"]: row["size"] for row in seal.get("raw_files", [])
+        if isinstance(row, dict)
+        and isinstance(row.get("file"), str)
+        and row["file"].startswith("date=%s/" % date)
+        and os.path.basename(row["file"]).startswith("firehose_")
+    }
+    got = {}
+    for row in files:
+        if (not isinstance(row, dict) or not isinstance(row.get("file"), str)
+                or not isinstance(row.get("bytes"), int)
+                or isinstance(row.get("bytes"), bool)
+                or row["bytes"] < 0 or row["file"] in got):
+            raise ReferenceVerificationError(
+                "capture-gap receipt inventory is malformed or duplicated")
+        got[row["file"]] = row["bytes"]
+    if got != want:
+        raise ReferenceVerificationError(
+            "capture-gap receipt does not reproduce sealed firehose inventory")
+    if (receipt.get("n_files") != len(files)
+            or receipt.get("total_bytes") != sum(got.values())
+            or receipt.get("unreadable") is not False
+            or not isinstance(receipt.get("gaps"), list)):
+        raise ReferenceVerificationError(
+            "capture-gap receipt result/count fields are invalid")
+    for key in ("records", "unparsed"):
+        value = receipt.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ReferenceVerificationError(
+                "capture-gap receipt %s is invalid" % key)
+    lo = wc.day_start_us(date)
+    hi = lo + 86_400_000_000
+    previous_end = None
+    for gap in receipt["gaps"]:
+        if (not isinstance(gap, dict)
+                or set(gap) != {"start_us", "end_us"}
+                or not isinstance(gap.get("start_us"), int)
+                or isinstance(gap.get("start_us"), bool)
+                or not isinstance(gap.get("end_us"), int)
+                or isinstance(gap.get("end_us"), bool)
+                or not (lo <= gap["start_us"] < gap["end_us"] <= hi)
+                or (previous_end is not None
+                    and gap["start_us"] < previous_end)):
+            raise ReferenceVerificationError(
+                "capture-gap receipt interval is malformed")
+        previous_end = gap["end_us"]
+    return receipt["gaps"]
+
+
+def _l2_receipt_quality(receipt, seal, date):
+    stat_keys = ("lines", "parse_errors", "seq_gap_events",
+                 "seq_missed_total", "sids_total", "sids_with_seq_gaps")
+    if (not isinstance(receipt, dict)
+            or receipt.get("schema_version") != "l2-gap-receipt-v1"
+            or receipt.get("date") != date
+            or not isinstance(receipt.get("file_inventory"), list)):
+        raise ReferenceVerificationError("L2 quality receipt is not date-exact")
+    for key in stat_keys:
+        value = receipt.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ReferenceVerificationError(
+                "L2 quality receipt statistic %s is invalid" % key)
+    want = {
+        row["file"]: row["size"] for row in seal.get("raw_files", [])
+        if isinstance(row, dict)
+        and isinstance(row.get("file"), str)
+        and row["file"].startswith("date=%s/" % date)
+        and os.path.basename(row["file"]).startswith("l2_")
+    }
+    got = {}
+    for row in receipt["file_inventory"]:
+        if (not isinstance(row, dict) or not isinstance(row.get("file"), str)
+                or not isinstance(row.get("bytes"), int)
+                or isinstance(row.get("bytes"), bool)
+                or row["bytes"] < 0 or row["file"] in got):
+            raise ReferenceVerificationError(
+                "L2 quality receipt inventory is malformed or duplicated")
+        got[row["file"]] = row["bytes"]
+    if got != want or receipt.get("no_l2_files") is not (not want):
+        raise ReferenceVerificationError(
+            "L2 quality receipt does not reproduce sealed L2 inventory")
+    return {key: receipt.get(key) for key in ("no_l2_files",) + stat_keys}
+
+
+def _derive_reference_tier(seal, l2_facts_present, l2_evidence_ok):
+    reasons = []
+    if seal.get("method") != "full_v2":
+        reasons.append("seal method=%r (expected full_v2)" % seal.get("method"))
+    if seal.get("go_no_go_eligible") is not True:
+        reasons.append("seal not go_no_go_eligible")
+    if l2_facts_present and not l2_evidence_ok:
+        reasons.append("orderbooks_full facts present but no VALID matching "
+                       "per-date L2 seq-quality receipt (absent) (mandatory, P0-3)")
+    cq = str(seal.get("capture_quality_status") or "")
+    if (not cq or "UNASSESSED" in cq.upper() or any(
+            word in cq.upper() for word in
+            ("FAIL", "BAD", "DEGRADED", "REJECT"))):
+        reasons.append("capture_quality_status=%r can never earn "
+                       "SEALED_CONFIRMATION (P0-3: unassessed quality is "
+                       "not confirmation)" % cq)
+    tier = "SEALED_CONFIRMATION" if not reasons \
+        else "SEALED_DEGRADED_EVIDENCE"
+    return tier, {
+        "seal_status": seal.get("status"),
+        "seal_version": seal.get("version"),
+        "method": seal.get("method"),
+        "go_no_go_eligible": seal.get("go_no_go_eligible"),
+        "capture_quality_status": seal.get("capture_quality_status"),
+        "gap_receipt_affirmative": True,
+        "l2_facts_present": bool(l2_facts_present),
+        "l2_evidence_ok": bool(l2_evidence_ok),
+        "downgrade_reasons": reasons,
+    }
+
+
+def _verify_reference_tree(rdir, descriptor, require_rfq):
+    date = descriptor["date"]
+    n_ok = bytes_ok = 0
+    rfq_rows = []
+    for item in descriptor["objects"]:
+        is_rfq = item["kind"] == "rfq"
+        if is_rfq:
+            rfq_rows.append(item)
+            if not require_rfq:
+                continue
+        path = safe_release_object_path(rdir, item["local_key"])
+        if not os.path.isfile(path):
+            raise ReferenceVerificationError(
+                "missing materialized object: %s" % item["logical_key"])
+        if os.stat(path).st_size != item["size"]:
+            raise ReferenceVerificationError(
+                "size mismatch: %s" % item["logical_key"])
+        if sha256_file(path) != item["sha256"]:
+            raise ReferenceVerificationError(
+                "sha256 mismatch: %s" % item["logical_key"])
+        n_ok += 1
+        bytes_ok += item["size"]
+
+    seal_path = os.path.join(rdir, "seal", "date=%s.json" % date)
+    seal = _load_reference_json(seal_path, "source seal")
+    if (seal.get("status") != "SEALED" or seal.get("version") != 2
+            or seal.get("method") != "full_v2" or seal.get("date") != date
+            or sha256_file(seal_path) != descriptor["source_seal"]["sha256"]):
+        raise ReferenceVerificationError("source seal authority check failed")
+    if (seal.get("manifest_date_sha256")
+            != descriptor["seal"].get("manifest_date_sha256")):
+        raise ReferenceVerificationError("seal summary manifest digest mismatch")
+    raw_files = seal.get("raw_files")
+    if not isinstance(raw_files, list):
+        raise ReferenceVerificationError("source seal raw_files is malformed")
+    raw_index = {}
+    for row in raw_files:
+        if (not isinstance(row, dict) or not isinstance(row.get("file"), str)
+                or row["file"] in raw_index):
+            raise ReferenceVerificationError("source seal raw_files is duplicated")
+        raw_index[row["file"]] = row
+
+    archive_rows = seal.get("archive_file_stats")
+    if not isinstance(archive_rows, list):
+        raise ReferenceVerificationError(
+            "source seal archive_file_stats is malformed")
+    archive_index = {}
+    for row in archive_rows:
+        if (not isinstance(row, dict) or not isinstance(row.get("file"), str)
+                or row["file"] in archive_index):
+            raise ReferenceVerificationError(
+                "source seal archive_file_stats is duplicated")
+        archive_index[row["file"]] = row
+    facts = [item for item in descriptor["objects"] if item["kind"] == "facts"]
+    fact_index = {
+        item["logical_key"][len("warehouse/facts/"):]: item
+        for item in facts
+    }
+    if set(fact_index) != set(archive_index):
+        raise ReferenceVerificationError(
+            "fact references do not equal the sealed archive inventory")
+    for rel, item in fact_index.items():
+        proof = archive_index[rel]
+        if (proof.get("table") != item["channel"]
+                or proof.get("size") != item["size"]
+                or proof.get("sha256") != item["sha256"]):
+            raise ReferenceVerificationError(
+                "fact reference differs from source seal: %s" % rel)
+    if rfq_rows and descriptor["evidence_tier"] != "SEALED_CONFIRMATION":
+        raise ReferenceVerificationError(
+            "RFQ references require SEALED_CONFIRMATION evidence")
+    for item in rfq_rows:
+        rel = item["logical_key"][len("raw_rfq/"):]
+        proof = raw_index.get(rel)
+        if (not proof or proof.get("size") != item["size"]
+                or proof.get("sha256") != item["sha256"]):
+            raise ReferenceVerificationError(
+                "RFQ reference is not exactly enumerated by the source seal: %s"
+                % rel)
+
+    wm = os.path.join(rdir, "warehouse_manifest", "manifest.csv")
+    if not os.path.isfile(wm):
+        raise ReferenceVerificationError("date-only warehouse manifest missing")
+    got_manifest, _rows = wc.manifest_date_sha256(wm, date)
+    if got_manifest != seal.get("manifest_date_sha256"):
+        raise ReferenceVerificationError("manifest_date_sha256 mismatch")
+
+    capture_path = os.path.join(
+        rdir, "quality", "gap_receipt_%s.json" % date)
+    capture_gaps = _capture_receipt_quality(
+        _load_reference_json(capture_path, "capture-gap receipt"), seal, date)
+    gap_projection = os.path.join(
+        rdir, "quality", "capture_gaps_%s.csv" % date)
+    expected_gap_projection = ("start_us,end_us\n" + "".join(
+        "%d,%d\n" % (gap["start_us"], gap["end_us"])
+        for gap in capture_gaps)).encode("utf-8")
+    has_gap_projection = any(
+        item["kind"] == "capture_gaps_projection"
+        for item in descriptor["objects"])
+    if has_gap_projection:
+        try:
+            with open(gap_projection, "rb") as f:
+                got_gap_projection = f.read()
+        except OSError as exc:
+            raise ReferenceVerificationError(
+                "capture-gap projection cannot be read: %s" % exc)
+        if got_gap_projection != expected_gap_projection:
+            raise ReferenceVerificationError(
+                "capture-gap projection differs from receipt intervals")
+    elif capture_gaps or os.path.lexists(gap_projection):
+        raise ReferenceVerificationError(
+            "capture-gap projection absence disagrees with receipt intervals")
+
+    l2_facts = "orderbooks_full" in descriptor["tables"]
+    l2_quality = None
+    l2_path = os.path.join(rdir, "quality", "l2_gaps.json")
+    if l2_facts:
+        l2_quality = _l2_receipt_quality(
+            _load_reference_json(l2_path, "L2 quality receipt"), seal, date)
+    elif os.path.lexists(l2_path):
+        raise ReferenceVerificationError("unexpected L2 quality receipt")
+    if descriptor["channels"]["orderbooks_l2"].get("seq_quality") != l2_quality:
+        raise ReferenceVerificationError("L2 receipt differs from channel summary")
+
+    expected_tier, expected_basis = _derive_reference_tier(
+        seal, l2_facts, l2_quality is not None)
+    if (descriptor["evidence_tier"] != expected_tier
+            or descriptor["evidence_basis"] != expected_basis):
+        raise ReferenceVerificationError(
+            "evidence tier/basis does not rederive from sealed quality evidence")
+
+    correction_dir = os.path.join(rdir, "corrections")
+    late = os.path.join(correction_dir, "date=%s" % date,
+                        "late_rows.ndjson")
+    ledger = os.path.join(correction_dir, "date=%s" % date,
+                          "ledger_day.ndjson")
+    correction_present = os.path.isfile(late) or os.path.isfile(ledger)
+    if correction_present and not (os.path.isfile(late) and os.path.isfile(ledger)):
+        raise ReferenceVerificationError("correction pair is incomplete locally")
+    ledger_lines = 0
+    if correction_present:
+        with open(ledger, encoding="utf-8") as f:
+            for lineno, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError as exc:
+                    raise ReferenceVerificationError(
+                        "correction ledger line %d is invalid: %s" %
+                        (lineno, exc))
+                if (not isinstance(row, dict)
+                        or row.get("event") !=
+                        "LATE_FACT_DIVERTED_TO_CORRECTIONS"
+                        or row.get("exchange_date", row.get("date")) != date):
+                    raise ReferenceVerificationError(
+                        "correction ledger is not a date-only projection")
+                ledger_lines += 1
+    if ledger_lines != descriptor["corrections"].get("ledger_day_entries"):
+        raise ReferenceVerificationError("correction ledger count mismatch")
+
+    tables_out = {}
+    conn = duckdb_connect()
+    try:
+        for table, frozen in sorted(descriptor["tables"].items()):
+            sample = None
+            for item in descriptor["objects"]:
+                if item["kind"] == "facts" and item["channel"] == table:
+                    candidate = safe_release_object_path(rdir, item["local_key"])
+                    if os.path.isfile(candidate):
+                        sample = candidate
+                        break
+            if sample is None:
+                raise ReferenceVerificationError(
+                    "no materialized facts file for table %s" % table)
+            query = ("DESCRIBE SELECT * FROM read_parquet(?)"
+                     if sample.endswith(".parquet") else
+                     "DESCRIBE SELECT * FROM read_csv_auto(?)")
+            columns = [row[0] for row in conn.execute(query, [sample]).fetchall()]
+            if columns != frozen["columns"]:
+                raise ReferenceVerificationError(
+                    "schema drift in %s (got %r, frozen %r)" %
+                    (table, columns, frozen["columns"]))
+            actual = {
+                "tl1_ladder_columns_present":
+                    all(column in columns for column in LADDER_COLUMNS),
+                "ws_sid_present": "ws_sid" in columns,
+                "ws_seq_present": "ws_seq" in columns,
+            }
+            for key, value in actual.items():
+                if frozen.get(key) != value:
+                    raise ReferenceVerificationError(
+                        "frozen table capability mismatch in %s/%s" %
+                        (table, key))
+            tables_out[table] = actual
+    finally:
+        conn.close()
+    tl1_count = sum(1 for value in tables_out.values()
+                    if value["tl1_ladder_columns_present"])
+    actual_tl1 = ("TL1" if tables_out and tl1_count == len(tables_out)
+                  else "PRE-TL1" if not tl1_count else "MIXED")
+    if actual_tl1 != descriptor["tl1_status"]:
+        raise ReferenceVerificationError("TL1 status does not rederive")
+
+    rfq_status = ("ABSENT_FROM_RELEASE" if not rfq_rows else
+                  "VERIFIED_SEALED_RAW" if require_rfq else
+                  "NOT_FETCHED_OPT_IN")
+    return {
+        "objects_verified": n_ok,
+        "bytes_verified": bytes_ok,
+        "rfq_status": rfq_status,
+        "tables": tables_out,
+    }
+
+
+def _reference_failure(cache, rid, detail):
+    path = os.path.join(cache, "reference_failures", "%s.json" % rid)
+    _atomic_write(path, json.dumps({
+        "schema": "research-reference-fetch-failure-v1",
+        "release_id": rid,
+        "failed_at_utc": _now(),
+        "failure": str(detail),
+    }, sort_keys=True, indent=2).encode("utf-8") + b"\n")
+    sys.stderr.write(
+        "\n!! REFERENCE FETCH/VERIFY FAILED — %s is not materialized\n"
+        "!! %s\n" % (rid, detail))
+    return 2
+
+
+def _materialize_reference_release(cache, rid, raw_manifest, manifest_version,
+                                   manifest_sha, descriptor, include_rfq):
+    release_root = os.path.join(cache, "releases")
+    os.makedirs(release_root, exist_ok=True)
+    stage = os.path.join(release_root, ".pending-%s-%d" % (rid, os.getpid()))
+    contained_remove(stage, cache, is_dir=True)
+    os.makedirs(stage)
+    try:
+        _atomic_write(os.path.join(stage, "MANIFEST.json"), raw_manifest)
+        for item in descriptor["objects"]:
+            if item["kind"] == "rfq" and not include_rfq:
+                continue
+            content = reference_content_path(cache, item["sha256"])
+            if not _content_matches(content, item):
+                raise ReferenceVerificationError(
+                    "content cache changed before materialization: %s" %
+                    item["logical_key"])
+            dest = safe_release_object_path(stage, item["local_key"])
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.symlink(os.path.abspath(content), dest)
+        verified = _verify_reference_tree(stage, descriptor, include_rfq)
+        marker = {
+            "schema": "research-reference-verified-v1",
+            "storage_mode": "REFERENCE_V3",
+            "version_binding_mode": ref.STORAGE_MODE,
+            "release_id": rid,
+            "date": descriptor["date"],
+            "verified_at_utc": _now(),
+            "published_at_utc": descriptor["published_at_utc"],
+            "generated_at_utc": descriptor["published_at_utc"],
+            "manifest_version_id": manifest_version,
+            "manifest_sha256": manifest_sha,
+            "reference_set_sha256": descriptor["reference_set_sha256"],
+            "object_semantics_sha256": descriptor["object_semantics_sha256"],
+            "publication_state_sha256":
+                descriptor["publication_state_sha256"],
+            "canonical_receipt_set_sha256":
+                descriptor["canonical_receipt_set_sha256"],
+            "canonical_receipt_object_sha256":
+                descriptor["receipt_object"]["sha256"],
+            "canonical_receipt_verified": True,
+            "evidence_tier": descriptor["evidence_tier"],
+            "evidence_tier_basis": descriptor["evidence_basis"],
+            "tl1_status": descriptor["tl1_status"],
+            "seal_sha256": descriptor["source_seal"]["sha256"],
+            "corrections_total":
+                int(descriptor["corrections"].get("included_files") or 0)
+                + int(descriptor["corrections"].get("ledger_day_entries") or 0),
+            "rfq_included": descriptor["rfq_included"],
+            "objects_referenced": len(descriptor["objects"]),
+            **verified,
+        }
+        _atomic_write(os.path.join(stage, ".VERIFIED.json"), json.dumps(
+            marker, sort_keys=True, indent=2).encode("utf-8") + b"\n")
+
+        final = cache_release_dir(cache, rid)
+        old = os.path.join(release_root, ".previous-%s-%d" % (rid, os.getpid()))
+        contained_remove(old, cache, is_dir=True)
+        moved_old = False
+        if os.path.lexists(final):
+            os.replace(final, old)
+            moved_old = True
+        try:
+            os.replace(stage, final)
+        except BaseException:
+            if moved_old and not os.path.lexists(final):
+                os.replace(old, final)
+            raise
+        if moved_old:
+            contained_remove(old, cache, is_dir=True)
+        failure = os.path.join(cache, "reference_failures", "%s.json" % rid)
+        contained_remove(failure, cache)
+        return marker
+    finally:
+        if os.path.lexists(stage):
+            contained_remove(stage, cache, is_dir=True)
+
+
+def cmd_fetch_reference(store, cache, rid, with_rfq):
+    manifest, raw, manifest_version, manifest_sha = \
+        reference_manifest_record(cache, store, rid)
+    try:
+        descriptor = ref.validate_manifest(manifest, rid)
+        previous_rfq = False
+        marker_path = verified_marker(cache, rid)
+        if os.path.isfile(marker_path):
+            try:
+                with open(marker_path, encoding="utf-8") as f:
+                    previous_rfq = (json.load(f).get("rfq_status")
+                                    == "VERIFIED_SEALED_RAW")
+            except (OSError, ValueError):
+                previous_rfq = False
+        include_rfq = bool(with_rfq or previous_rfq)
+        fetched = cached = 0
+        _path, downloaded = _fetch_reference_content(
+            store, cache, _receipt_cache_item(descriptor))
+        fetched += int(downloaded)
+        cached += int(not downloaded)
+        _verify_reference_receipt(cache, descriptor)
+        for item in descriptor["objects"]:
+            if item["kind"] == "rfq" and not include_rfq:
+                continue
+            _path, downloaded = _fetch_reference_content(store, cache, item)
+            fetched += int(downloaded)
+            cached += int(not downloaded)
+        assert_reference_manifest_current(
+            store, rid, raw, manifest_version)
+        marker = _materialize_reference_release(
+            cache, rid, raw, manifest_version, manifest_sha,
+            descriptor, include_rfq)
+    except (Exception, SystemExit) as exc:
+        return _reference_failure(cache, rid, exc)
+    print("[fetch] %s [REFERENCE_V3]: %d exact-version objects fetched, "
+          "%d content-cache hits; RFQ=%s" %
+          (rid, fetched, cached, marker["rfq_status"]))
+    rebuild_view(cache)
+    return 0
+
+
 def cmd_fetch(store, cache, rid, with_rfq, allow_legacy=False):
     releases = list_releases(store)
     if rid not in releases:
@@ -534,6 +1331,8 @@ def cmd_fetch(store, cache, rid, with_rfq, allow_legacy=False):
         raise SystemExit("release %s has no MANIFEST.json — torn/unpublished, "
                          "NOT exposed to research" % rid)
     manifest = read_manifest(cache, store, rid)
+    if ref.is_reference_manifest(manifest):
+        return cmd_fetch_reference(store, cache, rid, with_rfq)
     quarantined = quarantine_gate(manifest, rid, allow_legacy)
     validate_manifest_keys(manifest, cache, rid)  # item 3: before ANY write
     binding = manifest.get("version_binding") or {}
@@ -583,8 +1382,77 @@ def _now():
         .strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def cmd_verify_reference(store, cache, rid):
+    try:
+        manifest, raw, manifest_version, manifest_sha = \
+            reference_manifest_record(cache, store, rid)
+        descriptor = ref.validate_manifest(manifest, rid)
+        rdir = cache_release_dir(cache, rid)
+        marker_path = verified_marker(cache, rid)
+        if not os.path.isdir(rdir) or not os.path.isfile(marker_path):
+            raise ReferenceVerificationError(
+                "reference release is not atomically materialized; run fetch")
+        local_manifest = os.path.join(rdir, "MANIFEST.json")
+        with open(local_manifest, "rb") as f:
+            if f.read() != raw:
+                raise ReferenceVerificationError(
+                    "materialized MANIFEST differs from its frozen identity")
+        with open(marker_path, encoding="utf-8") as f:
+            old_marker = json.load(f)
+        if (old_marker.get("manifest_version_id") != manifest_version
+                or old_marker.get("manifest_sha256") != manifest_sha
+                or old_marker.get("reference_set_sha256")
+                != descriptor["reference_set_sha256"]):
+            raise ReferenceVerificationError(
+                "verified marker differs from manifest identity")
+        if (old_marker.get("canonical_receipt_object_sha256")
+                != descriptor["receipt_object"]["sha256"]):
+            raise ReferenceVerificationError(
+                "verified marker differs from durable receipt identity")
+        _verify_reference_receipt(cache, descriptor)
+
+        rfq_rows = [item for item in descriptor["objects"]
+                    if item["kind"] == "rfq"]
+        rfq_presence = [os.path.isfile(safe_release_object_path(
+            rdir, item["local_key"])) for item in rfq_rows]
+        if any(rfq_presence) and not all(rfq_presence):
+            raise ReferenceVerificationError(
+                "RFQ materialization is partial; all-or-none is required")
+        require_rfq = bool(rfq_rows and all(rfq_presence))
+        for item in descriptor["objects"]:
+            if item["kind"] == "rfq" and not require_rfq:
+                continue
+            path = safe_release_object_path(rdir, item["local_key"])
+            content = reference_content_path(cache, item["sha256"])
+            if (not os.path.islink(path)
+                    or os.path.realpath(path) != os.path.realpath(content)):
+                raise ReferenceVerificationError(
+                    "release object is not linked to its content identity: %s"
+                    % item["logical_key"])
+        verified = _verify_reference_tree(rdir, descriptor, require_rfq)
+        marker = dict(old_marker)
+        marker.update(verified)
+        marker["verified_at_utc"] = _now()
+        _atomic_write(marker_path, json.dumps(
+            marker, sort_keys=True, indent=2).encode("utf-8") + b"\n")
+        contained_remove(os.path.join(rdir, ".FAILED.json"), cache)
+    except (Exception, SystemExit) as exc:
+        if os.path.isdir(cache_release_dir(cache, rid)):
+            return _fail(cache, rid, [str(exc)])
+        return _reference_failure(cache, rid, exc)
+    print("[verify] PASS %s [REFERENCE_V3] — tier=%s tl1=%s "
+          "objects=%d (%.1f MB) RFQ=%s" %
+          (rid, marker["evidence_tier"], marker["tl1_status"],
+           marker["objects_verified"], marker["bytes_verified"] / 1e6,
+           marker["rfq_status"]))
+    rebuild_view(cache)
+    return 0
+
+
 def cmd_verify(store, cache, rid, allow_legacy=False):
     manifest = read_manifest(cache, store, rid)
+    if ref.is_reference_manifest(manifest):
+        return cmd_verify_reference(store, cache, rid)
     quarantined = quarantine_gate(manifest, rid, allow_legacy)
     validate_manifest_keys(manifest, cache, rid)  # item 3: before ANY read
     rdir = cache_release_dir(cache, rid)
@@ -929,7 +1797,7 @@ def cmd_view(cache, include_non_confirmation=False):
           % (view, len(prov["verified_releases"]),
              " (INCLUDING NON-CONFIRMATION TIERS)"
              if include_non_confirmation else
-             " (SEALED_CONFIRMATION only — Phase A active view)",
+             " (SEALED_CONFIRMATION only — active view)",
              ", ".join(sorted(prov["verified_releases"])) or "(none)"))
     return 0
 

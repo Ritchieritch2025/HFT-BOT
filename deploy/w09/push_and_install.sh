@@ -7,15 +7,19 @@ SOURCE_REPO="${W09_SOURCE_REPO:-/Users/ritcardo/HFT-BOT-pipeline-recovery}"
 HOST="${W09_HOST:-ubuntu@18.226.151.192}"
 KEY="${W09_SSH_KEY:-$HOME/.ssh/kalshi-key.pem}"
 REMOTE="/tmp/w09-bringup"
-EXPECTED_CLI_SHA="3088723db7a87f5c8cf50e0de32de1e52a0ae3b9d4d050d902dfc70722140d84"
+READER_MODULE_MANIFEST="$HERE/research_reader_modules.sha256"
 
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
     exit 77
 fi
-actual="$(shasum -a 256 "$SOURCE_REPO/tools/research_data.py" | awk '{print $1}')"
-if [ "$actual" != "$EXPECTED_CLI_SHA" ]; then
-    echo "W09_SOURCE_GATE: canonical research_data.py changed ($actual)" >&2
+if [ ! -f "$READER_MODULE_MANIFEST" ]; then
+    echo "W09_SOURCE_GATE: reader module manifest missing" >&2
+    exit 65
+fi
+if ! (cd "$SOURCE_REPO" && \
+      shasum -a 256 -c "$READER_MODULE_MANIFEST" >/dev/null); then
+    echo "W09_SOURCE_GATE: pinned reader module set changed" >&2
     exit 65
 fi
 if [ ! -f "$KEY" ]; then
@@ -28,13 +32,16 @@ cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 mkdir -p "$tmp/tools" "$tmp/config" "$tmp/deploy/w09"
 cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
+cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
+cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \
     run_acceptance.sh select_newest_release.py w09-idle-check.service \
-    w09-idle-check.timer w09-run w09_idle_check.py \
+    w09-idle-check.timer w09-run w09-inhibit-run \
+    w09-inhibit-run.sudoers w09_idle_check.py \
     w09_idle_confirm_stop.py w09_idle_proof.py; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"
 done

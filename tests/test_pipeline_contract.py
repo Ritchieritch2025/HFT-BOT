@@ -22,6 +22,7 @@ stdlib + duckdb + pytest only.
 """
 import datetime
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -1575,31 +1576,149 @@ def test_prune_raw_is_seal_gated_and_fail_closed(tmp_path):
     f_unsealed = raw / "date=2026-01-01" / "firehose_12.ndjson"
     f_cross = raw / "date=2026-01-02" / "firehose_01.ndjson"
     f_prunable = raw / "date=2026-01-02" / "firehose_12.ndjson"
-    for f in (f_unsealed, f_cross, f_prunable):
+    f_rfq_deferred = raw / "date=2026-01-02" / "rfq_12.ndjson.2"
+    for f in (f_unsealed, f_cross, f_prunable, f_rfq_deferred):
         f.write_text("{}\n")
     (whr / "seals" / "date=2026-01-02.json").write_text(
         json.dumps({"status": "SEALED", "version": 2, "method": "full_v2"}))
     alert = tmp_path / "alert.json"
+    authority_root = tmp_path / "prune-authority"
     argv = ["prune_raw", "--retention-days", "1", "--raw-root", str(raw),
-            "--warehouse-root", str(whr), "--alert-path", str(alert)]
-    # dry-run deletes nothing
+            "--warehouse-root", str(whr), "--alert-path", str(alert),
+            "--prune-authority-root", str(authority_root)]
+    # A seal alone is never enough: missing durable authority retains all.
+    assert prune_raw.main(argv) == 0
+    assert (f_unsealed.exists() and f_cross.exists() and f_prunable.exists()
+            and f_rfq_deferred.exists())
+    report = json.loads(alert.read_text())
+    assert "durable_prune_authority_absent" in {
+        row["reason"] for row in report["retained_overdue"]}
+
+    rows = []
+    for path in (f_cross, f_prunable):
+        payload = path.read_bytes()
+        rel = "date=2026-01-02/%s" % path.name
+        rows.append({
+            "local_raw_rel": rel,
+            "bucket": "kalshi-vault-ritcardo",
+            "key": "ec2/raw/" + rel,
+            "VersionId": "version-%s" % path.name,
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        })
+    receipt_set = "a" * 64
+    authority = {
+        "schema_version": prune_raw.PRUNE_AUTHORITY_SCHEMA,
+        "state": prune_raw.PRUNE_AUTHORITY_STATE,
+        "authority": "CANONICAL_RAW_PRUNE_CONTROL_PLANE",
+        "date": "2026-01-02",
+        "complete": True,
+        "prune_eligible": True,
+        "receipt_set_sha256": receipt_set,
+        "receipt_object": {
+            "bucket": "kalshi-vault-ritcardo",
+            "key": ("ec2/control/raw-prune-authority/v1/date=2026-01-02/"
+                    "receipt-%s.json" % receipt_set),
+            "VersionId": "authority-version",
+            "size": 123,
+            "sha256": "b" * 64,
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        },
+        "objects": rows,
+    }
+    authority_dir = authority_root / "date=2026-01-02"
+    authority_dir.mkdir(parents=True)
+    (authority_dir / prune_raw.PRUNE_AUTHORITY_NAME).write_text(
+        json.dumps(authority))
+
+    # dry-run validates the complete exact set but deletes nothing
     assert prune_raw.main(argv + ["--dry-run"]) == 0
     assert f_unsealed.exists() and f_cross.exists() and f_prunable.exists()
     # real run: only the sealed, non-cross-day file goes
     assert prune_raw.main(argv) == 0
     assert not f_prunable.exists()
+    assert f_rfq_deferred.exists(), "RFQ must remain deferred, never audited"
     assert f_unsealed.exists(), "unsealed day must never be pruned"
     assert f_cross.exists(), \
         "hour-01 file must survive while the PREVIOUS day is unsealed"
     report = json.loads(alert.read_text())
     reasons = {r["reason"] for r in report["retained_overdue"]}
     assert "day_unsealed" in reasons and "cross_day_prev_unsealed" in reasons
+    assert "rfq_receipt_deferred" in reasons
+    # The same immutable authority remains usable after a partial first pass:
+    # once the previous-day seal exists, the retained hour-01 can be removed
+    # even though the already-pruned hour-12 row is now absent locally.
+    (whr / "seals" / "date=2026-01-01.json").write_text(
+        json.dumps({"status": "SEALED", "version": 2,
+                    "method": "full_v2"}))
+    assert prune_raw.main(argv) == 0
+    assert not f_cross.exists()
+    assert f_rfq_deferred.exists()
     # fail-closed: a corrupt dependency ledger deletes NOTHING
     (whr / "seal_invalidations.ndjson").write_text("not json\n")
     f_new = raw / "date=2026-01-02" / "firehose_13.ndjson"
+    f_new.parent.mkdir(parents=True, exist_ok=True)
     f_new.write_text("{}\n")
     assert prune_raw.main(argv) == 1
     assert f_new.exists()
+
+
+def test_prune_raw_validates_all_authorities_before_first_delete(tmp_path):
+    import prune_raw
+    raw = tmp_path / "raw"
+    whr = tmp_path / "wh"
+    auth_root = tmp_path / "auth"
+    (whr / "seals").mkdir(parents=True)
+    files = []
+    for day in ("2026-01-02", "2026-01-03"):
+        ddir = raw / ("date=" + day)
+        ddir.mkdir(parents=True)
+        path = ddir / "firehose_12.ndjson"
+        path.write_text("{}\n")
+        files.append(path)
+        (whr / "seals" / ("date=%s.json" % day)).write_text(json.dumps({
+            "status": "SEALED", "version": 2, "method": "full_v2"}))
+    receipt_set = "c" * 64
+    first_dir = auth_root / "date=2026-01-02"
+    first_dir.mkdir(parents=True)
+    payload = files[0].read_bytes()
+    first = {
+        "schema_version": prune_raw.PRUNE_AUTHORITY_SCHEMA,
+        "state": prune_raw.PRUNE_AUTHORITY_STATE,
+        "authority": "CANONICAL_RAW_PRUNE_CONTROL_PLANE",
+        "date": "2026-01-02", "complete": True, "prune_eligible": True,
+        "receipt_set_sha256": receipt_set,
+        "receipt_object": {
+            "bucket": "kalshi-vault-ritcardo",
+            "key": ("ec2/control/raw-prune-authority/v1/date=2026-01-02/"
+                    "receipt-%s.json" % receipt_set),
+            "VersionId": "authority-version", "size": 1,
+            "sha256": "d" * 64,
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        },
+        "objects": [{
+            "local_raw_rel": "date=2026-01-02/firehose_12.ndjson",
+            "bucket": "kalshi-vault-ritcardo",
+            "key": "ec2/raw/date=2026-01-02/firehose_12.ndjson",
+            "VersionId": "raw-version", "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        }],
+    }
+    (first_dir / prune_raw.PRUNE_AUTHORITY_NAME).write_text(json.dumps(first))
+    bad_dir = auth_root / "date=2026-01-03"
+    bad_dir.mkdir(parents=True)
+    (bad_dir / prune_raw.PRUNE_AUTHORITY_NAME).write_text("not json\n")
+    rc = prune_raw.main([
+        "prune_raw", "--retention-days", "1", "--raw-root", str(raw),
+        "--warehouse-root", str(whr),
+        "--prune-authority-root", str(auth_root),
+        "--alert-path", str(tmp_path / "alert.json"),
+    ])
+    assert rc == 1
+    assert all(path.exists() for path in files), \
+        "a later authority error must occur before any earlier unlink"
 
 
 # ─────────────────── PIPE-W03: discovery + pause ownership ───────────────────

@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import canonical_receipts as cr  # noqa: E402
+import canonical_receipt_control as crc  # noqa: E402
+import forward_canonical_receipts as fcr  # noqa: E402
 import warehouse_common as wc  # noqa: E402
 
 
@@ -216,7 +218,8 @@ def receipt_tree(tmp_path):
             "records": 1,
             "unparsed": 0,
             "unreadable": False,
-            "gaps": [],
+            "gaps": [{"start_us": day_start + 100,
+                      "end_us": day_start + 200}],
             "raw_root": str(raw_root),
             "generated_at_utc": "2026-07-14T03:00:00Z",
         }, sort_keys=True) + "\n",
@@ -370,7 +373,8 @@ class FakeExactVersionClient:
     """In-memory exact-version S3 double; intentionally no write methods."""
 
     def __init__(self, payloads, missing_version_for=None,
-                 corrupt_exact_for=None, race_key=None, missing_key=None):
+                 corrupt_exact_for=None, race_key=None, missing_key=None,
+                 missing_last_modified_for=None):
         self.ops = []
         self.latest = {}
         self.versions = {}
@@ -379,6 +383,7 @@ class FakeExactVersionClient:
         self.corrupt_exact_for = corrupt_exact_for
         self.race_key = race_key
         self.missing_key = missing_key
+        self.missing_last_modified_for = missing_last_modified_for
         for key, payload in payloads.items():
             object_id = (BUCKET, key)
             self.latest[object_id] = "v1"
@@ -402,6 +407,8 @@ class FakeExactVersionClient:
             "LastModified": self.version_modified[
                 (bucket, key, version_id)],
         }
+        if key == self.missing_last_modified_for:
+            result.pop("LastModified")
         if key != self.missing_version_for:
             result["VersionId"] = version_id
         if key == self.race_key:
@@ -492,7 +499,7 @@ def test_load_verified_seal_rejects_non_authoritative_seal(receipt_tree, change)
         cr.load_verified_seal(str(receipt_tree["warehouse"]), DATE)
 
 
-def test_inventory_maps_every_release_input_and_cross_day_raw(receipt_tree):
+def test_inventory_maps_non_rfq_inputs_and_declares_rfq_blocked(receipt_tree):
     seal_binding, objects = _build(receipt_tree)
     assert seal_binding["date"] == DATE
     assert len(seal_binding["sha256"]) == 64
@@ -508,19 +515,24 @@ def test_inventory_maps_every_release_input_and_cross_day_raw(receipt_tree):
 
     by_key = {obj["key"]: obj for obj in objects}
     expected = set(receipt_tree["payloads"])
-    assert set(by_key) == expected
+    rfq_keys = {
+        key for key in expected
+        if "/raw/" in key and cr.RFQ_RE.match(os.path.basename(key))
+    }
+    assert rfq_keys
+    assert set(by_key) == expected - rfq_keys
+    assert not any(obj.get("channel") == "rfq" for obj in objects)
+    families = {row["name"]: row for row in seal_binding["families"]}
+    deferred = families["raw_rfq_deferred"]
+    assert deferred["policy"] == "DATA_INTEGRITY_BLOCKED"
+    assert deferred["state"] == "NOT_APPLICABLE"
+    assert deferred["reason_code"] == "RFQ_BRANCH_CLOSED_NO_REPAIR"
 
-    # Exact raw prefix/date mapping, including RFQ and the next receipt day.
-    assert "%s/raw/date=%s/rfq_23.ndjson.2" % (PREFIX, DATE) in by_key
-    cross_rfq = "%s/raw/date=%s/rfq_00.ndjson" % (PREFIX, NEXT_DATE)
-    assert cross_rfq in by_key
-    assert by_key[cross_rfq]["date"] == NEXT_DATE
-    assert by_key[cross_rfq]["channel"] == "rfq"
-    assert by_key[cross_rfq]["research_eligible"] is False
-    assert by_key[cross_rfq]["research_candidate"] is False
-    assert by_key[cross_rfq]["durability_scope"] is True
-    assert by_key[cross_rfq]["exposure_policy"] == "FORBIDDEN_RFQ_DEFAULT"
-    assert "rfq" in by_key[cross_rfq]["logical_source_key"]
+    # Non-RFQ receipt-time bytes keep their real cross-day location.
+    cross_firehose = "%s/raw/date=%s/firehose_00.ndjson" % (
+        PREFIX, NEXT_DATE)
+    assert by_key[cross_firehose]["date"] == NEXT_DATE
+    assert by_key[cross_firehose]["channel"] == "firehose"
 
     fact_key = "%s/warehouse/facts/orderbooks_l1/category=Sports/" \
                "subcategory=Baseball/date=%s/" \
@@ -558,6 +570,84 @@ def test_inventory_maps_every_release_input_and_cross_day_raw(receipt_tree):
     assert all(obj["durability_verified"] is False for obj in objects)
     assert all(obj["research_eligible"] is False for obj in objects)
     assert all("SHADOW" in obj["eligibility_tag_state"] for obj in objects)
+
+
+def test_shadow_default_reader_never_touches_rfq_but_verifies_non_rfq(
+        receipt_tree, tmp_path, monkeypatch):
+    client = FakeExactVersionClient(receipt_tree["payloads"])
+    monkeypatch.setattr(cr, "AwsCliS3Client", lambda _executable: client)
+    monkeypatch.setattr(cr, "_code_commit", lambda: "a" * 40)
+    output = tmp_path / "rfq-off-shadow"
+    rc = cr.main([
+        "shadow", "--date", DATE, "--bucket", BUCKET,
+        "--prefix", PREFIX,
+        "--raw-root", str(receipt_tree["raw_root"]),
+        "--warehouse-root", str(receipt_tree["warehouse"]),
+        "--quality-dir", str(receipt_tree["quality"]),
+        "--aux-bundle", str(receipt_tree["aux_bundle"]),
+        "--output-root", str(output),
+    ])
+    assert rc == 0
+    read_keys = [op[2] for op in client.ops]
+    assert read_keys
+    assert not any(cr.RFQ_RE.match(os.path.basename(key)) for key in read_keys)
+    assert "%s/raw/date=%s/firehose_23.ndjson" % (PREFIX, DATE) in read_keys
+    assert "%s/raw/date=%s/l2_23.ndjson.1" % (PREFIX, DATE) in read_keys
+
+    receipt = json.loads(next(output.glob("date=*/receipt-*.json")).read_text())
+    families = {row["name"]: row for row in receipt["families"]}
+    assert families["raw_rfq_deferred"]["policy"] == \
+        "DATA_INTEGRITY_BLOCKED"
+    assert families["raw_rfq_deferred"]["reason_code"] == \
+        "RFQ_BRANCH_CLOSED_NO_REPAIR"
+
+
+def test_plan_cli_reports_rfq_blocked_without_creating_an_s3_reader(
+        receipt_tree, tmp_path, monkeypatch, capsys):
+    def forbid_s3(_executable):
+        pytest.fail("plan must not create an S3 reader")
+
+    monkeypatch.setattr(cr, "AwsCliS3Client", forbid_s3)
+    rc = cr.main([
+        "plan", "--date", DATE, "--bucket", BUCKET,
+        "--prefix", PREFIX,
+        "--raw-root", str(receipt_tree["raw_root"]),
+        "--warehouse-root", str(receipt_tree["warehouse"]),
+        "--quality-dir", str(receipt_tree["quality"]),
+        "--aux-bundle", str(receipt_tree["aux_bundle"]),
+        "--output-root", str(tmp_path / "rfq-off-plan"),
+    ])
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    assert "raw_rfq" not in result["kinds"]
+    assert "raw_rfq_receipts" not in result["kinds"]
+    families = {row["name"]: row for row in result["families"]}
+    assert families["raw_rfq_deferred"] == {
+        "name": "raw_rfq_deferred",
+        "policy": "DATA_INTEGRITY_BLOCKED",
+        "state": "NOT_APPLICABLE",
+        "reason_code": "RFQ_BRANCH_CLOSED_NO_REPAIR",
+        "observed_count": 0,
+        "expected_count": 0,
+    }
+
+
+def test_legacy_inventory_rfq_capability_is_function_only(receipt_tree):
+    _binding, objects = cr.build_desired_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(receipt_tree["aux_bundle"]), include_rfq_durability=True)
+    rfq = [row for row in objects if row.get("channel") == "rfq"]
+    assert rfq
+    assert all(row["required"] is False
+               and row["research_candidate"] is False
+               and row["research_eligible"] is False
+               and row["exposure_policy"] == "FORBIDDEN_RFQ_DEFAULT"
+               for row in rfq)
+    cli_source = inspect.getsource(cr.main)
+    assert "include_rfq_durability" not in cli_source
+    assert "--with-rfq" not in cli_source
+    assert "--include-rfq" not in cli_source
 
 
 def test_frozen_d_inventory_ignores_d_plus_1_control_mutations(receipt_tree):
@@ -1308,6 +1398,7 @@ def test_shadow_receipt_refuses_reuse_with_unsafe_flags(receipt_tree,
 def test_cli_receipt_conflict_overwrites_ready_status_with_blocked(
         receipt_tree, monkeypatch):
     output = receipt_tree["warehouse"].parent / "cli-shadow"
+    monkeypatch.setattr(cr, "_code_commit", lambda: "c" * 40)
 
     def client_factory(_executable):
         return FakeExactVersionClient(receipt_tree["payloads"])
@@ -1340,6 +1431,7 @@ def test_cli_receipt_conflict_overwrites_ready_status_with_blocked(
 def test_cli_early_precheck_failure_overwrites_previous_ready(
         receipt_tree, monkeypatch):
     output = receipt_tree["warehouse"].parent / "stale-ready-shadow"
+    monkeypatch.setattr(cr, "_code_commit", lambda: "c" * 40)
     monkeypatch.setattr(
         cr, "AwsCliS3Client",
         lambda _executable: FakeExactVersionClient(receipt_tree["payloads"]))
@@ -1489,6 +1581,501 @@ def test_shadow_verifier_has_no_s3_mutation_surface(receipt_tree):
     source = inspect.getsource(cr).lower().replace("_", "-")
     for forbidden in (
         "put-object", "copy-object", "create-multipart-upload",
+        "put-object-tagging", "put-object-version-tagging", "delete-object",
+        "delete-objects", "put-bucket-lifecycle", "put-object-legal-hold",
+    ):
+        assert forbidden not in source
+
+
+def _forward_bundle(tree, root):
+    path, descriptor = fcr.freeze_forward_auxiliary_set(
+        DATE, BUCKET, PREFIX, str(tree["raw_root"]),
+        str(tree["warehouse"]), str(tree["quality"]), str(root))
+    payloads = dict(tree["payloads"])
+    for row in descriptor["objects"]:
+        if row["local_relpath"] is not None:
+            payloads[row["key"]] = (
+                Path(path) / row["local_relpath"]
+            ).read_bytes()
+    return Path(path), descriptor, payloads
+
+
+def test_forward_aux_is_deterministic_and_copies_zero_catalog_bytes(
+        receipt_tree, tmp_path):
+    first, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward-a")
+    second, descriptor2, _payloads2 = _forward_bundle(
+        receipt_tree, tmp_path / "forward-b")
+    assert descriptor["mode"] == "FORWARD_CANONICAL_CAPTURE"
+    assert descriptor["aux_set_sha256"] == descriptor2["aux_set_sha256"]
+    assert first.name == second.name
+    catalog = [row for row in descriptor["objects"]
+               if row["family"] == "catalog_at_publication"]
+    assert catalog
+    assert all(row["storage_mode"] == "LOCAL_HASH_ATTESTATION"
+               and row["local_relpath"] is None
+               and row["expected_version_id"] is None
+               for row in catalog)
+    local_files = {path.relative_to(first).as_posix()
+                   for path in first.rglob("*") if path.is_file()}
+    assert not any(path.startswith("catalog/") for path in local_files)
+    assert not any(row["family"] == "catalog_cutoff_evidence"
+                   for row in descriptor["objects"])
+
+
+def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    seal_binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle))
+    families = {row["name"]: row for row in seal_binding["families"]}
+    assert families["catalog_at_publication"]["state"] == "PRESENT_VERIFIED"
+    assert "catalog_cutoff_evidence" not in families
+    assert not cr._family_blockers(seal_binding["families"])
+    rfq = [row for row in objects if row.get("channel") == "rfq"]
+    assert rfq == []
+    assert families["raw_rfq_deferred"]["state"] == "NOT_APPLICABLE"
+    assert families["raw_rfq_deferred"]["reason_code"] == \
+        "RFQ_BRANCH_CLOSED_NO_REPAIR"
+
+    _future_binding, future_objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle), include_rfq_durability=True)
+    rfq = [row for row in future_objects if row.get("channel") == "rfq"]
+    assert rfq
+    assert all(row["research_candidate"] is False
+               and row["research_eligible"] is False
+               and row["required"] is False
+               and row["exposure_policy"] == "FORBIDDEN_RFQ_DEFAULT"
+               for row in rfq)
+    other_raw = [row for row in objects
+                 if row["family"] == "raw_durability"
+                 and row.get("channel") != "rfq"]
+    assert other_raw and all(row["required"] is True for row in other_raw)
+    catalog = [row for row in objects
+               if row["family"] == "catalog_at_publication"]
+    assert catalog and all("_expected_version_id" not in row for row in catalog)
+
+
+def test_forward_full_verification_captures_version_and_last_modified(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    seal_binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle))
+    client = FakeExactVersionClient(payloads)
+    verified, failures, complete = cr.verify_inventory(
+        objects, client, str(tmp_path / "exact"))
+    assert complete and failures == []
+    assert all(row["VersionId"] == "v1" for row in verified)
+    assert all(row["last_modified_utc"].endswith("Z") for row in verified)
+    receipt = Path(cr.write_shadow_receipt(
+        str(tmp_path / "receipts"), DATE, seal_binding, verified,
+        "2026-07-14T04:00:00Z", "b" * 40))
+    payload = json.loads(receipt.read_text())
+    assert payload["state"] == "RECEIPT_VERIFIED_SHADOW"
+    assert all(row.get("last_modified_utc") for row in payload["objects"])
+
+
+def test_forward_verification_requires_last_modified(receipt_tree, tmp_path):
+    bundle, _descriptor, payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    _seal_binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle))
+    bad_key = objects[0]["key"]
+    client = FakeExactVersionClient(
+        payloads, missing_last_modified_for=bad_key)
+    verified, failures, complete = cr.verify_inventory(
+        objects, client, str(tmp_path / "exact"))
+    assert not complete and failures
+    assert all(row["key"] != bad_key for row in verified)
+    assert any(row["code"] == "LAST_MODIFIED_REQUIRED" for row in failures)
+
+
+def test_forward_freeze_rejects_missing_l2_quality(receipt_tree, tmp_path):
+    (receipt_tree["quality"] / ("l2_gaps_%s.json" % DATE)).unlink()
+    with pytest.raises(cr.ReceiptError, match="L2 quality"):
+        fcr.freeze_forward_auxiliary_set(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(tmp_path / "forward"))
+
+
+def test_forward_bundle_rejects_catalog_digest_tamper(receipt_tree, tmp_path):
+    bundle, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    path = bundle / "AUX_SET.json"
+    tampered = copy.deepcopy(descriptor)
+    row = next(item for item in tampered["objects"]
+               if item["family"] == "catalog_at_publication")
+    row["sha256"] = "0" * 64
+    projection = {key: value for key, value in tampered.items()
+                  if key != "aux_set_sha256"}
+    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
+    path.write_text(json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
+    bundle.rename(renamed)
+    with pytest.raises(cr.ReceiptError, match="catalog|desired set|digest"):
+        fcr.load_forward_auxiliary_set(
+            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+            cr.sha256_file(str(receipt_tree["seal_path"])))
+
+
+def test_forward_bundle_rejects_catalog_table_semantic_tamper(
+        receipt_tree, tmp_path):
+    bundle, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    tampered = copy.deepcopy(descriptor)
+    row = next(item for item in tampered["objects"]
+               if item["family"] == "catalog_at_publication")
+    row["table"] = "forged_table"
+    projection = {key: value for key, value in tampered.items()
+                  if key != "aux_set_sha256"}
+    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
+    (bundle / "AUX_SET.json").write_text(
+        json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
+    bundle.rename(renamed)
+    with pytest.raises(cr.ReceiptError, match="catalog semantics"):
+        fcr.load_forward_auxiliary_set(
+            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+            cr.sha256_file(str(receipt_tree["seal_path"])))
+
+
+def test_forward_bundle_rejects_control_logical_path_forgery(
+        receipt_tree, tmp_path):
+    bundle, descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    tampered = copy.deepcopy(descriptor)
+    row = next(item for item in tampered["objects"]
+               if item["family"] == "capture_gap_receipt")
+    row["logical_source_key"] = "warehouse/facts/injected.parquet"
+    desired = [{
+        key: item[key] for key in (
+            "bucket", "key", "logical_source_key", "source_kind", "family",
+            "date", "size", "sha256", "seal_binding", "evidence_binding",
+            "required", "durability_scope", "research_candidate",
+            "exposure_policy", "version_resolution", "canonical_source")
+    } for item in tampered["objects"]]
+    desired.sort(key=lambda item: (
+        item["logical_source_key"], item["bucket"], item["key"]))
+    tampered["desired_set_sha256"] = cr.canonical_sha256(desired)
+    projection = {key: value for key, value in tampered.items()
+                  if key != "aux_set_sha256"}
+    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
+    (bundle / "AUX_SET.json").write_text(
+        json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
+    bundle.rename(renamed)
+    with pytest.raises(cr.ReceiptError, match="contract mismatch"):
+        fcr.load_forward_auxiliary_set(
+            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+            cr.sha256_file(str(receipt_tree["seal_path"])))
+
+
+def test_forward_freeze_rejects_gap_outside_date(receipt_tree, tmp_path):
+    path = receipt_tree["quality"] / ("capture_gap_receipt_%s.json" % DATE)
+    receipt = json.loads(path.read_text())
+    receipt["gaps"] = [{
+        "start_us": wc.day_start_us(DATE) - 1,
+        "end_us": wc.day_start_us(DATE) + 10,
+    }]
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(cr.ReceiptError, match="outside the sealed date"):
+        fcr.freeze_forward_auxiliary_set(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(tmp_path / "forward"))
+
+
+def test_forward_freeze_rejects_malformed_gap_row_instead_of_skipping(
+        receipt_tree, tmp_path):
+    start = wc.day_start_us(DATE)
+    _write(
+        receipt_tree["quality"] / "capture_gaps.csv",
+        "start_us,end_us\n%d,%d\nnot-an-int,%d\n" %
+        (start + 100, start + 200, start + 300))
+    with pytest.raises(cr.ReceiptError, match="row 3 is malformed"):
+        fcr.freeze_forward_auxiliary_set(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(tmp_path / "forward"))
+
+
+class FakeConditionalWriter:
+    def __init__(self):
+        self.calls = []
+        self.puts = 0
+        self.reused = 0
+
+    def ensure_bytes(self, bucket, key, payload):
+        self.calls.append((bucket, key, payload))
+        self.puts += 1
+        return {
+            "bucket": bucket,
+            "key": key,
+            "VersionId": "control-v1",
+            "size": len(payload),
+            "sha256": _sha(payload),
+            "last_modified_utc": "2026-07-14T04:00:00Z",
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        }
+
+    def ensure_equivalent_bytes(self, bucket, key, payload, validator):
+        binding = self.ensure_bytes(bucket, key, payload)
+        assert validator(payload)
+        return binding, payload
+
+
+class ReusingConditionalWriter(FakeConditionalWriter):
+    def __init__(self):
+        super().__init__()
+        self.stored = None
+        self.reused = 0
+
+    def ensure_equivalent_bytes(self, bucket, key, payload, validator):
+        if self.stored is None:
+            self.stored = payload
+            return self.ensure_bytes(bucket, key, payload), payload
+        assert validator(self.stored)
+        self.reused += 1
+        self.calls.append((bucket, key, payload))
+        return {
+            "bucket": bucket,
+            "key": key,
+            "VersionId": "control-v1",
+            "size": len(self.stored),
+            "sha256": _sha(self.stored),
+            "last_modified_utc": "2026-07-14T04:00:00Z",
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        }, self.stored
+
+
+def _forward_shadow(tree, tmp_path):
+    bundle, _descriptor, payloads = _forward_bundle(
+        tree, tmp_path / "forward")
+    seal_binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(tree["raw_root"]),
+        str(tree["warehouse"]), str(tree["quality"]), str(bundle))
+    client = FakeExactVersionClient(payloads)
+    verified, failures, complete = cr.verify_inventory(
+        objects, client, str(tmp_path / "exact"))
+    assert complete and failures == []
+    path = cr.write_shadow_receipt(
+        str(tmp_path / "shadow"), DATE, seal_binding, verified,
+        "2026-07-14T04:00:00Z", "b" * 40)
+    return bundle, Path(path), seal_binding, verified
+
+
+def test_small_control_sync_uploads_only_allowlisted_retained_bytes(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    writer = FakeConditionalWriter()
+    path, result = crc.sync_small_controls(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle), writer, str(tmp_path / "control-index"))
+    assert path.is_file()
+    assert result["state"] == "CANONICAL_CONTROLS_VERIFIED"
+    assert result["large_data_upload_bytes"] == 0
+    assert writer.calls
+    keys = [key for _bucket, key, _payload in writer.calls]
+    assert all("/publication-snapshots/" in key
+               or "/control/quality/" in key for key in keys)
+    assert not any("/facts/" in key or "/raw/" in key
+                   or "/catalog/" in key or "/dim/" in key for key in keys)
+    assert all("/sha256=" in key for key in keys)
+
+
+def test_small_control_sync_stops_before_put_when_total_exceeds_limit(
+        receipt_tree, tmp_path, monkeypatch):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    writer = FakeConditionalWriter()
+    monkeypatch.setattr(crc, "MAX_CONTROL_TOTAL_BYTES", 1)
+    with pytest.raises(cr.ReceiptError, match="CONTROL_TOO_LARGE"):
+        crc.sync_small_controls(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(bundle), writer, str(tmp_path / "control-index"))
+    assert writer.calls == []
+
+
+def test_durable_receipt_is_new_payload_and_conditional_writer_target(
+        receipt_tree, tmp_path):
+    bundle, shadow_path, seal_binding, verified = _forward_shadow(
+        receipt_tree, tmp_path)
+    shadow_before = shadow_path.read_bytes()
+    writer = FakeConditionalWriter()
+    index_path, index = crc.publish_durable_receipt(
+        DATE, BUCKET, PREFIX, writer, str(tmp_path / "durable"),
+        seal_binding=seal_binding, verified_objects=verified,
+        verified_at="2026-07-14T04:00:00Z",
+        publisher_code_commit="b" * 40,
+        raw_root=str(receipt_tree["raw_root"]),
+        warehouse_root=str(receipt_tree["warehouse"]),
+        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle))
+    assert index_path.is_file()
+    assert shadow_path.read_bytes() == shadow_before
+    assert len(writer.calls) == 1
+    bucket, key, body = writer.calls[0]
+    assert bucket == BUCKET
+    assert key == "%s/control/canonical-receipts/v1/date=%s/receipt-%s.json" % (
+        PREFIX, DATE, index["receipt_set_sha256"])
+    durable = json.loads(body)
+    assert durable["state"] == "DURABLE_RECEIPT_VERIFIED"
+    assert durable["authority"] == "CANONICAL_CONTROL_PLANE"
+    assert durable["authoritative"] is True
+    assert durable["s3_published"] is True
+    assert durable["prune_eligible"] is False
+    assert index["receipt_object"]["VersionId"] == "control-v1"
+
+
+def test_durable_writer_rejects_in_process_object_scope_spoof(
+        receipt_tree, tmp_path):
+    bundle, _shadow_path, seal_binding, verified = _forward_shadow(
+        receipt_tree, tmp_path)
+    target = next(row for row in verified if row["source_kind"] != "seal")
+    target["key"] = "%s/control/quality/v1/injected.bin" % PREFIX
+    writer = FakeConditionalWriter()
+    with pytest.raises(cr.ReceiptError, match="forward authority"):
+        crc.publish_durable_receipt(
+            DATE, BUCKET, PREFIX, writer, str(tmp_path / "durable"),
+            seal_binding=seal_binding, verified_objects=verified,
+            verified_at="2026-07-14T04:00:00Z",
+            publisher_code_commit="b" * 40,
+            raw_root=str(receipt_tree["raw_root"]),
+            warehouse_root=str(receipt_tree["warehouse"]),
+            quality_dir=str(receipt_tree["quality"]),
+            aux_bundle=str(bundle))
+    assert writer.calls == []
+
+
+def test_authoritative_cli_does_not_promote_editable_shadow_json():
+    source = inspect.getsource(crc.main)
+    assert "--shadow-receipt" not in source
+    assert "verify_inventory" in source
+
+
+def test_durable_writer_rejects_partial_or_metadata_object(
+        receipt_tree, tmp_path):
+    bundle, _shadow_path, seal_binding, verified = _forward_shadow(
+        receipt_tree, tmp_path)
+    verified[0]["verification_state"] = "METADATA_ONLY"
+    writer = FakeConditionalWriter()
+    with pytest.raises(cr.ReceiptError, match="exact-version byte verified"):
+        crc.publish_durable_receipt(
+            DATE, BUCKET, PREFIX, writer, str(tmp_path / "durable"),
+            seal_binding=seal_binding, verified_objects=verified,
+            verified_at="2026-07-14T04:00:00Z",
+            publisher_code_commit="b" * 40,
+            raw_root=str(receipt_tree["raw_root"]),
+            warehouse_root=str(receipt_tree["warehouse"]),
+            quality_dir=str(receipt_tree["quality"]),
+            aux_bundle=str(bundle))
+    assert writer.calls == []
+
+
+def test_durable_receipt_reuses_first_writer_metadata_across_output_roots(
+        receipt_tree, tmp_path):
+    bundle, _shadow_path, seal_binding, verified = _forward_shadow(
+        receipt_tree, tmp_path)
+    writer = ReusingConditionalWriter()
+    common = dict(
+        date=DATE, bucket=BUCKET, prefix=PREFIX, writer=writer,
+        seal_binding=seal_binding, verified_objects=verified,
+        publisher_code_commit="b" * 40,
+        raw_root=str(receipt_tree["raw_root"]),
+        warehouse_root=str(receipt_tree["warehouse"]),
+        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle))
+    _path1, first = crc.publish_durable_receipt(
+        output_root=str(tmp_path / "durable-1"),
+        verified_at="2026-07-14T04:00:00Z", **common)
+    path2, second = crc.publish_durable_receipt(
+        output_root=str(tmp_path / "durable-2"),
+        verified_at="2026-07-15T05:00:00Z", **common)
+    stored = json.loads(
+        path2.with_name("receipt-%s.json" %
+                        second["receipt_set_sha256"]).read_text())
+    assert first["receipt_set_sha256"] == second["receipt_set_sha256"]
+    assert stored["verified_at_utc"] == "2026-07-14T04:00:00Z"
+    assert writer.puts == 1
+    assert writer.reused == 1
+
+
+def test_conditional_create_success_rejects_hidden_prior_version_or_delete(
+        monkeypatch):
+    writer = crc.AwsCliConditionalWriter("aws")
+
+    class Result:
+        returncode = 0
+        stdout = '{"VersionId":"new-v1"}'
+        stderr = ""
+
+    class Reader:
+        @staticmethod
+        def list_versions(_bucket, key):
+            return {
+                "Versions": [{"Key": key, "VersionId": "new-v1"}],
+                "DeleteMarkers": [{"Key": key, "VersionId": "old-delete"}],
+            }
+
+    writer.reader = Reader()
+    monkeypatch.setattr(writer, "_put", lambda *_args: Result())
+    with pytest.raises(cr.ReceiptError, match="CONTROL_CONFLICT"):
+        writer.ensure_bytes(BUCKET, "%s/control/test" % PREFIX, b"x")
+
+
+def test_equivalent_receipt_conflict_rejects_oversize_before_get(monkeypatch):
+    writer = crc.AwsCliConditionalWriter("aws")
+
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "PreconditionFailed 412"
+
+    class Reader:
+        got = False
+
+        @staticmethod
+        def list_versions(_bucket, key):
+            return {"Versions": [{"Key": key, "VersionId": "v1"}]}
+
+        @staticmethod
+        def head(_bucket, _key, _version):
+            return {
+                "VersionId": "v1",
+                "ContentLength": crc.MAX_DURABLE_RECEIPT_BYTES + 1,
+                "LastModified": "2026-07-14T04:00:00Z",
+            }
+
+        def get_exact(self, *_args):
+            self.got = True
+
+    reader = Reader()
+    writer.reader = reader
+    monkeypatch.setattr(writer, "_put", lambda *_args: Result())
+    with pytest.raises(cr.ReceiptError, match="allowed bound"):
+        writer.ensure_equivalent_bytes(
+            BUCKET, "%s/control/receipt.json" % PREFIX, b"{}\n",
+            lambda _stored: True)
+    assert reader.got is False
+
+
+def test_control_writer_source_has_no_large_copy_delete_tag_or_lifecycle_surface():
+    source = inspect.getsource(crc).lower().replace("_", "-")
+    assert "put-object" in source
+    for forbidden in (
+        "copy-object", "create-multipart-upload", "upload-part",
         "put-object-tagging", "put-object-version-tagging", "delete-object",
         "delete-objects", "put-bucket-lifecycle", "put-object-legal-hold",
     ):

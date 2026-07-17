@@ -496,16 +496,13 @@ run_seal_chain() {
     python3 tools/l2_gap_check.py --date "$CHAIN_DATE" \
       >> "$LIVE/l2_gap_check.log" 2>&1 && touch "$LIVE/l2_gaps_${CHAIN_DATE}.done"
   fi
-  # PIPE-W05 Phase A: publish the sealed day as an immutable research release
-  # (research/releases/<id>/, MANIFEST last). Additive, archive-only, inside
-  # the async seal chain so capture never waits (P4). NO done-file (operator
-  # correction order 2026-07-12 fix 1): the publisher is state-aware — a new
-  # corrections/gap-evidence/rfq state publishes a DISTINCT release id, and
-  # an already-published state is a cheap no-op probe. Failure is logged and
-  # retried on the next cycle, never blocking the chain.
+  # Copied-v2 remains the verified rollback/default until zero-copy IAM,
+  # canary and rollback drill all pass.  Only the explicit operator cutover
+  # file turns this compatibility call into a no-copy log entry.  RFQ is
+  # forced off in either state.
   bash deploy/ec2_s3_sync.sh research_sync "$CHAIN_DATE" \
     >> "$LIVE/research_release.log" 2>&1 \
-    || echo "[supervisor] research release publish failed for $CHAIN_DATE (state-aware retry next cycle)"
+    || echo "[supervisor] zero-copy research gate logging failed for $CHAIN_DATE"
   research_done="$LIVE/research_${CHAIN_DATE}.done.json"
   if [ -f "$research_done" ] && \
      ! research_receipt_current "$CHAIN_DATE" "$research_done"; then
@@ -583,11 +580,12 @@ while true; do
   fi
   WS_PID=""
 
-  # Seal-gated raw pruning (operator rulings 2026-07-10 retention + 2026-07-11
-  # seals): a receipt day is deletable only when its (and its cross-day
-  # successor's) seals exist; unsealed-dependency files are always retained.
-  # Fail-closed: prune_raw deletes NOTHING on any error and always writes
-  # work/live/raw_retention_alert.json (retained-overdue files + reasons).
+  # Seal + independent durable-authority gated raw pruning. Research release
+  # receipts are explicitly NOT prune authority (prune_eligible=false).
+  # Missing work/live/canonical_receipts/prune-authority/date=*/ authority
+  # retains every overdue byte and alerts. All days/SHAs are planned before
+  # the first unlink, so a later parse/integrity failure cannot partially
+  # prune an earlier day.
   ( python3 tools/prune_raw.py --retention-days "$RAW_RETENTION_DAYS" \
       >> "$LIVE/prune_raw.log" 2>&1 \
       || echo "[supervisor] prune_raw NONZERO (fail-closed, nothing deleted)" ) &

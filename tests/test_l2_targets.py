@@ -170,6 +170,15 @@ def test_main_refresh_fail_closed_leaves_previous_file_untouched(
     out = str(tmp_path / "l2_targets.csv")
     good = {"KXMLBGAME": [_mk("KXMLB-26JUL12-BOS", 2, oi="42.00")]}
 
+    class FrozenDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is not None else NOW.replace(tzinfo=None)
+
+    # main() intentionally uses wall-clock UTC.  Freeze it here so this
+    # fail-closed regression test does not expire as its fixture ages.
+    monkeypatch.setattr(l2t, "datetime", FrozenDatetime)
+
     def fetch_ok(path, params):
         return {"markets": good.get(params["series_ticker"], [])}
 

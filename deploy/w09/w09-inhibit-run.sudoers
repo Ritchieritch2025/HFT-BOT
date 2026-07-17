@@ -1,0 +1,1 @@
+ubuntu ALL=(root) NOPASSWD: /usr/local/libexec/w09-inhibit-run *

@@ -34,6 +34,7 @@ import research_data as rd
 
 IMDS_ROOT = "http://169.254.169.254/latest"
 EXPECTED_PROFILE = "w09-research-runner"
+EXPECTED_ROLE = "w09-research-runner"
 REFRESH_SKEW_SECONDS = 300
 CANONICAL_MAKE_STORE = rd.make_store
 
@@ -74,8 +75,10 @@ def refuse_static_credentials() -> None:
 class IMDSv2Credentials:
     """Short-lived instance-role credentials with expiry-aware refresh."""
 
-    def __init__(self, expected_profile: str = EXPECTED_PROFILE):
+    def __init__(self, expected_profile: str = EXPECTED_PROFILE,
+                 expected_role: str = EXPECTED_ROLE):
         self.expected_profile = expected_profile
+        self.expected_role = expected_role
         self.key_id = None
         self.secret = None
         self.session_token = None
@@ -118,6 +121,11 @@ class IMDSv2Credentials:
         ).decode("utf-8").strip()
         if not role or "\n" in role:
             raise SystemExit("REFUSED (W09 identity): invalid role response")
+        if role != self.expected_role:
+            raise SystemExit(
+                "REFUSED (W09 identity): attached role is %r, expected %r" %
+                (role, self.expected_role)
+            )
         raw = _request(
             IMDS_ROOT + "/meta-data/iam/security-credentials/" +
             urllib.parse.quote(role, safe="-_.~"),
@@ -242,7 +250,8 @@ def make_instance_profile_store(root):
 def main(argv=None):
     refuse_static_credentials()
     rd.make_store = make_instance_profile_store
-    return rd.main(argv or sys.argv)
+    effective_argv = sys.argv if argv is None else argv
+    return rd.main(effective_argv)
 
 
 if __name__ == "__main__":

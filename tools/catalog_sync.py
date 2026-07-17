@@ -25,6 +25,7 @@ stdlib + duckdb only. Read-only public endpoints (no auth).
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -32,10 +33,23 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import publication_generation as pg  # noqa: E402
+
 BASE = "https://external-api.kalshi.com/trade-api/v2"
 
 # shared pacing state across all requests in this process
 _LAST_REQUEST_MONO = [0.0]
+
+CATALOG_MEMBERS = {
+    "series": "series/part-00000.parquet",
+    "events": "events/part-00000.parquet",
+    "markets": "markets/part-00000.parquet",
+    "settlements": "settlements/part-00000.parquet",
+    "series_classified": "series_classified/part-00000.parquet",
+}
+CATALOG_REQUIRED = {
+    CATALOG_MEMBERS[name] for name in ("series", "events", "markets")}
 
 
 def paced_open(url, timeout=45, min_interval_s=0.05, max_tries=6,
@@ -102,22 +116,130 @@ def write_parquet_raw(rows, out_dir):
             tmp.write(json.dumps(r) + "\n")   # raw object, every field
         tmp.close()
         con = duckdb.connect()
-        src = tmp.name.replace("'", "''")
-        dst = out.replace("'", "''")
-        # union_by_name so heterogeneous objects keep every field they carry.
-        # sample_size=-1 (W-A5, 2026-07-10): schema inference must scan ALL
-        # rows — the 400k-event crawl has second-precision timestamps in the
-        # head and microsecond-precision ones deep in the tail; head-only
-        # sampling inferred "%Y-%m-%dT%H:%M:%SZ" and hard-crashed at row
-        # 363,172. Full sampling makes mixed-format columns fall back to
-        # VARCHAR — lossless, correct for a store-it-raw dim layer.
-        con.execute(
-            "COPY (SELECT * FROM read_json_auto('%s', format='newline_delimited', "
-            "union_by_name=true, maximum_object_size=1048576, sample_size=-1)) "
-            "TO '%s' (FORMAT PARQUET)" % (src, dst))
+        try:
+            src = tmp.name.replace("'", "''")
+            dst = out.replace("'", "''")
+            # union_by_name so heterogeneous objects keep every field they carry.
+            # sample_size=-1 (W-A5, 2026-07-10): schema inference must scan ALL
+            # rows — the 400k-event crawl has second-precision timestamps in the
+            # head and microsecond-precision ones deep in the tail; head-only
+            # sampling inferred "%Y-%m-%dT%H:%M:%SZ" and hard-crashed at row
+            # 363,172. Full sampling makes mixed-format columns fall back to
+            # VARCHAR — lossless, correct for a store-it-raw dim layer.
+            con.execute(
+                "COPY (SELECT * FROM read_json_auto('%s', format='newline_delimited', "
+                "union_by_name=true, maximum_object_size=1048576, sample_size=-1)) "
+                "TO '%s' (FORMAT PARQUET)" % (src, dst))
+        finally:
+            con.close()
         return len(rows)
     finally:
         os.unlink(tmp.name)
+
+
+def _catalog_file_set(warehouse):
+    """Return the strict allowlisted canonical catalog member set."""
+    catalog = os.path.join(warehouse, "catalog")
+    if os.path.lexists(catalog) and os.path.islink(catalog):
+        raise pg.GenerationError("catalog root is a symlink")
+    actual = set()
+    if not os.path.isdir(catalog):
+        return actual
+    allowed = set(CATALOG_MEMBERS.values())
+    for base, dirs, files in os.walk(catalog):
+        dirs.sort()
+        for name in dirs:
+            path = os.path.join(base, name)
+            if os.path.islink(path):
+                raise pg.GenerationError("catalog directory is a symlink: %s" % path)
+        for name in sorted(files):
+            path = os.path.join(base, name)
+            if os.path.islink(path):
+                raise pg.GenerationError("catalog member is a symlink: %s" % path)
+            rel = os.path.relpath(path, catalog).replace(os.sep, "/")
+            if rel not in allowed:
+                raise pg.GenerationError("unexpected catalog member %s" % rel)
+            actual.add(rel)
+    return actual
+
+
+def _link_preserved_catalog(warehouse, stage_root, refreshed):
+    """Pin unchanged members into the stage while holding catalog shared."""
+    actual = _catalog_file_set(warehouse)
+    if actual:
+        manifest, state = pg.verified_or_synthesized_manifest(
+            warehouse, "catalog", ["catalog/" + rel for rel in actual])
+    else:
+        manifest, state = None, "EMPTY"
+    for rel in sorted(actual - set(refreshed)):
+        src = os.path.join(warehouse, "catalog", *rel.split("/"))
+        dst = os.path.join(stage_root, "catalog", *rel.split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        os.link(src, dst)
+    return manifest, state
+
+
+def _assert_catalog_base_unchanged(warehouse, base_manifest, base_state):
+    current = _catalog_file_set(warehouse)
+    if base_state == "EMPTY":
+        if current:
+            raise pg.GenerationError(
+                "catalog appeared while a new generation was staged")
+        return
+    expected = ["catalog/" + rel for rel in current]
+    if base_state == "PRODUCER_MANIFEST_VERIFIED":
+        now = pg.load_manifest(
+            warehouse, "catalog", expected_paths=expected,
+            verify_files=False, allow_missing=False)
+    else:
+        now, _state = pg.verified_or_synthesized_manifest(
+            warehouse, "catalog", expected)
+    if now["generation_id"] != base_manifest["generation_id"]:
+        raise pg.GenerationError("catalog changed while a new generation was staged")
+
+
+def _publish_catalog_generation(warehouse, stage_root, refreshed):
+    with pg.generation_locks(warehouse, {"catalog": "shared"}, timeout=30.0):
+        base_manifest, base_state = _link_preserved_catalog(
+            warehouse, stage_root, refreshed)
+
+    staged_rel = set()
+    catalog_stage = os.path.join(stage_root, "catalog")
+    for base, dirs, files in os.walk(catalog_stage):
+        dirs.sort()
+        for name in dirs:
+            if os.path.islink(os.path.join(base, name)):
+                raise pg.GenerationError("staged catalog directory is a symlink")
+        for name in sorted(files):
+            full = os.path.join(base, name)
+            if os.path.islink(full):
+                raise pg.GenerationError("staged catalog member is a symlink")
+            rel = os.path.relpath(full, catalog_stage).replace(os.sep, "/")
+            if rel not in set(CATALOG_MEMBERS.values()):
+                raise pg.GenerationError("unexpected staged catalog member %s" % rel)
+            staged_rel.add(rel)
+    missing = CATALOG_REQUIRED - staged_rel
+    if missing:
+        raise pg.GenerationError("catalog generation missing %s" % sorted(missing))
+    generation_paths = ["catalog/" + rel for rel in sorted(staged_rel)]
+    prior_files = ({row["relative_path"]: row
+                    for row in base_manifest["files"]}
+                   if base_manifest is not None else {})
+    generation_files = []
+    for rel in generation_paths:
+        catalog_rel = rel[len("catalog/"):]
+        if catalog_rel not in refreshed and rel in prior_files:
+            generation_files.append(prior_files[rel])
+        else:
+            generation_files.extend(pg.attest_files(stage_root, [rel]))
+    manifest = pg.build_manifest("catalog", generation_files)
+    staged = {
+        rel: os.path.join(stage_root, *rel.split("/"))
+        for rel in generation_paths}
+    with pg.generation_locks(warehouse, {"catalog": "exclusive"}, timeout=30.0):
+        _assert_catalog_base_unchanged(warehouse, base_manifest, base_state)
+        pg.publish_transaction(warehouse, staged, manifest)
+    return manifest
 
 
 def main(argv):
@@ -138,47 +260,82 @@ def main(argv):
         print("error: needs the duckdb module (pip install duckdb)", file=sys.stderr)
         return 1
 
-    cat = os.path.join(args.warehouse, "catalog")
+    warehouse = os.path.abspath(args.warehouse)
+    stage_parent = os.path.join(warehouse, ".publication-stage")
+    if os.path.lexists(stage_parent) and os.path.islink(stage_parent):
+        raise pg.GenerationError("publication stage is a symlink")
+    os.makedirs(stage_parent, mode=0o700, exist_ok=True)
+    stage_root = tempfile.mkdtemp(prefix="catalog-", dir=stage_parent)
+    refreshed = set()
+    try:
+        # Fetch every requested table before touching the canonical catalog.
+        # A network error therefore leaves the previous complete generation.
+        log("[1/4] series (dim_series) ...")
+        series, _ = fetch_all("/series/", "series", limit=1000, log=log)
+        if not series:
+            raise pg.GenerationError("series crawl returned no rows")
+        n = write_parquet_raw(
+            series, os.path.join(stage_root, "catalog", "series"))
+        refreshed.add(CATALOG_MEMBERS["series"])
+        cats = sorted({s.get("category") for s in series if s.get("category")})
+        log("      %d series, %d categories (staged)" % (n, len(cats)))
 
-    log("[1/4] series (dim_series) ...")
-    series, _ = fetch_all("/series/", "series", limit=1000, log=log)
-    n = write_parquet_raw(series, os.path.join(cat, "series"))
-    cats = sorted({s.get("category") for s in series if s.get("category")})
-    log("      %d series, %d categories" % (n, len(cats)))
+        log("[2/4] events (dim_event) ...")
+        # cap_pages raised 400->2000 (W-A5 audit item, 2026-07-09): the crawl hit
+        # exactly 80,000 = 400x200 — a hard-cap truncation, not the real total.
+        events, trunc = fetch_all("/events/", "events", limit=200, log=log,
+                                  cap_pages=2000)
+        if not events:
+            raise pg.GenerationError("events crawl returned no rows")
+        n = write_parquet_raw(
+            events, os.path.join(stage_root, "catalog", "events"))
+        refreshed.add(CATALOG_MEMBERS["events"])
+        log("      %d events%s (staged)" %
+            (n, " (capped)" if trunc else ""))
 
-    log("[2/4] events (dim_event) ...")
-    # cap_pages raised 400->2000 (W-A5 audit item, 2026-07-09): the crawl hit
-    # exactly 80,000 = 400x200 — a hard-cap truncation, not the real total.
-    # The "(capped)" marker below still surfaces any future ceiling hit (D2).
-    events, trunc = fetch_all("/events/", "events", limit=200, log=log,
-                              cap_pages=2000)
-    n = write_parquet_raw(events, os.path.join(cat, "events"))
-    log("      %d events%s" % (n, " (capped)" if trunc else ""))
+        if not args.skip_markets:
+            log("[3/4] markets (dim_market, open snapshot) ...")
+            markets, trunc = fetch_all(
+                "/markets", "markets", limit=200,
+                params={"status": "open"}, log=log, cap_pages=2000)
+            if not markets:
+                raise pg.GenerationError("open-markets crawl returned no rows")
+            n = write_parquet_raw(
+                markets, os.path.join(stage_root, "catalog", "markets"))
+            refreshed.add(CATALOG_MEMBERS["markets"])
+            log("      %d open markets%s (staged)" %
+                (n, " (capped)" if trunc else ""))
+        else:
+            log("[3/4] markets — preserved from current generation")
 
-    if not args.skip_markets:
-        log("[3/4] markets (dim_market, open snapshot) ...")
-        # cap raised with events (W-A5): open-markets ALSO hit 80,000 = 400x200
-        # every hourly crawl — historic snapshots are tail-truncated.
-        markets, trunc = fetch_all("/markets", "markets", limit=200,
-                                   params={"status": "open"}, log=log,
-                                   cap_pages=2000)
-        n = write_parquet_raw(markets, os.path.join(cat, "markets"))
-        log("      %d open markets%s" % (n, " (capped)" if trunc else ""))
-    else:
-        log("[3/4] markets — skipped")
+        if args.settled_pages > 0:
+            log("[4/4] settlements (dim_settlement, settled markets) ...")
+            settled, trunc = fetch_all(
+                "/markets", "markets", limit=200,
+                params={"status": "settled"},
+                cap_pages=args.settled_pages, log=log)
+            if settled:
+                n = write_parquet_raw(
+                    settled,
+                    os.path.join(stage_root, "catalog", "settlements"))
+                refreshed.add(CATALOG_MEMBERS["settlements"])
+            else:
+                n = 0
+            log("      %d settled markets%s%s" % (
+                n, " (capped — increase --settled-pages)" if trunc else "",
+                " (old optional snapshot preserved)" if not settled else
+                " (staged)"))
+        else:
+            log("[4/4] settlements — preserved from current generation")
 
-    if args.settled_pages > 0:
-        log("[4/4] settlements (dim_settlement, settled markets) ...")
-        settled, trunc = fetch_all("/markets", "markets", limit=200,
-                                   params={"status": "settled"},
-                                   cap_pages=args.settled_pages, log=log)
-        n = write_parquet_raw(settled, os.path.join(cat, "settlements"))
-        log("      %d settled markets%s" % (n, " (capped — increase --settled-pages)" if trunc else ""))
-    else:
-        log("[4/4] settlements — skipped")
-
-    log("reference sync complete -> %s" % cat)
-    return 0
+        manifest = _publish_catalog_generation(
+            warehouse, stage_root, refreshed)
+        log("reference sync complete -> %s [generation %s]" %
+            (os.path.join(warehouse, "catalog"),
+             manifest["generation_id"][:16]))
+        return 0
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 EXPECTED_INSTANCE_ID="i-0e53d134dceffe166"
 EXPECTED_PROFILE="w09-research-runner"
+EXPECTED_ROLE="w09-research-runner"
 PAYLOAD_ROOT="${1:-/tmp/w09-bringup}"
 INSTALL_ROOT="/opt/w09/research"
 VENV="/opt/w09/venv"
@@ -12,9 +13,20 @@ if [ "$(id -u)" -ne 0 ]; then
     echo "W09_INSTALL_REFUSED: run as root" >&2
     exit 77
 fi
-if [ ! -f "$PAYLOAD_ROOT/tools/research_data.py" ]; then
-    echo "W09_INSTALL_REFUSED: missing canonical CLI payload" >&2
+for module in research_data.py research_reference.py warehouse_common.py; do
+    if [ ! -f "$PAYLOAD_ROOT/tools/$module" ]; then
+        echo "W09_INSTALL_REFUSED: missing reader module: $module" >&2
+        exit 66
+    fi
+done
+if [ ! -f "$PAYLOAD_ROOT/deploy/w09/research_reader_modules.sha256" ]; then
+    echo "W09_INSTALL_REFUSED: missing reader module manifest" >&2
     exit 66
+fi
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/research_reader_modules.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: reader module integrity mismatch" >&2
+    exit 65
 fi
 if ! grep -qx 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
     "$PAYLOAD_ROOT/shutdown-behavior-stop.confirmed" 2>/dev/null; then
@@ -61,7 +73,8 @@ PROFILE_ARN="$(curl -fsS --max-time 3 \
 PROFILE_NAME="${PROFILE_ARN##*/}"
 if [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ] || \
    [ "$REGION" != "us-east-2" ] || \
-   [ "$PROFILE_NAME" != "$EXPECTED_PROFILE" ] || [ -z "$ROLE" ]; then
+   [ "$PROFILE_NAME" != "$EXPECTED_PROFILE" ] || \
+   [ "$ROLE" != "$EXPECTED_ROLE" ]; then
     echo "W09_INSTALL_REFUSED: identity mismatch instance=$INSTANCE_ID region=$REGION profile=$PROFILE_NAME role=$ROLE" >&2
     exit 77
 fi
@@ -70,7 +83,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
     ca-certificates chrony curl iproute2 python3 python3-pip python3-venv \
-    procps util-linux
+    procps sudo util-linux
 timedatectl set-timezone UTC
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/amazon-time-sync.sources" \
     /etc/chrony/sources.d/amazon-time-sync.sources
@@ -80,6 +93,8 @@ systemctl restart chrony.service
 install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" "$INSTALL_ROOT/config"
 install -m 0644 "$PAYLOAD_ROOT/tools/research_data.py" \
     "$INSTALL_ROOT/tools/research_data.py"
+install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
+    "$INSTALL_ROOT/tools/research_reference.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/warehouse_common.py" \
     "$INSTALL_ROOT/tools/warehouse_common.py"
 install -m 0644 "$PAYLOAD_ROOT/config/warehouse.yaml" \
@@ -99,6 +114,8 @@ python3 -m venv "$VENV"
     'duckdb==1.4.5' numpy pandas scipy statsmodels matplotlib pyarrow pytest pyyaml
 "$VENV/bin/python" -c \
     'import duckdb; assert duckdb.__version__ == "1.4.5"; print("duckdb=1.4.5")'
+PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
+    'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
 
 install -d -o ubuntu -g ubuntu -m 0750 /srv/w09-research "$CACHE_ROOT"
 install -d -m 0755 /etc/w09
@@ -120,6 +137,12 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09_idle_proof.py" \
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09_idle_confirm_stop.py" \
     /usr/local/sbin/w09-idle-confirm-stop
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09-run" /usr/local/bin/w09-run
+install -d -m 0755 /usr/local/libexec
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09-inhibit-run" \
+    /usr/local/libexec/w09-inhibit-run
+install -m 0440 "$PAYLOAD_ROOT/deploy/w09/w09-inhibit-run.sudoers" \
+    /etc/sudoers.d/w09-inhibit-run
+/usr/sbin/visudo -cf /etc/sudoers.d/w09-inhibit-run >/dev/null
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/acceptance_on_host.sh" \
     /usr/local/bin/w09-accept
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/w09-idle-check.service" \

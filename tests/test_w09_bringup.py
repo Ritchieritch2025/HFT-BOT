@@ -2,10 +2,12 @@
 """Focused offline tests for PIPE-W09 bring-up security contracts."""
 import contextlib
 import datetime
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,7 +17,7 @@ from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W09 = os.path.join(ROOT, "deploy", "w09")
-CANONICAL = "/Users/ritcardo/HFT-BOT-pipeline-recovery/tools"
+CANONICAL = os.path.join(ROOT, "tools")
 
 
 def load_module(name, path):
@@ -55,7 +57,7 @@ class TestInstanceProfileCLI(unittest.TestCase):
                         "w09-research-runner",
                 }).encode()
             if url.endswith("/iam/security-credentials/"):
-                return b"contained-role-name\n"
+                return b"w09-research-runner\n"
             return json.dumps({
                 "Code": "Success",
                 "AccessKeyId": "ASIATEST",
@@ -93,6 +95,25 @@ class TestInstanceProfileCLI(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 self.module.IMDSv2Credentials().refresh()
         self.assertIn("identity", str(caught.exception))
+
+    def test_wrong_role_inside_expected_profile_fails_closed(self):
+        def fake_request(url, method="GET", headers=None, timeout=2.0):
+            if url.endswith("/api/token"):
+                return b"token"
+            if url.endswith("/meta-data/iam/info"):
+                return json.dumps({
+                    "InstanceProfileArn":
+                        "arn:aws:iam::123456789012:instance-profile/"
+                        "w09-research-runner",
+                }).encode()
+            if url.endswith("/iam/security-credentials/"):
+                return b"unexpected-broad-role"
+            raise AssertionError("credential endpoint must not be reached")
+
+        with mock.patch.object(self.module, "_request", fake_request):
+            with self.assertRaises(SystemExit) as caught:
+                self.module.IMDSv2Credentials().refresh()
+        self.assertIn("attached role", str(caught.exception))
 
     def test_static_key_mode_is_refused_without_reading_values(self):
         with mock.patch.dict(
@@ -135,8 +156,131 @@ class TestInstanceProfileCLI(unittest.TestCase):
             store = self.module.make_instance_profile_store(tmp)
             self.assertEqual(store.describe(), tmp)
 
+    def test_wrapper_forwards_consumer_arguments_without_rewriting(self):
+        argv = [
+            "research_data", "fetch", "--release",
+            "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb",
+            "--with-rfq",
+        ]
+        with mock.patch.object(self.module, "refuse_static_credentials"), \
+                mock.patch.object(self.module.rd, "main", return_value=19) \
+                as consumer_main, \
+                mock.patch.object(self.module.rd, "make_store"):
+            self.assertEqual(self.module.main(argv), 19)
+        consumer_main.assert_called_once_with(argv)
+
+
+class TestReaderPayload(unittest.TestCase):
+    MANIFEST = os.path.join(W09, "research_reader_modules.sha256")
+    MODULES = {
+        "tools/research_data.py",
+        "tools/research_reference.py",
+        "tools/warehouse_common.py",
+    }
+
+    def _manifest_rows(self):
+        rows = {}
+        with open(self.MANIFEST, encoding="ascii") as handle:
+            for line in handle:
+                digest, relative = line.rstrip("\n").split("  ", 1)
+                rows[relative] = digest
+        return rows
+
+    def test_pinned_manifest_is_complete_and_matches_source_bytes(self):
+        rows = self._manifest_rows()
+        self.assertEqual(set(rows), self.MODULES)
+        for relative, expected in rows.items():
+            with open(os.path.join(ROOT, relative), "rb") as handle:
+                self.assertEqual(hashlib.sha256(handle.read()).hexdigest(),
+                                 expected, relative)
+
+    def test_payload_module_set_imports_from_an_isolated_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tools_dir = os.path.join(tmp, "tools")
+            os.makedirs(tools_dir)
+            for relative in self._manifest_rows():
+                shutil.copy2(os.path.join(ROOT, relative), tools_dir)
+            result = subprocess.run([
+                sys.executable, "-c",
+                "import research_data as rd, research_reference as rr; "
+                "assert rd.ref is rr; print(rr.SCHEMA)",
+            ], env={**os.environ, "PYTHONPATH": tools_dir},
+                check=True, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(),
+                             "research-release-manifest-v3-reference")
+
+    def test_push_and_install_cover_every_module_with_read_only_mode(self):
+        with open(os.path.join(W09, "push_and_install.sh"),
+                  encoding="utf-8") as handle:
+            push = handle.read()
+        with open(os.path.join(W09, "install_on_host.sh"),
+                  encoding="utf-8") as handle:
+            install = handle.read()
+        for relative in self.MODULES:
+            name = os.path.basename(relative)
+            self.assertIn(
+                'cp "$SOURCE_REPO/tools/%s" "$tmp/tools/"' % name,
+                push,
+            )
+            self.assertIn(
+                'install -m 0644 "$PAYLOAD_ROOT/tools/%s"' % name,
+                install,
+            )
+        self.assertIn("sha256sum -c", install)
+        self.assertIn("shasum -a 256 -c", push)
+
+    def test_shell_wrappers_preserve_all_argv(self):
+        with open(os.path.join(W09, "w09-run"),
+                  encoding="utf-8") as handle:
+            inhibitor = handle.read()
+        with open(os.path.join(W09, "w09-inhibit-run"),
+                  encoding="utf-8") as handle:
+            privileged_helper = handle.read()
+        with open(os.path.join(W09, "w09-inhibit-run.sudoers"),
+                  encoding="utf-8") as handle:
+            sudoers = handle.read()
+        with open(os.path.join(W09, "install_on_host.sh"),
+                  encoding="utf-8") as handle:
+            install = handle.read()
+        self.assertIn('-- "$@"', inhibitor)
+        self.assertIn(
+            'sudo -n /usr/local/libexec/w09-inhibit-run "$@"',
+            inhibitor)
+        self.assertIn('SUDO_USER:-}" != "ubuntu"', privileged_helper)
+        self.assertIn("--reuid=ubuntu", privileged_helper)
+        self.assertIn("--regid=ubuntu", privileged_helper)
+        self.assertIn("--reset-env", privileged_helper)
+        self.assertIn('-- "$@"', privileged_helper)
+        self.assertEqual(
+            sudoers.strip(),
+            "ubuntu ALL=(root) NOPASSWD: "
+            "/usr/local/libexec/w09-inhibit-run *")
+        self.assertIn("visudo -cf /etc/sudoers.d/w09-inhibit-run", install)
+        self.assertIn('--cache /srv/w09-research/cache "$@"', install)
+
 
 class TestReleaseSelection(unittest.TestCase):
+    def test_strict_v3_gate_rejects_v2_only_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rid = "2026-07-15__seal-eeeeeeee__pub-3333333333333333"
+            path = os.path.join(tmp, "releases", rid)
+            os.makedirs(path)
+            with open(os.path.join(path, "MANIFEST.json"), "w") as handle:
+                json.dump({
+                    "schema_version": "research-release-manifest-v2",
+                    "release_id": rid,
+                    "date": "2026-07-15",
+                    "generated_at_utc": "2026-07-16T05:00:00Z",
+                    "version_binding": {"mode": "VERSION_BOUND"},
+                    "objects": [{"size": 17}],
+                }, handle)
+            result = subprocess.run([
+                sys.executable, os.path.join(W09, "select_newest_release.py"),
+                "--cache", tmp, "--require-v3-reference",
+            ], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("strict gate requires", result.stderr)
+
     def test_newest_date_then_publication_time_not_hash_order(self):
         with tempfile.TemporaryDirectory() as tmp:
             for rid, date, generated in (
@@ -158,6 +302,26 @@ class TestReleaseSelection(unittest.TestCase):
                         "version_binding": {"mode": "VERSION_BOUND"},
                         "objects": [{"size": 7}],
                     }, f)
+            v3_rid = (
+                "2026-07-14__v3ref__seal-dddddddd__pub-2222222222222222"
+            )
+            # Fresh inventory caches v3 neutrally; it is not materialized into
+            # releases/ until exact-version fetch succeeds.
+            v3_path = os.path.join(tmp, "reference_manifests", v3_rid)
+            os.makedirs(v3_path)
+            with open(os.path.join(v3_path, "MANIFEST.json"), "w") as f:
+                json.dump({
+                    "schema": "research-release-manifest-v3-reference",
+                    "schema_version": 3,
+                    "storage_mode": "CANONICAL_REFERENCE",
+                    "publication_status": "PUBLISHED",
+                    "release_id": v3_rid,
+                    "date": "2026-07-14",
+                    "published_at_utc": "2026-07-15T03:00:00Z",
+                    "version_binding": {"mode": "CANONICAL_REFERENCE"},
+                    "evidence": {"tier": "SEALED_CONFIRMATION"},
+                    "objects": [{"size": 11}],
+                }, f)
             result = subprocess.run([
                 sys.executable, os.path.join(W09, "select_newest_release.py"),
                 "--cache", tmp, "--json",
@@ -167,6 +331,38 @@ class TestReleaseSelection(unittest.TestCase):
                 selected["release_id"],
                 "2026-07-13__seal-cccccccc__pub-1111111111111111",
             )
+            self.assertEqual(selected["storage_mode"], "COPIED_V2")
+            result = subprocess.run([
+                sys.executable, os.path.join(W09, "select_newest_release.py"),
+                "--cache", tmp, "--include-v3-reference", "--json",
+            ], check=True, capture_output=True, text=True)
+            selected = json.loads(result.stdout)
+            self.assertEqual(selected["release_id"], v3_rid)
+            self.assertEqual(selected["storage_mode"], "REFERENCE_V3")
+
+            # Strict acceptance must not let a newer copied-v2 release outrank
+            # the published v3 canonical reference.
+            newer_v2_rid = (
+                "2026-07-15__seal-eeeeeeee__pub-3333333333333333"
+            )
+            newer_v2_path = os.path.join(tmp, "releases", newer_v2_rid)
+            os.makedirs(newer_v2_path)
+            with open(os.path.join(newer_v2_path, "MANIFEST.json"), "w") as f:
+                json.dump({
+                    "schema_version": "research-release-manifest-v2",
+                    "release_id": newer_v2_rid,
+                    "date": "2026-07-15",
+                    "generated_at_utc": "2026-07-16T05:00:00Z",
+                    "version_binding": {"mode": "VERSION_BOUND"},
+                    "objects": [{"size": 17}],
+                }, f)
+            result = subprocess.run([
+                sys.executable, os.path.join(W09, "select_newest_release.py"),
+                "--cache", tmp, "--require-v3-reference", "--json",
+            ], check=True, capture_output=True, text=True)
+            selected = json.loads(result.stdout)
+            self.assertEqual(selected["release_id"], v3_rid)
+            self.assertEqual(selected["storage_mode"], "REFERENCE_V3")
 
 
 class TestIdleGuard(unittest.TestCase):
@@ -325,6 +521,20 @@ class TestIdleProof(unittest.TestCase):
 
 
 class TestShellSyntax(unittest.TestCase):
+    def test_acceptance_is_v3_only_and_keeps_rfq_off(self):
+        with open(os.path.join(W09, "acceptance_on_host.sh"),
+                  encoding="utf-8") as handle:
+            script = handle.read()
+        self.assertIn("cache-v3-canary", script)
+        self.assertGreaterEqual(script.count("--require-v3-reference"), 2)
+        self.assertNotIn("--include-v3-reference", script)
+        self.assertNotIn("--with-rfq", script)
+        self.assertIn('marker.get("storage_mode") != "REFERENCE_V3"', script)
+        self.assertIn(
+            'marker.get("version_binding_mode") != "CANONICAL_REFERENCE"',
+            script)
+        self.assertIn('marker.get("rfq_included") is not False', script)
+
     def test_bash_scripts_parse(self):
         for name in ("install_on_host.sh", "push_and_install.sh",
                      "acceptance_on_host.sh", "run_acceptance.sh"):

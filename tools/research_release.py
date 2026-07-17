@@ -80,6 +80,13 @@ pending): env RESEARCH_INCLUDE_RFQ=1 or flag file
 run. Only rfq_<HH>/rfq_receipts_<HH> families are ever admitted (amendment
 1); firehose/l2_<HH> raw never leaves the hourly vault path.
 
+REFERENCE V3 (W-PUB-REF-01B) is an explicit, non-default command:
+`publish-reference --receipt <canonical-durable-receipt-index-v1>`.  It exact-
+version reads the indexed control-plane receipt, runs the same local
+seal/quality/schema freeze, reconciles the staged and receipt object sets in
+both directions, and conditional-creates MANIFEST.json only.  The legacy
+`publish` command remains the copied-v2 path unchanged.
+
 stdlib + duckdb (schema freeze; explicit memory_limit on every connection) +
 the aws CLI for s3:// destinations. Local directory destinations/vaults use
 pure python (fixture tests).
@@ -92,14 +99,30 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
+import git_provenance as gp  # noqa: E402
 
 MANIFEST_SCHEMA = "research-release-manifest-v2"
+REFERENCE_MANIFEST_SCHEMA = "research-release-manifest-v3-reference"
+REFERENCE_STORAGE_MODE = "CANONICAL_REFERENCE"
+CANONICAL_RECEIPT_SCHEMA = "canonical-object-receipt-v1"
+CANONICAL_RECEIPT_STATE = "DURABLE_RECEIPT_VERIFIED"
+CANONICAL_RECEIPT_AUTHORITY = "CANONICAL_CONTROL_PLANE"
+CANONICAL_RECEIPT_INDEX_SCHEMA = "canonical-durable-receipt-index-v1"
+CANONICAL_TAGGED_PHASE = "TAGGED_ELIGIBILITY_VERIFIED"
+RFQ_ELIGIBILITY_BINDING_SCHEMA = "canonical-rfq-eligibility-binding-v1"
+RFQ_ELIGIBILITY_BINDING_STATE = "ELIGIBLE_SEALED_REFERENCE"
+RFQ_DUAL_TAG_STATE = "DUAL_TAGGED_VERIFIED"
+MAX_DURABLE_INDEX_BYTES = 1024 * 1024
+MAX_CANONICAL_RECEIPT_BYTES = 16 * 1024 * 1024
+MAX_REFERENCE_MANIFEST_BYTES = 16 * 1024 * 1024
 DEST_DEFAULT = "s3://kalshi-vault-ritcardo/research"
 RAW_VAULT_DEFAULT = "s3://kalshi-vault-ritcardo/ec2/raw"
 DUCKDB_MEMORY_LIMIT = "8GB"  # spec HYGIENE: explicit on every connection
@@ -107,8 +130,35 @@ LADDER_COLUMNS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
                   "local_recv_ts_us")
 RFQ_FLAG_FILE = os.path.expanduser("~/.kalshi/research_include_rfq")
 _RFQ_RE = re.compile(r"^rfq(?:_receipts)?_\d{2}\.ndjson(?:\.\d+)?$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+RESEARCH_RELEASE_PROVENANCE_PATHS = (
+    "tools/git_provenance.py",
+    "tools/warehouse_common.py",
+    "tools/canonical_receipts.py",
+    "tools/research_reference.py",
+    "tools/research_reference_patrol.py",
+    "tools/research_release.py",
+)
+
+# Reference manifests are expected to remain immediately readable.  S3 omits
+# StorageClass for STANDARD objects; the other values below are the online
+# (non-restore-gated) classes accepted by the publisher.  Archival and unknown
+# future classes fail closed until they are explicitly reviewed.
+REFERENCE_READABLE_STORAGE_CLASSES = frozenset((
+    "STANDARD", "REDUCED_REDUNDANCY", "STANDARD_IA", "ONEZONE_IA",
+    "INTELLIGENT_TIERING", "GLACIER_IR", "EXPRESS_ONEZONE",
+))
 
 DAY_US = 86_400_000_000
+
+
+def require_clean_mutation_provenance():
+    try:
+        return gp.require_clean_head(
+            wc.ROOT, RESEARCH_RELEASE_PROVENANCE_PATHS)
+    except gp.GitProvenanceError as exc:
+        raise SystemExit(
+            "ABORT (fail-closed, %s): %s" % (exc.code, exc.detail))
 
 
 def research_env_file():
@@ -116,6 +166,39 @@ def research_env_file():
     overrides for tests only."""
     return os.environ.get("KALSHI_RESEARCH_ENV_FILE") or \
         os.path.expanduser("~/.kalshi/research_s3.env.sh")
+
+
+def reference_yellow_alert_path(live_dir):
+    """Derive the fixed production patrol alert from the active live root."""
+    if not isinstance(live_dir, (str, os.PathLike)) or not os.fspath(live_dir):
+        raise SystemExit("ABORT (reference patrol): live_dir is required")
+    return os.path.join(os.path.abspath(os.fspath(live_dir)),
+                        "research_reference_patrol", "YELLOW.json")
+
+
+def _require_reference_yellow_absent(path):
+    if os.path.lexists(path):
+        raise SystemExit(
+            "ABORT (reference patrol YELLOW): new v3 publication is frozen "
+            "while the durable local alert exists: %s" % path)
+
+
+def require_reference_patrol_clear(reference_mode, alert_path=None,
+                                   dest_url=None, live_dir=None):
+    """Freeze every v3 publish entry while a durable yellow alert exists."""
+    if not reference_mode:
+        return None
+    fixed = reference_yellow_alert_path(live_dir)
+    if str(dest_url or "").startswith("s3://"):
+        if alert_path is not None:
+            raise SystemExit(
+                "ABORT (reference patrol): a real S3 v3 publish cannot "
+                "override the fixed YELLOW path")
+        path = fixed
+    else:
+        path = os.path.abspath(alert_path) if alert_path is not None else fixed
+    _require_reference_yellow_absent(path)
+    return path
 
 
 def safe_join(base, key):
@@ -170,6 +253,38 @@ class LocalDest:
 
     def exists(self, key):
         return os.path.isfile(os.path.join(self.root, key))
+
+    def read_manifest(self, key):
+        """Return the exact existing manifest bytes, never a prefix match."""
+        path = os.path.join(self.root, key)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(path, flags)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise SystemExit("ABORT (fail-closed): cannot safely inspect "
+                             "existing manifest %s: %s" % (key, exc))
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode)
+                    or info.st_size > MAX_REFERENCE_MANIFEST_BYTES):
+                raise SystemExit("ABORT (fail-closed): existing manifest is "
+                                 "not a bounded regular file: %s" % key)
+            raw = b""
+            while len(raw) <= MAX_REFERENCE_MANIFEST_BYTES:
+                chunk = os.read(
+                    fd, min(1 << 20,
+                            MAX_REFERENCE_MANIFEST_BYTES + 1 - len(raw)))
+                if not chunk:
+                    break
+                raw += chunk
+            if len(raw) != info.st_size:
+                raise SystemExit("ABORT (fail-closed): existing manifest "
+                                 "changed while reading: %s" % key)
+            return raw, None
+        finally:
+            os.close(fd)
 
     def upload_tree(self, stage_dir, prefix):
         """Everything except MANIFEST.json."""
@@ -235,6 +350,11 @@ class S3Dest:
         self.prefix = m.group(2).rstrip("/")
         self.url = "s3://%s/%s" % (self.bucket, self.prefix) if self.prefix \
             else "s3://%s" % self.bucket
+        self.reference_patrol_alert = None
+
+    def bind_reference_patrol(self, live_dir):
+        """Bind the immutable production alert derived from publish live_dir."""
+        self.reference_patrol_alert = reference_yellow_alert_path(live_dir)
 
     def _key(self, key):
         return "%s/%s" % (self.prefix, key) if self.prefix else key
@@ -244,7 +364,103 @@ class S3Dest:
                            capture_output=True, text=True)
         return r.returncode == 0 and key.rsplit("/", 1)[-1] in r.stdout
 
+    def _manifest_history(self, key):
+        """Return the sole exact-key version, or ``None`` if never used.
+
+        Current HEAD alone is not a write-once proof: a delete marker makes
+        HEAD look absent while older bytes still exist.  Any historical
+        delete marker, second version, null VersionId, or truncated response
+        is therefore a permanent fail-closed violation.
+        """
+        exact_key = self._key(key)
+        r = subprocess.run([
+            "aws", "s3api", "list-object-versions",
+            "--bucket", self.bucket, "--prefix", exact_key,
+            "--max-items", "3"], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(
+                "ABORT (fail-closed): cannot inspect MANIFEST version "
+                "history for %s: %s" %
+                (key, (r.stderr or "")[:500].strip()))
+        try:
+            history = json.loads(r.stdout or "{}")
+        except ValueError:
+            raise SystemExit("ABORT (fail-closed): unparsable MANIFEST "
+                             "version history for %s" % key)
+        if (not isinstance(history, dict) or history.get("NextToken")
+                or history.get("IsTruncated") is True):
+            raise SystemExit("ABORT (fail-closed): MANIFEST version history "
+                             "is truncated or malformed for %s" % key)
+        versions = [row for row in history.get("Versions", [])
+                    if isinstance(row, dict) and row.get("Key") == exact_key]
+        markers = [row for row in history.get("DeleteMarkers", [])
+                   if isinstance(row, dict) and row.get("Key") == exact_key]
+        if markers or len(versions) > 1:
+            raise SystemExit(
+                "ABORT (fail-closed): MANIFEST write-once history violated "
+                "for %s (versions=%d delete_markers=%d)" %
+                (key, len(versions), len(markers)))
+        if not versions:
+            return None
+        row = versions[0]
+        version_id = row.get("VersionId")
+        if (not isinstance(version_id, str) or not version_id
+                or version_id.lower() == "null"
+                or row.get("IsLatest") is not True):
+            raise SystemExit("ABORT (fail-closed): MANIFEST history lacks "
+                             "one current non-null VersionId for %s" % key)
+        return row
+
+    def read_manifest(self, key):
+        """HEAD the exact key, then read back that immutable VersionId."""
+        historical = self._manifest_history(key)
+        if historical is None:
+            return None
+        r = subprocess.run([
+            "aws", "s3api", "head-object", "--bucket", self.bucket,
+            "--key", self._key(key)], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(
+                "ABORT (fail-closed): cannot inspect exact existing "
+                "manifest %s after history proof: %s" %
+                (key, (r.stderr or "")[:500].strip()))
+        try:
+            head = json.loads(r.stdout)
+        except ValueError:
+            raise SystemExit("ABORT (fail-closed): unparsable manifest "
+                             "HeadObject response for %s" % key)
+        version_id = head.get("VersionId")
+        size = head.get("ContentLength")
+        if (not isinstance(version_id, str) or not version_id
+                or version_id.lower() == "null"
+                or version_id != historical.get("VersionId")
+                or not isinstance(size, int) or isinstance(size, bool)
+                or size < 1 or size > MAX_REFERENCE_MANIFEST_BYTES):
+            raise SystemExit("ABORT (fail-closed): existing manifest lacks "
+                             "a bounded exact VersionId: %s" % key)
+        with tempfile.TemporaryDirectory(
+                prefix="reference-existing-manifest-") as root:
+            path = os.path.join(root, "MANIFEST.json")
+            self._get_exact_version(key, version_id, path)
+            if os.path.getsize(path) != size:
+                raise SystemExit("ABORT (fail-closed): existing manifest "
+                                 "exact-version size mismatch: %s" % key)
+            with open(path, "rb") as handle:
+                raw = handle.read(MAX_REFERENCE_MANIFEST_BYTES + 1)
+        if len(raw) != size or len(raw) > MAX_REFERENCE_MANIFEST_BYTES:
+            raise SystemExit("ABORT (fail-closed): existing manifest read "
+                             "exceeded its bound: %s" % key)
+        final_history = self._manifest_history(key)
+        if (final_history is None
+                or final_history.get("VersionId") != version_id):
+            raise SystemExit("ABORT (fail-closed): MANIFEST history changed "
+                             "during exact no-op verification for %s" % key)
+        return raw, version_id
+
     def upload_tree(self, stage_dir, prefix):
+        # This is the copied-v2 data mutation primitive.  Prove clean source
+        # immediately before spawning the S3 sync, even for direct callers.
+        require_clean_mutation_provenance()
         subprocess.run(["aws", "s3", "sync", stage_dir,
                         "%s/%s" % (self.url, prefix),
                         "--no-progress", "--exclude", "MANIFEST.json"],
@@ -320,6 +536,21 @@ class S3Dest:
     def upload_manifest(self, local, key):
         """P0-1: conditional-create (If-None-Match: *) write-once manifest,
         then read back BY ITS EXACT VersionId and sha256-verify."""
+        # MANIFEST is the exposure mutation for both v2 and v3.  Re-check
+        # here even when an earlier data sync already passed the gate.
+        require_clean_mutation_provenance()
+        is_v3 = _local_manifest_is_v3(local)
+        if self._manifest_history(key) is not None:
+            raise SystemExit("ABORT (fail-closed): MANIFEST already has a "
+                             "version history for %s" % key)
+        # Close the long staging TOCTOU window: for a real v3 mutation, check
+        # the fixed durable YELLOW again at the last boundary before PutObject.
+        if is_v3:
+            if self.reference_patrol_alert is None:
+                raise SystemExit(
+                    "ABORT (reference patrol): S3 v3 destination lacks its "
+                    "live_dir-derived YELLOW binding")
+            _require_reference_yellow_absent(self.reference_patrol_alert)
         r = subprocess.run(["aws", "s3api", "put-object", "--bucket",
                             self.bucket, "--key", self._key(key),
                             "--body", local, "--if-none-match", "*"],
@@ -340,6 +571,11 @@ class S3Dest:
                 "returned no VersionId — see P0-2; publication stopped. "
                 "NOTE: the manifest object now exists without version "
                 "binding and must be operator-disposed.")
+        historical = self._manifest_history(key)
+        if historical is None or historical.get("VersionId") != vid:
+            raise SystemExit("ABORT (fail-closed): MANIFEST post-create "
+                             "history does not contain exactly the created "
+                             "VersionId for %s" % key)
         tmp = local + ".readback"
         try:
             self._get_exact_version(key, vid, tmp)
@@ -642,6 +878,1284 @@ def canonical_digest(obj):
         ensure_ascii=True).encode("utf-8")).hexdigest()
 
 
+def _strict_manifest_json(raw):
+    if (not isinstance(raw, bytes) or not raw
+            or len(raw) > MAX_REFERENCE_MANIFEST_BYTES):
+        _reference_abort("existing reference manifest exceeds its byte bound")
+
+    def no_duplicates(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key %r" % key)
+            value[key] = item
+        return value
+
+    try:
+        value = json.loads(raw.decode("utf-8"),
+                           object_pairs_hook=no_duplicates)
+    except (UnicodeDecodeError, ValueError) as exc:
+        _reference_abort("existing reference manifest is invalid JSON: %s" %
+                         exc)
+    if not isinstance(value, dict):
+        _reference_abort("existing reference manifest root is not an object")
+    return value
+
+
+def _local_manifest_is_v3(path):
+    """Read one stable bounded local manifest and detect any v3 marker."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        _reference_abort("cannot safely read staged manifest: %s" % exc)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_size < 1
+                or before.st_size > MAX_REFERENCE_MANIFEST_BYTES):
+            _reference_abort("staged manifest is not a bounded regular file")
+        raw = b""
+        while len(raw) <= MAX_REFERENCE_MANIFEST_BYTES:
+            chunk = os.read(
+                fd, min(1 << 20,
+                        MAX_REFERENCE_MANIFEST_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw += chunk
+        after = os.fstat(fd)
+        if (len(raw) != before.st_size
+                or (before.st_dev, before.st_ino, before.st_size,
+                    before.st_mtime_ns, before.st_ctime_ns)
+                != (after.st_dev, after.st_ino, after.st_size,
+                    after.st_mtime_ns, after.st_ctime_ns)):
+            _reference_abort("staged manifest changed while reading")
+    finally:
+        os.close(fd)
+    manifest = _strict_manifest_json(raw)
+    return (manifest.get("schema") == REFERENCE_MANIFEST_SCHEMA
+            or manifest.get("schema_version") == 3
+            or manifest.get("storage_mode") == REFERENCE_STORAGE_MODE)
+
+
+def _assert_existing_reference_equivalent(raw, expected):
+    """Prove an existing deterministic release is the same publication.
+
+    Publication time and publisher commit are historical metadata, not part
+    of release identity.  Every other manifest byte-level semantic must match
+    the newly reconstructed expected manifest exactly; extra/missing fields
+    and damaged objects fail closed rather than being reported as a no-op.
+    """
+    existing = _strict_manifest_json(raw)
+    for label, value in (("published_at_utc",
+                          existing.get("published_at_utc")),
+                         ("corrections.cutoff_utc",
+                          (existing.get("corrections") or {}).get(
+                              "cutoff_utc"))):
+        _canonical_modified(value, "existing manifest %s" % label)
+    commit = existing.get("publisher_commit")
+    if (not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None):
+        _reference_abort("existing reference manifest publisher commit "
+                         "is invalid")
+
+    def stable(value):
+        value = json.loads(json.dumps(value, sort_keys=True))
+        value.pop("published_at_utc", None)
+        value.pop("publisher_commit", None)
+        corrections = value.get("corrections")
+        if isinstance(corrections, dict):
+            corrections.pop("cutoff_utc", None)
+        return value
+
+    if stable(existing) != stable(expected):
+        _reference_abort(
+            "existing reference manifest conflicts with reconstructed "
+            "publication state")
+    return existing
+
+
+def _reference_abort(detail):
+    raise SystemExit("ABORT (reference receipt): %s" % detail)
+
+
+def _safe_reference_rel(value, label):
+    if (not isinstance(value, str) or not value
+            or value.startswith(("/", "\\")) or "\\" in value
+            or "\x00" in value):
+        _reference_abort("unsafe %s %r" % (label, value))
+    parts = value.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        _reference_abort("unsafe %s %r" % (label, value))
+    return "/".join(parts)
+
+
+def _valid_sha256(value):
+    return isinstance(value, str) and _SHA256_RE.match(value) is not None
+
+
+def _read_local_index_nofollow(path):
+    """Read the small local durable index through one pinned regular-file fd.
+
+    The path is an operator input, not receipt authority.  Nevertheless it
+    must not be a symlink or race a pre-read stat/open pair, and a malicious
+    sparse/large file must be rejected before an unbounded allocation.
+    """
+    if not hasattr(os, "O_NOFOLLOW"):
+        _reference_abort("O_NOFOLLOW is required for the durable index")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    fd = None
+    try:
+        fd = os.open(os.fspath(path), flags)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            _reference_abort("durable receipt index is not a regular file")
+        if before.st_size > MAX_DURABLE_INDEX_BYTES:
+            _reference_abort("durable receipt index exceeds size cap")
+        chunks = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(1 << 20,
+                                    MAX_DURABLE_INDEX_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_DURABLE_INDEX_BYTES:
+                _reference_abort("durable receipt index exceeds size cap")
+        after = os.fstat(fd)
+        path_after = os.stat(os.fspath(path), follow_symlinks=False)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+        if (stat.S_ISLNK(path_after.st_mode)
+                or not stat.S_ISREG(path_after.st_mode)
+                or identity(before) != identity(after)
+                or (path_after.st_dev, path_after.st_ino)
+                != (after.st_dev, after.st_ino)
+                or total != after.st_size):
+            _reference_abort("durable receipt index changed while reading")
+        return b"".join(chunks)
+    except SystemExit:
+        raise
+    except OSError as exc:
+        _reference_abort("cannot safely read durable receipt index %s: %s" %
+                         (path, exc))
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _canonical_modified(value, label):
+    try:
+        import canonical_receipts as cr
+        normalized = cr._canonical_utc(value, label)
+    except Exception as exc:
+        _reference_abort("%s is invalid: %s" % (label, exc))
+    if not isinstance(value, str) or value != normalized:
+        _reference_abort("%s is not canonical" % label)
+    return normalized
+
+
+def _require_exact_head(reader, obj, label):
+    """Revalidate the exact S3 version's identity and online storage class."""
+    try:
+        head = reader.head(obj["bucket"], obj["key"], obj["VersionId"])
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _reference_abort("%s exact HEAD failed: %s" % (label, exc))
+    if not isinstance(head, dict):
+        _reference_abort("%s exact HEAD is not an object" % label)
+    if (head.get("VersionId") != obj["VersionId"]
+            or head.get("ContentLength") != obj["size"]
+            or head.get("DeleteMarker") is True):
+        _reference_abort("%s exact HEAD identity mismatch" % label)
+    indexed_modified = _canonical_modified(
+        obj.get("last_modified_utc"), "%s indexed LastModified" % label)
+    try:
+        import canonical_receipts as cr
+        got_modified = cr._canonical_utc(
+            head.get("LastModified"), "%s HEAD LastModified" % label)
+    except Exception as exc:
+        _reference_abort("%s HEAD LastModified is invalid: %s" % (label, exc))
+    if got_modified != indexed_modified:
+        _reference_abort("%s exact HEAD LastModified mismatch" % label)
+    storage_class = head.get("StorageClass") or "STANDARD"
+    if (not isinstance(storage_class, str)
+            or storage_class not in REFERENCE_READABLE_STORAGE_CLASSES
+            or head.get("ArchiveStatus") not in (None, "")):
+        _reference_abort("%s storage class is not immediately readable: %r" %
+                         (label, storage_class))
+    return head
+
+
+def _require_exact_tags(tag_reader, obj, required, label):
+    """Read GetObjectVersionTagging and enforce tags on that exact version."""
+    if tag_reader is None or not hasattr(tag_reader, "get_tags"):
+        _reference_abort("an exact-version tag reader is required")
+    try:
+        payload = tag_reader.get_tags(
+            obj["bucket"], obj["key"], obj["VersionId"])
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _reference_abort("%s exact tag read failed: %s" % (label, exc))
+    if (not isinstance(payload, dict)
+            or payload.get("VersionId") != obj["VersionId"]
+            or not isinstance(payload.get("TagSet"), list)
+            or len(payload["TagSet"]) > 10):
+        _reference_abort("%s exact tag response is malformed" % label)
+    tags = {}
+    for row in payload["TagSet"]:
+        if (not isinstance(row, dict) or set(row) != {"Key", "Value"}
+                or not isinstance(row.get("Key"), str) or not row["Key"]
+                or not isinstance(row.get("Value"), str)
+                or row["Key"] in tags):
+            _reference_abort("%s exact tag response is malformed" % label)
+        tags[row["Key"]] = row["Value"]
+    for key, expected in required.items():
+        if tags.get(key) != expected:
+            _reference_abort("%s lacks exact tag %s=%s" %
+                             (label, key, expected))
+    return tags
+
+
+def _is_rfq_receipt_object(obj):
+    key = str(obj.get("key") or "")
+    logical = str(obj.get("logical_source_key") or "")
+    kind = str(obj.get("source_kind") or "")
+    return (obj.get("channel") == "rfq" or kind.startswith("raw_rfq")
+            or ("/raw/" in ("/" + key)
+                and _RFQ_RE.match(os.path.basename(key)) is not None)
+            or (logical.startswith("raw/")
+                and _RFQ_RE.match(os.path.basename(logical)) is not None))
+
+
+def _make_canonical_receipt_reader():
+    """Production exact-version reader; tests must inject their fixture."""
+    try:
+        import canonical_receipts as cr
+        return cr.AwsCliS3Client()
+    except Exception as exc:
+        _reference_abort("cannot initialize canonical receipt reader: %s" % exc)
+
+
+def _validate_receipt_binding(binding, label, max_size):
+    if not isinstance(binding, dict):
+        _reference_abort("%s binding is missing" % label)
+    bucket = binding.get("bucket")
+    key = _safe_reference_rel(binding.get("key"), "%s key" % label)
+    version_id = binding.get("VersionId")
+    size = binding.get("size")
+    digest = binding.get("sha256")
+    if (not isinstance(bucket, str) or not bucket or "/" in bucket
+            or not isinstance(version_id, str) or not version_id.strip()
+            or version_id.lower() == "null"
+            or not isinstance(size, int) or isinstance(size, bool)
+            or size <= 0 or size > max_size
+            or not _valid_sha256(digest)
+            or binding.get("verification_state")
+            != "EXACT_VERSION_FULL_SHA256"):
+        _reference_abort("%s exact-version binding is invalid" % label)
+    _canonical_modified(
+        binding.get("last_modified_utc"), "%s LastModified" % label)
+    return bucket, key, version_id, size, digest
+
+
+def _read_exact_bound_json(reader, binding, label, max_size):
+    bucket, key, version_id, size, digest = _validate_receipt_binding(
+        binding, label, max_size)
+    _require_exact_head(reader, binding, label)
+    try:
+        with tempfile.TemporaryDirectory(
+                prefix="reference-control-readback-") as temp_dir:
+            path = os.path.join(temp_dir, "object.json")
+            reader.get_exact(bucket, key, version_id, path)
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW
+                         | getattr(os, "O_CLOEXEC", 0))
+            try:
+                opened = os.fstat(fd)
+                if (not stat.S_ISREG(opened.st_mode)
+                        or opened.st_size != size
+                        or opened.st_size > max_size):
+                    _reference_abort("%s exact body size mismatch" % label)
+                chunks = []
+                total = 0
+                while True:
+                    chunk = os.read(fd, min(1 << 20, max_size + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > max_size:
+                        _reference_abort("%s exact body exceeds size cap" % label)
+                after = os.fstat(fd)
+                if (total != size or after.st_size != opened.st_size
+                        or (after.st_dev, after.st_ino, after.st_mtime_ns,
+                            after.st_ctime_ns)
+                        != (opened.st_dev, opened.st_ino, opened.st_mtime_ns,
+                            opened.st_ctime_ns)):
+                    _reference_abort("%s exact body changed while reading" % label)
+                payload = b"".join(chunks)
+            finally:
+                os.close(fd)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _reference_abort("%s exact read failed: %s" % (label, exc))
+    if hashlib.sha256(payload).hexdigest() != digest:
+        _reference_abort("%s exact body SHA mismatch" % label)
+    try:
+        parsed = json.loads(payload)
+    except (ValueError, UnicodeDecodeError) as exc:
+        _reference_abort("%s body is invalid JSON: %s" % (label, exc))
+    if not isinstance(parsed, dict):
+        _reference_abort("%s JSON root is not an object" % label)
+    return parsed, payload
+
+
+def _rfq_exact_set_sha256(objects):
+    projection = [{
+        "logical_source_key": obj.get("logical_source_key"),
+        "bucket": obj.get("bucket"),
+        "key": obj.get("key"),
+        "VersionId": obj.get("VersionId"),
+        "size": obj.get("size"),
+        "sha256": obj.get("sha256"),
+        "last_modified_utc": obj.get("last_modified_utc"),
+    } for obj in objects]
+    projection.sort(key=lambda row: (
+        str(row["logical_source_key"]), str(row["bucket"]),
+        str(row["key"]), str(row["VersionId"])))
+    return canonical_digest(projection)
+
+
+def _validate_parent_lineage(receipt, parent, parent_sha):
+    """Prove the tagged receipt preserves its byte-attestation parent."""
+    fixed = {
+        "schema_version": CANONICAL_RECEIPT_SCHEMA,
+        "state": CANONICAL_RECEIPT_STATE,
+        "authority": CANONICAL_RECEIPT_AUTHORITY,
+        "authoritative": True,
+        "s3_published": True,
+        "prune_eligible": False,
+        "date": receipt["date"],
+        "receipt_set_sha256": parent_sha,
+    }
+    if any(parent.get(field) != expected for field, expected in fixed.items()):
+        _reference_abort("byte-attestation parent authority/identity mismatch")
+    if parent.get("receipt_phase") == CANONICAL_TAGGED_PHASE:
+        _reference_abort("byte-attestation parent is itself a tagged receipt")
+    parent_objects = parent.get("objects")
+    parent_families = parent.get("families")
+    parent_seal = parent.get("seal")
+    if (not isinstance(parent_objects, list) or not parent_objects
+            or not isinstance(parent_families, list)
+            or not isinstance(parent_seal, dict)):
+        _reference_abort("byte-attestation parent inventory is malformed")
+    try:
+        import canonical_receipts as cr
+        parent_binding = dict(parent_seal)
+        parent_binding["families"] = parent_families
+        if (cr.receipt_set_sha256(
+                parent["date"], parent_binding, parent_objects) != parent_sha
+                or parent.get("durability_set_sha256")
+                != cr.scoped_object_set_sha256(
+                    parent_objects, "durability_scope")
+                or parent.get("research_candidate_set_sha256")
+                != cr.scoped_object_set_sha256(
+                    parent_objects, "research_candidate")):
+            _reference_abort("byte-attestation parent stable digest mismatch")
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _reference_abort("byte-attestation parent is invalid: %s" % exc)
+    if parent_seal != receipt.get("seal") or parent_families != receipt.get(
+            "families"):
+        _reference_abort("tagged receipt changed parent seal/families")
+    parent_by_logical = {}
+    for obj in parent_objects:
+        if not isinstance(obj, dict):
+            _reference_abort("byte-attestation parent object is malformed")
+        logical = obj.get("logical_source_key")
+        if logical in parent_by_logical:
+            _reference_abort("byte-attestation parent has duplicate logical key")
+        if (obj.get("research_eligible") is not False
+                or obj.get("eligibility_tag_state") == "TAGGED_VERIFIED"
+                or obj.get("eligibility_tag_state") == RFQ_DUAL_TAG_STATE):
+            _reference_abort("byte-attestation parent falsely claims eligibility")
+        parent_by_logical[logical] = obj
+    current_by_logical = {
+        obj.get("logical_source_key"): obj for obj in receipt["objects"]}
+    if set(parent_by_logical) != set(current_by_logical):
+        _reference_abort("tagged receipt changed parent object set")
+    immutable_fields = (
+        "bucket", "key", "VersionId", "size", "sha256",
+        "last_modified_utc", "logical_source_key", "source_kind", "family",
+        "table", "channel", "date", "seal_binding",
+        "durability_verified", "mutable_source", "attestation_class",
+        "durability_scope", "version_resolution", "canonical_source",
+        "verification_state", "verified_at_utc", "publisher_code_commit",
+    )
+    for logical, parent_obj in parent_by_logical.items():
+        current = current_by_logical[logical]
+        if any(parent_obj.get(field) != current.get(field)
+               for field in immutable_fields):
+            _reference_abort(
+                "tagged receipt changed parent byte attestation at %s" % logical)
+        current_is_rfq_candidate = (
+            current.get("research_candidate") is True
+            and _is_rfq_receipt_object(current))
+        if current_is_rfq_candidate and (
+                parent_obj.get("research_candidate") is not False
+                or parent_obj.get("research_eligible") is not False
+                or parent_obj.get("eligibility_tag_state")
+                != "SHADOW_NOT_TAGGED"
+                or parent_obj.get("required") is not False
+                or parent_obj.get("exposure_policy")
+                != "FORBIDDEN_RFQ_DEFAULT"
+                or parent_obj.get("evidence_binding") != "seal.raw_files"):
+            _reference_abort(
+                "RFQ eligibility transition has an invalid byte parent at %s"
+                % logical)
+        if (not current_is_rfq_candidate
+                and parent_obj.get("evidence_binding")
+                != current.get("evidence_binding")):
+            _reference_abort(
+                "tagged receipt changed parent evidence at %s" % logical)
+        if (not current_is_rfq_candidate
+                and (parent_obj.get("research_candidate")
+                     != current.get("research_candidate")
+                     or parent_obj.get("required")
+                     != current.get("required"))):
+            _reference_abort(
+                "tagged receipt changed parent publication scope at %s" %
+                logical)
+        if current.get("research_candidate") is not True:
+            policy_fields = (
+                "research_candidate", "research_eligible",
+                "eligibility_tag_state", "exposure_policy", "required")
+            if any(parent_obj.get(field) != current.get(field)
+                   for field in policy_fields):
+                _reference_abort(
+                    "tagged receipt changed non-candidate policy at %s" %
+                    logical)
+
+
+def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
+                                tag_reader=None):
+    """Authenticate a durable index, exact-GET its receipt, then validate it.
+
+    The receipt digest contract is owned by canonical_receipts.py.  Reusing
+    that projection here prevents the reference publisher and receipt writer
+    from silently disagreeing about which object semantics are authoritative.
+    A self-declared local receipt is never authority: the local input is only
+    the durable index written after S3 read-back, and the receipt body is read
+    again by the index's exact receipt-object VersionId.
+    """
+    try:
+        index_payload = _read_local_index_nofollow(path)
+        index = json.loads(index_payload)
+    except SystemExit:
+        raise
+    except (ValueError, UnicodeDecodeError) as exc:
+        _reference_abort("cannot read durable receipt index %s: %s" %
+                         (path, exc))
+    if not isinstance(index, dict):
+        _reference_abort("durable receipt index root is not an object")
+    index_fixed = {
+        "schema_version": CANONICAL_RECEIPT_INDEX_SCHEMA,
+        "state": CANONICAL_RECEIPT_STATE,
+        "date": date,
+        "complete": True,
+        "completed": True,
+        "prune_eligible": False,
+        "receipt_phase": CANONICAL_TAGGED_PHASE,
+        "receipt_object_eligibility_tag_state": "TAGGED_VERIFIED",
+    }
+    for field, expected in index_fixed.items():
+        if index.get(field) != expected:
+            _reference_abort("durable index %s=%r, expected %r" %
+                             (field, index.get(field), expected))
+    index_set_sha = index.get("receipt_set_sha256")
+    if not _valid_sha256(index_set_sha):
+        _reference_abort("durable index has invalid receipt_set_sha256")
+    parent_sha = index.get("byte_attestation_receipt_set_sha256")
+    audit_sha = index.get("eligibility_single_writer_audit_sha256")
+    if (not _valid_sha256(parent_sha) or not _valid_sha256(audit_sha)
+            or parent_sha == index_set_sha):
+        _reference_abort("durable index has invalid audit/parent lineage")
+    receipt_object = index.get("receipt_object")
+    (receipt_bucket, receipt_key, receipt_version_id, receipt_size,
+     receipt_digest) = _validate_receipt_binding(
+        receipt_object, "durable receipt object", MAX_CANONICAL_RECEIPT_BYTES)
+    if (index.get("receipt_payload_size") != receipt_size
+            or index.get("receipt_payload_sha256") != receipt_digest):
+        _reference_abort("durable index payload binding differs from receipt_object")
+    expected_suffix = (
+        "control/canonical-receipts/v1/date=%s/receipt-%s.json" %
+        (date, index_set_sha))
+    if receipt_key != "ec2/" + expected_suffix:
+        _reference_abort("durable receipt object key is outside its digest path")
+    if reader is None:
+        _reference_abort("an exact-version durable receipt reader is required")
+    receipt, payload = _read_exact_bound_json(
+        reader, receipt_object, "durable receipt",
+        MAX_CANONICAL_RECEIPT_BYTES)
+    fixed = {
+        "schema_version": CANONICAL_RECEIPT_SCHEMA,
+        "state": CANONICAL_RECEIPT_STATE,
+        "authority": CANONICAL_RECEIPT_AUTHORITY,
+        "authoritative": True,
+        "s3_published": True,
+        "prune_eligible": False,
+        "date": date,
+    }
+    for field, expected in fixed.items():
+        if receipt.get(field) != expected:
+            _reference_abort("receipt %s=%r, expected %r" %
+                             (field, receipt.get(field), expected))
+    body_lineage = {
+        "receipt_phase": CANONICAL_TAGGED_PHASE,
+        "byte_attestation_receipt_set_sha256": parent_sha,
+        "eligibility_single_writer_audit_sha256": audit_sha,
+    }
+    for field, expected in body_lineage.items():
+        if receipt.get(field) != expected:
+            _reference_abort("tagged receipt %s does not match final index" %
+                             field)
+    verified_at = receipt.get("eligibility_verified_at_utc")
+    _canonical_modified(verified_at, "tagged receipt eligibility time")
+    tagger_commit = receipt.get("eligibility_tagger_code_commit")
+    if not isinstance(tagger_commit, str) or not tagger_commit.strip():
+        _reference_abort("tagged receipt has no eligibility tagger commit")
+
+    byte_receipt_object = index.get("byte_receipt_object")
+    (parent_bucket, parent_key, _parent_version, _parent_size,
+     _parent_digest) = _validate_receipt_binding(
+        byte_receipt_object, "byte-attestation parent receipt",
+        MAX_CANONICAL_RECEIPT_BYTES)
+    parent_expected_key = (
+        "ec2/control/canonical-receipts/v1/date=%s/receipt-%s.json" %
+        (date, parent_sha))
+    if (parent_bucket != receipt_bucket or parent_key != parent_expected_key):
+        _reference_abort("byte-attestation parent receipt leaves canonical scope")
+    parent, _parent_payload = _read_exact_bound_json(
+        reader, byte_receipt_object, "byte-attestation parent receipt",
+        MAX_CANONICAL_RECEIPT_BYTES)
+
+    objects = receipt.get("objects")
+    families = receipt.get("families")
+    seal = receipt.get("seal")
+    if not isinstance(objects, list) or not objects:
+        _reference_abort("receipt object inventory is empty or malformed")
+    if not isinstance(families, list) or not families:
+        _reference_abort("receipt family inventory is empty or malformed")
+    if not isinstance(seal, dict):
+        _reference_abort("receipt seal binding is missing")
+
+    try:
+        import canonical_receipts as cr
+        binding = dict(seal)
+        binding["families"] = families
+        expected_set = cr.receipt_set_sha256(date, binding, objects)
+        expected_durability = cr.scoped_object_set_sha256(
+            objects, "durability_scope")
+        expected_research = cr.scoped_object_set_sha256(
+            objects, "research_candidate")
+    except Exception as exc:
+        _reference_abort("receipt stable projection is invalid: %s" % exc)
+    for field, expected in (
+            ("receipt_set_sha256", expected_set),
+            ("durability_set_sha256", expected_durability),
+            ("research_candidate_set_sha256", expected_research)):
+        observed = receipt.get(field)
+        if not _valid_sha256(observed) or observed != expected:
+            _reference_abort("%s mismatch (got %r, recomputed %s)" %
+                             (field, observed, expected))
+    if receipt.get("receipt_set_sha256") != index_set_sha:
+        _reference_abort("durable index and receipt set digests differ")
+
+    seen_physical, seen_logical = set(), set()
+    objects_by_family = {}
+    seal_objects = []
+    research_candidates = []
+    for index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            _reference_abort("receipt object %d is not an object" % index)
+        label = "receipt object %d" % index
+        bucket = obj.get("bucket")
+        if not isinstance(bucket, str) or not bucket or "/" in bucket:
+            _reference_abort("%s has invalid bucket %r" % (label, bucket))
+        key = _safe_reference_rel(obj.get("key"), "%s key" % label)
+        logical = _safe_reference_rel(
+            obj.get("logical_source_key"), "%s logical key" % label)
+        source_kind = obj.get("source_kind")
+        family_name = obj.get("family")
+        if not isinstance(source_kind, str) or not source_kind:
+            _reference_abort("%s has no source_kind" % label)
+        if not isinstance(family_name, str) or not family_name:
+            _reference_abort("%s has no family" % label)
+        objects_by_family.setdefault(family_name, []).append(obj)
+        object_date = obj.get("date")
+        try:
+            datetime.date.fromisoformat(object_date)
+        except (TypeError, ValueError):
+            _reference_abort("%s has invalid date %r" % (label, object_date))
+        if not isinstance(obj.get("required"), bool):
+            _reference_abort("%s required is not boolean" % label)
+        try:
+            json.dumps(obj.get("seal_binding"), sort_keys=True,
+                       separators=(",", ":"), allow_nan=False)
+            json.dumps(obj.get("evidence_binding"), sort_keys=True,
+                       separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError):
+            _reference_abort("%s has a non-canonical binding" % label)
+        version_id = obj.get("VersionId")
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.lower() == "null"):
+            _reference_abort("%s has no exact VersionId" % label)
+        size = obj.get("size")
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            _reference_abort("%s has invalid size %r" % (label, size))
+        if not _valid_sha256(obj.get("sha256")):
+            _reference_abort("%s has invalid sha256" % label)
+        identity = (bucket, key, version_id)
+        if identity in seen_physical:
+            _reference_abort("duplicate physical exact version %r" %
+                             (identity,))
+        if logical in seen_logical:
+            _reference_abort("duplicate logical key %s" % logical)
+        seen_physical.add(identity)
+        seen_logical.add(logical)
+        if obj.get("durability_verified") is not True:
+            _reference_abort("%s is not durability_verified" % label)
+        if obj.get("verification_state") != "EXACT_VERSION_FULL_SHA256":
+            _reference_abort("%s lacks exact-version SHA verification" % label)
+        if not isinstance(obj.get("research_candidate"), bool):
+            _reference_abort("%s research_candidate is not boolean" % label)
+        if obj.get("research_candidate") is True:
+            if obj.get("research_eligible") is not True:
+                _reference_abort("research candidate %s is not eligible" % logical)
+            is_rfq = _is_rfq_receipt_object(obj)
+            expected_tag_state = (RFQ_DUAL_TAG_STATE if is_rfq
+                                  else "TAGGED_VERIFIED")
+            if obj.get("eligibility_tag_state") != expected_tag_state:
+                _reference_abort(
+                    "research candidate %s is not %s" %
+                    (logical, expected_tag_state))
+            if (obj.get("eligibility_verified_at_utc") != verified_at
+                    or obj.get("eligibility_tagger_code_commit")
+                    != tagger_commit):
+                _reference_abort(
+                    "research candidate %s has inconsistent tag attestation" %
+                    logical)
+            exposure = str(obj.get("exposure_policy") or "")
+            if exposure.startswith("FORBIDDEN"):
+                _reference_abort("research candidate %s has forbidden policy %s"
+                                 % (logical, exposure))
+            if ((is_rfq and exposure != "RESEARCH_ELIGIBLE_SEALED_RFQ")
+                    or (not is_rfq and exposure != "RESEARCH_ELIGIBLE")):
+                _reference_abort(
+                    "research candidate %s has invalid exposure policy %s" %
+                    (logical, exposure))
+            research_candidates.append(obj)
+        elif (obj.get("research_eligible") is not False
+              or obj.get("eligibility_tag_state") in
+              ("TAGGED_VERIFIED", RFQ_DUAL_TAG_STATE)):
+            _reference_abort("non-candidate %s falsely claims eligibility" %
+                             logical)
+        if source_kind == "seal":
+            seal_objects.append(obj)
+
+    family_names = set()
+    for family in families:
+        if not isinstance(family, dict) or not isinstance(family.get("name"), str):
+            _reference_abort("receipt family entry is malformed")
+        if family["name"] in family_names:
+            _reference_abort("duplicate receipt family %s" % family["name"])
+        family_names.add(family["name"])
+        if family.get("policy") not in (
+                "REQUIRED_CORE", "REQUIRED_RESEARCH", "CONDITIONAL"):
+            _reference_abort("receipt family %s has unknown policy" %
+                             family["name"])
+        rows = objects_by_family.get(family["name"], [])
+        observed = family.get("observed_count")
+        expected = family.get("expected_count")
+        if (not isinstance(observed, int) or isinstance(observed, bool)
+                or not isinstance(expected, int) or isinstance(expected, bool)
+                or observed < 0 or expected < 0 or observed != len(rows)):
+            _reference_abort("receipt family %s count mismatch" %
+                             family["name"])
+        projection = [{
+            "bucket": row["bucket"], "key": row["key"],
+            "size": row["size"], "sha256": row["sha256"],
+        } for row in rows]
+        projection.sort(key=lambda row: (row["bucket"], row["key"]))
+        expected_objects_digest = cr.canonical_sha256(projection)
+        if family.get("objects_digest") != expected_objects_digest:
+            _reference_abort("receipt family %s objects_digest mismatch" %
+                             family["name"])
+        state = family.get("state")
+        if state not in ("PRESENT_VERIFIED", "NOT_APPLICABLE"):
+            _reference_abort("receipt family %s is %r" %
+                             (family["name"], state))
+        if ((state == "PRESENT_VERIFIED" and expected != observed)
+                or (state == "NOT_APPLICABLE"
+                    and (expected != 0 or observed != 0))):
+            _reference_abort("receipt family %s state/count disagree" %
+                             family["name"])
+        if (family.get("policy") in ("REQUIRED_CORE", "REQUIRED_RESEARCH")
+                and state != "PRESENT_VERIFIED"):
+            _reference_abort("required receipt family %s is not verified" %
+                             family["name"])
+    unknown_families = sorted(set(objects_by_family) - family_names)
+    if unknown_families:
+        _reference_abort("objects name unregistered receipt families %s" %
+                         unknown_families)
+
+    if len(seal_objects) != 1:
+        _reference_abort("receipt must contain exactly one seal object")
+    if (seal.get("date") != date or seal.get("status") != "SEALED"
+            or seal.get("version") != 2 or seal.get("method") != "full_v2"
+            or not _valid_sha256(seal.get("manifest_date_sha256"))):
+        _reference_abort("receipt seal does not bind the requested sealed day")
+    seal_obj = seal_objects[0]
+    for field in ("bucket", "key", "VersionId", "size", "sha256"):
+        if seal.get(field) != seal_obj.get(field):
+            _reference_abort("receipt seal %s differs from its object entry" %
+                             field)
+    if seal_obj.get("sha256") != seal_sha or seal_obj.get("size") != seal_size:
+        _reference_abort("receipt seal bytes differ from the verified local seal")
+    seal_suffix = "warehouse/seals/date=%s.json" % date
+    seal_key = seal_obj["key"]
+    if not seal_key.endswith(seal_suffix):
+        _reference_abort("receipt seal key is outside the canonical prefix")
+    canonical_prefix = seal_key[:-len(seal_suffix)].rstrip("/")
+    expected_receipt_key = (canonical_prefix + "/" + expected_suffix)
+    if (receipt_bucket != seal_obj["bucket"]
+            or receipt_key != expected_receipt_key):
+        _reference_abort(
+            "durable receipt object is outside the seal authority "
+            "(got %s/%s, expected %s/%s)" %
+            (receipt_bucket, receipt_key, seal_obj["bucket"],
+             expected_receipt_key))
+
+    _validate_parent_lineage(receipt, parent, parent_sha)
+
+    rfq_candidates = [obj for obj in research_candidates
+                      if _is_rfq_receipt_object(obj)]
+    if rfq_candidates:
+        rfq_set_sha = _rfq_exact_set_sha256(rfq_candidates)
+        required_binding = {
+            "schema_version": RFQ_ELIGIBILITY_BINDING_SCHEMA,
+            "state": RFQ_ELIGIBILITY_BINDING_STATE,
+            "source": "seal.raw_files",
+            "seal_sha256": seal_sha,
+            "rfq_exact_set_sha256": rfq_set_sha,
+            "evidence_tier": "SEALED_CONFIRMATION",
+            "integrity_state": "PASS",
+            "quarantine_state": "CLEAR",
+            "repair_branch_state": "CLOSED_NO_REPAIR",
+        }
+        allowed_fields = set(required_binding) | {
+            "eligibility_evidence_sha256"}
+        for obj in rfq_candidates:
+            binding = obj.get("evidence_binding")
+            logical = obj["logical_source_key"]
+            if (not isinstance(binding, dict)
+                    or set(binding) != allowed_fields
+                    or any(binding.get(field) != expected
+                           for field, expected in required_binding.items())
+                    or not _valid_sha256(
+                        binding.get("eligibility_evidence_sha256"))):
+                _reference_abort(
+                    "RFQ eligibility binding is invalid for %s" % logical)
+
+    exact_tag_reader = tag_reader or reader
+    _require_exact_tags(
+        exact_tag_reader, receipt_object,
+        {"research-eligible": "true"}, "durable tagged receipt")
+    for obj in research_candidates:
+        logical = obj["logical_source_key"]
+        is_rfq = _is_rfq_receipt_object(obj)
+        if is_rfq:
+            if not obj["key"].startswith(canonical_prefix + "/raw/"):
+                _reference_abort("RFQ candidate leaves canonical raw scope: %s"
+                                 % logical)
+            required_tags = {
+                "research-eligible": "true",
+                "research-channel": "rfq",
+            }
+        else:
+            if not (obj["key"].startswith(canonical_prefix + "/warehouse/")
+                    or obj["key"].startswith(
+                        canonical_prefix + "/control/")):
+                _reference_abort(
+                    "research candidate leaves warehouse/control scope: %s" %
+                    logical)
+            required_tags = {"research-eligible": "true"}
+        _require_exact_head(reader, obj, "research candidate %s" % logical)
+        _require_exact_tags(
+            exact_tag_reader, obj, required_tags,
+            "research candidate %s" % logical)
+    receipt_binding = {
+        "bucket": receipt_bucket,
+        "key": receipt_key,
+        "version_id": receipt_version_id,
+        "size": receipt_size,
+        "sha256": receipt_digest,
+    }
+    return receipt, receipt_binding
+
+
+def _stage_reference_inventory(stage_objects, stage_dir, date):
+    """Map the existing v2 local freeze onto canonical logical keys.
+
+    The complete live warehouse manifest is a v2 transport artifact.
+    Reference releases instead bind the canonical date-only manifest plus
+    both affirmative gap controls: the receipt and, when present, its exact
+    date-only capture-gaps projection.
+    """
+    by_logical = {}
+
+    def add(logical, size, digest):
+        logical = _safe_reference_rel(logical, "staged logical key")
+        if logical in by_logical:
+            _reference_abort("duplicate staged logical key %s" % logical)
+        by_logical[logical] = {"size": size, "sha256": digest}
+
+    for obj in stage_objects:
+        key = obj["key"]
+        logical = None
+        if key == "warehouse_manifest/manifest.csv":
+            continue
+        if key.startswith("facts/"):
+            logical = "warehouse/" + key
+        elif key == "seal/date=%s.json" % date:
+            logical = "warehouse/seals/date=%s.json" % date
+        elif key.startswith("dim/") or key.startswith("catalog/"):
+            logical = "warehouse/" + key
+        elif key == "corrections/ledger_day.ndjson":
+            logical = ("warehouse/corrections/date=%s/ledger_day.ndjson" %
+                       date)
+        elif key.startswith("corrections/"):
+            logical = "warehouse/" + key
+        elif key == "quality/gap_receipt_%s.json" % date:
+            logical = ("control/quality/v1/date=%s/"
+                       "capture_gap_receipt.json") % date
+        elif key == "quality/capture_gaps_%s.csv" % date:
+            logical = "control/quality/v1/date=%s/capture_gaps.csv" % date
+        elif key == "quality/l2_gaps.json":
+            logical = "control/quality/v1/date=%s/l2_gaps.json" % date
+        elif key.startswith("raw_rfq/"):
+            logical = "raw/" + key[len("raw_rfq/"):]
+        else:
+            _reference_abort("unmapped staged object %s" % key)
+        add(logical, obj["size"], obj["sha256"])
+
+    manifest_path = os.path.join(stage_dir, "warehouse_manifest",
+                                 "manifest.csv")
+    try:
+        with open(manifest_path, "rb") as f:
+            full_manifest = f.read()
+        import canonical_receipts as cr
+        day_manifest, _semantic_digest, _rows = cr._manifest_day_csv(
+            full_manifest, date)
+    except Exception as exc:
+        _reference_abort("cannot freeze date-only manifest projection: %s" % exc)
+    add("warehouse/manifest.csv", len(day_manifest),
+        hashlib.sha256(day_manifest).hexdigest())
+    return by_logical
+
+
+def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
+                               seal_sha):
+    """Select eligible references and translate them to the frozen v3 schema."""
+    seal_bucket = receipt["seal"]["bucket"]
+    seal_suffix = "warehouse/seals/date=%s.json" % receipt["date"]
+    seal_key = receipt["seal"]["key"]
+    if not seal_key.endswith(seal_suffix):
+        _reference_abort("canonical seal key is outside the fixed warehouse path")
+    canonical_prefix = seal_key[:-len(seal_suffix)].rstrip("/")
+    if not canonical_prefix:
+        _reference_abort("canonical prefix cannot be empty")
+    sealed_rfq = {row["file"]: row for row in seal.get("raw_files", [])
+                  if _RFQ_RE.match(os.path.basename(row.get("file", "")))}
+    selected = []
+    for obj in receipt["objects"]:
+        if obj.get("research_candidate") is not True:
+            continue
+        is_rfq = _is_rfq_receipt_object(obj)
+        if is_rfq and not include_rfq:
+            continue
+        key = obj["key"]
+        if obj["bucket"] != seal_bucket:
+            _reference_abort("research reference crosses canonical buckets: %s"
+                             % key)
+        manifest_logical = obj["logical_source_key"]
+        receipt_logical = manifest_logical
+        if is_rfq:
+            prefix = canonical_prefix + "/raw/"
+            if not key.startswith(prefix):
+                _reference_abort("RFQ reference is outside canonical raw: %s" % key)
+            rel = key[len(prefix):]
+            _safe_reference_rel(rel, "RFQ seal-relative path")
+            match = re.match(r"^date=(\d{4}-\d{2}-\d{2})/([^/]+)$", rel)
+            if match is None:
+                _reference_abort("RFQ reference path is not date/basename: %s"
+                                 % rel)
+            try:
+                datetime.date.fromisoformat(match.group(1))
+            except ValueError:
+                _reference_abort("RFQ reference carries an invalid date: %s"
+                                 % rel)
+            if (_RFQ_RE.match(match.group(2)) is None
+                    or rel not in sealed_rfq):
+                _reference_abort("RFQ reference is not named by the seal: %s" % rel)
+            proof = sealed_rfq[rel]
+            if (proof.get("size") != obj["size"]
+                    or proof.get("sha256") != obj["sha256"]):
+                _reference_abort("RFQ receipt differs from sealed bytes: %s" % rel)
+            if (obj.get("source_kind") not in
+                    ("raw_rfq", "raw_rfq_receipts")
+                    or obj.get("logical_source_key") != "raw/" + rel
+                    or obj.get("channel") != "rfq"
+                    or obj.get("date") != match.group(1)
+                    or obj.get("required") is not False
+                    or obj.get("seal_binding") != seal_sha
+                    or obj.get("evidence_binding") in (None, "", [], {})
+                    or evidence_tier != "SEALED_CONFIRMATION"):
+                _reference_abort("RFQ reference is not sealed-only eligible: %s" % rel)
+            state_text = json.dumps(obj, sort_keys=True).upper()
+            if any(marker in state_text for marker in (
+                    "DATA_INTEGRITY_BLOCKED", "QUARANTINED",
+                    "QUARANTINE_ACTIVE")):
+                _reference_abort("RFQ reference is blocked/quarantined: %s" % rel)
+            manifest_logical = "raw_rfq/%s" % rel
+            kind = "rfq"
+        else:
+            if key.startswith(canonical_prefix + "/raw/"):
+                _reference_abort("non-RFQ raw cannot be a research reference: %s"
+                                 % key)
+            kind = obj.get("source_kind")
+            channel = obj.get("channel")
+            if obj.get("date") != receipt["date"]:
+                _reference_abort("reference date differs from release date: %s"
+                                 % manifest_logical)
+            if obj.get("required") is not True:
+                _reference_abort("non-RFQ reference is not required: %s" %
+                                 manifest_logical)
+            direct_key = canonical_prefix + "/" + manifest_logical
+            valid = False
+            if manifest_logical.startswith("warehouse/facts/"):
+                rel = manifest_logical[len("warehouse/facts/"):]
+                table = rel.split("/", 1)[0]
+                valid = (kind == "facts" and channel == table
+                         and table in
+                         ("orderbooks_l1", "orderbooks_full", "trades")
+                         and ("date=%s/" % receipt["date"]) in "/" + rel
+                         and key == direct_key)
+            elif manifest_logical.startswith(
+                    "warehouse/dim/snapshots/"):
+                valid = (manifest_logical in {
+                    "warehouse/dim/snapshots/date=%s/series.csv" % receipt["date"],
+                    "warehouse/dim/snapshots/date=%s/events.csv" % receipt["date"],
+                    "warehouse/dim/snapshots/date=%s/markets.csv" % receipt["date"],
+                } and kind == "dim_snapshot" and channel in (None, "dim")
+                         and key == direct_key
+                         and obj.get("seal_binding") is None
+                         and obj.get("evidence_binding") is None)
+            elif manifest_logical.startswith("warehouse/catalog/"):
+                rel = manifest_logical[len("warehouse/catalog/"):]
+                valid = (rel in {
+                    "series/part-00000.parquet",
+                    "events/part-00000.parquet",
+                    "markets/part-00000.parquet",
+                    "settlements/part-00000.parquet",
+                    "series_classified/part-00000.parquet",
+                } and kind == "catalog" and channel in (None, "catalog")
+                         and key == direct_key)
+            elif manifest_logical == (
+                    "warehouse/seals/date=%s.json" % receipt["date"]):
+                valid = (kind == "seal" and channel in (None, "seal")
+                         and key == direct_key)
+            elif manifest_logical == "warehouse/manifest.csv":
+                expected = (canonical_prefix +
+                            "/warehouse/publication-snapshots/v1/date=%s/"
+                            "manifest/sha256=%s/manifest.csv" %
+                            (receipt["date"], obj["sha256"]))
+                valid = (kind == "warehouse_manifest_day"
+                         and channel is None and key == expected)
+            elif manifest_logical.startswith("warehouse/corrections/"):
+                late = ("warehouse/corrections/date=%s/late_rows.ndjson" %
+                        receipt["date"])
+                ledger = ("warehouse/corrections/date=%s/ledger_day.ndjson" %
+                          receipt["date"])
+                if manifest_logical == late:
+                    expected = (canonical_prefix +
+                                "/warehouse/publication-snapshots/v1/date=%s/"
+                                "corrections/late_rows/sha256=%s/"
+                                "late_rows.ndjson" %
+                                (receipt["date"], obj["sha256"]))
+                    valid = (kind == "correction" and channel is None
+                             and key == expected)
+                elif manifest_logical == ledger:
+                    expected = (canonical_prefix +
+                                "/warehouse/publication-snapshots/v1/date=%s/"
+                                "corrections/ledger_day/sha256=%s/"
+                                "ledger_day.ndjson" %
+                                (receipt["date"], obj["sha256"]))
+                    valid = (kind == "corrections_ledger_day"
+                             and channel is None and key == expected)
+            else:
+                quality_root = ("control/quality/v1/date=%s/" %
+                                receipt["date"])
+                expected_quality = {
+                    quality_root + "capture_gap_receipt.json":
+                        ("capture_gap_receipt", "orderbooks_l1",
+                         "capture_gap_receipt", "capture_gap_receipt.json"),
+                    quality_root + "capture_gaps.csv":
+                        ("capture_gaps_projection", "orderbooks_l1",
+                         "capture_gaps", "capture_gaps.csv"),
+                    quality_root + "l2_gaps.json":
+                        ("l2_quality_receipt", "orderbooks_full",
+                         "l2_gaps", "l2_gaps.json"),
+                }
+                expected = expected_quality.get(manifest_logical)
+                expected_key = ((canonical_prefix + "/" + quality_root +
+                                 expected[2] + "/sha256=" + obj["sha256"] +
+                                 "/" + expected[3]) if expected else None)
+                valid = (expected is not None and kind == expected[0]
+                         and channel in (None, expected[1])
+                         and key == expected_key)
+            if not valid:
+                _reference_abort("reference is outside the fixed canonical "
+                                 "contract: %s -> %s" %
+                                 (manifest_logical, key))
+            if kind != "dim_snapshot":
+                if obj.get("seal_binding") != seal_sha:
+                    _reference_abort("reference has a different seal binding: %s"
+                                     % manifest_logical)
+                if obj.get("evidence_binding") in (None, "", [], {}):
+                    _reference_abort("reference has no evidence binding: %s" %
+                                     manifest_logical)
+        ref = {
+            "logical_key": manifest_logical,
+            "source_bucket": obj["bucket"],
+            "source_key": key,
+            "source_version_id": obj["VersionId"],
+            "size": obj["size"],
+            "sha256": obj["sha256"],
+            "kind": kind,
+            "channel": obj.get("channel"),
+            "date": obj.get("date"),
+            "required": obj.get("required"),
+            "seal_binding": obj.get("seal_binding"),
+            "evidence_binding": obj.get("evidence_binding"),
+        }
+        # Receipt implementations may additionally attest S3 LastModified.
+        # Carry it when present, but the plan's stable six-field reference
+        # identity deliberately does not depend on a timestamp.
+        last_modified = (obj.get("last_modified_utc")
+                         or obj.get("source_last_modified_utc"))
+        if last_modified is not None:
+            ref["source_last_modified_utc"] = last_modified
+        selected.append((receipt_logical, ref))
+    selected.sort(key=lambda pair: pair[1]["logical_key"])
+    logicals = [pair[1]["logical_key"] for pair in selected]
+    if len(logicals) != len(set(logicals)):
+        _reference_abort("v3 reference logical keys are not unique")
+    return selected
+
+
+def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
+                                receipt_path, receipt_reader,
+                                receipt_tag_reader, include_rfq,
+                                seal, seal_sha,
+                                seal_size,
+                                publication_components, tables, tl1_status,
+                                tier, tier_basis, channels, corr_objs,
+                                ledger_lines, l2_quality, live_dir):
+    receipt, receipt_binding = _load_authoritative_receipt(
+        receipt_path, date, seal_sha, seal_size, receipt_reader,
+        receipt_tag_reader)
+    stage_inventory = _stage_reference_inventory(
+        stage_objects, stage_dir, date)
+    selected = _receipt_reference_objects(
+        receipt, include_rfq, seal, tier, seal_sha)
+    selected_by_receipt_logical = {logical: ref for logical, ref in selected}
+    wanted = set(selected_by_receipt_logical)
+    staged = set(stage_inventory)
+    if wanted != staged:
+        _reference_abort(
+            "stage/receipt logical set mismatch missing_from_receipt=%s "
+            "missing_from_stage=%s" %
+            (sorted(staged - wanted)[:8], sorted(wanted - staged)[:8]))
+    for logical, ref in selected_by_receipt_logical.items():
+        frozen = stage_inventory[logical]
+        if (ref["size"] != frozen["size"]
+                or ref["sha256"] != frozen["sha256"]):
+            _reference_abort("stage/receipt byte mismatch for %s" % logical)
+
+    references = [ref for _logical, ref in selected]
+    reference_projection = [{
+        key: ref[key] for key in (
+            "logical_key", "source_bucket", "source_key",
+            "source_version_id", "size", "sha256")
+    } for ref in references]
+    reference_set_sha = canonical_digest(reference_projection)
+    semantics_projection = [{
+        key: ref.get(key) for key in (
+            "logical_key", "kind", "channel", "date", "required",
+            "seal_binding", "evidence_binding")
+    } for ref in references]
+    object_semantics_sha = canonical_digest(semantics_projection)
+    tier_basis_sha = canonical_digest(tier_basis)
+    corrections_digest = canonical_digest(
+        publication_components["corrections"])
+    gap_digest = canonical_digest(publication_components["gap_evidence"])
+    l2_digest = canonical_digest(l2_quality)
+    rfq_included = any(ref["kind"] == "rfq" for ref in references)
+    receipt_binding_sha = canonical_digest(receipt_binding)
+    publication_state = {
+        "schema": REFERENCE_MANIFEST_SCHEMA,
+        "storage_mode": REFERENCE_STORAGE_MODE,
+        "date": date,
+        "source_seal_binding_sha256": seal_sha,
+        "reference_set_sha256": reference_set_sha,
+        "object_semantics_sha256": object_semantics_sha,
+        "evidence_tier": tier,
+        "evidence_basis_sha256": tier_basis_sha,
+        "corrections_digest": corrections_digest,
+        "gap_evidence_digest": gap_digest,
+        "l2_quality_digest": l2_digest,
+        "tl1_status": tl1_status,
+        "rfq_policy": "OPTIONAL_SEALED_ONLY",
+        "rfq_included": rfq_included,
+        "canonical_receipt_set_sha256": receipt["receipt_set_sha256"],
+        "canonical_receipt_binding_sha256": receipt_binding_sha,
+    }
+    state_sha = canonical_digest(publication_state)
+    release_id = "%s__v3ref__seal-%s__pub-%s" % (
+        date, seal_sha[:8], state_sha[:16])
+    rel_prefix = "releases/%s" % release_id
+    dest = make_dest(dest_url)
+    if isinstance(dest, S3Dest):
+        dest.bind_reference_patrol(live_dir)
+
+    expected_seal_logical = "warehouse/seals/date=%s.json" % date
+    seal_refs = [ref for ref in references
+                 if ref["logical_key"] == expected_seal_logical]
+    if len(seal_refs) != 1:
+        _reference_abort("reference set must contain one source seal")
+    seal_ref = seal_refs[0]
+    source_seal = {
+        "bucket": seal_ref["source_bucket"],
+        "key": seal_ref["source_key"],
+        "version_id": seal_ref["source_version_id"],
+        "size": seal_ref["size"],
+        "sha256": seal_ref["sha256"],
+        "verification_state": "PASS",
+    }
+    now = datetime.datetime.now(datetime.timezone.utc)\
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    channels_out = json.loads(json.dumps(channels))
+    channels_out["rfq"]["status"] = (
+        "INCLUDED_SEALED_REFERENCE" if rfq_included
+        else "EXCLUDED_EXPLICIT_OPT_IN_REQUIRED")
+    corrections = {
+        "included_files": len(corr_objs),
+        "ledger_day_entries": len(ledger_lines),
+        "cutoff_utc": now,
+        "digest": corrections_digest,
+        "note": "canonical exact-version references; sealed archives remain "
+                "write-once and correction state participates in release identity",
+    }
+    publication_components = json.loads(json.dumps(
+        publication_components, sort_keys=True))
+    publisher_commit = code_commit()
+    if re.fullmatch(r"[0-9a-f]{40}", publisher_commit or "") is None:
+        _reference_abort(
+            "v3 publication requires an exact 40-hex git commit")
+    manifest = {
+        "schema": REFERENCE_MANIFEST_SCHEMA,
+        "schema_version": 3,
+        "storage_mode": REFERENCE_STORAGE_MODE,
+        "release_id": release_id,
+        "date": date,
+        "publication_status": "PUBLISHED",
+        "rfq_policy": "OPTIONAL_SEALED_ONLY",
+        "rfq_included": rfq_included,
+        "published_at_utc": now,
+        "publisher_commit": publisher_commit,
+        "canonical_receipt": {
+            "schema_version": CANONICAL_RECEIPT_SCHEMA,
+            "state": CANONICAL_RECEIPT_STATE,
+            "authority": CANONICAL_RECEIPT_AUTHORITY,
+            "authoritative": True,
+            "s3_published": True,
+            "prune_eligible": False,
+            "receipt_set_sha256": receipt["receipt_set_sha256"],
+            "receipt_object": receipt_binding,
+        },
+        "source_seal": source_seal,
+        "reference_set_sha256": reference_set_sha,
+        "object_semantics_sha256": object_semantics_sha,
+        "publication_state": publication_state,
+        "publication_state_sha256": state_sha,
+        "publication_components": publication_components,
+        "l2_quality": l2_quality,
+        "evidence": {"tier": tier, "basis": tier_basis},
+        "evidence_tier": tier,
+        "evidence_tier_basis": tier_basis,
+        "seal": {
+            "sha256": seal_sha,
+            "manifest_date_sha256": seal["manifest_date_sha256"],
+            "sealed_at": seal.get("sealed_at"),
+            "status": seal.get("status"),
+            "archive_files": seal.get("archive_files"),
+            "archive_rows": seal.get("archive_rows"),
+            "capture_quality_status": seal.get("capture_quality_status"),
+        },
+        "tables": tables,
+        "tl1_status": tl1_status,
+        "channels": channels_out,
+        "corrections": corrections,
+        "post_upload_verification": {
+            "method": "authoritative canonical receipt exact-version binding",
+            "objects_verified": len(references),
+            "data_objects_uploaded": 0,
+        },
+        "version_binding": {
+            "mode": REFERENCE_STORAGE_MODE,
+            "bindings_sha256": reference_set_sha,
+            "versioning_requirement": "VERSIONING_REQUIRED",
+        },
+        "objects": references,
+    }
+    manifest_key = "%s/MANIFEST.json" % rel_prefix
+    existing = dest.read_manifest(manifest_key)
+    if existing is not None:
+        raw, existing_version = existing
+        _assert_existing_reference_equivalent(raw, manifest)
+        print("[research_release] reference state %s already published at "
+              "%s/%s — exact manifest verified, no-op (data uploads=0, "
+              "manifest_version=%s)" %
+              (state_sha[:16], dest.describe(), rel_prefix,
+               existing_version or "LOCAL_FIXTURE"))
+        return 0
+    mpath = os.path.join(stage_dir, "MANIFEST.json")
+    with open(mpath, "w") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
+        f.write("\n")
+    manifest_vid = dest.upload_manifest(mpath, manifest_key)
+    print("[research_release] published reference %s: %d exact objects, "
+          "data uploads=0, manifest_version=%s -> %s/%s" %
+          (release_id, len(references), manifest_vid, dest.describe(), rel_prefix))
+    return 0
+
+
 def refuse_gate(msg):
     sys.stderr.write(
         "\n================================================================\n"
@@ -657,7 +2171,12 @@ def refuse_gate(msg):
 
 
 def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
-            live_dir, operator_approved):
+            live_dir, operator_approved, reference_receipt=None,
+            reference_receipt_reader=None, reference_tag_reader=None,
+            reference_yellow_alert=None):
+    reference_mode = reference_receipt is not None
+    require_reference_patrol_clear(
+        reference_mode, reference_yellow_alert, dest_url, live_dir)
     # ---- remediation items 6+7: write gate + credential namespace ------------
     if dest_url.startswith("s3://"):
         if not operator_approved:
@@ -863,16 +2382,22 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
             },
         }
         state_digest = canonical_digest(publication_state)
-        release_id = "%s__seal-%s__pub-%s" % (date, seal_sha[:8],
-                                              state_digest[:16])
-        rel_prefix = "releases/%s" % release_id
-
-        dest = make_dest(dest_url)
-        if dest.exists("%s/MANIFEST.json" % rel_prefix):
-            print("[research_release] %s publication state %s already "
-                  "published at %s/%s — no-op"
-                  % (date, state_digest[:16], dest.describe(), rel_prefix))
-            return 0
+        if reference_mode:
+            # v3 identity also binds the complete reference/object semantics
+            # and is therefore computed only after the full local freeze.
+            release_id = ".reference-pending-%s-%d" % (date, os.getpid())
+            rel_prefix = None
+            dest = None
+        else:
+            release_id = "%s__seal-%s__pub-%s" % (date, seal_sha[:8],
+                                                  state_digest[:16])
+            rel_prefix = "releases/%s" % release_id
+            dest = make_dest(dest_url)
+            if dest.exists("%s/MANIFEST.json" % rel_prefix):
+                print("[research_release] %s publication state %s already "
+                      "published at %s/%s — no-op"
+                      % (date, state_digest[:16], dest.describe(), rel_prefix))
+                return 0
 
         stage_dir = os.path.join(stage_root, release_id)
         shutil.rmtree(stage_dir, ignore_errors=True)
@@ -1044,6 +2569,22 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
             "rfq": rfq_channel,
         }
 
+        if reference_mode:
+            exact_reader = (reference_receipt_reader or
+                            _make_canonical_receipt_reader())
+            return _publish_reference_manifest(
+                date=date, dest_url=dest_url, stage_dir=stage_dir,
+                stage_objects=objects, receipt_path=reference_receipt,
+                receipt_reader=exact_reader,
+                receipt_tag_reader=(reference_tag_reader or exact_reader),
+                include_rfq=bool(include_rfq), seal=seal, seal_sha=seal_sha,
+                seal_size=len(seal_bytes),
+                publication_components=publication_state, tables=tables,
+                tl1_status=tl1_status, tier=tier, tier_basis=tier_basis,
+                channels=channels, corr_objs=corr_objs,
+                ledger_lines=ledger_lines, l2_quality=l2_quality,
+                live_dir=live_dir)
+
         # ---- upload: data first ------------------------------------------------
         dest.upload_tree(stage_dir, rel_prefix)
 
@@ -1179,11 +2720,38 @@ def main(argv):
                    help="operator's explicit approval for a REAL s3:// "
                         "publish (remediation item 7; local fixture "
                         "destinations do not need it)")
+    ref = sub.add_parser(
+        "publish-reference",
+        help="publish a manifest-only v3 canonical-reference release")
+    ref.add_argument("--date", required=True)
+    ref.add_argument("--receipt", required=True,
+                     help="local DURABLE receipt index whose receipt_object "
+                          "is exact-version read back before publication")
+    ref.add_argument("--dest", default=os.environ.get("RESEARCH_DEST",
+                                                      DEST_DEFAULT))
+    rg = ref.add_mutually_exclusive_group()
+    rg.add_argument("--include-rfq", action="store_true", default=False,
+                    help="explicitly include eligible sealed RFQ references")
+    rg.add_argument("--no-rfq", dest="include_rfq", action="store_false",
+                    help="exclude RFQ references (the default)")
+    ref.add_argument("--quality-dir",
+                     default=os.path.join(wc.ROOT, "work", "event_packs"))
+    ref.add_argument("--live-dir",
+                     default=os.path.join(wc.ROOT, "work", "live"))
+    ref.add_argument("--raw-vault",
+                     default=os.environ.get("RESEARCH_RAW_VAULT",
+                                            RAW_VAULT_DEFAULT))
+    ref.add_argument("--operator-approved", action="store_true",
+                     help="operator approval for the MANIFEST-only S3 write")
     args = ap.parse_args(argv[1:])
-    include_rfq = (rfq_switch_enabled() if args.include_rfq is None
-                   else args.include_rfq)
+    include_rfq = ((rfq_switch_enabled() if args.include_rfq is None
+                    else args.include_rfq) if args.cmd == "publish"
+                   else bool(args.include_rfq))
     return publish(args.date, args.dest, include_rfq, args.quality_dir,
-                   args.raw_vault, args.live_dir, args.operator_approved)
+                   args.raw_vault, args.live_dir, args.operator_approved,
+                   reference_receipt=(args.receipt
+                                      if args.cmd == "publish-reference"
+                                      else None))
 
 
 if __name__ == "__main__":

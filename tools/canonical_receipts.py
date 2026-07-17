@@ -36,6 +36,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
+import git_provenance as gp  # noqa: E402
 
 
 RECEIPT_SCHEMA = "canonical-object-receipt-v1"
@@ -67,6 +68,14 @@ CATALOG_PROVENANCE = {"VERIFIED_V2_MATCHED_CANONICAL_VERSION_HISTORY"}
 FAMILY_BLOCKING_STATES = {
     "INCOMPLETE", "INVALID", "CHANGED_DURING_CUTOFF",
 }
+CANONICAL_RECEIPT_PROVENANCE_PATHS = (
+    "tools/git_provenance.py",
+    "tools/warehouse_common.py",
+    "tools/publication_generation.py",
+    "tools/canonical_receipts.py",
+    "tools/forward_canonical_receipts.py",
+    "tools/canonical_receipt_control.py",
+)
 
 
 class ReceiptError(RuntimeError):
@@ -810,6 +819,13 @@ def _parse_utc(value, label):
     if parsed.tzinfo is None:
         raise ReceiptError("INVALID_CUTOFF", "%s is not timezone-aware" % label)
     return parsed.astimezone(datetime.timezone.utc)
+
+
+def _canonical_utc(value, label):
+    """Normalize an observed RFC3339 timestamp for stable receipt identity."""
+    parsed = _parse_utc(value, label)
+    timespec = "microseconds" if parsed.microsecond else "seconds"
+    return parsed.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
 def _authoritative_day_inputs(date, raw_root, warehouse_root):
@@ -1856,8 +1872,16 @@ def load_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
 
 
 def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
-                            quality_dir, aux_bundle):
-    """Build one frozen local inventory; this function performs no S3 call."""
+                            quality_dir, aux_bundle, *,
+                            include_rfq_durability=False):
+    """Build one frozen local inventory; this function performs no S3 call.
+
+    The public plan/shadow CLI always uses the default RFQ-off contract.  RFQ
+    proof metadata remains sealed, but no RFQ object enters the S3 reader or
+    full-byte hashing set.  A future independently authorized workflow may
+    opt in only by calling this function explicitly; there is deliberately no
+    CLI flag for that capability.
+    """
     if not bucket or "/" in bucket:
         raise ReceiptError("INVALID_BUCKET", repr(bucket))
     prefix = _safe_rel(prefix.strip("/"), "canonical prefix")
@@ -1870,25 +1894,41 @@ def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
     seen = {"physical": set(), "logical": set()}
     families = []
 
+    included_raw_proofs = []
+    deferred_rfq_proofs = []
     for proof in sorted(raw_proofs, key=lambda item: item["file"]):
         rel = proof["file"]
-        path_date, basename = _raw_rel_parts(rel)
+        path_date, _basename = _raw_rel_parts(rel)
         kind, channel = _raw_classification(rel)
+        is_rfq = kind in {"raw_rfq", "raw_rfq_receipts"}
+        if is_rfq and not include_rfq_durability:
+            deferred_rfq_proofs.append(proof)
+            continue
+        included_raw_proofs.append(proof)
         obj = _entry(
             bucket, _join_key(prefix, "raw", rel), _join_key("raw", rel),
             kind, path_date, proof["size"], proof["sha256"], seal_sha,
             channel=channel, family="raw_durability",
             evidence_binding="seal.raw_files",
             attestation_class="DAY_SEAL_ATTESTED",
+            required=not is_rfq,
             durability_scope=True, research_candidate=False,
-            exposure_policy=("FORBIDDEN_RFQ_DEFAULT"
-                             if RFQ_RE.match(basename) else "FORBIDDEN_RAW"),
+            exposure_policy=("FORBIDDEN_RFQ_DEFAULT" if is_rfq
+                             else "FORBIDDEN_RAW"),
             version_resolution="SEALED_CURRENT_EXACT")
         _add_unique(objects, seen, obj)
     families.append(_family(
-        "raw_durability", "REQUIRED_CORE", "seal.raw_files",
-        len(raw_proofs), len(raw_proofs), "PRESENT_VERIFIED",
-        semantic_sha256=canonical_sha256(raw_proofs)))
+        "raw_durability", "REQUIRED_CORE",
+        "seal.raw_files excluding closed RFQ branch",
+        len(included_raw_proofs), len(included_raw_proofs),
+        "PRESENT_VERIFIED",
+        semantic_sha256=canonical_sha256(included_raw_proofs)))
+    if deferred_rfq_proofs:
+        families.append(_family(
+            "raw_rfq_deferred", "DATA_INTEGRITY_BLOCKED",
+            "operator RFQ branch closed; separate future receipt required",
+            0, 0, "NOT_APPLICABLE", "RFQ_BRANCH_CLOSED_NO_REPAIR",
+            semantic_sha256=canonical_sha256(deferred_rfq_proofs)))
 
     for proof in sorted(fact_proofs, key=lambda item: item["file"]):
         rel = proof["file"]
@@ -2066,6 +2106,7 @@ def stable_receipt_projection(date, seal_binding, objects):
     stable = []
     fields = (
         "bucket", "key", "VersionId", "size", "sha256",
+        "last_modified_utc",
         "logical_source_key", "source_kind", "family", "table", "channel",
         "date",
         "seal_binding", "evidence_binding", "durability_verified",
@@ -2106,7 +2147,8 @@ def scoped_object_set_sha256(objects, field):
         {"logical_source_key": obj["logical_source_key"],
          "bucket": obj["bucket"], "key": obj["key"],
          "VersionId": obj.get("VersionId"), "size": obj["size"],
-         "sha256": obj["sha256"]}
+         "sha256": obj["sha256"],
+         "last_modified_utc": obj.get("last_modified_utc")}
         for obj in objects if obj.get(field) is True
     ]
     projection.sort(key=lambda obj: (
@@ -2153,6 +2195,13 @@ class AwsCliS3Client:
         return self._run(["s3api", "get-object", "--bucket", bucket,
                           "--key", key, "--version-id", version_id,
                           "--checksum-mode", "ENABLED", dest])
+
+    def get_tags(self, bucket, key, version_id):
+        """Read tags for one exact version; versionless reads are forbidden."""
+        return self._run([
+            "s3api", "get-object-tagging", "--bucket", bucket,
+            "--key", key, "--version-id", version_id, "--output", "json",
+        ])
 
     def list_versions(self, bucket, key):
         return self._run([
@@ -2282,17 +2331,18 @@ def verify_inventory(objects, client, temp_root, metadata_only=False,
                     "VERSION_ID_MISMATCH",
                     "%s returned VersionId %s, expected %s" %
                     (label, version_id, expected_version))
+            observed_modified = (head.get("LastModified")
+                                 or head.get("last_modified_utc"))
+            if observed_modified is None:
+                raise ReceiptError(
+                    "LAST_MODIFIED_REQUIRED",
+                    "%s returned no LastModified" % label)
+            normalized_modified = _canonical_utc(
+                observed_modified, "S3 LastModified")
             expected_modified = obj.get("_expected_last_modified_utc")
             if expected_modified is not None:
-                observed_modified = (head.get("LastModified")
-                                     or head.get("last_modified_utc"))
-                if observed_modified is None:
-                    raise ReceiptError(
-                        "LAST_MODIFIED_REQUIRED",
-                        "%s returned no LastModified" % label)
-                if _parse_utc(observed_modified, "S3 LastModified") != \
-                        _parse_utc(expected_modified,
-                                   "expected LastModified"):
+                if normalized_modified != _canonical_utc(
+                        expected_modified, "expected LastModified"):
                     raise ReceiptError(
                         "LAST_MODIFIED_MISMATCH",
                         "%s returned LastModified %s, expected %s" %
@@ -2305,6 +2355,7 @@ def verify_inventory(objects, client, temp_root, metadata_only=False,
                     "SIZE_MISMATCH", "%s head=%r expected=%r" %
                     (label, content_length, obj["size"]))
             obj["VersionId"] = version_id
+            obj["last_modified_utc"] = normalized_modified
             if metadata_only:
                 obj["verification_state"] = "METADATA_ONLY"
                 verified.append(obj)
@@ -2420,6 +2471,10 @@ def _final_seal_binding(seal_binding, objects):
 def write_shadow_receipt(output_root, date, seal_binding, objects,
                          verified_at, commit):
     """Write/reuse an immutable local-only receipt after complete verification."""
+    _parse_utc(verified_at, "receipt verified_at_utc")
+    if not isinstance(commit, str) or not commit.strip():
+        raise ReceiptError(
+            "INCOMPLETE_VERIFICATION", "publisher code commit is missing")
     if not objects:
         raise ReceiptError("INCOMPLETE_VERIFICATION", "object set is empty")
     if seal_binding.get("date") != date:
@@ -2447,6 +2502,12 @@ def write_shadow_receipt(output_root, date, seal_binding, objects,
                 "%s is not exact-version byte verified" % obj.get("key"))
     final_seal = _final_seal_binding(seal_binding, objects)
     digest = receipt_set_sha256(date, final_seal, objects)
+    public_objects = []
+    for obj in objects:
+        public = _public_object(obj)
+        public["verified_at_utc"] = verified_at
+        public["publisher_code_commit"] = commit
+        public_objects.append(public)
     payload = {
         "schema_version": RECEIPT_SCHEMA,
         "state": "RECEIPT_VERIFIED_SHADOW",
@@ -2462,7 +2523,7 @@ def write_shadow_receipt(output_root, date, seal_binding, objects,
             objects, "durability_scope"),
         "research_candidate_set_sha256": scoped_object_set_sha256(
             objects, "research_candidate"),
-        "objects": [_public_object(o) for o in objects],
+        "objects": public_objects,
         "verified_at_utc": verified_at,
         "publisher_code_commit": commit,
     }
@@ -2519,12 +2580,10 @@ def write_shadow_receipt(output_root, date, seal_binding, objects,
 
 def _code_commit():
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=wc.ROOT,
-            capture_output=True, text=True, timeout=10)
-        return result.stdout.strip() if result.returncode == 0 else "UNKNOWN"
-    except (OSError, subprocess.SubprocessError):
-        return "UNKNOWN"
+        return gp.require_clean_head(
+            wc.ROOT, CANONICAL_RECEIPT_PROVENANCE_PATHS)
+    except gp.GitProvenanceError as exc:
+        raise ReceiptError(exc.code, exc.detail)
 
 
 def _now():
@@ -2685,6 +2744,7 @@ def main(argv=None):
                 obj["research_candidate"] for obj in objects),
             "families": [{
                 "name": family["name"],
+                "policy": family["policy"],
                 "state": family["state"],
                 "reason_code": family["reason_code"],
                 "observed_count": family["observed_count"],

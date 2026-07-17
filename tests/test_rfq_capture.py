@@ -151,6 +151,12 @@ def test_deploy_contract_is_independent_and_active_files_are_excluded():
     assert '--exclude "*/rfq_${HH}.ndjson*"' in sync
     assert '--exclude "*/rfq_receipts_${HH}.ndjson*"' in sync
     assert "facts dim catalog legacy_greed _meta seals" in sync
+    assert "LEGACY_RESEARCH_COPY_DISABLED" in sync
+    assert "research_release.py publish" in sync
+    assert "--no-rfq" in sync
+    assert "research_zero_copy_v3_cutover_approved" in sync
+    assert sync.index('if [ "$MODE" = research_sync ]') < sync.index(
+        'source "$HOME/.kalshi/env.sh"')
     assert "rt.mode == Mode::Live" in ws
     assert "can_place_orders(rt)" in ws
     assert "rec.recv_mono_ns = trading::mono_ns()" in ws_client

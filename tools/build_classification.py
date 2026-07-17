@@ -24,8 +24,21 @@ import csv
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import publication_generation as pg  # noqa: E402
+
+
+CATALOG_MEMBERS = {
+    "series/part-00000.parquet",
+    "events/part-00000.parquet",
+    "markets/part-00000.parquet",
+    "settlements/part-00000.parquet",
+    "series_classified/part-00000.parquet",
+}
 
 # Known sports leagues (token right after KX). Longest-match wins. Extend freely.
 LEAGUES = [
@@ -80,6 +93,63 @@ def load_yaml_classes(path):
     return a, b
 
 
+def _catalog_paths(warehouse):
+    root = os.path.join(warehouse, "catalog")
+    if os.path.lexists(root) and os.path.islink(root):
+        raise pg.GenerationError("catalog root is a symlink")
+    paths = set()
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in dirs:
+            if os.path.islink(os.path.join(base, name)):
+                raise pg.GenerationError("catalog directory is a symlink")
+        for name in sorted(files):
+            full = os.path.join(base, name)
+            if os.path.islink(full):
+                raise pg.GenerationError("catalog file is a symlink")
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if rel not in CATALOG_MEMBERS:
+                raise pg.GenerationError("unexpected catalog member %s" % rel)
+            paths.add("catalog/" + rel)
+    return paths
+
+
+def _atomic_csv(path, fieldnames, rows):
+    parent = os.path.dirname(os.path.abspath(path))
+    if os.path.lexists(parent) and os.path.islink(parent):
+        raise pg.GenerationError("CSV output directory is a symlink")
+    os.makedirs(parent, exist_ok=True)
+    fd, pending = tempfile.mkstemp(prefix=".pending-classification-",
+                                   dir=parent, text=True)
+    try:
+        with os.fdopen(fd, "w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({key: row[key] for key in fieldnames})
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(pending, path)
+        pending = None
+    finally:
+        if pending and os.path.exists(pending):
+            os.unlink(pending)
+
+
+def _base_unchanged(warehouse, base, state):
+    current = _catalog_paths(warehouse)
+    if state == "PRODUCER_MANIFEST_VERIFIED":
+        now = pg.load_manifest(
+            warehouse, "catalog", expected_paths=current,
+            verify_files=False, allow_missing=False)
+    else:
+        now, _ = pg.verified_or_synthesized_manifest(
+            warehouse, "catalog", current)
+    if now["generation_id"] != base["generation_id"]:
+        raise pg.GenerationError(
+            "catalog changed while classification was staged")
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--warehouse", default="work/warehouse")
@@ -88,76 +158,148 @@ def main(argv):
     args = ap.parse_args(argv[1:])
     import duckdb
 
-    series_pq = os.path.join(args.warehouse, "catalog", "series", "part-00000.parquet")
-    con = duckdb.connect()
-    rows = con.execute(
-        "SELECT ticker, category, tags, title FROM read_parquet('%s')"
-        % series_pq.replace("'", "''")).fetchall()
+    warehouse = os.path.abspath(args.warehouse)
+    series_pq = os.path.join(
+        warehouse, "catalog", "series", "part-00000.parquet")
+    stage_parent = os.path.join(warehouse, ".publication-stage")
+    if os.path.lexists(stage_parent) and os.path.islink(stage_parent):
+        raise pg.GenerationError("publication stage is a symlink")
+    os.makedirs(stage_parent, mode=0o700, exist_ok=True)
+    stage_root = tempfile.mkdtemp(prefix="classification-", dir=stage_parent)
 
-    class_a, class_b = load_yaml_classes(args.config)
-    a_set = set(class_a)
-    live_cats = sorted({r[1] for r in rows if r[1]})
-    missing = [c for c in live_cats if c not in a_set and c not in set(class_b)]
-    if missing:
-        print("WARNING: live categories not in config (treated as Class B): %s"
-              % ", ".join(missing), file=sys.stderr)
+    try:
+        # Classification is derived and staged while the source catalog
+        # generation is shared-locked.  Only final group replacement is
+        # exclusive.
+        with pg.generation_locks(
+                warehouse, {"catalog": "shared"}, timeout=30.0):
+            current_paths = _catalog_paths(warehouse)
+            base, base_state = pg.verified_or_synthesized_manifest(
+                warehouse, "catalog", current_paths)
+            con = duckdb.connect()
+            try:
+                rows = con.execute(
+                    "SELECT ticker, category, tags, title "
+                    "FROM read_parquet('%s')" %
+                    series_pq.replace("'", "''")).fetchall()
+            finally:
+                con.close()
 
-    out_rows = []
-    for ticker, category, tags, title in rows:
-        tags = list(tags) if tags else []
-        subcategory = tags[0] if tags else "_none"
-        group, gsrc, needs_review = derive_group(ticker, category, subcategory, title)
-        klass = "A" if category in a_set else "B"
-        out_rows.append({
-            "series_ticker": ticker,
-            "category": category,
-            "subcategory": subcategory,       # pinned (first tag)
-            "all_tags": "|".join(tags) if tags else None,
-            "group": group,                   # league / region / asset (derived)
-            "group_source": gsrc,
-            "needs_review": needs_review,
-            "record_class": klass,
-            "title": title,
-        })
+            class_a, class_b = load_yaml_classes(args.config)
+            a_set = set(class_a)
+            live_cats = sorted({row[1] for row in rows if row[1]})
+            missing = [category for category in live_cats
+                       if category not in a_set
+                       and category not in set(class_b)]
+            if missing:
+                print("WARNING: live categories not in config "
+                      "(treated as Class B): %s" % ", ".join(missing),
+                      file=sys.stderr)
 
-    # pinned dim -> parquet
-    out_dir = os.path.join(args.warehouse, "catalog", "series_classified")
-    os.makedirs(out_dir, exist_ok=True)
-    tmp = tempfile.NamedTemporaryFile("w", suffix=".ndjson", delete=False)
-    for r in out_rows:
-        tmp.write(json.dumps(r) + "\n")
-    tmp.close()
-    dst = os.path.join(out_dir, "part-00000.parquet").replace("'", "''")
-    con.execute("COPY (SELECT * FROM read_json_auto('%s', format='newline_delimited', "
-                "union_by_name=true)) TO '%s' (FORMAT PARQUET)" % (tmp.name.replace("'", "''"), dst))
-    os.unlink(tmp.name)
+            out_rows = []
+            for ticker, category, tags, title in rows:
+                tags = list(tags) if tags else []
+                subcategory = tags[0] if tags else "_none"
+                group, group_source, needs_review = derive_group(
+                    ticker, category, subcategory, title)
+                out_rows.append({
+                    "series_ticker": ticker,
+                    "category": category,
+                    "subcategory": subcategory,
+                    "all_tags": "|".join(tags) if tags else None,
+                    "group": group,
+                    "group_source": group_source,
+                    "needs_review": needs_review,
+                    "record_class": "A" if category in a_set else "B",
+                    "title": title,
+                })
+            if not out_rows:
+                raise pg.GenerationError("classification source is empty")
 
-    # review CSV (only rows needing review, sorted by category/group)
-    os.makedirs(os.path.dirname(args.review), exist_ok=True)
-    review = [r for r in out_rows if r["needs_review"]]
-    with open(args.review, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["category", "subcategory", "group",
-                                          "group_source", "series_ticker", "title"])
-        w.writeheader()
-        for r in sorted(review, key=lambda x: (x["category"] or "", x["group"] or "")):
-            w.writerow({k: r[k] for k in w.fieldnames})
+            out_dir = os.path.join(
+                stage_root, "catalog", "series_classified")
+            os.makedirs(out_dir, exist_ok=True)
+            tmp = tempfile.NamedTemporaryFile(
+                "w", suffix=".ndjson", delete=False, dir=stage_root)
+            try:
+                for row in out_rows:
+                    tmp.write(json.dumps(row) + "\n")
+                tmp.close()
+                dst = os.path.join(out_dir, "part-00000.parquet")
+                con = duckdb.connect()
+                try:
+                    con.execute(
+                        "COPY (SELECT * FROM read_json_auto('%s', "
+                        "format='newline_delimited', union_by_name=true)) "
+                        "TO '%s' (FORMAT PARQUET)" %
+                        (tmp.name.replace("'", "''"),
+                         dst.replace("'", "''")))
+                finally:
+                    con.close()
+            finally:
+                if os.path.exists(tmp.name):
+                    os.unlink(tmp.name)
 
-    # per-series tags report (ALL series, full tags) for manual review — the
-    # subcategory pin is tags[0], so reviewers need to see what was not chosen.
-    tags_report = os.path.join(os.path.dirname(args.review), "series_tags_report.csv")
-    with open(tags_report, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["series_ticker", "category", "subcategory",
-                                          "all_tags", "title"])
-        w.writeheader()
-        for r in sorted(out_rows, key=lambda x: (x["category"] or "", x["series_ticker"])):
-            w.writerow({k: r[k] for k in w.fieldnames})
+            # Pin every unchanged member into a complete staged catalog.
+            classified_rel = (
+                "catalog/series_classified/part-00000.parquet")
+            for rel in sorted(current_paths - {classified_rel}):
+                src = os.path.join(warehouse, *rel.split("/"))
+                dst = os.path.join(stage_root, *rel.split("/"))
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.link(src, dst)
+            staged_paths = sorted(current_paths | {classified_rel})
+            classified_file = pg.attest_files(
+                stage_root, [classified_rel])[0]
+            prior_files = {
+                row["relative_path"]: row for row in base["files"]}
+            generation_files = [
+                (classified_file if rel == classified_rel
+                 else prior_files[rel])
+                for rel in staged_paths]
+            manifest = pg.build_manifest(
+                "catalog", generation_files)
 
-    a_series = sum(1 for r in out_rows if r["record_class"] == "A")
-    print("classified %d series | Class A(full-L1)=%d Class B(trades-only)=%d"
-          % (len(out_rows), a_series, len(out_rows) - a_series))
-    print("review needed for %d series -> %s" % (len(review), args.review))
-    print("pinned dim -> %s" % out_dir)
-    return 0
+        with pg.generation_locks(
+                warehouse, {"catalog": "exclusive"}, timeout=30.0):
+            _base_unchanged(warehouse, base, base_state)
+            pg.publish_transaction(
+                warehouse,
+                {rel: os.path.join(stage_root, *rel.split("/"))
+                 for rel in staged_paths},
+                manifest)
+
+        # Review files are outside the canonical generation, but each is still
+        # atomically replaced so readers never see a half-written CSV.
+        review = [row for row in out_rows if row["needs_review"]]
+        _atomic_csv(
+            args.review,
+            ["category", "subcategory", "group", "group_source",
+             "series_ticker", "title"],
+            sorted(review, key=lambda row: (
+                row["category"] or "", row["group"] or "")))
+        tags_report = os.path.join(
+            os.path.dirname(os.path.abspath(args.review)),
+            "series_tags_report.csv")
+        _atomic_csv(
+            tags_report,
+            ["series_ticker", "category", "subcategory", "all_tags", "title"],
+            sorted(out_rows, key=lambda row: (
+                row["category"] or "", row["series_ticker"])))
+
+        a_series = sum(1 for row in out_rows
+                       if row["record_class"] == "A")
+        print("classified %d series | Class A(full-L1)=%d "
+              "Class B(trades-only)=%d" %
+              (len(out_rows), a_series, len(out_rows) - a_series))
+        print("review needed for %d series -> %s" %
+              (len(review), args.review))
+        print("pinned dim -> %s [catalog generation %s]" % (
+            os.path.join(warehouse, "catalog", "series_classified"),
+            manifest["generation_id"][:16]))
+        return 0
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

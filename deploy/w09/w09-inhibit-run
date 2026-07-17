@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+# This helper is the narrowly scoped sudo boundary used by w09-run.  It opens
+# the privileged shutdown inhibitor, then drops completely back to the ubuntu
+# account before executing the requested workload.  Arbitrary workload argv is
+# therefore never executed with root privileges.
+if [ "${SUDO_USER:-}" != "ubuntu" ] || [ "$#" -eq 0 ]; then
+    echo "W09_INHIBIT_REFUSED: caller must be sudo user ubuntu" >&2
+    exit 77
+fi
+
+exec /usr/bin/systemd-inhibit \
+    --what=shutdown \
+    --mode=block \
+    --who=w09-workload \
+    --why="PIPE-W09 research workload" \
+    -- /usr/bin/setpriv \
+       --reuid=ubuntu \
+       --regid=ubuntu \
+       --init-groups \
+       --reset-env \
+       -- "$@"

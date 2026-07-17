@@ -6,9 +6,13 @@ if [ "$#" -eq 0 ]; then
     exit 64
 fi
 
+if [ "$(id -u)" -ne 0 ]; then
+    exec /usr/bin/sudo -n /usr/local/libexec/w09-inhibit-run "$@"
+fi
+
 exec /usr/bin/systemd-inhibit \
     --what=shutdown \
     --mode=block \
     --who=w09-workload \
     --why="PIPE-W09 research workload" \
-    "$@"
+    -- "$@"

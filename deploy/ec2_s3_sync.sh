@@ -9,16 +9,19 @@
 # Rules: NEVER --delete (D1). Single-part uploads (ETag==MD5, threshold 2GB).
 # Creds from ~/.kalshi/env.sh at runtime (S4, supervisor pattern).
 # Usage: ec2_s3_sync.sh hourly|daily|research_sync YYYY-MM-DD
-#   research_sync (PIPE-W05 Phase A): delegate to tools/research_release.py —
-#   publish the SEALED day as an immutable release under
-#   s3://kalshi-vault-ritcardo/research/releases/<release_id>/ (MANIFEST
-#   last; idempotent; seal-gated; sealed-rfq inclusion is an operator switch
-#   defaulting OFF — see the publisher docstring). Wired from the
-#   supervisor's post-seal chain, NOT the timers (the 03:10Z daily timer
-#   provably raced the 07-11 seal at 04:08Z).
+#   research_sync keeps copied-v2 as the rollback/default path until the
+#   separately audited v3 canary passes.  After that cutover only, the
+#   operator-owned zero-copy approval file turns this into a logged no-op.
 set -euo pipefail
 MODE="${1:?usage: ec2_s3_sync.sh hourly|daily|research_sync YYYY-MM-DD}"
 cd "$HOME/hft-bot"
+if [ "$MODE" = research_sync ]; then
+  RDATE="${2:?usage: ec2_s3_sync.sh research_sync YYYY-MM-DD}"
+  if [ -f "$HOME/.kalshi/research_zero_copy_v3_cutover_approved" ]; then
+    echo "[ec2_s3_sync] LEGACY_RESEARCH_COPY_DISABLED date=$RDATE mode=ZERO_COPY_V3_CUTOVER rfq=DATA_INTEGRITY_BLOCKED $(date -u +%FT%TZ)"
+    exit 0
+  fi
+fi
 # shellcheck disable=SC1090
 source "$HOME/.kalshi/env.sh"
 aws configure set default.s3.multipart_threshold 2GB
@@ -26,16 +29,15 @@ DST="s3://kalshi-vault-ritcardo/ec2"
 HH="$(date -u +%H)"
 
 if [ "$MODE" = research_sync ]; then
-  RDATE="${2:?usage: ec2_s3_sync.sh research_sync YYYY-MM-DD}"
-  # research_release.py is an S3-WRITING tool behind an operator gate
-  # (remediation item 7): the supervisor-driven publish passes
-  # --operator-approved ONLY while the operator's arm-file exists on the
-  # box. No arm-file => the publisher refuses loudly and the seal chain
-  # simply retries next cycle once the operator arms it.
+  # Before canary/cutover, preserve the verified v2 rollback path.  RFQ is
+  # forced OFF on the command line so a stale environment variable or legacy
+  # flag file cannot reopen the terminated branch.
   APPROVE=()
-  [ -f "$HOME/.kalshi/research_publish_approved" ] && APPROVE=(--operator-approved)
-  python3 tools/research_release.py publish --date "$RDATE" "${APPROVE[@]}"
-  echo "[ec2_s3_sync] research_sync complete for $RDATE $(date -u +%FT%TZ)"
+  [ -f "$HOME/.kalshi/research_publish_approved" ] && \
+    APPROVE=(--operator-approved)
+  python3 tools/research_release.py publish --date "$RDATE" --no-rfq \
+    "${APPROVE[@]}"
+  echo "[ec2_s3_sync] copied-v2 research_sync complete for $RDATE rfq=OFF $(date -u +%FT%TZ)"
   exit 0
 fi
 

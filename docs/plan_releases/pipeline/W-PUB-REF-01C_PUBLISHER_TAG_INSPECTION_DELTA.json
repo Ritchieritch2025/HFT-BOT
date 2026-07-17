@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectExactCanonicalVersionTagsOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersionTagging",
+      "Resource": [
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_l1/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/orderbooks_full/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/facts/trades/category=*/subcategory=*/date=*/*",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/series.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/events.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/dim/snapshots/date=*/markets.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/events/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/markets/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/settlements/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/catalog/series_classified/part-00000.parquet",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/seals/date=*.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/manifest/sha256=*/manifest.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/late_rows/sha256=*/late_rows.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/warehouse/publication-snapshots/v1/date=*/corrections/ledger_day/sha256=*/ledger_day.ndjson",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gap_receipt/sha256=*/capture_gap_receipt.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/capture_gaps/sha256=*/capture_gaps.csv",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/quality/v1/date=*/l2_gaps/sha256=*/l2_gaps.json",
+        "arn:aws:s3:::kalshi-vault-ritcardo/ec2/control/canonical-receipts/v1/date=*/receipt-*.json"
+      ]
+    },
+    {
+      "Sid": "ListExactResearchManifestVersionHistory",
+      "Effect": "Allow",
+      "Action": "s3:ListBucketVersions",
+      "Resource": "arn:aws:s3:::kalshi-vault-ritcardo",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "research/releases/*/MANIFEST.json"
+        }
+      }
+    }
+  ]
+}
