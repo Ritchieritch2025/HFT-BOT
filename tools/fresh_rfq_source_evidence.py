@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Pure exact-byte source evidence for the isolated fresh-RFQ lane.
+"""Exact-byte source evidence for the isolated fresh-RFQ lane.
 
-The module performs no filesystem, network, AWS, process, deployment, or
-publication I/O.  A caller supplies bytes returned by exact-VersionId GETs.
-This code verifies every supplied byte count and SHA-256 before it emits a
-body-free evidence object.
+The legacy bytes API performs no filesystem, network, AWS, process,
+deployment, or publication I/O.  A bounded-reader API also accepts body-free
+identities and a caller-owned ``open_exact`` context manager.  It opens one
+regular-file inode at a time, recomputes every byte count and SHA-256, and
+emits the same body-free evidence object.  Neither API performs or attests an
+AWS read by itself.
 
 Receipt-container completeness is an explicit input contract: the caller
 supplies the complete exact identity set for the 26 close-hour container
@@ -21,11 +23,14 @@ analysis set and never claims that D+1 has a full-day seal.
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import hashlib
 import json
+import os
 import re
-from typing import Any
+import stat
+from typing import Any, BinaryIO, Callable
 
 
 SCHEMA = "fresh-rfq-source-evidence-v1"
@@ -33,6 +38,8 @@ SOURCE_BUCKET = "kalshi-vault-ritcardo"
 RAW_PREFIX = "ec2/raw/"
 SEAL_PREFIX = "ec2/warehouse/seals/"
 MAX_JSON_LINE_BYTES = 16 << 20
+MAX_SEAL_BYTES = 64 << 20
+STREAM_CHUNK_BYTES = 1 << 20
 
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -600,6 +607,88 @@ def _normalize_receipt_capture_shards(
     return canonical_sha256(exact_identities)
 
 
+def _parse_container_physical_line(
+    container: dict[str, Any], physical: bytes, line_number: int, offset: int,
+    capture_rows: list[dict[str, Any]], expected_set: set[str],
+) -> dict[str, Any]:
+    """Parse one LF-terminated physical row without retaining its container."""
+    expected_segment = (
+        _hour(container["source_hour"], "container source_hour") -
+        dt.timedelta(hours=1)
+    ).strftime("%Y-%m-%dT%H")
+    payload = physical[:-1]
+    if not payload or payload.endswith(b"\r"):
+        _fail("MALFORMED_CONTAINER_LINE",
+              f"{container['key']} line {line_number} is blank or non-LF")
+    outer = _strict_json_bytes(
+        payload, f"{container['key']} outer line {line_number}")
+    _exact_keys(outer, OUTER_FIELDS,
+                f"{container['key']} outer line {line_number}")
+    if (outer.get("source") != "Kalshi" or
+            outer.get("channel") != "rfq_segment_receipt" or
+            outer.get("source_ticker") != "" or
+            outer.get("marker") != "segment_receipt" or
+            type(outer.get("recv_mono_ns")) is not int or
+            outer["recv_mono_ns"] <= 0 or
+            type(outer.get("recv_wall_ns")) is not int or
+            outer["recv_wall_ns"] <= 0 or
+            not isinstance(outer.get("raw"), str)):
+        _fail("OUTER_BINDING",
+              f"{container['key']} line {line_number} is not a receipt wrapper")
+    try:
+        observed_container_hour = dt.datetime.fromtimestamp(
+            outer["recv_wall_ns"] // 1_000_000_000,
+            tz=dt.timezone.utc).strftime("%Y-%m-%dT%H")
+    except (OverflowError, OSError, ValueError) as exc:
+        _fail("OUTER_BINDING",
+              f"{container['key']} line {line_number} has invalid recv time: {exc}")
+    if observed_container_hour != container["source_hour"]:
+        _fail("OUTER_BINDING",
+              f"{container['key']} line {line_number} recv hour/key mismatch")
+    receipt = _strict_json_bytes(
+        outer["raw"].encode("utf-8"),
+        f"{container['key']} inner line {line_number}")
+    if not isinstance(receipt, dict):
+        _fail("SEGMENT_SCHEMA", "inner receipt must be an object")
+    if (receipt.get("schema") != "rfq-segment-receipt-v3" or
+            receipt.get("type") != "rfq_segment_receipt"):
+        _fail("SEGMENT_SCHEMA",
+              f"{container['key']} line {line_number} is not segment v3")
+    segment_hour = receipt.get("segment_hour")
+    _hour(segment_hour, "segment receipt hour")
+    if segment_hour != expected_segment or segment_hour not in expected_set:
+        _fail("POST_RECEIPT_EXTRA",
+              f"{container['key']} contains out-of-scope segment {segment_hour}")
+    capture_set_sha = _normalize_receipt_capture_shards(
+        receipt, segment_hour, capture_rows)
+    # Offsets and lengths address the physical container bytes.  The outer
+    # digest deliberately includes the terminating LF so an appended,
+    # removed, or changed delimiter cannot retain the same line proof.
+    return {
+        "segment_hour": segment_hour,
+        "role": "ANALYSIS" if segment_hour in {
+            row["source_hour"] for row in capture_rows if row["role"] == "ANALYSIS"
+        } else "WATERMARK",
+        "status": receipt.get("status"),
+        "findings": receipt.get("findings"),
+        "fresh_lane_state": receipt.get("fresh_lane_state"),
+        "authority_sha256": receipt.get("authority_sha256"),
+        "generation": receipt.get("generation"),
+        "container_bucket": container["bucket"],
+        "container_key": container["key"],
+        "container_version_id": container["version_id"],
+        "container_size": container["size"],
+        "container_sha256": container["sha256"],
+        "container_seal_member": container["seal_member"],
+        "line_number": line_number,
+        "byte_offset": offset,
+        "byte_length": len(physical),
+        "outer_row_sha256": hashlib.sha256(physical).hexdigest(),
+        "raw_segment_canonical_sha256": canonical_sha256(receipt),
+        "capture_exact_object_set_sha256": capture_set_sha,
+    }
+
+
 def _parse_container_lines(
     container: dict[str, Any], body: bytes,
     capture_rows: list[dict[str, Any]], expected_set: set[str],
@@ -607,10 +696,6 @@ def _parse_container_lines(
     proofs = []
     offset = 0
     line_number = 0
-    expected_segment = (
-        _hour(container["source_hour"], "container source_hour") -
-        dt.timedelta(hours=1)
-    ).strftime("%Y-%m-%dT%H")
     while offset < len(body):
         newline = body.find(b"\n", offset)
         if newline < 0:
@@ -620,117 +705,356 @@ def _parse_container_lines(
             _fail("CONTAINER_LINE_TOO_LARGE",
                   f"{container['key']} line {line_number + 1} exceeds the limit")
         physical = body[offset:newline + 1]
-        payload = physical[:-1]
         line_number += 1
-        if not payload or payload.endswith(b"\r"):
-            _fail("MALFORMED_CONTAINER_LINE",
-                  f"{container['key']} line {line_number} is blank or non-LF")
-        outer = _strict_json_bytes(
-            payload, f"{container['key']} outer line {line_number}")
-        _exact_keys(outer, OUTER_FIELDS,
-                    f"{container['key']} outer line {line_number}")
-        if (outer.get("source") != "Kalshi" or
-                outer.get("channel") != "rfq_segment_receipt" or
-                outer.get("source_ticker") != "" or
-                outer.get("marker") != "segment_receipt" or
-                type(outer.get("recv_mono_ns")) is not int or
-                outer["recv_mono_ns"] <= 0 or
-                type(outer.get("recv_wall_ns")) is not int or
-                outer["recv_wall_ns"] <= 0 or
-                not isinstance(outer.get("raw"), str)):
-            _fail("OUTER_BINDING",
-                  f"{container['key']} line {line_number} is not a receipt wrapper")
-        try:
-            observed_container_hour = dt.datetime.fromtimestamp(
-                outer["recv_wall_ns"] // 1_000_000_000,
-                tz=dt.timezone.utc).strftime("%Y-%m-%dT%H")
-        except (OverflowError, OSError, ValueError) as exc:
-            _fail("OUTER_BINDING",
-                  f"{container['key']} line {line_number} has invalid recv time: {exc}")
-        if observed_container_hour != container["source_hour"]:
-            _fail("OUTER_BINDING",
-                  f"{container['key']} line {line_number} recv hour/key mismatch")
-        receipt = _strict_json_bytes(
-            outer["raw"].encode("utf-8"),
-            f"{container['key']} inner line {line_number}")
-        if not isinstance(receipt, dict):
-            _fail("SEGMENT_SCHEMA", "inner receipt must be an object")
-        if (receipt.get("schema") != "rfq-segment-receipt-v3" or
-                receipt.get("type") != "rfq_segment_receipt"):
-            _fail("SEGMENT_SCHEMA",
-                  f"{container['key']} line {line_number} is not segment v3")
-        segment_hour = receipt.get("segment_hour")
-        _hour(segment_hour, "segment receipt hour")
-        if segment_hour != expected_segment or segment_hour not in expected_set:
-            _fail("POST_RECEIPT_EXTRA",
-                  f"{container['key']} contains out-of-scope segment {segment_hour}")
-        capture_set_sha = _normalize_receipt_capture_shards(
-            receipt, segment_hour, capture_rows)
-        # Offsets and lengths address the physical container bytes.  The outer
-        # digest deliberately includes the terminating LF so an appended,
-        # removed, or changed delimiter cannot retain the same line proof.
-        proofs.append({
-            "segment_hour": segment_hour,
-            "role": "ANALYSIS" if segment_hour in {
-                row["source_hour"] for row in capture_rows if row["role"] == "ANALYSIS"
-            } else "WATERMARK",
-            "status": receipt.get("status"),
-            "findings": receipt.get("findings"),
-            "fresh_lane_state": receipt.get("fresh_lane_state"),
-            "authority_sha256": receipt.get("authority_sha256"),
-            "generation": receipt.get("generation"),
-            "container_bucket": container["bucket"],
-            "container_key": container["key"],
-            "container_version_id": container["version_id"],
-            "container_size": container["size"],
-            "container_sha256": container["sha256"],
-            "container_seal_member": container["seal_member"],
-            "line_number": line_number,
-            "byte_offset": offset,
-            "byte_length": len(physical),
-            "outer_row_sha256": hashlib.sha256(physical).hexdigest(),
-            "raw_segment_canonical_sha256": canonical_sha256(receipt),
-            "capture_exact_object_set_sha256": capture_set_sha,
-        })
+        proof = _parse_container_physical_line(
+            container, physical, line_number, offset, capture_rows, expected_set)
+        if proofs:
+            _fail(
+                "RECEIPT_AMBIGUOUS",
+                f"{proof['segment_hour']} has multiple receipt lines",
+            )
+        proofs.append(proof)
         offset = newline + 1
     return proofs
 
 
-def build_source_evidence(
-    *,
-    seal_object: dict[str, Any],
-    capture_objects: list[dict[str, Any]],
-    receipt_container_objects: list[dict[str, Any]],
-    complete_container_identities: list[dict[str, Any]],
-    expected_hours: list[str],
-    authority_sha256: str,
-    generation: str,
-) -> dict[str, Any]:
-    """Build body-free exact source evidence for D 24h + D+1 2h.
+def _merge_unique_proofs(
+    by_hour: dict[str, dict[str, Any]], rows: list[dict[str, Any]],
+) -> None:
+    """Retain at most one proof per one of the fixed 26 segment hours."""
+    for proof in rows:
+        hour = proof["segment_hour"]
+        if hour in by_hour:
+            _fail(
+                "RECEIPT_AMBIGUOUS",
+                f"{hour} has multiple receipt lines",
+            )
+        by_hour[hour] = proof
 
-    ``complete_container_identities`` is the caller's complete set evidence for
-    the 26 close-hour container families.  This function refuses cherry-pick:
-    the supplied exact-byte container objects must equal that identity set.
+
+def _identity_projection(row: dict[str, Any]) -> dict[str, Any]:
+    return {field: row[field] for field in IDENTITY_FIELDS}
+
+
+def _normalize_reader_capture_identities(
+    values: Any, expected_hours: list[str],
+) -> list[dict[str, Any]]:
+    """Normalize the complete body-free capture set before any reader call."""
+    if not isinstance(values, list):
+        _fail("OBJECT_LIST", "capture_objects must be a list")
+    normalized: list[dict[str, Any]] = []
+    keys: set[str] = set()
+    analysis_hours = set(expected_hours[:24])
+    for index, value in enumerate(values):
+        identity = _normalize_identity(value, f"capture_objects[{index}]")
+        relpath, source_hour, ordinal = _parse_rel_identity(
+            identity, CAPTURE_REL_RE, f"capture_objects[{index}]")
+        if identity["key"] in keys:
+            _fail("DUPLICATE_OBJECT", f"duplicate capture key {identity['key']}")
+        keys.add(identity["key"])
+        normalized.append({
+            **identity,
+            "relpath": relpath,
+            "source_hour": source_hour,
+            "ordinal": ordinal,
+            "role": "ANALYSIS" if source_hour in analysis_hours else "WATERMARK",
+            "seal_member": True,
+            "seal_membership_scope": "D_ANALYSIS_MEMBER"
+            if source_hour in analysis_hours else "D_FULL_V2_CROSS_DAY_MEMBER",
+        })
+    normalized = _natural_rows(normalized)
+    _require_contiguous_shards(normalized, set(expected_hours), "exact capture")
+    return normalized
+
+
+def _bind_reader_captures_to_seal(
+    captures: list[dict[str, Any]], sealed_rows: list[dict[str, Any]],
+) -> None:
+    sealed_by_key = {f"{RAW_PREFIX}{row['file']}": row for row in sealed_rows}
+    supplied_by_key = {row["key"]: row for row in captures}
+    if set(supplied_by_key) != set(sealed_by_key):
+        _fail("CAPTURE_SET_MISMATCH",
+              "exact capture object keys do not equal the seal RFQ capture set")
+    for key, row in supplied_by_key.items():
+        sealed = sealed_by_key[key]
+        if (row["size"], row["sha256"], row["source_hour"], row["ordinal"]) != (
+                sealed["size"], sealed["sha256"], sealed["source_hour"],
+                sealed["ordinal"]):
+            _fail("CAPTURE_SET_MISMATCH",
+                  f"capture exact identity differs from seal: {key}")
+
+
+def _normalize_reader_containers(
+    identities_value: Any, object_values: Any, expected_hours: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Normalize both body-free container sets before the first reader call.
+
+    Contiguous ordinals only prove that the caller's declared set has no
+    internal gap.  They do not discover a caller-omitted final shard; that is
+    deliberately left to the independent paginated inventory gate.
     """
-    expected_hours, analysis_start = _normalize_expected_hours(expected_hours)
-    authority_sha256 = _sha(authority_sha256, "authority_sha256")
-    if not isinstance(generation, str) or GENERATION_RE.fullmatch(generation) is None:
-        _fail("INVALID_GENERATION", "generation is not canonical")
+    if not isinstance(identities_value, list):
+        _fail("OBJECT_LIST", "complete_container_identities must be a list")
+    identities: list[dict[str, Any]] = []
+    for index, value in enumerate(identities_value):
+        identity = _normalize_identity(value, f"complete_container_identities[{index}]")
+        relpath, source_hour, ordinal = _parse_rel_identity(
+            identity, CONTAINER_REL_RE,
+            f"complete_container_identities[{index}]")
+        identities.append({
+            **identity,
+            "relpath": relpath,
+            "source_hour": source_hour,
+            "ordinal": ordinal,
+        })
+    if len({row["key"] for row in identities}) != len(identities):
+        _fail("DUPLICATE_OBJECT", "complete container identities duplicate a key")
 
-    _, sealed_capture_rows, sealed_container_rows, seal_projection = _parse_seal(
-        seal_object, analysis_start, expected_hours)
-    captures, _capture_bodies = _normalize_capture_objects(
-        capture_objects, sealed_capture_rows, expected_hours)
-    containers, container_bodies = _normalize_complete_containers(
-        complete_container_identities, receipt_container_objects,
-        sealed_container_rows, expected_hours)
+    expected_close_hours = [
+        (_hour(hour, "expected hour") + dt.timedelta(hours=1)).strftime(
+            "%Y-%m-%dT%H")
+        for hour in expected_hours
+    ]
+    _require_contiguous_shards(
+        identities, set(expected_close_hours), "complete receipt container")
+    identities = _natural_rows(identities)
 
+    if not isinstance(object_values, list):
+        _fail("OBJECT_LIST", "receipt_container_objects must be a list")
+    objects: dict[str, dict[str, Any]] = {}
+    for index, value in enumerate(object_values):
+        identity = _normalize_identity(value, f"receipt_container_objects[{index}]")
+        _parse_rel_identity(
+            identity, CONTAINER_REL_RE, f"receipt_container_objects[{index}]")
+        if identity["key"] in objects:
+            _fail("DUPLICATE_OBJECT", f"duplicate container key {identity['key']}")
+        objects[identity["key"]] = identity
+    identity_by_key = {row["key"]: row for row in identities}
+    if set(objects) != set(identity_by_key):
+        _fail("CONTAINER_SET_MISMATCH",
+              "container reader objects do not equal the complete identity set")
+
+    final_close = expected_close_hours[-1]
+    output: list[dict[str, Any]] = []
+    for row in identities:
+        if objects[row["key"]] != _identity_projection(row):
+            _fail("CONTAINER_SET_MISMATCH",
+                  f"container object differs from complete identity: {row['key']}")
+        if row["size"] == 0:
+            _fail("EMPTY_CONTAINER", f"receipt container is empty: {row['key']}")
+        output.append({
+            **row,
+            "seal_member": row["source_hour"] != final_close,
+        })
+    return output, expected_close_hours
+
+
+def _bind_reader_containers_to_seal(
+    containers: list[dict[str, Any]], expected_close_hours: list[str],
+    sealed_rows: list[dict[str, Any]],
+) -> None:
+    sealed_by_key = {f"{RAW_PREFIX}{row['file']}": row for row in sealed_rows}
+    final_close = expected_close_hours[-1]
+    relevant_sealed = {
+        key: row for key, row in sealed_by_key.items()
+        if row["source_hour"] in set(expected_close_hours[:-1])
+    }
+    supplied_pre_final = {
+        row["key"]: row for row in containers
+        if row["source_hour"] != final_close
+    }
+    if set(supplied_pre_final) != set(relevant_sealed):
+        _fail("CONTAINER_SEAL_SET_MISMATCH",
+              "first 25 close-hour container identities do not equal D seal members")
+    for key, row in supplied_pre_final.items():
+        sealed = relevant_sealed[key]
+        if (row["size"], row["sha256"], row["ordinal"]) != (
+                sealed["size"], sealed["sha256"], sealed["ordinal"]):
+            _fail("CONTAINER_SEAL_SET_MISMATCH",
+                  f"container exact identity differs from D seal: {key}")
+    final_rows = [row for row in containers if row["source_hour"] == final_close]
+    if not final_rows:
+        _fail("CONTAINER_SET_MISMATCH", "D+1 hour 02 close container is required")
+    if any(row["key"] in sealed_by_key for row in final_rows):
+        _fail("CONTAINER_SEAL_SCOPE",
+              "D+1 hour 02 container must not be claimed by D seal")
+
+
+def _reader_path(opened: Any, identity: dict[str, Any]) -> str | bytes:
+    if not hasattr(opened, "path"):
+        _fail("READER_PROTOCOL",
+              f"open_exact for {identity['key']} yielded no .path")
+    try:
+        return os.fspath(opened.path)
+    except TypeError:
+        _fail("READER_PROTOCOL",
+              f"open_exact for {identity['key']} yielded an invalid .path")
+
+
+def _stat_binding(value: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _consume_reader_object(
+    identity: dict[str, Any], open_exact: Callable[[dict[str, Any]], Any],
+    consumer: Callable[[BinaryIO], Any],
+) -> Any:
+    """Open, inode-bind, consume, and close one exact object fail-closed."""
+    exact_identity = _identity_projection(identity)
+    manager = open_exact(copy.deepcopy(exact_identity))
+    if not hasattr(manager, "__enter__") or not hasattr(manager, "__exit__"):
+        _fail("READER_PROTOCOL",
+              f"open_exact for {identity['key']} must return a context manager")
+
+    completed_and_verified = False
+    result: Any = None
+    # The latch is intentionally outside the caller-owned manager.  A broken
+    # manager returning True from __exit__ cannot turn a parser/hash failure
+    # into apparent success.
+    with manager as opened:
+        path = _reader_path(opened, identity)
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError as exc:
+            _fail("READER_IO",
+                  f"cannot open exact body for {identity['key']}: {exc}")
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                _fail("READER_NOT_REGULAR",
+                      f"exact body is not a regular file: {identity['key']}")
+            if before.st_size != identity["size"]:
+                _fail("OBJECT_SIZE_MISMATCH",
+                      f"body size differs for {identity['key']}")
+            binding = _stat_binding(before)
+            try:
+                stream = os.fdopen(fd, "rb", closefd=True)
+            except (OSError, ValueError) as exc:
+                _fail("READER_IO",
+                      f"cannot bind exact body stream for {identity['key']}: {exc}")
+            fd = -1
+            with stream:
+                result = consumer(stream)
+                try:
+                    after = os.fstat(stream.fileno())
+                except (OSError, ValueError) as exc:
+                    _fail("READER_IO",
+                          f"cannot restat exact body for {identity['key']}: {exc}")
+                if _stat_binding(after) != binding:
+                    _fail("READER_FILE_CHANGED",
+                          f"exact body changed while read: {identity['key']}")
+            completed_and_verified = True
+        finally:
+            if fd >= 0:
+                os.close(fd)
+    if not completed_and_verified:
+        _fail("READER_VERIFICATION_INCOMPLETE",
+              f"exact body was not fully verified for {identity['key']}")
+    return result
+
+
+def _read_seal_stream(stream: BinaryIO, identity: dict[str, Any]) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    digest = hashlib.sha256()
+    while True:
+        try:
+            chunk = stream.read(STREAM_CHUNK_BYTES)
+        except OSError as exc:
+            _fail("READER_IO", f"cannot read seal {identity['key']}: {exc}")
+        if not chunk:
+            break
+        if not isinstance(chunk, bytes):
+            _fail("READER_PROTOCOL", "exact reader must yield binary bytes")
+        total += len(chunk)
+        if total > MAX_SEAL_BYTES:
+            _fail("SEAL_TOO_LARGE", "full_v2 seal exceeds the bounded limit")
+        digest.update(chunk)
+        chunks.append(chunk)
+    if total != identity["size"]:
+        _fail("OBJECT_SIZE_MISMATCH", f"body size differs for {identity['key']}")
+    if digest.hexdigest() != identity["sha256"]:
+        _fail("OBJECT_SHA_MISMATCH", f"body SHA-256 differs for {identity['key']}")
+    return b"".join(chunks)
+
+
+def _verify_capture_stream(stream: BinaryIO, identity: dict[str, Any]) -> None:
+    total = 0
+    digest = hashlib.sha256()
+    while True:
+        try:
+            chunk = stream.read(STREAM_CHUNK_BYTES)
+        except OSError as exc:
+            _fail("READER_IO", f"cannot read capture {identity['key']}: {exc}")
+        if not chunk:
+            break
+        if not isinstance(chunk, bytes):
+            _fail("READER_PROTOCOL", "exact reader must yield binary bytes")
+        total += len(chunk)
+        digest.update(chunk)
+    if total != identity["size"]:
+        _fail("OBJECT_SIZE_MISMATCH", f"body size differs for {identity['key']}")
+    if digest.hexdigest() != identity["sha256"]:
+        _fail("OBJECT_SHA_MISMATCH", f"body SHA-256 differs for {identity['key']}")
+
+
+def _parse_container_stream(
+    stream: BinaryIO, container: dict[str, Any],
+    capture_rows: list[dict[str, Any]], expected_set: set[str],
+) -> list[dict[str, Any]]:
     proofs: list[dict[str, Any]] = []
-    expected_set = set(expected_hours)
-    for container in containers:
-        proofs.extend(_parse_container_lines(
-            container, container_bodies[container["key"]], captures, expected_set))
+    digest = hashlib.sha256()
+    offset = 0
+    line_number = 0
+    while True:
+        try:
+            physical = stream.readline(MAX_JSON_LINE_BYTES + 1)
+        except OSError as exc:
+            _fail("READER_IO",
+                  f"cannot read container {container['key']}: {exc}")
+        if not physical:
+            break
+        if not isinstance(physical, bytes):
+            _fail("READER_PROTOCOL", "exact reader must yield binary bytes")
+        if len(physical) > MAX_JSON_LINE_BYTES:
+            _fail("CONTAINER_LINE_TOO_LARGE",
+                  f"{container['key']} line {line_number + 1} exceeds the limit")
+        if not physical.endswith(b"\n"):
+            _fail("TORN_CONTAINER",
+                  f"{container['key']} has a non-newline-terminated final row")
+        digest.update(physical)
+        line_number += 1
+        proof = _parse_container_physical_line(
+            container, physical, line_number, offset, capture_rows, expected_set)
+        if proofs:
+            _fail(
+                "RECEIPT_AMBIGUOUS",
+                f"{proof['segment_hour']} has multiple receipt lines",
+            )
+        proofs.append(proof)
+        offset += len(physical)
+    if offset == 0:
+        _fail("EMPTY_CONTAINER", f"receipt container is empty: {container['key']}")
+    if offset != container["size"]:
+        _fail("OBJECT_SIZE_MISMATCH", f"body size differs for {container['key']}")
+    if digest.hexdigest() != container["sha256"]:
+        _fail("OBJECT_SHA_MISMATCH",
+              f"body SHA-256 differs for {container['key']}")
+    return proofs
 
+
+def _finish_source_evidence(
+    *, expected_hours: list[str], analysis_start: dt.datetime,
+    authority_sha256: str, generation: str,
+    sealed_capture_rows: list[dict[str, Any]],
+    sealed_container_rows: list[dict[str, Any]],
+    seal_projection: dict[str, Any], captures: list[dict[str, Any]],
+    containers: list[dict[str, Any]], proofs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Finish the body-free receipt from already parsed, verified sources."""
     by_hour: dict[str, list[dict[str, Any]]] = {hour: [] for hour in expected_hours}
     for proof in proofs:
         by_hour[proof["segment_hour"]].append(proof)
@@ -776,6 +1100,9 @@ def build_source_evidence(
         "watermark_capture_object_set_sha256": canonical_sha256(watermark_captures),
         "receipt_containers": containers,
         "receipt_container_object_set_sha256": canonical_sha256(containers),
+        # This remains a caller assertion.  In particular, this module cannot
+        # discover an omitted D+1 close-hour shard; a later paginated inventory
+        # gate must independently prove that family complete.
         "container_completeness_state":
             "CALLER_COMPLETE_IDENTITY_SET_EXACT_BYTES_VERIFIED",
         "analysis_receipt_proofs": analysis_proofs,
@@ -786,3 +1113,150 @@ def build_source_evidence(
     }
     result["evidence_sha256"] = canonical_sha256(result)
     return result
+
+
+def build_source_evidence(
+    *,
+    seal_object: dict[str, Any],
+    capture_objects: list[dict[str, Any]],
+    receipt_container_objects: list[dict[str, Any]],
+    complete_container_identities: list[dict[str, Any]],
+    expected_hours: list[str],
+    authority_sha256: str,
+    generation: str,
+) -> dict[str, Any]:
+    """Build body-free exact source evidence for D 24h + D+1 2h.
+
+    ``complete_container_identities`` is the caller's complete set evidence for
+    the 26 close-hour container families.  This function refuses cherry-pick:
+    the supplied exact-byte container objects must equal that identity set.
+    """
+    expected_hours, analysis_start = _normalize_expected_hours(expected_hours)
+    authority_sha256 = _sha(authority_sha256, "authority_sha256")
+    if not isinstance(generation, str) or GENERATION_RE.fullmatch(generation) is None:
+        _fail("INVALID_GENERATION", "generation is not canonical")
+
+    _, sealed_capture_rows, sealed_container_rows, seal_projection = _parse_seal(
+        seal_object, analysis_start, expected_hours)
+    captures, _capture_bodies = _normalize_capture_objects(
+        capture_objects, sealed_capture_rows, expected_hours)
+    containers, container_bodies = _normalize_complete_containers(
+        complete_container_identities, receipt_container_objects,
+        sealed_container_rows, expected_hours)
+
+    proofs_by_hour: dict[str, dict[str, Any]] = {}
+    expected_set = set(expected_hours)
+    for container in containers:
+        _merge_unique_proofs(
+            proofs_by_hour,
+            _parse_container_lines(
+                container,
+                container_bodies[container["key"]],
+                captures,
+                expected_set,
+            ),
+        )
+    return _finish_source_evidence(
+        expected_hours=expected_hours,
+        analysis_start=analysis_start,
+        authority_sha256=authority_sha256,
+        generation=generation,
+        sealed_capture_rows=sealed_capture_rows,
+        sealed_container_rows=sealed_container_rows,
+        seal_projection=seal_projection,
+        captures=captures,
+        containers=containers,
+        proofs=list(proofs_by_hour.values()),
+    )
+
+
+def build_source_evidence_from_reader(
+    *,
+    seal_object: dict[str, Any],
+    capture_objects: list[dict[str, Any]],
+    receipt_container_objects: list[dict[str, Any]],
+    complete_container_identities: list[dict[str, Any]],
+    expected_hours: list[str],
+    authority_sha256: str,
+    generation: str,
+    open_exact: Callable[[dict[str, Any]], Any],
+) -> dict[str, Any]:
+    """Build the legacy-equivalent receipt from body-free exact identities.
+
+    ``open_exact(identity)`` must return a context manager whose yielded value
+    has a filesystem ``.path``.  This standalone adapter opens the seal, each
+    capture, and each receipt container exactly once and never has more than
+    one object active.  It is useful for isolated verification.  A combined
+    production runner should compose the identity normalizers and stream
+    helpers above so the request-provenance consumer and this source-evidence
+    consumer share a capture's one ExactReadSession opening.
+
+    The declared final D+1 container family is still caller-supplied set
+    evidence.  This function intentionally does not upgrade it to independent
+    inventory completeness.
+    """
+    if not callable(open_exact):
+        _fail("READER_REQUIRED", "open_exact must be callable")
+    expected_hours, analysis_start = _normalize_expected_hours(expected_hours)
+    authority_sha256 = _sha(authority_sha256, "authority_sha256")
+    if not isinstance(generation, str) or GENERATION_RE.fullmatch(generation) is None:
+        _fail("INVALID_GENERATION", "generation is not canonical")
+
+    # Normalize every caller-declared identity/set before the first callback.
+    # Seal-content membership can only be checked after its bounded read.
+    seal_identity = _normalize_identity(seal_object, "seal_object")
+    expected_seal_key = (
+        f"{SEAL_PREFIX}date={analysis_start.strftime('%Y-%m-%d')}.json")
+    if seal_identity["key"] != expected_seal_key:
+        _fail("SEAL_IDENTITY", "seal key does not bind the analysis date")
+    if seal_identity["size"] > MAX_SEAL_BYTES:
+        _fail("SEAL_TOO_LARGE", "full_v2 seal exceeds the bounded limit")
+    captures = _normalize_reader_capture_identities(
+        capture_objects, expected_hours)
+    containers, expected_close_hours = _normalize_reader_containers(
+        complete_container_identities, receipt_container_objects,
+        expected_hours)
+
+    seal_body = _consume_reader_object(
+        seal_identity,
+        open_exact,
+        lambda stream: _read_seal_stream(stream, seal_identity),
+    )
+    _, sealed_capture_rows, sealed_container_rows, seal_projection = _parse_seal(
+        {**seal_identity, "body": seal_body}, analysis_start, expected_hours)
+    _bind_reader_captures_to_seal(captures, sealed_capture_rows)
+    _bind_reader_containers_to_seal(
+        containers, expected_close_hours, sealed_container_rows)
+
+    # Captures are streamed solely for exact size/SHA verification here.  No
+    # all-day body dictionary or physical-line ledger is constructed.
+    for capture in captures:
+        _consume_reader_object(
+            capture,
+            open_exact,
+            lambda stream, row=capture: _verify_capture_stream(stream, row),
+        )
+
+    proofs_by_hour: dict[str, dict[str, Any]] = {}
+    expected_set = set(expected_hours)
+    for container in containers:
+        rows = _consume_reader_object(
+            container,
+            open_exact,
+            lambda stream, row=container: _parse_container_stream(
+                stream, row, captures, expected_set),
+        )
+        _merge_unique_proofs(proofs_by_hour, rows)
+
+    return _finish_source_evidence(
+        expected_hours=expected_hours,
+        analysis_start=analysis_start,
+        authority_sha256=authority_sha256,
+        generation=generation,
+        sealed_capture_rows=sealed_capture_rows,
+        sealed_container_rows=sealed_container_rows,
+        seal_projection=seal_projection,
+        captures=captures,
+        containers=containers,
+        proofs=list(proofs_by_hour.values()),
+    )

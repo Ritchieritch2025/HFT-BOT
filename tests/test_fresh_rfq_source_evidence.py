@@ -5,7 +5,10 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -245,6 +248,68 @@ def error_code(case):
     return error.value.code
 
 
+class ExactPathReader:
+    """Test double that owns and removes each yielded exact object path."""
+
+    def __init__(self, root, case):
+        root.mkdir(parents=True, exist_ok=True)
+        objects = [case["seal_object"], *case["capture_objects"],
+                   *case["receipt_container_objects"]]
+        self.expected = {row["key"]: identity(row) for row in objects}
+        self.paths = {}
+        for index, row in enumerate(objects):
+            path = root / f"{index:03d}-{sha(row['key'].encode())[:16]}.bin"
+            path.write_bytes(row["body"])
+            self.paths[row["key"]] = path
+        self.opened = []
+        self.closed = []
+        self.active = 0
+        self.max_active = 0
+
+    def open_exact(self, requested):
+        assert set(requested) == source.IDENTITY_FIELDS
+        assert requested == self.expected[requested["key"]]
+        key = requested["key"]
+        owner = self
+
+        @contextmanager
+        def manager():
+            owner.opened.append(key)
+            owner.active += 1
+            owner.max_active = max(owner.max_active, owner.active)
+            try:
+                yield SimpleNamespace(path=owner.paths[key])
+            finally:
+                owner.active -= 1
+                owner.closed.append(key)
+                owner.paths[key].unlink(missing_ok=True)
+
+        return manager()
+
+
+def reader_fixture(tmp_path, case):
+    reader = ExactPathReader(tmp_path, case)
+    inputs = {
+        "seal_object": identity(case["seal_object"]),
+        "capture_objects": [identity(row) for row in case["capture_objects"]],
+        "receipt_container_objects": [
+            identity(row) for row in case["receipt_container_objects"]],
+        "complete_container_identities": copy.deepcopy(
+            case["complete_container_identities"]),
+        "expected_hours": copy.deepcopy(case["expected_hours"]),
+        "authority_sha256": case["authority_sha256"],
+        "generation": case["generation"],
+        "open_exact": reader.open_exact,
+    }
+    return inputs, reader
+
+
+def reader_error_code(inputs):
+    with pytest.raises(source.SourceEvidenceError) as error:
+        source.build_source_evidence_from_reader(**inputs)
+    return error.value.code
+
+
 def test_exact_source_evidence_binds_seal_types_lines_and_late_02():
     case = build_case()
     result = build(case)
@@ -417,3 +482,251 @@ def test_seal_exact_identity_and_capture_body_are_verified():
     case = build_case()
     case["capture_objects"][0]["body"] += b"post-seal-extra\n"
     assert error_code(case) == "OBJECT_SIZE_MISMATCH"
+
+
+def test_reader_api_is_field_equal_bounded_and_one_object_at_a_time(tmp_path):
+    case = build_case(shard_counts={f"{DATE}T07": 3})
+    expected = build(case)
+    inputs, reader = reader_fixture(tmp_path, case)
+
+    result = source.build_source_evidence_from_reader(**inputs)
+
+    expected_order = [
+        case["seal_object"]["key"],
+        *[row["key"] for row in (
+            expected["analysis_capture_objects"] +
+            expected["watermark_capture_objects"])],
+        *[row["key"] for row in expected["receipt_containers"]],
+    ]
+    assert result == expected
+    assert reader.opened == expected_order
+    assert reader.closed == expected_order
+    assert reader.active == 0
+    assert reader.max_active == 1
+    assert all(reader.opened.count(key) == 1 for key in expected_order)
+    assert all(not path.exists() for path in reader.paths.values())
+    assert result["container_completeness_state"] == \
+        "CALLER_COMPLETE_IDENTITY_SET_EXACT_BYTES_VERIFIED"
+
+
+@pytest.mark.parametrize("change,expected", [
+    ("missing_container", "CONTAINER_SET_MISMATCH"),
+    ("container_version", "CONTAINER_SET_MISMATCH"),
+    ("capture_shape", "SCHEMA_FIELDS"),
+    ("seal_too_large", "SEAL_TOO_LARGE"),
+])
+def test_reader_declared_identity_failures_make_zero_reader_calls(
+    tmp_path, change, expected,
+):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    if change == "missing_container":
+        inputs["receipt_container_objects"].pop()
+    elif change == "container_version":
+        inputs["receipt_container_objects"][0]["version_id"] = "wrong-version"
+    elif change == "capture_shape":
+        inputs["capture_objects"][0]["unexpected"] = True
+    else:
+        inputs["seal_object"]["size"] = source.MAX_SEAL_BYTES + 1
+
+    assert reader_error_code(inputs) == expected
+    assert reader.opened == []
+    assert reader.closed == []
+    assert reader.active == 0
+
+
+def test_reader_seal_membership_mismatch_fails_after_only_seal(tmp_path):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    inputs["capture_objects"][0]["size"] += 1
+
+    assert reader_error_code(inputs) == "CAPTURE_SET_MISMATCH"
+    assert reader.opened == [case["seal_object"]["key"]]
+    assert reader.closed == reader.opened
+    assert reader.active == 0
+    assert not reader.paths[case["seal_object"]["key"]].exists()
+
+
+def test_reader_recomputes_capture_sha_for_same_length_body_and_cleans_up(
+    tmp_path,
+):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    first_capture = f"ec2/raw/date={DATE}/rfq_00.ndjson"
+    body = reader.paths[first_capture].read_bytes()
+    changed = body.replace(b'"ordinal":0', b'"ordinal":9', 1)
+    assert changed != body and len(changed) == len(body)
+    reader.paths[first_capture].write_bytes(changed)
+
+    assert reader_error_code(inputs) == "OBJECT_SHA_MISMATCH"
+    assert reader.opened == [case["seal_object"]["key"], first_capture]
+    assert reader.closed == reader.opened
+    assert reader.active == 0
+    assert all(not reader.paths[key].exists() for key in reader.opened)
+
+
+def test_reader_recomputes_container_sha_after_stream_parsing(tmp_path):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    first_container = f"ec2/raw/date={DATE}/rfq_receipts_01.ndjson"
+    body = reader.paths[first_container].read_bytes()
+    changed = body.replace(
+        b'"recv_mono_ns":123456789', b'"recv_mono_ns":123456788', 1)
+    assert changed != body and len(changed) == len(body)
+    reader.paths[first_container].write_bytes(changed)
+
+    assert reader_error_code(inputs) == "OBJECT_SHA_MISMATCH"
+    assert reader.opened[-1] == first_container
+    assert reader.closed == reader.opened
+    assert reader.active == 0
+    assert not reader.paths[first_container].exists()
+
+
+def test_reader_parser_failure_closes_active_container(tmp_path):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    first_container = f"ec2/raw/date={DATE}/rfq_receipts_01.ndjson"
+    body = reader.paths[first_container].read_bytes()
+    changed = b"!" + body[1:]
+    assert len(changed) == len(body)
+    reader.paths[first_container].write_bytes(changed)
+
+    assert reader_error_code(inputs) == "INVALID_JSON"
+    assert reader.opened[-1] == first_container
+    assert reader.closed == reader.opened
+    assert reader.active == 0
+    assert not reader.paths[first_container].exists()
+
+
+def test_reader_rejects_second_container_proof_without_accumulating_tail(
+    tmp_path, monkeypatch,
+):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    final_key = f"ec2/raw/date={NEXT_DATE}/rfq_receipts_02.ndjson"
+    original = reader.paths[final_key].read_bytes()
+    repeated = original * 1_000
+    reader.paths[final_key].write_bytes(repeated)
+    new_size = len(repeated)
+    new_sha = hashlib.sha256(repeated).hexdigest()
+    for collection in (
+        inputs["receipt_container_objects"],
+        inputs["complete_container_identities"],
+    ):
+        row = next(item for item in collection if item["key"] == final_key)
+        row["size"] = new_size
+        row["sha256"] = new_sha
+    reader.expected[final_key]["size"] = new_size
+    reader.expected[final_key]["sha256"] = new_sha
+
+    real_parse = source._parse_container_physical_line
+    calls = 0
+
+    def counted_parse(*args, **kwargs):
+        nonlocal calls
+        if args[0]["key"] == final_key:
+            calls += 1
+        return real_parse(*args, **kwargs)
+
+    monkeypatch.setattr(source, "_parse_container_physical_line", counted_parse)
+    assert reader_error_code(inputs) == "RECEIPT_AMBIGUOUS"
+    assert calls == 2
+    assert reader.active == 0
+    assert reader.closed == reader.opened
+
+
+def test_reader_manager_cannot_suppress_hash_failure(tmp_path):
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    first_capture = f"ec2/raw/date={DATE}/rfq_00.ndjson"
+    body = reader.paths[first_capture].read_bytes()
+    changed = body.replace(b'"ordinal":0', b'"ordinal":9', 1)
+    assert changed != body and len(changed) == len(body)
+    reader.paths[first_capture].write_bytes(changed)
+    real_open_exact = reader.open_exact
+
+    class SuppressingManager:
+        def __init__(self, manager):
+            self.manager = manager
+
+        def __enter__(self):
+            return self.manager.__enter__()
+
+        def __exit__(self, exc_type, exc, traceback):
+            self.manager.__exit__(exc_type, exc, traceback)
+            return True
+
+    def suppressing_open_exact(requested):
+        return SuppressingManager(real_open_exact(requested))
+
+    inputs["open_exact"] = suppressing_open_exact
+    assert reader_error_code(inputs) == "READER_VERIFICATION_INCOMPLETE"
+    assert reader.opened == [case["seal_object"]["key"], first_capture]
+    assert reader.closed == reader.opened
+    assert reader.active == 0
+
+
+def test_reader_uses_only_explicitly_bounded_read_calls(
+    tmp_path, monkeypatch,
+):
+    case = build_case()
+    expected = build(case)
+    inputs, reader = reader_fixture(tmp_path, case)
+    real_fdopen = source.os.fdopen
+    reads = []
+    readlines = []
+
+    class GuardedStream:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return self.stream.__exit__(exc_type, exc, traceback)
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def read(self, limit=-1):
+            assert limit == source.STREAM_CHUNK_BYTES
+            reads.append(limit)
+            return self.stream.read(limit)
+
+        def readline(self, limit=-1):
+            assert limit == source.MAX_JSON_LINE_BYTES + 1
+            readlines.append(limit)
+            return self.stream.readline(limit)
+
+    def guarded_fdopen(fd, *args, **kwargs):
+        return GuardedStream(real_fdopen(fd, *args, **kwargs))
+
+    monkeypatch.setattr(source.os, "fdopen", guarded_fdopen)
+    result = source.build_source_evidence_from_reader(**inputs)
+
+    assert result == expected
+    assert reads
+    assert readlines
+    assert reader.max_active == 1
+    assert reader.active == 0
+
+
+def test_reader_uses_nofollow_and_rejects_symlink_path(tmp_path):
+    if not hasattr(os, "O_NOFOLLOW"):
+        pytest.skip("platform has no O_NOFOLLOW")
+    case = build_case()
+    inputs, reader = reader_fixture(tmp_path, case)
+    seal_key = case["seal_object"]["key"]
+    seal_path = reader.paths[seal_key]
+    target = seal_path.with_suffix(".target")
+    seal_path.rename(target)
+    seal_path.symlink_to(target)
+
+    assert reader_error_code(inputs) == "READER_IO"
+    assert reader.opened == [seal_key]
+    assert reader.closed == [seal_key]
+    assert reader.active == 0
+    assert not seal_path.exists()
+    assert target.exists()
