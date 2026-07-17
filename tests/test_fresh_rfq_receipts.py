@@ -6,7 +6,9 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -17,6 +19,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import test_fresh_rfq_base_binding as base_fixture  # noqa: E402
+import test_fresh_rfq_request_provenance as request_fixture  # noqa: E402
+import test_fresh_rfq_universe_provenance as universe_fixture  # noqa: E402
 import test_research_reference_consumer as reference_fixture  # noqa: E402
 
 
@@ -1015,63 +1019,105 @@ def test_resolver_mismatch_and_hour_digest_tamper_fail_closed(monkeypatch):
     assert error.value.code == "SOURCE_PROOF_BINDING"
 
 
+_BASE_PROVENANCE_CACHE = None
+_RFQ_BODY_BY_KEY = {}
+_DEFAULT_REQUEST_ROWS = object()
+
+
 def base_manifest_inputs(monkeypatch):
+    global _BASE_PROVENANCE_CACHE
     monkeypatch.setattr(reference_fixture, "DATE", "2026-07-17")
-    manifest = base_fixture._complete_manifest()
-    manifest["published_at_utc"] = "2026-07-18T04:00:00Z"
-    raw, identity = base_fixture._raw_and_identity(manifest)
-    return manifest, raw, identity
+    monkeypatch.setattr(universe_fixture, "DATE", "2026-07-17")
+    if _BASE_PROVENANCE_CACHE is None:
+        with tempfile.TemporaryDirectory(prefix="rfq-overlay-test-") as root:
+            universe_inputs = universe_fixture._inputs(Path(root))
+        manifest = json.loads(universe_inputs["manifest_bytes"])
+        manifest["published_at_utc"] = "2026-07-18T04:00:00Z"
+        raw, identity = base_fixture._raw_and_identity(manifest)
+        _BASE_PROVENANCE_CACHE = {
+            "manifest": manifest,
+            "raw": raw,
+            "identity": identity,
+            "orderbooks_l1_objects": universe_inputs[
+                "orderbooks_l1_objects"],
+            "orderbooks_full_objects": universe_inputs[
+                "orderbooks_full_objects"],
+        }
+    cached = copy.deepcopy(_BASE_PROVENANCE_CACHE)
+    return cached["manifest"], cached["raw"], cached["identity"]
 
 
-def overlay_inputs(monkeypatch):
+def _bind_analysis_body(segment_receipt, body, extra_rows):
+    shard = segment_receipt["capture_shards"][0]
+    size = len(body)
+    digest = hashlib.sha256(body).hexdigest()
+    shard["size"] = size
+    shard["parsed_bytes_at_close"] = size
+    shard["sha256"] = digest
+    segment_receipt["capture_bytes_at_close"] = size
+    segment_receipt["capture_sha256_at_close"] = digest
+    segment_receipt["capture_shard_set_sha256"] = fresh.canonical_sha256(
+        segment_receipt["capture_shards"])
+    raw_path = segment_receipt["raw_evidence"]["shards"][0]
+    segment_receipt["raw_evidence"]["end_offsets"][raw_path] = size
+    segment_receipt["raw_evidence"]["recorder_rows"] = body.count(b"\n")
+    frame_types = []
+    for physical in extra_rows:
+        outer = json.loads(physical)
+        if "marker" not in outer:
+            frame_types.append(json.loads(outer["raw"])["type"])
+    segment_receipt["raw_evidence"]["rfq_created"] = frame_types.count(
+        "rfq_created")
+    segment_receipt["raw_evidence"]["rfq_deleted"] = frame_types.count(
+        "rfq_deleted")
+    key = f"{fresh.RAW_KEY_PREFIX}/{shard['relpath']}"
+    _RFQ_BODY_BY_KEY[key] = body
+
+
+def overlay_inputs(monkeypatch, request_rows=_DEFAULT_REQUEST_ROWS):
     auth = authority(monkeypatch)
     start = dt.datetime(2026, 7, 17, tzinfo=dt.timezone.utc)
+    rows = request_fixture._happy_rows() \
+        if request_rows is _DEFAULT_REQUEST_ROWS else request_rows
     segments = []
     for offset in range(26):
         hour = (start + dt.timedelta(hours=offset)).strftime("%Y-%m-%dT%H")
-        segments.append(segment(
+        segment_receipt = segment(
             auth, hour, subscription_acks=1 if offset == 0 else 0,
-            subscription_end=True if offset == 0 else None))
+            subscription_end=True if offset == 0 else None)
+        if offset < 24:
+            extra_rows = rows.get(offset, [])
+            body = request_fixture._marker_line(offset) + b"".join(extra_rows)
+            _bind_analysis_body(segment_receipt, body, extra_rows)
+        segments.append(segment_receipt)
     receipts, evidence = receipts_for_segments(auth, segments)
     manifest, manifest_bytes, manifest_identity = base_manifest_inputs(monkeypatch)
     return auth, receipts, manifest, manifest_bytes, manifest_identity, evidence
 
 
-def market_mapping_inputs(**overrides):
+def mapping_provenance_inputs(receipts, **overrides):
+    analysis_receipts = sorted(
+        (row for row in receipts if row["segment_hour"][:10] == "2026-07-17"),
+        key=lambda row: row["segment_hour"],
+    )
+    exact_analysis_objects = []
+    for receipt in analysis_receipts:
+        for identity in receipt["rfq_objects"]:
+            exact_analysis_objects.append({
+                "bucket": fresh.SOURCE_BUCKET,
+                "key": identity["key"],
+                "version_id": identity["version_id"],
+                "size": identity["size"],
+                "sha256": identity["sha256"],
+                "body": _RFQ_BODY_BY_KEY[identity["key"]],
+            })
+    assert _BASE_PROVENANCE_CACHE is not None
     value = {
-        "rfq_requests": [
-            {
-                "request_id": "rfq-single",
-                "created_ts": "2026-07-17T12:00:00Z",
-                "market_ticker": "KX-BOTH",
-                "mve_collection_ticker": None,
-                "mve_selected_legs": [],
-            },
-            {
-                "request_id": "rfq-combo",
-                "created_ts": "2026-07-17T13:00:00Z",
-                "market_ticker": "KX-COMBO-TOP",
-                "mve_collection_ticker": "KX-COLLECTION",
-                "mve_selected_legs": [
-                    {"market_ticker": "KX-L2-ONLY"},
-                    {"market_ticker": "KX-L1-ONLY"},
-                ],
-            },
-        ],
-        "l1_market_universe": [
-            {"analysis_date": "2026-07-17", "market_ticker": "KX-BOTH"},
-            {
-                "analysis_date": "2026-07-17",
-                "market_ticker": "KX-L1-ONLY",
-            },
-        ],
-        "l2_market_universe": [
-            {
-                "analysis_date": "2026-07-17",
-                "market_ticker": "KX-L2-ONLY",
-            },
-            {"analysis_date": "2026-07-17", "market_ticker": "KX-BOTH"},
-        ],
+        "exact_analysis_rfq_objects": exact_analysis_objects,
+        "orderbooks_l1_objects": copy.deepcopy(
+            _BASE_PROVENANCE_CACHE["orderbooks_l1_objects"]),
+        "orderbooks_full_objects": copy.deepcopy(
+            _BASE_PROVENANCE_CACHE["orderbooks_full_objects"]),
         "pre_event_window_ms": 0,
         "post_event_window_ms": 0,
     }
@@ -1083,22 +1129,22 @@ def build_overlay(
         auth, receipts, manifest_bytes, manifest_identity, evidence,
         mapping_inputs=None):
     if mapping_inputs is None:
-        mapping_inputs = market_mapping_inputs()
+        mapping_inputs = mapping_provenance_inputs(receipts)
     return fresh.build_overlay_manifest(
         authority=auth, base_manifest_bytes=manifest_bytes,
         base_manifest_exact_identity=manifest_identity,
         hour_receipts=receipts, source_evidence=evidence,
-        market_mapping_inputs=mapping_inputs)
+        mapping_provenance_inputs=mapping_inputs)
 
 
 def validate_overlay(
         value, auth, manifest_bytes, manifest_identity, mapping_inputs=None):
     if mapping_inputs is None:
-        mapping_inputs = market_mapping_inputs()
+        mapping_inputs = mapping_provenance_inputs(value["analysis_hours"])
     return fresh.validate_overlay_manifest(
         value, auth, base_manifest_bytes=manifest_bytes,
         base_manifest_exact_identity=manifest_identity,
-        market_mapping_inputs=mapping_inputs)
+        mapping_provenance_inputs=mapping_inputs)
 
 
 def reseal_market_mapping(value):
@@ -1115,7 +1161,28 @@ def reseal_market_mapping(value):
         key: item for key, item in value.items() if key != "mapping_sha256"})
 
 
+def reseal_request_provenance(value):
+    value["receipt_sha256"] = fresh.canonical_sha256({
+        key: item for key, item in value.items() if key != "receipt_sha256"})
+
+
+def reseal_universe_provenance(value):
+    family_digest_rows = [{
+        "family": family,
+        "receipt_sha256": fresh.canonical_sha256(value["families"][family]),
+    } for family in ("orderbooks_l1", "orderbooks_full")]
+    value["family_receipt_set_sha256"] = fresh.canonical_sha256(
+        family_digest_rows)
+    value["provenance_sha256"] = fresh.canonical_sha256({
+        key: item for key, item in value.items()
+        if key != "provenance_sha256"})
+
+
 def reseal_overlay(value):
+    value["request_provenance_sha256"] = value["request_provenance"][
+        "receipt_sha256"]
+    value["universe_provenance_sha256"] = value["universe_provenance"][
+        "provenance_sha256"]
     value["market_mapping_sha256"] = value["market_mapping"][
         "mapping_sha256"]
     value["manifest_sha256"] = fresh.canonical_sha256({
@@ -1128,7 +1195,7 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     two = build_overlay(
         auth, list(reversed(receipts)), raw, identity, evidence)
     assert one == two
-    assert one["schema"] == "research-rfq-overlay-manifest-v3"
+    assert one["schema"] == "research-rfq-overlay-manifest-v4"
     assert len(one["analysis_hours"]) == 24
     assert len(one["watermark_hours"]) == 2
     assert one["analysis_hours"][0]["segment_hour"] == "2026-07-17T00"
@@ -1170,6 +1237,19 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     assert "post_event_window_ms" not in one["time_contract"]
     assert one["time_contract"]["analysis_end_utc_exclusive"] == \
         base["analysis_data_end_utc"]
+    request_provenance = one["request_provenance"]
+    universe_provenance = one["universe_provenance"]
+    assert one["request_provenance_sha256"] == request_provenance[
+        "receipt_sha256"]
+    assert one["universe_provenance_sha256"] == universe_provenance[
+        "provenance_sha256"]
+    assert request_provenance["analysis_rfq_object_set_sha256"] == one[
+        "analysis_rfq_object_set_sha256"]
+    assert request_provenance["authority_sha256"] == one["authority_sha256"]
+    assert request_provenance["source_evidence_sha256"] == one[
+        "source_evidence_sha256"]
+    assert universe_provenance["base_binding_sha256"] == one[
+        "base_binding_sha256"]
     mapping = one["market_mapping"]
     assert one["market_mapping_sha256"] == mapping["mapping_sha256"]
     assert mapping["base_binding_sha256"] == one["base_binding_sha256"]
@@ -1181,8 +1261,14 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
     assert mapping["research_eligible"] is False
     assert mapping["research_ready"] is False
     assert mapping["ignored_combo_top_level_count"] == 1
+    assert mapping["rfq_input_sha256"] == request_provenance[
+        "rfq_input_sha256"]
+    assert mapping["l1_market_universe_sha256"] == universe_provenance[
+        "families"]["orderbooks_l1"]["market_universe_sha256"]
+    assert mapping["l2_market_universe_sha256"] == universe_provenance[
+        "families"]["orderbooks_full"]["market_universe_sha256"]
     assert {row["mapping_state"] for row in mapping["mapping_rows"]} == {
-        "MAPPED_L1_L2", "MISSING_L1", "MISSING_L2"}
+        "MISSING_L1_L2"}
     assert one["watermark_objects_in_analysis"] is False
     assert one["data_objects_copied"] == 0
     assert one["aws_write_authorized"] is False
@@ -1193,13 +1279,13 @@ def test_overlay_has_exact_24_analysis_plus_2_watermark_without_copy(monkeypatch
 def test_overlay_mapping_universes_exclude_watermark_objects(monkeypatch):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
-    inputs = market_mapping_inputs()
+    inputs = mapping_provenance_inputs(receipts)
     built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
     mapping = built["market_mapping"]
-    expected_l1 = sorted(
-        inputs["l1_market_universe"], key=lambda row: row["market_ticker"])
-    expected_l2 = sorted(
-        inputs["l2_market_universe"], key=lambda row: row["market_ticker"])
+    expected_l1 = built["universe_provenance"]["families"][
+        "orderbooks_l1"]["market_universe"]
+    expected_l2 = built["universe_provenance"]["families"][
+        "orderbooks_full"]["market_universe"]
 
     assert mapping["l1_market_universe_sha256"] == fresh.canonical_sha256(
         expected_l1)
@@ -1210,6 +1296,206 @@ def test_overlay_mapping_universes_exclude_watermark_objects(monkeypatch):
     assert mapping["analysis_rfq_object_set_sha256"] != fresh.canonical_sha256(
         built["watermark_rfq_objects"])
     assert built["time_contract"]["watermark_is_market_data"] is False
+
+
+def test_overlay_build_and_validate_each_derive_provenance_once(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    request_module = request_fixture.provenance
+    universe_module = universe_fixture.provenance
+    original_request_derive = request_module._derive_request_provenance
+    original_universe_derive = universe_module._derive_universe_provenance
+    original_request_validate = request_module.validate_request_provenance
+    original_universe_validate = universe_module.validate_universe_provenance
+    counts = {"request": 0, "universe": 0}
+
+    def counted_request(*args, **kwargs):
+        counts["request"] += 1
+        return original_request_derive(*args, **kwargs)
+
+    def counted_universe(*args, **kwargs):
+        counts["universe"] += 1
+        return original_universe_derive(*args, **kwargs)
+
+    def unexpected_validator(*_args, **_kwargs):
+        raise AssertionError("overlay build called a full provenance validator")
+
+    monkeypatch.setattr(
+        request_module, "_derive_request_provenance", counted_request)
+    monkeypatch.setattr(
+        universe_module, "_derive_universe_provenance", counted_universe)
+    monkeypatch.setattr(
+        request_module, "validate_request_provenance", unexpected_validator)
+    monkeypatch.setattr(
+        universe_module, "validate_universe_provenance", unexpected_validator)
+
+    built = build_overlay(auth, receipts, raw, identity, evidence)
+    assert counts == {"request": 1, "universe": 1}
+
+    monkeypatch.setattr(
+        request_module, "validate_request_provenance",
+        original_request_validate)
+    monkeypatch.setattr(
+        universe_module, "validate_universe_provenance",
+        original_universe_validate)
+    counts.update(request=0, universe=0)
+    assert validate_overlay(built, auth, raw, identity) == built
+    assert counts == {"request": 1, "universe": 1}
+
+
+@pytest.mark.parametrize(
+    ("artifact", "expected_code"),
+    [
+        ("request", "REQUEST_PROVENANCE_INVALID"),
+        ("universe", "UNIVERSE_PROVENANCE_INVALID"),
+    ],
+)
+def test_overlay_rejects_fully_rehashed_derived_provenance_tamper(
+        monkeypatch, artifact, expected_code):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    if artifact == "request":
+        request = tampered["request_provenance"]
+        request["rfq_requests"][0]["market_ticker"] = "KX-FORGED"
+        request["rfq_input_sha256"] = fresh.canonical_sha256(
+            request["rfq_requests"])
+        reseal_request_provenance(request)
+    else:
+        universe = tampered["universe_provenance"]
+        family = universe["families"]["orderbooks_l1"]
+        family["market_universe"][0]["market_ticker"] = "KX-FORGED"
+        family["market_universe_sha256"] = fresh.canonical_sha256(
+            family["market_universe"])
+        reseal_universe_provenance(universe)
+    reseal_overlay(tampered)
+
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == expected_code
+
+
+def test_overlay_rejects_valid_request_provenance_cross_splice(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    original_inputs = mapping_provenance_inputs(receipts)
+    original = build_overlay(
+        auth, receipts, raw, identity, evidence, original_inputs)
+
+    alternate_rows = {1: [request_fixture._frame_line(
+        1,
+        request_fixture._created(
+            "r-alternate", "KX-A", "2026-07-17T01:00:10Z"),
+        second=10,
+    )]}
+    alternate_auth, alternate_receipts, _manifest, alternate_raw, \
+        alternate_identity, alternate_evidence = overlay_inputs(
+            monkeypatch, request_rows=alternate_rows)
+    alternate_inputs = mapping_provenance_inputs(alternate_receipts)
+    alternate = build_overlay(
+        alternate_auth, alternate_receipts, alternate_raw,
+        alternate_identity, alternate_evidence, alternate_inputs)
+    assert validate_overlay(
+        alternate, alternate_auth, alternate_raw, alternate_identity,
+        alternate_inputs) == alternate
+
+    original["request_provenance"] = alternate["request_provenance"]
+    reseal_overlay(original)
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(original, auth, raw, identity, original_inputs)
+    assert error.value.code == "REQUEST_PROVENANCE_INVALID"
+
+
+def test_overlay_rejects_valid_universe_provenance_cross_splice(monkeypatch):
+    auth, receipts, manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    original_inputs = mapping_provenance_inputs(receipts)
+    original = build_overlay(
+        auth, receipts, raw, identity, evidence, original_inputs)
+
+    alternate_manifest = copy.deepcopy(manifest)
+    alternate_inputs = copy.deepcopy(original_inputs)
+    alternate_object = alternate_inputs["orderbooks_l1_objects"][0]
+    alternate_version = alternate_object["version_id"] + "-alternate"
+    manifest_object = next(
+        row for row in alternate_manifest["objects"]
+        if row["logical_key"] == alternate_object["logical_key"])
+    manifest_object["source_version_id"] = alternate_version
+    alternate_object["version_id"] = alternate_version
+    universe_fixture._retarget_manifest(alternate_manifest)
+    alternate_raw, alternate_identity = base_fixture._raw_and_identity(
+        alternate_manifest)
+    alternate = build_overlay(
+        auth, receipts, alternate_raw, alternate_identity, evidence,
+        alternate_inputs)
+    assert validate_overlay(
+        alternate, auth, alternate_raw, alternate_identity,
+        alternate_inputs) == alternate
+
+    original["universe_provenance"] = alternate["universe_provenance"]
+    reseal_overlay(original)
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(original, auth, raw, identity, original_inputs)
+    assert error.value.code == "UNIVERSE_PROVENANCE_INVALID"
+
+
+def test_overlay_outer_digest_fails_before_provenance_rebuild(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    tampered = build_overlay(auth, receipts, raw, identity, evidence)
+    tampered["manifest_sha256"] = "0" * 64
+
+    def unexpected_rebuild(*_args, **_kwargs):
+        raise AssertionError("bad outer digest reached provenance rebuild")
+
+    monkeypatch.setattr(
+        fresh, "_validate_request_provenance", unexpected_rebuild)
+    monkeypatch.setattr(
+        fresh, "_validate_universe_provenance", unexpected_rebuild)
+    with pytest.raises(fresh.FreshRfqError) as error:
+        validate_overlay(tampered, auth, raw, identity)
+    assert error.value.code == "OVERLAY_DIGEST"
+
+
+def test_no_duckdb_import_keeps_capture_lane_available(monkeypatch):
+    auth = authority(monkeypatch)
+    capture = segment(auth)
+    payload = json.dumps({"authority": auth, "capture": capture})
+    script = f"""
+import json
+import sys
+sys.path.insert(0, {str(ROOT / 'tools')!r})
+import fresh_rfq_receipts as fresh
+payload = json.loads({payload!r})
+fresh.OLD_284_OBJECT_SET_SHA256 = fresh.old_object_set_sha256(
+    payload['authority']['deny_identities'])
+validated = fresh.validate_v3_segment_receipt(
+    payload['capture'], payload['authority'])
+assert validated['segment_hour'] == '2026-07-17T00'
+try:
+    fresh._build_universe_provenance(
+        base_manifest_bytes=b'{{}}',
+        base_manifest_exact_identity={{}},
+        base={{'date': '2026-07-17'}},
+        orderbooks_l1_objects=[],
+        orderbooks_full_objects=[],
+    )
+except fresh.FreshRfqError as exc:
+    assert exc.code == 'UNIVERSE_PROVENANCE_UNAVAILABLE'
+else:
+    raise AssertionError('universe provenance unexpectedly imported')
+print('CAPTURE_OK UNIVERSE_PROVENANCE_UNAVAILABLE')
+"""
+    completed = subprocess.run(
+        [sys.executable, "-S", "-c", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == \
+        "CAPTURE_OK UNIVERSE_PROVENANCE_UNAVAILABLE"
 
 
 @pytest.mark.parametrize("mutation", ["mapping_row", "dq", "ignored_top"])
@@ -1268,21 +1554,24 @@ def test_overlay_rejects_fully_rehashed_mapping_binding_cross_splice(
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [
-        ("missing", "MARKET_MAPPING_INPUTS"),
-        ("extra", "MARKET_MAPPING_INPUTS"),
-        ("self_reported_binding", "MARKET_MAPPING_INPUTS"),
+        ("missing", "MAPPING_PROVENANCE_INPUTS"),
+        ("extra", "MAPPING_PROVENANCE_INPUTS"),
+        ("self_reported_requests", "MAPPING_PROVENANCE_INPUTS"),
+        ("self_reported_binding", "MAPPING_PROVENANCE_INPUTS"),
     ],
 )
-def test_overlay_build_and_validate_require_exact_mapping_input_keys(
+def test_overlay_build_and_validate_require_exact_provenance_input_keys(
         monkeypatch, mutation, expected_code):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
     built = build_overlay(auth, receipts, raw, identity, evidence)
-    inputs = market_mapping_inputs()
+    inputs = mapping_provenance_inputs(receipts)
     if mutation == "missing":
-        inputs.pop("l2_market_universe")
+        inputs.pop("orderbooks_full_objects")
     elif mutation == "extra":
         inputs["extra"] = None
+    elif mutation == "self_reported_requests":
+        inputs["rfq_requests"] = []
     else:
         inputs["base_binding_sha256"] = built["base_binding_sha256"]
 
@@ -1294,28 +1583,33 @@ def test_overlay_build_and_validate_require_exact_mapping_input_keys(
     assert validate_error.value.code == expected_code
 
 
-@pytest.mark.parametrize("changed_input", ["requests", "l1", "l2", "window"])
-def test_overlay_rejects_a_different_valid_external_mapping_input_set(
-        monkeypatch, changed_input):
+@pytest.mark.parametrize(
+    ("changed_input", "expected_code"),
+    [
+        ("requests", "REQUEST_PROVENANCE_INVALID"),
+        ("l1", "UNIVERSE_PROVENANCE_INVALID"),
+        ("l2", "UNIVERSE_PROVENANCE_INVALID"),
+        ("window", "MARKET_MAPPING_INVALID"),
+    ],
+)
+def test_overlay_rejects_wrong_original_exact_bodies_or_window(
+        monkeypatch, changed_input, expected_code):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
     built = build_overlay(auth, receipts, raw, identity, evidence)
-    changed = market_mapping_inputs()
+    changed = mapping_provenance_inputs(receipts)
     if changed_input == "requests":
-        changed["rfq_requests"][0]["market_ticker"] = "KX-CHANGED"
+        changed["exact_analysis_rfq_objects"][0]["body"] += b" "
     elif changed_input == "l1":
-        changed["l1_market_universe"].pop()
+        changed["orderbooks_l1_objects"][0]["body"] += b" "
     elif changed_input == "l2":
-        changed["l2_market_universe"].append({
-            "analysis_date": "2026-07-17",
-            "market_ticker": "KX-L1-ONLY",
-        })
+        changed["orderbooks_full_objects"][0]["body"] += b" "
     else:
         changed["post_event_window_ms"] = 1
 
     with pytest.raises(fresh.FreshRfqError) as error:
         validate_overlay(built, auth, raw, identity, changed)
-    assert error.value.code == "MARKET_MAPPING_INVALID"
+    assert error.value.code == expected_code
 
 
 @pytest.mark.parametrize("operation", ["build", "validate"])
@@ -1323,7 +1617,8 @@ def test_overlay_wraps_bool_window_attack_as_fresh_rfq_error(
         monkeypatch, operation):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
-    inputs = market_mapping_inputs(pre_event_window_ms=True)
+    inputs = mapping_provenance_inputs(
+        receipts, pre_event_window_ms=True)
     with pytest.raises(fresh.FreshRfqError) as error:
         if operation == "build":
             build_overlay(auth, receipts, raw, identity, evidence, inputs)
@@ -1358,17 +1653,15 @@ def test_overlay_rejects_mapping_bool_integer_attack_after_full_rehash(
 
 
 def test_zero_dq_mapping_does_not_upgrade_research_state(monkeypatch):
+    zero_dq_rows = {1: [request_fixture._frame_line(
+        1,
+        request_fixture._created(
+            "r-zero", "KX-A", "2026-07-17T01:00:10Z"),
+        second=10,
+    )]}
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
-        monkeypatch)
-    both_universes = [
-        {"analysis_date": "2026-07-17", "market_ticker": ticker}
-        for ticker in ("KX-BOTH", "KX-L1-ONLY", "KX-L2-ONLY")
-    ]
-    inputs = market_mapping_inputs(
-        l1_market_universe=copy.deepcopy(both_universes),
-        l2_market_universe=copy.deepcopy(both_universes),
-    )
-    built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
+        monkeypatch, request_rows=zero_dq_rows)
+    built = build_overlay(auth, receipts, raw, identity, evidence)
 
     assert built["market_mapping"]["dq_count"] == 0
     assert built["market_mapping"]["dq_ledger"] == []
@@ -1376,16 +1669,17 @@ def test_zero_dq_mapping_does_not_upgrade_research_state(monkeypatch):
     assert built["market_mapping"]["research_ready"] is False
     assert built["research_eligible"] is False
     assert built["research_ready"] is False
-    assert validate_overlay(built, auth, raw, identity, inputs) == built
+    assert validate_overlay(built, auth, raw, identity) == built
 
 
 def test_complete_zero_rfq_day_is_empty_not_corrupt_or_ready(monkeypatch):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
-        monkeypatch)
-    inputs = market_mapping_inputs(rfq_requests=[])
+        monkeypatch, request_rows={})
+    inputs = mapping_provenance_inputs(receipts)
     built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
     mapping = built["market_mapping"]
 
+    assert built["request_provenance"]["rfq_requests"] == []
     assert mapping["rfq_request_count"] == 0
     assert mapping["mapping_rows"] == []
     assert mapping["dq_ledger"] == []
@@ -1402,7 +1696,8 @@ def test_overlay_rejects_whole_mapping_spliced_from_other_valid_inputs(
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
     original = build_overlay(auth, receipts, raw, identity, evidence)
-    alternate_inputs = market_mapping_inputs(post_event_window_ms=1)
+    alternate_inputs = mapping_provenance_inputs(
+        receipts, post_event_window_ms=1)
     alternate = build_overlay(
         auth, receipts, raw, identity, evidence, alternate_inputs)
     original["market_mapping"] = alternate["market_mapping"]
@@ -1494,7 +1789,7 @@ def test_overlay_rejects_rehashed_embedded_base_analysis_end_tamper(monkeypatch)
     assert error.value.code == "TIME_CONTRACT_INVALID"
 
 
-def test_overlay_v3_without_time_contract_is_mechanically_rejected(monkeypatch):
+def test_overlay_v4_without_time_contract_is_mechanically_rejected(monkeypatch):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
     old_shape = build_overlay(auth, receipts, raw, identity, evidence)
@@ -1601,10 +1896,16 @@ def test_overlay_accepts_contiguous_generation_rollover_with_new_ack(monkeypatch
     segments = [row["segment_receipt"] for row in receipts]
     for index in range(13, 26):
         hour = receipts[index]["segment_hour"]
-        segments[index] = segment(
+        replacement = segment(
             auth, hour, child_generation=4, child_pid=4300,
             subscription_acks=1 if index == 13 else 0,
             subscription_end=True if index == 13 else None)
+        if index < 24:
+            object_key = receipts[index]["rfq_objects"][0]["key"]
+            body = _RFQ_BODY_BY_KEY[object_key]
+            _bind_analysis_body(
+                replacement, body, body.splitlines(keepends=True)[1:])
+        segments[index] = replacement
     for index in range(14, 26):
         for field in (
                 "child_subscription_ack_wall_ns",
@@ -1717,9 +2018,9 @@ def test_overlay_rebuild_comparison_is_bool_int_type_exact(
     elif mutation == "rfq_objects_in_base":
         base["rfq_objects_in_base"] = False
     elif mutation in ("family_count", "family_count_float"):
-        assert base["families"]["orderbooks_l1"]["object_count"] == 1
+        assert base["families"]["orderbooks_l1"]["object_count"] == 2
         base["families"]["orderbooks_l1"]["object_count"] = \
-            True if mutation == "family_count" else 1.0
+            True if mutation == "family_count" else 2.0
     elif mutation == "source_get_flag":
         base["source_objects_exact_get_verified"] = 0
     else:
@@ -1737,24 +2038,13 @@ def test_overlay_rebuild_comparison_is_bool_int_type_exact(
 
 
 def test_overlay_object_projection_is_bool_int_type_exact(monkeypatch):
-    auth, receipts, _manifest, raw, identity, _evidence = overlay_inputs(
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
         monkeypatch)
-    segments = [row["segment_receipt"] for row in receipts]
-    first = segments[0]
-    shard = first["capture_shards"][0]
-    shard["size"] = 1
-    shard["parsed_bytes_at_close"] = 1
-    first["capture_bytes_at_close"] = 1
-    first["capture_shard_set_sha256"] = fresh.canonical_sha256(
-        first["capture_shards"])
-    path = first["raw_evidence"]["shards"][0]
-    first["raw_evidence"]["end_offsets"][path] = 1
-    receipts, evidence = receipts_for_segments(auth, segments)
     tampered = build_overlay(auth, receipts, raw, identity, evidence)
-    assert tampered["analysis_rfq_objects"][0]["size"] == 1
-    tampered["analysis_rfq_objects"][0]["size"] = True
+    original_size = tampered["analysis_rfq_objects"][0]["size"]
+    tampered["analysis_rfq_objects"][0]["size"] = float(original_size)
     # Preserve the integer-based object-set digest and only self-rehash the
-    # outer manifest.  Python equality used to accept True as integer 1.
+    # outer manifest.  Python equality accepts equal-valued int/float pairs.
     tampered["manifest_sha256"] = fresh.canonical_sha256({
         key: value for key, value in tampered.items()
         if key != "manifest_sha256"})
@@ -1803,7 +2093,7 @@ def test_legacy_hour_and_overlay_schemas_are_mechanically_rejected(monkeypatch):
     assert error.value.code == "HOUR_RECEIPT_INVALID"
 
     old_overlay = build_overlay(auth, receipts, raw, identity, evidence)
-    old_overlay["schema"] = "research-rfq-overlay-manifest-v2"
+    old_overlay["schema"] = "research-rfq-overlay-manifest-v3"
     old_overlay["manifest_sha256"] = fresh.canonical_sha256({
         key: value for key, value in old_overlay.items()
         if key != "manifest_sha256"})

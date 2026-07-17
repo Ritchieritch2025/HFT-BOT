@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Pure builders for the isolated post-T0 fresh-RFQ evidence lane.
+"""Builders for the isolated post-T0 fresh-RFQ evidence lane.
 
-This module performs no filesystem, network, AWS, process, or publication I/O.
-Callers must supply exact-version inventory rows and may supply a read-only
-resolver callback.  Every local rejection happens before that callback runs.
+This module performs no network, AWS, process, or publication I/O.  Overlay v4
+may invoke the universe-provenance verifier, which stages caller-supplied
+Parquet bytes in private ephemeral local scratch.  Callers must supply
+exact-version inventory rows and may supply a read-only resolver callback.
+Every local rejection happens before that callback runs.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import fresh_rfq_market_mapping as rfq_market_mapping
 
 AUTHORITY_SCHEMA = "fresh-rfq-epoch-authority-v1"
 HOUR_SCHEMA = "canonical-rfq-hour-receipt-v2"
-OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v3"
+OVERLAY_SCHEMA = "research-rfq-overlay-manifest-v4"
 SOURCE_EVIDENCE_SCHEMA = "fresh-rfq-source-evidence-v1"
 LANE_ID = "W-RFQ-FRESH-01"
 OPERATOR_AUTHORIZATION_SHA256 = (
@@ -53,8 +55,9 @@ READ_ONLY_SCOPE = {
     "kalshi_mode": "data_collect",
     "aws_source_access": "read-only",
 }
-MARKET_MAPPING_INPUT_FIELDS = {
-    "rfq_requests", "l1_market_universe", "l2_market_universe",
+MAPPING_PROVENANCE_INPUT_FIELDS = {
+    "exact_analysis_rfq_objects", "orderbooks_l1_objects",
+    "orderbooks_full_objects",
     "pre_event_window_ms", "post_event_window_ms",
 }
 
@@ -1010,13 +1013,175 @@ def _canonical_exact_equal(left: Any, right: Any) -> bool:
     return canonical_bytes(left) == canonical_bytes(right)
 
 
-def _market_mapping_inputs(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != MARKET_MAPPING_INPUT_FIELDS:
+def _mapping_provenance_inputs(value: Any) -> dict[str, Any]:
+    if (not isinstance(value, dict) or
+            set(value) != MAPPING_PROVENANCE_INPUT_FIELDS):
         _fail(
-            "MARKET_MAPPING_INPUTS",
-            "market_mapping_inputs fields differ from the exact contract",
+            "MAPPING_PROVENANCE_INPUTS",
+            "mapping_provenance_inputs fields differ from the exact contract",
         )
     return value
+
+
+def _build_request_provenance(
+    *, authority: dict[str, Any], source_evidence: dict[str, Any],
+    base: dict[str, Any], analysis_objects: list[dict[str, Any]],
+    time_contract: dict[str, Any], exact_analysis_rfq_objects: Any,
+) -> dict[str, Any]:
+    try:
+        import fresh_rfq_request_provenance as request_provenance
+    except ImportError as exc:
+        _fail("REQUEST_PROVENANCE_UNAVAILABLE", str(exc))
+    try:
+        return request_provenance.build_request_provenance(
+            analysis_date=base["date"],
+            authority_sha256=authority["authority_sha256"],
+            source_evidence_sha256=source_evidence["evidence_sha256"],
+            time_contract_sha256=canonical_sha256(time_contract),
+            analysis_rfq_objects=analysis_objects,
+            exact_analysis_rfq_objects=exact_analysis_rfq_objects,
+        )
+    except request_provenance.FreshRfqRequestProvenanceError as exc:
+        _fail("REQUEST_PROVENANCE_INVALID", f"{exc.code}: {exc.detail}")
+
+
+def _validate_request_provenance(
+    value: Any, *, authority: dict[str, Any],
+    source_evidence: dict[str, Any], base: dict[str, Any],
+    analysis_objects: list[dict[str, Any]],
+    time_contract: dict[str, Any], exact_analysis_rfq_objects: Any,
+) -> dict[str, Any]:
+    try:
+        import fresh_rfq_request_provenance as request_provenance
+    except ImportError as exc:
+        _fail("REQUEST_PROVENANCE_UNAVAILABLE", str(exc))
+    try:
+        return request_provenance.validate_request_provenance(
+            value,
+            analysis_date=base["date"],
+            authority_sha256=authority["authority_sha256"],
+            source_evidence_sha256=source_evidence["evidence_sha256"],
+            time_contract_sha256=canonical_sha256(time_contract),
+            analysis_rfq_objects=analysis_objects,
+            exact_analysis_rfq_objects=exact_analysis_rfq_objects,
+        )
+    except request_provenance.FreshRfqRequestProvenanceError as exc:
+        _fail("REQUEST_PROVENANCE_INVALID", f"{exc.code}: {exc.detail}")
+
+
+def _build_universe_provenance(
+    *, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any], base: dict[str, Any],
+    orderbooks_l1_objects: Any, orderbooks_full_objects: Any,
+) -> dict[str, Any]:
+    try:
+        import fresh_rfq_universe_provenance as universe_provenance
+    except ImportError as exc:
+        _fail("UNIVERSE_PROVENANCE_UNAVAILABLE", str(exc))
+    try:
+        return universe_provenance.build_universe_provenance(
+            manifest_bytes=base_manifest_bytes,
+            manifest_exact_identity=base_manifest_exact_identity,
+            date=base["date"],
+            orderbooks_l1_objects=orderbooks_l1_objects,
+            orderbooks_full_objects=orderbooks_full_objects,
+        )
+    except universe_provenance.FreshRfqUniverseProvenanceError as exc:
+        _fail("UNIVERSE_PROVENANCE_INVALID", f"{exc.code}: {exc.detail}")
+
+
+def _validate_universe_provenance(
+    value: Any, *, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any], base: dict[str, Any],
+    orderbooks_l1_objects: Any, orderbooks_full_objects: Any,
+) -> dict[str, Any]:
+    try:
+        import fresh_rfq_universe_provenance as universe_provenance
+    except ImportError as exc:
+        _fail("UNIVERSE_PROVENANCE_UNAVAILABLE", str(exc))
+    try:
+        return universe_provenance.validate_universe_provenance(
+            value,
+            manifest_bytes=base_manifest_bytes,
+            manifest_exact_identity=base_manifest_exact_identity,
+            date=base["date"],
+            orderbooks_l1_objects=orderbooks_l1_objects,
+            orderbooks_full_objects=orderbooks_full_objects,
+        )
+    except universe_provenance.FreshRfqUniverseProvenanceError as exc:
+        _fail("UNIVERSE_PROVENANCE_INVALID", f"{exc.code}: {exc.detail}")
+
+
+def _mapper_inputs_from_provenance(
+    *, request_provenance: dict[str, Any],
+    universe_provenance: dict[str, Any], authority: dict[str, Any],
+    source_evidence: dict[str, Any], base: dict[str, Any],
+    analysis_objects: list[dict[str, Any]],
+    time_contract: dict[str, Any], mapping_provenance_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    expected_request_bindings = {
+        "analysis_date": base["date"],
+        "authority_sha256": authority["authority_sha256"],
+        "source_evidence_sha256": source_evidence["evidence_sha256"],
+        "time_contract_sha256": canonical_sha256(time_contract),
+        "analysis_rfq_object_set_sha256": canonical_sha256(analysis_objects),
+    }
+    if any(not _canonical_exact_equal(request_provenance.get(key), expected)
+           for key, expected in expected_request_bindings.items()):
+        _fail(
+            "REQUEST_PROVENANCE_BINDING",
+            "request provenance differs from rebuilt overlay bindings",
+        )
+    expected_universe_bindings = {
+        "analysis_date": base["date"],
+        "base_binding_sha256": base["binding_sha256"],
+    }
+    if any(not _canonical_exact_equal(universe_provenance.get(key), expected)
+           for key, expected in expected_universe_bindings.items()):
+        _fail(
+            "UNIVERSE_PROVENANCE_BINDING",
+            "universe provenance differs from rebuilt base bindings",
+        )
+    for label, receipt in (
+            ("request", request_provenance),
+            ("universe", universe_provenance)):
+        if (receipt.get("source_objects_exact_get_verified") is not False or
+                receipt.get("aws_write_authorized") is not False or
+                receipt.get("research_eligible") is not False or
+                receipt.get("research_ready") is not False):
+            _fail(
+                "PROVENANCE_STATE_INVALID",
+                f"{label} provenance elevated a local-only claim",
+            )
+    try:
+        rfq_requests = request_provenance["rfq_requests"]
+        l1_universe = universe_provenance["families"]["orderbooks_l1"][
+            "market_universe"]
+        l2_universe = universe_provenance["families"]["orderbooks_full"][
+            "market_universe"]
+        request_digest = request_provenance["rfq_input_sha256"]
+        l1_digest = universe_provenance["families"]["orderbooks_l1"][
+            "market_universe_sha256"]
+        l2_digest = universe_provenance["families"]["orderbooks_full"][
+            "market_universe_sha256"]
+    except (KeyError, TypeError) as exc:
+        _fail("PROVENANCE_SCHEMA", f"missing derived mapping input: {exc}")
+    if (request_digest != canonical_sha256(rfq_requests) or
+            l1_digest != canonical_sha256(l1_universe) or
+            l2_digest != canonical_sha256(l2_universe)):
+        _fail(
+            "PROVENANCE_DERIVATION_DIGEST",
+            "derived mapping input digest differs from provenance receipt",
+        )
+    return {
+        "rfq_requests": copy.deepcopy(rfq_requests),
+        "l1_market_universe": copy.deepcopy(l1_universe),
+        "l2_market_universe": copy.deepcopy(l2_universe),
+        "pre_event_window_ms": mapping_provenance_inputs[
+            "pre_event_window_ms"],
+        "post_event_window_ms": mapping_provenance_inputs[
+            "post_event_window_ms"],
+    }
 
 
 def _build_market_mapping(
@@ -1780,9 +1945,10 @@ def build_overlay_manifest(
     *, authority: Any, base_manifest_bytes: bytes,
     base_manifest_exact_identity: dict[str, Any],
     hour_receipts: list[dict[str, Any]],
-    source_evidence: Any, market_mapping_inputs: Any,
+    source_evidence: Any, mapping_provenance_inputs: Any,
 ) -> dict[str, Any]:
-    market_mapping_inputs = _market_mapping_inputs(market_mapping_inputs)
+    mapping_provenance_inputs = _mapping_provenance_inputs(
+        mapping_provenance_inputs)
     authority = validate_fresh_epoch_authority(authority)
     if not isinstance(source_evidence, dict):
         _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
@@ -1799,6 +1965,34 @@ def build_overlay_manifest(
         source_evidence, authority, base, analysis, watermark,
         analysis_objects, watermark_objects)
     time_contract = _derive_time_contract(base)
+    request_provenance = _build_request_provenance(
+        authority=authority,
+        source_evidence=source_evidence,
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        exact_analysis_rfq_objects=mapping_provenance_inputs[
+            "exact_analysis_rfq_objects"],
+    )
+    universe_provenance = _build_universe_provenance(
+        base_manifest_bytes=base_manifest_bytes,
+        base_manifest_exact_identity=base_manifest_exact_identity,
+        base=base,
+        orderbooks_l1_objects=mapping_provenance_inputs[
+            "orderbooks_l1_objects"],
+        orderbooks_full_objects=mapping_provenance_inputs[
+            "orderbooks_full_objects"],
+    )
+    market_mapping_inputs = _mapper_inputs_from_provenance(
+        request_provenance=request_provenance,
+        universe_provenance=universe_provenance,
+        authority=authority,
+        source_evidence=source_evidence,
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        mapping_provenance_inputs=mapping_provenance_inputs,
+    )
     market_mapping = _build_market_mapping(
         base=base,
         analysis_objects=analysis_objects,
@@ -1815,6 +2009,11 @@ def build_overlay_manifest(
         "base_binding_sha256": base["binding_sha256"],
         "time_contract": time_contract,
         "time_contract_sha256": canonical_sha256(time_contract),
+        "request_provenance": request_provenance,
+        "request_provenance_sha256": request_provenance["receipt_sha256"],
+        "universe_provenance": universe_provenance,
+        "universe_provenance_sha256": universe_provenance[
+            "provenance_sha256"],
         "market_mapping": market_mapping,
         "market_mapping_sha256": market_mapping["mapping_sha256"],
         "source_evidence": source_evidence,
@@ -1838,24 +2037,22 @@ def build_overlay_manifest(
         "research_ready": False,
     }
     result["manifest_sha256"] = canonical_sha256(result)
-    return validate_overlay_manifest(
-        result, authority,
-        base_manifest_bytes=base_manifest_bytes,
-        base_manifest_exact_identity=base_manifest_exact_identity,
-        market_mapping_inputs=market_mapping_inputs,
-    )
+    return copy.deepcopy(result)
 
 
 def validate_overlay_manifest(
     value: Any, authority: Any, *, base_manifest_bytes: bytes,
     base_manifest_exact_identity: dict[str, Any],
-    market_mapping_inputs: Any,
+    mapping_provenance_inputs: Any,
 ) -> dict[str, Any]:
-    market_mapping_inputs = _market_mapping_inputs(market_mapping_inputs)
+    mapping_provenance_inputs = _mapping_provenance_inputs(
+        mapping_provenance_inputs)
     authority = validate_fresh_epoch_authority(authority)
     fields = {
         "schema", "lane_id", "state", "authority_sha256", "eligible_date",
         "base_binding", "base_binding_sha256", "time_contract",
+        "request_provenance", "request_provenance_sha256",
+        "universe_provenance", "universe_provenance_sha256",
         "time_contract_sha256", "market_mapping", "market_mapping_sha256",
         "analysis_hours",
         "source_evidence", "source_evidence_sha256",
@@ -1886,6 +2083,12 @@ def validate_overlay_manifest(
             value.get("research_eligible") is not False or
             value.get("research_ready") is not False):
         _fail("OVERLAY_INVALID", "fixed local-only overlay contract changed")
+    supplied_manifest_sha = _sha(
+        value["manifest_sha256"], "manifest_sha256")
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("manifest_sha256")
+    if supplied_manifest_sha != canonical_sha256(unsigned):
+        _fail("OVERLAY_DIGEST", "manifest_sha256 mismatch")
     eligible_date = value.get("eligible_date")
     _date(eligible_date, "overlay eligible_date")
     embedded_base = value.get("base_binding")
@@ -1941,6 +2144,74 @@ def validate_overlay_manifest(
     if any(not _canonical_exact_equal(value.get(key), expected)
            for key, expected in bindings.items()):
         _fail("OVERLAY_BINDING", "hour/object set binding mismatch")
+    embedded_request = value.get("request_provenance")
+    supplied_request_sha = _sha(
+        value.get("request_provenance_sha256"),
+        "request_provenance_sha256",
+    )
+    if (not isinstance(embedded_request, dict) or
+            supplied_request_sha != embedded_request.get("receipt_sha256")):
+        _fail(
+            "REQUEST_PROVENANCE_INVALID",
+            "overlay request provenance alias digest mismatch",
+        )
+    request_provenance = _validate_request_provenance(
+        embedded_request,
+        authority=authority,
+        source_evidence=source_evidence,
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        exact_analysis_rfq_objects=mapping_provenance_inputs[
+            "exact_analysis_rfq_objects"],
+    )
+    if (not _canonical_exact_equal(
+            embedded_request, request_provenance) or
+            supplied_request_sha != request_provenance["receipt_sha256"]):
+        _fail(
+            "REQUEST_PROVENANCE_INVALID",
+            "overlay request provenance differs from exact-body rebuild",
+        )
+    embedded_universe = value.get("universe_provenance")
+    supplied_universe_sha = _sha(
+        value.get("universe_provenance_sha256"),
+        "universe_provenance_sha256",
+    )
+    if (not isinstance(embedded_universe, dict) or
+            supplied_universe_sha != embedded_universe.get(
+                "provenance_sha256")):
+        _fail(
+            "UNIVERSE_PROVENANCE_INVALID",
+            "overlay universe provenance alias digest mismatch",
+        )
+    universe_provenance = _validate_universe_provenance(
+        embedded_universe,
+        base_manifest_bytes=base_manifest_bytes,
+        base_manifest_exact_identity=base_manifest_exact_identity,
+        base=base,
+        orderbooks_l1_objects=mapping_provenance_inputs[
+            "orderbooks_l1_objects"],
+        orderbooks_full_objects=mapping_provenance_inputs[
+            "orderbooks_full_objects"],
+    )
+    if (not _canonical_exact_equal(
+            embedded_universe, universe_provenance) or
+            supplied_universe_sha != universe_provenance[
+                "provenance_sha256"]):
+        _fail(
+            "UNIVERSE_PROVENANCE_INVALID",
+            "overlay universe provenance differs from exact-body rebuild",
+        )
+    market_mapping_inputs = _mapper_inputs_from_provenance(
+        request_provenance=request_provenance,
+        universe_provenance=universe_provenance,
+        authority=authority,
+        source_evidence=source_evidence,
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        mapping_provenance_inputs=mapping_provenance_inputs,
+    )
     market_mapping = _validate_market_mapping(
         value.get("market_mapping"),
         base=base,
@@ -1956,9 +2227,4 @@ def validate_overlay_manifest(
             "MARKET_MAPPING_INVALID",
             "overlay market mapping binding differs from exact rebuild",
         )
-    supplied = _sha(value["manifest_sha256"], "manifest_sha256")
-    unsigned = copy.deepcopy(value)
-    unsigned.pop("manifest_sha256")
-    if supplied != canonical_sha256(unsigned):
-        _fail("OVERLAY_DIGEST", "manifest_sha256 mismatch")
     return copy.deepcopy(value)
