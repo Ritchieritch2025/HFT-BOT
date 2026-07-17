@@ -758,6 +758,42 @@ def test_reader_stream_recomputes_sha_and_cleans_up(tmp_path: Path) -> None:
     assert tracker["active"] == 0
 
 
+def test_reader_cannot_suppress_failed_stream_verification(tmp_path: Path) -> None:
+    inputs = _inputs()
+    reader_inputs, paths, tracker = _reader_fixture(tmp_path, inputs)
+    first_key = f"ec2/raw/date={DATE}/rfq_00.ndjson"
+    original = paths[first_key].read_bytes()
+    changed = original.replace(b"hour_open", b"hour_fake", 1)
+    assert len(changed) == len(original)
+    paths[first_key].write_bytes(changed)
+
+    real_open_exact = reader_inputs["open_exact"]
+
+    class SuppressingManager:
+        def __init__(self, manager):
+            self._manager = manager
+
+        def __enter__(self):
+            return self._manager.__enter__()
+
+        def __exit__(self, exc_type, exc, traceback):
+            self._manager.__exit__(exc_type, exc, traceback)
+            return True
+
+    def suppressing_open_exact(identity):
+        return SuppressingManager(real_open_exact(identity))
+
+    reader_inputs["open_exact"] = suppressing_open_exact
+    _assert_code(
+        "READER_VERIFICATION_INCOMPLETE",
+        provenance.build_request_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert tracker["opened"] == [first_key]
+    assert tracker["closed"] == [first_key]
+    assert tracker["active"] == 0
+
+
 def test_reader_uses_bounded_readline_only(
     tmp_path: Path, monkeypatch,
 ) -> None:

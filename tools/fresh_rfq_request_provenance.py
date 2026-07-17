@@ -700,12 +700,17 @@ def _derive_request_provenance_from_line_sources(
                             classification = "RFQ_CREATED_PRIMARY"
                             primary = locator
                             primary_by_id[request["request_id"]] = {
-                                "raw_bytes": raw_bytes,
+                                # Retaining every raw frame made resident memory
+                                # proportional to almost all RFQ input bytes.  A
+                                # full SHA-256 is already the system's immutable
+                                # byte identity, so keep only that fixed-size
+                                # collision key plus the projected request.
+                                "raw_sha256": raw_sha,
                                 "request": request,
                                 "locator": locator,
                             }
                             occurrence_kind = "PRIMARY"
-                        elif previous["raw_bytes"] == raw_bytes:
+                        elif previous["raw_sha256"] == raw_sha:
                             if not _canonical_exact_equal(
                                     previous["request"], request):
                                 _fail(
@@ -757,7 +762,7 @@ def _derive_request_provenance_from_line_sources(
         })
 
     requests = sorted(
-        (copy.deepcopy(row["request"]) for row in primary_by_id.values()),
+        (row["request"] for row in primary_by_id.values()),
         key=lambda row: row["request_id"],
     )
     marker_type_counts = _counts_list(marker_counts, "marker")
@@ -862,6 +867,7 @@ def _reader_line_source(
                 "READER_PROTOCOL",
                 f"open_exact for {identity['key']} must return a context manager",
             )
+        stream_completed_and_verified = False
         with manager as opened:
             if not hasattr(opened, "path"):
                 _fail(
@@ -884,6 +890,7 @@ def _reader_line_source(
                 )
             with stream:
                 def rows() -> Iterator[bytes]:
+                    nonlocal stream_completed_and_verified
                     digest = hashlib.sha256()
                     total = 0
                     while True:
@@ -909,8 +916,18 @@ def _reader_line_source(
                             "OBJECT_SHA_MISMATCH",
                             f"body SHA-256 differs for {identity['key']}",
                         )
+                    stream_completed_and_verified = True
 
                 yield rows()
+        # A hostile or simply incorrect context manager may return True from
+        # __exit__ and suppress an exception raised while the generator above
+        # verifies EOF/size/SHA.  This check runs outside that manager, making
+        # successful full-stream verification an unsuppressible prerequisite.
+        if not stream_completed_and_verified:
+            _fail(
+                "READER_VERIFICATION_INCOMPLETE",
+                f"exact body was not fully verified for {identity['key']}",
+            )
 
     return source
 
