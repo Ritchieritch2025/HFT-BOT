@@ -9,6 +9,7 @@ it never writes S3, changes tags, or participates in raw pruning.
 
 Commands:
 
+  canonical_receipts.py freeze-aux --date YYYY-MM-DD --catalog-bindings FILE
   canonical_receipts.py plan   --date YYYY-MM-DD
   canonical_receipts.py shadow --date YYYY-MM-DD [--metadata-only]
 
@@ -17,6 +18,7 @@ separately audited phase must conditional-create the durable S3 receipt and
 read it back before any prune-consumable local index may exist.
 """
 import argparse
+import collections
 import copy
 import csv
 import datetime
@@ -26,6 +28,8 @@ import json
 import os
 import pathlib
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -36,6 +40,8 @@ import warehouse_common as wc  # noqa: E402
 
 RECEIPT_SCHEMA = "canonical-object-receipt-v1"
 SHADOW_STATUS_SCHEMA = "canonical-receipt-shadow-status-v1"
+AUX_SET_SCHEMA = "canonical-auxiliary-set-v1"
+CATALOG_BINDINGS_SCHEMA = "canonical-catalog-cutoff-bindings-v2"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 RFQ_RE = re.compile(r"^rfq(?:_receipts)?_\d{2}\.ndjson(?:\.\d+)?$")
@@ -53,6 +59,11 @@ CATALOG_OPTIONAL = (
     "settlements/part-00000.parquet",
     "series_classified/part-00000.parquet",
 )
+MANIFEST_FIELDS = (
+    "date", "table", "category", "subcategory", "row_count",
+    "file_path", "file_md5", "created_ts",
+)
+CATALOG_PROVENANCE = {"VERIFIED_V2_MATCHED_CANONICAL_VERSION_HISTORY"}
 FAMILY_BLOCKING_STATES = {
     "INCOMPLETE", "INVALID", "CHANGED_DURING_CUTOFF",
 }
@@ -116,46 +127,216 @@ def _join_key(*parts):
     return "/".join(clean)
 
 
-def _file_attestation(path):
-    """Hash a regular file and reject a source that changed during hashing."""
-    if not os.path.isfile(path) or os.path.islink(path):
-        raise ReceiptError("LOCAL_MISSING", "regular file required: %s" % path)
-    before = os.stat(path)
-    digest = sha256_file(path)
-    after = os.stat(path)
-    stable = (before.st_dev, before.st_ino, before.st_size,
-              before.st_mtime_ns, before.st_ctime_ns) == (
-                  after.st_dev, after.st_ino, after.st_size,
-                  after.st_mtime_ns, after.st_ctime_ns)
-    if not stable:
+def _stat_key(st):
+    return (st.st_dev, st.st_ino, st.st_size,
+            st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _open_regular_nofollow(path):
+    """Open one regular file without ever following a final-component link."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ReceiptError("LOCAL_SAFETY_UNAVAILABLE",
+                           "O_NOFOLLOW is required for %s" % path)
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise ReceiptError("LOCAL_MISSING", "%s: %s" % (path, exc))
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise ReceiptError("LOCAL_MISSING",
+                               "regular file required: %s" % path)
+        return fd, opened
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _assert_fd_and_path_stable(fd, path, before, observed_size):
+    after = os.fstat(fd)
+    try:
+        path_after = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise ReceiptError("LOCAL_SOURCE_CHANGED", "%s: %s" % (path, exc))
+    if (stat.S_ISLNK(path_after.st_mode)
+            or _stat_key(before) != _stat_key(after)
+            or (path_after.st_dev, path_after.st_ino)
+            != (after.st_dev, after.st_ino)
+            or observed_size != after.st_size):
         raise ReceiptError("LOCAL_SOURCE_CHANGED",
-                           "file changed while hashing: %s" % path)
-    return after.st_size, digest
+                           "file changed while reading: %s" % path)
+    return after
+
+
+def _file_attestation(path):
+    """Hash a regular file through one pinned fd; retain no large payload."""
+    fd, before = _open_regular_nofollow(path)
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            total += len(chunk)
+            digest.update(chunk)
+        after = _assert_fd_and_path_stable(fd, path, before, total)
+    finally:
+        os.close(fd)
+    return after.st_size, digest.hexdigest()
 
 
 def _freeze_file(path):
-    """Read one small control file once and prove the bytes were stable."""
-    if not os.path.isfile(path) or os.path.islink(path):
-        raise ReceiptError("LOCAL_MISSING", "regular file required: %s" % path)
-    before = os.stat(path)
-    with open(path, "rb") as f:
-        payload = f.read()
-    after = os.stat(path)
-    before_key = (before.st_dev, before.st_ino, before.st_size,
-                  before.st_mtime_ns, before.st_ctime_ns)
-    after_key = (after.st_dev, after.st_ino, after.st_size,
-                 after.st_mtime_ns, after.st_ctime_ns)
-    if before_key != after_key or len(payload) != after.st_size:
-        raise ReceiptError("LOCAL_SOURCE_CHANGED",
-                           "file changed while freezing: %s" % path)
-    return payload, after_key
+    """Read a small control file once from one pinned, no-follow fd."""
+    fd, before = _open_regular_nofollow(path)
+    chunks = []
+    total = 0
+    try:
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        after = _assert_fd_and_path_stable(fd, path, before, total)
+    finally:
+        os.close(fd)
+    return b"".join(chunks), _stat_key(after)
+
+
+class _BundleReader:
+    """Pin a bundle root and resolve every child with no-follow openat."""
+
+    def __init__(self, root):
+        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+            raise ReceiptError("LOCAL_SAFETY_UNAVAILABLE",
+                               "secure bundle traversal is unavailable")
+        flags = (os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                 | getattr(os, "O_CLOEXEC", 0))
+        try:
+            self.fd = os.open(os.fspath(root), flags)
+        except OSError as exc:
+            raise ReceiptError("AUX_SET_INVALID",
+                               "cannot pin bundle root: %s" % exc)
+        self.handles = []
+
+    def close(self):
+        for file_fd, parent_fd, _name, _rel, _fingerprint in getattr(
+                self, "handles", []):
+            try:
+                os.close(file_fd)
+            finally:
+                os.close(parent_fd)
+        self.handles = []
+        fd = getattr(self, "fd", None)
+        if fd is not None:
+            os.close(fd)
+            self.fd = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except OSError:
+            pass
+
+    def read(self, rel):
+        rel = _safe_rel(rel, "bundle relative path")
+        parts = rel.split("/")
+        current = os.dup(self.fd)
+        file_fd = None
+        retained = False
+        try:
+            dir_flags = (os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                         | getattr(os, "O_CLOEXEC", 0))
+            for part in parts[:-1]:
+                next_fd = os.open(part, dir_flags, dir_fd=current)
+                os.close(current)
+                current = next_fd
+            file_flags = (os.O_RDONLY | os.O_NOFOLLOW
+                          | getattr(os, "O_CLOEXEC", 0))
+            file_fd = os.open(parts[-1], file_flags, dir_fd=current)
+            before = os.fstat(file_fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise ReceiptError("AUX_SET_INVALID",
+                                   "bundle entry is not regular: %s" % rel)
+            chunks, total = [], 0
+            while True:
+                chunk = os.read(file_fd, 1 << 20)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            after = os.fstat(file_fd)
+            path_after = os.stat(parts[-1], dir_fd=current,
+                                 follow_symlinks=False)
+            if (stat.S_ISLNK(path_after.st_mode)
+                    or _stat_key(before) != _stat_key(after)
+                    or (path_after.st_dev, path_after.st_ino)
+                    != (after.st_dev, after.st_ino)
+                    or total != after.st_size):
+                raise ReceiptError("LOCAL_SOURCE_CHANGED",
+                                   "bundle entry changed: %s" % rel)
+            fingerprint = _stat_key(after)
+            self.handles.append(
+                (file_fd, current, parts[-1], rel, fingerprint))
+            retained = True
+            return b"".join(chunks), fingerprint
+        except ReceiptError:
+            raise
+        except OSError as exc:
+            raise ReceiptError("AUX_SET_INVALID", "%s: %s" % (rel, exc))
+        finally:
+            if file_fd is not None and not retained:
+                os.close(file_fd)
+            if not retained:
+                os.close(current)
+
+    def _stat_rel(self, rel):
+        parts = rel.split("/")
+        current = os.dup(self.fd)
+        try:
+            flags = (os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                     | getattr(os, "O_CLOEXEC", 0))
+            for part in parts[:-1]:
+                next_fd = os.open(part, flags, dir_fd=current)
+                os.close(current)
+                current = next_fd
+            return os.stat(parts[-1], dir_fd=current,
+                           follow_symlinks=False)
+        finally:
+            os.close(current)
+
+    def assert_stable(self):
+        for file_fd, parent_fd, name, rel, fingerprint in self.handles:
+            after = os.fstat(file_fd)
+            try:
+                path_after = os.stat(name, dir_fd=parent_fd,
+                                     follow_symlinks=False)
+                root_path_after = self._stat_rel(rel)
+            except OSError as exc:
+                raise ReceiptError("LOCAL_SOURCE_CHANGED",
+                                   "bundle entry disappeared: %s" % exc)
+            if (not stat.S_ISREG(path_after.st_mode)
+                    or not stat.S_ISREG(root_path_after.st_mode)
+                    or _stat_key(after) != fingerprint
+                    or (path_after.st_dev, path_after.st_ino)
+                    != (after.st_dev, after.st_ino)
+                    or (root_path_after.st_dev, root_path_after.st_ino)
+                    != (after.st_dev, after.st_ino)):
+                raise ReceiptError("LOCAL_SOURCE_CHANGED",
+                                   "bundle entry changed after read: %s" %
+                                   name)
 
 
 def _assert_fingerprint(path, expected):
     try:
-        st = os.stat(path)
+        st = os.stat(path, follow_symlinks=False)
     except OSError as exc:
         raise ReceiptError("LOCAL_SOURCE_CHANGED", "%s: %s" % (path, exc))
+    if not stat.S_ISREG(st.st_mode):
+        raise ReceiptError("LOCAL_SOURCE_CHANGED",
+                           "source is no longer regular: %s" % path)
     got = (st.st_dev, st.st_ino, st.st_size,
            st.st_mtime_ns, st.st_ctime_ns)
     if got != expected:
@@ -273,12 +454,14 @@ def _raw_classification(rel):
 
 def _entry(bucket, key, logical_source_key, source_kind, date, size,
            digest, seal_sha, table=None, channel=None, local_path=None,
+           local_payload=None,
            evidence_binding=None, mutable_source=False, required=True,
            family=None, attestation_class="PUBLICATION_CUTOFF_FROZEN",
            durability_scope=True, research_candidate=False,
            exposure_policy="NOT_RESEARCH_EXPOSED",
            version_resolution="CURRENT_AT_CUTOFF",
-           canonical_source="EXISTING_CANONICAL_SYNC"):
+           canonical_source="EXISTING_CANONICAL_SYNC",
+           expected_version_id=None, expected_last_modified_utc=None):
     key = _safe_rel(key, "S3 key")
     logical_source_key = _safe_rel(logical_source_key,
                                    "logical source key")
@@ -310,6 +493,23 @@ def _entry(bucket, key, logical_source_key, source_kind, date, size,
     }
     if local_path:
         out["_local_path"] = local_path
+    if local_payload is not None:
+        if (not isinstance(local_payload, bytes)
+                or len(local_payload) != size
+                or hashlib.sha256(local_payload).hexdigest() != digest):
+            raise ReceiptError("LOCAL_BYTES_MISMATCH",
+                               "%s retained payload mismatch" % key)
+        out["_local_payload"] = local_payload
+    if expected_version_id is not None:
+        if (not isinstance(expected_version_id, str)
+                or not expected_version_id.strip()
+                or expected_version_id.lower() == "null"):
+            raise ReceiptError("INVALID_VERSION_ID",
+                               "%s has an empty expected VersionId" % key)
+        out["_expected_version_id"] = expected_version_id
+    if expected_last_modified_utc is not None:
+        _parse_utc(expected_last_modified_utc, "expected_last_modified_utc")
+        out["_expected_last_modified_utc"] = expected_last_modified_utc
     return out
 
 
@@ -320,7 +520,9 @@ def _add_local_file(objects, seen, *, bucket, key, logical, kind, date,
                     durability_scope=True, research_candidate=False,
                     exposure_policy="NOT_RESEARCH_EXPOSED",
                     version_resolution="CURRENT_AT_CUTOFF",
-                    canonical_source="EXISTING_CANONICAL_SYNC"):
+                    canonical_source="EXISTING_CANONICAL_SYNC",
+                    expected_version_id=None,
+                    expected_last_modified_utc=None):
     size, digest = _file_attestation(path)
     obj = _entry(bucket, key, logical, kind, date, size, digest, seal_sha,
                  table=table, channel=channel, local_path=path,
@@ -331,7 +533,9 @@ def _add_local_file(objects, seen, *, bucket, key, logical, kind, date,
                  research_candidate=research_candidate,
                  exposure_policy=exposure_policy,
                  version_resolution=version_resolution,
-                 canonical_source=canonical_source)
+                 canonical_source=canonical_source,
+                 expected_version_id=expected_version_id,
+                 expected_last_modified_utc=expected_last_modified_utc)
     _add_unique(objects, seen, obj)
 
 
@@ -435,7 +639,44 @@ def _validate_capture_receipt(receipt, seal, date):
     return True, None
 
 
+def _correction_source_identity(row, label):
+    source_file = row.get("source_file")
+    source_rel = row.get("source_raw_rel")
+    if not isinstance(source_file, str) or not source_file:
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "%s has no source_file" % label)
+    if source_rel is None:
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "%s has no source_raw_rel" % label)
+    try:
+        source_rel = _safe_rel(source_rel, "%s source_raw_rel" % label)
+    except ReceiptError as exc:
+        raise ReceiptError("CORRECTIONS_INVALID", exc.detail)
+    match = RAW_REL_RE.match(source_rel)
+    if not match or not RAW_HOUR_RE.match(match.group(2)):
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "%s source_raw_rel is not a raw-hour path" % label)
+    _validate_correction_date(match.group(1), "%s source date" % label)
+    normalized_source = source_file.replace("\\", "/")
+    if not normalized_source.endswith("/" + source_rel):
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "%s source_file/source_raw_rel disagree" % label)
+    observed = row.get("observed_at_utc")
+    _parse_utc(observed, "%s observed_at_utc" % label)
+    return (observed, source_file, source_rel)
+
+
+def _validate_correction_date(value, label):
+    try:
+        _validate_date(value)
+    except ReceiptError as exc:
+        raise ReceiptError("CORRECTIONS_INVALID",
+                           "%s: %s" % (label, exc.detail))
+    return value
+
+
 def _ledger_projection(payload, date):
+    """Project current-schema D rows and reject ambiguous legacy dates."""
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -452,7 +693,38 @@ def _ledger_projection(payload, date):
         if not isinstance(row, dict):
             raise ReceiptError("CORRECTIONS_INVALID",
                                "ledger line %d is not an object" % lineno)
-        if row.get("exchange_date") == date or row.get("date") == date:
+        if row.get("event") != "LATE_FACT_DIVERTED_TO_CORRECTIONS":
+            continue
+        exchange_date = row.get("exchange_date")
+        legacy_date = row.get("date")
+        if legacy_date is not None:
+            _validate_correction_date(legacy_date,
+                                      "ledger line %d date" % lineno)
+        if exchange_date is None:
+            if legacy_date == date:
+                raise ReceiptError(
+                    "CORRECTIONS_INVALID",
+                    "ledger line %d uses legacy date without exchange_date" %
+                    lineno)
+            continue
+        _validate_correction_date(
+            exchange_date, "ledger line %d exchange_date" % lineno)
+        if legacy_date is not None and legacy_date != exchange_date:
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "ledger line %d has conflicting date fields" % lineno)
+        if exchange_date == date:
+            n_rows = row.get("n_rows")
+            if (not isinstance(n_rows, int) or isinstance(n_rows, bool)
+                    or n_rows <= 0):
+                raise ReceiptError(
+                    "CORRECTIONS_INVALID",
+                    "ledger line %d has invalid n_rows" % lineno)
+            if row.get("seal_untouched") is not True:
+                raise ReceiptError(
+                    "CORRECTIONS_INVALID",
+                    "ledger line %d does not attest seal_untouched" % lineno)
+            _correction_source_identity(row, "ledger line %d" % lineno)
             lines.append(raw.strip())
             rows.append(row)
     projection = (("\n".join(lines) + "\n").encode("utf-8")
@@ -460,12 +732,12 @@ def _ledger_projection(payload, date):
     return projection, rows
 
 
-def _count_ndjson(payload, label):
+def _late_correction_counts(payload, date):
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ReceiptError("CORRECTIONS_INVALID", "%s: %s" % (label, exc))
-    count = 0
+        raise ReceiptError("CORRECTIONS_INVALID", "late_rows: %s" % exc)
+    counts = collections.Counter()
     for lineno, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
@@ -473,22 +745,76 @@ def _count_ndjson(payload, label):
             row = json.loads(raw)
         except ValueError as exc:
             raise ReceiptError("CORRECTIONS_INVALID",
-                               "%s line %d: %s" % (label, lineno, exc))
+                               "late_rows line %d: %s" % (lineno, exc))
         if not isinstance(row, dict):
             raise ReceiptError("CORRECTIONS_INVALID",
-                               "%s line %d is not an object" % (label, lineno))
-        count += 1
-    return count
+                               "late_rows line %d is not an object" % lineno)
+        table = row.get("table")
+        values = row.get("row")
+        if (table not in ("orderbooks_l1", "trades", "orderbooks_full")
+                or not isinstance(values, list) or not values
+                or not isinstance(values[0], int)
+                or isinstance(values[0], bool)):
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "late_rows line %d has invalid table/row schema" % lineno)
+        try:
+            exchange_date = wc.day_of_us(values[0])
+        except Exception as exc:
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "late_rows line %d has invalid exchange timestamp: %s" %
+                (lineno, exc))
+        if exchange_date != date:
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "late_rows line %d belongs to %s, expected %s" %
+                (lineno, exchange_date, date))
+        source = _correction_source_identity(
+            row, "late_rows line %d" % lineno)
+        start = row.get("source_start_offset")
+        end = row.get("source_end_offset")
+        if ((start is None) != (end is None)
+                or start is None
+                or not isinstance(start, int) or isinstance(start, bool)
+                or not isinstance(end, int) or isinstance(end, bool)
+                or start < 0 or end < start):
+            raise ReceiptError(
+                "CORRECTIONS_INVALID",
+                "late_rows line %d has invalid source offsets" % lineno)
+        counts[(date, source)] += 1
+    return counts
 
 
-def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
-                            quality_dir):
-    """Build one frozen local inventory; this function performs no S3 call."""
-    if not bucket or "/" in bucket:
-        raise ReceiptError("INVALID_BUCKET", repr(bucket))
-    prefix = _safe_rel(prefix.strip("/"), "canonical prefix")
+def _validate_correction_pair(late_payload, ledger_rows, date):
+    late_counts = _late_correction_counts(late_payload, date)
+    ledger_counts = collections.Counter()
+    for index, row in enumerate(ledger_rows, 1):
+        source = _correction_source_identity(
+            row, "date ledger row %d" % index)
+        ledger_counts[(date, source)] += row["n_rows"]
+    if late_counts != ledger_counts:
+        raise ReceiptError(
+            "CORRECTIONS_INVALID",
+            "late_rows and ledger source/date groups do not agree")
+    return late_counts
+
+
+def _parse_utc(value, label):
+    if not isinstance(value, str) or not value:
+        raise ReceiptError("INVALID_CUTOFF", "%s is missing" % label)
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ReceiptError("INVALID_CUTOFF", "%s: %s" % (label, exc))
+    if parsed.tzinfo is None:
+        raise ReceiptError("INVALID_CUTOFF", "%s is not timezone-aware" % label)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+def _authoritative_day_inputs(date, raw_root, warehouse_root):
+    """Freeze and verify the seal plus the full manifest's date projection."""
     seal, binding = load_verified_seal(warehouse_root, date)
-    seal_sha = binding["sha256"]
     raw_proofs = seal["raw_files"]
     fact_proofs = seal["archive_file_stats"]
 
@@ -532,6 +858,1013 @@ def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
     _assert_fingerprint(binding["local_path"],
                         binding["_source_fingerprint"])
     _assert_fingerprint(manifest_path, manifest_fingerprint)
+    return (seal, binding, manifest_payload, manifest_digest,
+            manifest_rows, raw_proofs, fact_proofs)
+
+
+def _manifest_day_csv(payload, date):
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReceiptError("MANIFEST_INVALID", str(exc))
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if tuple(reader.fieldnames or ()) != MANIFEST_FIELDS:
+        raise ReceiptError("MANIFEST_INVALID",
+                           "unexpected manifest fields %r" % reader.fieldnames)
+    rows = [dict(row) for row in reader if row.get("date") == date]
+    rows.sort(key=lambda row: (
+        row.get("table", ""), row.get("category", ""),
+        row.get("subcategory", ""), row.get("file_path", "")))
+    for row in rows:
+        _safe_rel(row.get("file_path"), "manifest file_path")
+    out = io.StringIO(newline="")
+    writer = csv.DictWriter(out, fieldnames=MANIFEST_FIELDS,
+                            lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return out.getvalue().encode("utf-8"), canonical_sha256(rows), rows
+
+
+def _load_json_source(value, label):
+    if isinstance(value, dict):
+        return copy.deepcopy(value)
+    try:
+        payload, _fingerprint = _freeze_file(os.fspath(value))
+        loaded = json.loads(payload)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ReceiptError("%s_INVALID" % label, str(exc))
+    if not isinstance(loaded, dict):
+        raise ReceiptError("%s_INVALID" % label, "root is not an object")
+    return loaded
+
+
+def _validate_v2_release_manifest(payload, date, release_id, seal_sha):
+    try:
+        manifest = json.loads(payload)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 manifest: %s" % exc)
+    if not isinstance(manifest, dict):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 manifest is not an object")
+    if (manifest.get("schema_version") != "research-release-manifest-v2"
+            or manifest.get("date") != date
+            or manifest.get("release_id") != release_id):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 manifest identity mismatch")
+    state = manifest.get("publication_state")
+    state_sha = manifest.get("publication_state_sha256")
+    if (not isinstance(state, dict) or not isinstance(state_sha, str)
+            or canonical_sha256(state) != state_sha):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 publication-state digest mismatch")
+    seal = manifest.get("seal")
+    if not isinstance(seal, dict) or seal.get("sha256") != seal_sha:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 seal binding mismatch")
+    expected_release_id = "%s__seal-%s__pub-%s" % (
+        date, seal_sha[:8], state_sha[:16])
+    if release_id != expected_release_id:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 release_id digest mismatch")
+
+    cutoff_text = manifest.get("generated_at_utc")
+    cutoff = _parse_utc(cutoff_text, "source v2 generated_at_utc")
+    corrections = manifest.get("corrections")
+    if (not isinstance(corrections, dict)
+            or corrections.get("cutoff_utc") != cutoff_text):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 cutoff fields disagree")
+
+    objects = manifest.get("objects")
+    if not isinstance(objects, list) or not objects:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 object inventory is missing")
+    by_key = {}
+    version_bindings = {}
+    for index, row in enumerate(objects):
+        if not isinstance(row, dict):
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "source v2 object %d is malformed" % index)
+        key = _safe_rel(row.get("key"), "source v2 object key")
+        if key in by_key:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "source v2 object key is duplicated")
+        _check_expected(row.get("size"), row.get("sha256"), key)
+        version_id = row.get("version_id")
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.lower() == "null"):
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "source v2 object has no VersionId: %s" % key)
+        by_key[key] = row
+        version_bindings[key] = version_id
+    version_binding = manifest.get("version_binding")
+    if (not isinstance(version_binding, dict)
+            or version_binding.get("mode") != "VERSION_BOUND"
+            or version_binding.get("bindings_sha256")
+            != canonical_sha256(version_bindings)):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 VersionId binding is invalid")
+    post_verify = manifest.get("post_upload_verification")
+    if (not isinstance(post_verify, dict)
+            or post_verify.get("objects_verified") != len(objects)):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 verification count is invalid")
+
+    catalog = {}
+    marker = "catalog/"
+    allowed = set(CATALOG_REQUIRED + CATALOG_OPTIONAL)
+    for key, row in by_key.items():
+        if not key.startswith(marker):
+            continue
+        rel = key[len(marker):]
+        if rel not in allowed:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "unexpected source v2 catalog path %s" % rel)
+        catalog[rel] = {"size": row["size"], "sha256": row["sha256"]}
+    missing = set(CATALOG_REQUIRED) - set(catalog)
+    if missing:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source v2 catalog objects missing: %s" %
+                           sorted(missing))
+    evidence_identity = canonical_sha256({
+        "schema_version": manifest["schema_version"],
+        "release_id": release_id,
+        "date": date,
+        "generated_at_utc": cutoff_text,
+        "corrections_cutoff_utc": corrections["cutoff_utc"],
+        "publication_state_sha256": state_sha,
+        "seal_sha256": seal_sha,
+        "objects": sorted([{
+            "key": row["key"], "size": row["size"],
+            "sha256": row["sha256"], "version_id": row["version_id"],
+        } for row in objects], key=lambda row: row["key"]),
+        "version_binding": {
+            "mode": version_binding["mode"],
+            "bindings_sha256": version_binding["bindings_sha256"],
+        },
+        "objects_verified": post_verify["objects_verified"],
+    })
+    return manifest, cutoff_text, cutoff, catalog, evidence_identity
+
+
+def _normalize_catalog_bindings(source, date, bucket, prefix, seal_sha):
+    bindings = _load_json_source(source, "CATALOG_BINDINGS")
+    if set(bindings) != {
+            "schema_version", "date", "bucket", "prefix", "provenance",
+            "source_release", "objects"}:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "unexpected top-level binding fields")
+    if bindings.get("schema_version") != CATALOG_BINDINGS_SCHEMA:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID", "wrong schema_version")
+    if bindings.get("date") != date:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID", "date mismatch")
+    if bindings.get("bucket") != bucket or bindings.get("prefix") != prefix:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "bucket/prefix mismatch")
+    provenance = bindings.get("provenance")
+    if provenance not in CATALOG_PROVENANCE:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "unsupported provenance %r" % provenance)
+    source_release = bindings.get("source_release")
+    if not isinstance(source_release, dict):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source_release is missing")
+    if set(source_release) != {
+            "release_id", "bucket", "key", "VersionId", "size",
+            "sha256", "last_modified_utc", "local_path"}:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "unexpected source_release fields")
+    source_release_id = _safe_rel(
+        source_release.get("release_id"), "source release_id")
+    source_bucket = source_release.get("bucket")
+    if source_bucket != bucket:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source release bucket is not the trusted bucket")
+    source_key = _safe_rel(source_release.get("key"),
+                           "source release manifest key")
+    expected_source_key = _join_key(
+        "research", "releases", source_release_id, "MANIFEST.json")
+    if source_key != expected_source_key:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source release manifest key mismatch")
+    _check_expected(source_release.get("size"),
+                    source_release.get("sha256"), source_key)
+    source_version = source_release.get("VersionId")
+    if (not isinstance(source_version, str) or not source_version.strip()
+            or source_version.lower() == "null"):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source release manifest VersionId is empty")
+    source_modified_text = source_release.get("last_modified_utc")
+    source_modified = _parse_utc(
+        source_modified_text, "source release manifest LastModified")
+    source_path = source_release.get("local_path")
+    if not isinstance(source_path, str) or not source_path:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source release local manifest is missing")
+    source_payload, _source_fp = _freeze_file(source_path)
+    if (len(source_payload) != source_release["size"]
+            or hashlib.sha256(source_payload).hexdigest()
+            != source_release["sha256"]):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source release local manifest bytes mismatch")
+    (_source_manifest, generated_text, generated_at,
+     source_catalog, evidence_identity) = _validate_v2_release_manifest(
+         source_payload, date, source_release_id, seal_sha)
+    if source_modified < generated_at:
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "source manifest predates its generated time")
+    cutoff_text = source_modified_text
+    cutoff = source_modified
+
+    normalized, seen = [], set()
+    for raw in bindings.get("objects") or []:
+        if not isinstance(raw, dict):
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "catalog entry is not an object")
+        if set(raw) != {
+                "bucket", "key", "logical_source_key", "VersionId",
+                "size", "sha256", "last_modified_utc"}:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "unexpected catalog entry fields")
+        logical = _safe_rel(raw.get("logical_source_key"),
+                            "catalog logical_source_key")
+        marker = "warehouse/catalog/"
+        if not logical.startswith(marker):
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "unexpected logical key %s" % logical)
+        rel = logical[len(marker):]
+        if rel not in CATALOG_REQUIRED + CATALOG_OPTIONAL or rel in seen:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "unexpected or duplicate catalog path %s" % rel)
+        seen.add(rel)
+        key = _safe_rel(raw.get("key"), "catalog S3 key")
+        expected_key = _join_key(prefix, "warehouse", "catalog", rel)
+        if raw.get("bucket") != bucket or key != expected_key:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "catalog bucket/key mismatch for %s" % rel)
+        _check_expected(raw.get("size"), raw.get("sha256"), logical)
+        version_id = raw.get("VersionId")
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.lower() == "null"):
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "catalog VersionId is empty for %s" % rel)
+        last_modified = _parse_utc(raw.get("last_modified_utc"),
+                                   "%s last_modified_utc" % rel)
+        if last_modified > cutoff:
+            raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                               "%s is newer than cutoff" % rel)
+        normalized.append({
+            "bucket": bucket,
+            "key": key,
+            "logical_source_key": logical,
+            "rel": rel,
+            "VersionId": version_id,
+            "size": raw["size"],
+            "sha256": raw["sha256"],
+            "last_modified_utc": raw["last_modified_utc"],
+        })
+    if seen != set(source_catalog):
+        raise ReceiptError("CATALOG_BINDINGS_INVALID",
+                           "canonical/v2 catalog sets differ: canonical=%s v2=%s" %
+                           (sorted(seen), sorted(source_catalog)))
+    for row in normalized:
+        evidence = source_catalog[row["rel"]]
+        if (row["size"] != evidence["size"]
+                or row["sha256"] != evidence["sha256"]):
+            raise ReceiptError(
+                "CATALOG_BINDINGS_INVALID",
+                "canonical/v2 catalog bytes differ for %s" % row["rel"])
+    normalized.sort(key=lambda row: row["logical_source_key"])
+    catalog_set_sha = canonical_sha256([{
+        "bucket": row["bucket"], "key": row["key"],
+        "logical_source_key": row["logical_source_key"],
+        "VersionId": row["VersionId"], "size": row["size"],
+        "sha256": row["sha256"],
+    } for row in normalized])
+    return {
+        "cutoff_utc": cutoff_text,
+        "provenance": provenance,
+        "source_release_id": source_release_id,
+        "source_release": {
+            "bucket": source_bucket,
+            "key": source_key,
+            "VersionId": source_version,
+            "size": source_release["size"],
+            "sha256": source_release["sha256"],
+            "last_modified_utc": source_modified_text,
+            "generated_at_utc": generated_text,
+            "evidence_identity_sha256": evidence_identity,
+            "payload": source_payload,
+        },
+        "catalog_set_sha256": catalog_set_sha,
+        "objects": normalized,
+    }
+
+
+def _stage_payload(root, rel, payload):
+    rel = _safe_rel(rel, "auxiliary local path")
+    path = pathlib.Path(root, *rel.split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "xb") as f:
+        f.write(payload)
+    return str(path), len(payload), hashlib.sha256(payload).hexdigest()
+
+
+def _aux_local_object(root, rel, payload, **metadata):
+    _path, size, digest = _stage_payload(root, rel, payload)
+    out = {
+        "storage_mode": "LOCAL_FROZEN_BACKFILL",
+        "local_relpath": rel,
+        "size": size,
+        "sha256": digest,
+        "expected_version_id": None,
+    }
+    out.update(metadata)
+    return out
+
+
+def _aux_existing_witness(root, rel, payload, version_id, **metadata):
+    _path, size, digest = _stage_payload(root, rel, payload)
+    out = {
+        "storage_mode": "EXISTING_EXACT_VERSION_WITH_LOCAL_WITNESS",
+        "local_relpath": rel,
+        "size": size,
+        "sha256": digest,
+        "expected_version_id": version_id,
+    }
+    out.update(metadata)
+    return out
+
+
+def freeze_auxiliary_set(date, bucket, prefix, raw_root, warehouse_root,
+                         quality_dir, aux_root, catalog_bindings):
+    """Freeze only small date-D controls plus exact existing catalog refs."""
+    _validate_date(date)
+    prefix = _safe_rel(prefix.strip("/"), "canonical prefix")
+    (seal, binding, manifest_payload, manifest_digest, _manifest_rows,
+     _raw_proofs, fact_proofs) = _authoritative_day_inputs(
+         date, raw_root, warehouse_root)
+    seal_sha = binding["sha256"]
+    catalog = _normalize_catalog_bindings(
+        catalog_bindings, date, bucket, prefix, seal_sha)
+
+    date_root = pathlib.Path(aux_root) / ("date=%s" % date)
+    date_root.mkdir(parents=True, exist_ok=True)
+    pending = tempfile.mkdtemp(prefix=".pending-", dir=str(date_root))
+    objects = []
+    try:
+        day_manifest, day_digest, _day_rows = _manifest_day_csv(
+            manifest_payload, date)
+        if day_digest != manifest_digest:
+            raise ReceiptError("MANIFEST_DATE_PROJECTION_MISMATCH",
+                               "serialized day projection changed semantics")
+        manifest_sha = hashlib.sha256(day_manifest).hexdigest()
+        objects.append(_aux_local_object(
+            pending, "manifest/manifest.csv", day_manifest,
+            bucket=bucket,
+            key=_join_key(
+                prefix, "warehouse", "publication-snapshots", "v1",
+                "date=%s" % date, "manifest", "sha256=%s" % manifest_sha,
+                "manifest.csv"),
+            logical_source_key="warehouse/manifest.csv",
+            source_kind="warehouse_manifest_day",
+            family="manifest_date_projection", table=None, channel=None,
+            date=date, seal_binding=seal_sha,
+            evidence_binding={"manifest_date_sha256": manifest_digest},
+            research_candidate=True,
+            exposure_policy="PENDING_ELIGIBILITY_TAG",
+            version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
+            canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC"))
+
+        source_release = catalog["source_release"]
+        objects.append(_aux_existing_witness(
+            pending, "catalog-evidence/source-v2-manifest.json",
+            source_release["payload"], source_release["VersionId"],
+            bucket=source_release["bucket"], key=source_release["key"],
+            logical_source_key=_join_key(
+                "research", "releases", catalog["source_release_id"],
+                "MANIFEST.json"),
+            source_kind="source_v2_manifest",
+            family="catalog_cutoff_evidence", table=None, channel=None,
+            date=date, seal_binding=seal_sha,
+            source_last_modified_utc=source_release["last_modified_utc"],
+            evidence_binding={
+                "release_id": catalog["source_release_id"],
+                "cutoff_utc": catalog["cutoff_utc"],
+                "generated_at_utc": source_release["generated_at_utc"],
+                "evidence_identity_sha256":
+                    source_release["evidence_identity_sha256"],
+            },
+            research_candidate=False,
+            exposure_policy="NOT_RESEARCH_EXPOSED",
+            version_resolution="EXACT_VERSION_EVIDENCE",
+            canonical_source="EXISTING_IMMUTABLE_V2_MANIFEST"))
+
+        catalog_evidence = {
+            "catalog_set_sha256": catalog["catalog_set_sha256"],
+            "cutoff_utc": catalog["cutoff_utc"],
+            "provenance": catalog["provenance"],
+            "source_release_id": catalog["source_release_id"],
+            "source_manifest_bucket": source_release["bucket"],
+            "source_manifest_key": source_release["key"],
+            "source_manifest_version_id": source_release["VersionId"],
+            "source_manifest_sha256": source_release["sha256"],
+            "source_manifest_evidence_identity_sha256":
+                source_release["evidence_identity_sha256"],
+        }
+        for row in catalog["objects"]:
+            objects.append({
+                "storage_mode": "EXISTING_EXACT_VERSION",
+                "local_relpath": None,
+                "bucket": row["bucket"], "key": row["key"],
+                "logical_source_key": row["logical_source_key"],
+                "source_kind": "catalog", "family": "catalog_at_cutoff",
+                "table": row["rel"].split("/", 1)[0], "channel": None,
+                "date": date, "size": row["size"],
+                "sha256": row["sha256"], "seal_binding": seal_sha,
+                "source_last_modified_utc": row["last_modified_utc"],
+                "evidence_binding": dict(
+                    catalog_evidence,
+                    source_last_modified_utc=row["last_modified_utc"]),
+                "research_candidate": True,
+                "exposure_policy": "PENDING_ELIGIBILITY_TAG",
+                "version_resolution": "PRE_RESOLVED_HISTORICAL_EXACT",
+                "canonical_source": "PRE_RESOLVED_CANONICAL_VERSION",
+                "expected_version_id": row["VersionId"],
+            })
+
+        late_path = os.path.join(
+            warehouse_root, "corrections", "date=%s" % date,
+            "late_rows.ndjson")
+        ledger_path = os.path.join(
+            warehouse_root, "corrections", "ledger.ndjson")
+        late_payload = (_freeze_file(late_path)[0]
+                        if os.path.isfile(late_path) else None)
+        ledger_payload = (_freeze_file(ledger_path)[0]
+                          if os.path.isfile(ledger_path) else None)
+        ledger_day, ledger_rows = (
+            _ledger_projection(ledger_payload, date)
+            if ledger_payload is not None else (b"", []))
+        if ((late_payload is None) != (not ledger_rows)):
+            raise ReceiptError("CORRECTIONS_INVALID",
+                               "late_rows and date ledger do not agree")
+        if late_payload is not None:
+            _validate_correction_pair(late_payload, ledger_rows, date)
+            ledger_sha = hashlib.sha256(ledger_day).hexdigest()
+            corr_evidence = {"ledger_day_sha256": ledger_sha}
+            objects.append(_aux_local_object(
+                pending, "corrections/late_rows.ndjson", late_payload,
+                bucket=bucket,
+                key=_join_key(prefix, "warehouse", "corrections",
+                              "date=%s" % date, "late_rows.ndjson"),
+                logical_source_key=_join_key(
+                    "warehouse", "corrections", "date=%s" % date,
+                    "late_rows.ndjson"),
+                source_kind="correction", family="corrections_at_cutoff",
+                table=None, channel=None, date=date, seal_binding=seal_sha,
+                evidence_binding=corr_evidence, research_candidate=True,
+                exposure_policy="PENDING_ELIGIBILITY_TAG",
+                version_resolution="DATE_SCOPED_CURRENT_EXACT",
+                canonical_source="EXISTING_OR_PLANNED_CANONICAL_SYNC"))
+            objects.append(_aux_local_object(
+                pending, "corrections/ledger_day.ndjson", ledger_day,
+                bucket=bucket,
+                key=_join_key(
+                    prefix, "warehouse", "publication-snapshots", "v1",
+                    "date=%s" % date, "corrections", "ledger_day",
+                    "sha256=%s" % ledger_sha, "ledger_day.ndjson"),
+                logical_source_key="warehouse/corrections/ledger_day.ndjson",
+                source_kind="corrections_ledger_day",
+                family="corrections_at_cutoff", table=None, channel=None,
+                date=date, seal_binding=seal_sha,
+                evidence_binding=corr_evidence, research_candidate=True,
+                exposure_policy="PENDING_ELIGIBILITY_TAG",
+                version_resolution="WRITE_ONCE_CONTENT_ADDRESSED_EXACT",
+                canonical_source="PLANNED_DATE_SCOPED_CONTROL_SYNC"))
+
+        capture_path = os.path.join(
+            quality_dir, "capture_gap_receipt_%s.json" % date)
+        if not os.path.isfile(capture_path):
+            raise ReceiptError("AUX_INPUT_INCOMPLETE",
+                               "capture gap receipt is missing")
+        capture_payload = _freeze_file(capture_path)[0]
+        try:
+            capture_receipt = json.loads(capture_payload)
+        except ValueError as exc:
+            raise ReceiptError("QUALITY_INVALID", str(exc))
+        capture_valid, capture_reason = _validate_capture_receipt(
+            capture_receipt, seal, date)
+        if not capture_valid:
+            raise ReceiptError("QUALITY_INVALID", capture_reason)
+        objects.append(_aux_local_object(
+            pending, "quality/capture_gap_receipt.json", capture_payload,
+            bucket=bucket,
+            key=_join_key(prefix, "control", "quality", "v1",
+                          "date=%s" % date, "capture_gap_receipt.json"),
+            logical_source_key=_join_key(
+                "control", "quality", "v1", "date=%s" % date,
+                "capture_gap_receipt.json"),
+            source_kind="capture_gap_receipt", family="capture_gap_receipt",
+            table=None, channel=None, date=date, seal_binding=seal_sha,
+            evidence_binding="sealed firehose inventory",
+            research_candidate=True,
+            exposure_policy="PENDING_ELIGIBILITY_TAG",
+            version_resolution="WRITE_ONCE_CURRENT",
+            canonical_source="PLANNED_SEALED_DAY_CONTROL_SYNC"))
+
+        l2_required = any(proof.get("table") == "orderbooks_full"
+                          for proof in fact_proofs)
+        l2_path = os.path.join(quality_dir, "l2_gaps_%s.json" % date)
+        if l2_required and not os.path.isfile(l2_path):
+            raise ReceiptError("AUX_INPUT_INCOMPLETE",
+                               "L2 quality receipt is missing")
+        if os.path.isfile(l2_path):
+            l2_payload = _freeze_file(l2_path)[0]
+            try:
+                l2_receipt = json.loads(l2_payload)
+                import research_release
+                l2_quality, l2_reason = research_release.validate_l2_receipt(
+                    l2_receipt, seal, date)
+            except Exception as exc:
+                raise ReceiptError("QUALITY_INVALID", str(exc))
+            if l2_quality is None:
+                raise ReceiptError("QUALITY_INVALID", l2_reason)
+            objects.append(_aux_local_object(
+                pending, "quality/l2_gaps.json", l2_payload,
+                bucket=bucket,
+                key=_join_key(prefix, "control", "quality", "v1",
+                              "date=%s" % date, "l2_gaps.json"),
+                logical_source_key=_join_key(
+                    "control", "quality", "v1", "date=%s" % date,
+                    "l2_gaps.json"),
+                source_kind="l2_quality_receipt", family="l2_quality",
+                table=None, channel=None, date=date, seal_binding=seal_sha,
+                evidence_binding="sealed l2 inventory",
+                research_candidate=True,
+                exposure_policy="PENDING_ELIGIBILITY_TAG",
+                version_resolution="WRITE_ONCE_CURRENT",
+                canonical_source="PLANNED_SEALED_DAY_CONTROL_SYNC"))
+
+        objects.sort(key=lambda row: row["logical_source_key"])
+        projection = {
+            "schema_version": AUX_SET_SCHEMA,
+            "date": date,
+            "bucket": bucket,
+            "prefix": prefix,
+            "seal_sha256": seal_sha,
+            "manifest_date_sha256": manifest_digest,
+            "catalog_cutoff": {
+                "cutoff_utc": catalog["cutoff_utc"],
+                "provenance": catalog["provenance"],
+                "source_release_id": catalog["source_release_id"],
+                "catalog_set_sha256": catalog["catalog_set_sha256"],
+                "source_manifest": {
+                    "bucket": source_release["bucket"],
+                    "key": source_release["key"],
+                    "VersionId": source_release["VersionId"],
+                    "size": source_release["size"],
+                    "sha256": source_release["sha256"],
+                    "last_modified_utc":
+                        source_release["last_modified_utc"],
+                    "generated_at_utc":
+                        source_release["generated_at_utc"],
+                    "evidence_identity_sha256":
+                        source_release["evidence_identity_sha256"],
+                },
+            },
+            "objects": objects,
+        }
+        aux_set_sha = canonical_sha256(projection)
+        descriptor = dict(projection)
+        descriptor["aux_set_sha256"] = aux_set_sha
+        with open(os.path.join(pending, "AUX_SET.json"), "x") as f:
+            json.dump(descriptor, f, sort_keys=True, indent=2)
+            f.write("\n")
+
+        final = date_root / ("aux-set=%s" % aux_set_sha)
+        if final.exists():
+            existing, _rows = load_auxiliary_set(
+                str(final), date, bucket, prefix, seal, seal_sha)
+            if existing != descriptor:
+                raise ReceiptError("AUX_SET_CONFLICT",
+                                   "existing digest directory differs")
+            shutil.rmtree(pending)
+            pending = None
+            return str(final), descriptor
+        os.rename(pending, final)
+        pending = None
+        return str(final), descriptor
+    finally:
+        if pending and os.path.isdir(pending):
+            shutil.rmtree(pending)
+
+
+def load_auxiliary_set(path, date, bucket, prefix, seal, seal_sha):
+    """Validate one explicit frozen auxiliary set; never select a latest set."""
+    reader = _BundleReader(path)
+    try:
+        descriptor = json.loads(reader.read("AUX_SET.json")[0])
+    except (UnicodeDecodeError, ValueError) as exc:
+        reader.close()
+        raise ReceiptError("AUX_SET_INVALID", str(exc))
+    if not isinstance(descriptor, dict):
+        reader.close()
+        raise ReceiptError("AUX_SET_INVALID", "root is not an object")
+    if descriptor.get("schema_version") != AUX_SET_SCHEMA:
+        raise ReceiptError("AUX_SET_INVALID", "wrong schema_version")
+    if (descriptor.get("date") != date or descriptor.get("bucket") != bucket
+            or descriptor.get("prefix") != prefix):
+        raise ReceiptError("AUX_SET_INVALID", "date/bucket/prefix mismatch")
+    if descriptor.get("seal_sha256") != seal_sha:
+        raise ReceiptError("AUX_SET_INVALID", "seal binding mismatch")
+    if descriptor.get("manifest_date_sha256") != seal.get(
+            "manifest_date_sha256"):
+        raise ReceiptError("AUX_SET_INVALID", "manifest binding mismatch")
+    cutoff = descriptor.get("catalog_cutoff")
+    if not isinstance(cutoff, dict):
+        raise ReceiptError("AUX_SET_INVALID", "catalog cutoff is missing")
+    _parse_utc(cutoff.get("cutoff_utc"), "catalog cutoff_utc")
+    if cutoff.get("provenance") not in CATALOG_PROVENANCE:
+        raise ReceiptError("AUX_SET_INVALID", "catalog provenance is invalid")
+    if not cutoff.get("source_release_id"):
+        raise ReceiptError("AUX_SET_INVALID",
+                           "verified-v2 source_release_id is missing")
+    _safe_rel(cutoff["source_release_id"], "source_release_id")
+    if (not isinstance(cutoff.get("catalog_set_sha256"), str)
+            or not SHA256_RE.match(cutoff["catalog_set_sha256"])):
+        raise ReceiptError("AUX_SET_INVALID", "catalog set digest is invalid")
+    source_manifest = cutoff.get("source_manifest")
+    if not isinstance(source_manifest, dict):
+        raise ReceiptError("AUX_SET_INVALID", "source manifest is missing")
+    source_release_id = cutoff.get("source_release_id")
+    expected_source_key = _join_key(
+        "research", "releases", source_release_id, "MANIFEST.json")
+    if (source_manifest.get("key") != expected_source_key
+            or source_manifest.get("bucket") != bucket):
+        raise ReceiptError("AUX_SET_INVALID", "source manifest key invalid")
+    _check_expected(source_manifest.get("size"),
+                    source_manifest.get("sha256"), expected_source_key)
+    source_manifest_version = source_manifest.get("VersionId")
+    if (not isinstance(source_manifest_version, str)
+            or not source_manifest_version.strip()
+            or source_manifest_version.lower() == "null"):
+        raise ReceiptError("AUX_SET_INVALID",
+                           "source manifest VersionId invalid")
+    source_manifest_modified = _parse_utc(
+        source_manifest.get("last_modified_utc"),
+        "source manifest last_modified_utc")
+    if source_manifest.get("last_modified_utc") != cutoff["cutoff_utc"]:
+        raise ReceiptError("AUX_SET_INVALID",
+                           "cutoff is not the source manifest LastModified")
+    source_manifest_generated = _parse_utc(
+        source_manifest.get("generated_at_utc"),
+        "source manifest generated_at_utc")
+    if source_manifest_generated > source_manifest_modified:
+        raise ReceiptError("AUX_SET_INVALID",
+                           "source manifest generated after S3 LastModified")
+    source_evidence_identity = source_manifest.get(
+        "evidence_identity_sha256")
+    if (not isinstance(source_evidence_identity, str)
+            or not SHA256_RE.match(source_evidence_identity)):
+        raise ReceiptError("AUX_SET_INVALID",
+                           "source evidence identity is invalid")
+    projection = {k: v for k, v in descriptor.items()
+                  if k != "aux_set_sha256"}
+    digest = canonical_sha256(projection)
+    if descriptor.get("aux_set_sha256") != digest:
+        raise ReceiptError("AUX_SET_INVALID", "aux_set_sha256 mismatch")
+    if pathlib.Path(path).name != "aux-set=%s" % digest:
+        raise ReceiptError("AUX_SET_INVALID", "digest directory mismatch")
+
+    objects = descriptor.get("objects")
+    if not isinstance(objects, list) or not objects:
+        raise ReceiptError("AUX_SET_INVALID", "objects are missing")
+    allowed_families = {
+        "manifest_date_projection", "catalog_at_cutoff",
+        "catalog_cutoff_evidence", "corrections_at_cutoff",
+        "capture_gap_receipt", "l2_quality",
+    }
+    seen_keys, seen_logical, declared_files = set(), set(), set()
+    enriched = []
+    for raw in objects:
+        if not isinstance(raw, dict):
+            raise ReceiptError("AUX_SET_INVALID", "object is malformed")
+        row = copy.deepcopy(raw)
+        key = _safe_rel(row.get("key"), "auxiliary S3 key")
+        logical = _safe_rel(row.get("logical_source_key"),
+                            "auxiliary logical key")
+        is_source_witness = row.get("family") == "catalog_cutoff_evidence"
+        if is_source_witness:
+            location_ok = (key == source_manifest["key"]
+                           and row.get("bucket")
+                           == source_manifest["bucket"])
+        else:
+            location_ok = (key.startswith(prefix + "/")
+                           and row.get("bucket") == bucket)
+        if not location_ok:
+            raise ReceiptError("AUX_SET_INVALID", "object bucket/prefix mismatch")
+        if key in seen_keys or logical in seen_logical:
+            raise ReceiptError("AUX_SET_INVALID", "duplicate object key")
+        seen_keys.add(key)
+        seen_logical.add(logical)
+        if row.get("date") != date or row.get("family") not in allowed_families:
+            raise ReceiptError("AUX_SET_INVALID", "object date/family mismatch")
+        _check_expected(row.get("size"), row.get("sha256"), logical)
+        if row.get("seal_binding") != seal_sha:
+            raise ReceiptError("AUX_SET_INVALID", "object seal mismatch")
+        if is_source_witness:
+            if (row.get("research_candidate") is not False
+                    or row.get("exposure_policy") != "NOT_RESEARCH_EXPOSED"):
+                raise ReceiptError("AUX_SET_INVALID",
+                                   "source witness exposure is unsafe")
+        elif (row.get("research_candidate") is not True
+              or row.get("exposure_policy")
+              != "PENDING_ELIGIBILITY_TAG"):
+            raise ReceiptError("AUX_SET_INVALID", "auxiliary object not eligible")
+        expected_version = row.get("expected_version_id")
+        local_rel = row.get("local_relpath")
+        storage_mode = row.get("storage_mode")
+        if storage_mode == "EXISTING_EXACT_VERSION":
+            if (row.get("family") != "catalog_at_cutoff"
+                    or local_rel is not None or not expected_version):
+                raise ReceiptError("AUX_SET_INVALID",
+                                   "exact reference lacks VersionId")
+        elif storage_mode == "LOCAL_FROZEN_BACKFILL":
+            if expected_version is not None:
+                raise ReceiptError("AUX_SET_INVALID",
+                                   "local backfill preclaims a VersionId")
+        elif storage_mode == \
+                "EXISTING_EXACT_VERSION_WITH_LOCAL_WITNESS":
+            if (row.get("family") != "catalog_cutoff_evidence"
+                    or not expected_version):
+                raise ReceiptError("AUX_SET_INVALID",
+                                   "source witness lacks VersionId")
+        else:
+            raise ReceiptError("AUX_SET_INVALID", "unknown storage_mode")
+        if storage_mode != "EXISTING_EXACT_VERSION":
+            rel = _safe_rel(local_rel, "auxiliary local path")
+            declared_files.add(rel)
+            local = pathlib.Path(path, *rel.split("/"))
+            if local.is_symlink():
+                raise ReceiptError("AUX_SET_INVALID", "symlink in bundle")
+            payload, _fingerprint = reader.read(rel)
+            size = len(payload)
+            sha = hashlib.sha256(payload).hexdigest()
+            if size != row["size"] or sha != row["sha256"]:
+                raise ReceiptError("AUX_SET_INVALID", "local bytes mismatch")
+            row["_local_path"] = str(local)
+            row["_local_payload"] = payload
+        enriched.append(row)
+
+    actual_files = set()
+    for base, dirs, files in os.walk(path):
+        for name in dirs:
+            if os.path.islink(os.path.join(base, name)):
+                raise ReceiptError("AUX_SET_INVALID", "symlink directory")
+        for name in files:
+            full = os.path.join(base, name)
+            if os.path.islink(full):
+                raise ReceiptError("AUX_SET_INVALID", "symlink file")
+            rel = os.path.relpath(full, path).replace(os.sep, "/")
+            if rel != "AUX_SET.json":
+                actual_files.add(rel)
+    if actual_files != declared_files:
+        raise ReceiptError("AUX_SET_INVALID", "declared/local file set mismatch")
+
+    by_family = {}
+    for row in enriched:
+        by_family.setdefault(row["family"], []).append(row)
+    if len(by_family.get("manifest_date_projection", [])) != 1:
+        raise ReceiptError("AUX_SET_INVALID", "manifest projection missing")
+    source_rows = by_family.get("catalog_cutoff_evidence", [])
+    if len(source_rows) != 1:
+        raise ReceiptError("AUX_SET_INVALID", "source manifest witness missing")
+    source_row = source_rows[0]
+    if (source_row.get("storage_mode")
+            != "EXISTING_EXACT_VERSION_WITH_LOCAL_WITNESS"
+            or source_row.get("source_kind") != "source_v2_manifest"
+            or source_row.get("bucket") != source_manifest["bucket"]
+            or source_row.get("key") != source_manifest["key"]
+            or source_row.get("logical_source_key") != expected_source_key
+            or source_row.get("expected_version_id")
+            != source_manifest["VersionId"]
+            or source_row.get("size") != source_manifest["size"]
+            or source_row.get("sha256") != source_manifest["sha256"]
+            or source_row.get("source_last_modified_utc")
+            != source_manifest["last_modified_utc"]
+            or source_row.get("version_resolution")
+            != "EXACT_VERSION_EVIDENCE"
+            or source_row.get("canonical_source")
+            != "EXISTING_IMMUTABLE_V2_MANIFEST"
+            or source_row.get("evidence_binding") != {
+                "release_id": source_release_id,
+                "cutoff_utc": cutoff["cutoff_utc"],
+                "generated_at_utc": source_manifest["generated_at_utc"],
+                "evidence_identity_sha256": source_evidence_identity,
+            }):
+        raise ReceiptError("AUX_SET_INVALID",
+                           "source manifest witness semantics invalid")
+    (_v2_manifest, source_generated, _source_generated_dt,
+     source_catalog, calculated_evidence_identity) = \
+        _validate_v2_release_manifest(
+         source_row["_local_payload"], date, source_release_id,
+         seal_sha)
+    if (source_generated != source_manifest["generated_at_utc"]
+            or calculated_evidence_identity != source_evidence_identity):
+        raise ReceiptError("AUX_SET_INVALID",
+                           "source manifest evidence identity mismatch")
+    catalog_rows = by_family.get("catalog_at_cutoff", [])
+    catalog_logical = set()
+    catalog_projection = []
+    for row in catalog_rows:
+        marker = "warehouse/catalog/"
+        if not row["logical_source_key"].startswith(marker):
+            raise ReceiptError("AUX_SET_INVALID", "catalog logical key invalid")
+        rel = row["logical_source_key"][len(marker):]
+        catalog_logical.add(rel)
+        if row["key"] != _join_key(prefix, "warehouse", "catalog", rel):
+            raise ReceiptError("AUX_SET_INVALID", "catalog physical key invalid")
+        if (row.get("source_kind") != "catalog"
+                or row.get("version_resolution")
+                != "PRE_RESOLVED_HISTORICAL_EXACT"
+                or row.get("canonical_source")
+                != "PRE_RESOLVED_CANONICAL_VERSION"):
+            raise ReceiptError("AUX_SET_INVALID", "catalog semantics invalid")
+        if _parse_utc(row.get("source_last_modified_utc"),
+                      "%s source_last_modified_utc" % rel) > _parse_utc(
+                          cutoff["cutoff_utc"], "catalog cutoff_utc"):
+            raise ReceiptError("AUX_SET_INVALID",
+                               "catalog object is newer than cutoff")
+        evidence = row.get("evidence_binding")
+        if (not isinstance(evidence, dict)
+                or evidence.get("catalog_set_sha256")
+                != cutoff["catalog_set_sha256"]
+                or evidence.get("cutoff_utc") != cutoff["cutoff_utc"]
+                or evidence.get("provenance") != cutoff["provenance"]
+                or evidence.get("source_last_modified_utc")
+                != row.get("source_last_modified_utc")
+                or evidence.get("source_manifest_bucket")
+                != source_manifest["bucket"]
+                or evidence.get("source_manifest_key")
+                != source_manifest["key"]
+                or evidence.get("source_manifest_version_id")
+                != source_manifest["VersionId"]
+                or evidence.get("source_manifest_sha256")
+                != source_manifest["sha256"]
+                or evidence.get(
+                    "source_manifest_evidence_identity_sha256")
+                != source_evidence_identity):
+            raise ReceiptError("AUX_SET_INVALID", "catalog evidence mismatch")
+        catalog_projection.append({
+            "bucket": row["bucket"], "key": row["key"],
+            "logical_source_key": row["logical_source_key"],
+            "VersionId": row["expected_version_id"],
+            "size": row["size"], "sha256": row["sha256"],
+        })
+    if not set(CATALOG_REQUIRED) <= catalog_logical:
+        raise ReceiptError("AUX_SET_INVALID", "required catalog binding missing")
+    if not catalog_logical <= set(CATALOG_REQUIRED + CATALOG_OPTIONAL):
+        raise ReceiptError("AUX_SET_INVALID", "unexpected catalog binding")
+    if any(not row.get("expected_version_id") for row in catalog_rows):
+        raise ReceiptError("AUX_SET_INVALID", "catalog VersionId missing")
+    catalog_projection.sort(key=lambda row: row["logical_source_key"])
+    if canonical_sha256(catalog_projection) != cutoff["catalog_set_sha256"]:
+        raise ReceiptError("AUX_SET_INVALID", "catalog set digest mismatch")
+    catalog_by_rel = {
+        row["logical_source_key"][len("warehouse/catalog/"):]: row
+        for row in catalog_rows
+    }
+    if set(catalog_by_rel) != set(source_catalog):
+        raise ReceiptError("AUX_SET_INVALID", "catalog/v2 sets differ")
+    for rel, v2_row in source_catalog.items():
+        row = catalog_by_rel[rel]
+        if (row["size"] != v2_row["size"]
+                or row["sha256"] != v2_row["sha256"]):
+            raise ReceiptError("AUX_SET_INVALID",
+                               "catalog/v2 bytes differ for %s" % rel)
+
+    manifest_row = by_family["manifest_date_projection"][0]
+    expected_manifest_key = _join_key(
+        prefix, "warehouse", "publication-snapshots", "v1",
+        "date=%s" % date, "manifest",
+        "sha256=%s" % manifest_row["sha256"], "manifest.csv")
+    if (manifest_row.get("storage_mode") != "LOCAL_FROZEN_BACKFILL"
+            or manifest_row.get("source_kind") != "warehouse_manifest_day"
+            or manifest_row.get("logical_source_key") != "warehouse/manifest.csv"
+            or manifest_row.get("key") != expected_manifest_key
+            or manifest_row.get("evidence_binding")
+            != {"manifest_date_sha256": seal.get("manifest_date_sha256")}
+            or manifest_row.get("canonical_source")
+            != "PLANNED_DATE_SCOPED_CONTROL_SYNC"):
+        raise ReceiptError("AUX_SET_INVALID", "manifest semantics invalid")
+    manifest_payload = manifest_row["_local_payload"]
+    day_digest, day_rows = _manifest_projection_bytes(manifest_payload, date)
+    all_rows = list(csv.DictReader(io.StringIO(
+        manifest_payload.decode("utf-8"), newline="")))
+    if (day_digest != seal.get("manifest_date_sha256")
+            or len(all_rows) != len(day_rows)):
+        raise ReceiptError("AUX_SET_INVALID", "manifest is not date-exact")
+
+    corr = by_family.get("corrections_at_cutoff", [])
+    if len(corr) not in (0, 2):
+        raise ReceiptError("AUX_SET_INVALID", "corrections are incomplete")
+    if corr:
+        late = next((row for row in corr
+                     if row["source_kind"] == "correction"), None)
+        ledger = next((row for row in corr
+                       if row["source_kind"] == "corrections_ledger_day"), None)
+        if not late or not ledger:
+            raise ReceiptError("AUX_SET_INVALID", "corrections roles mismatch")
+        expected_late = _join_key(
+            prefix, "warehouse", "corrections", "date=%s" % date,
+            "late_rows.ndjson")
+        expected_ledger = _join_key(
+            prefix, "warehouse", "publication-snapshots", "v1",
+            "date=%s" % date, "corrections", "ledger_day",
+            "sha256=%s" % ledger["sha256"], "ledger_day.ndjson")
+        if (late.get("key") != expected_late
+                or late.get("logical_source_key") != _join_key(
+                    "warehouse", "corrections", "date=%s" % date,
+                    "late_rows.ndjson")
+                or ledger.get("key") != expected_ledger
+                or ledger.get("logical_source_key")
+                != "warehouse/corrections/ledger_day.ndjson"
+                or late.get("version_resolution")
+                != "DATE_SCOPED_CURRENT_EXACT"
+                or ledger.get("version_resolution")
+                != "WRITE_ONCE_CONTENT_ADDRESSED_EXACT"):
+            raise ReceiptError("AUX_SET_INVALID", "corrections keys invalid")
+        late_payload = late["_local_payload"]
+        ledger_payload = ledger["_local_payload"]
+        ledger_projection, ledger_rows = _ledger_projection(ledger_payload, date)
+        if ledger_projection != ledger_payload:
+            raise ReceiptError("AUX_SET_INVALID", "ledger is not date-exact")
+        _validate_correction_pair(late_payload, ledger_rows, date)
+
+    capture = by_family.get("capture_gap_receipt", [])
+    if len(capture) != 1:
+        raise ReceiptError("AUX_SET_INVALID", "capture receipt missing")
+    expected_capture = _join_key(
+        prefix, "control", "quality", "v1", "date=%s" % date,
+        "capture_gap_receipt.json")
+    if (capture[0].get("key") != expected_capture
+            or capture[0].get("logical_source_key") != _join_key(
+                "control", "quality", "v1", "date=%s" % date,
+                "capture_gap_receipt.json")
+            or capture[0].get("source_kind") != "capture_gap_receipt"
+            or capture[0].get("storage_mode") != "LOCAL_FROZEN_BACKFILL"):
+        raise ReceiptError("AUX_SET_INVALID", "capture receipt key invalid")
+    capture_payload = capture[0]["_local_payload"]
+    try:
+        capture_obj = json.loads(capture_payload)
+    except ValueError as exc:
+        raise ReceiptError("AUX_SET_INVALID", str(exc))
+    valid, reason = _validate_capture_receipt(capture_obj, seal, date)
+    if not valid:
+        raise ReceiptError("AUX_SET_INVALID", reason)
+
+    l2_required = any(row.get("table") == "orderbooks_full"
+                      for row in seal.get("archive_file_stats", []))
+    l2 = by_family.get("l2_quality", [])
+    if len(l2) != int(l2_required):
+        raise ReceiptError("AUX_SET_INVALID", "L2 receipt count mismatch")
+    if l2:
+        expected_l2 = _join_key(
+            prefix, "control", "quality", "v1", "date=%s" % date,
+            "l2_gaps.json")
+        if (l2[0].get("key") != expected_l2
+                or l2[0].get("logical_source_key") != _join_key(
+                    "control", "quality", "v1", "date=%s" % date,
+                    "l2_gaps.json")
+                or l2[0].get("source_kind") != "l2_quality_receipt"
+                or l2[0].get("storage_mode")
+                != "LOCAL_FROZEN_BACKFILL"):
+            raise ReceiptError("AUX_SET_INVALID", "L2 receipt key invalid")
+        try:
+            import research_release
+            l2_obj = json.loads(l2[0]["_local_payload"])
+            quality, reason = research_release.validate_l2_receipt(
+                l2_obj, seal, date)
+        except Exception as exc:
+            raise ReceiptError("AUX_SET_INVALID", str(exc))
+        if quality is None:
+            raise ReceiptError("AUX_SET_INVALID", reason)
+    reader.assert_stable()
+    reader.close()
+    return descriptor, enriched
+
+
+def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
+                            quality_dir, aux_bundle):
+    """Build one frozen local inventory; this function performs no S3 call."""
+    if not bucket or "/" in bucket:
+        raise ReceiptError("INVALID_BUCKET", repr(bucket))
+    prefix = _safe_rel(prefix.strip("/"), "canonical prefix")
+    (seal, binding, _manifest_payload, manifest_digest, _manifest_rows,
+     raw_proofs, fact_proofs) = _authoritative_day_inputs(
+         date, raw_root, warehouse_root)
+    seal_sha = binding["sha256"]
 
     objects = []
     seen = {"physical": set(), "logical": set()}
@@ -597,23 +1930,6 @@ def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
         "manifest_date_sha256": manifest_digest,
     })
 
-    _add_bytes_object(
-        objects, seen, bucket=bucket,
-        key=_join_key(prefix, "warehouse", "manifest.csv"),
-        logical="warehouse/manifest.csv", kind="warehouse_manifest",
-        date=date, payload=manifest_payload, seal_sha=seal_sha,
-        family="manifest_date_projection",
-        evidence_binding={"manifest_date_sha256": manifest_digest},
-        mutable_source=True,
-        attestation_class="SEAL_PROJECTION_BOUND",
-        durability_scope=True, research_candidate=False,
-        exposure_policy="CONTROL_PROVENANCE_ONLY",
-        version_resolution="CURRENT_AT_CUTOFF")
-    families.append(_family(
-        "manifest_date_projection", "REQUIRED_CORE",
-        "warehouse_common.manifest_date_sha256", 1, 1,
-        "PRESENT_VERIFIED", semantic_sha256=manifest_digest))
-
     dim_root = os.path.join(warehouse_root, "dim", "snapshots",
                             "date=%s" % date)
     dim_present = 0
@@ -641,169 +1957,73 @@ def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
         else "INCOMPLETE",
         "NONE" if dim_present == len(DIM_REQUIRED) else "DIM_FILES_MISSING"))
 
-    catalog_root = os.path.join(warehouse_root, "catalog")
-    catalog_present = 0
-    for rel in CATALOG_REQUIRED + CATALOG_OPTIONAL:
-        path = os.path.join(catalog_root, *rel.split("/"))
-        if not os.path.isfile(path):
-            continue
-        if rel in CATALOG_REQUIRED:
-            catalog_present += 1
-        _add_local_file(
-            objects, seen, bucket=bucket,
-            key=_join_key(prefix, "warehouse", "catalog", rel),
-            logical=_join_key("warehouse", "catalog", rel),
-            kind="catalog", date=date, seal_sha=None, path=path,
-            family="catalog_at_cutoff", mutable=True,
+    _descriptor, auxiliary = load_auxiliary_set(
+        aux_bundle, date, bucket, prefix, seal, seal_sha)
+    aux_by_family = {}
+    for row in auxiliary:
+        aux_by_family.setdefault(row["family"], []).append(row)
+        obj = _entry(
+            row["bucket"], row["key"], row["logical_source_key"],
+            row["source_kind"], row["date"], row["size"], row["sha256"],
+            seal_sha, table=row.get("table"), channel=row.get("channel"),
+            local_path=row.get("_local_path"),
+            local_payload=row.get("_local_payload"),
+            evidence_binding=row.get("evidence_binding"),
+            mutable_source=False, required=True, family=row["family"],
             attestation_class="PUBLICATION_CUTOFF_FROZEN",
-            durability_scope=True, research_candidate=True,
-            exposure_policy="PENDING_ELIGIBILITY_TAG",
-            version_resolution="CURRENT_AT_CUTOFF")
+            durability_scope=True,
+            research_candidate=row["research_candidate"],
+            exposure_policy=row["exposure_policy"],
+            version_resolution=row["version_resolution"],
+            canonical_source=row["canonical_source"],
+            expected_version_id=row.get("expected_version_id"),
+            expected_last_modified_utc=row.get(
+                "source_last_modified_utc"))
+        _add_unique(objects, seen, obj)
+
+    families.append(_family(
+        "manifest_date_projection", "REQUIRED_CORE",
+        "date-only seal-bound manifest projection", 1,
+        len(aux_by_family.get("manifest_date_projection", [])),
+        "PRESENT_VERIFIED", semantic_sha256=manifest_digest))
+    source_rows = aux_by_family.get("catalog_cutoff_evidence", [])
+    families.append(_family(
+        "catalog_cutoff_evidence", "REQUIRED_RESEARCH",
+        "exact immutable v2 manifest authenticating cutoff and catalog bytes",
+        1, len(source_rows),
+        "PRESENT_VERIFIED" if len(source_rows) == 1 else "INCOMPLETE",
+        "NONE" if len(source_rows) == 1 else "SOURCE_MANIFEST_MISSING"))
+    catalog_rows = aux_by_family.get("catalog_at_cutoff", [])
     families.append(_family(
         "catalog_at_cutoff", "REQUIRED_RESEARCH",
-        "fixed catalog allowlist at cutoff", len(CATALOG_REQUIRED),
-        catalog_present,
-        "PRESENT_VERIFIED" if catalog_present == len(CATALOG_REQUIRED)
-        else "INCOMPLETE",
-        "NONE" if catalog_present == len(CATALOG_REQUIRED)
-        else "CATALOG_FILES_MISSING"))
-
-    late_path = os.path.join(
-        warehouse_root, "corrections", "date=%s" % date,
-        "late_rows.ndjson")
-    ledger_path = os.path.join(
-        warehouse_root, "corrections", "ledger.ndjson")
-    late_payload = _freeze_file(late_path)[0]         if os.path.isfile(late_path) else None
-    ledger_payload = _freeze_file(ledger_path)[0]         if os.path.isfile(ledger_path) else None
-    ledger_projection, ledger_rows = (
-        _ledger_projection(ledger_payload, date)
-        if ledger_payload is not None else (b"", []))
-    late_count = (_count_ndjson(late_payload, "late_rows")
-                  if late_payload is not None else 0)
-    ledger_count = 0
-    ledger_valid = True
-    for row in ledger_rows:
-        n_rows = row.get("n_rows")
-        if (row.get("event") != "LATE_FACT_DIVERTED_TO_CORRECTIONS"
-                or not isinstance(n_rows, int) or isinstance(n_rows, bool)
-                or n_rows < 0):
-            ledger_valid = False
-            break
-        ledger_count += n_rows
-    corrections_valid = ledger_valid and late_count == ledger_count
-    ledger_day_sha = hashlib.sha256(ledger_projection).hexdigest()
-
-    if late_payload is not None:
-        _add_bytes_object(
-            objects, seen, bucket=bucket,
-            key=_join_key(prefix, "warehouse", "corrections",
-                          "date=%s" % date, "late_rows.ndjson"),
-            logical=_join_key("warehouse", "corrections",
-                              "date=%s" % date, "late_rows.ndjson"),
-            kind="correction", date=date, payload=late_payload,
-            seal_sha=None, family="corrections_at_cutoff",
-            evidence_binding={"ledger_day_sha256": ledger_day_sha},
-            mutable_source=True,
-            attestation_class="PUBLICATION_CUTOFF_FROZEN",
-            durability_scope=True, research_candidate=True,
-            exposure_policy="PENDING_ELIGIBILITY_TAG",
-            version_resolution="CURRENT_AT_CUTOFF")
-    if ledger_rows:
-        _add_bytes_object(
-            objects, seen, bucket=bucket,
-            key=_join_key(prefix, "warehouse", "corrections",
-                          "ledger.ndjson"),
-            logical="warehouse/corrections/ledger.ndjson",
-            kind="corrections_ledger", date=date, payload=ledger_payload,
-            seal_sha=None, family="corrections_at_cutoff",
-            evidence_binding={"ledger_day_sha256": ledger_day_sha},
-            mutable_source=True,
-            attestation_class="PUBLICATION_CUTOFF_FROZEN",
-            durability_scope=True, research_candidate=False,
-            exposure_policy="CONTROL_PROVENANCE_ONLY",
-            version_resolution="CURRENT_AT_CUTOFF")
-    corr_count = int(late_payload is not None) + int(bool(ledger_rows))
-    corr_state = ("INVALID" if not corrections_valid else
-                  "PRESENT_VERIFIED" if corr_count else "NOT_APPLICABLE")
+        "v2-matched exact canonical versions current at authenticated cutoff",
+        len(catalog_rows), len(catalog_rows), "PRESENT_VERIFIED",
+        semantic_sha256=canonical_sha256([{
+            "key": row["key"], "VersionId": row["expected_version_id"],
+            "size": row["size"], "sha256": row["sha256"],
+        } for row in catalog_rows])))
+    corr_rows = aux_by_family.get("corrections_at_cutoff", [])
+    corr_state = "PRESENT_VERIFIED" if corr_rows else "NOT_APPLICABLE"
     families.append(_family(
         "corrections_at_cutoff", "CONDITIONAL",
-        "date partition plus date-filtered ledger", corr_count, corr_count,
-        corr_state,
-        "CORRECTIONS_LEDGER_MISMATCH" if not corrections_valid else "NONE",
-        semantic_sha256=ledger_day_sha))
-
-    capture_path = os.path.join(
-        quality_dir, "capture_gap_receipt_%s.json" % date)
-    capture_valid = False
-    capture_reason = "LOCAL_CAPTURE_RECEIPT_ABSENT"
-    if os.path.isfile(capture_path):
-        capture_payload, _ = _freeze_file(capture_path)
-        try:
-            capture_receipt = json.loads(capture_payload)
-        except ValueError as exc:
-            raise ReceiptError("QUALITY_INVALID", str(exc))
-        capture_valid, capture_reason = _validate_capture_receipt(
-            capture_receipt, seal, date)
-        if capture_valid:
-            _add_bytes_object(
-                objects, seen, bucket=bucket,
-                key=_join_key(prefix, "control", "quality", "v1",
-                              "date=%s" % date,
-                              "capture_gap_receipt.json"),
-                logical=_join_key("control", "quality", "v1",
-                                  "date=%s" % date,
-                                  "capture_gap_receipt.json"),
-                kind="capture_gap_receipt", date=date,
-                payload=capture_payload, seal_sha=None,
-                family="capture_gap_receipt",
-                evidence_binding="sealed firehose inventory",
-                attestation_class="PUBLICATION_CUTOFF_FROZEN",
-                durability_scope=True, research_candidate=True,
-                exposure_policy="PENDING_ELIGIBILITY_TAG",
-                version_resolution="WRITE_ONCE_CURRENT",
-                canonical_source="PLANNED_SEALED_DAY_CONTROL_SYNC")
+        "frozen late_rows plus date-only ledger", len(corr_rows),
+        len(corr_rows), corr_state,
+        semantic_sha256=canonical_sha256([{
+            "key": row["key"], "size": row["size"],
+            "sha256": row["sha256"],
+        } for row in corr_rows])))
     families.append(_family(
         "capture_gap_receipt", "REQUIRED_RESEARCH",
-        "sealed firehose inventory", 1, int(capture_valid),
-        "PRESENT_VERIFIED" if capture_valid else "INCOMPLETE",
-        "NONE" if capture_valid else capture_reason))
-
+        "sealed firehose inventory", 1,
+        len(aux_by_family.get("capture_gap_receipt", [])),
+        "PRESENT_VERIFIED"))
     l2_required = any(proof.get("table") == "orderbooks_full"
                       for proof in fact_proofs)
-    l2_path = os.path.join(quality_dir, "l2_gaps_%s.json" % date)
-    l2_valid = False
-    l2_reason = "LOCAL_L2_RECEIPT_ABSENT"
-    if os.path.isfile(l2_path):
-        l2_payload, _ = _freeze_file(l2_path)
-        try:
-            l2_receipt = json.loads(l2_payload)
-            import research_release
-            l2_quality, l2_reason = research_release.validate_l2_receipt(
-                l2_receipt, seal, date)
-        except Exception as exc:
-            raise ReceiptError("QUALITY_INVALID", str(exc))
-        l2_valid = l2_quality is not None
-        if l2_valid:
-            _add_bytes_object(
-                objects, seen, bucket=bucket,
-                key=_join_key(prefix, "control", "quality", "v1",
-                              "date=%s" % date, "l2_gaps.json"),
-                logical=_join_key("control", "quality", "v1",
-                                  "date=%s" % date, "l2_gaps.json"),
-                kind="l2_quality_receipt", date=date, payload=l2_payload,
-                seal_sha=None, family="l2_quality",
-                evidence_binding="sealed l2 inventory",
-                attestation_class="PUBLICATION_CUTOFF_FROZEN",
-                durability_scope=True, research_candidate=True,
-                exposure_policy="PENDING_ELIGIBILITY_TAG",
-                version_resolution="WRITE_ONCE_CURRENT",
-                canonical_source="PLANNED_SEALED_DAY_CONTROL_SYNC")
-    l2_state = ("PRESENT_VERIFIED" if l2_valid else
-                "INCOMPLETE" if l2_required else "NOT_APPLICABLE")
+    l2_count = len(aux_by_family.get("l2_quality", []))
     families.append(_family(
         "l2_quality", "CONDITIONAL", "required when L2 facts exist",
-        int(l2_required), int(l2_valid), l2_state,
-        "NONE" if l2_valid or not l2_required else l2_reason))
+        int(l2_required), l2_count,
+        "PRESENT_VERIFIED" if l2_count else "NOT_APPLICABLE"))
 
     objects.sort(key=lambda obj: (obj["logical_source_key"], obj["key"]))
     binding["families"] = _finalize_families(families, objects)
@@ -921,15 +2141,98 @@ class AwsCliS3Client:
         except ValueError as exc:
             raise ReceiptError("S3_INVALID_RESPONSE", str(exc))
 
-    def head(self, bucket, key):
-        return self._run(["s3api", "head-object", "--bucket", bucket,
-                          "--key", key, "--checksum-mode", "ENABLED",
-                          "--output", "json"])
+    def head(self, bucket, key, version_id=None):
+        args = ["s3api", "head-object", "--bucket", bucket,
+                "--key", key]
+        if version_id is not None:
+            args += ["--version-id", version_id]
+        args += ["--checksum-mode", "ENABLED", "--output", "json"]
+        return self._run(args)
 
     def get_exact(self, bucket, key, version_id, dest):
         return self._run(["s3api", "get-object", "--bucket", bucket,
                           "--key", key, "--version-id", version_id,
                           "--checksum-mode", "ENABLED", dest])
+
+    def list_versions(self, bucket, key):
+        return self._run([
+            "s3api", "list-object-versions", "--bucket", bucket,
+            "--prefix", key, "--output", "json",
+        ])
+
+
+def _current_version_at_cutoff(history, key, cutoff_utc):
+    if not isinstance(history, dict):
+        raise ReceiptError("CUTOFF_HISTORY_INVALID",
+                           "version history is not an object")
+    if history.get("IsTruncated") is True:
+        raise ReceiptError("CUTOFF_HISTORY_INCOMPLETE",
+                           "version history pagination is incomplete")
+    cutoff = _parse_utc(cutoff_utc, "catalog authenticated cutoff")
+    candidates = []
+    for field, kind in (("Versions", "VERSION"),
+                        ("DeleteMarkers", "DELETE_MARKER")):
+        rows = history.get(field) or []
+        if not isinstance(rows, list):
+            raise ReceiptError("CUTOFF_HISTORY_INVALID",
+                               "%s is not a list" % field)
+        for row in rows:
+            if not isinstance(row, dict) or row.get("Key") != key:
+                continue
+            version_id = row.get("VersionId")
+            if (not isinstance(version_id, str) or not version_id.strip()
+                    or version_id.lower() == "null"):
+                raise ReceiptError("VERSIONING_REQUIRED",
+                                   "%s history has a null VersionId" % key)
+            modified = _parse_utc(
+                row.get("LastModified"), "%s history LastModified" % key)
+            if modified <= cutoff:
+                candidates.append((modified, kind, version_id))
+    if not candidates:
+        raise ReceiptError("CUTOFF_HISTORY_MISSING",
+                           "%s has no version at authenticated cutoff" % key)
+    latest_time = max(row[0] for row in candidates)
+    winners = [row for row in candidates if row[0] == latest_time]
+    if len(winners) != 1:
+        raise ReceiptError(
+            "CUTOFF_HISTORY_AMBIGUOUS",
+            "%s has %d events at the cutoff-current timestamp" %
+            (key, len(winners)))
+    _modified, kind, version_id = winners[0]
+    if kind == "DELETE_MARKER":
+        raise ReceiptError("CUTOFF_DELETE_MARKER",
+                           "%s was deleted at authenticated cutoff" % key)
+    return version_id
+
+
+def _only_original_version(history, key):
+    """Prove a write-once source MANIFEST has one version and no deletion."""
+    if not isinstance(history, dict):
+        raise ReceiptError("SOURCE_HISTORY_INVALID",
+                           "source manifest history is not an object")
+    if history.get("IsTruncated") is True:
+        raise ReceiptError("SOURCE_HISTORY_INCOMPLETE",
+                           "source manifest history is truncated")
+    versions = history.get("Versions") or []
+    deletes = history.get("DeleteMarkers") or []
+    if not isinstance(versions, list) or not isinstance(deletes, list):
+        raise ReceiptError("SOURCE_HISTORY_INVALID",
+                           "source manifest history lists are malformed")
+    exact_versions = [row for row in versions
+                      if isinstance(row, dict) and row.get("Key") == key]
+    exact_deletes = [row for row in deletes
+                     if isinstance(row, dict) and row.get("Key") == key]
+    if len(exact_versions) != 1 or exact_deletes:
+        raise ReceiptError(
+            "SOURCE_MANIFEST_NOT_IMMUTABLE",
+            "%s has %d versions and %d delete markers" %
+            (key, len(exact_versions), len(exact_deletes)))
+    version_id = exact_versions[0].get("VersionId")
+    if (not isinstance(version_id, str) or not version_id.strip()
+            or version_id.lower() == "null"):
+        raise ReceiptError("VERSIONING_REQUIRED",
+                           "%s source history has a null VersionId" % key)
+    return version_id
 
 
 def verify_inventory(objects, client, temp_root, metadata_only=False,
@@ -946,12 +2249,54 @@ def verify_inventory(objects, client, temp_root, metadata_only=False,
             continue
         label = "%s/%s" % (obj["bucket"], obj["key"])
         try:
-            head = client.head(obj["bucket"], obj["key"])
+            expected_version = obj.get("_expected_version_id")
+            if obj.get("family") == "catalog_cutoff_evidence":
+                resolved = _only_original_version(
+                    client.list_versions(obj["bucket"], obj["key"]),
+                    obj["key"])
+                if resolved != expected_version:
+                    raise ReceiptError(
+                        "SOURCE_VERSION_MISMATCH",
+                        "%s original version is %s, binding selected %s" %
+                        (label, resolved, expected_version))
+            elif obj.get("family") == "catalog_at_cutoff":
+                evidence = obj.get("evidence_binding")
+                cutoff_utc = (evidence.get("cutoff_utc")
+                              if isinstance(evidence, dict) else None)
+                resolved = _current_version_at_cutoff(
+                    client.list_versions(obj["bucket"], obj["key"]),
+                    obj["key"], cutoff_utc)
+                if resolved != expected_version:
+                    raise ReceiptError(
+                        "CUTOFF_VERSION_MISMATCH",
+                        "%s was %s at cutoff, binding selected %s" %
+                        (label, resolved, expected_version))
+            head = client.head(obj["bucket"], obj["key"], expected_version)
             version_id = head.get("VersionId") or head.get("version_id")
             if (not isinstance(version_id, str) or not version_id.strip()
                     or version_id.lower() == "null"):
                 raise ReceiptError("VERSIONING_REQUIRED",
                                    "%s has no non-null VersionId" % label)
+            if expected_version is not None and version_id != expected_version:
+                raise ReceiptError(
+                    "VERSION_ID_MISMATCH",
+                    "%s returned VersionId %s, expected %s" %
+                    (label, version_id, expected_version))
+            expected_modified = obj.get("_expected_last_modified_utc")
+            if expected_modified is not None:
+                observed_modified = (head.get("LastModified")
+                                     or head.get("last_modified_utc"))
+                if observed_modified is None:
+                    raise ReceiptError(
+                        "LAST_MODIFIED_REQUIRED",
+                        "%s returned no LastModified" % label)
+                if _parse_utc(observed_modified, "S3 LastModified") != \
+                        _parse_utc(expected_modified,
+                                   "expected LastModified"):
+                    raise ReceiptError(
+                        "LAST_MODIFIED_MISMATCH",
+                        "%s returned LastModified %s, expected %s" %
+                        (label, observed_modified, expected_modified))
             content_length = head.get("ContentLength")
             if content_length is None:
                 content_length = head.get("size")
@@ -1059,6 +2404,12 @@ def _final_seal_binding(seal_binding, objects):
                 raise ReceiptError(
                     "SEAL_BINDING_MISMATCH",
                     "%s is not bound to the frozen seal" % item.get("key"))
+        elif attestation == "PUBLICATION_CUTOFF_FROZEN":
+            if (item.get("seal_binding") is not None
+                    and item.get("seal_binding") != obj.get("sha256")):
+                raise ReceiptError(
+                    "SEAL_BINDING_MISMATCH",
+                    "%s carries a different seal binding" % item.get("key"))
         elif item.get("seal_binding") is not None:
             raise ReceiptError(
                 "SEAL_BINDING_MISMATCH",
@@ -1186,7 +2537,12 @@ def _default_output_root():
                         "shadow")
 
 
-def _add_common(ap):
+def _default_aux_root():
+    return os.path.join(wc.ROOT, "work", "live", "canonical_receipts",
+                        "auxiliary")
+
+
+def _add_sources(ap):
     ap.add_argument("--date", required=True)
     ap.add_argument("--bucket", default="kalshi-vault-ritcardo")
     ap.add_argument("--prefix", default="ec2")
@@ -1194,12 +2550,22 @@ def _add_common(ap):
     ap.add_argument("--warehouse-root")
     ap.add_argument("--quality-dir",
                     default=os.path.join(wc.ROOT, "work", "event_packs"))
+
+
+def _add_common(ap):
+    _add_sources(ap)
+    ap.add_argument("--aux-bundle", required=True)
     ap.add_argument("--output-root", default=_default_output_root())
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="command", required=True)
+    freeze = sub.add_parser(
+        "freeze-aux", help="freeze small date controls plus catalog bindings")
+    _add_sources(freeze)
+    freeze.add_argument("--catalog-bindings", required=True)
+    freeze.add_argument("--aux-root", default=_default_aux_root())
     plan = sub.add_parser("plan", help="build the desired inventory only")
     _add_common(plan)
     shadow = sub.add_parser(
@@ -1209,20 +2575,98 @@ def main(argv=None):
     shadow.add_argument("--metadata-only", action="store_true")
     shadow.add_argument("--probe-limit", type=int)
     args = ap.parse_args(argv)
+    checked_at = _now()
+    output_root = (os.path.abspath(args.output_root)
+                   if args.command in ("plan", "shadow") else None)
+    status_path = (pathlib.Path(output_root) / ("date=%s" % args.date)
+                   / "SHADOW_STATUS.json"
+                   if args.command == "shadow" else None)
+
+    if args.command == "shadow":
+        try:
+            _validate_date(args.date)
+            write_atomic_json(status_path, {
+                "schema_version": SHADOW_STATUS_SCHEMA,
+                "state": "SHADOW_RUNNING",
+                "date": args.date,
+                "checked_at_utc": checked_at,
+                "inventory_objects": 0,
+                "inventory_bytes": 0,
+                "verified_objects": 0,
+                "complete": False,
+                "content_verification_complete": False,
+                "metadata_only": bool(args.metadata_only),
+                "probe_limit": args.probe_limit,
+                "failures": [],
+                "authority": "SHADOW_LOCAL_ONLY",
+                "s3_writes": 0,
+                "tag_writes": 0,
+                "prune_changes": 0,
+            })
+        except (ReceiptError, OSError) as exc:
+            print("BLOCKED_INTEGRITY unable to invalidate shadow status: %s" %
+                  exc, file=sys.stderr)
+            return 2
+
     cfg = wc.load_config()
     raw_root = os.path.abspath(args.raw_root or cfg["raw_root"])
     warehouse_root = os.path.abspath(
         args.warehouse_root or cfg["warehouse_root"])
     quality_dir = os.path.abspath(args.quality_dir)
-    output_root = os.path.abspath(args.output_root)
-    checked_at = _now()
+
+    if args.command == "freeze-aux":
+        try:
+            aux_path, descriptor = freeze_auxiliary_set(
+                args.date, args.bucket, args.prefix, raw_root, warehouse_root,
+                quality_dir, os.path.abspath(args.aux_root),
+                os.path.abspath(args.catalog_bindings))
+        except ReceiptError as exc:
+            print("BLOCKED_INTEGRITY %s" % exc, file=sys.stderr)
+            return 2
+        print(json.dumps({
+            "state": "AUXILIARY_SET_FROZEN",
+            "date": args.date,
+            "path": aux_path,
+            "aux_set_sha256": descriptor["aux_set_sha256"],
+            "objects": len(descriptor["objects"]),
+            "local_bytes": sum(
+                row["size"] for row in descriptor["objects"]
+                if row["storage_mode"] == "LOCAL_FROZEN_BACKFILL"),
+            "catalog_bytes_copied": 0,
+            "s3_writes": 0,
+        }, sort_keys=True))
+        return 0
 
     try:
         seal_binding, objects = build_desired_inventory(
             args.date, args.bucket, args.prefix, raw_root, warehouse_root,
-            quality_dir)
+            quality_dir, os.path.abspath(args.aux_bundle))
     except ReceiptError as exc:
         print("BLOCKED_INTEGRITY %s" % exc, file=sys.stderr)
+        if args.command == "shadow":
+            write_atomic_json(status_path, {
+                "schema_version": SHADOW_STATUS_SCHEMA,
+                "state": "BLOCKED_INTEGRITY",
+                "date": args.date,
+                "checked_at_utc": checked_at,
+                "inventory_objects": 0,
+                "inventory_bytes": 0,
+                "verified_objects": 0,
+                "complete": False,
+                "content_verification_complete": False,
+                "metadata_only": bool(args.metadata_only),
+                "probe_limit": args.probe_limit,
+                "failures": [{
+                    "bucket": None, "key": None,
+                    "family": "local_precheck",
+                    "canonical_source": None,
+                    "code": exc.code, "detail": exc.detail,
+                }],
+                "authority": "SHADOW_LOCAL_ONLY",
+                "s3_writes": 0,
+                "tag_writes": 0,
+                "prune_changes": 0,
+            })
         return 2
 
     if args.command == "plan":
@@ -1332,8 +2776,6 @@ def main(argv=None):
         "tag_writes": 0,
         "prune_changes": 0,
     }
-    status_path = pathlib.Path(output_root) / ("date=%s" % args.date) / \
-        "SHADOW_STATUS.json"
     write_atomic_json(status_path, status)
     print(json.dumps({"state": state, "status": str(status_path),
                       "receipt": str(receipt_path) if receipt_path else None,
