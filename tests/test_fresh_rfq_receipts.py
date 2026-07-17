@@ -1379,6 +1379,24 @@ def test_zero_dq_mapping_does_not_upgrade_research_state(monkeypatch):
     assert validate_overlay(built, auth, raw, identity, inputs) == built
 
 
+def test_complete_zero_rfq_day_is_empty_not_corrupt_or_ready(monkeypatch):
+    auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(
+        monkeypatch)
+    inputs = market_mapping_inputs(rfq_requests=[])
+    built = build_overlay(auth, receipts, raw, identity, evidence, inputs)
+    mapping = built["market_mapping"]
+
+    assert mapping["rfq_request_count"] == 0
+    assert mapping["mapping_rows"] == []
+    assert mapping["dq_ledger"] == []
+    assert mapping["all_mapping_components_retained"] is True
+    assert mapping["research_eligible"] is False
+    assert mapping["research_ready"] is False
+    assert built["research_eligible"] is False
+    assert built["research_ready"] is False
+    assert validate_overlay(built, auth, raw, identity, inputs) == built
+
+
 def test_overlay_rejects_whole_mapping_spliced_from_other_valid_inputs(
         monkeypatch):
     auth, receipts, _manifest, raw, identity, evidence = overlay_inputs(

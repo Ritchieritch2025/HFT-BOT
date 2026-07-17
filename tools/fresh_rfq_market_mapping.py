@@ -182,8 +182,8 @@ def _normalize_requests(
     value: Any,
     analysis_date: str,
 ) -> list[dict[str, Any]]:
-    if not isinstance(value, list) or not value:
-        _fail("RFQ_INPUT_INVALID", "rfq_requests must be a non-empty list")
+    if not isinstance(value, list):
+        _fail("RFQ_INPUT_INVALID", "rfq_requests must be a list")
     requests: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, raw in enumerate(value):

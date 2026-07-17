@@ -432,8 +432,20 @@ def test_cross_date_universe_is_rejected(universe_name: str) -> None:
     )
 
 
-def test_empty_request_input_is_rejected() -> None:
-    _assert_code("RFQ_INPUT_INVALID", _build, rfq_requests=[])
+def test_empty_request_input_is_complete_but_never_research_ready() -> None:
+    result = _build(rfq_requests=[])
+
+    assert result["rfq_request_count"] == 0
+    assert result["mapping_input_ticker_count"] == 0
+    assert result["mapping_rows"] == []
+    assert result["mapping_row_set_sha256"] == mapping.canonical_sha256([])
+    assert result["ignored_combo_top_levels"] == []
+    assert result["dq_ledger"] == []
+    assert result["dq_count"] == 0
+    assert result["all_mapping_components_retained"] is True
+    assert result["research_eligible"] is False
+    assert result["research_ready"] is False
+    assert _validate(result, rfq_requests=[]) == result
 
 
 def test_extra_request_field_is_rejected_without_event_fallback() -> None:
