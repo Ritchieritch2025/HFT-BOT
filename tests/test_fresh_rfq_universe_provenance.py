@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import duckdb
 import pytest
@@ -141,6 +144,58 @@ def _inputs(
     }
 
 
+class _ExactPathReader:
+    def __init__(
+        self,
+        root: Path,
+        bodies: dict[str, bytes],
+        mutations: dict[str, str] | None = None,
+    ) -> None:
+        self.root = root
+        self.root.mkdir(mode=0o700)
+        os.chmod(self.root, 0o700)
+        self.bodies = bodies
+        self.mutations = mutations or {}
+        self.calls: list[dict] = []
+        self.active = 0
+        self.max_active = 0
+        self.current_path: Path | None = None
+
+    @contextmanager
+    def open_exact(self, identity: dict):
+        self.calls.append(copy.deepcopy(identity))
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        path = self.root / f"reader-{len(self.calls):08d}.parquet"
+        body = self.bodies[identity["key"]]
+        mutation = self.mutations.get(identity["key"])
+        if mutation == "size":
+            body += b"x"
+        elif mutation == "sha":
+            body = bytes([body[0] ^ 1]) + body[1:]
+        path.write_bytes(body)
+        path.chmod(0o600)
+        self.current_path = path
+        try:
+            yield SimpleNamespace(path=path)
+        finally:
+            path.unlink(missing_ok=True)
+            self.current_path = None
+            self.active -= 1
+
+
+def _reader_inputs(inputs: dict, tmp_path: Path):
+    body_free = copy.deepcopy(inputs)
+    bodies: dict[str, bytes] = {}
+    for family in provenance.FAMILIES:
+        rows = body_free[f"{family}_objects"]
+        for row in rows:
+            bodies[row["key"]] = row.pop("body")
+    reader = _ExactPathReader(tmp_path / "reader", bodies)
+    body_free["open_exact"] = reader.open_exact
+    return body_free, reader
+
+
 def _build(tmp_path: Path, **overrides) -> dict:
     inputs = _inputs(tmp_path)
     inputs.update(overrides)
@@ -195,6 +250,202 @@ def test_real_parquet_happy_path_is_body_free_and_mapping_compatible(tmp_path):
     assert result["aws_write_authorized"] is False
     assert result["research_ready"] is False
     assert provenance.validate_universe_provenance(result, **inputs) == result
+
+
+def test_bounded_reader_is_exactly_equivalent_and_never_overlaps(tmp_path):
+    inputs = _inputs(tmp_path)
+    expected = provenance.build_universe_provenance(**inputs)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+
+    result = provenance.build_universe_provenance_from_reader(**reader_inputs)
+
+    assert result == expected
+    assert reader.max_active == 1
+    assert reader.active == 0
+    assert len(reader.calls) == result["source_object_count"]
+    assert all(set(row) == {
+        "bucket", "key", "version_id", "size", "sha256"
+    } for row in reader.calls)
+    assert list(reader.root.iterdir()) == []
+    assert result["source_objects_exact_get_verified"] is False
+    assert result["exact_get_attestation_state"] == (
+        "NOT_ATTESTED_BY_LOCAL_BODY_VERIFIER"
+    )
+    assert result["aws_read_performed_by_module"] is False
+    assert result["aws_write_authorized"] is False
+
+    assert provenance.validate_universe_provenance_from_reader(
+        result, **reader_inputs
+    ) == result
+    assert reader.max_active == 1
+    assert reader.active == 0
+    assert len(reader.calls) == 2 * result["source_object_count"]
+    assert list(reader.root.iterdir()) == []
+
+
+@pytest.mark.parametrize("mutation", ["missing", "wrong_version", "body_field"])
+def test_reader_validates_both_complete_identity_sets_before_io(
+    tmp_path, mutation
+):
+    inputs = _inputs(tmp_path)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+    if mutation == "missing":
+        reader_inputs["orderbooks_full_objects"].pop()
+        code = "BASE_FAMILY_SET_MISMATCH"
+    elif mutation == "wrong_version":
+        reader_inputs["orderbooks_full_objects"][0]["version_id"] += "-wrong"
+        code = "BASE_FAMILY_SET_MISMATCH"
+    else:
+        reader_inputs["orderbooks_full_objects"][0]["body"] = b"forbidden"
+        code = "SCHEMA_FIELDS"
+
+    _assert_code(
+        code,
+        provenance.build_universe_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert reader.calls == []
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "code"),
+    [("size", "READER_SIZE_MISMATCH"), ("sha", "READER_SHA_MISMATCH")],
+)
+def test_reader_stream_rechecks_size_and_sha(tmp_path, mutation, code):
+    inputs = _inputs(tmp_path)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+    first = reader_inputs["orderbooks_l1_objects"][0]
+    reader.mutations[first["key"]] = mutation
+
+    _assert_code(
+        code,
+        provenance.build_universe_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert reader.max_active == 1
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
+
+
+def test_reader_cannot_suppress_failed_object_verification(tmp_path):
+    inputs = _inputs(tmp_path)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+    first = reader_inputs["orderbooks_l1_objects"][0]
+    reader.mutations[first["key"]] = "sha"
+    real_open_exact = reader.open_exact
+
+    class SuppressingManager:
+        def __init__(self, manager):
+            self._manager = manager
+
+        def __enter__(self):
+            return self._manager.__enter__()
+
+        def __exit__(self, exc_type, exc, traceback):
+            self._manager.__exit__(exc_type, exc, traceback)
+            return True
+
+    def suppressing_open_exact(identity):
+        return SuppressingManager(real_open_exact(identity))
+
+    reader_inputs["open_exact"] = suppressing_open_exact
+    _assert_code(
+        "READER_VERIFICATION_INCOMPLETE",
+        provenance.build_universe_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert len(reader.calls) == 1
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
+
+
+def test_module_stage_change_during_duckdb_use_fails_and_cleans_up(
+    tmp_path, monkeypatch
+):
+    inputs = _inputs(tmp_path)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+    original = provenance._extract_object
+    changed = False
+
+    def changing_extract(connection, path, identity, analysis_date, lo, hi):
+        nonlocal changed
+        result = original(connection, path, identity, analysis_date, lo, hi)
+        if not changed:
+            with path.open("ab") as handle:
+                handle.write(b"x")
+                handle.flush()
+                os.fsync(handle.fileno())
+            changed = True
+        return result
+
+    monkeypatch.setattr(provenance, "_extract_object", changing_extract)
+    _assert_code(
+        "TEMP_FILE_CHANGED",
+        provenance.build_universe_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
+
+
+def test_reader_parent_swap_after_staging_cannot_change_duckdb_input(
+    tmp_path, monkeypatch
+):
+    inputs = _inputs(tmp_path)
+    expected = provenance.build_universe_provenance(**inputs)
+    reader_inputs, reader = _reader_inputs(inputs, tmp_path)
+    original = provenance._extract_object
+    detached_parent = tmp_path / "detached-reader-parent"
+    swapped = False
+
+    def swapping_extract(connection, path, identity, analysis_date, lo, hi):
+        nonlocal swapped
+        assert path.parent != reader.root
+        if not swapped:
+            source_path = reader.current_path
+            assert source_path is not None
+            source_name = source_path.name
+            reader.root.rename(detached_parent)
+            reader.root.mkdir(mode=0o700)
+            os.chmod(reader.root, 0o700)
+            malicious = reader.root / source_name
+            malicious.write_bytes(b"not-the-verified-parquet")
+            malicious.chmod(0o600)
+            swapped = True
+        return original(connection, path, identity, analysis_date, lo, hi)
+
+    monkeypatch.setattr(provenance, "_extract_object", swapping_extract)
+    try:
+        result = provenance.build_universe_provenance_from_reader(
+            **reader_inputs
+        )
+    finally:
+        if detached_parent.exists():
+            for residue in detached_parent.iterdir():
+                residue.unlink()
+            detached_parent.rmdir()
+
+    assert swapped is True
+    assert result == expected
+    assert reader.max_active == 1
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
+
+
+def test_reader_context_cleans_up_when_parquet_extraction_fails(tmp_path):
+    bad_inputs = _inputs(tmp_path, l1_bodies=[b"not-a-parquet-file"])
+    reader_inputs, reader = _reader_inputs(bad_inputs, tmp_path)
+
+    _assert_code(
+        "PARQUET_READ_FAILED",
+        provenance.build_universe_provenance_from_reader,
+        **reader_inputs,
+    )
+    assert reader.max_active == 1
+    assert reader.active == 0
+    assert list(reader.root.iterdir()) == []
 
 
 def test_object_input_permutation_is_deterministic(tmp_path):
