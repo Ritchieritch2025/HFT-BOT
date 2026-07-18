@@ -27,9 +27,11 @@ which decisions landed in which files, what the next session must know.
   success，随后按约 30 分钟重试新封印日期。full daily publisher timer
   仍 fail-closed disabled，因为 production 上没有 tagger credential；现有
   `vaultWriter` 对 tagger 的 `ListAccessKeys/CreateAccessKey` 均 explicit
-  denied，主机也没有 instance profile/ambient AWS identity。故这里只能
-  声称 durable receipts READY，不能虚报 eligibility tags、v3 MANIFEST 或
-  W09 canary 已完成。
+  denied，主机也没有 instance profile/ambient AWS identity。Mac 仅有的
+  `researchReader` 经 STS 验证后同样无任何 IAM 查询/创建权限；仓库批准的
+  ephemeral bootstrap 必须由 `vaultWriter` 调用 List/Create/Update/Delete
+  access key，故当前也会 fail closed。这里只能声称 durable receipts READY，
+  不能虚报 eligibility tags、v3 MANIFEST 或 W09 canary 已完成。
 - fresh RFQ cutover: generation `fresh-rfq-20260719-01`，strict T0
   `2026-07-19T00:00:00Z`；284 条旧受损对象仅作为 deny identity，旧 RFQ
   仍 `DATA_INTEGRITY_BLOCKED/no-repair`。root-owned clean runtime、precommit
