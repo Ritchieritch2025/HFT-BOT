@@ -151,6 +151,8 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert "generation-witness-intents" in service
     assert "generation-witness.lock" in service
     assert lock in service
+    assert "OnSuccess=kalshi-research-v3-durable.service" in service
+    assert "OnSuccess=kalshi-research-v3-daily.service" not in service
     assert "work/raw" in service and "work/warehouse" in service
     assert "kalshi-pipeline.service" not in "\n".join(
         line for line in service.splitlines() if not line.startswith("#"))
@@ -168,6 +170,29 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert "tagger" not in legacy.lower()
     assert "credential-broker" not in legacy.lower()
     assert "rfq" not in legacy.lower()
+
+
+def test_success_chain_only_enables_full_publisher_when_broker_is_ready():
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    durable = _text("deploy/kalshi-research-v3-durable.service")
+    dropin = _text("deploy/kalshi-research-v3-durable-on-success.conf")
+
+    assert "OnSuccess=" not in durable
+    assert "OnSuccess=kalshi-research-v3-daily.service" in dropin
+    assert "kalshi-pipeline.service" not in dropin
+    assert 'if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then' in installer
+    assert '"$IMMUTABLE_RUNTIME/deploy/' \
+           'kalshi-research-v3-durable-on-success.conf"' in installer
+    assert 'rm -f -- "$DURABLE_CHAIN_DROPIN"' in installer
+    assert 'test -f "$DURABLE_CHAIN_DROPIN"' in installer
+    assert 'test ! -e "$DURABLE_CHAIN_DROPIN"' in installer
+    assert "unmanaged durable service drop-in" in installer
+    assert "WITNESS_ON_SUCCESS" in installer
+    assert "DURABLE_ON_SUCCESS" in installer
+    assert "systemctl show" in installer
+    # Independent retry timers remain the fail-safe path after any failed edge.
+    assert "enable kalshi-research-v3-durable.timer" in installer
+    assert "enable kalshi-research-v3-daily.timer" in installer
 
 
 def test_installer_quiesces_and_installs_generation_units_before_cutover():
@@ -327,4 +352,20 @@ def test_installer_uses_immutable_release_for_all_privileged_installs():
     assert 'install -o root -g root -m 0444 "$IMMUTABLE_AUTHORIZATION"' \
         in installer
     assert '"$ROOT/deploy/' not in installer
-    assert installer.count('"$IMMUTABLE_RUNTIME/deploy/') == 9
+    immutable_deploy_installs = {
+        line.strip().split("/")[-1].rstrip('" \\')
+        for line in installer.splitlines()
+        if '"$IMMUTABLE_RUNTIME/deploy/' in line
+    }
+    assert immutable_deploy_installs == {
+        "kalshi-research-v3-daily.tmpfiles.conf",
+        "kalshi-research-v3-daily.service",
+        "kalshi-research-v3-daily.timer",
+        "kalshi-research-v3-durable.service",
+        "kalshi-research-v3-durable.timer",
+        "kalshi-canonical-generation-witness.service",
+        "kalshi-canonical-generation-witness.path",
+        "kalshi-canonical-generation-witness.timer",
+        "kalshi-canonical-generation-legacy.service",
+        "kalshi-research-v3-durable-on-success.conf",
+    }

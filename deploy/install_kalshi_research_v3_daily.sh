@@ -92,6 +92,8 @@ WITNESS_INTENTION_ROOT=/home/ubuntu/hft-bot/work/live/canonical_receipts/generat
 GENERATION_MANIFEST_ROOT=/home/ubuntu/hft-bot/work/warehouse/.publication-generations
 EPHEMERAL_TAGGER_LOCK=/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock
 ORCHESTRATOR_LOCK=/var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock
+DURABLE_CHAIN_DROPIN_DIR=/etc/systemd/system/kalshi-research-v3-durable.service.d
+DURABLE_CHAIN_DROPIN="$DURABLE_CHAIN_DROPIN_DIR/20-full-publication-on-success.conf"
 
 cleanup() {
   if [ -n "$STAGE" ] && [ -d "$STAGE" ]; then
@@ -711,15 +713,51 @@ install -o root -g root -m 0644 \
 install -o root -g root -m 0644 \
   "$IMMUTABLE_RUNTIME/deploy/kalshi-canonical-generation-legacy.service" \
   /etc/systemd/system/kalshi-canonical-generation-legacy.service
+# Witness -> durable is safe in publisher-only mode.  Durable -> full
+# publication is different: it must not exist until both the broker credential
+# and the reviewed identity evidence have made FULL_PUBLICATION_READY true.
+install -d -o root -g root -m 0755 "$DURABLE_CHAIN_DROPIN_DIR"
+unsafe_durable_dropin="$(find -P "$DURABLE_CHAIN_DROPIN_DIR" \
+  -mindepth 1 -maxdepth 1 \
+  \( ! -type f -o ! -name '20-full-publication-on-success.conf' \) \
+  -print -quit)"
+if [ -n "$unsafe_durable_dropin" ]; then
+  echo "REFUSED: unmanaged durable service drop-in: $unsafe_durable_dropin" >&2
+  exit 2
+fi
+if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then
+  install -o root -g root -m 0644 \
+    "$IMMUTABLE_RUNTIME/deploy/kalshi-research-v3-durable-on-success.conf" \
+    "$DURABLE_CHAIN_DROPIN"
+else
+  rm -f -- "$DURABLE_CHAIN_DROPIN"
+fi
 systemctl daemon-reload
+WITNESS_ON_SUCCESS="$(systemctl show \
+  kalshi-canonical-generation-witness.service -p OnSuccess --value)"
+DURABLE_ON_SUCCESS="$(systemctl show \
+  kalshi-research-v3-durable.service -p OnSuccess --value)"
+if [ "$WITNESS_ON_SUCCESS" != kalshi-research-v3-durable.service ]; then
+  echo "REFUSED: witness success edge is not exact: $WITNESS_ON_SUCCESS" >&2
+  exit 2
+fi
+if { [ "$FULL_PUBLICATION_READY" -eq 1 ] && \
+     [ "$DURABLE_ON_SUCCESS" != kalshi-research-v3-daily.service ]; } || \
+   { [ "$FULL_PUBLICATION_READY" -eq 0 ] && \
+     [ -n "$DURABLE_ON_SUCCESS" ]; }; then
+  echo "REFUSED: durable success edge disagrees with install mode: $DURABLE_ON_SUCCESS" >&2
+  exit 2
+fi
 # Durable receipt production is an independent fallback and remains enabled
 # even when full publication is eligible.  Both coordinators share the same
 # live orchestrator flock, so they cannot mutate canonical controls together.
 systemctl enable kalshi-research-v3-durable.timer
 if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then
+  test -f "$DURABLE_CHAIN_DROPIN"
   systemctl enable kalshi-research-v3-daily.timer
   INSTALL_MODE=ephemeral-full-publication
 else
+  test ! -e "$DURABLE_CHAIN_DROPIN"
   systemctl disable kalshi-research-v3-daily.timer
   INSTALL_MODE=publisher-only-durable
 fi

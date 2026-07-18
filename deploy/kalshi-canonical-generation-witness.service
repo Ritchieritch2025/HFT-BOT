@@ -2,6 +2,7 @@
 Description=Kalshi publisher-only exact canonical generation witness
 Wants=network-online.target
 After=network-online.target
+OnSuccess=kalshi-research-v3-durable.service
 # No capture/seal unit dependency: this retrying observer can fail without
 # stopping, restarting, or delaying market-data collection.
 
