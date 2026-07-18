@@ -6,6 +6,31 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-18 18:30 UTC — credential authority 勘误：vaultWriter bootstrap 已由独立 broker 取代
+
+- **置顶勘误，不改写历史：**下方 `2026-07-18 03:40 UTC` 条目所述
+  “ephemeral bootstrap 必须由 `vaultWriter` 调用 IAM key lifecycle API”是当时
+  已知设计及其阻塞状态的真实记录，但已被当前 hardened 设计取代；不得再据此给
+  `vaultWriter` 增加 `iam:CreateAccessKey` 等权限。
+- 当前边界是独立 pathless IAM user
+  `arn:aws:iam::321572485933:user/canonical-credential-broker`。它只允许对
+  `arn:aws:iam::321572485933:user/canonical-eligibility-tagger` 执行
+  `GetUser/ListAccessKeys/CreateAccessKey/UpdateAccessKey/DeleteAccessKey`；
+  `vaultWriter` 仍只承担 publisher 权限，不能管理 IAM key。
+- tagger **不得有 standing access key**。full-daily unit 通过独立 systemd
+  加密 broker credential 创建一次内存态 tagger key，核对 tagger ARN/UserId，
+  执行受限 tagger 子命令，随后先置 inactive、再删除，并在 bounded consistency
+  window 内连续两次观察到零 key 才算完成。旧
+  `/etc/credstore.encrypted/kalshi-research-v3-tagger.credentials` 必须不存在；
+  broker 与 publisher encrypted credential 必须是两个不同文件和不同 key identity。
+- `/etc/kalshi-research-v3/ephemeral-tagger-identities.json` 只允许六个字段：
+  `schema_version/account/broker_arn/broker_user_id/tagger_arn/tagger_user_id`；
+  两个 `UserId` 必须来自 authenticated AWS readback。文件不含 access key 或 secret。
+- 完整运维、部署和 fail-closed rollback 顺序已写入
+  `docs/plan_releases/pipeline/W-PUB-REF-01C_IAM_OPERATION_AND_AUDIT_CHECKLIST_2026-07-16.md`。
+  本条是 documentation-only correction：没有调用 AWS、没有生成/搬运任何密钥、
+  没有部署 systemd unit，也不声称 broker policy 或 full publication 已在生产生效。
+
 ## 2026-07-18 03:40 UTC — 7/10–7/16 零拷贝收据闭环、每日自动清单上线、Fresh RFQ 隔离切换成功
 
 - code/deploy: isolated branch `w-rfq-fresh-01` at
