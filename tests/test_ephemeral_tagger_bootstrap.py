@@ -92,7 +92,7 @@ class FakeAwsAndTagger:
                  get_user_id=TAGGER_USER_ID,
                  tagger_returncode=0, tagger_output="tagger-ok\n",
                  create_status="Active", initial_records=None,
-                 cleanup_lists=None):
+                 cleanup_lists=None, tagger_identity_failures=0):
         self.calls = []
         self.list_count = 0
         self.broker_arn = broker_arn
@@ -105,6 +105,7 @@ class FakeAwsAndTagger:
         self.create_status = create_status
         self.initial_records = initial_records or []
         self.cleanup_lists = list(cleanup_lists or [[], []])
+        self.tagger_identity_failures = tagger_identity_failures
 
     @staticmethod
     def _metadata(rows):
@@ -128,6 +129,11 @@ class FakeAwsAndTagger:
             else:
                 assert env["AWS_ACCESS_KEY_ID"] == KEY_ID
                 assert env["AWS_SECRET_ACCESS_KEY"] == SECRET
+                if self.tagger_identity_failures:
+                    self.tagger_identity_failures -= 1
+                    return _completed(
+                        command, returncode=254,
+                        stderr="new key is not propagated yet")
                 value = {
                     "Account": bootstrap.ACCOUNT,
                     "Arn": self.tagger_arn,
@@ -437,6 +443,32 @@ def test_happy_path_checks_both_exact_identities_and_two_zero_lists(
     assert "REDACTED_EPHEMERAL_CREDENTIAL" in result.stdout
     for _command, env, _input in fake.calls:
         _assert_sterile(env)
+
+
+def test_new_tagger_key_sts_propagation_is_retried_then_used(
+        monkeypatch, pins, tmp_path, broker_credential_env):
+    fake = FakeAwsAndTagger(tagger_identity_failures=2)
+    _execute(pins, tmp_path, monkeypatch, fake)
+    actions = _actions(fake)
+    assert actions.count("sts") == 4  # broker once, tagger three times
+    assert actions.count("tagger") == 1
+    assert actions[-2:] == ["list", "list"]
+
+
+def test_new_tagger_key_sts_propagation_timeout_cleans_and_refuses(
+        monkeypatch, pins, tmp_path, broker_credential_env):
+    fake = FakeAwsAndTagger(
+        tagger_identity_failures=len(
+            bootstrap.TAGGER_IDENTITY_BACKOFF_SECONDS))
+    with pytest.raises(
+            bootstrap.GateError,
+            match="TAGGER_CREDENTIAL_PROPAGATION_TIMEOUT"):
+        _execute(pins, tmp_path, monkeypatch, fake)
+    actions = _actions(fake)
+    assert actions.count("sts") == (
+        1 + len(bootstrap.TAGGER_IDENTITY_BACKOFF_SECONDS))
+    assert "tagger" not in actions
+    assert actions[-2:] == ["list", "list"]
 
 
 def test_bootstrap_identity_mismatch_refuses_before_list_or_create(

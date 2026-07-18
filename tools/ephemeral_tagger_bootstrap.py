@@ -62,6 +62,7 @@ DEFAULT_TAGGER_TIMEOUT = 60 * 60
 ZERO_CONFIRMATIONS_REQUIRED = 2
 ZERO_CONFIRMATION_NOT_BEFORE_SECONDS = 2.0
 CLEANUP_BACKOFF_SECONDS = (0.0, 0.25, 0.75, 1.5, 3.0, 5.0, 8.0, 12.0)
+TAGGER_IDENTITY_BACKOFF_SECONDS = (0.0, 1.0, 2.0, 4.0, 8.0, 16.0)
 ACCESS_KEY_ID_RE = re.compile(r"^[A-Z0-9]{16,128}$")
 SECRET_ACCESS_KEY_RE = re.compile(r"^[A-Za-z0-9/+=]{20,128}$")
 IAM_USER_ID_RE = re.compile(r"^[A-Z0-9]{16,128}$")
@@ -822,6 +823,25 @@ def _cleanup(aws: AwsIamBootstrap, credential: EphemeralCredential | None,
     ) from None
 
 
+def _tagger_caller_identity_after_propagation(
+        aws: AwsIamBootstrap, environment: dict[str, str], *,
+        sleep: Callable[[float], None] = time.sleep) -> dict:
+    """Wait only for a newly created key to become visible to STS."""
+    for delay in TAGGER_IDENTITY_BACKOFF_SECONDS:
+        if delay:
+            sleep(delay)
+        try:
+            return aws.caller_identity(environment)
+        except GateError as exc:
+            if exc.code != "AWS_COMMAND_FAILED":
+                raise
+    raise GateError(
+        "TAGGER_CREDENTIAL_PROPAGATION_TIMEOUT",
+        "new tagger access key did not become usable within the bounded "
+        "STS propagation window",
+    ) from None
+
+
 def execute_tagger(command: list[str], *, pins: RuntimePins,
                    broker_user_id: str, tagger_user_id: str,
                    tagger_timeout: int = DEFAULT_TAGGER_TIMEOUT,
@@ -880,7 +900,8 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
                     raise GateError(
                         "ACCESS_KEY_NOT_ACTIVE", "created key is not Active")
                 ephemeral_env = _ephemeral_environment(broker_env, credential)
-                tagger_identity = aws.caller_identity(ephemeral_env)
+                tagger_identity = _tagger_caller_identity_after_propagation(
+                    aws, ephemeral_env, sleep=sleep)
                 _validate_exact_identity(
                     tagger_identity,
                     expected_arn=TAGGER_ARN,
