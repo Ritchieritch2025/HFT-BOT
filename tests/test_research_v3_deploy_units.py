@@ -25,12 +25,16 @@ def test_installer_uses_sanitized_fixed_git_for_user_owned_source():
     assert 'git -C "$ROOT"' not in installer
 
 
-def test_installer_requires_safe_publisher_but_allows_absent_tagger_blob():
+def test_installer_requires_publisher_but_allows_absent_identity_evidence():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
     assert "validate_encrypted_credential \"$PUB_CRED\"" in installer
-    assert 'if [ -e "$TAG_CRED" ] || [ -L "$TAG_CRED" ]; then' in installer
-    assert "validate_encrypted_credential \"$TAG_CRED\"" in installer
-    assert 'TAG_CRED_READY=1' in installer
+    assert ('if [ -e "$IDENTITY_EVIDENCE" ] || '
+            '[ -L "$IDENTITY_EVIDENCE" ]; then') in installer
+    assert 'IDENTITY_EVIDENCE_READY=1' in installer
+    assert "canonical-ephemeral-tagger-identities-v1" in installer
+    assert "LEGACY_TAG_CRED=/etc/credstore.encrypted/" \
+        "kalshi-research-v3-tagger.credentials" in installer
+    assert "legacy standing tagger credential blob must be absent" in installer
     assert "encrypted credential directory must be root:root 0700" in installer
     assert '[ "$(stat -c %a "$path")" != 600 ]' in installer
     assert "MAX_CRED_BYTES=1048576" in installer
@@ -79,18 +83,25 @@ def test_publisher_only_durable_unit_has_one_credential_and_no_tagger_surface():
     assert "Persistent=true" in timer
 
 
-def test_installer_selects_only_the_credential_compatible_timer():
+def test_installer_keeps_durable_fallback_when_full_daily_is_enabled():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
-    assert 'if [ "$TAG_CRED_READY" -eq 1 ]; then' in installer
+    assert 'if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then' in installer
     assert 'systemctl disable --now "$unit"' in installer
     assert "enable kalshi-research-v3-daily.timer" in installer
     assert "enable kalshi-research-v3-durable.timer" in installer
-    assert 'is-enabled --quiet "$SELECTED_TIMER"' in installer
-    assert 'is-enabled --quiet "$DISABLED_TIMER"' in installer
-    assert 'is-active --quiet "$DISABLED_TIMER"' in installer
+    assert ("is-enabled --quiet kalshi-research-v3-durable.timer"
+            in installer)
+    assert ("! systemctl is-enabled --quiet "
+            "kalshi-research-v3-daily.timer") in installer
+    assert ("systemctl disable kalshi-research-v3-daily.timer"
+            in installer)
     assert 'systemctl stop "$unit"' in installer
-    assert 'is-active --quiet "$SELECTED_TIMER"' in installer
-    assert 'is-active --quiet "$DISABLED_SERVICE"' in installer
+    assert ("is-active --quiet kalshi-research-v3-durable.service"
+            in installer)
+    assert ("is-active --quiet kalshi-research-v3-daily.timer"
+            in installer)
+    assert ("is-active --quiet kalshi-research-v3-durable.timer"
+            in installer)
     assert "systemctl start" not in installer
     assert "enable --now" not in installer
 
@@ -175,6 +186,33 @@ def test_installer_validates_generation_lock_below_root_owned_parent():
     assert 'chown "$SERVICE_USER:$SERVICE_GROUP" "$GENERATION_WRITER_LOCK"' \
         not in installer
     assert 'chmod 0600 "$GENERATION_WRITER_LOCK"' not in installer
+
+
+def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
+    service = _text("deploy/kalshi-research-v3-daily.service")
+    durable = _text("deploy/kalshi-research-v3-durable.service")
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    tmpfiles = _text("deploy/kalshi-research-v3-daily.tmpfiles.conf")
+    lock = "/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock"
+
+    assert "User=kalshi-research-v3-daily" in service
+    assert "ProtectProc=invisible" in service
+    assert "PrivateTmp=true" in service
+    assert "--dedicated-service-isolation-attested" in service
+    assert lock in service
+    assert (f"{lock} 0600 kalshi-research-v3-daily "
+            "kalshi-research-v3") in tmpfiles
+    assert "DAILY_SERVICE_USER=kalshi-research-v3-daily" in installer
+    assert "id -u \"$DAILY_SERVICE_USER\"" in installer
+    assert "stat -c %h \"$EPHEMERAL_TAGGER_LOCK\"" in installer
+    assert "runuser -u \"$DAILY_SERVICE_USER\" -- test -w " \
+        "\"$EPHEMERAL_TAGGER_LOCK\"" in installer
+    orchestrator = (
+        "/var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock")
+    assert orchestrator in service and orchestrator in durable
+    assert f"{orchestrator} 0660 root kalshi-research-v3" in tmpfiles
+    assert "stat -c %h \"$ORCHESTRATOR_LOCK\"" in installer
+    assert "research orchestrator lock ownership/mode is not exact" in installer
 
 
 def test_installer_uses_immutable_release_for_all_privileged_installs():

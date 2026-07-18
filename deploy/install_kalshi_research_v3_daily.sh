@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install the isolated v3 daily units.  This script never accepts or prints a
 # plaintext AWS key.  Publisher-only durable automation can be installed while
-# the independent tagger credential remains absent; full publication stays
-# inert and fail-closed until both encrypted payloads are present.
+# immutable IAM UserId evidence or bootstrap authority remains absent; full
+# publication stays inert and fail-closed without any standing tagger key.
 set -euo pipefail
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -10,10 +10,12 @@ export PATH
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 PUB_CRED=/etc/credstore.encrypted/kalshi-research-v3-publisher.env
-TAG_CRED=/etc/credstore.encrypted/kalshi-research-v3-tagger.credentials
+LEGACY_TAG_CRED=/etc/credstore.encrypted/kalshi-research-v3-tagger.credentials
+IDENTITY_EVIDENCE=/etc/kalshi-research-v3/ephemeral-tagger-identities.json
 CRED_DIR=/etc/credstore.encrypted
 MAX_CRED_BYTES=1048576
 SERVICE_USER=kalshi-research-v3
+DAILY_SERVICE_USER=kalshi-research-v3-daily
 SERVICE_GROUP=kalshi-research-v3
 LOCK_GROUP=kalshi-publication
 RUNTIME_LINK=/opt/kalshi-research-v3
@@ -32,7 +34,7 @@ AUTHORIZATION_REL=docs/plan_releases/pipeline/W-PUB-REF-01C_AUTOMATION_EXECUTION
 AUTHORIZATION_SHA256=1b14001428f2387f3e62c531a8d8ce3dd4f8bd726d6c8b94b4d6c0d893020761
 AUTOMATION_FIRST_DATE=2026-07-10
 STAGE=""
-TAG_CRED_READY=0
+IDENTITY_EVIDENCE_READY=0
 
 git_clean_env() {
   env -i \
@@ -69,8 +71,22 @@ MUTABLE_ROOTS=(
   /home/ubuntu/hft-bot/work/live/research_v3_daily
   /home/ubuntu/hft-bot/work/research_stage
 )
+DAILY_MUTABLE_ROOTS=(
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/controls
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/durable
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/tagged
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/tag-precommit
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-aux
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-metadata-preflight
+  /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-version-bindings
+  /home/ubuntu/hft-bot/work/live/research_v3_audit
+  /home/ubuntu/hft-bot/work/live/research_v3_daily
+  /home/ubuntu/hft-bot/work/research_stage
+)
 LOCK_ROOT=/home/ubuntu/hft-bot/work/warehouse/.publication-locks
 GENERATION_WRITER_LOCK=/var/lib/kalshi-research-v3-locks/generation-witness.lock
+EPHEMERAL_TAGGER_LOCK=/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock
+ORCHESTRATOR_LOCK=/var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock
 
 cleanup() {
   if [ -n "$STAGE" ] && [ -d "$STAGE" ]; then
@@ -103,9 +119,32 @@ validate_encrypted_credential() {
   fi
 }
 validate_encrypted_credential "$PUB_CRED"
-if [ -e "$TAG_CRED" ] || [ -L "$TAG_CRED" ]; then
-  validate_encrypted_credential "$TAG_CRED"
-  TAG_CRED_READY=1
+if [ -e "$LEGACY_TAG_CRED" ] || [ -L "$LEGACY_TAG_CRED" ]; then
+  echo "REFUSED: legacy standing tagger credential blob must be absent" >&2
+  exit 2
+fi
+if [ -e "$IDENTITY_EVIDENCE" ] || [ -L "$IDENTITY_EVIDENCE" ]; then
+  IDENTITY_EVIDENCE_PARENT=${IDENTITY_EVIDENCE%/*}
+  if [ ! -f "$IDENTITY_EVIDENCE" ] || [ -L "$IDENTITY_EVIDENCE" ] || \
+     [ "$(stat -c %h "$IDENTITY_EVIDENCE")" -ne 1 ] || \
+     [ "$(stat -c %u "$IDENTITY_EVIDENCE")" -ne 0 ] || \
+     [ "$(stat -c %g "$IDENTITY_EVIDENCE")" -ne 0 ] || \
+     { [ "$(stat -c %a "$IDENTITY_EVIDENCE")" != 400 ] && \
+       [ "$(stat -c %a "$IDENTITY_EVIDENCE")" != 440 ]; } || \
+     [ "$(stat -c %s "$IDENTITY_EVIDENCE")" -le 0 ] || \
+     [ "$(stat -c %s "$IDENTITY_EVIDENCE")" -gt 16384 ]; then
+    echo "REFUSED: ephemeral identity evidence is unsafe: $IDENTITY_EVIDENCE" >&2
+    exit 2
+  fi
+  if [ ! -d "$IDENTITY_EVIDENCE_PARENT" ] || \
+     [ -L "$IDENTITY_EVIDENCE_PARENT" ] || \
+     [ "$(stat -c %u "$IDENTITY_EVIDENCE_PARENT")" -ne 0 ] || \
+     [ "$(stat -c %g "$IDENTITY_EVIDENCE_PARENT")" -ne 0 ] || \
+     [ $((8#$(stat -c %a "$IDENTITY_EVIDENCE_PARENT") & 8#022)) -ne 0 ]; then
+    echo "REFUSED: ephemeral identity evidence parent is unsafe" >&2
+    exit 2
+  fi
+  IDENTITY_EVIDENCE_READY=1
 fi
 
 for command in env find findmnt flock getent groupadd install readlink \
@@ -156,6 +195,26 @@ if [ ! -f "$SYSTEM_PYTHON_REAL" ] || [ -L "$SYSTEM_PYTHON_REAL" ] || \
    [ $((8#$(stat -c %a "$SYSTEM_PYTHON_REAL") & 8#022)) -ne 0 ]; then
   echo "REFUSED: system Python target must be root-owned and non-writable" >&2
   exit 2
+fi
+if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then
+  if ! "$SYSTEM_PYTHON" -I -c '
+import json, re, sys
+with open(sys.argv[1], "rb") as handle:
+    value = json.load(handle)
+fixed = {
+    "schema_version": "canonical-ephemeral-tagger-identities-v1",
+    "account": "321572485933",
+    "bootstrap_arn": "arn:aws:iam::321572485933:user/vaultWriter",
+    "tagger_arn": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger",
+}
+assert set(value) == set(fixed) | {"bootstrap_user_id", "tagger_user_id"}
+assert all(value.get(key) == expected for key, expected in fixed.items())
+assert all(re.fullmatch(r"[A-Z0-9]{16,128}", value.get(key, ""))
+           for key in ("bootstrap_user_id", "tagger_user_id"))
+' "$IDENTITY_EVIDENCE" >/dev/null 2>&1; then
+    echo "REFUSED: ephemeral identity evidence schema/principal mismatch" >&2
+    exit 2
+  fi
 fi
 AUTHORIZATION="$ROOT/$AUTHORIZATION_REL"
 if [ ! -f "$AUTHORIZATION" ] || [ -L "$AUTHORIZATION" ] || \
@@ -211,16 +270,33 @@ if ! getent passwd "$SERVICE_USER" >/dev/null; then
     --home-dir /var/lib/kalshi-research-v3 --create-home \
     --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
+if ! getent passwd "$DAILY_SERVICE_USER" >/dev/null; then
+  useradd --system --gid "$SERVICE_GROUP" \
+    --home-dir /var/lib/kalshi-research-v3-daily --create-home \
+    --shell /usr/sbin/nologin "$DAILY_SERVICE_USER"
+fi
 if [ "$(id -gn "$SERVICE_USER")" != "$SERVICE_GROUP" ]; then
   echo "REFUSED: $SERVICE_USER has an unexpected primary group" >&2
   exit 2
 fi
+if [ "$(id -gn "$DAILY_SERVICE_USER")" != "$SERVICE_GROUP" ]; then
+  echo "REFUSED: $DAILY_SERVICE_USER has an unexpected primary group" >&2
+  exit 2
+fi
 usermod -a -G "$LOCK_GROUP" "$SERVICE_USER"
+usermod -a -G "$LOCK_GROUP" "$DAILY_SERVICE_USER"
 usermod -a -G "$LOCK_GROUP" ubuntu
 if ! runuser -u "$SERVICE_USER" -- env -i \
     HOME=/var/lib/kalshi-research-v3 PATH=/snap/aws-cli/current/bin:/usr/bin:/bin \
     setpriv --no-new-privs "$AWS_CLI" --version >/dev/null 2>&1; then
   echo "REFUSED: direct AWS CLI cannot execute as the sandboxed service user" >&2
+  exit 2
+fi
+if ! runuser -u "$DAILY_SERVICE_USER" -- env -i \
+    HOME=/var/lib/kalshi-research-v3-daily \
+    PATH=/snap/aws-cli/current/bin:/usr/bin:/bin \
+    setpriv --no-new-privs "$AWS_CLI" --version >/dev/null 2>&1; then
+  echo "REFUSED: direct AWS CLI cannot execute as the isolated daily user" >&2
   exit 2
 fi
 
@@ -422,6 +498,30 @@ for root in "${MUTABLE_ROOTS[@]}" "$LOCK_ROOT"; do
     exit 2
   fi
 done
+# Full publication uses a separate UID so no concurrently running durable or
+# generation process can inspect the short-lived tagger child environment.
+setfacl -m "u:$DAILY_SERVICE_USER:--x" /home/ubuntu /home/ubuntu/hft-bot \
+  /home/ubuntu/hft-bot/work
+for root in \
+  /home/ubuntu/hft-bot/work/raw \
+  /home/ubuntu/hft-bot/work/warehouse \
+  /home/ubuntu/hft-bot/work/event_packs \
+  /home/ubuntu/hft-bot/work/live; do
+  setfacl -R -m "u:$DAILY_SERVICE_USER:r-X" "$root"
+  find "$root" -type d -exec setfacl -m \
+    "d:u:$DAILY_SERVICE_USER:rx" {} +
+done
+for root in "${DAILY_MUTABLE_ROOTS[@]}" "$LOCK_ROOT"; do
+  setfacl -R -m "u:$DAILY_SERVICE_USER:rwX" "$root"
+  find "$root" -type d -exec setfacl -m \
+    "d:u:$DAILY_SERVICE_USER:rwx" {} +
+  blocked="$(runuser -u "$DAILY_SERVICE_USER" -- \
+    find "$root" -type d ! -writable -print -quit)"
+  if [ -n "$blocked" ]; then
+    echo "REFUSED: isolated daily output directory remains unwritable: $blocked" >&2
+    exit 2
+  fi
+done
 # Keep the shared writer lock outside every ubuntu-owned capture tree.  Its
 # direct parent is root-owned and not writable by either ubuntu or the service,
 # so the checks below cannot race a user-controlled path replacement.  Do not
@@ -451,22 +551,59 @@ if [ ! -f "$GENERATION_WRITER_LOCK" ] || [ -L "$GENERATION_WRITER_LOCK" ] || \
   exit 2
 fi
 runuser -u "$SERVICE_USER" -- test -w "$GENERATION_WRITER_LOCK"
+if [ ! -f "$EPHEMERAL_TAGGER_LOCK" ] || \
+   [ -L "$EPHEMERAL_TAGGER_LOCK" ] || \
+   [ "$(readlink -f -- "$EPHEMERAL_TAGGER_LOCK")" != \
+       "$EPHEMERAL_TAGGER_LOCK" ] || \
+   [ "$(stat -c %h "$EPHEMERAL_TAGGER_LOCK")" -ne 1 ] || \
+   [ "$(stat -c %u "$EPHEMERAL_TAGGER_LOCK")" -ne \
+       "$(id -u "$DAILY_SERVICE_USER")" ] || \
+   [ "$(stat -c %g "$EPHEMERAL_TAGGER_LOCK")" -ne \
+       "$(id -g "$DAILY_SERVICE_USER")" ] || \
+   [ "$(stat -c %a "$EPHEMERAL_TAGGER_LOCK")" != 600 ]; then
+  echo "REFUSED: ephemeral tagger lock ownership/mode is not exact" >&2
+  exit 2
+fi
+runuser -u "$DAILY_SERVICE_USER" -- test -w "$EPHEMERAL_TAGGER_LOCK"
+if [ ! -f "$ORCHESTRATOR_LOCK" ] || [ -L "$ORCHESTRATOR_LOCK" ] || \
+   [ "$(readlink -f -- "$ORCHESTRATOR_LOCK")" != "$ORCHESTRATOR_LOCK" ] || \
+   [ "$(stat -c %h "$ORCHESTRATOR_LOCK")" -ne 1 ] || \
+   [ "$(stat -c %u "$ORCHESTRATOR_LOCK")" -ne 0 ] || \
+   [ "$(stat -c %g "$ORCHESTRATOR_LOCK")" -ne \
+       "$(id -g "$SERVICE_USER")" ] || \
+   [ "$(stat -c %a "$ORCHESTRATOR_LOCK")" != 660 ]; then
+  echo "REFUSED: research orchestrator lock ownership/mode is not exact" >&2
+  exit 2
+fi
+runuser -u "$SERVICE_USER" -- test -w "$ORCHESTRATOR_LOCK"
+runuser -u "$DAILY_SERVICE_USER" -- test -w "$ORCHESTRATOR_LOCK"
+runuser -u "$SERVICE_USER" -- flock -n "$ORCHESTRATOR_LOCK" true
+runuser -u "$DAILY_SERVICE_USER" -- flock -n "$ORCHESTRATOR_LOCK" true
 runuser -u "$SERVICE_USER" -- test -r \
   "$RUNTIME_LINK/tools/research_v3_daily.py"
 runuser -u "$SERVICE_USER" -- test -r \
   "$RUNTIME_LINK/tools/canonical_generation_daily.py"
 runuser -u "$SERVICE_USER" -- test -r \
   "$RUNTIME_LINK/tools/canonical_generation_witness.py"
+runuser -u "$DAILY_SERVICE_USER" -- test -r \
+  "$RUNTIME_LINK/tools/research_v3_daily.py"
+runuser -u "$DAILY_SERVICE_USER" -- test -r \
+  "$RUNTIME_LINK/tools/ephemeral_tagger_bootstrap.py"
+runuser -u "$DAILY_SERVICE_USER" -- test -r \
+  "$RUNTIME_LINK/tools/canonical_eligibility_tagger.py"
 runuser -u "$SERVICE_USER" -- env -i \
   HOME=/nonexistent PATH=/usr/bin:/bin \
   "$RUNTIME_LINK/.venv/bin/python" -I -c \
   'import duckdb; assert duckdb.__version__ == "1.4.5"; c=duckdb.connect(":memory:"); c.execute("SET memory_limit=\x2764MB\x27"); assert c.execute("SELECT 1").fetchone() == (1,)'
 runuser -u "$SERVICE_USER" -- test -r "$HISTORY_LINK"
+runuser -u "$DAILY_SERVICE_USER" -- test -r "$HISTORY_LINK"
 for lock_name in catalog dim; do
   lock_path="$LOCK_ROOT/$lock_name.lock"
   runuser -u "$SERVICE_USER" -- test -w "$lock_path"
   runuser -u ubuntu -- test -w "$lock_path"
   runuser -u "$SERVICE_USER" -- flock -n "$lock_path" true
+  runuser -u "$DAILY_SERVICE_USER" -- test -w "$lock_path"
+  runuser -u "$DAILY_SERVICE_USER" -- flock -n "$lock_path" true
   runuser -u ubuntu -- flock -n "$lock_path" true
 done
 
@@ -487,6 +624,13 @@ runuser -u "$SERVICE_USER" -- env -i \
   PYTHONPATH="$RUNTIME_LINK/tools" \
   "$RUNTIME_LINK/.venv/bin/python" -c \
   'import git_provenance as g, pathlib; root=pathlib.Path("/opt/kalshi-research-v3"); head=g.require_clean_head(root, ("tools/git_provenance.py",)); assert len(head) == 40'
+runuser -u "$DAILY_SERVICE_USER" -- env -i \
+  HOME=/var/lib/kalshi-research-v3-daily PATH=/usr/bin:/bin \
+  PYTHONPATH="$RUNTIME_LINK/tools" \
+  GIT_CONFIG_SYSTEM="$GIT_CONFIG" GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 \
+  "$RUNTIME_LINK/.venv/bin/python" -c \
+  'import git_provenance as g, pathlib; root=pathlib.Path("/opt/kalshi-research-v3"); head=g.require_clean_head(root, ("tools/git_provenance.py", "tools/ephemeral_tagger_bootstrap.py", "tools/canonical_eligibility_tagger.py", "tools/research_v3_daily.py")); assert len(head) == 40'
 
 install -o root -g root -m 0644 \
   "$IMMUTABLE_RUNTIME/deploy/kalshi-research-v3-daily.service" \
@@ -513,17 +657,15 @@ install -o root -g root -m 0644 \
   "$IMMUTABLE_RUNTIME/deploy/kalshi-canonical-generation-legacy.service" \
   /etc/systemd/system/kalshi-canonical-generation-legacy.service
 systemctl daemon-reload
-if [ "$TAG_CRED_READY" -eq 1 ]; then
+# Durable receipt production is an independent fallback and remains enabled
+# even when full publication is eligible.  Both coordinators share the same
+# live orchestrator flock, so they cannot mutate canonical controls together.
+systemctl enable kalshi-research-v3-durable.timer
+if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then
   systemctl enable kalshi-research-v3-daily.timer
-  SELECTED_TIMER=kalshi-research-v3-daily.timer
-  DISABLED_TIMER=kalshi-research-v3-durable.timer
-  DISABLED_SERVICE=kalshi-research-v3-durable.service
-  INSTALL_MODE=full-publication
+  INSTALL_MODE=ephemeral-full-publication
 else
-  systemctl enable kalshi-research-v3-durable.timer
-  SELECTED_TIMER=kalshi-research-v3-durable.timer
-  DISABLED_TIMER=kalshi-research-v3-daily.timer
-  DISABLED_SERVICE=kalshi-research-v3-daily.service
+  systemctl disable kalshi-research-v3-daily.timer
   INSTALL_MODE=publisher-only-durable
 fi
 systemctl enable kalshi-canonical-generation-witness.path
@@ -531,21 +673,23 @@ systemctl enable kalshi-canonical-generation-witness.timer
 LEGACY_ENABLEMENT="$(
   systemctl is-enabled kalshi-canonical-generation-legacy.service \
     2>/dev/null || true)"
-if ! systemctl is-enabled --quiet "$SELECTED_TIMER" || \
-   systemctl is-enabled --quiet "$DISABLED_TIMER" || \
+if ! systemctl is-enabled --quiet kalshi-research-v3-durable.timer || \
    ! systemctl is-enabled --quiet kalshi-canonical-generation-witness.path || \
    ! systemctl is-enabled --quiet kalshi-canonical-generation-witness.timer || \
-   systemctl is-active --quiet "$SELECTED_TIMER" || \
-   systemctl is-active --quiet "$DISABLED_TIMER" || \
+   { [ "$IDENTITY_EVIDENCE_READY" -eq 1 ] && \
+     ! systemctl is-enabled --quiet kalshi-research-v3-daily.timer; } || \
+   { [ "$IDENTITY_EVIDENCE_READY" -eq 0 ] && \
+     systemctl is-enabled --quiet kalshi-research-v3-daily.timer; } || \
+   systemctl is-active --quiet kalshi-research-v3-daily.timer || \
+   systemctl is-active --quiet kalshi-research-v3-durable.timer || \
    systemctl is-active --quiet kalshi-canonical-generation-witness.path || \
    systemctl is-active --quiet kalshi-canonical-generation-witness.timer || \
    systemctl is-active --quiet kalshi-canonical-generation-witness.service || \
    systemctl is-active --quiet kalshi-canonical-generation-legacy.service || \
    [ "$LEGACY_ENABLEMENT" != static ] || \
-   systemctl is-active --quiet "$DISABLED_SERVICE" || \
    systemctl is-active --quiet kalshi-research-v3-daily.service || \
    systemctl is-active --quiet kalshi-research-v3-durable.service; then
-  echo "REFUSED: daily and durable timer selection is not mutually exclusive" >&2
+  echo "REFUSED: durable fallback/full daily trigger state is invalid" >&2
   exit 2
 fi
 

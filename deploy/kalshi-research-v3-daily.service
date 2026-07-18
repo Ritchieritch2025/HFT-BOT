@@ -7,25 +7,24 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=kalshi-research-v3
+User=kalshi-research-v3-daily
 Group=kalshi-research-v3
 SupplementaryGroups=kalshi-publication
 WorkingDirectory=/opt/kalshi-research-v3
 UMask=0007
 Environment=PATH=/opt/kalshi-research-v3/.venv/bin:/snap/bin:/usr/local/bin:/usr/bin:/bin
-Environment=HOME=/var/lib/kalshi-research-v3
+Environment=HOME=/var/lib/kalshi-research-v3-daily
 Environment=GIT_CONFIG_SYSTEM=/etc/kalshi-research-v3/gitconfig
 Environment=GIT_CONFIG_GLOBAL=/dev/null
 Environment=GIT_OPTIONAL_LOCKS=0
 Environment=GIT_TERMINAL_PROMPT=0
-StateDirectory=kalshi-research-v3
+StateDirectory=kalshi-research-v3-daily
 StateDirectoryMode=0700
 LoadCredentialEncrypted=publisher.env:/etc/credstore.encrypted/kalshi-research-v3-publisher.env
-LoadCredentialEncrypted=tagger.credentials:/etc/credstore.encrypted/kalshi-research-v3-tagger.credentials
-# Explicit residual: this root-owned trusted coordinator launches disjoint
-# child environments, but its own one-shot lifetime can access both encrypted
-# credentials.  IAM principals remain independent; this is not process-level
-# role isolation and must not be described as such.
+LoadCredential=ephemeral-tagger-identities.json:/etc/kalshi-research-v3/ephemeral-tagger-identities.json
+# This UID is exclusive to the full daily unit.  The publisher key can create
+# a short-lived tagger key only through the pinned bootstrap; the key remains
+# in that child environment and is deleted/double-zero-confirmed per phase.
 ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/cutover-approved
 ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/publish-approved
 ExecCondition=+/usr/bin/test ! -e /home/ubuntu/.kalshi/research_s3.env.sh
@@ -33,7 +32,7 @@ ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/live/research_v3_daily
 ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/live/research_v3_audit
 ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/warehouse/.publication-locks
 ExecStartPre=/usr/bin/test -r /etc/kalshi-research-v3/gitconfig
-ExecStart=/opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/research_v3_daily.py --scan-ready-days 35 --live-dir /home/ubuntu/hft-bot/work/live --receipt-root /opt/kalshi-research-v3-historical-canonical-receipts --audit-root /home/ubuntu/hft-bot/work/live/research_v3_audit --raw-root /home/ubuntu/hft-bot/work/raw --warehouse-root /home/ubuntu/hft-bot/work/warehouse --quality-dir /home/ubuntu/hft-bot/work/event_packs --tagger-credentials-file %d/tagger.credentials --tagger-profile canonical-eligibility-tagger --publisher-env-file %d/publisher.env --cutover-arm-file /etc/kalshi-research-v3/approvals/cutover-approved --publish-arm-file /etc/kalshi-research-v3/approvals/publish-approved --home /var/lib/kalshi-research-v3 --tagger-principal arn:aws:iam::321572485933:user/canonical-eligibility-tagger --publisher-principal arn:aws:iam::321572485933:user/vaultWriter --aws-cli /snap/aws-cli/current/bin/aws --python /opt/kalshi-research-v3/.venv/bin/python --operator-approved
+ExecStart=/opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/research_v3_daily.py --scan-ready-days 35 --live-dir /home/ubuntu/hft-bot/work/live --receipt-root /opt/kalshi-research-v3-historical-canonical-receipts --audit-root /home/ubuntu/hft-bot/work/live/research_v3_audit --raw-root /home/ubuntu/hft-bot/work/raw --warehouse-root /home/ubuntu/hft-bot/work/warehouse --quality-dir /home/ubuntu/hft-bot/work/event_packs --ephemeral-identity-evidence-file %d/ephemeral-tagger-identities.json --dedicated-service-isolation-attested --publisher-env-file %d/publisher.env --cutover-arm-file /etc/kalshi-research-v3/approvals/cutover-approved --publish-arm-file /etc/kalshi-research-v3/approvals/publish-approved --home /var/lib/kalshi-research-v3-daily --tagger-principal arn:aws:iam::321572485933:user/canonical-eligibility-tagger --publisher-principal arn:aws:iam::321572485933:user/vaultWriter --aws-cli /snap/aws-cli/current/bin/aws --python /opt/kalshi-research-v3/.venv/bin/python --operator-approved
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=4h
@@ -67,4 +66,4 @@ LockPersonality=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/opt/kalshi-research-v3 /opt/kalshi-research-v3-historical-canonical-receipts /home/ubuntu/hft-bot/work/raw /home/ubuntu/hft-bot/work/warehouse /home/ubuntu/hft-bot/work/event_packs /home/ubuntu/.kalshi /etc/kalshi-research-v3/approvals /etc/kalshi-research-v3/gitconfig
-ReadWritePaths=/home/ubuntu/hft-bot/work/warehouse/.publication-locks /home/ubuntu/hft-bot/work/live/canonical_receipts/controls /home/ubuntu/hft-bot/work/live/canonical_receipts/durable /home/ubuntu/hft-bot/work/live/canonical_receipts/tagged /home/ubuntu/hft-bot/work/live/canonical_receipts/tag-precommit /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-aux /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-metadata-preflight /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-version-bindings /home/ubuntu/hft-bot/work/live/research_v3_audit /home/ubuntu/hft-bot/work/live/research_v3_daily /home/ubuntu/hft-bot/work/research_stage
+ReadWritePaths=/home/ubuntu/hft-bot/work/warehouse/.publication-locks /home/ubuntu/hft-bot/work/live/canonical_receipts/controls /home/ubuntu/hft-bot/work/live/canonical_receipts/durable /home/ubuntu/hft-bot/work/live/canonical_receipts/tagged /home/ubuntu/hft-bot/work/live/canonical_receipts/tag-precommit /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-aux /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-metadata-preflight /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-version-bindings /home/ubuntu/hft-bot/work/live/research_v3_audit /home/ubuntu/hft-bot/work/live/research_v3_daily /home/ubuntu/hft-bot/work/research_stage /var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock /var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock

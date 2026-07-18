@@ -184,6 +184,25 @@ class FakeTagger:
         self.tags[(bucket, key, version_id)] = copy.deepcopy(tags)
 
 
+class FakePolicyCanaryTagger(FakeTagger):
+    def __init__(self, tags=None):
+        super().__init__(tags=tags, identity={
+            "Account": "123456789012",
+            "Arn": USER_ARN,
+            "UserId": "AIDATAGGERFIXTURE000",
+        })
+        self.tag_puts = 0
+        self.versionless_denials = []
+
+    def put_tags(self, bucket, key, version_id, tags):
+        super().put_tags(bucket, key, version_id, tags)
+        self.tag_puts += 1
+
+    def require_versionless_put_denied(self, bucket, key, tags):
+        self.versionless_denials.append(
+            (bucket, key, copy.deepcopy(tags)))
+
+
 class FakeReceiptWriter:
     def __init__(self):
         self.objects = {}
@@ -480,7 +499,45 @@ def _run(tree, *, tagger=None, writer=None, output=None,
             include_sealed_rfq=include_sealed_rfq,
             rfq_eligibility_evidence=(
                 str(rfq_evidence) if rfq_evidence is not None else None))
-    return result, tagger, writer
+        return result, tagger, writer
+
+
+def test_policy_canary_selects_one_bounded_non_rfq_exact_version(
+        receipt_tree):
+    candidates = cet.select_tag_targets(receipt_tree["receipt"], PREFIX)
+    target = next(obj for obj in candidates if obj["key"] ==
+                  "%s/warehouse/seals/date=%s.json" % (PREFIX, DATE))
+    identity = (target["bucket"], target["key"], target["VersionId"])
+    tagger = FakePolicyCanaryTagger({identity: {"owner": "fixture"}})
+    path, digest, payload = cet.run_policy_canary(
+        receipt_index=str(receipt_tree["index_path"]),
+        reader=receipt_tree["reader"], tagger=tagger,
+        output_root=str(receipt_tree["root"] / "policy-canary"),
+        expected_tagger_principal=USER_ARN,
+        expected_bucket=BUCKET, expected_prefix=PREFIX,
+        canary_target_key=target["key"],
+        canary_target_version_id=target["VersionId"],
+        generated_at="2026-07-13T04:10:00Z")
+
+    assert path.name == "POLICY-CANARY-%s.json" % digest
+    assert payload["state"] == cet.POLICY_CANARY_STATE
+    assert payload["rfq"] == "OFF"
+    assert "/raw/" not in ("/" + payload["target"]["key"])
+    assert payload["target"]["VersionId"]
+    assert payload["tag_puts"] == tagger.tag_puts == 1
+    assert payload["checks"]["tagger_versionless_put"] == "ACCESS_DENIED"
+    assert len(tagger.versionless_denials) == 1
+    denied_bucket, denied_key, denied_tags = tagger.versionless_denials[0]
+    assert (denied_bucket, denied_key) == (
+        payload["target"]["bucket"], payload["target"]["key"])
+    assert denied_tags[cet.TAG_KEY] == cet.TAG_VALUE
+    assert denied_tags["owner"] == "fixture"
+    assert payload["desired_tag_set"] == [
+        {"Key": "owner", "Value": "fixture"},
+        {"Key": cet.TAG_KEY, "Value": cet.TAG_VALUE},
+    ]
+    assert all("/raw/" not in ("/" + key)
+               for _bucket, key, _version in tagger.gets)
 
 
 def test_all_tag_gets_finish_before_first_put(receipt_tree):

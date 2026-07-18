@@ -24,6 +24,7 @@ import os
 import pathlib
 import re
 import shlex
+import signal
 import stat
 import subprocess
 import sys
@@ -35,11 +36,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_TAGGER_ARN = (
     "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
 )
-DEFAULT_TAGGER_PROFILE = "canonical-eligibility-tagger"
 DEFAULT_PUBLISHER_ARN = "arn:aws:iam::321572485933:user/vaultWriter"
 DEFAULT_BUCKET = "kalshi-vault-ritcardo"
 DEFAULT_PREFIX = "ec2"
 DEFAULT_DEST = "s3://kalshi-vault-ritcardo/research"
+DEFAULT_BOOTSTRAP_PYTHON = pathlib.Path("/usr/bin/python3")
+EPHEMERAL_TAGGER_TIMEOUT_SECONDS = 60 * 60
+EPHEMERAL_BOOTSTRAP_TIMEOUT_SECONDS = 90 * 60
+EPHEMERAL_CLEANUP_GRACE_SECONDS = 30 * 60
 DEFAULT_PRODUCTION_LIVE_DIR = pathlib.Path("/home/ubuntu/hft-bot/work/live")
 DEFAULT_PRODUCTION_RAW_ROOT = pathlib.Path("/home/ubuntu/hft-bot/work/raw")
 DEFAULT_PRODUCTION_WAREHOUSE_ROOT = pathlib.Path(
@@ -47,11 +51,15 @@ DEFAULT_PRODUCTION_WAREHOUSE_ROOT = pathlib.Path(
 DEFAULT_PRODUCTION_QUALITY_DIR = pathlib.Path(
     "/home/ubuntu/hft-bot/work/event_packs")
 DEFAULT_PRODUCTION_HOME = pathlib.Path("/var/lib/kalshi-research-v3")
+DEFAULT_FULL_PRODUCTION_HOME = pathlib.Path(
+    "/var/lib/kalshi-research-v3-daily")
+DEFAULT_ORCHESTRATOR_LOCK = pathlib.Path(
+    "/var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock")
 DEFAULT_CREDENTIAL_DIRECTORY = pathlib.Path(
     "/run/credentials/kalshi-research-v3-daily.service")
 DEFAULT_PUBLISHER_ENV_FILE = DEFAULT_CREDENTIAL_DIRECTORY / "publisher.env"
-DEFAULT_TAGGER_CREDENTIAL_FILE = (
-    DEFAULT_CREDENTIAL_DIRECTORY / "tagger.credentials")
+DEFAULT_EPHEMERAL_IDENTITY_EVIDENCE_FILE = (
+    DEFAULT_CREDENTIAL_DIRECTORY / "ephemeral-tagger-identities.json")
 DEFAULT_DURABLE_CREDENTIAL_DIRECTORY = pathlib.Path(
     "/run/credentials/kalshi-research-v3-durable.service")
 DEFAULT_DURABLE_PUBLISHER_ENV_FILE = (
@@ -90,6 +98,7 @@ MAX_INDEX_BYTES = 1024 * 1024
 MAX_RECEIPT_BYTES = 16 * 1024 * 1024
 MAX_AUDIT_BYTES = 64 * 1024
 MAX_POLICY_EVIDENCE_BYTES = 1024 * 1024
+MAX_IDENTITY_EVIDENCE_BYTES = 16 * 1024
 MAX_REFERENCE_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_REFERENCE_PREPARED_PLAN_BYTES = 32 * 1024 * 1024
 CANONICAL_VERIFY_WORKERS = 4
@@ -259,6 +268,45 @@ def _secure_secret_file(path: pathlib.Path, label: str) -> pathlib.Path:
     return path
 
 
+def load_ephemeral_identity_evidence(path: pathlib.Path) -> dict[str, str]:
+    """Load immutable IAM UserId pins from a systemd credential.
+
+    UserIds are not secrets, but the file is treated like a credential so an
+    unprivileged process cannot rewrite the recreation-detection boundary.
+    """
+    path = _secure_secret_file(path, "ephemeral tagger identity evidence")
+    value, _raw = _read_json(
+        path, MAX_IDENTITY_EVIDENCE_BYTES,
+        "ephemeral tagger identity evidence")
+    expected_fields = {
+        "schema_version", "account", "bootstrap_arn", "bootstrap_user_id",
+        "tagger_arn", "tagger_user_id",
+    }
+    if set(value) != expected_fields:
+        raise GateError(
+            "IDENTITY_EVIDENCE_INVALID",
+            "ephemeral identity evidence fields differ from the fixed schema",
+        )
+    fixed = {
+        "schema_version": "canonical-ephemeral-tagger-identities-v1",
+        "account": "321572485933",
+        "bootstrap_arn": DEFAULT_PUBLISHER_ARN,
+        "tagger_arn": DEFAULT_TAGGER_ARN,
+    }
+    if any(value.get(field) != expected for field, expected in fixed.items()):
+        raise GateError(
+            "IDENTITY_EVIDENCE_INVALID",
+            "ephemeral identity evidence does not match fixed principals",
+        )
+    user_id = re.compile(r"^[A-Z0-9]{16,128}$")
+    for field in ("bootstrap_user_id", "tagger_user_id"):
+        if (not isinstance(value.get(field), str)
+                or user_id.fullmatch(value[field]) is None):
+            raise GateError(
+                "IDENTITY_EVIDENCE_INVALID", f"{field} is invalid")
+    return value
+
+
 def _require_arm(path: pathlib.Path, label: str) -> None:
     """Require an operator-owned approval file without following a symlink."""
     path = pathlib.Path(path)
@@ -307,6 +355,41 @@ def _exact_existing_dir(path: pathlib.Path, expected: pathlib.Path,
             f"{label} resolved to {actual}, expected {wanted}",
         )
     return actual
+
+
+def _open_orchestrator_lock(path: pathlib.Path) -> int:
+    """Open the pre-created cross-UID coordinator lock without following it."""
+    path = pathlib.Path(path)
+    flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+        item = os.fstat(fd)
+        parent = os.stat(path.parent, follow_symlinks=False)
+    except OSError as exc:
+        if "fd" in locals():
+            os.close(fd)
+        raise GateError(
+            "ORCHESTRATOR_LOCK_INVALID", str(path)) from exc
+    shared_shape = (
+        item.st_uid == 0 and item.st_gid == os.getegid()
+        and stat.S_IMODE(item.st_mode) == 0o660
+        and parent.st_uid == 0 and parent.st_gid == os.getegid()
+        and stat.S_IMODE(parent.st_mode) == 0o750)
+    private_shape = (
+        item.st_uid == os.geteuid() and item.st_gid == os.getegid()
+        and stat.S_IMODE(item.st_mode) == 0o600
+        and parent.st_uid == os.geteuid()
+        and stat.S_IMODE(parent.st_mode) == 0o700)
+    if (not stat.S_ISREG(item.st_mode) or item.st_nlink != 1
+            or not stat.S_ISDIR(parent.st_mode)
+            or stat.S_ISLNK(parent.st_mode)
+            or not (shared_shape or private_shape)):
+        os.close(fd)
+        raise GateError(
+            "ORCHESTRATOR_LOCK_INVALID", str(path))
+    return fd
 
 
 _PUBLISHER_AWS_KEYS = {
@@ -1106,18 +1189,6 @@ def _base_env(home: pathlib.Path) -> dict[str, str]:
     }
 
 
-def tagger_env(home: pathlib.Path, credential_file: pathlib.Path,
-               profile: str, region: str) -> dict[str, str]:
-    env = _base_env(home)
-    env.update({
-        "AWS_SHARED_CREDENTIALS_FILE": str(credential_file),
-        "AWS_PROFILE": profile,
-        "AWS_DEFAULT_REGION": region,
-        "AWS_REGION": region,
-    })
-    return env
-
-
 PUBLISHER_SHELL = r"""
 set -eu
 umask 077
@@ -1163,56 +1234,134 @@ def publisher_command(aws_cli: str, expected_arn: str,
     ]
 
 
-TAGGER_SHELL = r"""
-set -eu
-umask 077
-aws_expected=$1
-expected_arn=$2
-expected_profile=$3
-shift 3
-if [ -n "${AWS_ACCESS_KEY_ID:-}" ] || [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || [ -n "${AWS_SESSION_TOKEN:-}" ]; then
-  echo 'TAGGER_CREDENTIAL_MODE_REFUSED: inline publisher keys are forbidden' >&2
-  exit 78
-fi
-if [ "${AWS_PROFILE:-}" != "$expected_profile" ] || [ -z "${AWS_SHARED_CREDENTIALS_FILE:-}" ]; then
-  echo 'TAGGER_CREDENTIAL_MODE_REFUSED: fixed profile/shared file required' >&2
-  exit 78
-fi
-if [ "${AWS_CONFIG_FILE:-}" != /dev/null ] || [ "${AWS_CLI_HISTORY_FILE:-}" != /dev/null ] || [ "${AWS_CLI_HISTORY_ENABLED:-}" != false ] || [ "${AWS_IGNORE_CONFIGURED_ENDPOINT_URLS:-}" != true ] || [ "${AWS_EC2_METADATA_DISABLED:-}" != true ]; then
-  echo 'TAGGER_AWS_ENV_REFUSED: CLI config/history/endpoint/metadata hardening mismatch' >&2
-  exit 78
-fi
-case "$AWS_SHARED_CREDENTIALS_FILE" in
-  /*) ;;
-  *) echo 'TAGGER_CREDENTIAL_MODE_REFUSED: absolute shared file required' >&2; exit 78 ;;
-esac
-case "$aws_expected" in
-  /*) ;;
-  *) echo 'TAGGER_AWS_BINARY_REFUSED: absolute path required' >&2; exit 78 ;;
-esac
-PATH="$(dirname "$aws_expected"):/usr/bin:/bin"
-export PATH AWS_EC2_METADATA_DISABLED=true AWS_PAGER=
-if [ "$(command -v aws)" != "$aws_expected" ]; then
-  echo 'TAGGER_AWS_BINARY_REFUSED: PATH does not resolve audited binary' >&2
-  exit 78
-fi
-actual_arn="$("$aws_expected" sts get-caller-identity --query Arn --output text)"
-if [ "$actual_arn" != "$expected_arn" ]; then
-  echo 'TAGGER_CALLER_REFUSED: caller ARN mismatch' >&2
-  exit 78
-fi
-exec "$@"
-""".strip()
+def _run_ephemeral_bootstrap_process(
+        command: list[str], *, env: dict[str, str], label: str) -> str:
+    """Give the bootstrap a SIGTERM cleanup window before any hard kill."""
+    try:
+        process = subprocess.Popen(
+            command, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            shell=False, close_fds=True, start_new_session=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GateError("COMMAND_FAILED", f"{label}: {exc}") from exc
+    try:
+        stdout, stderr = process.communicate(
+            timeout=EPHEMERAL_BOOTSTRAP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        # Signal only the bootstrap first.  Its guard terminates its tagger
+        # child, reconciles IAM keys, and requires double-zero before exiting.
+        try:
+            os.kill(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = process.communicate(
+                timeout=EPHEMERAL_CLEANUP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            raise GateError(
+                "CREDENTIAL_CLEANUP_FAILED",
+                f"{label} exceeded the bounded cleanup grace",
+            ) from None
+        raise GateError(
+            "COMMAND_TIMEOUT",
+            f"{label} timed out after bootstrap signal cleanup",
+        ) from None
+    stdout = stdout or ""
+    stderr = stderr or ""
+    if process.returncode:
+        detail = (stderr or stdout).strip()[-2000:]
+        raise GateError(
+            "COMMAND_FAILED",
+            f"{label} rc={process.returncode}: {detail or 'no detail'}",
+        )
+    return stdout
 
 
-def tagger_command(aws_cli: str, expected_arn: str,
-                   command: list[str], *,
-                   expected_profile: str = DEFAULT_TAGGER_PROFILE) -> list[str]:
-    return [
-        "/bin/bash", "--noprofile", "--norc", "-c", TAGGER_SHELL,
-        "research-v3-tagger", aws_cli, expected_arn, expected_profile,
-        *command,
+def _ephemeral_tagger_run(command: list[str], *, args,
+                          publisher_environment: dict[str, str],
+                          label: str) -> str:
+    """Run one strict tagger phase and return only after double-zero cleanup."""
+    if not getattr(args, "dedicated_service_isolation_attested", False):
+        raise GateError(
+            "PROCESS_ISOLATION_GATE",
+            "ephemeral tagger requires a dedicated service UID and "
+            "ProtectProc=invisible",
+        )
+    _require_arms(args)
+    bootstrap_user_id = getattr(args, "bootstrap_user_id", None)
+    tagger_user_id = getattr(args, "tagger_user_id", None)
+    if not bootstrap_user_id or not tagger_user_id:
+        raise GateError(
+            "IDENTITY_EVIDENCE_INVALID",
+            "ephemeral bootstrap/tagger UserId pins are unavailable",
+        )
+    bootstrap = ROOT / "tools" / "ephemeral_tagger_bootstrap.py"
+    full_command = [
+        str(DEFAULT_BOOTSTRAP_PYTHON), "-I", str(bootstrap),
+        "--execute", "--operator-approved",
+        "--dedicated-service-isolation-attested",
+        "--bootstrap-user-id", bootstrap_user_id,
+        "--tagger-user-id", tagger_user_id,
+        "--tagger-timeout", str(EPHEMERAL_TAGGER_TIMEOUT_SECONDS),
+        "--", *command,
     ]
+    try:
+        output = _run_ephemeral_bootstrap_process(
+            full_command, env=publisher_environment, label=label)
+    except GateError as exc:
+        propagated = (
+            "CREDENTIAL_AUTHORITY_DENIED",
+            "STALE_KEYS_RECONCILED_RETRY_REQUIRED",
+            "CREDENTIAL_CLEANUP_FAILED",
+            "CALLER_IDENTITY_MISMATCH",
+        )
+        for code in propagated:
+            if f"{code}:" in exc.detail:
+                raise GateError(
+                    code, f"{label} failed inside the pinned bootstrap") from None
+        raise
+    complete = None
+    for line in reversed(output.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if (isinstance(candidate, dict)
+                and candidate.get("state")
+                == "EPHEMERAL_TAGGER_COMMAND_COMPLETE"):
+            complete = candidate
+            break
+    if (complete is None or complete.get("final_zero_observations") != 2
+            or complete.get("credential_storage") != "MEMORY_ONLY"
+            or complete.get("rfq") != "OFF"):
+        raise GateError(
+            "EPHEMERAL_TAGGER_CLEANUP_UNPROVEN",
+            f"{label} did not return the double-zero completion marker",
+        )
+    return output
+
+
+def _ephemeral_child_result(output: str, *, state: str, label: str) -> dict:
+    """Select one child result from bootstrap plan/completion JSON lines."""
+    matches = []
+    for line in output.splitlines():
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("state") == state:
+            matches.append(value)
+    if len(matches) != 1:
+        raise GateError(
+            "COMMAND_OUTPUT_INVALID",
+            f"{label} returned {len(matches)} matching child results",
+        )
+    return matches[0]
 
 
 def _run(command: list[str], *, cwd: pathlib.Path, env: dict[str, str],
@@ -2099,22 +2248,6 @@ def ensure_durable(date: str, args, *,
     return index_path
 
 
-def _identity(command: list[str], expected_arn: str, *, cwd: pathlib.Path,
-              env: dict[str, str], label: str) -> dict:
-    raw = _run(command, cwd=cwd, env=env, label=label, timeout=60)
-    try:
-        value = json.loads(raw)
-    except ValueError as exc:
-        raise GateError("CALLER_IDENTITY_INVALID", f"{label}: {exc}") from exc
-    if (not isinstance(value, dict) or value.get("Arn") != expected_arn
-            or not value.get("Account") or not value.get("UserId")):
-        raise GateError(
-            "CALLER_IDENTITY_MISMATCH",
-            f"{label} ARN {value.get('Arn') if isinstance(value, dict) else None!r}",
-        )
-    return value
-
-
 def _json_bytes(payload: dict) -> bytes:
     return (json.dumps(payload, sort_keys=True, indent=2,
                        ensure_ascii=True) + "\n").encode("utf-8")
@@ -2227,24 +2360,6 @@ def _validate_operator_authorization(args) -> tuple[dict, bytes]:
     return authorization, raw
 
 
-def _tag_set(value: object, label: str, *,
-             add_eligible: bool = False) -> list[dict[str, str]]:
-    if not isinstance(value, dict) or not isinstance(value.get("TagSet"), list):
-        raise GateError("POLICY_CANARY_INVALID", f"{label} TagSet missing")
-    tags: dict[str, str] = {}
-    for row in value["TagSet"]:
-        if (not isinstance(row, dict) or not isinstance(row.get("Key"), str)
-                or not isinstance(row.get("Value"), str)
-                or row["Key"] in tags):
-            raise GateError("POLICY_CANARY_INVALID", f"{label} tag malformed")
-        tags[row["Key"]] = row["Value"]
-    if add_eligible:
-        tags["research-eligible"] = "true"
-    if len(tags) > 10:
-        raise GateError("POLICY_CANARY_INVALID", "S3 tag limit would be exceeded")
-    return [{"Key": key, "Value": tags[key]} for key in sorted(tags)]
-
-
 def _reusable_policy_patrol(root: pathlib.Path, date: str,
                             receipt_sha: str,
                             refresh_hours: int) -> pathlib.Path | None:
@@ -2289,7 +2404,6 @@ def _reusable_policy_patrol(root: pathlib.Path, date: str,
 
 def refresh_policy_patrol_evidence(
         durable_index: pathlib.Path, date: str, args, *,
-        tag_env: dict[str, str],
         publisher_environment: dict[str, str]) -> pathlib.Path:
     """Refresh static-hash plus live-behavior evidence without self-auditing.
 
@@ -2326,10 +2440,6 @@ def refresh_policy_patrol_evidence(
     }
     aws = os.path.abspath(args.aws_cli)
     _require_arms(args)
-    tagger_identity = _identity(
-        [aws, "sts", "get-caller-identity", "--output", "json"],
-        args.tagger_principal, cwd=ROOT, env=tag_env,
-        label="policy canary tagger caller")
     binding = index["receipt_object"]
     if (not _valid_version_id(binding.get("VersionId"))
             or not isinstance(binding.get("size"), int)
@@ -2383,7 +2493,29 @@ def refresh_policy_patrol_evidence(
             "POLICY_CANARY_INVALID",
             "no bounded non-RFQ research candidate exists",
         )
-    target = candidates[0]
+    # The dated seal is immutable after sealing.  Require its receipt version
+    # to still be current before the versionless negative canary; replaying its
+    # preserved tag set is then non-destructive even on unexpected allow.
+    seal_key = f"{DEFAULT_PREFIX}/warehouse/seals/date={date}.json"
+    seal_candidates = [obj for obj in candidates if obj["key"] == seal_key]
+    if len(seal_candidates) != 1:
+        raise GateError(
+            "POLICY_CANARY_INVALID",
+            "durable receipt does not contain one eligible dated seal",
+        )
+    target = seal_candidates[0]
+    current_head = _json_document(_publisher_run([
+        aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
+        "--key", target["key"], "--output", "json",
+    ], args=args, publisher_environment=publisher_environment,
+        label="policy canary current seal preflight", timeout=120),
+        "policy canary current seal preflight")
+    if (current_head.get("VersionId") != target["VersionId"]
+            or current_head.get("ContentLength") != target["size"]):
+        raise GateError(
+            "POLICY_CANARY_INVALID",
+            "dated seal receipt version is not current",
+        )
     target_head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
         "--key", target["key"], "--version-id", target["VersionId"],
@@ -2407,37 +2539,89 @@ def refresh_policy_patrol_evidence(
             raise GateError(
                 "POLICY_CANARY_INVALID", "exact candidate bytes do not match receipt")
 
-    before = _json_document(_run(tagger_command(
-        aws, args.tagger_principal, [
-        aws, "s3api", "get-object-tagging", "--bucket", DEFAULT_BUCKET,
-        "--key", key, "--version-id", version_id, "--output", "json",
-    ]), cwd=ROOT, env=tag_env, label="tagger exact tag preflight",
-        timeout=120), "tagger exact tag preflight")
-    desired = _tag_set(
-        before, "tagger exact tag preflight", add_eligible=True)
-    tagging = json.dumps({"TagSet": desired}, sort_keys=True,
-                         separators=(",", ":"))
-    _require_arms(args)
-    _run(tagger_command(aws, args.tagger_principal, [
-        aws, "s3api", "put-object-tagging", "--bucket", DEFAULT_BUCKET,
-        "--key", key, "--version-id", version_id, "--tagging", tagging,
-    ]), cwd=ROOT, env=tag_env, label="tagger exact tag positive canary",
-        timeout=120)
-    after = _json_document(_run(tagger_command(
-        aws, args.tagger_principal, [
-        aws, "s3api", "get-object-tagging", "--bucket", DEFAULT_BUCKET,
-        "--key", key, "--version-id", version_id, "--output", "json",
-    ]), cwd=ROOT, env=tag_env, label="tagger exact tag readback",
-        timeout=120), "tagger exact tag readback")
-    if _tag_set(after, "tagger exact tag readback") != desired:
-        raise GateError("POLICY_CANARY_INVALID", "tagger tag readback mismatch")
+    canary_root = root / "tagger-canary"
+    canary_output = _ephemeral_tagger_run([
+        str(DEFAULT_BOOTSTRAP_PYTHON),
+        str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
+        "--policy-canary",
+        "--receipt-index", str(durable_index),
+        "--expected-tagger-principal", args.tagger_principal,
+        "--bucket", DEFAULT_BUCKET,
+        "--prefix", DEFAULT_PREFIX,
+        "--canary-output-root", str(canary_root),
+        "--canary-target-key", key,
+        "--canary-target-version-id", version_id,
+        "--operator-approved",
+    ], args=args, publisher_environment=publisher_environment,
+        label=f"ephemeral policy tagger canary {date}")
+    canary_result = _ephemeral_child_result(
+        canary_output, state="EXACT_VERSION_POLICY_CANARY_PASS",
+        label=f"ephemeral policy tagger canary {date}")
+    try:
+        canary_path = pathlib.Path(canary_result["canary"]).absolute()
+        canary_path.resolve(strict=True).relative_to(
+            canary_root.resolve(strict=True))
+    except (KeyError, OSError, ValueError) as exc:
+        raise GateError("POLICY_CANARY_INVALID", str(exc)) from exc
+    canary, canary_raw = _read_json(
+        canary_path, MAX_POLICY_EVIDENCE_BYTES, "tagger policy canary")
+    expected_target = {
+        "bucket": DEFAULT_BUCKET,
+        "key": key,
+        "VersionId": version_id,
+        "size": target["size"],
+        "sha256": target["sha256"],
+        "selection": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE",
+    }
+    desired_rows = canary.get("desired_tag_set")
+    desired_tags: dict[str, str] = {}
+    if not isinstance(desired_rows, list) or not 1 <= len(desired_rows) <= 10:
+        raise GateError(
+            "POLICY_CANARY_INVALID", "tagger canary desired tags are invalid")
+    for row in desired_rows:
+        if (not isinstance(row, dict) or set(row) != {"Key", "Value"}
+                or not isinstance(row.get("Key"), str) or not row["Key"]
+                or not isinstance(row.get("Value"), str)
+                or row["Key"] in desired_tags):
+            raise GateError(
+                "POLICY_CANARY_INVALID",
+                "tagger canary desired tag row is invalid",
+            )
+        desired_tags[row["Key"]] = row["Value"]
+    desired_rows_expected = [
+        {"Key": name, "Value": desired_tags[name]}
+        for name in sorted(desired_tags)]
+    desired_sha = hashlib.sha256(json.dumps(
+        desired_rows_expected, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True).encode("utf-8")).hexdigest()
+    if (hashlib.sha256(canary_raw).hexdigest()
+            != canary_result.get("canary_sha256")
+            or canary.get("schema_version")
+            != "canonical-eligibility-policy-canary-v1"
+            or canary.get("state") != "EXACT_VERSION_POLICY_CANARY_PASS"
+            or canary.get("date") != date
+            or canary.get("receipt_set_sha256") != receipt_sha
+            or canary.get("target") != expected_target
+            or canary.get("tagger_sts_caller_arn")
+            != args.tagger_principal
+            or canary.get("tagger_sts_account") != "321572485933"
+            or canary.get("tagger_sts_user_id") != args.tagger_user_id
+            or desired_rows != desired_rows_expected
+            or canary.get("desired_tag_set_sha256") != desired_sha
+            or desired_tags.get("research-eligible") != "true"
+            or "research-channel" in desired_tags
+            or canary.get("checks") != {
+                "tagger_exact_version_get": "PASS",
+                "tagger_exact_version_put_preserve_and_readback": "PASS",
+                "tagger_versionless_put": "ACCESS_DENIED",
+            }
+            or canary.get("rfq") != "OFF"):
+        raise GateError(
+            "POLICY_CANARY_INVALID", "tagger canary binding mismatch")
 
-    _require_arms(args)
-    _run_expect_denied(tagger_command(aws, args.tagger_principal, [
-        aws, "s3api", "put-object-tagging", "--bucket", DEFAULT_BUCKET,
-        "--key", key, "--tagging", tagging,
-    ]), cwd=ROOT, env=tag_env,
-        label="tagger versionless tag negative canary")
+    tagging = json.dumps(
+        {"TagSet": desired_rows_expected}, sort_keys=True,
+        separators=(",", ":"))
 
     _require_arms(args)
     _run_expect_denied(
@@ -2473,12 +2657,16 @@ def refresh_policy_patrol_evidence(
         ],
         "approved_static_policy_sha256": approved_hashes,
         "static_policy_artifacts": policies,
-        "tagger_identity": tagger_identity,
+        "tagger_identity": {
+            "Arn": canary["tagger_sts_caller_arn"],
+            "Account": canary["tagger_sts_account"],
+            "UserId": canary["tagger_sts_user_id"],
+        },
         "publisher_identity": {"Arn": args.publisher_principal,
                                "verified_in_same_exec_shell": True},
         "canary_target": {"bucket": DEFAULT_BUCKET, "key": key,
                           "VersionId": version_id,
-                          "class": "SMALLEST_BOUNDED_RECEIPT_CANDIDATE"},
+                          "class": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE"},
         "checks": {
             "tagger_exact_version_get": "PASS",
             "tagger_exact_version_put_preserve_and_readback": "PASS",
@@ -2651,10 +2839,9 @@ def _print_plan(plan: DatePlan, *, mode: str, live_dir: pathlib.Path,
     }, sort_keys=True))
 
 
-def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
+def execute_date(plan: DatePlan, args, *,
                  publisher_environment: dict[str, str]):
     python = os.path.abspath(args.python)
-    aws = os.path.abspath(args.aws_cli) if "/" in args.aws_cli else args.aws_cli
 
     tagged = plan.tagged_index
     if tagged is None:
@@ -2676,20 +2863,14 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
                 )
         _require_arms(args)
         _verify_seal(plan.date, args)
-        _identity(
-            [aws, "sts", "get-caller-identity", "--output", "json"],
-            args.tagger_principal, cwd=ROOT, env=tag_env,
-            label="tagger caller",
-        )
-        _require_arms(args)
         tag_command = [
-            python, str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
+            str(DEFAULT_BOOTSTRAP_PYTHON),
+            str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
             "--receipt-index", str(plan.durable_index),
             "--single-writer-audit", str(plan.audit),
             "--policy-evidence", str(plan.policy_evidence),
             "--bucket", DEFAULT_BUCKET,
             "--prefix", DEFAULT_PREFIX,
-            "--aws-cli", aws,
             "--operator-approved",
             "--output-root", str(pathlib.Path(args.live_dir).absolute()
                                   / "canonical_receipts" / "tagged"),
@@ -2703,13 +2884,16 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
                 "--recover-existing-only",
                 "--pending-index", str(plan.pending_index),
             ])
-        output = _run(
-            tag_command, cwd=ROOT, env=tag_env,
+        output = _ephemeral_tagger_run(
+            tag_command, args=args,
+            publisher_environment=publisher_environment,
             label=(f"historical existing-only tag recovery {plan.date}"
                    if plan.historical_existing_only
                    else f"eligibility tagging {plan.date}"))
         try:
-            result = json.loads(output.strip().splitlines()[-1])
+            result = _ephemeral_child_result(
+                output, state="TAGGED_ELIGIBILITY_VERIFIED",
+                label=f"eligibility tagging {plan.date}")
             tagged = pathlib.Path(result["index"]).absolute()
             if plan.historical_existing_only and (
                     result.get("recovery")
@@ -2758,22 +2942,24 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
     # The dedicated tagger (never the publisher) now re-reads the tagged
     # receipt and every non-RFQ candidate exact VersionId.  The publisher gets
     # only this local proof, so tagger credentials never cross identities.
-    proof_output = _run([
-        python, str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
+    proof_output = _ephemeral_tagger_run([
+        str(DEFAULT_BOOTSTRAP_PYTHON),
+        str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
         "--verify-only",
         "--tagged-index", str(tagged),
         "--byte-receipt-index", str(plan.durable_index),
         "--expected-tagger-principal", args.tagger_principal,
         "--bucket", DEFAULT_BUCKET,
         "--prefix", DEFAULT_PREFIX,
-        "--aws-cli", aws,
         "--proof-output-root", str(
             pathlib.Path(args.live_dir).absolute()
             / "canonical_receipts" / "tag-precommit"),
-    ], cwd=ROOT, env=tag_env,
+    ], args=args, publisher_environment=publisher_environment,
         label=f"precommit exact tag proof {plan.date}")
     try:
-        proof_result = json.loads(proof_output.strip().splitlines()[-1])
+        proof_result = _ephemeral_child_result(
+            proof_output, state="EXACT_VERSION_TAG_READBACK_VERIFIED",
+            label=f"precommit exact tag proof {plan.date}")
         proof = pathlib.Path(proof_result["proof"]).absolute()
         if (proof_result.get("state")
                 != "EXACT_VERSION_TAG_READBACK_VERIFIED"
@@ -2830,10 +3016,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--raw-root", required=True)
     parser.add_argument("--warehouse-root", required=True)
     parser.add_argument(
-        "--tagger-credentials-file",
-        default=str(DEFAULT_TAGGER_CREDENTIAL_FILE))
-    parser.add_argument("--tagger-profile",
-                        default=DEFAULT_TAGGER_PROFILE)
+        "--ephemeral-identity-evidence-file",
+        default=str(DEFAULT_EPHEMERAL_IDENTITY_EVIDENCE_FILE))
+    parser.add_argument(
+        "--dedicated-service-isolation-attested", action="store_true",
+        help="attest dedicated UID plus ProtectProc for ephemeral key use")
     parser.add_argument("--publisher-env-file", required=True)
     parser.add_argument("--tagger-principal", default=DEFAULT_TAGGER_ARN)
     parser.add_argument("--publisher-principal", default=DEFAULT_PUBLISHER_ARN)
@@ -2968,8 +3155,12 @@ def main(argv=None) -> int:
             if args.tagger_principal != DEFAULT_TAGGER_ARN:
                 raise GateError(
                     "TAGGER_PRINCIPAL_INVALID", args.tagger_principal)
-            if args.tagger_profile != DEFAULT_TAGGER_PROFILE:
-                raise GateError("TAGGER_PROFILE_INVALID", args.tagger_profile)
+            if not args.dedicated_service_isolation_attested:
+                raise GateError(
+                    "PROCESS_ISOLATION_GATE",
+                    "full publication requires a dedicated service UID and "
+                    "ProtectProc attestation",
+                )
         if args.publisher_principal != DEFAULT_PUBLISHER_ARN:
             raise GateError("PUBLISHER_PRINCIPAL_INVALID", args.publisher_principal)
         live_dir = _exact_existing_dir(
@@ -2979,8 +3170,10 @@ def main(argv=None) -> int:
             warehouse_arg, DEFAULT_PRODUCTION_WAREHOUSE_ROOT, "warehouse root")
         _exact_existing_dir(
             quality_arg, DEFAULT_PRODUCTION_QUALITY_DIR, "quality root")
+        expected_home = (DEFAULT_PRODUCTION_HOME if args.durable_only
+                         else DEFAULT_FULL_PRODUCTION_HOME)
         home = _exact_existing_dir(
-            pathlib.Path(args.home), DEFAULT_PRODUCTION_HOME, "HOME")
+            pathlib.Path(args.home), expected_home, "HOME")
         audit_root = pathlib.Path(args.audit_root)
         if (not audit_root.is_absolute()
                 or audit_root != live_dir / "research_v3_audit"):
@@ -2997,11 +3190,12 @@ def main(argv=None) -> int:
                 "publisher credential must come from the systemd credential mount",
             )
         if (not args.durable_only
-                and pathlib.Path(args.tagger_credentials_file)
-                != DEFAULT_TAGGER_CREDENTIAL_FILE):
+                and pathlib.Path(args.ephemeral_identity_evidence_file)
+                != DEFAULT_EPHEMERAL_IDENTITY_EVIDENCE_FILE):
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
-                "tagger credential must come from the systemd credential mount",
+                "ephemeral identity evidence must come from the systemd "
+                "credential mount",
             )
         if pathlib.Path(args.cutover_arm_file) != DEFAULT_CUTOVER_ARM:
             raise GateError("OPERATOR_GATE", "cutover arm path is fixed")
@@ -3014,14 +3208,11 @@ def main(argv=None) -> int:
         _require_arms(args)
         publisher_file = _secure_secret_file(
             pathlib.Path(args.publisher_env_file), "publisher environment file")
-        tag_env = None
         if not args.durable_only:
-            tagger_credential = _secure_secret_file(
-                pathlib.Path(args.tagger_credentials_file),
-                "tagger credential file")
-            tag_env = tagger_env(
-                home, tagger_credential,
-                args.tagger_profile, args.region)
+            identities = load_ephemeral_identity_evidence(
+                pathlib.Path(args.ephemeral_identity_evidence_file))
+            args.bootstrap_user_id = identities["bootstrap_user_id"]
+            args.tagger_user_id = identities["tagger_user_id"]
         publisher_environment = publisher_env(home, publisher_file, args.region)
         publisher_environment.update({
             "RAW_ROOT": str(raw_arg),
@@ -3033,8 +3224,8 @@ def main(argv=None) -> int:
 
         state_root = live_dir / "research_v3_daily"
         state_root.mkdir(parents=True, exist_ok=True, mode=0o750)
-        lock_path = state_root / "orchestrator.lock"
-        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        lock_path = DEFAULT_ORCHESTRATOR_LOCK
+        lock_fd = _open_orchestrator_lock(lock_path)
         try:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -3194,7 +3385,7 @@ def main(argv=None) -> int:
                         args.tagger_principal)
                     if plan is None:
                         patrol = refresh_policy_patrol_evidence(
-                            durable_path, date, args, tag_env=tag_env,
+                            durable_path, date, args,
                             publisher_environment=publisher_environment)
                         refresh_layered_single_writer_audit(
                             durable_path, date, args, patrol_evidence=patrol)
@@ -3202,7 +3393,7 @@ def main(argv=None) -> int:
                             date, live_dir, audit_root, args.tagger_principal,
                             receipt_root)
                     tagged, manifest_result = execute_date(
-                        plan, args, tag_env=tag_env,
+                        plan, args,
                         publisher_environment=publisher_environment)
                     status = {
                         "schema_version": TERMINAL_STATUS_SCHEMA,
@@ -3242,7 +3433,7 @@ def main(argv=None) -> int:
                 patrol_status = state_root / "POLICY_PATROL_STATUS.json"
                 try:
                     evidence = refresh_policy_patrol_evidence(
-                        patrol_durable, patrol_date, args, tag_env=tag_env,
+                        patrol_durable, patrol_date, args,
                         publisher_environment=publisher_environment)
                     _atomic_json(patrol_status, {
                         "schema_version": "research-v3-policy-patrol-status-v1",

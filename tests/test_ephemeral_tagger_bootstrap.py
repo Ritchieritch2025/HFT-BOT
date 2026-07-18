@@ -88,6 +88,7 @@ class FakeAwsAndTagger:
                  bootstrap_user_id=BOOTSTRAP_USER_ID,
                  tagger_arn=bootstrap.TAGGER_ARN,
                  tagger_user_id=TAGGER_USER_ID,
+                 get_user_id=TAGGER_USER_ID,
                  tagger_returncode=0, tagger_output="tagger-ok\n",
                  create_status="Active", initial_records=None,
                  cleanup_lists=None):
@@ -97,6 +98,7 @@ class FakeAwsAndTagger:
         self.bootstrap_user_id = bootstrap_user_id
         self.tagger_arn = tagger_arn
         self.tagger_user_id = tagger_user_id
+        self.get_user_id = get_user_id
         self.tagger_returncode = tagger_returncode
         self.tagger_output = tagger_output
         self.create_status = create_status
@@ -139,6 +141,12 @@ class FakeAwsAndTagger:
                 "AccessKeyMetadata": self._metadata(rows),
                 "IsTruncated": False,
             }))
+        if "iam get-user" in flat:
+            return _completed(command, stdout=json.dumps({"User": {
+                "UserName": bootstrap.USER_NAME,
+                "Arn": bootstrap.TAGGER_ARN,
+                "UserId": self.get_user_id,
+            }}))
         if "iam create-access-key" in flat:
             return _completed(command, stdout=json.dumps({"AccessKey": {
                 "UserName": bootstrap.USER_NAME,
@@ -215,6 +223,8 @@ def _actions(fake):
         flat = " ".join(command)
         if "get-caller-identity" in flat:
             rows.append("sts")
+        elif "get-user" in flat:
+            rows.append("get-user")
         elif "list-access-keys" in flat:
             rows.append("list")
         elif "create-access-key" in flat:
@@ -258,6 +268,38 @@ def test_rfq_exact_and_abbreviated_options_are_hard_rejected(flag, pins):
 def test_unknown_abbreviated_or_escape_options_are_rejected(option, pins):
     with pytest.raises(bootstrap.GateError, match="TAGGER_ARGUMENT_INVALID"):
         bootstrap.validate_tagger_command(_tagger_input(pins, option), pins)
+
+
+def test_all_daily_modes_have_disjoint_exact_argument_allowlists(pins):
+    recover = _tagger_input(
+        pins, "--recover-existing-only", "--pending-index", "/tmp/PENDING.json")
+    verify = [
+        str(pins.python), str(pins.tagger), "--verify-only",
+        "--tagged-index", "/tmp/TAGGED.json",
+        "--byte-receipt-index", "/tmp/DURABLE.json",
+        "--expected-tagger-principal", bootstrap.TAGGER_ARN,
+        "--bucket", bootstrap.BUCKET, "--prefix", bootstrap.PREFIX,
+        "--proof-output-root", "/tmp/proof",
+    ]
+    patrol = [
+        str(pins.python), str(pins.tagger), "--policy-canary",
+        "--receipt-index", "/tmp/DURABLE.json",
+        "--expected-tagger-principal", bootstrap.TAGGER_ARN,
+        "--bucket", bootstrap.BUCKET, "--prefix", bootstrap.PREFIX,
+        "--canary-output-root", "/tmp/canary",
+        "--canary-target-key", "ec2/warehouse/seals/date=2026-07-14.json",
+        "--canary-target-version-id", "version-1",
+        "--operator-approved",
+    ]
+    for command in (recover, verify, patrol):
+        validated = bootstrap.validate_tagger_command(command, pins)
+        assert validated[-2:] == ["--aws-cli", str(pins.aws_cli)]
+    with pytest.raises(bootstrap.GateError, match="mutually exclusive"):
+        bootstrap.validate_tagger_command(
+            [*verify, "--policy-canary", "--operator-approved"], pins)
+    with pytest.raises(bootstrap.GateError, match="forbidden options"):
+        bootstrap.validate_tagger_command(
+            [*verify, "--operator-approved"], pins)
 
 
 def test_canonical_tagger_argparse_disables_abbreviations(capsys):
@@ -382,11 +424,11 @@ def test_happy_path_checks_both_exact_identities_and_two_zero_lists(
     fake = FakeAwsAndTagger(tagger_output=f"{KEY_ID} {SECRET}\n")
     result = _execute(pins, tmp_path, monkeypatch, fake)
     actions = _actions(fake)
-    assert actions[:7] == [
-        "sts", "list", "create", "sts", "tagger",
+    assert actions[:8] == [
+        "sts", "get-user", "list", "create", "sts", "tagger",
         "inactive", "delete",
     ]
-    assert actions[7:] == ["list"] * 5
+    assert actions[8:] == ["list"] * 5
     assert KEY_ID not in result.stdout
     assert SECRET not in result.stdout
     assert "REDACTED_EPHEMERAL_CREDENTIAL" in result.stdout
@@ -401,6 +443,46 @@ def test_bootstrap_identity_mismatch_refuses_before_list_or_create(
     with pytest.raises(bootstrap.GateError, match="CALLER_IDENTITY_MISMATCH"):
         _execute(pins, tmp_path, monkeypatch, fake)
     assert _actions(fake) == ["sts"]
+
+
+def test_get_user_id_pin_refuses_before_list_or_create(
+        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+    fake = FakeAwsAndTagger(get_user_id="AIDAWRONGTAGGER00000")
+    with pytest.raises(bootstrap.GateError, match="CALLER_IDENTITY_MISMATCH"):
+        _execute(pins, tmp_path, monkeypatch, fake)
+    assert _actions(fake) == ["sts", "get-user"]
+
+
+def test_initial_stale_key_is_deleted_double_zero_then_requires_rerun(
+        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+    fake = FakeAwsAndTagger(initial_records=[(KEY_ID, "Active")])
+    with pytest.raises(
+            bootstrap.GateError,
+            match="STALE_KEYS_RECONCILED_RETRY_REQUIRED"):
+        _execute(pins, tmp_path, monkeypatch, fake)
+    actions = _actions(fake)
+    assert actions[:5] == ["sts", "get-user", "list", "inactive", "delete"]
+    assert "create" not in actions
+    assert "tagger" not in actions
+    assert actions[-2:] == ["list", "list"]
+
+
+def test_get_user_permission_failure_has_explicit_authority_code(
+        monkeypatch, pins, bootstrap_credential_env):
+    def denied(command, **_kwargs):
+        return _completed(command, returncode=254, stderr="AccessDenied")
+
+    monkeypatch.setattr(bootstrap, "_run_process", denied)
+    aws = bootstrap.AwsIamBootstrap(
+        pins.aws_cli, bootstrap._sterile_environment())
+    with pytest.raises(
+            bootstrap.GateError, match="CREDENTIAL_AUTHORITY_DENIED"):
+        aws.get_user()
+
+
+def test_production_lock_is_shared_outside_private_tmp():
+    assert bootstrap.LOCK_PATH == pathlib.Path(
+        "/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock")
 
 
 def test_tagger_user_id_mismatch_still_inactivates_deletes_and_confirms_zero(
@@ -521,6 +603,10 @@ class FakeAws:
                     'UserId': {BOOTSTRAP_USER_ID!r}}}
         note('sts-tagger')
         return {{'Account': b.ACCOUNT, 'Arn': b.TAGGER_ARN,
+                'UserId': {TAGGER_USER_ID!r}}}
+    def get_user(self):
+        note('get-user')
+        return {{'UserName': b.USER_NAME, 'Arn': b.TAGGER_ARN,
                 'UserId': {TAGGER_USER_ID!r}}}
     def list_access_keys(self):
         note('list-zero')

@@ -77,6 +77,9 @@ PENDING_INDEX_SCHEMA = "canonical-tagged-receipt-pending-index-v1"
 PENDING_INDEX_STATE = "TAGGED_RECEIPT_OBJECT_TAG_PENDING"
 PRECOMMIT_PROOF_SCHEMA = "canonical-eligibility-precommit-proof-v1"
 PRECOMMIT_PROOF_STATE = "EXACT_VERSION_TAG_READBACK_VERIFIED"
+POLICY_CANARY_SCHEMA = "canonical-eligibility-policy-canary-v1"
+POLICY_CANARY_STATE = "EXACT_VERSION_POLICY_CANARY_PASS"
+MAX_POLICY_CANARY_BYTES = 64 * 1024 * 1024
 MAX_DURABLE_INDEX_BYTES = 1024 * 1024
 MAX_PRECOMMIT_PROOF_BYTES = 16 * 1024 * 1024
 MAX_SINGLE_WRITER_AUDIT_BYTES = 64 * 1024
@@ -110,6 +113,7 @@ RFQ_BINDING_FIELDS = frozenset({
 })
 TAGGER_PROVENANCE_PATHS = cr.CANONICAL_RECEIPT_PROVENANCE_PATHS + (
     "tools/canonical_eligibility_tagger.py",
+    "tools/ephemeral_tagger_bootstrap.py",
     "tools/research_v3_daily.py",
     "docs/plan_releases/pipeline/"
     "W-PUB-REF-01C_OPERATOR_ATTESTED_AUTHORIZATION_2026-07-17.json",
@@ -951,6 +955,40 @@ class AwsCliExactVersionTagger:
                 "TAG_VERSION_MISMATCH", "%s exact PUT tag mismatch" % key)
         self.tag_puts += 1
 
+    def require_versionless_put_denied(self, bucket, key, tags):
+        """Attempt one fixed negative canary and accept only AccessDenied.
+
+        Normal tagging APIs in this module cannot omit VersionId.  This one
+        method is deliberately named as an assertion and is reachable only
+        from the strict policy-canary CLI mode.
+        """
+        tags = _normalize_tags(tags, key)
+        body = {"TagSet": [
+            {"Key": name, "Value": tags[name]} for name in sorted(tags)]}
+        _mutation_code_commit()
+        try:
+            result = subprocess.run([
+                self.executable, "s3api", "put-object-tagging",
+                "--bucket", bucket, "--key", key,
+                "--tagging", json.dumps(
+                    body, sort_keys=True, separators=(",", ":")),
+                "--output", "json",
+            ], capture_output=True, text=True, env=dict(os.environ),
+               timeout=120)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise cr.ReceiptError(
+                "VERSIONLESS_TAG_CANARY_INVALID", str(exc))
+        if result.returncode == 0:
+            raise cr.ReceiptError(
+                "VERSIONLESS_TAGGING_NOT_DENIED",
+                "versionless PutObjectTagging unexpectedly succeeded")
+        detail = (result.stderr or result.stdout or "")[-4096:]
+        if ("AccessDenied" not in detail
+                and "not authorized to perform" not in detail):
+            raise cr.ReceiptError(
+                "VERSIONLESS_TAG_CANARY_INVALID",
+                "versionless PutObjectTagging failed without AccessDenied")
+
 
 def _target_identity(obj):
     return obj["bucket"], obj["key"], obj["VersionId"]
@@ -1445,6 +1483,122 @@ def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
     return path, proof_sha, payload
 
 
+def run_policy_canary(*, receipt_index, reader, tagger, output_root,
+                      expected_tagger_principal, expected_bucket=None,
+                      expected_prefix=None, canary_target_key=None,
+                      canary_target_version_id=None, generated_at=None):
+    """Exercise only the tagger's exact-version allow and versionless deny.
+
+    The durable receipt is exact-read under the short-lived tagger identity;
+    target selection is deterministic and structurally excludes raw/RFQ.
+    Publisher byte checks and the publisher-deny canary remain outside this
+    credential boundary in ``research_v3_daily``.
+    """
+    index, receipt, prefix = load_durable_byte_receipt(
+        receipt_index, reader, expected_bucket=expected_bucket,
+        expected_prefix=expected_prefix)
+    principal = (_IAM_USER_ARN_RE.fullmatch(expected_tagger_principal)
+                 if isinstance(expected_tagger_principal, str) else None)
+    if principal is None:
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_IDENTITY_INVALID",
+            "policy canary requires the dedicated IAM user ARN")
+    identity = tagger.get_caller_identity()
+    if (not isinstance(identity, dict)
+            or identity.get("Arn") != expected_tagger_principal
+            or identity.get("Account") != principal.group(2)
+            or not isinstance(identity.get("UserId"), str)
+            or not identity["UserId"].strip()):
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_MISMATCH",
+            "ambient caller is not the dedicated policy-canary tagger")
+    candidates = [
+        obj for obj in select_tag_targets(receipt, prefix)
+        if (isinstance(obj.get("size"), int)
+            and not isinstance(obj.get("size"), bool)
+            and 0 < obj["size"] <= MAX_POLICY_CANARY_BYTES
+            and _valid_sha256(obj.get("sha256")))
+    ]
+    if not candidates:
+        raise cr.ReceiptError(
+            "POLICY_CANARY_INVALID",
+            "no bounded non-RFQ research candidate exists")
+    expected_canary_key = "%s/warehouse/seals/date=%s.json" % (
+        prefix, receipt["date"])
+    if canary_target_key != expected_canary_key:
+        raise cr.ReceiptError(
+            "POLICY_CANARY_INVALID",
+            "policy canary target must be the immutable dated seal")
+    matching = [obj for obj in candidates
+                if obj["key"] == canary_target_key
+                and obj["VersionId"] == canary_target_version_id]
+    if len(matching) != 1:
+        raise cr.ReceiptError(
+            "POLICY_CANARY_INVALID",
+            "operator-selected current canary is not one receipt candidate")
+    target = matching[0]
+    preflight = preflight_all_tags([target], tagger)
+    desired = preflight[0][2]
+    # Patrol must exercise the exact-version write allow on every refresh,
+    # even when this immutable version already carries the desired tag set.
+    # Rewriting the identical, preserved set is semantically idempotent.
+    tagger.put_tags(
+        target["bucket"], target["key"], target["VersionId"], desired)
+    observed = _normalize_tags(tagger.get_tags(
+        target["bucket"], target["key"], target["VersionId"]),
+        "%s?versionId=%s" % (target["key"], target["VersionId"]))
+    if observed != desired:
+        raise cr.ReceiptError(
+            "TAG_READBACK_MISMATCH", target["key"])
+    tagger.require_versionless_put_denied(
+        target["bucket"], target["key"], desired)
+    timestamp = generated_at or cr._now()
+    try:
+        if timestamp != cr._canonical_utc(
+                timestamp, "policy canary generated_at_utc"):
+            raise cr.ReceiptError(
+                "POLICY_CANARY_INVALID", "non-canonical canary time")
+    except cr.ReceiptError as exc:
+        if exc.code == "POLICY_CANARY_INVALID":
+            raise
+        raise cr.ReceiptError("POLICY_CANARY_INVALID", exc.detail)
+    desired_rows = [
+        {"Key": name, "Value": desired[name]} for name in sorted(desired)]
+    payload = {
+        "schema_version": POLICY_CANARY_SCHEMA,
+        "state": POLICY_CANARY_STATE,
+        "date": receipt["date"],
+        "receipt_set_sha256": index["receipt_set_sha256"],
+        "tagger_sts_caller_arn": identity["Arn"],
+        "tagger_sts_account": identity["Account"],
+        "tagger_sts_user_id": identity["UserId"],
+        "target": {
+            "bucket": target["bucket"],
+            "key": target["key"],
+            "VersionId": target["VersionId"],
+            "size": target["size"],
+            "sha256": target["sha256"],
+            "selection": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE",
+        },
+        "desired_tag_set": desired_rows,
+        "desired_tag_set_sha256": cr.canonical_sha256(desired_rows),
+        "checks": {
+            "tagger_exact_version_get": "PASS",
+            "tagger_exact_version_put_preserve_and_readback": "PASS",
+            "tagger_versionless_put": "ACCESS_DENIED",
+        },
+        "tag_puts": tagger.tag_puts,
+        "generated_at_utc": timestamp,
+        "rfq": "OFF",
+    }
+    body = _json_bytes(payload)
+    digest = hashlib.sha256(body).hexdigest()
+    root = pathlib.Path(output_root) / ("date=%s" % receipt["date"])
+    path = root / ("POLICY-CANARY-%s.json" % digest)
+    cr.write_atomic_json(path, payload)
+    return path, digest, payload
+
+
 def _equivalent_tagged_body(stored, expected, *, parent_sha, audit_sha,
                             bucket, prefix):
     try:
@@ -1845,6 +1999,8 @@ def main(argv=None):
     parser.add_argument("--policy-evidence")
     parser.add_argument("--verify-only", action="store_true",
                         help="emit a zero-PUT exact-version tag proof")
+    parser.add_argument("--policy-canary", action="store_true",
+                        help="run the fixed exact-version allow/deny canary")
     parser.add_argument("--recover-existing-only", action="store_true",
                         help="finish a >24h pending exact receipt without "
                              "creating any remote receipt object")
@@ -1853,6 +2009,9 @@ def main(argv=None):
     parser.add_argument("--byte-receipt-index")
     parser.add_argument("--expected-tagger-principal")
     parser.add_argument("--proof-output-root")
+    parser.add_argument("--canary-output-root")
+    parser.add_argument("--canary-target-key")
+    parser.add_argument("--canary-target-version-id")
     parser.add_argument("--include-sealed-rfq", action="store_true")
     parser.add_argument("--rfq-eligibility-evidence")
     parser.add_argument("--bucket", default="kalshi-vault-ritcardo")
@@ -1863,10 +2022,54 @@ def main(argv=None):
         "--output-root", default=os.path.join(
             wc.ROOT, "work", "live", "canonical_receipts", "tagged"))
     args = parser.parse_args(argv)
-    if args.verify_only and args.recover_existing_only:
-        print("REFUSED: verify-only and recovery modes are mutually exclusive",
+    selected_modes = sum(bool(value) for value in (
+        args.verify_only, args.recover_existing_only, args.policy_canary))
+    if selected_modes > 1:
+        print("REFUSED: verify-only, recovery, and policy-canary modes are "
+              "mutually exclusive",
               file=os.sys.stderr)
         return 2
+    if args.policy_canary:
+        required = {
+            "--receipt-index": args.receipt_index,
+            "--expected-tagger-principal": args.expected_tagger_principal,
+            "--canary-output-root": args.canary_output_root,
+            "--canary-target-key": args.canary_target_key,
+            "--canary-target-version-id": args.canary_target_version_id,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            print("REFUSED: policy-canary requires %s" % ", ".join(missing),
+                  file=os.sys.stderr)
+            return 2
+        if (args.include_sealed_rfq or args.rfq_eligibility_evidence
+                or not args.operator_approved):
+            print("REFUSED: policy-canary is RFQ-off and requires "
+                  "--operator-approved", file=os.sys.stderr)
+            return 2
+        reader = cr.AwsCliS3Client(args.aws_cli)
+        tagger = AwsCliExactVersionTagger(args.aws_cli)
+        try:
+            path, canary_sha, canary = run_policy_canary(
+                receipt_index=os.path.abspath(args.receipt_index),
+                reader=reader, tagger=tagger,
+                output_root=os.path.abspath(args.canary_output_root),
+                expected_tagger_principal=args.expected_tagger_principal,
+                expected_bucket=args.bucket, expected_prefix=args.prefix,
+                canary_target_key=args.canary_target_key,
+                canary_target_version_id=args.canary_target_version_id)
+        except cr.ReceiptError as exc:
+            print("BLOCKED_INTEGRITY %s" % exc, file=os.sys.stderr)
+            return 2
+        print(json.dumps({
+            "state": POLICY_CANARY_STATE,
+            "canary": str(path),
+            "canary_sha256": canary_sha,
+            "target": canary["target"],
+            "tag_puts": tagger.tag_puts,
+            "rfq": "OFF",
+        }, sort_keys=True))
+        return 0
     if args.verify_only:
         required = {
             "--tagged-index": args.tagged_index,

@@ -52,10 +52,11 @@ ACCOUNT = "321572485933"
 REGION = "us-east-2"
 BUCKET = "kalshi-vault-ritcardo"
 PREFIX = "ec2"
-LOCK_PATH = pathlib.Path("/tmp/canonical-eligibility-tagger-bootstrap.lock")
+LOCK_PATH = pathlib.Path(
+    "/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock")
 MAX_AWS_RESPONSE_BYTES = 64 * 1024
 MAX_TAGGER_OUTPUT_BYTES = 4 * 1024 * 1024
-DEFAULT_TAGGER_TIMEOUT = 4 * 60 * 60
+DEFAULT_TAGGER_TIMEOUT = 60 * 60
 ZERO_CONFIRMATIONS_REQUIRED = 2
 ZERO_CONFIRMATION_NOT_BEFORE_SECONDS = 2.0
 CLEANUP_BACKOFF_SECONDS = (0.0, 0.25, 0.75, 1.5, 3.0, 5.0, 8.0, 12.0)
@@ -66,22 +67,70 @@ TRUSTED_PATH = "/snap/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 PR_SET_DUMPABLE = 4
 PR_SET_NO_NEW_PRIVS = 38
 
-TAGGER_VALUE_OPTIONS = frozenset({
-    "--receipt-index",
-    "--single-writer-audit",
-    "--policy-evidence",
-    "--bucket",
-    "--prefix",
-    "--output-root",
-})
-TAGGER_FLAG_OPTIONS = frozenset({"--operator-approved"})
-TAGGER_REQUIRED_OPTIONS = frozenset({
-    "--receipt-index",
-    "--single-writer-audit",
-    "--policy-evidence",
-    "--output-root",
-    "--operator-approved",
-})
+TAGGER_MODE_OPTIONS = {
+    "APPLY": {
+        "values": frozenset({
+            "--receipt-index", "--single-writer-audit",
+            "--policy-evidence", "--bucket", "--prefix", "--output-root",
+        }),
+        "flags": frozenset({"--operator-approved"}),
+        "required": frozenset({
+            "--receipt-index", "--single-writer-audit",
+            "--policy-evidence", "--output-root", "--operator-approved",
+        }),
+    },
+    "RECOVER": {
+        "values": frozenset({
+            "--receipt-index", "--single-writer-audit",
+            "--policy-evidence", "--pending-index", "--bucket", "--prefix",
+            "--output-root",
+        }),
+        "flags": frozenset({
+            "--operator-approved", "--recover-existing-only",
+        }),
+        "required": frozenset({
+            "--receipt-index", "--single-writer-audit",
+            "--policy-evidence", "--pending-index", "--output-root",
+            "--operator-approved", "--recover-existing-only",
+        }),
+    },
+    "VERIFY": {
+        "values": frozenset({
+            "--tagged-index", "--byte-receipt-index",
+            "--expected-tagger-principal", "--bucket", "--prefix",
+            "--proof-output-root",
+        }),
+        "flags": frozenset({"--verify-only"}),
+        "required": frozenset({
+            "--tagged-index", "--byte-receipt-index",
+            "--expected-tagger-principal", "--proof-output-root",
+            "--verify-only",
+        }),
+    },
+    "PATROL": {
+        "values": frozenset({
+            "--receipt-index", "--expected-tagger-principal", "--bucket",
+            "--prefix", "--canary-output-root", "--canary-target-key",
+            "--canary-target-version-id",
+        }),
+        "flags": frozenset({"--policy-canary", "--operator-approved"}),
+        "required": frozenset({
+            "--receipt-index", "--expected-tagger-principal",
+            "--canary-output-root", "--policy-canary",
+            "--canary-target-key", "--canary-target-version-id",
+            "--operator-approved",
+        }),
+    },
+}
+TAGGER_MODE_FLAGS = {
+    "--recover-existing-only": "RECOVER",
+    "--verify-only": "VERIFY",
+    "--policy-canary": "PATROL",
+}
+TAGGER_VALUE_OPTIONS = frozenset().union(*(
+    spec["values"] for spec in TAGGER_MODE_OPTIONS.values()))
+TAGGER_FLAG_OPTIONS = frozenset().union(*(
+    spec["flags"] for spec in TAGGER_MODE_OPTIONS.values()))
 TAGGER_RFQ_OPTIONS = (
     "--include-sealed-rfq",
     "--rfq-eligibility-evidence",
@@ -356,7 +405,7 @@ def _looks_like_rfq_option(option: str) -> bool:
                    for forbidden in TAGGER_RFQ_OPTIONS))
 
 
-def _strict_tagger_arguments(arguments: Iterable[str]) -> list[str]:
+def _strict_tagger_arguments(arguments: Iterable[str]) -> tuple[str, list[str]]:
     tokens = list(arguments)
     normalized = []
     seen = set()
@@ -398,7 +447,21 @@ def _strict_tagger_arguments(arguments: Iterable[str]) -> list[str]:
         values[option] = value
         seen.add(option)
         index += 1
-    missing = sorted(TAGGER_REQUIRED_OPTIONS - seen)
+    selected_modes = {
+        mode for option, mode in TAGGER_MODE_FLAGS.items() if option in seen}
+    if len(selected_modes) > 1:
+        raise GateError(
+            "TAGGER_ARGUMENT_INVALID", "tagger modes are mutually exclusive")
+    mode = next(iter(selected_modes), "APPLY")
+    spec = TAGGER_MODE_OPTIONS[mode]
+    allowed = spec["values"] | spec["flags"]
+    unexpected = sorted(seen - allowed)
+    if unexpected:
+        raise GateError(
+            "TAGGER_ARGUMENT_INVALID",
+            f"{mode} tagger mode received forbidden options",
+        )
+    missing = sorted(spec["required"] - seen)
     if missing:
         raise GateError(
             "TAGGER_ARGUMENT_INVALID", "required tagger options are missing")
@@ -406,7 +469,10 @@ def _strict_tagger_arguments(arguments: Iterable[str]) -> list[str]:
         raise GateError("TAGGER_ARGUMENT_INVALID", "tagger bucket is fixed")
     if values.get("--prefix", PREFIX) != PREFIX:
         raise GateError("TAGGER_ARGUMENT_INVALID", "tagger prefix is fixed")
-    return normalized
+    if values.get("--expected-tagger-principal", TAGGER_ARN) != TAGGER_ARN:
+        raise GateError(
+            "TAGGER_ARGUMENT_INVALID", "expected tagger principal is fixed")
+    return mode, normalized
 
 
 def validate_tagger_command(command: Iterable[str],
@@ -423,7 +489,7 @@ def validate_tagger_command(command: Iterable[str],
         raise GateError("TAGGER_COMMAND_INVALID", "Python path is not pinned")
     if pathlib.Path(normalized[1]).absolute() != pins.tagger.absolute():
         raise GateError("TAGGER_COMMAND_INVALID", "tagger path is not pinned")
-    arguments = _strict_tagger_arguments(normalized[2:])
+    _mode, arguments = _strict_tagger_arguments(normalized[2:])
     return [
         # ``-I`` is intentionally not used for the tagger: isolated mode
         # removes the script directory from sys.path and breaks its pinned
@@ -480,10 +546,19 @@ class AwsIamBootstrap:
         return _json_object(result.stdout or "{}", label=label)
 
     def list_access_keys(self) -> tuple[AccessKeyRecord, ...]:
-        value = self._json([
-            "iam", "list-access-keys", "--user-name", USER_NAME,
-            "--no-paginate",
-        ], label="ListAccessKeys")
+        try:
+            value = self._json([
+                "iam", "list-access-keys", "--user-name", USER_NAME,
+                "--no-paginate",
+            ], label="ListAccessKeys")
+        except GateError as exc:
+            if exc.code == "AWS_COMMAND_FAILED":
+                raise GateError(
+                    "CREDENTIAL_AUTHORITY_DENIED",
+                    "bootstrap principal cannot ListAccessKeys for the "
+                    "dedicated tagger",
+                ) from None
+            raise
         rows = value.get("AccessKeyMetadata")
         if not isinstance(rows, list) or value.get("IsTruncated") not in (None, False):
             raise GateError(
@@ -503,10 +578,42 @@ class AwsIamBootstrap:
             raise GateError("ACCESS_KEY_LIST_INVALID", "metadata set is invalid")
         return tuple(records)
 
+    def get_user(self) -> dict:
+        try:
+            value = self._json([
+                "iam", "get-user", "--user-name", USER_NAME,
+            ], label="GetUser")
+        except GateError as exc:
+            if exc.code == "AWS_COMMAND_FAILED":
+                raise GateError(
+                    "CREDENTIAL_AUTHORITY_DENIED",
+                    "bootstrap principal cannot GetUser for the dedicated "
+                    "tagger",
+                ) from None
+            raise
+        user = value.get("User")
+        if (not isinstance(user, dict)
+                or user.get("UserName") != USER_NAME
+                or user.get("Arn") != TAGGER_ARN
+                or not isinstance(user.get("UserId"), str)
+                or IAM_USER_ID_RE.fullmatch(user["UserId"]) is None):
+            raise GateError(
+                "TAGGER_IDENTITY_INVALID", "GetUser identity is invalid")
+        return user
+
     def create_access_key(self) -> EphemeralCredential:
-        value = self._json([
-            "iam", "create-access-key", "--user-name", USER_NAME,
-        ], label="CreateAccessKey")
+        try:
+            value = self._json([
+                "iam", "create-access-key", "--user-name", USER_NAME,
+            ], label="CreateAccessKey")
+        except GateError as exc:
+            if exc.code == "AWS_COMMAND_FAILED":
+                raise GateError(
+                    "CREDENTIAL_AUTHORITY_DENIED",
+                    "bootstrap principal cannot CreateAccessKey for the "
+                    "dedicated tagger",
+                ) from None
+            raise
         row = value.get("AccessKey")
         if (not isinstance(row, dict)
                 or row.get("UserName") != USER_NAME
@@ -578,14 +685,30 @@ class _SignalGuard:
 
 
 @contextlib.contextmanager
-def _exclusive_lock(path: pathlib.Path):
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+def _exclusive_lock(path: pathlib.Path, *, require_existing: bool = False):
+    if require_existing:
+        try:
+            parent = path.parent.resolve(strict=True)
+            parent_stat = parent.stat()
+        except OSError:
+            raise GateError(
+                "LOCK_INVALID", "bootstrap lock parent is unavailable") from None
+        if (parent != path.parent
+                or not stat.S_ISDIR(parent_stat.st_mode)
+                or parent_stat.st_uid != 0
+                or parent_stat.st_mode & 0o022):
+            raise GateError(
+                "LOCK_INVALID", "bootstrap lock parent ownership/mode is unsafe")
+    flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    if not require_existing:
+        flags |= os.O_CREAT
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
         fd = os.open(path, flags, 0o600)
         item = os.fstat(fd)
         if (not stat.S_ISREG(item.st_mode)
+                or item.st_nlink != 1
                 or item.st_uid != os.geteuid()
                 or item.st_mode & 0o077):
             raise GateError("LOCK_INVALID", "bootstrap lock ownership/mode is unsafe")
@@ -609,10 +732,13 @@ def _exclusive_lock(path: pathlib.Path):
 
 def _cleanup(aws: AwsIamBootstrap, credential: EphemeralCredential | None,
              *, create_attempted: bool,
+             initial_records: Iterable[AccessKeyRecord] = (),
              sleep: Callable[[float], None] = time.sleep) -> None:
     if not create_attempted:
         return
-    pending = ({credential.access_key_id} if credential is not None else set())
+    pending = {record.access_key_id for record in initial_records}
+    if credential is not None:
+        pending.add(credential.access_key_id)
     zero_streak = 0
     elapsed_backoff = 0.0
     for delay in CLEANUP_BACKOFF_SECONDS:
@@ -678,7 +804,7 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
     primary_error: BaseException | None = None
     cleanup_error: BaseException | None = None
 
-    with _exclusive_lock(lock_path):
+    with _exclusive_lock(lock_path, require_existing=pins.production):
         guard = _SignalGuard()
         with guard:
             try:
@@ -689,11 +815,21 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
                     expected_user_id=bootstrap_user_id,
                     label="bootstrap",
                 )
+                tagger_user = aws.get_user()
+                if tagger_user.get("UserId") != tagger_user_id:
+                    raise GateError(
+                        "CALLER_IDENTITY_MISMATCH",
+                        "tagger GetUser identity does not match evidence",
+                    )
                 initial = aws.list_access_keys()
                 if initial:
+                    _cleanup(
+                        aws, None, create_attempted=True,
+                        initial_records=initial, sleep=sleep)
                     raise GateError(
-                        "STANDING_ACCESS_KEYS_REFUSED",
-                        f"initial tagger access-key count is {len(initial)}, expected 0",
+                        "STALE_KEYS_RECONCILED_RETRY_REQUIRED",
+                        "initial tagger keys were removed and two zero-key "
+                        "observations completed; rerun is required",
                     )
                 create_attempted = True
                 credential = aws.create_access_key()
@@ -756,11 +892,17 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
             raise primary_error from None
     if tagger_result is None:
         raise GateError("TAGGER_COMMAND_FAILED", "tagger returned no result")
-    return TaggerResult(
+    safe_result = TaggerResult(
         stdout=_redact(tagger_result.stdout, credential),
         stderr=_redact(tagger_result.stderr, credential),
         returncode=tagger_result.returncode,
     )
+    # Python strings cannot be guaranteed to be memory-zeroed; dropping every
+    # reachable reference is best-effort defense after IAM deletion.
+    if credential is not None:
+        credential.access_key_id = ""
+        credential.secret_access_key = ""
+    return safe_result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -791,6 +933,9 @@ def _plan(mode: str, command: list[str]) -> dict:
         "bootstrap_arn": BOOTSTRAP_ARN,
         "tagger_arn": TAGGER_ARN,
         "initial_access_keys_required": 0,
+        "initial_stale_key_action":
+            "RECONCILE_TO_DOUBLE_ZERO_THEN_EXIT_RETRY_REQUIRED",
+        "iam_identity_preflight": "GET_USER_ARN_AND_USER_ID_REQUIRED",
         "final_zero_observations_required": ZERO_CONFIRMATIONS_REQUIRED,
         "zero_confirmation_not_before_seconds":
             ZERO_CONFIRMATION_NOT_BEFORE_SECONDS,
