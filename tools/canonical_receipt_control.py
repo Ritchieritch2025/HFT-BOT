@@ -965,6 +965,10 @@ def main(argv=None):
     receipt.add_argument("--aux-bundle", required=True)
     receipt.add_argument("--version-binding", required=True)
     receipt.add_argument("--aws-cli", default="aws")
+    receipt.add_argument(
+        "--workers", type=int,
+        choices=range(1, cr.MAX_VERIFY_WORKERS + 1), default=1,
+        help="exact-version full-SHA workers (1-4; default: 1)")
     receipt.add_argument("--operator-approved", action="store_true")
     receipt.add_argument(
         "--output-root", default=os.path.join(
@@ -1021,7 +1025,8 @@ def main(argv=None):
                 os.path.abspath(args.version_binding))
             verified, failures, complete = cr.verify_inventory(
                 inventory, writer.reader,
-                os.path.join(output_root, ".verification-tmp"))
+                os.path.join(output_root, ".verification-tmp"),
+                workers=args.workers)
             if not complete:
                 detail = failures[0] if failures else {
                     "code": "INCOMPLETE_VERIFICATION"}

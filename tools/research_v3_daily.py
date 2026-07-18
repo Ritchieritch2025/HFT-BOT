@@ -92,6 +92,7 @@ MAX_AUDIT_BYTES = 64 * 1024
 MAX_POLICY_EVIDENCE_BYTES = 1024 * 1024
 MAX_REFERENCE_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_REFERENCE_PREPARED_PLAN_BYTES = 32 * 1024 * 1024
+CANONICAL_VERIFY_WORKERS = 4
 TERMINAL_STATUS_SCHEMA = "research-v3-daily-status-v2"
 PREPARED_PLAN_SCHEMA = "research-reference-prepared-plan-v1"
 PREPARED_PLAN_STATE = "REFERENCE_MANIFEST_PREPARED"
@@ -2063,7 +2064,8 @@ def ensure_durable(date: str, args, *,
         "--warehouse-root", warehouse_root, "--quality-dir", quality_dir,
         "--aux-bundle", str(aux_bundle), "--aws-cli", aws,
         "--version-binding", str(version_binding),
-        "--metadata-only", "--output-root",
+        "--metadata-only", "--workers", str(CANONICAL_VERIFY_WORKERS),
+        "--output-root",
         str(canonical / "forward-metadata-preflight"),
     ], args=args, publisher_environment=publisher_environment,
         label=f"inventory metadata preflight {date}"),
@@ -2079,6 +2081,7 @@ def ensure_durable(date: str, args, *,
     durable = _last_json(_publisher_run([
         python, str(ROOT / "tools" / "canonical_receipt_control.py"),
         "publish-receipt", *common,
+        "--workers", str(CANONICAL_VERIFY_WORKERS),
         "--output-root", str(canonical / "durable"),
     ], args=args, publisher_environment=publisher_environment,
         label=f"publish durable receipt {date}"), "publish-receipt")

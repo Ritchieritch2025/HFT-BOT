@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import threading
 import tracemalloc
 
 import pytest
@@ -558,6 +559,78 @@ class FakeExactVersionClient:
             payload = b"same-size-is-not-enough".ljust(len(payload), b"!")[:len(payload)]
         Path(dest).parent.mkdir(parents=True, exist_ok=True)
         Path(dest).write_bytes(payload)
+
+
+def _bounded_worker_inventory(count=4):
+    payloads = {
+        "ec2/worker-object-%d.bin" % index:
+        ("payload-%d" % index).encode("ascii")
+        for index in range(count)
+    }
+    objects = [{
+        "bucket": BUCKET,
+        "key": key,
+        "size": len(payload),
+        "sha256": _sha(payload),
+        "family": "worker_fixture",
+        "canonical_source": "EXISTING_EXACT_VERSION",
+        "_expected_version_id": "v1",
+    } for key, payload in payloads.items()]
+    return objects, payloads
+
+
+class CoordinatedVerificationClient:
+    """Force reverse completion while recording bounded GET concurrency."""
+
+    def __init__(self, payloads, *, coordinate=False, faults=None):
+        self.payloads = payloads
+        self.coordinate = coordinate
+        self.faults = faults or {}
+        self.barrier = threading.Barrier(len(payloads)) if coordinate else None
+        self.done = [threading.Event() for _payload in payloads]
+        self.lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.get_threads = set()
+        self.dest_parents = []
+        self.completion_order = []
+
+    @staticmethod
+    def _index(key):
+        return int(key.rsplit("-", 1)[1].removesuffix(".bin"))
+
+    def head(self, _bucket, key, version_id=None):
+        return {
+            "VersionId": version_id or "v1",
+            "ContentLength": len(self.payloads[key]),
+            "LastModified": "2026-07-14T02:30:00Z",
+        }
+
+    def get_exact(self, _bucket, key, _version_id, dest):
+        index = self._index(key)
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.get_threads.add(threading.get_ident())
+            self.dest_parents.append(Path(dest).parent)
+        try:
+            if self.barrier is not None:
+                self.barrier.wait(timeout=5)
+                if index + 1 < len(self.done):
+                    assert self.done[index + 1].wait(timeout=5)
+            fault = self.faults.get(key)
+            if fault == "exception":
+                raise RuntimeError("fixture adapter failure for %s" % key)
+            payload = self.payloads[key]
+            if fault == "corrupt":
+                payload = b"!" * len(payload)
+            Path(dest).write_bytes(payload)
+            with self.lock:
+                self.completion_order.append(key)
+        finally:
+            self.done[index].set()
+            with self.lock:
+                self.active -= 1
 
 
 def _build(tree):
@@ -1338,6 +1411,126 @@ def test_verify_inventory_rejects_null_version_id(receipt_tree):
     assert failures
     assert all(obj["key"] != bad_key for obj in verified)
     assert "version" in json.dumps(failures).lower()
+
+
+@pytest.mark.parametrize("workers", [None, True, 0, -1, 5, 4.0, "4"])
+def test_verify_inventory_rejects_invalid_or_unbounded_workers(
+        tmp_path, workers):
+    class NoCallsClient:
+        def head(self, *_args, **_kwargs):
+            pytest.fail("invalid workers must fail before any client call")
+
+    temp_root = tmp_path / "must-not-be-created"
+    with pytest.raises(cr.ReceiptError, match="VERIFY_WORKERS_INVALID"):
+        cr.verify_inventory(
+            [], NoCallsClient(), str(temp_root), workers=workers)
+    assert not temp_root.exists()
+
+
+def test_verify_inventory_default_is_sequential_but_four_workers_are_bounded(
+        tmp_path):
+    objects, payloads = _bounded_worker_inventory()
+    sequential_client = CoordinatedVerificationClient(payloads)
+    sequential, failures, complete = cr.verify_inventory(
+        objects, sequential_client, str(tmp_path / "sequential"))
+    assert complete and failures == []
+    assert sequential_client.max_active == 1
+    assert sequential_client.get_threads == {threading.get_ident()}
+
+    parallel_root = tmp_path / "parallel"
+    parallel_client = CoordinatedVerificationClient(
+        payloads, coordinate=True)
+    parallel, failures, complete = cr.verify_inventory(
+        objects, parallel_client, str(parallel_root), workers=4)
+
+    keys = [row["key"] for row in objects]
+    assert complete and failures == []
+    assert parallel_client.max_active == cr.MAX_VERIFY_WORKERS == 4
+    assert parallel_client.completion_order == list(reversed(keys))
+    assert [row["key"] for row in parallel] == keys
+    assert parallel == sequential
+    assert len(set(parallel_client.dest_parents)) == len(objects)
+    assert list(parallel_root.iterdir()) == []
+    assert all(row["_inventory_complete"] is True
+               and row["_inventory_total"] == len(objects)
+               for row in parallel)
+
+
+def test_metadata_only_head_preflight_runs_with_four_bounded_workers(tmp_path):
+    objects, payloads = _bounded_worker_inventory()
+
+    class CoordinatedHeadClient:
+        def __init__(self):
+            self.barrier = threading.Barrier(len(objects))
+            self.lock = threading.Lock()
+            self.active = 0
+            self.max_active = 0
+
+        def head(self, _bucket, key, version_id=None):
+            with self.lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                self.barrier.wait(timeout=5)
+                return {
+                    "VersionId": version_id or "v1",
+                    "ContentLength": len(payloads[key]),
+                    "LastModified": "2026-07-14T02:30:00Z",
+                }
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+        def get_exact(self, *_args, **_kwargs):
+            pytest.fail("metadata-only verification must never GET")
+
+    client = CoordinatedHeadClient()
+    temp_root = tmp_path / "metadata-parallel"
+    verified, failures, complete = cr.verify_inventory(
+        objects, client, str(temp_root), metadata_only=True, workers=4)
+
+    assert failures == [] and complete is False
+    assert client.max_active == 4
+    assert [row["key"] for row in verified] == [row["key"] for row in objects]
+    assert all(row["verification_state"] == "METADATA_ONLY"
+               and row["_inventory_complete"] is False
+               for row in verified)
+    assert list(temp_root.iterdir()) == []
+
+
+def test_parallel_verify_collects_failures_in_inventory_order_and_cleans_temp(
+        tmp_path):
+    objects, payloads = _bounded_worker_inventory()
+    keys = [row["key"] for row in objects]
+    faults = {
+        keys[1]: "corrupt",
+        keys[3]: "exception",
+    }
+    sequential_root = tmp_path / "sequential-failures"
+    sequential_client = CoordinatedVerificationClient(
+        payloads, faults=faults)
+    expected = cr.verify_inventory(
+        objects, sequential_client, str(sequential_root))
+    client = CoordinatedVerificationClient(
+        payloads, coordinate=True, faults=faults)
+    temp_root = tmp_path / "parallel-failures"
+    verified, failures, complete = cr.verify_inventory(
+        objects, client, str(temp_root), workers=4)
+
+    assert (verified, failures, complete) == expected
+    assert complete is False
+    assert client.max_active == 4
+    assert [row["key"] for row in verified] == [keys[0], keys[2]]
+    assert [(row["key"], row["code"]) for row in failures] == [
+        (keys[1], "SHA256_MISMATCH"),
+        (keys[3], "UNEXPECTED_ERROR"),
+    ]
+    assert all(row["_inventory_complete"] is False
+               and row["_inventory_total"] == len(objects)
+               for row in verified)
+    assert len(set(client.dest_parents)) == len(objects)
+    assert list(sequential_root.iterdir()) == []
+    assert list(temp_root.iterdir()) == []
 
 
 def test_verify_inventory_rejects_exact_version_sha_mismatch(receipt_tree):
@@ -2440,6 +2633,131 @@ def _forward_shadow(tree, tmp_path):
         str(tmp_path / "shadow"), DATE, seal_binding, verified,
         "2026-07-14T04:00:00Z", "b" * 40)
     return bundle, Path(path), seal_binding, verified
+
+
+@pytest.mark.parametrize(("worker_args", "expected_workers"), [
+    ([], 1),
+    (["--workers", "4"], 4),
+])
+def test_shadow_forward_cli_defaults_to_one_and_propagates_explicit_workers(
+        tmp_path, monkeypatch, capsys, worker_args, expected_workers):
+    inventory = [{"key": "fixture", "size": 1}]
+    verified = [{"key": "fixture", "durability_verified": False}]
+    observed = {}
+    monkeypatch.setattr(
+        fcr.wc, "load_config", lambda: {
+            "raw_root": str(tmp_path / "raw"),
+            "warehouse_root": str(tmp_path / "warehouse"),
+        })
+    monkeypatch.setattr(
+        fcr, "build_forward_inventory",
+        lambda *_args, **_kwargs: ({"date": DATE}, inventory))
+    monkeypatch.setattr(
+        fcr.cr, "AwsCliS3Client", lambda _aws: object())
+
+    def fake_verify(rows, _client, _temp_root, **kwargs):
+        observed["inventory"] = rows
+        observed.update(kwargs)
+        return verified, [], False
+
+    monkeypatch.setattr(fcr.cr, "verify_inventory", fake_verify)
+    output = tmp_path / ("shadow-%d" % expected_workers)
+    assert fcr.main([
+        "shadow-forward", "--date", DATE,
+        "--aux-bundle", str(tmp_path / "aux"),
+        "--version-binding", str(tmp_path / "binding.json"),
+        "--metadata-only", "--output-root", str(output),
+        *worker_args,
+    ]) == 0
+    assert observed == {
+        "inventory": inventory,
+        "metadata_only": True,
+        "probe_limit": None,
+        "workers": expected_workers,
+    }
+    assert json.loads(capsys.readouterr().out)["state"] == \
+        "METADATA_PREFLIGHT_VERIFIED"
+
+
+@pytest.mark.parametrize("workers", ["-1", "0", "5", "not-an-integer"])
+def test_shadow_forward_cli_rejects_invalid_workers_before_work(
+        tmp_path, monkeypatch, workers):
+    monkeypatch.setattr(
+        fcr.wc, "load_config",
+        lambda: pytest.fail("invalid workers must fail during argument parsing"))
+    with pytest.raises(SystemExit) as excinfo:
+        fcr.main([
+            "shadow-forward", "--date", DATE,
+            "--aux-bundle", str(tmp_path / "aux"),
+            "--version-binding", str(tmp_path / "binding.json"),
+            "--workers", workers,
+        ])
+    assert excinfo.value.code == 2
+
+
+@pytest.mark.parametrize("workers", ["-1", "0", "5", "not-an-integer"])
+def test_publish_receipt_cli_rejects_invalid_workers_before_writer_or_plan(
+        tmp_path, monkeypatch, workers):
+    monkeypatch.setattr(
+        crc, "AwsCliConditionalWriter",
+        lambda _aws: pytest.fail("invalid workers must precede writer setup"))
+    monkeypatch.setattr(
+        crc.wc, "load_config",
+        lambda: pytest.fail("invalid workers must precede inventory planning"))
+    with pytest.raises(SystemExit) as excinfo:
+        crc.main([
+            "publish-receipt", "--date", DATE,
+            "--aux-bundle", str(tmp_path / "aux"),
+            "--version-binding", str(tmp_path / "binding.json"),
+            "--workers", workers, "--operator-approved",
+        ])
+    assert excinfo.value.code == 2
+
+
+def test_publish_receipt_cli_passes_explicit_bounded_worker_count(
+        tmp_path, monkeypatch, capsys):
+    class Writer:
+        reader = object()
+        puts = 0
+        reused = 0
+
+    observed = {}
+    inventory = [{"key": "fixture"}]
+    verified = [{"key": "verified"}]
+    monkeypatch.setattr(crc, "AwsCliConditionalWriter", lambda _aws: Writer())
+    monkeypatch.setattr(
+        crc.wc, "load_config", lambda: {
+            "raw_root": str(tmp_path / "raw"),
+            "warehouse_root": str(tmp_path / "warehouse"),
+        })
+    monkeypatch.setattr(
+        crc.fcr, "build_forward_inventory",
+        lambda *_args, **_kwargs: ({"date": DATE}, inventory))
+
+    def fake_verify(rows, _reader, _temp_root, **kwargs):
+        observed["inventory"] = rows
+        observed["workers"] = kwargs.get("workers")
+        return verified, [], True
+
+    monkeypatch.setattr(crc.cr, "verify_inventory", fake_verify)
+    monkeypatch.setattr(crc.cr, "_now", lambda: "2026-07-14T03:00:00Z")
+    monkeypatch.setattr(crc.cr, "_code_commit", lambda: "a" * 40)
+    monkeypatch.setattr(
+        crc, "publish_durable_receipt",
+        lambda *_args, **_kwargs: (
+            tmp_path / "DURABLE-fixture.json",
+            {"receipt_object": {"VersionId": "v1"}},
+        ))
+
+    assert crc.main([
+        "publish-receipt", "--date", DATE,
+        "--aux-bundle", str(tmp_path / "aux"),
+        "--version-binding", str(tmp_path / "binding.json"),
+        "--output-root", str(tmp_path / "durable"),
+        "--workers", "4", "--operator-approved",
+    ]) == 0
+    assert observed == {"inventory": inventory, "workers": 4}
+    assert json.loads(capsys.readouterr().out)["state"] == crc.DURABLE_STATE
 
 
 def test_small_control_sync_uploads_only_allowlisted_retained_bytes(

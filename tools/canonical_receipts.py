@@ -19,6 +19,7 @@ read it back before any prune-consumable local index may exist.
 """
 import argparse
 import collections
+import concurrent.futures
 import copy
 import csv
 import datetime
@@ -79,6 +80,7 @@ CANONICAL_RECEIPT_PROVENANCE_PATHS = (
 MAX_NDJSON_LINE_BYTES = 64 * 1024 * 1024
 MAX_DATE_CONTROL_BYTES = 64 * 1024 * 1024
 MAX_AUX_DESCRIPTOR_BYTES = 16 * 1024 * 1024
+MAX_VERIFY_WORKERS = 4
 
 
 class ReceiptError(RuntimeError):
@@ -2452,122 +2454,142 @@ def _only_original_version(history, key):
     return version_id
 
 
+def _inventory_verification_failure(obj, code, detail):
+    return {"bucket": obj.get("bucket"),
+            "key": obj.get("key"),
+            "family": obj.get("family"),
+            "canonical_source": obj.get("canonical_source"),
+            "code": code, "detail": detail}
+
+
+def _verify_inventory_object(index, obj, client, temp_root, metadata_only):
+    """Verify one independent object and return an ordered-safe outcome."""
+    label = "%s/%s" % (obj["bucket"], obj["key"])
+    try:
+        expected_version = obj.get("_expected_version_id")
+        if obj.get("family") == "catalog_cutoff_evidence":
+            resolved = _only_original_version(
+                client.list_versions(obj["bucket"], obj["key"]), obj["key"])
+            if resolved != expected_version:
+                raise ReceiptError(
+                    "SOURCE_VERSION_MISMATCH",
+                    "%s original version is %s, binding selected %s" %
+                    (label, resolved, expected_version))
+        elif obj.get("family") == "catalog_at_cutoff":
+            evidence = obj.get("evidence_binding")
+            cutoff_utc = (evidence.get("cutoff_utc")
+                          if isinstance(evidence, dict) else None)
+            resolved = _current_version_at_cutoff(
+                client.list_versions(obj["bucket"], obj["key"]),
+                obj["key"], cutoff_utc)
+            if resolved != expected_version:
+                raise ReceiptError(
+                    "CUTOFF_VERSION_MISMATCH",
+                    "%s was %s at cutoff, binding selected %s" %
+                    (label, resolved, expected_version))
+        head = client.head(obj["bucket"], obj["key"], expected_version)
+        version_id = head.get("VersionId") or head.get("version_id")
+        if (not isinstance(version_id, str) or not version_id.strip()
+                or version_id.lower() == "null"):
+            raise ReceiptError("VERSIONING_REQUIRED",
+                               "%s has no non-null VersionId" % label)
+        if expected_version is not None and version_id != expected_version:
+            raise ReceiptError(
+                "VERSION_ID_MISMATCH",
+                "%s returned VersionId %s, expected %s" %
+                (label, version_id, expected_version))
+        observed_modified = (head.get("LastModified")
+                             or head.get("last_modified_utc"))
+        if observed_modified is None:
+            raise ReceiptError(
+                "LAST_MODIFIED_REQUIRED", "%s returned no LastModified" % label)
+        normalized_modified = _canonical_utc(
+            observed_modified, "S3 LastModified")
+        expected_modified = obj.get("_expected_last_modified_utc")
+        if expected_modified is not None:
+            if normalized_modified != _canonical_utc(
+                    expected_modified, "expected LastModified"):
+                raise ReceiptError(
+                    "LAST_MODIFIED_MISMATCH",
+                    "%s returned LastModified %s, expected %s" %
+                    (label, observed_modified, expected_modified))
+        content_length = head.get("ContentLength")
+        if content_length is None:
+            content_length = head.get("size")
+        if content_length != obj["size"]:
+            raise ReceiptError(
+                "SIZE_MISMATCH", "%s head=%r expected=%r" %
+                (label, content_length, obj["size"]))
+        obj["VersionId"] = version_id
+        obj["last_modified_utc"] = normalized_modified
+        if metadata_only:
+            obj["verification_state"] = "METADATA_ONLY"
+            return obj, None
+        with tempfile.TemporaryDirectory(
+                prefix="object-%06d-" % index, dir=temp_root) as obj_dir:
+            dest = os.path.join(obj_dir, "exact-version.bin")
+            client.get_exact(obj["bucket"], obj["key"], version_id, dest)
+            if not os.path.isfile(dest):
+                raise ReceiptError("GET_FAILED", "%s produced no output" % label)
+            got_size = os.stat(dest).st_size
+            got_sha = sha256_file(dest)
+            if got_size != obj["size"]:
+                raise ReceiptError(
+                    "SIZE_MISMATCH", "%s exact GET=%d expected=%d" %
+                    (label, got_size, obj["size"]))
+            if got_sha != obj["sha256"]:
+                raise ReceiptError(
+                    "SHA256_MISMATCH", "%s exact GET=%s expected=%s" %
+                    (label, got_sha, obj["sha256"]))
+        obj["durability_verified"] = True
+        obj["verification_state"] = "EXACT_VERSION_FULL_SHA256"
+        return obj, None
+    except ReceiptError as exc:
+        return None, _inventory_verification_failure(
+            obj, exc.code, exc.detail)
+    except Exception as exc:  # fail closed for adapters supplied by tests
+        return None, _inventory_verification_failure(
+            obj, "UNEXPECTED_ERROR", str(exc))
+
+
 def verify_inventory(objects, client, temp_root, metadata_only=False,
-                     probe_limit=None):
-    """Verify HEAD VersionId then GET that exact version and full SHA-256."""
+                     probe_limit=None, workers=1):
+    """Verify exact versions; parallelism is explicit and bounded to four."""
+    if type(workers) is not int or not 1 <= workers <= MAX_VERIFY_WORKERS:
+        raise ReceiptError(
+            "VERIFY_WORKERS_INVALID",
+            "workers must be an integer from 1 through %d" %
+            MAX_VERIFY_WORKERS)
     candidates = [copy.deepcopy(o) for o in objects]
     verified = []
     failures = []
     limit = len(candidates) if probe_limit is None else max(0, probe_limit)
     selected = min(len(candidates), limit)
     os.makedirs(temp_root, exist_ok=True)
-    for index, obj in enumerate(candidates):
-        if index >= selected:
-            continue
-        label = "%s/%s" % (obj["bucket"], obj["key"])
-        try:
-            expected_version = obj.get("_expected_version_id")
-            if obj.get("family") == "catalog_cutoff_evidence":
-                resolved = _only_original_version(
-                    client.list_versions(obj["bucket"], obj["key"]),
-                    obj["key"])
-                if resolved != expected_version:
-                    raise ReceiptError(
-                        "SOURCE_VERSION_MISMATCH",
-                        "%s original version is %s, binding selected %s" %
-                        (label, resolved, expected_version))
-            elif obj.get("family") == "catalog_at_cutoff":
-                evidence = obj.get("evidence_binding")
-                cutoff_utc = (evidence.get("cutoff_utc")
-                              if isinstance(evidence, dict) else None)
-                resolved = _current_version_at_cutoff(
-                    client.list_versions(obj["bucket"], obj["key"]),
-                    obj["key"], cutoff_utc)
-                if resolved != expected_version:
-                    raise ReceiptError(
-                        "CUTOFF_VERSION_MISMATCH",
-                        "%s was %s at cutoff, binding selected %s" %
-                        (label, resolved, expected_version))
-            head = client.head(obj["bucket"], obj["key"], expected_version)
-            version_id = head.get("VersionId") or head.get("version_id")
-            if (not isinstance(version_id, str) or not version_id.strip()
-                    or version_id.lower() == "null"):
-                raise ReceiptError("VERSIONING_REQUIRED",
-                                   "%s has no non-null VersionId" % label)
-            if expected_version is not None and version_id != expected_version:
-                raise ReceiptError(
-                    "VERSION_ID_MISMATCH",
-                    "%s returned VersionId %s, expected %s" %
-                    (label, version_id, expected_version))
-            observed_modified = (head.get("LastModified")
-                                 or head.get("last_modified_utc"))
-            if observed_modified is None:
-                raise ReceiptError(
-                    "LAST_MODIFIED_REQUIRED",
-                    "%s returned no LastModified" % label)
-            normalized_modified = _canonical_utc(
-                observed_modified, "S3 LastModified")
-            expected_modified = obj.get("_expected_last_modified_utc")
-            if expected_modified is not None:
-                if normalized_modified != _canonical_utc(
-                        expected_modified, "expected LastModified"):
-                    raise ReceiptError(
-                        "LAST_MODIFIED_MISMATCH",
-                        "%s returned LastModified %s, expected %s" %
-                        (label, observed_modified, expected_modified))
-            content_length = head.get("ContentLength")
-            if content_length is None:
-                content_length = head.get("size")
-            if content_length != obj["size"]:
-                raise ReceiptError(
-                    "SIZE_MISMATCH", "%s head=%r expected=%r" %
-                    (label, content_length, obj["size"]))
-            obj["VersionId"] = version_id
-            obj["last_modified_utc"] = normalized_modified
-            if metadata_only:
-                obj["verification_state"] = "METADATA_ONLY"
-                verified.append(obj)
-                continue
-            obj_dir = tempfile.mkdtemp(prefix="object-", dir=temp_root)
-            dest = os.path.join(obj_dir, "exact-version.bin")
-            try:
-                client.get_exact(obj["bucket"], obj["key"], version_id, dest)
-                if not os.path.isfile(dest):
-                    raise ReceiptError("GET_FAILED",
-                                       "%s produced no output" % label)
-                got_size = os.stat(dest).st_size
-                got_sha = sha256_file(dest)
-                if got_size != obj["size"]:
-                    raise ReceiptError(
-                        "SIZE_MISMATCH", "%s exact GET=%d expected=%d" %
-                        (label, got_size, obj["size"]))
-                if got_sha != obj["sha256"]:
-                    raise ReceiptError(
-                        "SHA256_MISMATCH", "%s exact GET=%s expected=%s" %
-                        (label, got_sha, obj["sha256"]))
-            finally:
-                try:
-                    if os.path.isfile(dest):
-                        os.remove(dest)
-                    os.rmdir(obj_dir)
-                except OSError:
-                    pass
-            obj["durability_verified"] = True
-            obj["verification_state"] = "EXACT_VERSION_FULL_SHA256"
+    work = list(enumerate(candidates[:selected]))
+    if workers == 1 or selected < 2:
+        outcomes = [
+            _verify_inventory_object(
+                index, obj, client, temp_root, metadata_only)
+            for index, obj in work
+        ]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="canonical-receipt") as executor:
+            futures = [
+                executor.submit(
+                    _verify_inventory_object, index, obj, client,
+                    temp_root, metadata_only)
+                for index, obj in work
+            ]
+            # Futures run concurrently, but collection stays in inventory order.
+            outcomes = [future.result() for future in futures]
+    for obj, failure in outcomes:
+        if failure is not None:
+            failures.append(failure)
+        else:
             verified.append(obj)
-        except ReceiptError as exc:
-            failures.append({"bucket": obj.get("bucket"),
-                             "key": obj.get("key"),
-                             "family": obj.get("family"),
-                             "canonical_source": obj.get("canonical_source"),
-                             "code": exc.code, "detail": exc.detail})
-        except Exception as exc:  # fail closed for adapters supplied by tests
-            failures.append({"bucket": obj.get("bucket"),
-                             "key": obj.get("key"),
-                             "family": obj.get("family"),
-                             "canonical_source": obj.get("canonical_source"),
-                             "code": "UNEXPECTED_ERROR",
-                             "detail": str(exc)})
     complete = (selected == len(candidates) and not metadata_only
                 and not failures and len(verified) == len(candidates))
     for obj in verified:

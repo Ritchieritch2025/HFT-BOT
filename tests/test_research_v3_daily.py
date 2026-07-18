@@ -98,6 +98,17 @@ def test_complete_json_document_parser_accepts_pretty_aws_output_only():
             "aws response")
 
 
+def test_daily_metadata_and_durable_verification_use_max_four_workers():
+    assert daily.CANONICAL_VERIFY_WORKERS == cr.MAX_VERIFY_WORKERS == 4
+    source = MODULE_PATH.read_text()
+    call = '"--workers", str(CANONICAL_VERIFY_WORKERS)'
+    first = source.index(call)
+    second = source.index(call, first + 1)
+    assert source.count(call) == 2
+    assert source.index('"shadow-forward", "--date"') < first
+    assert first < source.index('"publish-receipt", *common') < second
+
+
 def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
     live = tmp_path / "work" / "live"
     raw_root = tmp_path / "work" / "raw"

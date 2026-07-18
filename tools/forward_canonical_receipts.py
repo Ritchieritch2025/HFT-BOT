@@ -2088,6 +2088,10 @@ def main(argv=None):
     shadow.add_argument("--metadata-only", action="store_true")
     shadow.add_argument("--probe-limit", type=int)
     shadow.add_argument(
+        "--workers", type=int,
+        choices=range(1, cr.MAX_VERIFY_WORKERS + 1), default=1,
+        help="bounded verification workers (1-4; default: 1)")
+    shadow.add_argument(
         "--output-root", default=os.path.join(
             wc.ROOT, "work", "live", "canonical_receipts", "forward-shadow"))
     args = parser.parse_args(argv)
@@ -2159,7 +2163,8 @@ def main(argv=None):
     output_root = os.path.abspath(args.output_root)
     verified, failures, complete = cr.verify_inventory(
         objects, client, os.path.join(output_root, ".tmp"),
-        metadata_only=args.metadata_only, probe_limit=args.probe_limit)
+        metadata_only=args.metadata_only, probe_limit=args.probe_limit,
+        workers=args.workers)
     receipt = None
     state = "BLOCKED_INTEGRITY" if failures else \
         "METADATA_PREFLIGHT_VERIFIED" if args.metadata_only and \
