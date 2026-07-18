@@ -172,6 +172,8 @@ class TestInstanceProfileCLI(unittest.TestCase):
 
 class TestReaderPayload(unittest.TestCase):
     MANIFEST = os.path.join(W09, "research_reader_modules.sha256")
+    QUERY_CANARY = os.path.join(W09, "v3_query_canary.py")
+    QUERY_CANARY_MANIFEST = os.path.join(W09, "v3_query_canary.sha256")
     MODULES = {
         "tools/research_data.py",
         "tools/research_reference.py",
@@ -209,6 +211,16 @@ class TestReaderPayload(unittest.TestCase):
             self.assertEqual(result.stdout.strip(),
                              "research-release-manifest-v3-reference")
 
+    def test_query_canary_payload_is_exact_sha256_pinned(self):
+        with open(self.QUERY_CANARY_MANIFEST, encoding="ascii") as handle:
+            rows = [line.rstrip("\n").split("  ", 1)
+                    for line in handle if line.strip()]
+        with open(self.QUERY_CANARY, "rb") as handle:
+            expected = hashlib.sha256(handle.read()).hexdigest()
+        self.assertEqual(rows, [[
+            expected, "deploy/w09/v3_query_canary.py",
+        ]])
+
     def test_push_and_install_cover_every_module_with_read_only_mode(self):
         with open(os.path.join(W09, "push_and_install.sh"),
                   encoding="utf-8") as handle:
@@ -228,6 +240,11 @@ class TestReaderPayload(unittest.TestCase):
             )
         self.assertIn("sha256sum -c", install)
         self.assertIn("shasum -a 256 -c", push)
+        self.assertIn("v3_query_canary.py", push)
+        self.assertIn("v3_query_canary.sha256", push)
+        self.assertIn("v3_query_canary.py", install)
+        self.assertIn("v3_query_canary.sha256", install)
+        self.assertIn("/etc/w09/v3_query_canary.sha256", install)
 
     def test_shell_wrappers_preserve_all_argv(self):
         with open(os.path.join(W09, "w09-run"),
@@ -534,6 +551,11 @@ class TestShellSyntax(unittest.TestCase):
             'marker.get("version_binding_mode") != "CANONICAL_REFERENCE"',
             script)
         self.assertIn('marker.get("rfq_included") is not False', script)
+        self.assertIn("/etc/w09/v3_query_canary.sha256", script)
+        self.assertIn("v3_query_canary.py", script)
+        self.assertIn("W09_V3_DUCKDB_QUERY_CANARY_PASS", script)
+        self.assertLess(script.index('verify --release "$RID"'),
+                        script.index("v3_query_canary.py"))
 
     def test_bash_scripts_parse(self):
         for name in ("install_on_host.sh", "push_and_install.sh",
