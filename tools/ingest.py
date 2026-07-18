@@ -55,6 +55,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import warehouse_common as wc  # noqa: E402
 
 HOUR_US = 3_600_000_000
+RAW_HOURLY_CAPTURE_RE = re.compile(
+    r"^(?:firehose|l2|rfq|rfq_receipts)_(\d{2})\.ndjson(?:\.\d+)?$")
 
 
 def _fsync_dir(path):
@@ -813,13 +815,41 @@ def raw_files_to_scan(cfg):
         m = day_dir_re.match(entry)
         if m and not wc.day_sealed(cfg["warehouse_root"], m.group(1)):
             days.add(m.group(1))
-    files = []
+    rows = []
     for d in sorted(days):
         # *.ndjson* also matches WsRecorder rotation shards (base.ndjson.1, .2, ...)
         # — each shard is its own append-only file, so per-file checkpoints hold.
-        files.extend(sorted(glob.glob(
+        rows.extend((d, path) for path in sorted(glob.glob(
             os.path.join(wc.raw_day_dir(cfg["raw_root"], d), "*.ndjson*"))))
-    return files
+
+    # The daily seal for D requires D+1 hour 00/01 as its closed cross-day
+    # watermark.  A plain lexical scan puts every growing D+1 firehose hour
+    # before D+1 l2/rfq, and the hourly seal window stops/restarts ingest before
+    # it can reach those boundary families.  On 2026-07-18 that left the 7/17
+    # seal repeatedly waiting on the same 00/01 objects while new firehose work
+    # kept arriving.  Prioritize only the active seal candidate and its exact
+    # boundary hours; all files remain present once each and checkpoint
+    # semantics are unchanged.
+    yesterday_s = yesterday.isoformat()
+    today_s = today.isoformat()
+    candidate_unsealed = not wc.day_sealed(
+        cfg["warehouse_root"], yesterday_s)
+
+    def priority(row):
+        day, path = row
+        name = os.path.basename(path)
+        hourly = RAW_HOURLY_CAPTURE_RE.fullmatch(name)
+        hour = int(hourly.group(1)) if hourly else None
+        if candidate_unsealed and day == yesterday_s:
+            return (0, name)
+        if (candidate_unsealed and day == today_s
+                and hour in (0, 1)):
+            return (1, name)
+        if day < yesterday_s:
+            return (2, day, name)
+        return (3, day, name)
+
+    return [path for _day, path in sorted(rows, key=priority)]
 
 
 def main(argv):

@@ -1798,6 +1798,54 @@ def test_unsealed_old_day_rotated_raw_stays_discoverable(tmp_path):
     ing.con.close()
 
 
+def test_unsealed_yesterday_and_cross_day_boundary_are_scan_priority(tmp_path):
+    """A growing current-day firehose must not starve D+1 hour 00/01 L2/RFQ
+    files that yesterday's seal needs.  Discovery remains exact-set preserving;
+    only the processing order changes."""
+    wh = ti.make_warehouse(str(tmp_path))
+    raw_root = os.path.join(str(tmp_path), "raw-priority")
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    yesterday = today - datetime.timedelta(days=1)
+    old = today - datetime.timedelta(days=3)
+
+    paths = {}
+    for day, name in (
+            (yesterday, "firehose_23.ndjson"),
+            (yesterday, "l2_23.ndjson.1"),
+            (today, "firehose_00.ndjson"),
+            (today, "l2_01.ndjson.1"),
+            (today, "rfq_00.ndjson.2"),
+            (today, "rfq_receipts_01.ndjson"),
+            (today, "firehose_15.ndjson"),
+            (old, "firehose_07.ndjson")):
+        day_dir = os.path.join(raw_root, "date=%s" % day.isoformat())
+        os.makedirs(day_dir, exist_ok=True)
+        path = os.path.join(day_dir, name)
+        with open(path, "w") as handle:
+            handle.write("{}\n")
+        paths[(day.isoformat(), name)] = path
+
+    files = ingest.raw_files_to_scan({
+        "raw_root": raw_root, "warehouse_root": wh})
+    assert set(files) == set(paths.values())
+    positions = {path: index for index, path in enumerate(files)}
+
+    yesterday_positions = [
+        positions[path] for (day, _name), path in paths.items()
+        if day == yesterday.isoformat()]
+    boundary_positions = [
+        positions[path] for (day, name), path in paths.items()
+        if day == today.isoformat()
+        and ingest.RAW_HOURLY_CAPTURE_RE.fullmatch(name)
+        and int(ingest.RAW_HOURLY_CAPTURE_RE.fullmatch(name).group(1)) in (0, 1)]
+    current_non_boundary = positions[
+        paths[(today.isoformat(), "firehose_15.ndjson")]]
+    old_debt = positions[paths[(old.isoformat(), "firehose_07.ndjson")]]
+
+    assert max(yesterday_positions) < min(boundary_positions)
+    assert max(boundary_positions) < old_debt < current_non_boundary
+
+
 def test_caught_up_failure_reports_every_behind_file(tmp_path):
     """PIPE-W03: the caught-up gate reports ALL undiscovered/behind raw files,
     not only the first. The 2026-07-10 refusal named a single file
