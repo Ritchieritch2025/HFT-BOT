@@ -21,7 +21,8 @@
 #
 # Tunables (env): CATALOG_EVERY_HOURS (default 1), FULL_CATALOG_EVERY_HOURS
 # (default 6), RAW_RETENTION_DAYS (default 2, matches config/warehouse.yaml),
-# AUTO_RESEARCH (default 0 on the production data plane).
+# AUTO_RESEARCH (default 0 on the production data plane), and the bounded
+# historical seal backlog settings documented below.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -34,6 +35,14 @@ fi
 # Capture the service/operator setting before sourcing the credential file.
 # A stray variable in ~/.kalshi/env.sh must not widen production behavior.
 AUTO_RESEARCH_REQUESTED="${AUTO_RESEARCH:-0}"
+SEAL_BACKLOG_ENABLED_REQUESTED="${SEAL_BACKLOG_ENABLED:-1}"
+SEAL_BACKLOG_NOT_BEFORE_REQUESTED="${SEAL_BACKLOG_NOT_BEFORE:-2026-07-10}"
+SEAL_BACKLOG_LOOKBACK_DAYS_REQUESTED="${SEAL_BACKLOG_LOOKBACK_DAYS:-35}"
+SEAL_BACKLOG_MAX_PER_CYCLE_REQUESTED="${SEAL_BACKLOG_MAX_PER_CYCLE:-1}"
+SEAL_BACKLOG_MAX_PER_UTC_DAY_REQUESTED="${SEAL_BACKLOG_MAX_PER_UTC_DAY:-4}"
+SEAL_BACKLOG_LEASE_SECONDS_REQUESTED="${SEAL_BACKLOG_LEASE_SECONDS:-7200}"
+SEAL_BACKLOG_RETRY_BASE_SECONDS_REQUESTED="${SEAL_BACKLOG_RETRY_BASE_SECONDS:-3600}"
+SEAL_BACKLOG_RETRY_MAX_SECONDS_REQUESTED="${SEAL_BACKLOG_RETRY_MAX_SECONDS:-21600}"
 # shellcheck disable=SC1090
 source "$CREDS"
 export KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 KALSHI_MODE=data_collect
@@ -60,6 +69,34 @@ esac
 RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
 WAREHOUSE_ROOT="work/warehouse"
 SEAL_ALARM="$LIVE/seal_alarm.json"
+
+# Historical missed-day recovery.  This never seals directly: it only leases
+# an explicitly authorized completed date to the same run_seal_chain function
+# used for yesterday.  2026-07-10 is the operator-approved research-data
+# boundary; earlier raw (including 2026-07-09) remains untouched unless an
+# operator deliberately changes this narrow lower bound.
+SEAL_BACKLOG_ENABLED="$SEAL_BACKLOG_ENABLED_REQUESTED"
+case "$SEAL_BACKLOG_ENABLED" in
+  0|1) ;;
+  *)
+    echo "[supervisor] WARN invalid SEAL_BACKLOG_ENABLED=$SEAL_BACKLOG_ENABLED; forcing 0"
+    SEAL_BACKLOG_ENABLED=0
+    ;;
+esac
+SEAL_BACKLOG_NOT_BEFORE="$SEAL_BACKLOG_NOT_BEFORE_REQUESTED"
+SEAL_BACKLOG_LOOKBACK_DAYS="$SEAL_BACKLOG_LOOKBACK_DAYS_REQUESTED"
+SEAL_BACKLOG_MAX_PER_CYCLE="$SEAL_BACKLOG_MAX_PER_CYCLE_REQUESTED"
+SEAL_BACKLOG_MAX_PER_UTC_DAY="$SEAL_BACKLOG_MAX_PER_UTC_DAY_REQUESTED"
+SEAL_BACKLOG_LEASE_SECONDS="$SEAL_BACKLOG_LEASE_SECONDS_REQUESTED"
+SEAL_BACKLOG_RETRY_BASE_SECONDS="$SEAL_BACKLOG_RETRY_BASE_SECONDS_REQUESTED"
+SEAL_BACKLOG_RETRY_MAX_SECONDS="$SEAL_BACKLOG_RETRY_MAX_SECONDS_REQUESTED"
+unset SEAL_BACKLOG_ENABLED_REQUESTED SEAL_BACKLOG_NOT_BEFORE_REQUESTED
+unset SEAL_BACKLOG_LOOKBACK_DAYS_REQUESTED SEAL_BACKLOG_MAX_PER_CYCLE_REQUESTED
+unset SEAL_BACKLOG_MAX_PER_UTC_DAY_REQUESTED SEAL_BACKLOG_LEASE_SECONDS_REQUESTED
+unset SEAL_BACKLOG_RETRY_BASE_SECONDS_REQUESTED SEAL_BACKLOG_RETRY_MAX_SECONDS_REQUESTED
+SEAL_BACKLOG_STATE="$LIVE/seal_backlog_state.json"
+SEAL_BACKLOG_ALARM="$LIVE/seal_backlog_alarm.json"
+SEAL_BACKLOG_LOG="$LIVE/seal_backlog.log"
 
 # --- LAYER 1b (PIPE-W06 Stage 1): targeted sports L2 — OPTIONAL layer ---------
 # A SECOND read-only ws_shadow on its own WS connection (orderbook_delta,
@@ -160,6 +197,31 @@ else:
 tmp = path + ".tmp"
 json.dump(rec, open(tmp, "w"), indent=2)
 os.replace(tmp, path)
+PY
+}
+
+clear_seal_alarm_for_date() {
+  # A successful newer date must never erase an older unresolved incident.
+  # The aggregate seal_backlog_alarm.json is the multi-date authority; this
+  # legacy single-date artifact is removed only by success for its own date.
+  python3 - "$1" "$SEAL_ALARM" <<'PY'
+import json
+import os
+import sys
+day, path = sys.argv[1:]
+if not os.path.exists(path):
+    raise SystemExit(0)
+try:
+    with open(path) as handle:
+        alarm = json.load(handle)
+except Exception:
+    # Fail closed: an unreadable durable alarm is never auto-deleted.
+    raise SystemExit(0)
+if alarm.get("date") == day:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
 PY
 }
 
@@ -443,7 +505,7 @@ run_seal_chain() {
   SEAL_FILE="$WAREHOUSE_ROOT/seals/date=${CHAIN_DATE}.json"
   if python3 tools/export_day.py --date "$CHAIN_DATE" --verify-seal \
        >> "$LIVE/export.log" 2>&1; then
-    rm -f "$SEAL_ALARM"
+    clear_seal_alarm_for_date "$CHAIN_DATE"
   elif [ -f "$SEAL_FILE" ]; then
     # WRITE-ONCE: an existing seal that fails verification is an operator
     # incident (needs --operator-invalidate-seal + rebuild). Never auto-fixed.
@@ -472,7 +534,7 @@ run_seal_chain() {
     cat "$EXPORT_ATTEMPT_LOG" >> "$LIVE/export.log"
     if [ "$chain_ok" -eq 1 ]; then
       echo "[supervisor] sealed final archive $CHAIN_DATE"
-      rm -f "$SEAL_ALARM"
+      clear_seal_alarm_for_date "$CHAIN_DATE"
     else
       echo "[supervisor] daily seal failed for $CHAIN_DATE; research blocked"
       if [ "$(date -u +%H)" -ge 3 ]; then
@@ -514,6 +576,95 @@ run_seal_chain() {
   fi
 }
 
+normal_day_ready_for_backlog() {
+  # The caller has already run yesterday's complete chain in this cycle.
+  # Historical work is considered only after that exact seal verifies.  When
+  # production heavy research is explicitly enabled, its identity-bound
+  # receipt must also be current.
+  normal_date="$1"
+  python3 tools/export_day.py --date "$normal_date" --verify-seal \
+    >> "$LIVE/export.log" 2>&1 || return 1
+  if [ "$AUTO_RESEARCH" = "1" ]; then
+    normal_receipt="$LIVE/research_${normal_date}.done.json"
+    research_receipt_current "$normal_date" "$normal_receipt" || return 1
+  fi
+  return 0
+}
+
+claim_seal_backlog() {
+  python3 tools/seal_backlog.py claim \
+    --raw-root "$RAW" \
+    --seal-root "$WAREHOUSE_ROOT/seals" \
+    --state "$SEAL_BACKLOG_STATE" \
+    --alarm "$SEAL_BACKLOG_ALARM" \
+    --not-before "$SEAL_BACKLOG_NOT_BEFORE" \
+    --lookback-days "$SEAL_BACKLOG_LOOKBACK_DAYS" \
+    --max-per-cycle "$SEAL_BACKLOG_MAX_PER_CYCLE" \
+    --max-per-day "$SEAL_BACKLOG_MAX_PER_UTC_DAY" \
+    --lease-seconds "$SEAL_BACKLOG_LEASE_SECONDS"
+}
+
+record_seal_backlog() {
+  backlog_date="$1"; backlog_result="$2"; backlog_error="$3"
+  python3 tools/seal_backlog.py record \
+    --raw-root "$RAW" \
+    --seal-root "$WAREHOUSE_ROOT/seals" \
+    --state "$SEAL_BACKLOG_STATE" \
+    --alarm "$SEAL_BACKLOG_ALARM" \
+    --not-before "$SEAL_BACKLOG_NOT_BEFORE" \
+    --lookback-days "$SEAL_BACKLOG_LOOKBACK_DAYS" \
+    --date "$backlog_date" \
+    --result "$backlog_result" \
+    --error "$backlog_error" \
+    --retry-base-seconds "$SEAL_BACKLOG_RETRY_BASE_SECONDS" \
+    --retry-max-seconds "$SEAL_BACKLOG_RETRY_MAX_SECONDS"
+}
+
+run_seal_backlog_batch() {
+  # Dates are emitted by seal_backlog.py as validated YYYY-MM-DD tokens.  Run
+  # sequentially inside the one SEAL_PID slot: never parallel DuckDB exports,
+  # never more than the bounded lease batch, and never on the capture path.
+  backlog_dates="$1"
+  for backlog_date in $backlog_dates; do
+    chain_rc=0
+    exact_verify_rc=0
+    run_seal_chain "$backlog_date" || chain_rc=$?
+    if [ "$chain_rc" -eq 0 ]; then
+      python3 tools/export_day.py --date "$backlog_date" --verify-seal \
+        >> "$LIVE/export.log" 2>&1 || exact_verify_rc=$?
+    else
+      exact_verify_rc=1
+    fi
+    if [ "$chain_rc" -eq 0 ] && [ "$exact_verify_rc" -eq 0 ]; then
+      record_seal_backlog "$backlog_date" "succeeded" "" \
+        || echo "[supervisor] failed to persist backlog success date=$backlog_date"
+    else
+      record_seal_backlog "$backlog_date" "failed" \
+        "run_seal_chain_rc=$chain_rc exact_verify_rc=$exact_verify_rc logs=$LIVE/export.log,$EXPORT_ATTEMPT_LOG" \
+        || echo "[supervisor] failed to persist backlog failure date=$backlog_date"
+    fi
+  done
+}
+
+run_normal_and_seal_backlog() {
+  # Preserve the normal path exactly once per cycle and give it strict
+  # priority.  Only after it finishes successfully may one bounded historical
+  # batch run, sequentially, in the same background SEAL_PID slot.
+  normal_date="$1"
+  run_seal_chain "$normal_date" || return $?
+  [ "$SEAL_BACKLOG_ENABLED" = "1" ] || return 0
+  normal_day_ready_for_backlog "$normal_date" || return 0
+  backlog_dates=""
+  if ! backlog_dates="$(claim_seal_backlog 2>> "$SEAL_BACKLOG_LOG")"; then
+    echo "[supervisor] seal backlog selector failed closed; normal day completed"
+    return 0
+  fi
+  if [ -n "$backlog_dates" ]; then
+    echo "[supervisor] seal backlog leased: $(echo "$backlog_dates" | tr '\n' ' ')"
+    run_seal_backlog_batch "$backlog_dates" >> "$SEAL_BACKLOG_LOG" 2>&1
+  fi
+}
+
 while true; do
   [ -f "$LIVE/export_pause" ] || ingest_alive || start_ingest
 
@@ -543,7 +694,7 @@ while true; do
   if seal_chain_active; then
     echo "[supervisor] seal/research chain still active (pid=$SEAL_PID)"
   else
-    run_seal_chain "$YESTERDAY" &
+    run_normal_and_seal_backlog "$YESTERDAY" &
     SEAL_PID=$!
   fi
 

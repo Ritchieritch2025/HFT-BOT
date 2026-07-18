@@ -13,6 +13,7 @@ cd /home/ubuntu/hft-bot || { echo "REPO_DIR_MISSING"; exit 9; }
 echo "NOW_UTC=$(date -u +%FT%TZ)"
 echo "SEALS:"; ls work/warehouse/seals/ 2>/dev/null | sed "s/^/  /"
 [ -f work/live/seal_alarm.json ] && sed "s/^/SEAL_ALARM: /" work/live/seal_alarm.json || echo "SEAL_ALARM=NONE"
+[ -f work/live/seal_backlog_alarm.json ] && sed "s/^/SEAL_BACKLOG_ALARM: /" work/live/seal_backlog_alarm.json || echo "SEAL_BACKLOG_ALARM=NONE"
 [ -f work/live/export_pause ] && echo "EXPORT_PAUSE=PRESENT ($(cat work/live/export_pause 2>/dev/null | head -c 80))" || echo "EXPORT_PAUSE=NONE"
 echo "INGEST_DAEMONS=$(pgrep -c -f "[i]ngest.py --loop" 2>/dev/null || echo 0)"
 echo "CATCHUP_LAST: $(grep -E "INGEST CATCH-UP (PASS|FAIL) 2026-[0-9-]+|sealed final archive" work/live/export.log 2>/dev/null | tail -1 | head -c 140)"

@@ -555,9 +555,10 @@ def test_supervisor_gates_daily_research_on_current_export_and_archive_only():
     assert 'seal_alarm.json' in text
     # ASYNC + single instance: chain backgrounded before ws_shadow relaunch
     main = text[text.index('\nwhile true; do'):]
-    assert 'run_seal_chain "$YESTERDAY" &' in main
+    assert 'run_normal_and_seal_backlog "$YESTERDAY" &' in main
     assert 'seal_chain_active' in main
-    assert main.index('run_seal_chain "$YESTERDAY" &') < main.index('./build/ws_shadow')
+    assert main.index('run_normal_and_seal_backlog "$YESTERDAY" &') \
+        < main.index('./build/ws_shadow')
     # main loop + watchdog both respect the chain's ingest pause
     assert '[ -f "$LIVE/export_pause" ] || ingest_alive || start_ingest' in main
     assert ': > "$EXPORT_ATTEMPT_LOG"' in text
@@ -1353,8 +1354,8 @@ def test_supervisor_wires_capture_gaps_daily_and_live():
         "daily coverage audit not wired into the archive-only research function"
     assert any('run_daily_research "$CHAIN_DATE"' in ln for ln in live), \
         "sealed-day research function not invoked by the seal chain"
-    assert any('run_seal_chain "$YESTERDAY" &' in ln for ln in live), \
-        "seal chain not launched (backgrounded) from the main loop"
+    assert any('run_normal_and_seal_backlog "$YESTERDAY" &' in ln for ln in live), \
+        "normal + bounded-backlog seal chain not launched from the main loop"
 
 
 def test_supervisor_single_rest_owner_gate():

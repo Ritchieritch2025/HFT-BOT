@@ -231,3 +231,73 @@ def test_corrupt_state_is_never_silently_replaced(tmp_path):
     assert result.returncode == 2
     assert "refusing to replace unreadable state" in result.stderr
     assert paths["state"].read_bytes() == before
+
+
+def test_supervisor_backlog_wiring_preserves_normal_priority_and_bounds():
+    text = (ROOT / "tools" / "pipeline_supervisor.sh").read_text()
+    live = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # Audited production defaults: explicit authorization lower bound, one
+    # sequential historical date per cycle and four leases per UTC day.
+    assert 'SEAL_BACKLOG_NOT_BEFORE_REQUESTED="${SEAL_BACKLOG_NOT_BEFORE:-2026-07-10}"' in live
+    assert 'SEAL_BACKLOG_MAX_PER_CYCLE_REQUESTED="${SEAL_BACKLOG_MAX_PER_CYCLE:-1}"' in live
+    assert 'SEAL_BACKLOG_MAX_PER_UTC_DAY_REQUESTED="${SEAL_BACKLOG_MAX_PER_UTC_DAY:-4}"' in live
+    assert live.index("SEAL_BACKLOG_ENABLED_REQUESTED=") < live.index('source "$CREDS"')
+    assert live.index('source "$CREDS"') < live.index(
+        'SEAL_BACKLOG_ENABLED="$SEAL_BACKLOG_ENABLED_REQUESTED"'
+    )
+
+    wrapper = live[
+        live.index("run_normal_and_seal_backlog()") : live.index("\nwhile true; do")
+    ]
+    assert wrapper.index('run_seal_chain "$normal_date"') \
+        < wrapper.index('normal_day_ready_for_backlog "$normal_date"') \
+        < wrapper.index("claim_seal_backlog") \
+        < wrapper.index('run_seal_backlog_batch "$backlog_dates"')
+
+    batch = live[
+        live.index("run_seal_backlog_batch()") : live.index(
+            "run_normal_and_seal_backlog()"
+        )
+    ]
+    assert "for backlog_date in $backlog_dates" in batch
+    assert batch.index('run_seal_chain "$backlog_date"') \
+        < batch.index('--verify-seal') \
+        < batch.index('record_seal_backlog "$backlog_date" "succeeded"')
+
+    main = live[live.index("\nwhile true; do") :]
+    launch = 'run_normal_and_seal_backlog "$YESTERDAY" &'
+    assert launch in main
+    assert main.index(launch) < main.index("./build/ws_shadow")
+    assert "SEAL_PID=$!" in main
+
+    service = (ROOT / "deploy" / "kalshi-pipeline.service").read_text()
+    for setting in (
+        "Environment=SEAL_BACKLOG_ENABLED=1",
+        "Environment=SEAL_BACKLOG_NOT_BEFORE=2026-07-10",
+        "Environment=SEAL_BACKLOG_LOOKBACK_DAYS=35",
+        "Environment=SEAL_BACKLOG_MAX_PER_CYCLE=1",
+        "Environment=SEAL_BACKLOG_MAX_PER_UTC_DAY=4",
+    ):
+        assert setting in service
+    assert "seal_backlog_alarm.json" in (ROOT / "tools" / "ec2_health.sh").read_text()
+    assert "seal_backlog_alarm.json" in (ROOT / "tools" / "ec2_monitor.sh").read_text()
+
+
+def test_supervisor_never_clears_a_different_dates_legacy_alarm():
+    text = (ROOT / "tools" / "pipeline_supervisor.sh").read_text()
+    live = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    chain = live[live.index("run_seal_chain()") : live.index(
+        "normal_day_ready_for_backlog()"
+    )]
+    assert 'rm -f "$SEAL_ALARM"' not in live
+    assert chain.count('clear_seal_alarm_for_date "$CHAIN_DATE"') == 2
+    clear = live[live.index("clear_seal_alarm_for_date()") : live.index(
+        "seal_chain_active()"
+    )]
+    assert 'alarm.get("date") == day' in clear
+    assert "os.unlink(path)" in clear

@@ -29,4 +29,5 @@ free -m | awk "/^Mem:/ {print \"MEM_USED_MB=\" \$3 \" AVAIL_MB=\" \$7}"
 tail -3 work/live/ingest.log 2>/dev/null | sed "s/^/INGEST_LOG: /"
 ls work/warehouse/seals/ 2>/dev/null | tail -4 | sed "s/^/SEAL: /"
 [ -f work/live/seal_alarm.json ] && sed "s/^/SEAL_ALARM: /" work/live/seal_alarm.json || echo "SEAL_ALARM=NONE"
+[ -f work/live/seal_backlog_alarm.json ] && sed "s/^/SEAL_BACKLOG_ALARM: /" work/live/seal_backlog_alarm.json || echo "SEAL_BACKLOG_ALARM=NONE"
 '
