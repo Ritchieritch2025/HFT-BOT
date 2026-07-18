@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -48,6 +49,35 @@ SOURCE_FILES = (
     "deep03_v3_prepare.py",
     "deep03_v3_methods.py",
     "deep03_v3_runner.py",
+)
+AUTHORITY_ARTIFACT_NAMES = (
+    "ADOPTED_PLAN.md",
+    "AUDIT.md",
+    "AUTHORITY.json",
+    "BASE_COMMIT.txt",
+    "D3_W0_RELEASE.json",
+    "D3_W1_RELEASE.json",
+    "EXECUTION_ARM.json",
+    "W1_COMPLETE.json",
+)
+AUTHORITY_BINDING_FIELDS = (
+    "release_id",
+    "authority_sha256",
+    "arm_sha256",
+    "adopted_plan_sha256",
+    "audit_sha256",
+    "base_commit",
+    "w0_release_id",
+    "w0_release_sha256",
+    "w1_release_id",
+    "w1_release_sha256",
+    "authorized_phase_id",
+    "authorized_work_package_id",
+    "authorized_input_release_ids",
+    "operator_text_sha256",
+    "named_supersessions",
+    "session_count",
+    "authorized_method_scope",
 )
 
 
@@ -140,6 +170,107 @@ def refuse_credential_environment() -> None:
             "credential boundary refused: static AWS or Kalshi trading "
             f"variables are present ({', '.join(present)})"
         )
+
+
+def _authority_gate_module():
+    try:
+        import deep03_authority_gate
+
+        return deep03_authority_gate
+    except ModuleNotFoundError:
+        source = HERE.parents[1] / "deploy" / "w09" / "deep03_authority_gate.py"
+        if not source.is_file():
+            raise Deep03InputError("pinned Deep03 authority gate is unavailable")
+        spec = importlib.util.spec_from_file_location(
+            "deep03_authority_gate_repo_fallback", source
+        )
+        if spec is None or spec.loader is None:
+            raise Deep03InputError("pinned Deep03 authority gate cannot be loaded")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
+def authority_binding_projection(value: dict[str, Any]) -> dict[str, Any]:
+    missing = [field for field in AUTHORITY_BINDING_FIELDS if field not in value]
+    if missing:
+        raise Deep03InputError(
+            "authority gate result lacks run binding fields: " + ",".join(missing)
+        )
+    return {field: value[field] for field in AUTHORITY_BINDING_FIELDS}
+
+
+def authority_artifact_sha256s(artifacts: dict[str, bytes]) -> dict[str, str]:
+    if set(artifacts) != set(AUTHORITY_ARTIFACT_NAMES):
+        raise Deep03InputError("authority artifact set is incomplete")
+    return {name: sha256_bytes(artifacts[name]) for name in AUTHORITY_ARTIFACT_NAMES}
+
+
+def load_authority_context(
+    *,
+    authority_path: Path,
+    arm_path: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
+    expected_owner_uid: int = 0,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    gate = _authority_gate_module()
+    try:
+        binding, artifacts = gate.validate_authority_bundle(
+            authority_path=Path(authority_path),
+            arm_path=Path(arm_path),
+            plan_path=Path(plan_path),
+            runtime_commit_path=Path(runtime_commit_path),
+            audit_path=Path(audit_path),
+            w0_release_path=Path(w0_release_path),
+            w1_release_path=Path(w1_release_path),
+            w1_complete_path=Path(w1_complete_path),
+            expected_owner_uid=expected_owner_uid,
+            now=now,
+        )
+    except gate.AuthorityError as exc:
+        raise Deep03InputError("exact authority refused: %s" % exc) from exc
+    return {
+        "binding": authority_binding_projection(binding),
+        "artifacts": dict(artifacts),
+        "artifact_sha256s": authority_artifact_sha256s(artifacts),
+    }
+
+
+def write_authority_bundle(run_dir: Path, context: dict[str, Any]) -> None:
+    artifacts = context["artifacts"]
+    for name in AUTHORITY_ARTIFACT_NAMES:
+        atomic_write_bytes(run_dir / name, artifacts[name], exclusive=True)
+    atomic_write_json(
+        run_dir / "AUTHORITY_BINDING.json",
+        {
+            "schema_version": "deep03-d3-w2a-authority-binding-v1",
+            "binding": context["binding"],
+            "artifact_sha256s": context["artifact_sha256s"],
+        },
+        exclusive=True,
+    )
+
+
+def verify_run_authority_bundle(run_dir: Path, context: dict[str, Any]) -> None:
+    for name in AUTHORITY_ARTIFACT_NAMES:
+        path = run_dir / name
+        if not path.is_file() or path.is_symlink():
+            raise Deep03InputError("run authority artifact is missing or linked: %s" % name)
+        if path.read_bytes() != context["artifacts"][name]:
+            raise Deep03InputError("run authority artifact differs from exact authority: %s" % name)
+    expected_binding = {
+        "schema_version": "deep03-d3-w2a-authority-binding-v1",
+        "binding": context["binding"],
+        "artifact_sha256s": context["artifact_sha256s"],
+    }
+    if load_json(run_dir / "AUTHORITY_BINDING.json", "run authority binding") != expected_binding:
+        raise Deep03InputError("run authority binding differs from exact authority")
 
 
 def validate_run_id(run_id: str) -> str:
@@ -361,7 +492,11 @@ def validate_explicit_releases(
 
 
 def build_input_manifest(
-    *, run_id: str, cache_root: Path, release_records: list[dict[str, Any]]
+    *,
+    run_id: str,
+    cache_root: Path,
+    release_records: list[dict[str, Any]],
+    authority_context: dict[str, Any],
 ) -> dict[str, Any]:
     objects = [
         obj for release in release_records for obj in release["objects"]
@@ -380,6 +515,8 @@ def build_input_manifest(
         "research_stage": "OPEN_DISCOVERY",
         "work_package": "D3-W2A",
         "evidence_labels": list(LABELS),
+        "authority_binding": authority_context["binding"],
+        "authority_artifact_sha256s": authority_context["artifact_sha256s"],
         "selection_mode": "EXPLICIT_RELEASE_IDS_ONLY",
         "cache_root": str(Path(cache_root).resolve()),
         "release_ids": [release["release_id"] for release in release_records],
@@ -427,6 +564,8 @@ def stable_input_projection(value: dict[str, Any]) -> dict[str, Any]:
             "research_stage",
             "work_package",
             "evidence_labels",
+            "authority_binding",
+            "authority_artifact_sha256s",
             "selection_mode",
             "cache_root",
             "release_ids",
@@ -450,7 +589,9 @@ def input_projection_sha256(value: dict[str, Any]) -> str:
     return sha256_bytes(canonical_json_bytes(stable_input_projection(value)))
 
 
-def ensure_run_inputs_current(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def ensure_run_inputs_current(
+    run_dir: Path, authority_context: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     input_path = run_dir / "INPUT_MANIFEST.json"
     prepare_path = run_dir / "PREPARE_RECEIPT.json"
     value = load_json(input_path, "INPUT_MANIFEST")
@@ -463,6 +604,11 @@ def ensure_run_inputs_current(run_dir: Path) -> tuple[dict[str, Any], dict[str, 
         raise Deep03InputError("PREPARE_RECEIPT does not bind INPUT_MANIFEST bytes")
     if receipt.get("input_projection_sha256") != input_projection_sha256(value):
         raise Deep03InputError("INPUT_MANIFEST stable projection changed")
+    if value.get("authority_binding") != authority_context["binding"]:
+        raise Deep03InputError("INPUT_MANIFEST authority binding changed")
+    if value.get("authority_artifact_sha256s") != authority_context["artifact_sha256s"]:
+        raise Deep03InputError("INPUT_MANIFEST authority artifact hashes changed")
+    verify_run_authority_bundle(run_dir, authority_context)
     current_sources = source_hashes()
     if value.get("source_modules_sha256") != current_sources:
         raise Deep03InputError("research payload source hashes changed after prepare")
@@ -474,6 +620,7 @@ def ensure_run_inputs_current(run_dir: Path) -> tuple[dict[str, Any], dict[str, 
         run_id=str(value.get("run_id") or ""),
         cache_root=Path(str(value.get("cache_root") or "")),
         release_records=records,
+        authority_context=authority_context,
     )
     # created_at_utc and the explanatory verification block are not identities;
     # every data, version, row-count and source-code binding is.

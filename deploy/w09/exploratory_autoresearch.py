@@ -18,7 +18,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import stat
 import subprocess
 import sys
 import time
@@ -173,21 +172,6 @@ def _load_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def _safe_hook(path: Path) -> bool:
-    if not path.exists():
-        return False
-    if path.is_symlink() or not path.is_file():
-        raise AutoResearchError("optional research hook is not a regular file")
-    metadata = path.stat()
-    if metadata.st_uid != 0 or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        raise AutoResearchError(
-            "optional research hook must be root-owned and not group/world writable"
-        )
-    if not os.access(path, os.X_OK):
-        raise AutoResearchError("optional research hook is not executable")
-    return True
-
-
 def _completion_is_current(
     path: Path,
     *,
@@ -225,10 +209,22 @@ def run_cycle(
     hook: Path,
     authority_binding: dict[str, Any],
     required_release_ids: list[str],
-    max_attempts: int = 3,
+    authority_path: Path,
+    arm_path: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
+    max_attempts: int = 1,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     _refuse_credentials()
+    if os.path.lexists(hook):
+        raise AutoResearchError(
+            "post-research hook is forbidden by the narrow D3-W2A authority"
+        )
     authority_release_id = authority_binding.get("release_id")
     authority_sha256 = authority_binding.get("authority_sha256")
     max_runtime_seconds = authority_binding.get("effective_runtime_seconds")
@@ -247,8 +243,8 @@ def run_cycle(
         set(required_release_ids)
     ):
         raise AutoResearchError("authority has no unique exact input release set")
-    if max_attempts < 1 or max_attempts > 10:
-        raise AutoResearchError("max_attempts must be in [1,10]")
+    if max_attempts != 1:
+        raise AutoResearchError("session_count=1 requires max_attempts=1")
     deadline = time.monotonic() + max_runtime_seconds
 
     def remaining_seconds() -> int:
@@ -470,6 +466,22 @@ def run_cycle(
                 str(run_root),
                 "--run-id",
                 run_id,
+                "--authority",
+                str(authority_path),
+                "--arm-file",
+                str(arm_path),
+                "--plan",
+                str(plan_path),
+                "--runtime-commit",
+                str(runtime_commit_path),
+                "--audit",
+                str(audit_path),
+                "--w0-release",
+                str(w0_release_path),
+                "--w1-release",
+                str(w1_release_path),
+                "--w1-complete",
+                str(w1_complete_path),
             ]
             for release_id in release_ids:
                 prepare_command.extend(["--release", release_id])
@@ -494,6 +506,22 @@ def run_cycle(
                     str(tools_root / "research" / "deep03_v3_runner.py"),
                     "--run-dir",
                     str(run_dir),
+                    "--authority",
+                    str(authority_path),
+                    "--arm-file",
+                    str(arm_path),
+                    "--plan",
+                    str(plan_path),
+                    "--runtime-commit",
+                    str(runtime_commit_path),
+                    "--audit",
+                    str(audit_path),
+                    "--w0-release",
+                    str(w0_release_path),
+                    "--w1-release",
+                    str(w1_release_path),
+                    "--w1-complete",
+                    str(w1_complete_path),
                     "--memory-limit",
                     "32GB",
                     "--threads",
@@ -515,28 +543,6 @@ def run_cycle(
                 raise AutoResearchError("Deep03 completion contract mismatch")
 
             hook_ran = False
-            if _safe_hook(hook):
-                current_step = "POST_RESEARCH_HOOK"
-                status(
-                    "RESEARCH_RUNNING",
-                    selection_sha256=selection_sha,
-                    release_ids=release_ids,
-                    run_id=run_id,
-                )
-                _run_command(
-                    [
-                        str(hook),
-                        "--run-dir",
-                        str(run_dir),
-                        "--selection",
-                        str(selection_path),
-                    ],
-                    step="09-post-research-hook",
-                    log_root=log_root,
-                    timeout_seconds=remaining_seconds(),
-                    runner=runner,
-                )
-                hook_ran = True
 
             completion = {
                 "schema_version": COMPLETION_SCHEMA,
@@ -589,6 +595,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--arm-file", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--runtime-commit", required=True, type=Path)
+    parser.add_argument("--audit", required=True, type=Path)
+    parser.add_argument("--w0-release", required=True, type=Path)
+    parser.add_argument("--w1-release", required=True, type=Path)
+    parser.add_argument("--w1-complete", required=True, type=Path)
     parser.add_argument("--python", default="/opt/w09/venv/bin/python")
     parser.add_argument("--tools-root", default="/opt/w09/research/tools")
     parser.add_argument("--w09-tools-root", default="/opt/w09/research/tools")
@@ -596,7 +606,7 @@ def main(argv: list[str] | None = None) -> int:
         "--hook",
         default="/opt/w09/research/hooks/after_exploratory_autoresearch",
     )
-    parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--max-attempts", type=int, default=1)
     args = parser.parse_args(argv)
     try:
         authority = deep03_authority_gate.validate_authority(
@@ -604,6 +614,10 @@ def main(argv: list[str] | None = None) -> int:
             arm_path=args.arm_file,
             plan_path=args.plan,
             runtime_commit_path=args.runtime_commit,
+            audit_path=args.audit,
+            w0_release_path=args.w0_release,
+            w1_release_path=args.w1_release,
+            w1_complete_path=args.w1_complete,
         )
         result = run_cycle(
             cache=Path(args.cache),
@@ -617,6 +631,14 @@ def main(argv: list[str] | None = None) -> int:
             hook=Path(args.hook),
             authority_binding=authority,
             required_release_ids=authority["authorized_input_release_ids"],
+            authority_path=args.authority,
+            arm_path=args.arm_file,
+            plan_path=args.plan,
+            runtime_commit_path=args.runtime_commit,
+            audit_path=args.audit,
+            w0_release_path=args.w0_release,
+            w1_release_path=args.w1_release,
+            w1_complete_path=args.w1_complete,
             max_attempts=args.max_attempts,
         )
     except (

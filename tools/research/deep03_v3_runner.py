@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fcntl
 import hashlib
 import html
@@ -24,6 +25,7 @@ from deep03_v3_common import (
     atomic_write_bytes,
     atomic_write_json,
     ensure_run_inputs_current,
+    load_authority_context,
     refuse_credential_environment,
     sha256_file,
     source_hashes,
@@ -416,15 +418,52 @@ def _artifact_rows(run_dir: Path) -> list[dict[str, Any]]:
 
 
 def run_discovery(
-    *, run_dir: Path, memory_limit: str = "8GB", threads: int = 4
+    *,
+    run_dir: Path,
+    authority_path: Path,
+    arm_path: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
+    memory_limit: str = "8GB",
+    threads: int = 4,
+    expected_owner_uid: int = 0,
+    authority_now: dt.datetime | None = None,
 ) -> Path:
     refuse_credential_environment()
+    authority_context = load_authority_context(
+        authority_path=authority_path,
+        arm_path=arm_path,
+        plan_path=plan_path,
+        runtime_commit_path=runtime_commit_path,
+        audit_path=audit_path,
+        w0_release_path=w0_release_path,
+        w1_release_path=w1_release_path,
+        w1_complete_path=w1_complete_path,
+        expected_owner_uid=expected_owner_uid,
+        now=authority_now,
+    )
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise Deep03InputError(f"prepared run directory missing: {run_dir}")
     if (run_dir / "RUN_COMPLETE.json").exists():
         raise Deep03InputError("RUN_COMPLETE is immutable; use a new run_id")
-    allowed = {"INPUT_MANIFEST.json", "PREPARE_RECEIPT.json"}
+    allowed = {
+        "ADOPTED_PLAN.md",
+        "AUDIT.md",
+        "AUTHORITY.json",
+        "AUTHORITY_BINDING.json",
+        "BASE_COMMIT.txt",
+        "D3_W0_RELEASE.json",
+        "D3_W1_RELEASE.json",
+        "EXECUTION_ARM.json",
+        "INPUT_MANIFEST.json",
+        "PREPARE_RECEIPT.json",
+        "W1_COMPLETE.json",
+    }
     unexpected = sorted(
         path.name for path in run_dir.iterdir() if path.name not in allowed
     )
@@ -433,7 +472,9 @@ def run_discovery(
             "prepared run contains stale/partial artifacts; use a new run_id: "
             + ",".join(unexpected)
         )
-    input_manifest, prepare = ensure_run_inputs_current(run_dir)
+    input_manifest, prepare = ensure_run_inputs_current(
+        run_dir, authority_context
+    )
     lock_handle = (run_dir / "PREPARE_RECEIPT.json").open("rb")
     try:
         try:
@@ -479,9 +520,17 @@ def run_discovery(
             "run_id": input_manifest["run_id"],
             "prepare_command_shape": (
                 "deep03-v3-prepare --cache CACHE --run-root RUN_ROOT "
-                "--run-id RUN_ID --release EXPLICIT_RELEASE_ID [...]"
+                "--run-id RUN_ID --authority AUTHORITY --arm-file ARM "
+                "--plan PLAN --runtime-commit COMMIT --audit AUDIT "
+                "--w0-release W0 --w1-release W1 --w1-complete W1_COMPLETE "
+                "--release EXPLICIT_RELEASE_ID [...]"
             ),
-            "run_command_shape": "w09-run deep03-v3-run --run-dir RUN_DIR",
+            "run_command_shape": (
+                "w09-run deep03-v3-run --run-dir RUN_DIR "
+                "--authority AUTHORITY --arm-file ARM --plan PLAN "
+                "--runtime-commit COMMIT --audit AUDIT --w0-release W0 "
+                "--w1-release W1 --w1-complete W1_COMPLETE"
+            ),
             "source_modules_sha256": source_hashes(),
             "duckdb_version": duckdb.__version__,
             "memory_limit": memory_limit,
@@ -533,6 +582,10 @@ def run_discovery(
             "production_mutations": 0,
             "order_actions": 0,
             "candidate_or_profit_claim": False,
+            "authority_binding": authority_context["binding"],
+            "authority_artifact_sha256s": authority_context[
+                "artifact_sha256s"
+            ],
         }
         # This is intentionally the final filesystem write inside the bundle.
         atomic_write_json(run_dir / "RUN_COMPLETE.json", complete, exclusive=True)
@@ -544,12 +597,28 @@ def run_discovery(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path)
+    parser.add_argument("--authority", required=True, type=Path)
+    parser.add_argument("--arm-file", required=True, type=Path)
+    parser.add_argument("--plan", required=True, type=Path)
+    parser.add_argument("--runtime-commit", required=True, type=Path)
+    parser.add_argument("--audit", required=True, type=Path)
+    parser.add_argument("--w0-release", required=True, type=Path)
+    parser.add_argument("--w1-release", required=True, type=Path)
+    parser.add_argument("--w1-complete", required=True, type=Path)
     parser.add_argument("--memory-limit", default="8GB")
     parser.add_argument("--threads", default=4, type=int)
     args = parser.parse_args(argv)
     try:
         complete = run_discovery(
             run_dir=args.run_dir,
+            authority_path=args.authority,
+            arm_path=args.arm_file,
+            plan_path=args.plan,
+            runtime_commit_path=args.runtime_commit,
+            audit_path=args.audit,
+            w0_release_path=args.w0_release,
+            w1_release_path=args.w1_release,
+            w1_complete_path=args.w1_complete,
             memory_limit=args.memory_limit,
             threads=args.threads,
         )
