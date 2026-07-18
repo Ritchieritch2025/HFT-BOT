@@ -114,7 +114,13 @@ class TestFeedReadiness(unittest.TestCase):
     def test_json_output_redacts_key_id(self):
         env = os.environ.copy()
         env.update(_env(self.key))
-        _write_metrics(self.metrics, [_feed(), _market()])
+        # This path invokes the real CLI clock, unlike the unit cases above
+        # that inject the frozen NOW fixture.  Keep the fixture fresh at
+        # execution time so the test does not start failing merely because
+        # the calendar advanced after it was authored.
+        current = fr.now_ms()
+        _write_metrics(
+            self.metrics, [_feed(ts=current), _market(ts=current)])
         proc = subprocess.run(
             [sys.executable, os.path.join(ROOT, "tools", "feed_readiness.py"),
              "--metrics", self.metrics, "--json"],
