@@ -500,6 +500,9 @@ else
 fi
 systemctl enable kalshi-canonical-generation-witness.path
 systemctl enable kalshi-canonical-generation-witness.timer
+LEGACY_ENABLEMENT="$(
+  systemctl is-enabled kalshi-canonical-generation-legacy.service \
+    2>/dev/null || true)"
 if ! systemctl is-enabled --quiet "$SELECTED_TIMER" || \
    systemctl is-enabled --quiet "$DISABLED_TIMER" || \
    ! systemctl is-enabled --quiet kalshi-canonical-generation-witness.path || \
@@ -510,7 +513,7 @@ if ! systemctl is-enabled --quiet "$SELECTED_TIMER" || \
    systemctl is-active --quiet kalshi-canonical-generation-witness.timer || \
    systemctl is-active --quiet kalshi-canonical-generation-witness.service || \
    systemctl is-active --quiet kalshi-canonical-generation-legacy.service || \
-   systemctl is-enabled --quiet kalshi-canonical-generation-legacy.service || \
+   [ "$LEGACY_ENABLEMENT" != static ] || \
    systemctl is-active --quiet "$DISABLED_SERVICE" || \
    systemctl is-active --quiet kalshi-research-v3-daily.service || \
    systemctl is-active --quiet kalshi-research-v3-durable.service; then

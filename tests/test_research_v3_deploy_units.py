@@ -142,6 +142,8 @@ def test_installer_quiesces_and_installs_generation_units_before_cutover():
     assert "enable kalshi-canonical-generation-witness.path" in installer
     assert "enable kalshi-canonical-generation-witness.timer" in installer
     assert "enable kalshi-canonical-generation-legacy.service" not in installer
+    assert 'LEGACY_ENABLEMENT="$(' in installer
+    assert '[ "$LEGACY_ENABLEMENT" != static ]' in installer
     assert "generation-witness-intents 0700" in tmpfiles
     assert "generation-witness.lock 0600" in tmpfiles
     assert "generation-migration-proofs 0750" in tmpfiles
