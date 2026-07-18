@@ -67,6 +67,9 @@ def test_publisher_only_durable_unit_has_one_credential_and_no_tagger_surface():
     assert "LoadCredentialEncrypted=publisher.env:" in service
     assert "--durable-only" in service
     assert "--publisher-env-file %d/publisher.env" in service
+    coordinator = _text("tools/research_v3_daily.py")
+    assert "/run/credentials/kalshi-research-v3-durable.service" in coordinator
+    assert "DEFAULT_DURABLE_PUBLISHER_ENV_FILE" in coordinator
     assert "--operator-approved" in service
     assert "tagger" not in service.lower()
     assert "research/releases" not in service
@@ -97,6 +100,7 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     path = _text("deploy/kalshi-canonical-generation-witness.path")
     timer = _text("deploy/kalshi-canonical-generation-witness.timer")
     legacy = _text("deploy/kalshi-canonical-generation-legacy.service")
+    lock = "/var/lib/kalshi-research-v3-locks/generation-witness.lock"
 
     assert service.count("LoadCredentialEncrypted=") == 1
     assert "LoadCredentialEncrypted=publisher.env:" in service
@@ -110,6 +114,7 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert "/snap/aws-cli/current/bin" in service
     assert "generation-witness-intents" in service
     assert "generation-witness.lock" in service
+    assert lock in service
     assert "work/raw" in service and "work/warehouse" in service
     assert "kalshi-pipeline.service" not in "\n".join(
         line for line in service.splitlines() if not line.startswith("#"))
@@ -123,6 +128,7 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert legacy.count("LoadCredentialEncrypted=") == 1
     assert "--migrate-all-legacy" in legacy
     assert "generation-migration-proofs" in legacy
+    assert lock in legacy
     assert "tagger" not in legacy.lower()
     assert "rfq" not in legacy.lower()
 
@@ -150,18 +156,25 @@ def test_installer_quiesces_and_installs_generation_units_before_cutover():
     assert "generation-daily 0750" in tmpfiles
 
 
-def test_installer_restores_exact_generation_writer_lock_after_recursive_acl():
+def test_installer_validates_generation_lock_below_root_owned_parent():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    tmpfiles = _text("deploy/kalshi-research-v3-daily.tmpfiles.conf")
 
-    broad_acl = installer.index('setfacl -R -m "u:$SERVICE_USER:r-X"')
-    clear_lock_acl = installer.index('setfacl -b "$GENERATION_WRITER_LOCK"')
-    exact_lock_mode = installer.index('chmod 0600 "$GENERATION_WRITER_LOCK"')
-    lock_write_probe = installer.index(
-        'runuser -u "$SERVICE_USER" -- test -w "$GENERATION_WRITER_LOCK"')
-
-    assert broad_acl < clear_lock_acl < exact_lock_mode < lock_write_probe
+    assert ("GENERATION_WRITER_LOCK=/var/lib/kalshi-research-v3-locks/"
+            "generation-witness.lock") in installer
+    assert ("/var/lib/kalshi-research-v3-locks 0750 root "
+            "kalshi-research-v3") in tmpfiles
+    assert ("/var/lib/kalshi-research-v3-locks/generation-witness.lock "
+            "0600 kalshi-research-v3 kalshi-research-v3") in tmpfiles
+    assert 'stat -c %u "$GENERATION_WRITER_LOCK_PARENT"' in installer
+    assert 'stat -c %a "$GENERATION_WRITER_LOCK_PARENT"' in installer
     assert '[ -L "$GENERATION_WRITER_LOCK" ]' in installer
     assert 'stat -c %a "$GENERATION_WRITER_LOCK"' in installer
+    assert 'stat -c %h "$GENERATION_WRITER_LOCK"' in installer
+    assert 'setfacl -b "$GENERATION_WRITER_LOCK"' not in installer
+    assert 'chown "$SERVICE_USER:$SERVICE_GROUP" "$GENERATION_WRITER_LOCK"' \
+        not in installer
+    assert 'chmod 0600 "$GENERATION_WRITER_LOCK"' not in installer
 
 
 def test_installer_uses_immutable_release_for_all_privileged_installs():

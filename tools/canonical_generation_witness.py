@@ -56,8 +56,7 @@ PRODUCTION_PROOF_ROOT = pathlib.Path(
     "/home/ubuntu/hft-bot/work/live/canonical_receipts/"
     "generation-migration-proofs")
 PRODUCTION_WRITER_LOCK = pathlib.Path(
-    "/home/ubuntu/hft-bot/work/live/canonical_receipts/"
-    "generation-witness.lock")
+    "/var/lib/kalshi-research-v3-locks/generation-witness.lock")
 PRODUCTION_INTENT_ROOT = pathlib.Path(
     "/home/ubuntu/hft-bot/work/live/canonical_receipts/"
     "generation-witness-intents")
@@ -88,7 +87,10 @@ LEGACY_EXPECTED_BATCH_MINUTES = {
     "2026-07-10": "2026-07-12T03:10",
     "2026-07-11": "2026-07-13T03:10",
     "2026-07-15": "2026-07-17T03:10",
-    "2026-07-16": "2026-07-17T22:07",
+    # Complete version history proves the first full catalog batch after the
+    # 2026-07-17T04:29:04Z local seal began at 12:59:26Z.  A second complete
+    # batch at 22:07:43Z is later and therefore cannot be the earliest batch.
+    "2026-07-16": "2026-07-17T12:59",
 }
 
 

@@ -359,6 +359,8 @@ def _pin_production(monkeypatch, tree):
     monkeypatch.setattr(
         daily, "DEFAULT_PUBLISHER_ENV_FILE", tree["publisher_env"])
     monkeypatch.setattr(
+        daily, "DEFAULT_DURABLE_PUBLISHER_ENV_FILE", tree["publisher_env"])
+    monkeypatch.setattr(
         daily, "DEFAULT_TAGGER_CREDENTIAL_FILE", tree["tagger_creds"])
     monkeypatch.setattr(daily, "DEFAULT_CUTOVER_ARM", tree["cutover_arm"])
     monkeypatch.setattr(daily, "DEFAULT_PUBLISH_ARM", tree["publish_arm"])
@@ -595,6 +597,11 @@ def test_durable_only_never_loads_tagger_or_enters_research_publication(
         tmp_path, monkeypatch, capsys):
     tree = _fixture_tree(tmp_path)
     _pin_production(monkeypatch, tree)
+    # The full daily unit has a different systemd credential mount.  Durable
+    # mode must validate the durable unit path, never the full-unit constant.
+    monkeypatch.setattr(
+        daily, "DEFAULT_PUBLISHER_ENV_FILE",
+        tree["publisher_env"].with_name("wrong-full-unit-publisher.env"))
     tree["tagger_creds"].unlink()
 
     def forbidden(*_args, **_kwargs):

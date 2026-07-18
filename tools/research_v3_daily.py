@@ -52,6 +52,10 @@ DEFAULT_CREDENTIAL_DIRECTORY = pathlib.Path(
 DEFAULT_PUBLISHER_ENV_FILE = DEFAULT_CREDENTIAL_DIRECTORY / "publisher.env"
 DEFAULT_TAGGER_CREDENTIAL_FILE = (
     DEFAULT_CREDENTIAL_DIRECTORY / "tagger.credentials")
+DEFAULT_DURABLE_CREDENTIAL_DIRECTORY = pathlib.Path(
+    "/run/credentials/kalshi-research-v3-durable.service")
+DEFAULT_DURABLE_PUBLISHER_ENV_FILE = (
+    DEFAULT_DURABLE_CREDENTIAL_DIRECTORY / "publisher.env")
 TAGGER_POLICY_SHA256 = (
     "2fa7dbe4103f01b26fe871c1a0c8f215f2aba4396e6902db1cdcf08eeae275a0")
 BUCKET_POLICY_SHA256 = (
@@ -2970,7 +2974,10 @@ def main(argv=None) -> int:
                 "PRODUCTION_PATH_INVALID",
                 "audit root must be production live/research_v3_audit",
             )
-        if pathlib.Path(args.publisher_env_file) != DEFAULT_PUBLISHER_ENV_FILE:
+        expected_publisher_file = (
+            DEFAULT_DURABLE_PUBLISHER_ENV_FILE
+            if args.durable_only else DEFAULT_PUBLISHER_ENV_FILE)
+        if pathlib.Path(args.publisher_env_file) != expected_publisher_file:
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
                 "publisher credential must come from the systemd credential mount",

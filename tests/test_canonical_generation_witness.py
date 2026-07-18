@@ -597,7 +597,10 @@ def _legacy_tree(tmp_path, monkeypatch, date="2026-07-15"):
     warehouse.mkdir()
     seal = {
         "version": 2, "method": "full_v2", "status": "SEALED",
-        "date": date, "sealed_at": "2026-07-16T02:00:00Z",
+        "date": date,
+        "sealed_at": ("2026-07-17T04:29:04Z"
+                      if date == "2026-07-16"
+                      else "2026-07-16T02:00:00Z"),
     }
     seal_raw = _write(
         warehouse / "seals" / f"date={date}.json",
@@ -748,6 +751,49 @@ def test_legacy_migration_blocks_an_earlier_complete_catalog_batch(
             str(tmp_path / "quality"), str(tmp_path / "proofs"), client)
     assert client.put_original_calls == []
     assert client.put_witness_calls == []
+
+
+def test_legacy_7_16_selects_earliest_proven_batch_before_later_complete_batch(
+        tmp_path, monkeypatch):
+    raw, warehouse, seal, _binding, client = _legacy_tree(
+        tmp_path, monkeypatch, date="2026-07-16")
+    specs = gw._catalog_specs()
+    for number, spec in enumerate(specs):
+        if not spec["required"]:
+            payload = ("earliest-optional:" + spec["relative_path"]).encode()
+            modified = f"2026-07-17T12:59:0{number}Z"
+            version = "catalog-v" + str(number)
+            client.add(
+                spec["key"], payload, version=version, modified=modified)
+            client.histories[spec["key"]]["versions"].append({
+                "Key": spec["key"], "VersionId": version,
+                "LastModified": modified, "Size": len(payload),
+            })
+            client.histories[spec["key"]]["rows_seen"] += 1
+
+    for number, spec in enumerate(specs):
+        payload = ("later-complete:" + spec["relative_path"]).encode()
+        modified = "2026-07-17T22:07:43Z"
+        version = "later-complete-v" + str(number)
+        client.add(spec["key"], payload, version=version, modified=modified)
+        client.histories[spec["key"]]["versions"].append({
+            "Key": spec["key"], "VersionId": version,
+            "LastModified": modified, "Size": len(payload),
+        })
+        client.histories[spec["key"]]["rows_seen"] += 1
+
+    result = gw.migrate_legacy_generation(
+        seal["date"], str(raw), str(warehouse),
+        str(tmp_path / "quality"), str(tmp_path / "proofs"), client)
+
+    proof = json.loads(Path(result["history_proof"]).read_text())
+    assert proof["seal_sealed_at_utc"] == "2026-07-17T04:29:04Z"
+    assert proof["known_batch_minute_utc"] == "2026-07-17T12:59"
+    assert [row["VersionId"] for row in proof["selected_versions"]] == [
+        f"catalog-v{number}" for number in range(5)]
+    assert all(
+        row["LastModified"].startswith("2026-07-17T12:59:")
+        for row in proof["selected_versions"])
 
 
 def test_legacy_authority_tamper_blocks_before_any_s3_object_operation(

@@ -70,7 +70,7 @@ MUTABLE_ROOTS=(
   /home/ubuntu/hft-bot/work/research_stage
 )
 LOCK_ROOT=/home/ubuntu/hft-bot/work/warehouse/.publication-locks
-GENERATION_WRITER_LOCK=/home/ubuntu/hft-bot/work/live/canonical_receipts/generation-witness.lock
+GENERATION_WRITER_LOCK=/var/lib/kalshi-research-v3-locks/generation-witness.lock
 
 cleanup() {
   if [ -n "$STAGE" ] && [ -d "$STAGE" ]; then
@@ -422,18 +422,27 @@ for root in "${MUTABLE_ROOTS[@]}" "$LOCK_ROOT"; do
     exit 2
   fi
 done
-# The earlier recursive read ACL intentionally touched every live input.  On a
-# lock already owned by SERVICE_USER that creates a redundant named-user ACL
-# and widens the effective mode to 0640.  Remove all extended ACLs and restore
-# the exact ownership/mode required by the fail-closed writer lock validator.
-if [ ! -f "$GENERATION_WRITER_LOCK" ] || [ -L "$GENERATION_WRITER_LOCK" ]; then
-  echo "REFUSED: generation writer lock is not a regular non-symlink file" >&2
+# Keep the shared writer lock outside every ubuntu-owned capture tree.  Its
+# direct parent is root-owned and not writable by either ubuntu or the service,
+# so the checks below cannot race a user-controlled path replacement.  Do not
+# mutate the path after checking it; tmpfiles established the exact shape.
+GENERATION_WRITER_LOCK_PARENT=${GENERATION_WRITER_LOCK%/*}
+if [ ! -d "$GENERATION_WRITER_LOCK_PARENT" ] || \
+   [ -L "$GENERATION_WRITER_LOCK_PARENT" ] || \
+   [ "$(readlink -f -- "$GENERATION_WRITER_LOCK_PARENT")" != \
+       "$GENERATION_WRITER_LOCK_PARENT" ] || \
+   [ "$(stat -c %u "$GENERATION_WRITER_LOCK_PARENT")" -ne 0 ] || \
+   [ "$(stat -c %g "$GENERATION_WRITER_LOCK_PARENT")" -ne \
+       "$(id -g "$SERVICE_USER")" ] || \
+   [ "$(stat -c %a "$GENERATION_WRITER_LOCK_PARENT")" != 750 ]; then
+  echo "REFUSED: generation writer lock parent is not exact" >&2
   exit 2
 fi
-setfacl -b "$GENERATION_WRITER_LOCK"
-chown "$SERVICE_USER:$SERVICE_GROUP" "$GENERATION_WRITER_LOCK"
-chmod 0600 "$GENERATION_WRITER_LOCK"
-if [ "$(stat -c %u "$GENERATION_WRITER_LOCK")" -ne \
+if [ ! -f "$GENERATION_WRITER_LOCK" ] || [ -L "$GENERATION_WRITER_LOCK" ] || \
+   [ "$(readlink -f -- "$GENERATION_WRITER_LOCK")" != \
+       "$GENERATION_WRITER_LOCK" ] || \
+   [ "$(stat -c %h "$GENERATION_WRITER_LOCK")" -ne 1 ] || \
+   [ "$(stat -c %u "$GENERATION_WRITER_LOCK")" -ne \
        "$(id -u "$SERVICE_USER")" ] || \
    [ "$(stat -c %g "$GENERATION_WRITER_LOCK")" -ne \
        "$(id -g "$SERVICE_USER")" ] || \
