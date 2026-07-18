@@ -579,6 +579,53 @@ def test_run_process_passes_cli_input_through_inherited_memfd():
     assert result.returncode == 0
     assert json.loads(result.stdout) == {"AccessKeyId": "sensitive-fixture"}
     assert all("sensitive-fixture" not in item for item in result.args)
+    inherited_fd = int(result.args[-1].rsplit("/", 1)[1])
+    with pytest.raises(OSError):
+        os.fstat(inherited_fd)
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or not hasattr(os, "memfd_create"),
+    reason="production IAM payload transport requires Linux memfd",
+)
+def test_run_process_closes_memfd_when_popen_raises_baseexception(monkeypatch):
+    opened = []
+    real_memfd_create = os.memfd_create
+
+    def tracked_memfd_create(*args, **kwargs):
+        fd = real_memfd_create(*args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    class Abort(BaseException):
+        pass
+
+    monkeypatch.setattr(os, "memfd_create", tracked_memfd_create)
+    monkeypatch.setattr(
+        bootstrap.subprocess, "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(Abort()),
+    )
+    with pytest.raises(Abort):
+        bootstrap._run_process(
+            ["/bin/false"], env={}, timeout=1, label="abort fixture",
+            input_bytes=b'{"AccessKeyId":"sensitive-fixture"}',
+        )
+    assert len(opened) == 1
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
+
+
+def test_run_process_rejects_memfd_payload_off_linux_before_popen(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        bootstrap.subprocess, "Popen",
+        lambda *_args, **_kwargs: pytest.fail("Popen happened before refusal"),
+    )
+    with pytest.raises(bootstrap.GateError, match="COMMAND_INPUT_INVALID"):
+        bootstrap._run_process(
+            ["/bin/false"], env={}, timeout=1, label="non-linux fixture",
+            input_bytes=b'{"AccessKeyId":"sensitive-fixture"}',
+        )
 
 
 def test_main_requires_real_user_ids_and_service_isolation_gate(

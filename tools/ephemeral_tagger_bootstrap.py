@@ -317,59 +317,60 @@ def _run_process(command: list[str], *, env: dict[str, str], timeout: int,
                  ) -> subprocess.CompletedProcess:
     run_command = list(command)
     memfd = None
-    if input_bytes is not None:
-        if (not sys.platform.startswith("linux")
-                or not hasattr(os, "memfd_create")
-                or not isinstance(input_bytes, bytes)
-                or not input_bytes
-                or len(input_bytes) > MAX_AWS_RESPONSE_BYTES):
-            raise GateError(
-                "COMMAND_INPUT_INVALID",
-                f"{label} requires a bounded Linux in-memory payload",
-            )
-        try:
-            flags = getattr(os, "MFD_CLOEXEC", 0)
-            memfd = os.memfd_create("kalshi-iam-cli-input", flags)
-            view = memoryview(input_bytes)
-            written = 0
-            while written < len(view):
-                count = os.write(memfd, view[written:])
-                if count <= 0:
-                    raise OSError("short memfd write")
-                written += count
-            os.lseek(memfd, 0, os.SEEK_SET)
-            os.fchmod(memfd, 0o400)
-            run_command.extend([
-                "--cli-input-json", f"file:///proc/self/fd/{memfd}",
-            ])
-        except OSError:
-            if memfd is not None:
-                os.close(memfd)
-            raise GateError(
-                "COMMAND_INPUT_INVALID",
-                f"{label} could not create an in-memory payload",
-            ) from None
     try:
-        process = subprocess.Popen(
-            run_command,
-            env=env,
-            cwd=str(ROOT),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            shell=False,
-            close_fds=True,
-            pass_fds=(() if memfd is None else (memfd,)),
-            start_new_session=True,
-            preexec_fn=_child_hardening if sys.platform.startswith("linux") else None,
-        )
-    except (OSError, subprocess.SubprocessError):
+        if input_bytes is not None:
+            if (not sys.platform.startswith("linux")
+                    or not hasattr(os, "memfd_create")
+                    or not isinstance(input_bytes, bytes)
+                    or not input_bytes
+                    or len(input_bytes) > MAX_AWS_RESPONSE_BYTES):
+                raise GateError(
+                    "COMMAND_INPUT_INVALID",
+                    f"{label} requires a bounded Linux in-memory payload",
+                )
+            try:
+                flags = getattr(os, "MFD_CLOEXEC", 0)
+                memfd = os.memfd_create("kalshi-iam-cli-input", flags)
+                view = memoryview(input_bytes)
+                written = 0
+                while written < len(view):
+                    count = os.write(memfd, view[written:])
+                    if count <= 0:
+                        raise OSError("short memfd write")
+                    written += count
+                os.lseek(memfd, 0, os.SEEK_SET)
+                os.fchmod(memfd, 0o400)
+                run_command.extend([
+                    "--cli-input-json", f"file:///proc/self/fd/{memfd}",
+                ])
+            except OSError:
+                raise GateError(
+                    "COMMAND_INPUT_INVALID",
+                    f"{label} could not create an in-memory payload",
+                ) from None
+        try:
+            process = subprocess.Popen(
+                run_command,
+                env=env,
+                cwd=str(ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                shell=False,
+                close_fds=True,
+                pass_fds=(() if memfd is None else (memfd,)),
+                start_new_session=True,
+                preexec_fn=(
+                    _child_hardening
+                    if sys.platform.startswith("linux") else None),
+            )
+        except (OSError, subprocess.SubprocessError):
+            raise GateError(
+                "COMMAND_FAILED", f"{label} could not start") from None
+    finally:
         if memfd is not None:
             os.close(memfd)
-        raise GateError("COMMAND_FAILED", f"{label} could not start") from None
-    if memfd is not None:
-        os.close(memfd)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
