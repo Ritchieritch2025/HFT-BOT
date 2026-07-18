@@ -233,13 +233,13 @@ def _stable_value(value: Any) -> Any:
 
 
 def _query_kind(path: Path) -> tuple[str, str]:
-    suffix = path.suffix.lower()
-    if suffix == ".parquet":
+    name = path.name.lower()
+    if name.endswith(".parquet"):
         reader = "read_parquet(?)"
-    elif suffix in {".csv", ".tsv"}:
+    elif name.endswith((".csv", ".tsv", ".csv.gz", ".tsv.gz")):
         reader = "read_csv_auto(?)"
     else:
-        raise CanaryError("unsupported facts file type: %s" % suffix)
+        raise CanaryError("unsupported facts file type: %s" % path.suffix.lower())
     return (
         "DESCRIBE SELECT * FROM %s" % reader,
         "SELECT * FROM %s LIMIT 1" % reader,

@@ -2,9 +2,13 @@
 """Offline positive/negative tests for the manifest-bound W09 query canary."""
 
 import importlib.util
+import gzip
 import json
 from pathlib import Path
 import sys
+
+import duckdb
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 CANARY_PATH = ROOT / "deploy" / "w09" / "v3_query_canary.py"
@@ -140,3 +144,27 @@ def test_source_local_key_must_remain_bound_to_manifest_content_hash(tmp_path):
     ]) == 2
     refusal = json.loads(receipt_path.read_text())
     assert "content hash" in refusal["error"]["message"]
+
+
+def test_query_kind_reads_production_gzip_csv_with_duckdb(tmp_path):
+    canary = _load_canary()
+    path = tmp_path / "facts.csv.gz"
+    with gzip.open(path, "wt", encoding="utf-8", newline="") as handle:
+        handle.write("market_ticker,ts_utc\nTICKER,1\n")
+    describe_sql, sample_sql = canary._query_kind(path)
+    connection = duckdb.connect(database=":memory:")
+    try:
+        assert connection.execute(
+            describe_sql, [str(path)]
+        ).fetchall()[0][0] == "market_ticker"
+        assert connection.execute(
+            sample_sql, [str(path)]
+        ).fetchone() == ("TICKER", 1)
+    finally:
+        connection.close()
+
+
+def test_query_kind_rejects_non_csv_gzip_payload(tmp_path):
+    canary = _load_canary()
+    with pytest.raises(canary.CanaryError, match="unsupported facts file type"):
+        canary._query_kind(tmp_path / "facts.parquet.gz")
