@@ -97,6 +97,7 @@ unset SEAL_BACKLOG_RETRY_BASE_SECONDS_REQUESTED SEAL_BACKLOG_RETRY_MAX_SECONDS_R
 SEAL_BACKLOG_STATE="$LIVE/seal_backlog_state.json"
 SEAL_BACKLOG_ALARM="$LIVE/seal_backlog_alarm.json"
 SEAL_BACKLOG_LOG="$LIVE/seal_backlog.log"
+SEAL_BACKLOG_DISABLE="$LIVE/seal_backlog_disable"
 
 # --- LAYER 1b (PIPE-W06 Stage 1): targeted sports L2 — OPTIONAL layer ---------
 # A SECOND read-only ws_shadow on its own WS connection (orderbook_delta,
@@ -653,6 +654,10 @@ run_normal_and_seal_backlog() {
   normal_date="$1"
   run_seal_chain "$normal_date" || return $?
   [ "$SEAL_BACKLOG_ENABLED" = "1" ] || return 0
+  if [ -f "$SEAL_BACKLOG_DISABLE" ]; then
+    echo "[supervisor] seal backlog one-touch disable present; normal day completed"
+    return 0
+  fi
   normal_day_ready_for_backlog "$normal_date" || return 0
   backlog_dates=""
   if ! backlog_dates="$(claim_seal_backlog 2>> "$SEAL_BACKLOG_LOG")"; then

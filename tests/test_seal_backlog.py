@@ -253,6 +253,7 @@ def test_supervisor_backlog_wiring_preserves_normal_priority_and_bounds():
         live.index("run_normal_and_seal_backlog()") : live.index("\nwhile true; do")
     ]
     assert wrapper.index('run_seal_chain "$normal_date"') \
+        < wrapper.index('-f "$SEAL_BACKLOG_DISABLE"') \
         < wrapper.index('normal_day_ready_for_backlog "$normal_date"') \
         < wrapper.index("claim_seal_backlog") \
         < wrapper.index('run_seal_backlog_batch "$backlog_dates"')
@@ -284,6 +285,8 @@ def test_supervisor_backlog_wiring_preserves_normal_priority_and_bounds():
         assert setting in service
     assert "seal_backlog_alarm.json" in (ROOT / "tools" / "ec2_health.sh").read_text()
     assert "seal_backlog_alarm.json" in (ROOT / "tools" / "ec2_monitor.sh").read_text()
+    assert "seal_backlog_disable" in (ROOT / "tools" / "ec2_health.sh").read_text()
+    assert "seal_backlog_disable" in (ROOT / "tools" / "ec2_monitor.sh").read_text()
 
 
 def test_supervisor_never_clears_a_different_dates_legacy_alarm():
