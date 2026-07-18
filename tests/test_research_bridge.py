@@ -631,18 +631,19 @@ def main():
         print("== 11. duckdb memory_limit hygiene")
         import duckdb
         import research_data
-        control = duckdb.connect()
-        control.execute("SET memory_limit='8GB'")
-        want = control.execute(
-            "SELECT current_setting('memory_limit')").fetchone()[0]
         for mod in (research_data, rr):
+            control = duckdb.connect()
+            control.execute("SET memory_limit='%s'" %
+                            mod.DUCKDB_MEMORY_LIMIT)
+            want = control.execute(
+                "SELECT current_setting('memory_limit')").fetchone()[0]
             conn = mod.duckdb_connect()
             got = conn.execute(
                 "SELECT current_setting('memory_limit')").fetchone()[0]
             check("%s sets memory_limit" % mod.__name__, got == want,
                   (got, want))
             conn.close()
-        control.close()
+            control.close()
 
         print("== 12. cache containment: hostile manifest keys (item 3)")
         hostile_rid = "2026-07-01__seal-aaaaaaaa__pub-aaaaaaaaaaaaaaaa"

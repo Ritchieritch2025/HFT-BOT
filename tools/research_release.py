@@ -627,8 +627,9 @@ class S3Dest:
         require_clean_mutation_provenance()
         is_v3 = _local_manifest_is_v3(local)
         if self._manifest_history(key) is not None:
-            raise SystemExit("ABORT (fail-closed): MANIFEST already has a "
-                             "version history for %s" % key)
+            raise SystemExit(
+                "ABORT (fail-closed): MANIFEST write-once violation; "
+                "already has a version history for %s" % key)
         # Close the long staging TOCTOU window: for a real v3 mutation, check
         # the fixed durable YELLOW again at the last boundary before PutObject.
         if is_v3:
