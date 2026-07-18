@@ -36,6 +36,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_TAGGER_ARN = (
     "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
 )
+DEFAULT_CREDENTIAL_BROKER_ARN = (
+    "arn:aws:iam::321572485933:user/canonical-credential-broker"
+)
 DEFAULT_PUBLISHER_ARN = "arn:aws:iam::321572485933:user/vaultWriter"
 DEFAULT_BUCKET = "kalshi-vault-ritcardo"
 DEFAULT_PREFIX = "ec2"
@@ -58,6 +61,8 @@ DEFAULT_ORCHESTRATOR_LOCK = pathlib.Path(
 DEFAULT_CREDENTIAL_DIRECTORY = pathlib.Path(
     "/run/credentials/kalshi-research-v3-daily.service")
 DEFAULT_PUBLISHER_ENV_FILE = DEFAULT_CREDENTIAL_DIRECTORY / "publisher.env"
+DEFAULT_CREDENTIAL_BROKER_ENV_FILE = (
+    DEFAULT_CREDENTIAL_DIRECTORY / "credential-broker.env")
 DEFAULT_EPHEMERAL_IDENTITY_EVIDENCE_FILE = (
     DEFAULT_CREDENTIAL_DIRECTORY / "ephemeral-tagger-identities.json")
 DEFAULT_DURABLE_CREDENTIAL_DIRECTORY = pathlib.Path(
@@ -70,6 +75,8 @@ BUCKET_POLICY_SHA256 = (
     "d9961561ce2e434a40bde5f62e716c0567a1148c0a5f9b42a07a8b70d2bb02d5")
 PUBLISHER_DELTA_SHA256 = (
     "f0b8bc170ac676d6d2e3f57b8de696e6af94195fc154513a7bbd293ce8a987bf")
+CREDENTIAL_BROKER_POLICY_SHA256 = (
+    "a73b56a72034e7933fac913639102dafb29aa026b5b96fb3d1cde0fc4a84c872")
 OPERATOR_AUTHORIZATION_SHA256 = (
     "3c77302612e70fdb5e6534657812c581a78ab93cf9dde6ab0e11c84e84940910")
 AUTOMATION_EXECUTION_AUTHORIZATION_SHA256 = (
@@ -81,6 +88,9 @@ DEFAULT_BUCKET_POLICY = (ROOT / "docs" / "plan_releases" / "pipeline"
                          / "W-PUB-REF-01C_BUCKET_POLICY_FULL_TARGET_2026-07-17.json")
 DEFAULT_PUBLISHER_DELTA = (ROOT / "docs" / "plan_releases" / "pipeline"
                            / "W-PUB-REF-01C_PUBLISHER_TAG_INSPECTION_DELTA.json")
+DEFAULT_CREDENTIAL_BROKER_POLICY = (
+    ROOT / "docs" / "plan_releases" / "pipeline"
+    / "W-PUB-REF-01C_CREDENTIAL_BROKER_IDENTITY_POLICY.json")
 DEFAULT_OPERATOR_AUTHORIZATION = (
     ROOT / "docs" / "plan_releases" / "pipeline"
     / "W-PUB-REF-01C_OPERATOR_ATTESTED_AUTHORIZATION_2026-07-17.json")
@@ -279,7 +289,7 @@ def load_ephemeral_identity_evidence(path: pathlib.Path) -> dict[str, str]:
         path, MAX_IDENTITY_EVIDENCE_BYTES,
         "ephemeral tagger identity evidence")
     expected_fields = {
-        "schema_version", "account", "bootstrap_arn", "bootstrap_user_id",
+        "schema_version", "account", "broker_arn", "broker_user_id",
         "tagger_arn", "tagger_user_id",
     }
     if set(value) != expected_fields:
@@ -288,9 +298,9 @@ def load_ephemeral_identity_evidence(path: pathlib.Path) -> dict[str, str]:
             "ephemeral identity evidence fields differ from the fixed schema",
         )
     fixed = {
-        "schema_version": "canonical-ephemeral-tagger-identities-v1",
+        "schema_version": "canonical-ephemeral-tagger-identities-v2",
         "account": "321572485933",
-        "bootstrap_arn": DEFAULT_PUBLISHER_ARN,
+        "broker_arn": DEFAULT_CREDENTIAL_BROKER_ARN,
         "tagger_arn": DEFAULT_TAGGER_ARN,
     }
     if any(value.get(field) != expected for field, expected in fixed.items()):
@@ -299,7 +309,7 @@ def load_ephemeral_identity_evidence(path: pathlib.Path) -> dict[str, str]:
             "ephemeral identity evidence does not match fixed principals",
         )
     user_id = re.compile(r"^[A-Z0-9]{16,128}$")
-    for field in ("bootstrap_user_id", "tagger_user_id"):
+    for field in ("broker_user_id", "tagger_user_id"):
         if (not isinstance(value.get(field), str)
                 or user_id.fullmatch(value[field]) is None):
             raise GateError(
@@ -401,20 +411,21 @@ _PUBLISHER_AWS_KEYS = {
 }
 
 
-def publisher_env(home: pathlib.Path, env_file: pathlib.Path,
-                  region: str) -> dict[str, str]:
+def _aws_credential_env(home: pathlib.Path, env_file: pathlib.Path,
+                        region: str, *, label: str) -> dict[str, str]:
     """Parse simple assignments and export only an explicit AWS allowlist.
 
     The existing production ``env.sh`` may also contain trading credentials.
     It is intentionally never sourced: non-AWS assignments are ignored and
-    commands/expansions are rejected, so the publisher subprocess receives no
-    trading secret or caller-controlled Python/root override.
+    commands/expansions are rejected, so the selected AWS subprocess receives
+    no trading secret or caller-controlled Python/root override.
     """
-    raw = _read_regular(env_file, 64 * 1024, "publisher environment file")
+    raw = _read_regular(env_file, 64 * 1024, f"{label} environment file")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise GateError("CREDENTIAL_FILE_INVALID", "publisher env is not UTF-8") from exc
+        raise GateError(
+            "CREDENTIAL_FILE_INVALID", f"{label} env is not UTF-8") from exc
     values: dict[str, str] = {}
     for number, line in enumerate(text.splitlines(), 1):
         try:
@@ -422,7 +433,7 @@ def publisher_env(home: pathlib.Path, env_file: pathlib.Path,
         except ValueError as exc:
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
-                f"publisher env line {number}: {exc}",
+                f"{label} env line {number}: {exc}",
             ) from exc
         if not tokens:
             continue
@@ -431,35 +442,42 @@ def publisher_env(home: pathlib.Path, env_file: pathlib.Path,
         if len(tokens) != 1 or "=" not in tokens[0]:
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
-                f"publisher env line {number} is not one assignment",
+                f"{label} env line {number} is not one assignment",
             )
         key, value = tokens[0].split("=", 1)
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None:
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
-                f"publisher env line {number} has an invalid key",
+                f"{label} env line {number} has an invalid key",
             )
         if key.startswith("AWS_") and key not in _PUBLISHER_AWS_KEYS:
             raise GateError(
                 "CREDENTIAL_FILE_INVALID",
-                f"publisher env line {number} sets forbidden {key}",
+                f"{label} env line {number} sets forbidden {key}",
             )
         if key in _PUBLISHER_AWS_KEYS:
             if any(marker in value for marker in ("$", "`", "\x00")):
                 raise GateError(
                     "CREDENTIAL_FILE_INVALID",
-                    f"publisher env line {number} contains expansion syntax",
+                    f"{label} env line {number} contains expansion syntax",
                 )
             values[key] = value
     if not values.get("AWS_ACCESS_KEY_ID") or not values.get(
             "AWS_SECRET_ACCESS_KEY"):
         raise GateError(
-            "CREDENTIAL_FILE_INVALID", "publisher AWS keys are missing")
+            "CREDENTIAL_FILE_INVALID", f"{label} AWS keys are missing")
     values.setdefault("AWS_DEFAULT_REGION", region)
     values.setdefault("AWS_REGION", region)
     env = _base_env(home)
     env.update(values)
     return env
+
+
+def publisher_env(home: pathlib.Path, env_file: pathlib.Path,
+                  region: str) -> dict[str, str]:
+    """Load only the publisher AWS credential allowlist."""
+    return _aws_credential_env(
+        home, env_file, region, label="publisher")
 
 
 def _is_rfq_object(obj: object) -> bool:
@@ -1283,7 +1301,7 @@ def _run_ephemeral_bootstrap_process(
 
 
 def _ephemeral_tagger_run(command: list[str], *, args,
-                          publisher_environment: dict[str, str],
+                          broker_environment: dict[str, str],
                           label: str) -> str:
     """Run one strict tagger phase and return only after double-zero cleanup."""
     if not getattr(args, "dedicated_service_isolation_attested", False):
@@ -1293,26 +1311,26 @@ def _ephemeral_tagger_run(command: list[str], *, args,
             "ProtectProc=invisible",
         )
     _require_arms(args)
-    bootstrap_user_id = getattr(args, "bootstrap_user_id", None)
+    broker_user_id = getattr(args, "broker_user_id", None)
     tagger_user_id = getattr(args, "tagger_user_id", None)
-    if not bootstrap_user_id or not tagger_user_id:
+    if not broker_user_id or not tagger_user_id:
         raise GateError(
             "IDENTITY_EVIDENCE_INVALID",
-            "ephemeral bootstrap/tagger UserId pins are unavailable",
+            "credential broker/tagger UserId pins are unavailable",
         )
     bootstrap = ROOT / "tools" / "ephemeral_tagger_bootstrap.py"
     full_command = [
         str(DEFAULT_BOOTSTRAP_PYTHON), "-I", str(bootstrap),
         "--execute", "--operator-approved",
         "--dedicated-service-isolation-attested",
-        "--bootstrap-user-id", bootstrap_user_id,
+        "--broker-user-id", broker_user_id,
         "--tagger-user-id", tagger_user_id,
         "--tagger-timeout", str(EPHEMERAL_TAGGER_TIMEOUT_SECONDS),
         "--", *command,
     ]
     try:
         output = _run_ephemeral_bootstrap_process(
-            full_command, env=publisher_environment, label=label)
+            full_command, env=broker_environment, label=label)
     except GateError as exc:
         propagated = (
             "CREDENTIAL_AUTHORITY_DENIED",
@@ -2389,6 +2407,8 @@ def _reusable_policy_patrol(root: pathlib.Path, date: str,
             "tagger_identity_policy": TAGGER_POLICY_SHA256,
             "complete_bucket_policy": BUCKET_POLICY_SHA256,
             "publisher_inspection_delta": PUBLISHER_DELTA_SHA256,
+            "credential_broker_identity_policy":
+                CREDENTIAL_BROKER_POLICY_SHA256,
         }
         if (hashlib.sha256(raw).hexdigest() != digest
                 or payload.get("schema_version")
@@ -2404,7 +2424,8 @@ def _reusable_policy_patrol(root: pathlib.Path, date: str,
 
 def refresh_policy_patrol_evidence(
         durable_index: pathlib.Path, date: str, args, *,
-        publisher_environment: dict[str, str]) -> pathlib.Path:
+        publisher_environment: dict[str, str],
+        broker_environment: dict[str, str]) -> pathlib.Path:
     """Refresh static-hash plus live-behavior evidence without self-auditing.
 
     The principals available on the host cannot read IAM or bucket policy.
@@ -2437,6 +2458,10 @@ def refresh_policy_patrol_evidence(
         "publisher_inspection_delta": _static_policy(
             pathlib.Path(args.publisher_delta_file), PUBLISHER_DELTA_SHA256,
             "publisher inspection delta"),
+        "credential_broker_identity_policy": _static_policy(
+            pathlib.Path(args.credential_broker_policy_file),
+            CREDENTIAL_BROKER_POLICY_SHA256,
+            "credential broker identity policy"),
     }
     aws = os.path.abspath(args.aws_cli)
     _require_arms(args)
@@ -2493,9 +2518,10 @@ def refresh_policy_patrol_evidence(
             "POLICY_CANARY_INVALID",
             "no bounded non-RFQ research candidate exists",
         )
-    # The dated seal is immutable after sealing.  Require its receipt version
-    # to still be current before the versionless negative canary; replaying its
-    # preserved tag set is then non-destructive even on unexpected allow.
+    # Exercise the exact-version allow on the immutable dated seal selected by
+    # the durable receipt.  The separate versionless negative canary uses a
+    # fresh never-published random key, so no current-version lookup or replay
+    # can race a producer creating a newer object version.
     seal_key = f"{DEFAULT_PREFIX}/warehouse/seals/date={date}.json"
     seal_candidates = [obj for obj in candidates if obj["key"] == seal_key]
     if len(seal_candidates) != 1:
@@ -2504,18 +2530,6 @@ def refresh_policy_patrol_evidence(
             "durable receipt does not contain one eligible dated seal",
         )
     target = seal_candidates[0]
-    current_head = _json_document(_publisher_run([
-        aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
-        "--key", target["key"], "--output", "json",
-    ], args=args, publisher_environment=publisher_environment,
-        label="policy canary current seal preflight", timeout=120),
-        "policy canary current seal preflight")
-    if (current_head.get("VersionId") != target["VersionId"]
-            or current_head.get("ContentLength") != target["size"]):
-        raise GateError(
-            "POLICY_CANARY_INVALID",
-            "dated seal receipt version is not current",
-        )
     target_head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
         "--key", target["key"], "--version-id", target["VersionId"],
@@ -2552,7 +2566,7 @@ def refresh_policy_patrol_evidence(
         "--canary-target-key", key,
         "--canary-target-version-id", version_id,
         "--operator-approved",
-    ], args=args, publisher_environment=publisher_environment,
+    ], args=args, broker_environment=broker_environment,
         label=f"ephemeral policy tagger canary {date}")
     canary_result = _ephemeral_child_result(
         canary_output, state="EXACT_VERSION_POLICY_CANARY_PASS",
@@ -2571,7 +2585,7 @@ def refresh_policy_patrol_evidence(
         "VersionId": version_id,
         "size": target["size"],
         "sha256": target["sha256"],
-        "selection": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE",
+        "selection": "IMMUTABLE_DATE_SEAL_EXACT_VERSION",
     }
     desired_rows = canary.get("desired_tag_set")
     desired_tags: dict[str, str] = {}
@@ -2594,10 +2608,19 @@ def refresh_policy_patrol_evidence(
     desired_sha = hashlib.sha256(json.dumps(
         desired_rows_expected, sort_keys=True, separators=(",", ":"),
         ensure_ascii=True).encode("utf-8")).hexdigest()
+    versionless_probe = canary.get("versionless_deny_probe")
+    probe_key = (versionless_probe.get("key")
+                 if isinstance(versionless_probe, dict) else None)
+    probe_pattern = re.compile(
+        rf"^{re.escape(DEFAULT_PREFIX)}/control/policy-canary/"
+        r"versionless-deny-probe/[0-9a-f]{64}$")
+    expected_probe_tags = [
+        {"Key": "research-eligible", "Value": "true"},
+    ]
     if (hashlib.sha256(canary_raw).hexdigest()
             != canary_result.get("canary_sha256")
             or canary.get("schema_version")
-            != "canonical-eligibility-policy-canary-v1"
+            != "canonical-eligibility-policy-canary-v2"
             or canary.get("state") != "EXACT_VERSION_POLICY_CANARY_PASS"
             or canary.get("date") != date
             or canary.get("receipt_set_sha256") != receipt_sha
@@ -2610,6 +2633,20 @@ def refresh_policy_patrol_evidence(
             or canary.get("desired_tag_set_sha256") != desired_sha
             or desired_tags.get("research-eligible") != "true"
             or "research-channel" in desired_tags
+            or not isinstance(versionless_probe, dict)
+            or set(versionless_probe) != {
+                "bucket", "key", "nonce_bits", "object_source",
+                "request_tag_set",
+            }
+            or versionless_probe.get("bucket") != DEFAULT_BUCKET
+            or not isinstance(probe_key, str)
+            or probe_pattern.fullmatch(probe_key) is None
+            or probe_key == key
+            or versionless_probe.get("nonce_bits") != 256
+            or versionless_probe.get("object_source")
+            != "NEVER_PUBLISHED_RANDOM_PROBE"
+            or versionless_probe.get("request_tag_set")
+            != expected_probe_tags
             or canary.get("checks") != {
                 "tagger_exact_version_get": "PASS",
                 "tagger_exact_version_put_preserve_and_readback": "PASS",
@@ -2637,6 +2674,8 @@ def refresh_policy_patrol_evidence(
         "tagger_identity_policy": TAGGER_POLICY_SHA256,
         "complete_bucket_policy": BUCKET_POLICY_SHA256,
         "publisher_inspection_delta": PUBLISHER_DELTA_SHA256,
+        "credential_broker_identity_policy":
+            CREDENTIAL_BROKER_POLICY_SHA256,
     }
     evidence_payload = {
         "schema_version": "research-v3-policy-patrol-evidence-v1",
@@ -2666,7 +2705,8 @@ def refresh_policy_patrol_evidence(
                                "verified_in_same_exec_shell": True},
         "canary_target": {"bucket": DEFAULT_BUCKET, "key": key,
                           "VersionId": version_id,
-                          "class": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE"},
+                          "class": "IMMUTABLE_DATE_SEAL_EXACT_VERSION"},
+        "versionless_deny_probe": versionless_probe,
         "checks": {
             "tagger_exact_version_get": "PASS",
             "tagger_exact_version_put_preserve_and_readback": "PASS",
@@ -2840,7 +2880,8 @@ def _print_plan(plan: DatePlan, *, mode: str, live_dir: pathlib.Path,
 
 
 def execute_date(plan: DatePlan, args, *,
-                 publisher_environment: dict[str, str]):
+                 publisher_environment: dict[str, str],
+                 broker_environment: dict[str, str]):
     python = os.path.abspath(args.python)
 
     tagged = plan.tagged_index
@@ -2886,7 +2927,7 @@ def execute_date(plan: DatePlan, args, *,
             ])
         output = _ephemeral_tagger_run(
             tag_command, args=args,
-            publisher_environment=publisher_environment,
+            broker_environment=broker_environment,
             label=(f"historical existing-only tag recovery {plan.date}"
                    if plan.historical_existing_only
                    else f"eligibility tagging {plan.date}"))
@@ -2954,7 +2995,7 @@ def execute_date(plan: DatePlan, args, *,
         "--proof-output-root", str(
             pathlib.Path(args.live_dir).absolute()
             / "canonical_receipts" / "tag-precommit"),
-    ], args=args, publisher_environment=publisher_environment,
+    ], args=args, broker_environment=broker_environment,
         label=f"precommit exact tag proof {plan.date}")
     try:
         proof_result = _ephemeral_child_result(
@@ -3022,6 +3063,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--dedicated-service-isolation-attested", action="store_true",
         help="attest dedicated UID plus ProtectProc for ephemeral key use")
     parser.add_argument("--publisher-env-file", required=True)
+    parser.add_argument(
+        "--credential-broker-env-file",
+        default=str(DEFAULT_CREDENTIAL_BROKER_ENV_FILE))
     parser.add_argument("--tagger-principal", default=DEFAULT_TAGGER_ARN)
     parser.add_argument("--publisher-principal", default=DEFAULT_PUBLISHER_ARN)
     parser.add_argument("--home", default=str(pathlib.Path.home()))
@@ -3039,6 +3083,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bucket-policy-file", default=str(DEFAULT_BUCKET_POLICY))
     parser.add_argument(
         "--publisher-delta-file", default=str(DEFAULT_PUBLISHER_DELTA))
+    parser.add_argument(
+        "--credential-broker-policy-file",
+        default=str(DEFAULT_CREDENTIAL_BROKER_POLICY))
     parser.add_argument(
         "--operator-authorization-file",
         default=str(DEFAULT_OPERATOR_AUTHORIZATION))
@@ -3197,6 +3244,14 @@ def main(argv=None) -> int:
                 "ephemeral identity evidence must come from the systemd "
                 "credential mount",
             )
+        if (not args.durable_only
+                and pathlib.Path(args.credential_broker_env_file)
+                != DEFAULT_CREDENTIAL_BROKER_ENV_FILE):
+            raise GateError(
+                "CREDENTIAL_FILE_INVALID",
+                "credential broker must come from the full daily systemd "
+                "credential mount",
+            )
         if pathlib.Path(args.cutover_arm_file) != DEFAULT_CUTOVER_ARM:
             raise GateError("OPERATOR_GATE", "cutover arm path is fixed")
         if pathlib.Path(args.publish_arm_file) != DEFAULT_PUBLISH_ARM:
@@ -3208,10 +3263,27 @@ def main(argv=None) -> int:
         _require_arms(args)
         publisher_file = _secure_secret_file(
             pathlib.Path(args.publisher_env_file), "publisher environment file")
+        broker_file = None
         if not args.durable_only:
+            broker_file = _secure_secret_file(
+                pathlib.Path(args.credential_broker_env_file),
+                "credential broker environment file")
+            try:
+                same_credential_file = os.path.samefile(
+                    publisher_file, broker_file)
+            except OSError as exc:
+                raise GateError(
+                    "CREDENTIAL_FILE_INVALID",
+                    f"credential file identity changed: {exc}") from exc
+            if same_credential_file:
+                raise GateError(
+                    "CREDENTIAL_FILE_INVALID",
+                    "publisher and credential-broker credentials must be "
+                    "distinct files",
+                )
             identities = load_ephemeral_identity_evidence(
                 pathlib.Path(args.ephemeral_identity_evidence_file))
-            args.bootstrap_user_id = identities["bootstrap_user_id"]
+            args.broker_user_id = identities["broker_user_id"]
             args.tagger_user_id = identities["tagger_user_id"]
         publisher_environment = publisher_env(home, publisher_file, args.region)
         publisher_environment.update({
@@ -3221,6 +3293,17 @@ def main(argv=None) -> int:
             "RESEARCH_STAGE_ROOT":
                 "/home/ubuntu/hft-bot/work/research_stage",
         })
+        broker_environment = None
+        if not args.durable_only:
+            broker_environment = _aws_credential_env(
+                home, broker_file, args.region, label="credential broker")
+            if (broker_environment.get("AWS_ACCESS_KEY_ID")
+                    == publisher_environment.get("AWS_ACCESS_KEY_ID")):
+                raise GateError(
+                    "CREDENTIAL_FILE_INVALID",
+                    "publisher and credential broker must not share an "
+                    "access-key identity",
+                )
 
         state_root = live_dir / "research_v3_daily"
         state_root.mkdir(parents=True, exist_ok=True, mode=0o750)
@@ -3386,7 +3469,8 @@ def main(argv=None) -> int:
                     if plan is None:
                         patrol = refresh_policy_patrol_evidence(
                             durable_path, date, args,
-                            publisher_environment=publisher_environment)
+                            publisher_environment=publisher_environment,
+                            broker_environment=broker_environment)
                         refresh_layered_single_writer_audit(
                             durable_path, date, args, patrol_evidence=patrol)
                         plan = prepare_date_plan(
@@ -3394,7 +3478,8 @@ def main(argv=None) -> int:
                             receipt_root)
                     tagged, manifest_result = execute_date(
                         plan, args,
-                        publisher_environment=publisher_environment)
+                        publisher_environment=publisher_environment,
+                        broker_environment=broker_environment)
                     status = {
                         "schema_version": TERMINAL_STATUS_SCHEMA,
                         "state": "V3_REFERENCE_PUBLISHED",
@@ -3434,7 +3519,8 @@ def main(argv=None) -> int:
                 try:
                     evidence = refresh_policy_patrol_evidence(
                         patrol_durable, patrol_date, args,
-                        publisher_environment=publisher_environment)
+                        publisher_environment=publisher_environment,
+                        broker_environment=broker_environment)
                     _atomic_json(patrol_status, {
                         "schema_version": "research-v3-policy-patrol-status-v1",
                         "state": "POLICY_CANARY_PASS",

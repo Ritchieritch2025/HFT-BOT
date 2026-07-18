@@ -7,7 +7,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=kalshi-research-v3-daily
+User=kalshi-research-v3-credential-broker
 Group=kalshi-research-v3
 SupplementaryGroups=kalshi-publication
 WorkingDirectory=/opt/kalshi-research-v3
@@ -21,10 +21,12 @@ Environment=GIT_TERMINAL_PROMPT=0
 StateDirectory=kalshi-research-v3-daily
 StateDirectoryMode=0700
 LoadCredentialEncrypted=publisher.env:/etc/credstore.encrypted/kalshi-research-v3-publisher.env
+LoadCredentialEncrypted=credential-broker.env:/etc/credstore.encrypted/kalshi-research-v3-credential-broker.env
 LoadCredential=ephemeral-tagger-identities.json:/etc/kalshi-research-v3/ephemeral-tagger-identities.json
-# This UID is exclusive to the full daily unit.  The publisher key can create
-# a short-lived tagger key only through the pinned bootstrap; the key remains
-# in that child environment and is deleted/double-zero-confirmed per phase.
+# This UID is exclusive to the full daily unit.  Only the dedicated broker
+# key can create a short-lived tagger key through the pinned bootstrap.  The
+# publisher key has no IAM key-lifecycle authority and is used only by the
+# separate publisher subprocess environment.
 ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/cutover-approved
 ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/publish-approved
 ExecCondition=+/usr/bin/test ! -e /home/ubuntu/.kalshi/research_s3.env.sh
@@ -32,10 +34,16 @@ ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/live/research_v3_daily
 ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/live/research_v3_audit
 ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/warehouse/.publication-locks
 ExecStartPre=/usr/bin/test -r /etc/kalshi-research-v3/gitconfig
-ExecStart=/opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/research_v3_daily.py --scan-ready-days 35 --live-dir /home/ubuntu/hft-bot/work/live --receipt-root /opt/kalshi-research-v3-historical-canonical-receipts --audit-root /home/ubuntu/hft-bot/work/live/research_v3_audit --raw-root /home/ubuntu/hft-bot/work/raw --warehouse-root /home/ubuntu/hft-bot/work/warehouse --quality-dir /home/ubuntu/hft-bot/work/event_packs --ephemeral-identity-evidence-file %d/ephemeral-tagger-identities.json --dedicated-service-isolation-attested --publisher-env-file %d/publisher.env --cutover-arm-file /etc/kalshi-research-v3/approvals/cutover-approved --publish-arm-file /etc/kalshi-research-v3/approvals/publish-approved --home /var/lib/kalshi-research-v3-daily --tagger-principal arn:aws:iam::321572485933:user/canonical-eligibility-tagger --publisher-principal arn:aws:iam::321572485933:user/vaultWriter --aws-cli /snap/aws-cli/current/bin/aws --python /opt/kalshi-research-v3/.venv/bin/python --operator-approved
+ExecStart=/opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/research_v3_daily.py --scan-ready-days 35 --live-dir /home/ubuntu/hft-bot/work/live --receipt-root /opt/kalshi-research-v3-historical-canonical-receipts --audit-root /home/ubuntu/hft-bot/work/live/research_v3_audit --raw-root /home/ubuntu/hft-bot/work/raw --warehouse-root /home/ubuntu/hft-bot/work/warehouse --quality-dir /home/ubuntu/hft-bot/work/event_packs --ephemeral-identity-evidence-file %d/ephemeral-tagger-identities.json --credential-broker-env-file %d/credential-broker.env --dedicated-service-isolation-attested --publisher-env-file %d/publisher.env --cutover-arm-file /etc/kalshi-research-v3/approvals/cutover-approved --publish-arm-file /etc/kalshi-research-v3/approvals/publish-approved --home /var/lib/kalshi-research-v3-daily --tagger-principal arn:aws:iam::321572485933:user/canonical-eligibility-tagger --publisher-principal arn:aws:iam::321572485933:user/vaultWriter --aws-cli /snap/aws-cli/current/bin/aws --python /opt/kalshi-research-v3/.venv/bin/python --operator-approved
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=4h
+# systemd's historical 90s default is shorter than bounded IAM consistency
+# cleanup.  Stop/start-timeout signals remain SIGTERM for the bootstrap guard;
+# SIGKILL is not eligible until well after its 30-minute cleanup window.
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=40min
 CPUWeight=20
 CPUQuota=150%
 IOWeight=10

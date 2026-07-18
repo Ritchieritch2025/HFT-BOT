@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the isolated v3 daily units.  This script never accepts or prints a
 # plaintext AWS key.  Publisher-only durable automation can be installed while
-# immutable IAM UserId evidence or bootstrap authority remains absent; full
+# immutable IAM UserId evidence or broker authority remains absent; full
 # publication stays inert and fail-closed without any standing tagger key.
 set -euo pipefail
 
@@ -10,12 +10,13 @@ export PATH
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 PUB_CRED=/etc/credstore.encrypted/kalshi-research-v3-publisher.env
+BROKER_CRED=/etc/credstore.encrypted/kalshi-research-v3-credential-broker.env
 LEGACY_TAG_CRED=/etc/credstore.encrypted/kalshi-research-v3-tagger.credentials
 IDENTITY_EVIDENCE=/etc/kalshi-research-v3/ephemeral-tagger-identities.json
 CRED_DIR=/etc/credstore.encrypted
 MAX_CRED_BYTES=1048576
 SERVICE_USER=kalshi-research-v3
-DAILY_SERVICE_USER=kalshi-research-v3-daily
+DAILY_SERVICE_USER=kalshi-research-v3-credential-broker
 SERVICE_GROUP=kalshi-research-v3
 LOCK_GROUP=kalshi-publication
 RUNTIME_LINK=/opt/kalshi-research-v3
@@ -35,6 +36,8 @@ AUTHORIZATION_SHA256=1b14001428f2387f3e62c531a8d8ce3dd4f8bd726d6c8b94b4d6c0d8930
 AUTOMATION_FIRST_DATE=2026-07-10
 STAGE=""
 IDENTITY_EVIDENCE_READY=0
+BROKER_CREDENTIAL_READY=0
+FULL_PUBLICATION_READY=0
 
 git_clean_env() {
   env -i \
@@ -99,6 +102,21 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "REFUSED: run as root" >&2
   exit 2
 fi
+# Safety ordering is deliberate: an installed legacy full unit may still load
+# the old standing tagger blob.  Quiesce it before inspecting or rejecting any
+# credential state, so every refusal leaves that legacy writer disabled and
+# stopped rather than silently continuing behind the failed installer.
+if ! command -v systemctl >/dev/null; then
+  echo "REFUSED: systemctl is required to quiesce legacy full publication" >&2
+  exit 2
+fi
+systemctl disable --now kalshi-research-v3-daily.timer >/dev/null 2>&1 || true
+systemctl stop kalshi-research-v3-daily.service >/dev/null 2>&1 || true
+if systemctl is-active --quiet kalshi-research-v3-daily.timer || \
+   systemctl is-active --quiet kalshi-research-v3-daily.service; then
+  echo "REFUSED: legacy static full publication did not quiesce" >&2
+  exit 2
+fi
 if [ ! -d "$CRED_DIR" ] || [ -L "$CRED_DIR" ] || \
    [ "$(stat -c %u "$CRED_DIR")" -ne 0 ] || \
    [ "$(stat -c %g "$CRED_DIR")" -ne 0 ] || \
@@ -120,8 +138,12 @@ validate_encrypted_credential() {
 }
 validate_encrypted_credential "$PUB_CRED"
 if [ -e "$LEGACY_TAG_CRED" ] || [ -L "$LEGACY_TAG_CRED" ]; then
-  echo "REFUSED: legacy standing tagger credential blob must be absent" >&2
+  echo "REFUSED: quiesced legacy standing tagger credential blob must be migrated or removed" >&2
   exit 2
+fi
+if [ -e "$BROKER_CRED" ] || [ -L "$BROKER_CRED" ]; then
+  validate_encrypted_credential "$BROKER_CRED"
+  BROKER_CREDENTIAL_READY=1
 fi
 if [ -e "$IDENTITY_EVIDENCE" ] || [ -L "$IDENTITY_EVIDENCE" ]; then
   IDENTITY_EVIDENCE_PARENT=${IDENTITY_EVIDENCE%/*}
@@ -202,19 +224,23 @@ import json, re, sys
 with open(sys.argv[1], "rb") as handle:
     value = json.load(handle)
 fixed = {
-    "schema_version": "canonical-ephemeral-tagger-identities-v1",
+    "schema_version": "canonical-ephemeral-tagger-identities-v2",
     "account": "321572485933",
-    "bootstrap_arn": "arn:aws:iam::321572485933:user/vaultWriter",
+    "broker_arn": "arn:aws:iam::321572485933:user/canonical-credential-broker",
     "tagger_arn": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger",
 }
-assert set(value) == set(fixed) | {"bootstrap_user_id", "tagger_user_id"}
+assert set(value) == set(fixed) | {"broker_user_id", "tagger_user_id"}
 assert all(value.get(key) == expected for key, expected in fixed.items())
 assert all(re.fullmatch(r"[A-Z0-9]{16,128}", value.get(key, ""))
-           for key in ("bootstrap_user_id", "tagger_user_id"))
+           for key in ("broker_user_id", "tagger_user_id"))
 ' "$IDENTITY_EVIDENCE" >/dev/null 2>&1; then
     echo "REFUSED: ephemeral identity evidence schema/principal mismatch" >&2
     exit 2
   fi
+fi
+if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ] && \
+   [ "$BROKER_CREDENTIAL_READY" -eq 1 ]; then
+  FULL_PUBLICATION_READY=1
 fi
 AUTHORIZATION="$ROOT/$AUTHORIZATION_REL"
 if [ ! -f "$AUTHORIZATION" ] || [ -L "$AUTHORIZATION" ] || \
@@ -661,7 +687,7 @@ systemctl daemon-reload
 # even when full publication is eligible.  Both coordinators share the same
 # live orchestrator flock, so they cannot mutate canonical controls together.
 systemctl enable kalshi-research-v3-durable.timer
-if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then
+if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then
   systemctl enable kalshi-research-v3-daily.timer
   INSTALL_MODE=ephemeral-full-publication
 else
@@ -676,9 +702,9 @@ LEGACY_ENABLEMENT="$(
 if ! systemctl is-enabled --quiet kalshi-research-v3-durable.timer || \
    ! systemctl is-enabled --quiet kalshi-canonical-generation-witness.path || \
    ! systemctl is-enabled --quiet kalshi-canonical-generation-witness.timer || \
-   { [ "$IDENTITY_EVIDENCE_READY" -eq 1 ] && \
+   { [ "$FULL_PUBLICATION_READY" -eq 1 ] && \
      ! systemctl is-enabled --quiet kalshi-research-v3-daily.timer; } || \
-   { [ "$IDENTITY_EVIDENCE_READY" -eq 0 ] && \
+   { [ "$FULL_PUBLICATION_READY" -eq 0 ] && \
      systemctl is-enabled --quiet kalshi-research-v3-daily.timer; } || \
    systemctl is-active --quiet kalshi-research-v3-daily.timer || \
    systemctl is-active --quiet kalshi-research-v3-durable.timer || \

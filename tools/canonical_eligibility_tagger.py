@@ -47,6 +47,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import subprocess
 import tempfile
 
@@ -77,7 +78,7 @@ PENDING_INDEX_SCHEMA = "canonical-tagged-receipt-pending-index-v1"
 PENDING_INDEX_STATE = "TAGGED_RECEIPT_OBJECT_TAG_PENDING"
 PRECOMMIT_PROOF_SCHEMA = "canonical-eligibility-precommit-proof-v1"
 PRECOMMIT_PROOF_STATE = "EXACT_VERSION_TAG_READBACK_VERIFIED"
-POLICY_CANARY_SCHEMA = "canonical-eligibility-policy-canary-v1"
+POLICY_CANARY_SCHEMA = "canonical-eligibility-policy-canary-v2"
 POLICY_CANARY_STATE = "EXACT_VERSION_POLICY_CANARY_PASS"
 MAX_POLICY_CANARY_BYTES = 64 * 1024 * 1024
 MAX_DURABLE_INDEX_BYTES = 1024 * 1024
@@ -960,7 +961,10 @@ class AwsCliExactVersionTagger:
 
         Normal tagging APIs in this module cannot omit VersionId.  This one
         method is deliberately named as an assertion and is reachable only
-        from the strict policy-canary CLI mode.
+        from the strict policy-canary CLI mode.  Its key is a fresh 256-bit
+        never-published probe, not a real object: if an unexpected Allow is
+        introduced, S3 returns NoSuchKey and the canary fails without changing
+        any current object version.
         """
         tags = _normalize_tags(tags, key)
         body = {"TagSet": [
@@ -1550,8 +1554,12 @@ def run_policy_canary(*, receipt_index, reader, tagger, output_root,
     if observed != desired:
         raise cr.ReceiptError(
             "TAG_READBACK_MISMATCH", target["key"])
+    versionless_probe_key = (
+        "%s/control/policy-canary/versionless-deny-probe/%s"
+        % (prefix, secrets.token_hex(32)))
+    versionless_probe_tags = {TAG_KEY: TAG_VALUE}
     tagger.require_versionless_put_denied(
-        target["bucket"], target["key"], desired)
+        target["bucket"], versionless_probe_key, versionless_probe_tags)
     timestamp = generated_at or cr._now()
     try:
         if timestamp != cr._canonical_utc(
@@ -1578,10 +1586,19 @@ def run_policy_canary(*, receipt_index, reader, tagger, output_root,
             "VersionId": target["VersionId"],
             "size": target["size"],
             "sha256": target["sha256"],
-            "selection": "CURRENT_DATE_SEAL_RECEIPT_CANDIDATE",
+            "selection": "IMMUTABLE_DATE_SEAL_EXACT_VERSION",
         },
         "desired_tag_set": desired_rows,
         "desired_tag_set_sha256": cr.canonical_sha256(desired_rows),
+        "versionless_deny_probe": {
+            "bucket": target["bucket"],
+            "key": versionless_probe_key,
+            "nonce_bits": 256,
+            "object_source": "NEVER_PUBLISHED_RANDOM_PROBE",
+            "request_tag_set": [
+                {"Key": TAG_KEY, "Value": TAG_VALUE},
+            ],
+        },
         "checks": {
             "tagger_exact_version_get": "PASS",
             "tagger_exact_version_put_preserve_and_readback": "PASS",

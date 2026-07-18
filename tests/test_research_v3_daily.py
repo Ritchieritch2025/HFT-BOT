@@ -5,6 +5,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
@@ -201,10 +202,10 @@ def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
     secrets.chmod(0o700)
     identity_evidence = _write_json(
         secrets / "ephemeral-tagger-identities.json", {
-            "schema_version": "canonical-ephemeral-tagger-identities-v1",
+            "schema_version": "canonical-ephemeral-tagger-identities-v2",
             "account": "321572485933",
-            "bootstrap_arn": daily.DEFAULT_PUBLISHER_ARN,
-            "bootstrap_user_id": "AIDAVAULTWRITER000000",
+            "broker_arn": daily.DEFAULT_CREDENTIAL_BROKER_ARN,
+            "broker_user_id": "AIDABROKERUSER0000000",
             "tagger_arn": daily.DEFAULT_TAGGER_ARN,
             "tagger_user_id": "AIDATAGGERUSER0000000",
         })
@@ -213,6 +214,11 @@ def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
         "export KALSHI_PRIVATE_KEY_PATH=\"$HOME/.kalshi/private_key.pem\"\n"
         "AWS_ACCESS_KEY_ID=fixture\nAWS_SECRET_ACCESS_KEY=fixture\n")
     publisher_env.chmod(0o600)
+    broker_env = secrets / "credential-broker.env"
+    broker_env.write_text(
+        "AWS_ACCESS_KEY_ID=broker-fixture\n"
+        "AWS_SECRET_ACCESS_KEY=broker-secret-fixture\n")
+    broker_env.chmod(0o600)
     aws = tmp_path / "aws"
     aws.write_text("#!/bin/sh\nexit 1\n")
     aws.chmod(0o700)
@@ -243,6 +249,7 @@ def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
         "evidence": evidence,
         "identity_evidence": identity_evidence,
         "publisher_env": publisher_env,
+        "broker_env": broker_env,
         "aws": aws,
         "cutover_arm": cutover_arm,
         "publish_arm": publish_arm,
@@ -373,6 +380,7 @@ def _args(tree, *extra):
         str(tree["identity_evidence"]),
         "--dedicated-service-isolation-attested",
         "--publisher-env-file", str(tree["publisher_env"]),
+        "--credential-broker-env-file", str(tree["broker_env"]),
         "--home", str(tree["home"]),
         "--aws-cli", str(tree["aws"]),
         "--python", str(Path(sys.executable).absolute()),
@@ -393,6 +401,8 @@ def _pin_production(monkeypatch, tree):
     monkeypatch.setattr(daily, "DEFAULT_FULL_PRODUCTION_HOME", tree["home"])
     monkeypatch.setattr(
         daily, "DEFAULT_PUBLISHER_ENV_FILE", tree["publisher_env"])
+    monkeypatch.setattr(
+        daily, "DEFAULT_CREDENTIAL_BROKER_ENV_FILE", tree["broker_env"])
     monkeypatch.setattr(
         daily, "DEFAULT_DURABLE_PUBLISHER_ENV_FILE", tree["publisher_env"])
     monkeypatch.setattr(
@@ -497,10 +507,10 @@ def test_publisher_environment_drops_ambient_and_identity_evidence_is_pinned(
     secrets = tmp_path / "secrets"
     secrets.mkdir(mode=0o700)
     evidence = _write_json(secrets / "identities.json", {
-        "schema_version": "canonical-ephemeral-tagger-identities-v1",
+        "schema_version": "canonical-ephemeral-tagger-identities-v2",
         "account": "321572485933",
-        "bootstrap_arn": daily.DEFAULT_PUBLISHER_ARN,
-        "bootstrap_user_id": "AIDAVAULTWRITER000000",
+        "broker_arn": daily.DEFAULT_CREDENTIAL_BROKER_ARN,
+        "broker_user_id": "AIDABROKERUSER0000000",
         "tagger_arn": daily.DEFAULT_TAGGER_ARN,
         "tagger_user_id": "AIDATAGGERUSER0000000",
     })
@@ -572,7 +582,7 @@ def test_ephemeral_tagger_wrapper_requires_double_zero_completion(
     tree = _fixture_tree(tmp_path)
     args = SimpleNamespace(
         dedicated_service_isolation_attested=True,
-        bootstrap_user_id="AIDAVAULTWRITER000000",
+        broker_user_id="AIDABROKERUSER0000000",
         tagger_user_id="AIDATAGGERUSER0000000",
         cutover_arm_file=str(tree["cutover_arm"]),
         publish_arm_file=str(tree["publish_arm"]),
@@ -599,8 +609,8 @@ def test_ephemeral_tagger_wrapper_requires_double_zero_completion(
         "--proof-output-root", "/tmp/proof",
     ]
     output = daily._ephemeral_tagger_run(
-        tagger, args=args, publisher_environment={
-            "AWS_ACCESS_KEY_ID": "publisher",
+        tagger, args=args, broker_environment={
+            "AWS_ACCESS_KEY_ID": "broker",
             "AWS_SECRET_ACCESS_KEY": "secret",
         }, label="fixture")
     command, kwargs = calls[0]
@@ -610,8 +620,11 @@ def test_ephemeral_tagger_wrapper_requires_double_zero_completion(
     ]
     assert "--execute" in command
     assert "--dedicated-service-isolation-attested" in command
+    assert command[command.index("--broker-user-id") + 1] == \
+        "AIDABROKERUSER0000000"
+    assert "--bootstrap-user-id" not in command
     assert command[-len(tagger):] == tagger
-    assert kwargs["env"]["AWS_ACCESS_KEY_ID"] == "publisher"
+    assert kwargs["env"]["AWS_ACCESS_KEY_ID"] == "broker"
     assert daily._ephemeral_child_result(
         output, state="EXACT_VERSION_TAG_READBACK_VERIFIED",
         label="fixture")["rfq"] == "OFF"
@@ -622,7 +635,7 @@ def test_ephemeral_tagger_wrapper_requires_double_zero_completion(
     with pytest.raises(
             daily.GateError, match="EPHEMERAL_TAGGER_CLEANUP_UNPROVEN"):
         daily._ephemeral_tagger_run(
-            tagger, args=args, publisher_environment={}, label="fixture")
+            tagger, args=args, broker_environment={}, label="fixture")
 
     def authority_denied(*_args, **_kwargs):
         raise daily.GateError(
@@ -633,7 +646,7 @@ def test_ephemeral_tagger_wrapper_requires_double_zero_completion(
         daily, "_run_ephemeral_bootstrap_process", authority_denied)
     with pytest.raises(daily.GateError) as denied:
         daily._ephemeral_tagger_run(
-            tagger, args=args, publisher_environment={}, label="fixture")
+            tagger, args=args, broker_environment={}, label="fixture")
     assert denied.value.code == "CREDENTIAL_AUTHORITY_DENIED"
 
 
@@ -641,10 +654,10 @@ def test_identity_evidence_rejects_recreated_or_wrong_principal(tmp_path):
     root = tmp_path / "private"
     root.mkdir(mode=0o700)
     path = _write_json(root / "identity.json", {
-        "schema_version": "canonical-ephemeral-tagger-identities-v1",
+        "schema_version": "canonical-ephemeral-tagger-identities-v2",
         "account": "321572485933",
-        "bootstrap_arn": daily.DEFAULT_PUBLISHER_ARN,
-        "bootstrap_user_id": "AIDAVAULTWRITER000000",
+        "broker_arn": daily.DEFAULT_CREDENTIAL_BROKER_ARN,
+        "broker_user_id": "AIDABROKERUSER0000000",
         "tagger_arn": "arn:aws:iam::321572485933:user/lookalike",
         "tagger_user_id": "AIDATAGGERUSER0000000",
     })
@@ -660,16 +673,19 @@ def test_outer_bootstrap_timeout_signals_cleanup_before_returning(tmp_path,
         "import pathlib, signal, sys, time\n"
         f"marker = pathlib.Path({str(marker)!r})\n"
         "def stop(_signum, _frame):\n"
+        "    time.sleep(2)\n"
         "    marker.write_text('cleanup-complete')\n"
         "    raise SystemExit(143)\n"
         "signal.signal(signal.SIGTERM, stop)\n"
         "time.sleep(30)\n")
     monkeypatch.setattr(daily, "EPHEMERAL_BOOTSTRAP_TIMEOUT_SECONDS", 1)
     monkeypatch.setattr(daily, "EPHEMERAL_CLEANUP_GRACE_SECONDS", 5)
+    started = time.monotonic()
     with pytest.raises(daily.GateError, match="COMMAND_TIMEOUT"):
         daily._run_ephemeral_bootstrap_process(
             [sys.executable, str(child)], env=dict(os.environ),
             label="fixture bootstrap")
+    assert time.monotonic() - started >= 2
     assert marker.read_text() == "cleanup-complete"
 
 
@@ -678,16 +694,22 @@ def test_real_plan_uses_non_rfq_tagger_and_explicit_live_dir(
     tree = _fixture_tree(tmp_path)
     _pin_production(monkeypatch, tree)
     calls = []
+    publisher_key_ids = []
+    broker_key_ids = []
 
-    def fake_run(command, **_kwargs):
+    def fake_run(command, **kwargs):
         calls.append(command)
+        if "env" in kwargs:
+            publisher_key_ids.append(kwargs["env"].get("AWS_ACCESS_KEY_ID"))
         publisher = _reference_publisher_output(command)
         if publisher is not None:
             return publisher
         return ""
 
-    def fake_ephemeral(command, **_kwargs):
+    def fake_ephemeral(command, **kwargs):
         calls.append(command)
+        broker_key_ids.append(
+            kwargs["broker_environment"].get("AWS_ACCESS_KEY_ID"))
         if "--verify-only" in command:
             proof = _make_daily_proof(tree["live"])
             return json.dumps({
@@ -724,6 +746,9 @@ def test_real_plan_uses_non_rfq_tagger_and_explicit_live_dir(
     assert all("--no-rfq" in row for row in publishers)
     assert all(f"--live-dir {tree['live']}" in row for row in publishers)
     assert all("systemctl" not in row for row in flattened)
+    assert "fixture" in publisher_key_ids
+    assert "broker-fixture" not in publisher_key_ids
+    assert set(broker_key_ids) == {"broker-fixture"}
     status = json.loads((tree["live"] / "research_v3_daily"
                          / ("date=" + DATE)
                          / ("receipt=" + RECEIPT_SHA)
@@ -745,6 +770,14 @@ def test_durable_only_never_loads_tagger_or_enters_research_publication(
     monkeypatch.setattr(
         daily, "DEFAULT_PUBLISHER_ENV_FILE",
         tree["publisher_env"].with_name("wrong-full-unit-publisher.env"))
+    original_credential_env = daily._aws_credential_env
+
+    def publisher_only_env(home, path, region, *, label):
+        if label == "credential broker":
+            pytest.fail("durable-only parsed the credential broker secret")
+        return original_credential_env(home, path, region, label=label)
+
+    monkeypatch.setattr(daily, "_aws_credential_env", publisher_only_env)
     def forbidden(*_args, **_kwargs):
         pytest.fail("durable-only entered the tagger/research publication path")
 
@@ -888,6 +921,7 @@ def test_systemd_job_is_not_coupled_to_capture_or_seal():
     assert "--raw-root /home/ubuntu/hft-bot/work/raw" in service
     assert "--warehouse-root /home/ubuntu/hft-bot/work/warehouse" in service
     assert "--publisher-env-file %d/publisher.env" in service
+    assert "--credential-broker-env-file %d/credential-broker.env" in service
     assert "--aws-cli /snap/aws-cli/current/bin/aws" in service
     assert "--aws-cli /snap/bin/aws" not in service
     assert "Environment=GIT_CONFIG_SYSTEM=/etc/kalshi-research-v3/gitconfig" \
@@ -898,12 +932,13 @@ def test_systemd_job_is_not_coupled_to_capture_or_seal():
     assert "/etc/kalshi-research-v3/gitconfig" in service.split(
         "ReadOnlyPaths=", 1)[1].splitlines()[0]
     assert "LoadCredentialEncrypted=publisher.env:" in service
+    assert "LoadCredentialEncrypted=credential-broker.env:" in service
     assert "LoadCredentialEncrypted=tagger.credentials:" not in service
     assert "LoadCredential=ephemeral-tagger-identities.json:" in service
     assert "--ephemeral-identity-evidence-file " \
         "%d/ephemeral-tagger-identities.json" in service
     assert "--dedicated-service-isolation-attested" in service
-    assert "User=kalshi-research-v3-daily" in service
+    assert "User=kalshi-research-v3-credential-broker" in service
     assert "SupplementaryGroups=kalshi-publication" in service
     assert "WorkingDirectory=/opt/kalshi-research-v3" in service
     assert "ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/" in service
@@ -919,7 +954,11 @@ def test_systemd_job_is_not_coupled_to_capture_or_seal():
     assert "tag-precommit" in tmpfiles
     assert "tag-precommit" in service
     assert "ephemeral-tagger.lock" in service
-    assert "ephemeral-tagger.lock 0600 kalshi-research-v3-daily" in tmpfiles
+    assert ("ephemeral-tagger.lock 0600 "
+            "kalshi-research-v3-credential-broker") in tmpfiles
+    assert "TimeoutStopSec=40min" in service
+    assert "KillMode=control-group" in service
+    assert "KillSignal=SIGTERM" in service
     assert "forward-version-bindings" in tmpfiles
     assert "forward-version-bindings" in service
     installer = (ROOT / "deploy"

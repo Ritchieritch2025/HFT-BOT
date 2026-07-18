@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -25,21 +27,42 @@ def test_installer_uses_sanitized_fixed_git_for_user_owned_source():
     assert 'git -C "$ROOT"' not in installer
 
 
-def test_installer_requires_publisher_but_allows_absent_identity_evidence():
+def test_installer_requires_publisher_and_gates_full_mode_on_broker_pair():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
     assert "validate_encrypted_credential \"$PUB_CRED\"" in installer
     assert ('if [ -e "$IDENTITY_EVIDENCE" ] || '
             '[ -L "$IDENTITY_EVIDENCE" ]; then') in installer
     assert 'IDENTITY_EVIDENCE_READY=1' in installer
-    assert "canonical-ephemeral-tagger-identities-v1" in installer
+    assert 'BROKER_CREDENTIAL_READY=1' in installer
+    assert 'FULL_PUBLICATION_READY=1' in installer
+    assert 'if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then' in installer
+    assert installer.index(
+        'FULL_PUBLICATION_READY=1') < installer.index(
+        'if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then')
+    assert "canonical-ephemeral-tagger-identities-v2" in installer
+    assert "canonical-credential-broker" in installer
+    assert ("BROKER_CRED=/etc/credstore.encrypted/"
+            "kalshi-research-v3-credential-broker.env") in installer
     assert "LEGACY_TAG_CRED=/etc/credstore.encrypted/" \
         "kalshi-research-v3-tagger.credentials" in installer
-    assert "legacy standing tagger credential blob must be absent" in installer
+    assert "quiesced legacy standing tagger credential blob" in installer
     assert "encrypted credential directory must be root:root 0700" in installer
     assert '[ "$(stat -c %a "$path")" != 600 ]' in installer
     assert "MAX_CRED_BYTES=1048576" in installer
     assert "AUTOMATION_FIRST_DATE=2026-07-10" in installer
     assert '[[ "$date" < "$AUTOMATION_FIRST_DATE" ]]' in installer
+
+
+def test_installer_quiesces_legacy_full_unit_before_credential_refusal():
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    timer_stop = installer.index(
+        "systemctl disable --now kalshi-research-v3-daily.timer")
+    service_stop = installer.index(
+        "systemctl stop kalshi-research-v3-daily.service")
+    legacy_blob_gate = installer.index('if [ -e "$LEGACY_TAG_CRED" ]')
+    assert timer_stop < legacy_blob_gate
+    assert service_stop < legacy_blob_gate
+    assert "legacy static full publication did not quiesce" in installer
 
 
 def test_installer_builds_minimal_root_owned_python_and_refuses_stale_release():
@@ -76,6 +99,7 @@ def test_publisher_only_durable_unit_has_one_credential_and_no_tagger_surface():
     assert "DEFAULT_DURABLE_PUBLISHER_ENV_FILE" in coordinator
     assert "--operator-approved" in service
     assert "tagger" not in service.lower()
+    assert "credential-broker" not in service.lower()
     assert "research/releases" not in service
     assert "kalshi-pipeline.service" not in "\n".join(
         line for line in service.splitlines() if not line.startswith("#"))
@@ -85,7 +109,7 @@ def test_publisher_only_durable_unit_has_one_credential_and_no_tagger_surface():
 
 def test_installer_keeps_durable_fallback_when_full_daily_is_enabled():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
-    assert 'if [ "$IDENTITY_EVIDENCE_READY" -eq 1 ]; then' in installer
+    assert 'if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then' in installer
     assert 'systemctl disable --now "$unit"' in installer
     assert "enable kalshi-research-v3-daily.timer" in installer
     assert "enable kalshi-research-v3-durable.timer" in installer
@@ -116,6 +140,7 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert service.count("LoadCredentialEncrypted=") == 1
     assert "LoadCredentialEncrypted=publisher.env:" in service
     assert "tagger" not in service.lower()
+    assert "credential-broker" not in service.lower()
     assert "rfq" not in service.lower()
     assert "research_v3_daily.py" not in service
     assert "canonical_generation_daily.py" in service
@@ -141,6 +166,7 @@ def test_generation_witness_is_independent_publisher_only_path_and_retry():
     assert "generation-migration-proofs" in legacy
     assert lock in legacy
     assert "tagger" not in legacy.lower()
+    assert "credential-broker" not in legacy.lower()
     assert "rfq" not in legacy.lower()
 
 
@@ -195,14 +221,22 @@ def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
     tmpfiles = _text("deploy/kalshi-research-v3-daily.tmpfiles.conf")
     lock = "/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock"
 
-    assert "User=kalshi-research-v3-daily" in service
+    assert "User=kalshi-research-v3-credential-broker" in service
     assert "ProtectProc=invisible" in service
     assert "PrivateTmp=true" in service
     assert "--dedicated-service-isolation-attested" in service
+    assert service.count("LoadCredentialEncrypted=") == 2
+    assert "LoadCredentialEncrypted=publisher.env:" in service
+    assert "LoadCredentialEncrypted=credential-broker.env:" in service
+    assert "--credential-broker-env-file %d/credential-broker.env" in service
+    assert "TimeoutStopSec=40min" in service
+    assert "KillMode=control-group" in service
+    assert "KillSignal=SIGTERM" in service
     assert lock in service
-    assert (f"{lock} 0600 kalshi-research-v3-daily "
+    assert (f"{lock} 0600 kalshi-research-v3-credential-broker "
             "kalshi-research-v3") in tmpfiles
-    assert "DAILY_SERVICE_USER=kalshi-research-v3-daily" in installer
+    assert ("DAILY_SERVICE_USER=kalshi-research-v3-credential-broker"
+            in installer)
     assert "id -u \"$DAILY_SERVICE_USER\"" in installer
     assert "stat -c %h \"$EPHEMERAL_TAGGER_LOCK\"" in installer
     assert "runuser -u \"$DAILY_SERVICE_USER\" -- test -w " \
@@ -213,6 +247,48 @@ def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
     assert f"{orchestrator} 0660 root kalshi-research-v3" in tmpfiles
     assert "stat -c %h \"$ORCHESTRATOR_LOCK\"" in installer
     assert "research orchestrator lock ownership/mode is not exact" in installer
+
+
+def test_broker_policy_is_exact_target_minimum_and_never_on_shared_units():
+    relative = (
+        "docs/plan_releases/pipeline/"
+        "W-PUB-REF-01C_CREDENTIAL_BROKER_IDENTITY_POLICY.json")
+    raw = (ROOT / relative).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == \
+        "a73b56a72034e7933fac913639102dafb29aa026b5b96fb3d1cde0fc4a84c872"
+    policy = json.loads(raw)
+    assert policy["Version"] == "2012-10-17"
+    assert len(policy["Statement"]) == 1
+    statement = policy["Statement"][0]
+    assert statement == {
+        "Sid": "ManageOnlyCanonicalEligibilityTaggerEphemeralKeys",
+        "Effect": "Allow",
+        "Action": [
+            "iam:GetUser",
+            "iam:ListAccessKeys",
+            "iam:CreateAccessKey",
+            "iam:UpdateAccessKey",
+            "iam:DeleteAccessKey",
+        ],
+        "Resource": (
+            "arn:aws:iam::321572485933:user/"
+            "canonical-eligibility-tagger"),
+    }
+    for unit in (
+            "deploy/kalshi-research-v3-durable.service",
+            "deploy/kalshi-canonical-generation-witness.service",
+            "deploy/kalshi-canonical-generation-legacy.service"):
+        text = _text(unit).lower()
+        assert "credential-broker" not in text
+        assert "iam:createaccesskey" not in text
+
+
+def test_systemd_stop_window_exceeds_internal_cleanup_by_safe_margin():
+    service = _text("deploy/kalshi-research-v3-daily.service")
+    coordinator = _text("tools/research_v3_daily.py")
+    assert "EPHEMERAL_CLEANUP_GRACE_SECONDS = 30 * 60" in coordinator
+    assert "TimeoutStopSec=40min" in service
+    assert 40 * 60 > 30 * 60 + 90
 
 
 def test_installer_uses_immutable_release_for_all_privileged_installs():

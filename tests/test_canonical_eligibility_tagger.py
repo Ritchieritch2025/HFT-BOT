@@ -528,16 +528,58 @@ def test_policy_canary_selects_one_bounded_non_rfq_exact_version(
     assert payload["checks"]["tagger_versionless_put"] == "ACCESS_DENIED"
     assert len(tagger.versionless_denials) == 1
     denied_bucket, denied_key, denied_tags = tagger.versionless_denials[0]
-    assert (denied_bucket, denied_key) == (
-        payload["target"]["bucket"], payload["target"]["key"])
+    assert denied_bucket == payload["target"]["bucket"]
+    assert denied_key != payload["target"]["key"]
+    assert denied_key.startswith(
+        PREFIX + "/control/policy-canary/versionless-deny-probe/")
+    assert len(denied_key.rsplit("/", 1)[-1]) == 64
     assert denied_tags[cet.TAG_KEY] == cet.TAG_VALUE
-    assert denied_tags["owner"] == "fixture"
+    assert set(denied_tags) == {cet.TAG_KEY}
+    assert payload["versionless_deny_probe"] == {
+        "bucket": BUCKET,
+        "key": denied_key,
+        "nonce_bits": 256,
+        "object_source": "NEVER_PUBLISHED_RANDOM_PROBE",
+        "request_tag_set": [
+            {"Key": cet.TAG_KEY, "Value": cet.TAG_VALUE},
+        ],
+    }
+    assert payload["target"]["selection"] == \
+        "IMMUTABLE_DATE_SEAL_EXACT_VERSION"
     assert payload["desired_tag_set"] == [
         {"Key": "owner", "Value": "fixture"},
         {"Key": cet.TAG_KEY, "Value": cet.TAG_VALUE},
     ]
     assert all("/raw/" not in ("/" + key)
                for _bucket, key, _version in tagger.gets)
+
+
+def test_versionless_probe_accepts_only_access_denied_and_never_real_target(
+        monkeypatch):
+    adapter = cet.AwsCliExactVersionTagger("/fixture/aws")
+    probe = PREFIX + "/control/policy-canary/versionless-deny-probe/" + "a" * 64
+    real = PREFIX + "/warehouse/seals/date=2026-07-12.json"
+    calls = []
+    monkeypatch.setattr(cet, "_mutation_code_commit", lambda: "d" * 40)
+
+    def result(stderr):
+        def run(command, **_kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(
+                command, 254, stdout="", stderr=stderr)
+        return run
+
+    monkeypatch.setattr(subprocess, "run", result("AccessDenied"))
+    adapter.require_versionless_put_denied(
+        BUCKET, probe, {cet.TAG_KEY: cet.TAG_VALUE})
+    assert probe in calls[-1]
+    assert real not in calls[-1]
+
+    monkeypatch.setattr(subprocess, "run", result("NoSuchKey"))
+    with pytest.raises(
+            cr.ReceiptError, match="VERSIONLESS_TAG_CANARY_INVALID"):
+        adapter.require_versionless_put_denied(
+            BUCKET, probe, {cet.TAG_KEY: cet.TAG_VALUE})
 
 
 def test_all_tag_gets_finish_before_first_put(receipt_tree):

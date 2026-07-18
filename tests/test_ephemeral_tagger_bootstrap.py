@@ -19,9 +19,9 @@ import ephemeral_tagger_bootstrap as bootstrap  # noqa: E402
 
 KEY_ID = "AKIAABCDEFGHIJKLMNOP"
 SECRET = "fixtureSecretAccessKey0000000000000000000"
-BOOTSTRAP_KEY = "AKIABOOTSTRAP00000000"
-BOOTSTRAP_SECRET = "bootstrapSecret000000000000000000000000"
-BOOTSTRAP_USER_ID = "AIDAVAULTWRITER000000"
+BROKER_KEY = "AKIABROKER0000000000"
+BROKER_SECRET = "brokerSecret000000000000000000000000000"
+BROKER_USER_ID = "AIDABROKERUSER0000000"
 TAGGER_USER_ID = "AIDATAGGERUSER0000000"
 
 
@@ -59,7 +59,7 @@ def _tagger_input(pins, *extra):
 
 def _main_argv(pins, *options, command=None):
     return [
-        "--bootstrap-user-id", BOOTSTRAP_USER_ID,
+        "--broker-user-id", BROKER_USER_ID,
         "--tagger-user-id", TAGGER_USER_ID,
         *options,
         "--",
@@ -68,10 +68,10 @@ def _main_argv(pins, *options, command=None):
 
 
 @pytest.fixture
-def bootstrap_credential_env(monkeypatch):
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", BOOTSTRAP_KEY)
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", BOOTSTRAP_SECRET)
-    monkeypatch.setenv("AWS_PROFILE", "vaultWriter")
+def broker_credential_env(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", BROKER_KEY)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", BROKER_SECRET)
+    monkeypatch.setenv("AWS_PROFILE", "canonical-credential-broker")
     monkeypatch.setenv("KALSHI_API_KEY", "must-not-leak")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-leak")
     monkeypatch.setenv("PYTHONPATH", "/tmp/poison")
@@ -84,8 +84,8 @@ def bootstrap_credential_env(monkeypatch):
 
 
 class FakeAwsAndTagger:
-    def __init__(self, *, bootstrap_arn=bootstrap.BOOTSTRAP_ARN,
-                 bootstrap_user_id=BOOTSTRAP_USER_ID,
+    def __init__(self, *, broker_arn=bootstrap.BROKER_ARN,
+                 broker_user_id=BROKER_USER_ID,
                  tagger_arn=bootstrap.TAGGER_ARN,
                  tagger_user_id=TAGGER_USER_ID,
                  get_user_id=TAGGER_USER_ID,
@@ -94,8 +94,8 @@ class FakeAwsAndTagger:
                  cleanup_lists=None):
         self.calls = []
         self.list_count = 0
-        self.bootstrap_arn = bootstrap_arn
-        self.bootstrap_user_id = bootstrap_user_id
+        self.broker_arn = broker_arn
+        self.broker_user_id = broker_user_id
         self.tagger_arn = tagger_arn
         self.tagger_user_id = tagger_user_id
         self.get_user_id = get_user_id
@@ -118,11 +118,11 @@ class FakeAwsAndTagger:
         self.calls.append((list(command), dict(env), kwargs.get("input_text")))
         flat = " ".join(command)
         if "sts get-caller-identity" in flat:
-            if env.get("AWS_ACCESS_KEY_ID") == BOOTSTRAP_KEY:
+            if env.get("AWS_ACCESS_KEY_ID") == BROKER_KEY:
                 value = {
                     "Account": bootstrap.ACCOUNT,
-                    "Arn": self.bootstrap_arn,
-                    "UserId": self.bootstrap_user_id,
+                    "Arn": self.broker_arn,
+                    "UserId": self.broker_user_id,
                 }
             else:
                 assert env["AWS_ACCESS_KEY_ID"] == KEY_ID
@@ -162,13 +162,13 @@ class FakeAwsAndTagger:
                 "Status": "Inactive",
             }
             assert KEY_ID not in command
-            assert env["AWS_ACCESS_KEY_ID"] == BOOTSTRAP_KEY
+            assert env["AWS_ACCESS_KEY_ID"] == BROKER_KEY
             return _completed(command, stdout="{}")
         if "iam delete-access-key" in flat:
             payload = json.loads(kwargs["input_text"])
             assert payload["AccessKeyId"] == KEY_ID
             assert KEY_ID not in command
-            assert env["AWS_ACCESS_KEY_ID"] == BOOTSTRAP_KEY
+            assert env["AWS_ACCESS_KEY_ID"] == BROKER_KEY
             return _completed(command, stdout="{}")
 
         assert command[:4] == [
@@ -207,7 +207,7 @@ def _execute(pins, tmp_path, monkeypatch, fake, **kwargs):
     return bootstrap.execute_tagger(
         command,
         pins=pins,
-        bootstrap_user_id=BOOTSTRAP_USER_ID,
+        broker_user_id=BROKER_USER_ID,
         tagger_user_id=TAGGER_USER_ID,
         lock_path=tmp_path / "bootstrap.lock",
         sleep=lambda _seconds: None,
@@ -249,6 +249,8 @@ def test_default_check_is_local_only(monkeypatch, pins, capsys):
     assert value["mode"] == "CHECK"
     assert value["rfq"] == "OFF"
     assert value["aws_mutations"] == 0
+    assert value["credential_broker_arn"] == bootstrap.BROKER_ARN
+    assert "bootstrap_arn" not in value
     assert value["same_uid_process_isolation"].startswith("DEDICATED_UID")
 
 
@@ -397,10 +399,10 @@ def test_bootstrap_itself_requires_isolated_pinned_python(pins):
 
 def test_sterile_environment_drops_all_ambient_injection_vectors():
     source = {
-        "AWS_ACCESS_KEY_ID": BOOTSTRAP_KEY,
-        "AWS_SECRET_ACCESS_KEY": BOOTSTRAP_SECRET,
+        "AWS_ACCESS_KEY_ID": BROKER_KEY,
+        "AWS_SECRET_ACCESS_KEY": BROKER_SECRET,
         "AWS_SESSION_TOKEN": "session",
-        "AWS_PROFILE": "vaultWriter",
+        "AWS_PROFILE": "canonical-credential-broker",
         "AWS_ENDPOINT_URL": "https://attacker.invalid",
         "AWS_ENDPOINT_URL_STS": "https://attacker.invalid",
         "KALSHI_API_KEY": "secret",
@@ -414,13 +416,13 @@ def test_sterile_environment_drops_all_ambient_injection_vectors():
     }
     env = bootstrap._sterile_environment(source)
     _assert_sterile(env)
-    assert env["AWS_ACCESS_KEY_ID"] == BOOTSTRAP_KEY
+    assert env["AWS_ACCESS_KEY_ID"] == BROKER_KEY
     assert env["AWS_SESSION_TOKEN"] == "session"
     assert "AWS_PROFILE" not in env
 
 
 def test_happy_path_checks_both_exact_identities_and_two_zero_lists(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(tagger_output=f"{KEY_ID} {SECRET}\n")
     result = _execute(pins, tmp_path, monkeypatch, fake)
     actions = _actions(fake)
@@ -437,16 +439,16 @@ def test_happy_path_checks_both_exact_identities_and_two_zero_lists(
 
 
 def test_bootstrap_identity_mismatch_refuses_before_list_or_create(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(
-        bootstrap_arn="arn:aws:iam::321572485933:user/not-vaultWriter")
+        broker_arn="arn:aws:iam::321572485933:user/not-the-broker")
     with pytest.raises(bootstrap.GateError, match="CALLER_IDENTITY_MISMATCH"):
         _execute(pins, tmp_path, monkeypatch, fake)
     assert _actions(fake) == ["sts"]
 
 
 def test_get_user_id_pin_refuses_before_list_or_create(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(get_user_id="AIDAWRONGTAGGER00000")
     with pytest.raises(bootstrap.GateError, match="CALLER_IDENTITY_MISMATCH"):
         _execute(pins, tmp_path, monkeypatch, fake)
@@ -454,7 +456,7 @@ def test_get_user_id_pin_refuses_before_list_or_create(
 
 
 def test_initial_stale_key_is_deleted_double_zero_then_requires_rerun(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(initial_records=[(KEY_ID, "Active")])
     with pytest.raises(
             bootstrap.GateError,
@@ -468,7 +470,7 @@ def test_initial_stale_key_is_deleted_double_zero_then_requires_rerun(
 
 
 def test_get_user_permission_failure_has_explicit_authority_code(
-        monkeypatch, pins, bootstrap_credential_env):
+        monkeypatch, pins, broker_credential_env):
     def denied(command, **_kwargs):
         return _completed(command, returncode=254, stderr="AccessDenied")
 
@@ -486,7 +488,7 @@ def test_production_lock_is_shared_outside_private_tmp():
 
 
 def test_tagger_user_id_mismatch_still_inactivates_deletes_and_confirms_zero(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(tagger_user_id="AIDAWRONGTAGGER00000")
     with pytest.raises(bootstrap.GateError, match="CALLER_IDENTITY_MISMATCH"):
         _execute(pins, tmp_path, monkeypatch, fake)
@@ -496,7 +498,7 @@ def test_tagger_user_id_mismatch_still_inactivates_deletes_and_confirms_zero(
 
 
 def test_inactive_create_is_never_used_and_is_cleaned(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(create_status="Inactive")
     with pytest.raises(bootstrap.GateError, match="ACCESS_KEY_NOT_ACTIVE"):
         _execute(pins, tmp_path, monkeypatch, fake)
@@ -507,7 +509,7 @@ def test_inactive_create_is_never_used_and_is_cleaned(
 
 
 def test_cleanup_retries_eventual_visibility_then_requires_consecutive_zero(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     fake = FakeAwsAndTagger(cleanup_lists=[
         [(KEY_ID, "Inactive")], [], [],
     ])
@@ -519,7 +521,7 @@ def test_cleanup_retries_eventual_visibility_then_requires_consecutive_zero(
 
 
 def test_cleanup_is_bounded_and_fails_without_two_zero_observations(
-        monkeypatch, pins, tmp_path, bootstrap_credential_env):
+        monkeypatch, pins, tmp_path, broker_credential_env):
     persistent = [[(KEY_ID, "Active")]
                   for _ in bootstrap.CLEANUP_BACKOFF_SECONDS]
     fake = FakeAwsAndTagger(cleanup_lists=persistent)
@@ -597,10 +599,10 @@ class FakeAws:
     def __init__(self, executable, environment):
         self.environment = environment
     def caller_identity(self, env):
-        if env.get('AWS_ACCESS_KEY_ID') == {BOOTSTRAP_KEY!r}:
-            note('sts-bootstrap')
-            return {{'Account': b.ACCOUNT, 'Arn': b.BOOTSTRAP_ARN,
-                    'UserId': {BOOTSTRAP_USER_ID!r}}}
+        if env.get('AWS_ACCESS_KEY_ID') == {BROKER_KEY!r}:
+            note('sts-broker')
+            return {{'Account': b.ACCOUNT, 'Arn': b.BROKER_ARN,
+                    'UserId': {BROKER_USER_ID!r}}}
         note('sts-tagger')
         return {{'Account': b.ACCOUNT, 'Arn': b.TAGGER_ARN,
                 'UserId': {TAGGER_USER_ID!r}}}
@@ -630,7 +632,7 @@ child = [sys.executable, '-c',
          "time.sleep(60)"]
 try:
     b.execute_tagger(child, pins=pins,
-        bootstrap_user_id={BOOTSTRAP_USER_ID!r},
+        broker_user_id={BROKER_USER_ID!r},
         tagger_user_id={TAGGER_USER_ID!r},
         lock_path=pathlib.Path({str(lock)!r}), sleep=lambda _x: None,
         harden_process=False, validate_self=False)
@@ -639,8 +641,8 @@ except b.BootstrapSignal as exc:
 """)
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "AWS_ACCESS_KEY_ID": BOOTSTRAP_KEY,
-        "AWS_SECRET_ACCESS_KEY": BOOTSTRAP_SECRET,
+        "AWS_ACCESS_KEY_ID": BROKER_KEY,
+        "AWS_SECRET_ACCESS_KEY": BROKER_SECRET,
     }
     process = subprocess.Popen(
         [sys.executable, str(harness)],

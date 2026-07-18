@@ -4,7 +4,7 @@
 The dedicated tagger IAM user must have no standing access key.  A live run
 performs this bounded transaction under an exclusive host lock::
 
-    exact vaultWriter STS identity
+    exact dedicated credential-broker STS identity
     -> ListAccessKeys == 0
     -> CreateAccessKey (response retained in memory only)
     -> exact tagger STS ARN *and UserId*
@@ -47,7 +47,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TAGGER = (ROOT / "tools" / "canonical_eligibility_tagger.py").resolve()
 USER_NAME = "canonical-eligibility-tagger"
 TAGGER_ARN = "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
-BOOTSTRAP_ARN = "arn:aws:iam::321572485933:user/vaultWriter"
+BROKER_ARN = (
+    "arn:aws:iam::321572485933:user/canonical-credential-broker"
+)
 ACCOUNT = "321572485933"
 REGION = "us-east-2"
 BUCKET = "kalshi-vault-ritcardo"
@@ -248,8 +250,8 @@ def _sterile_environment(source: dict[str, str] | None = None) -> dict[str, str]
             env[name] = value
     if not env.get("AWS_ACCESS_KEY_ID") or not env.get("AWS_SECRET_ACCESS_KEY"):
         raise GateError(
-            "BOOTSTRAP_CREDENTIALS_MISSING",
-            "vaultWriter access-key environment is required",
+            "BROKER_CREDENTIALS_MISSING",
+            "dedicated credential-broker access-key environment is required",
         )
     return env
 
@@ -555,7 +557,7 @@ class AwsIamBootstrap:
             if exc.code == "AWS_COMMAND_FAILED":
                 raise GateError(
                     "CREDENTIAL_AUTHORITY_DENIED",
-                    "bootstrap principal cannot ListAccessKeys for the "
+                    "credential broker cannot ListAccessKeys for the "
                     "dedicated tagger",
                 ) from None
             raise
@@ -587,7 +589,7 @@ class AwsIamBootstrap:
             if exc.code == "AWS_COMMAND_FAILED":
                 raise GateError(
                     "CREDENTIAL_AUTHORITY_DENIED",
-                    "bootstrap principal cannot GetUser for the dedicated "
+                    "credential broker cannot GetUser for the dedicated "
                     "tagger",
                 ) from None
             raise
@@ -610,7 +612,7 @@ class AwsIamBootstrap:
             if exc.code == "AWS_COMMAND_FAILED":
                 raise GateError(
                     "CREDENTIAL_AUTHORITY_DENIED",
-                    "bootstrap principal cannot CreateAccessKey for the "
+                    "credential broker cannot CreateAccessKey for the "
                     "dedicated tagger",
                 ) from None
             raise
@@ -780,23 +782,23 @@ def _cleanup(aws: AwsIamBootstrap, credential: EphemeralCredential | None,
 
 
 def execute_tagger(command: list[str], *, pins: RuntimePins,
-                   bootstrap_user_id: str, tagger_user_id: str,
+                   broker_user_id: str, tagger_user_id: str,
                    tagger_timeout: int = DEFAULT_TAGGER_TIMEOUT,
                    lock_path: pathlib.Path = LOCK_PATH,
                    sleep: Callable[[float], None] = time.sleep,
                    harden_process: bool = True,
                    validate_self: bool = True) -> TaggerResult:
     """Run the live transaction after caller-side authorization gates."""
-    bootstrap_user_id = _validate_user_id(
-        bootstrap_user_id, label="vaultWriter")
+    broker_user_id = _validate_user_id(
+        broker_user_id, label="credential broker")
     tagger_user_id = _validate_user_id(tagger_user_id, label="tagger")
     validate_runtime_pins(pins)
     if validate_self:
         validate_self_runtime(pins)
     if harden_process:
         _harden_current_process()
-    bootstrap_env = _sterile_environment()
-    aws = AwsIamBootstrap(pins.aws_cli, bootstrap_env)
+    broker_env = _sterile_environment()
+    aws = AwsIamBootstrap(pins.aws_cli, broker_env)
     credential = None
     ephemeral_env = None
     create_attempted = False
@@ -808,12 +810,12 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
         guard = _SignalGuard()
         with guard:
             try:
-                bootstrap_identity = aws.caller_identity(bootstrap_env)
+                broker_identity = aws.caller_identity(broker_env)
                 _validate_exact_identity(
-                    bootstrap_identity,
-                    expected_arn=BOOTSTRAP_ARN,
-                    expected_user_id=bootstrap_user_id,
-                    label="bootstrap",
+                    broker_identity,
+                    expected_arn=BROKER_ARN,
+                    expected_user_id=broker_user_id,
+                    label="credential broker",
                 )
                 tagger_user = aws.get_user()
                 if tagger_user.get("UserId") != tagger_user_id:
@@ -836,7 +838,7 @@ def execute_tagger(command: list[str], *, pins: RuntimePins,
                 if credential.status != "Active":
                     raise GateError(
                         "ACCESS_KEY_NOT_ACTIVE", "created key is not Active")
-                ephemeral_env = _ephemeral_environment(bootstrap_env, credential)
+                ephemeral_env = _ephemeral_environment(broker_env, credential)
                 tagger_identity = aws.caller_identity(ephemeral_env)
                 _validate_exact_identity(
                     tagger_identity,
@@ -914,7 +916,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--operator-approved", action="store_true")
     parser.add_argument("--dedicated-service-isolation-attested",
                         action="store_true")
-    parser.add_argument("--bootstrap-user-id", required=True)
+    parser.add_argument("--broker-user-id", required=True)
     parser.add_argument("--tagger-user-id", required=True)
     parser.add_argument("--tagger-timeout", type=int,
                         default=DEFAULT_TAGGER_TIMEOUT)
@@ -930,7 +932,7 @@ def _plan(mode: str, command: list[str]) -> dict:
     return {
         "state": "EPHEMERAL_TAGGER_BOOTSTRAP_PLAN",
         "mode": mode,
-        "bootstrap_arn": BOOTSTRAP_ARN,
+        "credential_broker_arn": BROKER_ARN,
         "tagger_arn": TAGGER_ARN,
         "initial_access_keys_required": 0,
         "initial_stale_key_action":
@@ -954,8 +956,8 @@ def _plan(mode: str, command: list[str]) -> dict:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        bootstrap_user_id = _validate_user_id(
-            args.bootstrap_user_id, label="vaultWriter")
+        broker_user_id = _validate_user_id(
+            args.broker_user_id, label="credential broker")
         tagger_user_id = _validate_user_id(
             args.tagger_user_id, label="tagger")
         if args.tagger_timeout <= 0:
@@ -977,7 +979,7 @@ def main(argv=None) -> int:
         result = execute_tagger(
             command,
             pins=PRODUCTION_PINS,
-            bootstrap_user_id=bootstrap_user_id,
+            broker_user_id=broker_user_id,
             tagger_user_id=tagger_user_id,
             tagger_timeout=args.tagger_timeout,
         )
@@ -991,6 +993,7 @@ def main(argv=None) -> int:
                 sys.stderr.write("\n")
         print(json.dumps({
             "state": "EPHEMERAL_TAGGER_COMMAND_COMPLETE",
+            "credential_broker_arn": BROKER_ARN,
             "tagger_arn": TAGGER_ARN,
             "initial_access_keys": 0,
             "final_zero_observations": ZERO_CONFIRMATIONS_REQUIRED,
