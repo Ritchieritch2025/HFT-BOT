@@ -221,7 +221,7 @@ def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
     tmpfiles = _text("deploy/kalshi-research-v3-daily.tmpfiles.conf")
     lock = "/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock"
 
-    assert "User=kalshi-research-v3-credential-broker" in service
+    assert "User=kalshi-rv3-cred-broker" in service
     assert "ProtectProc=invisible" in service
     assert "PrivateTmp=true" in service
     assert "--dedicated-service-isolation-attested" in service
@@ -233,9 +233,9 @@ def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
     assert "KillMode=control-group" in service
     assert "KillSignal=SIGTERM" in service
     assert lock in service
-    assert (f"{lock} 0600 kalshi-research-v3-credential-broker "
+    assert (f"{lock} 0600 kalshi-rv3-cred-broker "
             "kalshi-research-v3") in tmpfiles
-    assert ("DAILY_SERVICE_USER=kalshi-research-v3-credential-broker"
+    assert ("DAILY_SERVICE_USER=kalshi-rv3-cred-broker"
             in installer)
     assert "id -u \"$DAILY_SERVICE_USER\"" in installer
     assert "stat -c %h \"$EPHEMERAL_TAGGER_LOCK\"" in installer

@@ -7,7 +7,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=kalshi-research-v3-credential-broker
+User=kalshi-rv3-cred-broker
 Group=kalshi-research-v3
 SupplementaryGroups=kalshi-publication
 WorkingDirectory=/opt/kalshi-research-v3

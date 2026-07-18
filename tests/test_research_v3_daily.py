@@ -938,7 +938,7 @@ def test_systemd_job_is_not_coupled_to_capture_or_seal():
     assert "--ephemeral-identity-evidence-file " \
         "%d/ephemeral-tagger-identities.json" in service
     assert "--dedicated-service-isolation-attested" in service
-    assert "User=kalshi-research-v3-credential-broker" in service
+    assert "User=kalshi-rv3-cred-broker" in service
     assert "SupplementaryGroups=kalshi-publication" in service
     assert "WorkingDirectory=/opt/kalshi-research-v3" in service
     assert "ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/" in service
@@ -955,7 +955,7 @@ def test_systemd_job_is_not_coupled_to_capture_or_seal():
     assert "tag-precommit" in service
     assert "ephemeral-tagger.lock" in service
     assert ("ephemeral-tagger.lock 0600 "
-            "kalshi-research-v3-credential-broker") in tmpfiles
+            "kalshi-rv3-cred-broker") in tmpfiles
     assert "TimeoutStopSec=40min" in service
     assert "KillMode=control-group" in service
     assert "KillSignal=SIGTERM" in service
