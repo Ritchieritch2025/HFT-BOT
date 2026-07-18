@@ -8,6 +8,7 @@ HOST="${W09_HOST:-ubuntu@18.226.151.192}"
 KEY="${W09_SSH_KEY:-$HOME/.ssh/kalshi-key.pem}"
 REMOTE="/tmp/w09-bringup"
 READER_MODULE_MANIFEST="$HERE/research_reader_modules.sha256"
+DEEP03_MODULE_MANIFEST="$HERE/deep03_open_discovery_modules.sha256"
 
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
@@ -22,6 +23,15 @@ if ! (cd "$SOURCE_REPO" && \
     echo "W09_SOURCE_GATE: pinned reader module set changed" >&2
     exit 65
 fi
+if [ ! -f "$DEEP03_MODULE_MANIFEST" ]; then
+    echo "W09_SOURCE_GATE: Deep03 module manifest missing" >&2
+    exit 65
+fi
+if ! (cd "$SOURCE_REPO" && \
+      shasum -a 256 -c "$DEEP03_MODULE_MANIFEST" >/dev/null); then
+    echo "W09_SOURCE_GATE: pinned Deep03 module set changed" >&2
+    exit 65
+fi
 if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
@@ -30,12 +40,17 @@ fi
 tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
-mkdir -p "$tmp/tools" "$tmp/config" "$tmp/deploy/w09"
+mkdir -p "$tmp/tools/research" "$tmp/config" "$tmp/deploy/w09"
 cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
+for module in deep03_v3_common.py deep03_v3_prepare.py \
+              deep03_v3_methods.py deep03_v3_runner.py; do
+    cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
+done
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
+cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \

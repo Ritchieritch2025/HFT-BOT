@@ -19,6 +19,13 @@ for module in research_data.py research_reference.py warehouse_common.py; do
         exit 66
     fi
 done
+for module in deep03_v3_common.py deep03_v3_prepare.py \
+              deep03_v3_methods.py deep03_v3_runner.py; do
+    if [ ! -f "$PAYLOAD_ROOT/tools/research/$module" ]; then
+        echo "W09_INSTALL_REFUSED: missing Deep03 module: $module" >&2
+        exit 66
+    fi
+done
 if [ ! -f "$PAYLOAD_ROOT/deploy/w09/research_reader_modules.sha256" ]; then
     echo "W09_INSTALL_REFUSED: missing reader module manifest" >&2
     exit 66
@@ -26,6 +33,15 @@ fi
 if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
       deploy/w09/research_reader_modules.sha256 >/dev/null); then
     echo "W09_INSTALL_REFUSED: reader module integrity mismatch" >&2
+    exit 65
+fi
+if [ ! -f "$PAYLOAD_ROOT/deploy/w09/deep03_open_discovery_modules.sha256" ]; then
+    echo "W09_INSTALL_REFUSED: Deep03 module manifest missing" >&2
+    exit 66
+fi
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/deep03_open_discovery_modules.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: Deep03 module integrity mismatch" >&2
     exit 65
 fi
 if ! grep -qx 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
@@ -90,13 +106,22 @@ install -m 0644 "$PAYLOAD_ROOT/deploy/w09/amazon-time-sync.sources" \
 systemctl enable --now chrony.service
 systemctl restart chrony.service
 
-install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" "$INSTALL_ROOT/config"
+install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" \
+    "$INSTALL_ROOT/tools/research" "$INSTALL_ROOT/config"
 install -m 0644 "$PAYLOAD_ROOT/tools/research_data.py" \
     "$INSTALL_ROOT/tools/research_data.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
     "$INSTALL_ROOT/tools/research_reference.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/warehouse_common.py" \
     "$INSTALL_ROOT/tools/warehouse_common.py"
+for module in deep03_v3_common.py deep03_v3_prepare.py \
+              deep03_v3_methods.py deep03_v3_runner.py; do
+    install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
+        "$INSTALL_ROOT/tools/research/$module"
+done
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/deep03_open_discovery_modules.sha256" \
+    "$INSTALL_ROOT/deep03_open_discovery_modules.sha256"
 install -m 0644 "$PAYLOAD_ROOT/config/warehouse.yaml" \
     "$INSTALL_ROOT/config/warehouse.yaml"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_data_instance_profile.py" \
@@ -129,6 +154,20 @@ exec /opt/w09/venv/bin/python \
   --cache /srv/w09-research/cache "$@"
 EOF
 chmod 0755 /usr/local/bin/research_data
+cat > /usr/local/bin/deep03-v3-prepare <<'EOF'
+#!/bin/sh
+set -eu
+exec /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/research/deep03_v3_prepare.py "$@"
+EOF
+chmod 0755 /usr/local/bin/deep03-v3-prepare
+cat > /usr/local/bin/deep03-v3-run <<'EOF'
+#!/bin/sh
+set -eu
+exec /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/research/deep03_v3_runner.py "$@"
+EOF
+chmod 0755 /usr/local/bin/deep03-v3-run
 
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09_idle_check.py" \
     /usr/local/sbin/w09-idle-check

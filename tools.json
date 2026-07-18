@@ -1572,6 +1572,30 @@
       "docs": "tools/research_data.py"
     },
     {
+      "name": "deep03_v3_prepare",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/research/deep03_v3_prepare.py",
+      "args_template": "--cache DIR --run-root DIR --run-id ID --release EXPLICIT_V3_ID [--release EXPLICIT_V3_ID ...]",
+      "needs": [],
+      "pass_token": "D3_W2A_PREPARE_PASS",
+      "description": "Deep03 D3-W2A OPEN_DISCOVERY prepare gate: local-only, explicit exact REFERENCE_V3 IDs only; rejects latest/v2/RFQ/static credentials/marker drift/non-content-addressed objects and atomically binds INPUT_MANIFEST to source VersionIds, SHA-256, sealed row counts and quality evidence",
+      "docs": "deploy/w09/README.md"
+    },
+    {
+      "name": "deep03_v3_run",
+      "kind": "tool",
+      "safety": "offline",
+      "autorun": false,
+      "cmd": "python3 tools/research/deep03_v3_runner.py",
+      "args_template": "--run-dir DIR [--memory-limit 8GB] [--threads 4]",
+      "needs": [],
+      "pass_token": "D3_W2A_RUN_PASS",
+      "description": "Bounded read-only D3-W2A runner over a prepared exact-V3 bundle. Corrects markout as-of, one-sided censoring and active-minute rhythm; cross-market residual stays NOT_ESTIMABLE without payout/fee/fill proof. Produces quality/estimability/exclusion/method receipts, RESULTS, a self-contained report, hashes, and atomic RUN_COMPLETE; no RFQ/network/orders/PnL claim",
+      "docs": "deploy/w09/README.md"
+    },
+    {
       "name": "prune_raw",
       "kind": "tool",
       "safety": "offline",
