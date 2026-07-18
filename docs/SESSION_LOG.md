@@ -6,6 +6,46 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-18 22:04 UTC — 7/10–7/17 零拷贝 v3 全量发布，生产每日自动流水线闭环
+
+- production result: runtime 先以 `b391bf9` 完成历史发布，再以
+  `38fc23ae5c828e2bc689c24cda4e4c19ea30a372` 收口定时恢复隔离修复；
+  `2026-07-10..17` 共 `8/8` 均为 `V3_REFERENCE_PUBLISHED`、
+  `REFERENCE_MANIFEST_COMMITTED`、`EXACT_VERSION_FULL_SHA256`，全部
+  `RFQ=OFF`。最后一天在 `2026-07-18T21:53:24Z` 完成，release
+  `2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7`，manifest
+  VersionId `C.AtvRhADnn3CpjcjWHGMdYIDj4Zl1uO`、SHA-256
+  `16234a5820030e175de09e4198471f8f685a46d5e4f7fca880dd0415adb39cab`。
+  大数据保持在 canonical `ec2/*` exact VersionId；research 目录只提交
+  小型 manifest，没有复制 L1/L2/盘口/交易对象。
+- identity/tag gates: 独立 tagger exact-version 读写/保留原标签/回读
+  PASS，versionless 写入按预期 ACCESS_DENIED；生产按需创建 ephemeral
+  tagger key 并在每个子任务后删除。最终和 post-deploy idempotent run 后
+  均以 broker 只读 `ListAccessKeys` 双检为 `0/0`，未输出任何 AccessKeyId
+  或 secret。
+- automation: `kalshi-research-v3-daily.timer`、
+  `kalshi-research-v3-durable.timer`、
+  `kalshi-canonical-generation-witness.timer` 与 `.path` 全部 enabled/active
+  且已有下一次调度。首次 durable 唤醒暴露 split-UID 私有 `STATUS.json`
+  被误读为 `UNFINISHED_STATE_INVALID`；未修改 chmod/ACL/IAM，而是在 commits
+  `9a6376b` + `38fc23a` 让 durable-only 保守重排日期但不打开 full-publisher
+  私有状态。52 项相关测试和独立审计 PASS；production canary invocation
+  `9f56d10cca8046e7b9740d3fa1baae7f` 为 exit 0、8 天
+  `DURABLE_RECEIPT_READY`、tag/manifest writes=0、RFQ OFF，旧 21:55 假失败
+  收据保留作审计。post-deploy daily invocation
+  `17310930243d433b9dc9057395ed5530` 在 19 秒内 8/8 exact-readback PASS，
+  warning/error=0。capture 主流水线与 fresh RFQ capture 均 active、
+  NRestarts=0，未被部署重启。
+- only remaining gate: W09 `w09-research-runner` 仍对 receipt/seal/L1 的
+  exact-version GET 返回 403，原因是角色尚未挂载已审计的 canonical reader
+  policy；不是数据或标签故障。待操作员把
+  `docs/plan_releases/pipeline/W-PUB-REF-01C_W09_IDENTITY_POLICY.json`
+  （SHA-256
+  `b1db679bafa960b0d22a78c84b7fed4e776f74268e75823210722eb58b29c89d`）
+  附到 role `w09-research-runner`，立即运行 strict selector/fetch/verify +
+  DuckDB L1/L2/盘口真实查询 canary。当前 research RFQ 继续 OFF；fresh RFQ
+  采集隔离分支未关闭、未修复旧损坏 RFQ。
+
 ## 2026-07-18 03:40 UTC — 7/10–7/16 零拷贝收据闭环、每日自动清单上线、Fresh RFQ 隔离切换成功
 
 - code/deploy: isolated branch `w-rfq-fresh-01` at
