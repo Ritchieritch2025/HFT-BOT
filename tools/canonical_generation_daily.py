@@ -143,14 +143,24 @@ def _secure_publisher_file(
         parent = os.stat(path.parent, follow_symlinks=False)
     except OSError as exc:
         raise DailyWitnessError("CREDENTIAL_FILE_INVALID", str(exc)) from exc
-    allowed_owners = {0, os.geteuid()}
+    file_mode = stat.S_IMODE(item.st_mode)
+    parent_mode = stat.S_IMODE(parent.st_mode)
+    # systemd 255 exposes encrypted credentials as root:root 0440 inside a
+    # root:root 0550 private mount.  Unit tests/direct invocations use a
+    # caller-owned 0600 file inside 0700.  Both shapes are non-writable by
+    # every untrusted principal; no broader 0640/0750 form is accepted.
+    systemd_shape = (
+        item.st_uid == item.st_gid == 0 and file_mode in {0o400, 0o440}
+        and parent.st_uid == parent.st_gid == 0
+        and parent_mode in {0o500, 0o550})
+    private_shape = (
+        item.st_uid in {0, os.geteuid()} and file_mode == 0o600
+        and parent.st_uid in {0, os.geteuid()} and parent_mode == 0o700)
     if (not stat.S_ISREG(item.st_mode) or stat.S_ISLNK(item.st_mode)
-            or item.st_uid not in allowed_owners or item.st_mode & 0o077
             or item.st_size <= 0 or item.st_size > MAX_CREDENTIAL_BYTES
             or not stat.S_ISDIR(parent.st_mode)
             or stat.S_ISLNK(parent.st_mode)
-            or parent.st_uid not in allowed_owners
-            or parent.st_mode & 0o077):
+            or not (systemd_shape or private_shape)):
         raise DailyWitnessError(
             "CREDENTIAL_FILE_INVALID",
             "publisher credential/parent ownership or mode invalid")

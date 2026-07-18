@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import os
+import stat
 import sys
 from types import SimpleNamespace
 from pathlib import Path
@@ -44,6 +45,50 @@ def _credential(tmp_path, monkeypatch, payload):
     path.chmod(0o600)
     monkeypatch.setattr(daily, "PUBLISHER_ENV_FILE", path)
     return path
+
+
+def _mock_credential_stat(monkeypatch, path, *, file_mode, parent_mode):
+    def fake_stat(candidate, *, follow_symlinks=False):
+        assert follow_symlinks is False
+        if Path(candidate) == path:
+            return SimpleNamespace(
+                st_mode=stat.S_IFREG | file_mode,
+                st_uid=0,
+                st_gid=0,
+                st_size=152,
+            )
+        assert Path(candidate) == path.parent
+        return SimpleNamespace(
+            st_mode=stat.S_IFDIR | parent_mode,
+            st_uid=0,
+            st_gid=0,
+        )
+
+    monkeypatch.setattr(daily.os, "stat", fake_stat)
+
+
+def test_publisher_credential_accepts_exact_systemd_encrypted_shape(monkeypatch):
+    path = daily.PUBLISHER_ENV_FILE
+    _mock_credential_stat(
+        monkeypatch, path, file_mode=0o440, parent_mode=0o550)
+
+    assert daily._secure_publisher_file(path) == path
+
+
+@pytest.mark.parametrize(
+    ("file_mode", "parent_mode"),
+    [(0o640, 0o550), (0o440, 0o750)],
+)
+def test_publisher_credential_rejects_broader_systemd_modes(
+        monkeypatch, file_mode, parent_mode):
+    path = daily.PUBLISHER_ENV_FILE
+    _mock_credential_stat(
+        monkeypatch, path, file_mode=file_mode, parent_mode=parent_mode)
+
+    with pytest.raises(daily.DailyWitnessError) as excinfo:
+        daily._secure_publisher_file(path)
+
+    assert excinfo.value.code == "CREDENTIAL_FILE_INVALID"
 
 
 def test_publisher_credential_is_parsed_as_data_into_sterile_allowlist(

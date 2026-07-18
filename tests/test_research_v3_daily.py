@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 import sys
 import datetime as dt
@@ -33,6 +34,50 @@ MANIFEST_BYTES = (json.dumps({"release_id": RELEASE_ID}, sort_keys=True)
 AUTOMATION_AUTHORIZATION = (
     ROOT / "docs" / "plan_releases" / "pipeline"
     / "W-PUB-REF-01C_AUTOMATION_EXECUTION_AUTHORIZATION_2026-07-17.json")
+
+
+def _mock_secret_stat(monkeypatch, path, *, file_mode, parent_mode):
+    def fake_stat(candidate, *, follow_symlinks=False):
+        assert follow_symlinks is False
+        if Path(candidate) == path:
+            return SimpleNamespace(
+                st_mode=stat.S_IFREG | file_mode,
+                st_uid=0,
+                st_gid=0,
+                st_size=152,
+            )
+        assert Path(candidate) == path.parent
+        return SimpleNamespace(
+            st_mode=stat.S_IFDIR | parent_mode,
+            st_uid=0,
+            st_gid=0,
+        )
+
+    monkeypatch.setattr(daily.os, "stat", fake_stat)
+
+
+def test_secret_file_accepts_exact_systemd_encrypted_shape(monkeypatch):
+    path = Path("/run/credentials/research-v3/publisher.env")
+    _mock_secret_stat(
+        monkeypatch, path, file_mode=0o440, parent_mode=0o550)
+
+    assert daily._secure_secret_file(path, "publisher") == path
+
+
+@pytest.mark.parametrize(
+    ("file_mode", "parent_mode"),
+    [(0o640, 0o550), (0o440, 0o750)],
+)
+def test_secret_file_rejects_broader_systemd_modes(
+        monkeypatch, file_mode, parent_mode):
+    path = Path("/run/credentials/research-v3/publisher.env")
+    _mock_secret_stat(
+        monkeypatch, path, file_mode=file_mode, parent_mode=parent_mode)
+
+    with pytest.raises(daily.GateError) as excinfo:
+        daily._secure_secret_file(path, "publisher")
+
+    assert excinfo.value.code == "CREDENTIAL_FILE_INVALID"
 
 
 def _write_json(path, value, mode=0o600):

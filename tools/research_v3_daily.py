@@ -226,18 +226,28 @@ def _secure_secret_file(path: pathlib.Path, label: str) -> pathlib.Path:
         parent = os.stat(path.parent, follow_symlinks=False)
     except OSError as exc:
         raise GateError("CREDENTIAL_FILE_INVALID", f"{label}: {exc}") from exc
-    allowed_owners = {0, os.geteuid()}
+    file_mode = stat.S_IMODE(item.st_mode)
+    parent_mode = stat.S_IMODE(parent.st_mode)
+    # LoadCredentialEncrypted on production systemd 255 yields a root:root
+    # 0440 file in a root:root 0550 private mount.  Local fixtures use the
+    # equally strict caller-owned 0600/0700 form.  Reject every broader mode.
+    systemd_shape = (
+        item.st_uid == item.st_gid == 0 and file_mode in {0o400, 0o440}
+        and parent.st_uid == parent.st_gid == 0
+        and parent_mode in {0o500, 0o550})
+    private_shape = (
+        item.st_uid in {0, os.geteuid()} and file_mode == 0o600
+        and parent.st_uid in {0, os.geteuid()} and parent_mode == 0o700)
     if (not stat.S_ISREG(item.st_mode) or stat.S_ISLNK(item.st_mode)
-            or item.st_uid not in allowed_owners or item.st_mode & 0o077):
+            or not (systemd_shape or private_shape)):
         raise GateError(
             "CREDENTIAL_FILE_INVALID",
-            f"{label} must be a caller-owned, non-symlink regular file mode 0600",
+            f"{label} must be an exact systemd 0440 or private 0600 credential",
         )
-    if (not stat.S_ISDIR(parent.st_mode) or stat.S_ISLNK(parent.st_mode)
-            or parent.st_uid not in allowed_owners or parent.st_mode & 0o077):
+    if not stat.S_ISDIR(parent.st_mode) or stat.S_ISLNK(parent.st_mode):
         raise GateError(
             "CREDENTIAL_FILE_INVALID",
-            f"{label} parent must be a caller-owned, non-symlink mode 0700 directory",
+            f"{label} parent must be exact systemd 0550 or private 0700",
         )
     if item.st_size <= 0 or item.st_size > 64 * 1024:
         raise GateError("CREDENTIAL_FILE_INVALID", f"{label} size is invalid")
