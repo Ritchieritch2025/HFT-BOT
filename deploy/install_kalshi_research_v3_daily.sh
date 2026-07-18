@@ -88,6 +88,8 @@ DAILY_MUTABLE_ROOTS=(
 )
 LOCK_ROOT=/home/ubuntu/hft-bot/work/warehouse/.publication-locks
 GENERATION_WRITER_LOCK=/var/lib/kalshi-research-v3-locks/generation-witness.lock
+WITNESS_INTENTION_ROOT=/home/ubuntu/hft-bot/work/live/canonical_receipts/generation-witness-intents
+GENERATION_MANIFEST_ROOT=/home/ubuntu/hft-bot/work/warehouse/.publication-generations
 EPHEMERAL_TAGGER_LOCK=/var/lib/kalshi-research-v3-locks/ephemeral-tagger.lock
 ORCHESTRATOR_LOCK=/var/lib/kalshi-research-v3-locks/research-v3-orchestrator.lock
 
@@ -548,6 +550,33 @@ for root in "${DAILY_MUTABLE_ROOTS[@]}" "$LOCK_ROOT"; do
     exit 2
   fi
 done
+# The witness validates this private persistence tree as euid-owned 0700/0600.
+# The broad named-user ACL pass above is required for ubuntu-owned backfill
+# trees, but applying it to an already service-owned private tree changes the
+# ACL mask (and therefore st_mode) to 0770.  Normalize it last so the on-disk
+# contract survives both fresh installs and upgrades with persisted intents.
+unsafe_intention_entry="$(find -P "$WITNESS_INTENTION_ROOT" -mindepth 1 \
+  ! -type d ! -type f -print -quit)"
+if [ -n "$unsafe_intention_entry" ]; then
+  echo "REFUSED: unsafe witness intention entry: $unsafe_intention_entry" >&2
+  exit 2
+fi
+chown -R "$SERVICE_USER:$SERVICE_USER" "$WITNESS_INTENTION_ROOT"
+setfacl -R -b -k "$WITNESS_INTENTION_ROOT"
+find -P "$WITNESS_INTENTION_ROOT" -type d -exec chmod 0700 {} +
+find -P "$WITNESS_INTENTION_ROOT" -type f -exec chmod 0600 {} +
+# Publication generation controls are producer-owned but publisher-readable.
+# Make the shared group sticky on directories and repair old mkstemp(0600)
+# manifests so the next newly eligible date cannot fail at open(2).
+unsafe_generation_entry="$(find -P "$GENERATION_MANIFEST_ROOT" -mindepth 1 \
+  ! -type d ! -type f -print -quit)"
+if [ -n "$unsafe_generation_entry" ]; then
+  echo "REFUSED: unsafe generation manifest entry: $unsafe_generation_entry" >&2
+  exit 2
+fi
+chgrp -R "$LOCK_GROUP" "$GENERATION_MANIFEST_ROOT"
+find -P "$GENERATION_MANIFEST_ROOT" -type d -exec chmod 2750 {} +
+find -P "$GENERATION_MANIFEST_ROOT" -type f -exec chmod 0640 {} +
 # Keep the shared writer lock outside every ubuntu-owned capture tree.  Its
 # direct parent is root-owned and not writable by either ubuntu or the service,
 # so the checks below cannot race a user-controlled path replacement.  Do not

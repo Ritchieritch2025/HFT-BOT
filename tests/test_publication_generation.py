@@ -27,6 +27,14 @@ def _install_manifest(warehouse, manifest):
     pg._atomic_manifest_bytes(path, payload)
 
 
+def test_atomic_manifest_keeps_publisher_read_mask(tmp_path):
+    path = tmp_path / "warehouse" / pg.MANIFEST_DIR / "catalog.json"
+    pg._atomic_manifest_bytes(str(path), b"{}\n")
+
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert path.parent.stat().st_mode & 0o777 == 0o750
+
+
 def test_transaction_failure_restores_old_complete_generation(tmp_path):
     warehouse = tmp_path / "warehouse"
     paths = ["catalog/a/data", "catalog/b/data"]

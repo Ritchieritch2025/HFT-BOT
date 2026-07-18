@@ -368,10 +368,15 @@ def _atomic_manifest_bytes(path, payload):
     parent = os.path.dirname(path)
     if os.path.lexists(parent) and os.path.islink(parent):
         raise GenerationError("manifest directory is a symlink")
-    os.makedirs(parent, mode=0o700, exist_ok=True)
+    # Generation manifests are producer-written controls consumed by the
+    # isolated publisher.  The install contract gives their tree the shared
+    # publication group/ACL; keep the ACL mask readable instead of letting
+    # mkstemp's 0600 default silently revoke the consumer's named read entry.
+    os.makedirs(parent, mode=0o750, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".pending-generation-", dir=parent)
     try:
         with os.fdopen(fd, "wb") as handle:
+            os.fchmod(handle.fileno(), 0o640)
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())

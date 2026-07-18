@@ -214,6 +214,34 @@ def test_installer_validates_generation_lock_below_root_owned_parent():
     assert 'chmod 0600 "$GENERATION_WRITER_LOCK"' not in installer
 
 
+def test_installer_restores_private_witness_intention_modes_after_acl_pass():
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    root = ("WITNESS_INTENTION_ROOT=/home/ubuntu/hft-bot/work/live/"
+            "canonical_receipts/generation-witness-intents")
+    assert root in installer
+    acl_pass = installer.index('for root in "${DAILY_MUTABLE_ROOTS[@]}"')
+    normalize = installer.index(
+        'setfacl -R -b -k "$WITNESS_INTENTION_ROOT"')
+    assert normalize > acl_pass
+    assert ('find -P "$WITNESS_INTENTION_ROOT" -type d '
+            '-exec chmod 0700 {} +') in installer
+    assert ('find -P "$WITNESS_INTENTION_ROOT" -type f '
+            '-exec chmod 0600 {} +') in installer
+    assert ('find -P "$WITNESS_INTENTION_ROOT" -mindepth 1 '
+            '\\\n  ! -type d ! -type f -print -quit') in installer
+
+
+def test_installer_repairs_generation_manifests_for_shared_read_only_group():
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+    assert ("GENERATION_MANIFEST_ROOT=/home/ubuntu/hft-bot/work/warehouse/"
+            ".publication-generations") in installer
+    assert 'chgrp -R "$LOCK_GROUP" "$GENERATION_MANIFEST_ROOT"' in installer
+    assert ('find -P "$GENERATION_MANIFEST_ROOT" -type d '
+            '-exec chmod 2750 {} +') in installer
+    assert ('find -P "$GENERATION_MANIFEST_ROOT" -type f '
+            '-exec chmod 0640 {} +') in installer
+
+
 def test_full_daily_has_unique_uid_and_shared_hardened_ephemeral_lock():
     service = _text("deploy/kalshi-research-v3-daily.service")
     durable = _text("deploy/kalshi-research-v3-durable.service")
