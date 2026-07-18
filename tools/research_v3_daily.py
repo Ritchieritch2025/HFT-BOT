@@ -1081,11 +1081,11 @@ def discover_unfinished_dates(live_dir: pathlib.Path,
                               limit: int = 4096) -> list[str]:
     """Recover bounded nonterminal state independently of seal lookback.
 
-    Durable-only runs under a credential-free UID that deliberately cannot
-    read the full publisher UID's private status documents.  In that mode,
-    every bounded publication-state date is conservatively retried without
-    opening those documents; canonical transaction directories are still
-    inspected below.
+    Durable-only runs under a tagger-credential-free, publisher-only UID that
+    deliberately cannot read the full publisher UID's private status
+    documents.  In that mode, every bounded publication-state date is
+    conservatively retried without opening those documents; canonical
+    transaction directories are still inspected below.
     """
     live = pathlib.Path(live_dir).absolute()
     candidates: set[str] = set()
