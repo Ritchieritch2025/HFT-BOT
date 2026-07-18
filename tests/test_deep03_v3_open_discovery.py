@@ -99,6 +99,9 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
     report = (run_dir / "REPORT" / "index.html").read_text()
 
     assert complete["state"] == "RUN_COMPLETE"
+    assert complete["mode"] == "MODE 1 / EXPLORATORY_AUTORESEARCH"
+    assert complete["strict_acceptance_claimed"] is False
+    assert complete["release_ids"] == [rid]
     assert complete["all_declared_methods_closed"] is True
     assert method["declared_methods"] == [
         "D3-B01-MARKOUT",
@@ -112,6 +115,8 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
     )
     assert "SEALED_PENDING_QUALITY_ASSESSMENT" in report
     assert "EXPLORATORY_ONLY" in report
+    assert "MODE 1 / EXPLORATORY_AUTORESEARCH" in report
+    assert "NOT STRICT ACCEPTANCE" in report
     assert "<svg" in report or "Chart unavailable" in report
     assert "http://" not in report and "https://" not in report
 

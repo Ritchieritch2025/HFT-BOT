@@ -46,6 +46,23 @@ receipt contains source/version/query/schema/row hashes, not sampled values.
 Installing this bundle alone does not publish a v3 manifest or enable
 canonical IAM.
 
+There are two deliberately non-interchangeable query gates. `w09-accept` is
+strict acceptance and still requires `SEALED_CONFIRMATION`.
+`w09-exploratory-autoresearch.service` is explicitly
+`MODE 1 / EXPLORATORY_AUTORESEARCH`; it accepts either
+`SEALED_DEGRADED_EVIDENCE` or `SEALED_CONFIRMATION`, always brands results as
+exploratory and not strict acceptance, and refuses every RFQ-bearing manifest.
+
+The exploratory timer inventories v3 manifests, requires a contiguous
+RFQ-free date window beginning at 2026-07-10, selects one frozen release ID per
+date, fetches and verifies exact VersionIds through the W09 instance profile,
+rebuilds the view with the explicit `--include-non-confirmation` switch, runs a
+manifest-bound DuckDB canary for every release, then executes the bounded
+Deep03 D3-W2A discovery runner. Selection, failure, canary, and completion
+receipts live below `/srv/w09-research/automation`; one selection digest can
+produce only one successful research completion. The 30-minute persistent
+timer is a retry path, not a duplicate-run path.
+
 ## 1. Confirm stop-not-terminate, then install
 
 Before arming automatic shutdown, confirm in the EC2 instance details that
@@ -156,6 +173,34 @@ estimability, exclusions, per-method receipts, `RESULTS.json`, the self-
 contained `REPORT/index.html`, and `ARTIFACT_SHA256SUMS`. B01–B04 each close as
 `EXECUTED` or `NOT_ESTIMABLE` with evidence. This run never reads RFQ and never
 emits a strategy-PnL, confirmation, promotion, shadow or order claim.
+
+## 5. Automatic MODE 1 operation
+
+The full installer enables the automatic timer. Upgrade the currently
+installed W09 from this clean release worktree with:
+
+```bash
+cd /Users/ritcardo/HFT-BOT-tagger-release
+W09_SOURCE_REPO=/Users/ritcardo/HFT-BOT-tagger-release \
+W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
+  bash deploy/w09/push_and_install.sh
+```
+
+After the reviewed role policy is attached, start an immediate cycle instead
+of waiting for the timer:
+
+```bash
+ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192 \
+  'sudo systemctl start w09-exploratory-autoresearch.service'
+ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192 \
+  'systemctl status --no-pager w09-exploratory-autoresearch.service; cat /srv/w09-research/automation/status.json'
+```
+
+The service contains no S3 write operation, no static AWS or trading
+credential, and no `--with-rfq` path. A root-owned executable at
+`/opt/w09/research/hooks/after_exploratory_autoresearch` may optionally consume
+the completed immutable run bundle. Absence of that hook is normal because
+Deep03 itself is the default research payload.
 
 Copied-v2 rollback is explicit: restore the prior broad `research/*` reader
 policy (after review), use `/srv/w09-research/cache`, and run the selector

@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry W09 MODE 1 exploratory data consumption and research
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=30min
+Persistent=true
+RandomizedDelaySec=30
+Unit=w09-exploratory-autoresearch.service
+
+[Install]
+WantedBy=timers.target

@@ -33,7 +33,16 @@ import research_reference as reference  # noqa: E402
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 SCHEMA_INPUT = "deep03-d3-w2a-v3-input-manifest-v1"
 SCHEMA_PREPARE = "deep03-d3-w2a-v3-prepare-receipt-v1"
-LABELS = ["SEALED_PENDING_QUALITY_ASSESSMENT", "EXPLORATORY_ONLY"]
+MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
+ACCEPTED_EVIDENCE_TIERS = frozenset({
+    "SEALED_CONFIRMATION",
+    "SEALED_DEGRADED_EVIDENCE",
+})
+LABELS = [
+    "SEALED_PENDING_QUALITY_ASSESSMENT",
+    "EXPLORATORY_ONLY",
+    "NOT_STRICT_ACCEPTANCE",
+]
 SOURCE_FILES = (
     "deep03_v3_common.py",
     "deep03_v3_prepare.py",
@@ -226,6 +235,11 @@ def validate_explicit_releases(
             raise Deep03InputError(
                 f"strict V3 manifest gate failed for {release_id}: {exc}"
             ) from exc
+        if descriptor.get("evidence_tier") not in ACCEPTED_EVIDENCE_TIERS:
+            raise Deep03InputError(
+                "evidence tier is outside the MODE 1 exploratory allowlist: "
+                f"{release_id}:{descriptor.get('evidence_tier')}"
+            )
 
         manifest_sha = sha256_file(manifest_path)
         fixed_marker = {
@@ -361,6 +375,8 @@ def build_input_manifest(
         "schema_version": SCHEMA_INPUT,
         "run_id": validate_run_id(run_id),
         "created_at_utc": utc_now(),
+        "mode": MODE,
+        "strict_acceptance_claimed": False,
         "research_stage": "OPEN_DISCOVERY",
         "work_package": "D3-W2A",
         "evidence_labels": list(LABELS),
@@ -406,6 +422,8 @@ def stable_input_projection(value: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "schema_version",
             "run_id",
+            "mode",
+            "strict_acceptance_claimed",
             "research_stage",
             "work_package",
             "evidence_labels",

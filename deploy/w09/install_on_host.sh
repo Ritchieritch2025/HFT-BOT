@@ -55,6 +55,15 @@ if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
     echo "W09_INSTALL_REFUSED: Deep03 module integrity mismatch" >&2
     exit 65
 fi
+if [ ! -f "$PAYLOAD_ROOT/deploy/w09/exploratory_autoresearch_payload.sha256" ]; then
+    echo "W09_INSTALL_REFUSED: exploratory autoresearch manifest missing" >&2
+    exit 66
+fi
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/exploratory_autoresearch_payload.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: exploratory autoresearch payload mismatch" >&2
+    exit 65
+fi
 if ! grep -qx 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
     "$PAYLOAD_ROOT/shutdown-behavior-stop.confirmed" 2>/dev/null; then
     echo "W09_INSTALL_REFUSED: stop-not-terminate behavior was not confirmed" >&2
@@ -141,6 +150,14 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/select_newest_release.py" \
     "$INSTALL_ROOT/tools/select_newest_release.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.py" \
     "$INSTALL_ROOT/tools/v3_query_canary.py"
+install -m 0755 \
+    "$PAYLOAD_ROOT/deploy/w09/exploratory_v3_query_canary.py" \
+    "$INSTALL_ROOT/tools/exploratory_v3_query_canary.py"
+install -m 0755 \
+    "$PAYLOAD_ROOT/deploy/w09/exploratory_release_selector.py" \
+    "$INSTALL_ROOT/tools/exploratory_release_selector.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/exploratory_autoresearch.py" \
+    "$INSTALL_ROOT/tools/exploratory_autoresearch.py"
 QUERY_CANARY_SHA="$(awk \
     '$2 == "deploy/w09/v3_query_canary.py" {print $1}' \
     "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.sha256")"
@@ -212,6 +229,25 @@ install -m 0644 "$PAYLOAD_ROOT/deploy/w09/w09-idle-check.service" \
     /etc/systemd/system/w09-idle-check.service
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/w09-idle-check.timer" \
     /etc/systemd/system/w09-idle-check.timer
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-exploratory-autoresearch.service" \
+    /etc/systemd/system/w09-exploratory-autoresearch.service
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-exploratory-autoresearch.timer" \
+    /etc/systemd/system/w09-exploratory-autoresearch.timer
+
+sha256sum \
+    "$INSTALL_ROOT/tools/v3_query_canary.py" \
+    "$INSTALL_ROOT/tools/exploratory_v3_query_canary.py" \
+    "$INSTALL_ROOT/tools/exploratory_release_selector.py" \
+    "$INSTALL_ROOT/tools/exploratory_autoresearch.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_common.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_prepare.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_methods.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_runner.py" \
+    > /etc/w09/exploratory_autoresearch.sha256
+chmod 0444 /etc/w09/exploratory_autoresearch.sha256
+sha256sum -c /etc/w09/exploratory_autoresearch.sha256 >/dev/null
 
 # W09 holds no trading credential or reusable private key.  The Mac SSH key is
 # used by the operator only and is never copied by push_and_install.sh.
@@ -228,6 +264,8 @@ fi
 
 systemctl daemon-reload
 systemctl disable --now w09-idle-check.timer >/dev/null 2>&1 || true
+systemctl disable --now w09-exploratory-autoresearch.timer \
+    >/dev/null 2>&1 || true
 
 # Prove both fail-safe busy modes before arming the timer.
 systemctl start w09-idle-check.service
@@ -236,11 +274,13 @@ rm -f /run/w09-idle-provisioning
 systemctl start w09-idle-check.service
 grep -Eq '"reason": "ssh-(tcp|session)"' /var/lib/w09-idle/events.jsonl
 
+chown -R ubuntu:ubuntu /srv/w09-research
 systemctl enable --now w09-idle-check.timer
+systemctl enable --now w09-exploratory-autoresearch.timer
 systemctl is-active --quiet chrony.service
 systemctl is-active --quiet w09-idle-check.timer
+systemctl is-active --quiet w09-exploratory-autoresearch.timer
 timedatectl show -p Timezone --value | grep -qx UTC
-chown -R ubuntu:ubuntu /srv/w09-research
 
 trap - ERR
 echo "W09_INSTALL_COMPLETE instance=$INSTANCE_ID profile=$PROFILE_NAME role=$ROLE arch=$(uname -m) duckdb=1.4.5 timezone=UTC idle=1800s"

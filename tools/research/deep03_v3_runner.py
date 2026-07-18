@@ -20,6 +20,7 @@ from typing import Any
 from deep03_v3_common import (
     Deep03InputError,
     LABELS,
+    MODE,
     atomic_write_bytes,
     atomic_write_json,
     ensure_run_inputs_current,
@@ -115,6 +116,8 @@ def _quality_receipt(input_manifest: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "schema_version": "deep03-d3-w2a-data-quality-receipt-v1",
+        "mode": MODE,
+        "strict_acceptance_claimed": False,
         "research_stage": "OPEN_DISCOVERY",
         "evidence_labels": list(LABELS),
         "state": (
@@ -384,7 +387,7 @@ def _render_report(
       function filterStatus(s){document.querySelectorAll('.method-row').forEach(function(e){e.classList.toggle('hidden',s!=='ALL'&&e.dataset.status!==s);});}
     """
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deep03 D3-W2A V3 Open Discovery</title><style>{css}</style></head><body>
-    <div class="banner">SEALED_PENDING_QUALITY_ASSESSMENT</div><div class="banner">EXPLORATORY_ONLY · NO STRATEGY PNL · NO ORDER AUTHORITY</div>
+    <div class="banner">MODE 1 / EXPLORATORY_AUTORESEARCH</div><div class="banner">SEALED_PENDING_QUALITY_ASSESSMENT</div><div class="banner">EXPLORATORY_ONLY · NOT STRICT ACCEPTANCE · NO STRATEGY PNL · NO ORDER AUTHORITY</div>
     <h1>Deep03 D3-W2A V3 Open Discovery</h1><div class="meta"><p>Run <code>{html.escape(input_manifest['run_id'])}</code></p>
     <p>Exact explicit releases: {html.escape(', '.join(input_manifest['release_ids']))}</p>
     <p>Objects: {input_manifest['object_count']} · bytes: {input_manifest['object_bytes']} · sealed fact rows reported by source manifests: {input_manifest['sealed_fact_rows']} · fact objects without a source row count: {input_manifest['fact_objects_without_row_count']}</p>
@@ -454,6 +457,8 @@ def run_discovery(
         results = {
             "schema_version": SCHEMA_RESULTS,
             "run_id": input_manifest["run_id"],
+            "mode": MODE,
+            "strict_acceptance_claimed": False,
             "research_stage": "OPEN_DISCOVERY",
             "work_package": "D3-W2A",
             "evidence_labels": list(LABELS),
@@ -495,9 +500,12 @@ def run_discovery(
         complete = {
             "schema_version": SCHEMA_COMPLETE,
             "run_id": input_manifest["run_id"],
+            "mode": MODE,
+            "strict_acceptance_claimed": False,
             "research_stage": "OPEN_DISCOVERY",
             "work_package": "D3-W2A",
             "evidence_labels": list(LABELS),
+            "release_ids": input_manifest["release_ids"],
             "started_at_utc": started,
             "completed_at_utc": utc_now(),
             "exit_status": 0,

@@ -10,6 +10,7 @@ REMOTE="/tmp/w09-bringup"
 READER_MODULE_MANIFEST="$HERE/research_reader_modules.sha256"
 QUERY_CANARY_MANIFEST="$HERE/v3_query_canary.sha256"
 DEEP03_MODULE_MANIFEST="$HERE/deep03_open_discovery_modules.sha256"
+EXPLORATORY_MANIFEST="$HERE/exploratory_autoresearch_payload.sha256"
 
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
@@ -42,6 +43,15 @@ if ! (cd "$SOURCE_REPO" && \
     echo "W09_SOURCE_GATE: pinned Deep03 module set changed" >&2
     exit 65
 fi
+if [ ! -f "$EXPLORATORY_MANIFEST" ]; then
+    echo "W09_SOURCE_GATE: exploratory autoresearch manifest missing" >&2
+    exit 65
+fi
+if ! (cd "$ROOT" && \
+      shasum -a 256 -c "$EXPLORATORY_MANIFEST" >/dev/null); then
+    echo "W09_SOURCE_GATE: exploratory autoresearch payload changed" >&2
+    exit 65
+fi
 if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
@@ -61,6 +71,7 @@ done
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
+cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \
@@ -68,7 +79,10 @@ for file in \
     w09-idle-check.timer w09-run w09-inhibit-run \
     w09-inhibit-run.sudoers w09_idle_check.py \
     w09_idle_confirm_stop.py w09_idle_proof.py v3_query_canary.py \
-    v3_query_canary.sha256; do
+    v3_query_canary.sha256 exploratory_v3_query_canary.py \
+    exploratory_release_selector.py exploratory_autoresearch.py \
+    w09-exploratory-autoresearch.service \
+    w09-exploratory-autoresearch.timer; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"
 done
 printf '%s\n' 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \

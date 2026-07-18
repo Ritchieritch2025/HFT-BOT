@@ -11,6 +11,7 @@ from pathlib import Path
 
 from deep03_v3_common import (
     Deep03InputError,
+    MODE,
     SCHEMA_PREPARE,
     atomic_write_json,
     build_input_manifest,
@@ -58,6 +59,8 @@ def prepare_run(
                 "run_id": run_id,
                 "prepared_at_utc": utc_now(),
                 "state": "PREPARED_EXACT_V3_OPEN_DISCOVERY",
+                "mode": MODE,
+                "strict_acceptance_claimed": False,
                 "input_manifest_sha256": sha256_file(input_path),
                 "input_projection_sha256": input_projection_sha256(manifest),
                 "source_modules_sha256": source_hashes(),
