@@ -1077,8 +1077,16 @@ def _validate_local_terminal_status(status: object, path: pathlib.Path,
 
 def discover_unfinished_dates(live_dir: pathlib.Path,
                               failures: list[dict], *,
+                              inspect_publication_statuses: bool = True,
                               limit: int = 4096) -> list[str]:
-    """Recover bounded nonterminal state independently of seal lookback."""
+    """Recover bounded nonterminal state independently of seal lookback.
+
+    Durable-only runs under a credential-free UID that deliberately cannot
+    read the full publisher UID's private status documents.  In that mode,
+    every bounded publication-state date is conservatively retried without
+    opening those documents; canonical transaction directories are still
+    inspected below.
+    """
     live = pathlib.Path(live_dir).absolute()
     candidates: set[str] = set()
     state_dates = sorted((live / "research_v3_daily").glob("date=*"))
@@ -1117,6 +1125,9 @@ def discover_unfinished_dates(live_dir: pathlib.Path,
     for root in state_dates:
         date = parsed_date(root)
         if date is None:
+            continue
+        if not inspect_publication_statuses:
+            candidates.add(date)
             continue
         statuses = [root / "PREPARE_STATUS.json"]
         statuses.extend(sorted(root.glob("receipt=*/STATUS.json")))
@@ -3131,7 +3142,8 @@ def main(argv=None) -> int:
             warehouse_root=warehouse_arg,
             discovery_failures=discovery_failures)
         dates = sorted(set(dates) | set(discover_unfinished_dates(
-            live_arg, discovery_failures)))
+            live_arg, discovery_failures,
+            inspect_publication_statuses=not args.durable_only)))
         authorized_dates = []
         for date in dates:
             if _date_scope_allowed(date):

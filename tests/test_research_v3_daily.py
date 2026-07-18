@@ -1337,6 +1337,24 @@ def test_discovery_retries_locally_bound_terminal_for_remote_authentication(
     assert failures == []
 
 
+def test_durable_discovery_requeues_private_publisher_state_without_opening_it(
+        tmp_path, monkeypatch):
+    live = tmp_path / "live"
+    status = (live / "research_v3_daily" / ("date=" + DATE)
+              / ("receipt=" + RECEIPT_SHA) / "STATUS.json")
+    _write_json(status, {"state": "V3_REFERENCE_PUBLISHED"})
+
+    monkeypatch.setattr(
+        daily, "_read_json",
+        lambda *_a, **_kw: pytest.fail(
+            "durable discovery opened private publisher state"))
+    failures = []
+
+    assert daily.discover_unfinished_dates(
+        live, failures, inspect_publication_statuses=False) == [DATE]
+    assert failures == []
+
+
 @pytest.mark.parametrize("tamper", [False, True])
 def test_terminal_retry_exact_gets_and_hashes_recorded_manifest(
         tmp_path, monkeypatch, tamper):
