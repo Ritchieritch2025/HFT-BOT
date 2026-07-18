@@ -2187,6 +2187,109 @@ def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
                            for row in catalog)
 
 
+def test_forward_inventory_admits_only_exact_daily_fresh_rfq_allowlist(
+        receipt_tree, tmp_path, monkeypatch):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "fresh-rfq-forward")
+    proof = next(
+        row for row in receipt_tree["seal"]["raw_files"]
+        if os.path.basename(row["file"]).startswith("rfq_")
+        and not os.path.basename(row["file"]).startswith("rfq_receipts_"))
+    seal_raw = receipt_tree["seal_path"].read_bytes()
+    marker = {
+        "research_ready": True,
+        "old_lineage_state": "DATA_INTEGRITY_BLOCKED",
+        "repair_state": "FORBIDDEN",
+        "old_lineage_overlap_count": 0,
+        "eligible_objects": [{
+            "bucket": BUCKET,
+            "key": "%s/raw/%s" % (PREFIX, proof["file"]),
+            "version_id": "v1",
+            "size": proof["size"],
+            "sha256": proof["sha256"],
+        }],
+        "source_seal": {
+            "bucket": BUCKET,
+            "key": "%s/warehouse/seals/date=%s.json" % (PREFIX, DATE),
+            "version_id": "v1",
+            "size": len(seal_raw),
+            "sha256": _sha(seal_raw),
+            "verification_state": "PASS",
+        },
+    }
+    observed = {}
+
+    def load(path, *, expected_date):
+        observed.update(path=str(path), date=expected_date)
+        return copy.deepcopy(marker)
+
+    monkeypatch.setattr(fcr.fresh_rfq_gate, "load_package", load)
+    _binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle), str(_forward_binding(bundle)),
+        fresh_rfq_eligibility=tmp_path / "date=2026-07-13" / "ELIGIBLE.json")
+
+    rfq = [row for row in objects if row.get("channel") == "rfq"]
+    assert len(rfq) == 1
+    assert rfq[0]["key"] == marker["eligible_objects"][0]["key"]
+    assert rfq[0]["_expected_version_id"] == "v1"
+    assert rfq[0]["version_resolution"] == \
+        "FRESH_RFQ_ELIGIBILITY_EXACT_VERSION"
+    assert rfq[0]["canonical_source"] == "FRESH_RFQ_DAILY_ELIGIBILITY"
+    assert rfq[0]["research_candidate"] is False
+    assert rfq[0]["exposure_policy"] == "FORBIDDEN_RFQ_DEFAULT"
+    assert observed["date"] == DATE
+    families = {row["name"]: row for row in _binding["families"]}
+    assert families["raw_rfq_deferred"]["reason_code"] == \
+        "NON_ELIGIBLE_RFQ_EXCLUDED"
+
+
+@pytest.mark.parametrize("mutation", ["sha", "missing", "seal_version"])
+def test_forward_fresh_rfq_allowlist_mismatch_fails_closed(
+        receipt_tree, tmp_path, monkeypatch, mutation):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / ("fresh-rfq-bad-" + mutation))
+    proof = next(
+        row for row in receipt_tree["seal"]["raw_files"]
+        if os.path.basename(row["file"]).startswith("rfq_")
+        and not os.path.basename(row["file"]).startswith("rfq_receipts_"))
+    seal_raw = receipt_tree["seal_path"].read_bytes()
+    row = {
+        "bucket": BUCKET,
+        "key": "%s/raw/%s" % (PREFIX, proof["file"]),
+        "version_id": "v1", "size": proof["size"],
+        "sha256": proof["sha256"],
+    }
+    if mutation == "sha":
+        row["sha256"] = "0" * 64
+    elif mutation == "missing":
+        row["key"] = "%s/raw/date=%s/rfq_99.ndjson" % (PREFIX, DATE)
+    marker = {
+        "research_ready": True,
+        "old_lineage_state": "DATA_INTEGRITY_BLOCKED",
+        "repair_state": "FORBIDDEN",
+        "old_lineage_overlap_count": 0,
+        "eligible_objects": [row],
+        "source_seal": {
+            "bucket": BUCKET,
+            "key": "%s/warehouse/seals/date=%s.json" % (PREFIX, DATE),
+            "version_id": "v2" if mutation == "seal_version" else "v1",
+            "size": len(seal_raw), "sha256": _sha(seal_raw),
+            "verification_state": "PASS",
+        },
+    }
+    monkeypatch.setattr(
+        fcr.fresh_rfq_gate, "load_package",
+        lambda _path, *, expected_date: copy.deepcopy(marker))
+    with pytest.raises(cr.ReceiptError, match="RFQ_ELIGIBILITY_INVALID"):
+        fcr.build_forward_inventory(
+            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+            str(bundle), str(_forward_binding(bundle)),
+            fresh_rfq_eligibility=tmp_path / "ELIGIBLE.json")
+
+
 def test_forward_inventory_uses_bound_versions_after_local_sources_change(
         receipt_tree, tmp_path):
     bundle, _descriptor, _payloads = _forward_bundle(

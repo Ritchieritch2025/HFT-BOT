@@ -780,14 +780,16 @@ def validate_shadow_receipt(source, expected_bucket=None,
 
 def validate_forward_shadow_authority(shadow, date, bucket, prefix,
                                       raw_root, warehouse_root, quality_dir,
-                                      aux_bundle, version_binding):
+                                      aux_bundle, version_binding,
+                                      fresh_rfq_eligibility=None):
     """Rebuild the forward whitelist and require exact two-way equality."""
     if shadow.get("date") != date:
         raise cr.ReceiptError(
             "SHADOW_RECEIPT_INVALID", "requested date differs from receipt")
     expected_seal, expected_objects = fcr.build_forward_inventory(
         date, bucket, prefix, raw_root, warehouse_root, quality_dir,
-        aux_bundle, version_binding)
+        aux_bundle, version_binding,
+        fresh_rfq_eligibility=fresh_rfq_eligibility)
     expected_by_logical = {
         row["logical_source_key"]: row for row in expected_objects}
     observed_by_logical = {
@@ -866,7 +868,8 @@ def _equivalent_durable_body(stored_bytes, requested_shadow, bucket, prefix):
 def publish_durable_receipt(date, bucket, prefix, writer, output_root, *,
                             seal_binding, verified_objects, verified_at,
                             publisher_code_commit, raw_root, warehouse_root,
-                            quality_dir, aux_bundle, version_binding):
+                            quality_dir, aux_bundle, version_binding,
+                            fresh_rfq_eligibility=None):
     """Publish only an in-process, complete exact-version verification.
 
     The private completeness markers on ``verified_objects`` are deliberately
@@ -891,7 +894,7 @@ def publish_durable_receipt(date, bucket, prefix, writer, output_root, *,
             "disk shadow differs from in-process exact verification")
     validate_forward_shadow_authority(
         shadow, date, bucket, prefix, raw_root, warehouse_root, quality_dir,
-        aux_bundle, version_binding)
+        aux_bundle, version_binding, fresh_rfq_eligibility)
     payload = copy.deepcopy(shadow)
     payload.update({
         "state": DURABLE_STATE,
@@ -964,6 +967,9 @@ def main(argv=None):
     _source_args(receipt)
     receipt.add_argument("--aux-bundle", required=True)
     receipt.add_argument("--version-binding", required=True)
+    receipt.add_argument(
+        "--fresh-rfq-eligibility",
+        help="validated date=D/ELIGIBLE.json; admits only its exact RFQ set")
     receipt.add_argument("--aws-cli", default="aws")
     receipt.add_argument(
         "--workers", type=int,
@@ -1022,7 +1028,10 @@ def main(argv=None):
                 args.date, args.bucket, args.prefix, raw_root,
                 warehouse_root, quality_dir,
                 os.path.abspath(args.aux_bundle),
-                os.path.abspath(args.version_binding))
+                os.path.abspath(args.version_binding),
+                fresh_rfq_eligibility=(
+                    os.path.abspath(args.fresh_rfq_eligibility)
+                    if args.fresh_rfq_eligibility else None))
             verified, failures, complete = cr.verify_inventory(
                 inventory, writer.reader,
                 os.path.join(output_root, ".verification-tmp"),
@@ -1041,7 +1050,10 @@ def main(argv=None):
                 raw_root=raw_root, warehouse_root=warehouse_root,
                 quality_dir=quality_dir,
                 aux_bundle=os.path.abspath(args.aux_bundle),
-                version_binding=os.path.abspath(args.version_binding))
+                version_binding=os.path.abspath(args.version_binding),
+                fresh_rfq_eligibility=(
+                    os.path.abspath(args.fresh_rfq_eligibility)
+                    if args.fresh_rfq_eligibility else None))
             result = {
                 "state": DURABLE_STATE,
                 "index": str(path),

@@ -122,6 +122,7 @@ CANONICAL_TAGGED_PHASE = "TAGGED_ELIGIBILITY_VERIFIED"
 RFQ_ELIGIBILITY_BINDING_SCHEMA = "canonical-rfq-eligibility-binding-v1"
 RFQ_ELIGIBILITY_BINDING_STATE = "ELIGIBLE_SEALED_REFERENCE"
 RFQ_DUAL_TAG_STATE = "DUAL_TAGGED_VERIFIED"
+RFQ_RESEARCH_MODE = "FRESH_SEALED"
 MAX_DURABLE_INDEX_BYTES = 1024 * 1024
 MAX_CANONICAL_RECEIPT_BYTES = 16 * 1024 * 1024
 MAX_REFERENCE_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -1339,6 +1340,10 @@ def _validate_tag_precommit_proof(path, *, date, receipt,
     }
     if set(proof) != root_fields:
         _reference_abort("precommit proof root differs from the fixed schema")
+    rfq_enabled = any(
+        ref.get("kind") == "rfq" or ref.get("channel") == "rfq"
+        for ref in references)
+    rfq_mode = RFQ_RESEARCH_MODE if rfq_enabled else "OFF"
     fixed = {
         "schema_version": TAG_PRECOMMIT_PROOF_SCHEMA,
         "state": TAG_PRECOMMIT_PROOF_STATE,
@@ -1348,7 +1353,7 @@ def _validate_tag_precommit_proof(path, *, date, receipt,
             receipt.get("byte_attestation_receipt_set_sha256"),
         "eligibility_single_writer_audit_sha256":
             receipt.get("eligibility_single_writer_audit_sha256"),
-        "rfq": "OFF",
+        "rfq": rfq_mode,
         "tag_puts": 0,
     }
     if any(proof.get(field) != expected for field, expected in fixed.items()):
@@ -1407,7 +1412,10 @@ def _validate_tag_precommit_proof(path, *, date, receipt,
             _reference_abort("precommit proof target %d is malformed" % number)
         if (row.get("role") not in
                 ("TAGGED_RECEIPT", "RESEARCH_CANDIDATE")
-                or row.get("required_tags") != {"research-eligible": "true"}
+                or row.get("required_tags") not in (
+                    {"research-eligible": "true"},
+                    {"research-eligible": "true",
+                     "research-channel": "rfq"})
                 or not _valid_sha256(row.get("sha256"))
                 or not isinstance(row.get("size"), int)
                 or isinstance(row.get("size"), bool) or row["size"] < 0):
@@ -1442,17 +1450,21 @@ def _validate_tag_precommit_proof(path, *, date, receipt,
         "required_tags": {"research-eligible": "true"},
     }]
     for ref in references:
-        if ref.get("kind") == "rfq" or ref.get("channel") == "rfq":
-            _reference_abort("precommit proof path is structurally RFQ-off")
+        is_rfq = ref.get("kind") == "rfq" or ref.get("channel") == "rfq"
+        proof_logical = ref["logical_key"]
+        if is_rfq and proof_logical.startswith("raw_rfq/"):
+            proof_logical = "raw/" + proof_logical[len("raw_rfq/"):]
         expected.append({
             "role": "RESEARCH_CANDIDATE",
-            "logical_key": ref["logical_key"],
+            "logical_key": proof_logical,
             "source_bucket": ref["source_bucket"],
             "source_key": ref["source_key"],
             "source_version_id": ref["source_version_id"],
             "size": ref["size"],
             "sha256": ref["sha256"],
-            "required_tags": {"research-eligible": "true"},
+            "required_tags": ({
+                "research-eligible": "true", "research-channel": "rfq"}
+                if is_rfq else {"research-eligible": "true"}),
         })
     expected.sort(key=lambda row: (
         row["role"], row["logical_key"], row["source_bucket"],
@@ -1470,12 +1482,13 @@ def _validate_tag_precommit_proof(path, *, date, receipt,
         "target_set_sha256": proof["target_set_sha256"],
         "target_count": proof["target_count"],
         "research_candidate_count": proof["research_candidate_count"],
-        "rfq": "OFF",
+        "rfq": rfq_mode,
     }
 
 
 def _reference_manifest_result(dest, manifest_key, raw, version_id,
-                               release_id, state, *, prepared_plan_sha256=None):
+                               release_id, state, *, prepared_plan_sha256=None,
+                               rfq="OFF"):
     """Emit a machine-readable exact MANIFEST receipt as the final line."""
     digest = hashlib.sha256(raw).hexdigest()
     if isinstance(dest, S3Dest):
@@ -1505,7 +1518,7 @@ def _reference_manifest_result(dest, manifest_key, raw, version_id,
         "release_id": release_id,
         "manifest_object": binding,
         "data_uploads": 0,
-        "rfq": "OFF",
+        "rfq": rfq,
     }
     if prepared_plan_sha256 is not None:
         result["prepared_plan_sha256"] = prepared_plan_sha256
@@ -1524,9 +1537,6 @@ def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
     the conditional MANIFEST create.  The publisher process never receives
     tagger credentials.
     """
-    if include_rfq:
-        _reference_abort(
-            "prepared v3 publication is RFQ-off; RFQ remains independent")
     plan, plan_sha = _read_prepared_reference_plan(prepared_plan_path)
     plan_fields = {
         "schema_version", "state", "prepared_at_utc", "date",
@@ -1543,7 +1553,7 @@ def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
         "destination": dest_url,
         "live_dir": os.path.abspath(os.fspath(live_dir)),
         "receipt_index": os.path.abspath(os.fspath(receipt_path)),
-        "include_rfq": False,
+        "include_rfq": bool(include_rfq),
     }
     if any(plan.get(field) != expected for field, expected in fixed.items()):
         _reference_abort("prepared plan invocation binding mismatch")
@@ -1588,7 +1598,8 @@ def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
         receipt_path, date, source_seal["sha256"], source_seal["size"],
         exact_reader, verify_candidates=False)
     selected = _receipt_reference_objects(
-        receipt, False, receipt.get("seal"), manifest.get("evidence_tier"),
+        receipt, bool(include_rfq), receipt.get("seal"),
+        manifest.get("evidence_tier"),
         source_seal["sha256"])
     references = [ref for _logical, ref in selected]
     if references != manifest.get("objects"):
@@ -1640,7 +1651,8 @@ def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
         _reference_manifest_result(
             dest, manifest_key, raw, existing_version, release_id,
             "REFERENCE_MANIFEST_ALREADY_COMMITTED",
-            prepared_plan_sha256=plan_sha)
+            prepared_plan_sha256=plan_sha,
+            rfq=(RFQ_RESEARCH_MODE if include_rfq else "OFF"))
         return 0
 
     stage_root = _research_stage_root()
@@ -1662,7 +1674,8 @@ def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
         manifest_version = dest.upload_manifest(manifest_path, manifest_key)
     _reference_manifest_result(
         dest, manifest_key, raw, manifest_version, release_id,
-        "REFERENCE_MANIFEST_COMMITTED", prepared_plan_sha256=plan_sha)
+        "REFERENCE_MANIFEST_COMMITTED", prepared_plan_sha256=plan_sha,
+        rfq=(RFQ_RESEARCH_MODE if include_rfq else "OFF"))
     return 0
 
 
@@ -2432,8 +2445,32 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
     canonical_prefix = seal_key[:-len(seal_suffix)].rstrip("/")
     if not canonical_prefix:
         _reference_abort("canonical prefix cannot be empty")
-    sealed_rfq = {row["file"]: row for row in seal.get("raw_files", [])
-                  if _RFQ_RE.match(os.path.basename(row.get("file", "")))}
+    raw_file_proofs = seal.get("raw_files")
+    if isinstance(raw_file_proofs, list):
+        sealed_rfq = {
+            row["file"]: row for row in raw_file_proofs
+            if _RFQ_RE.match(os.path.basename(row.get("file", "")))}
+    else:
+        # Prepared-plan commit intentionally reopens only the authenticated
+        # tagged receipt and its byte parent, not the mutable local seal file.
+        # Reconstruct the already-attested RFQ membership projection from that
+        # receipt; the strict RFQ evidence binding is validated below and the
+        # resulting references must exactly equal the frozen prepared plan.
+        if (seal is not receipt.get("seal")
+                or seal.get("sha256") != seal_sha):
+            _reference_abort("RFQ seal membership proof is unavailable")
+        sealed_rfq = {}
+        for candidate in receipt.get("objects") or []:
+            if not _is_rfq_receipt_object(candidate):
+                continue
+            logical = str(candidate.get("logical_source_key") or "")
+            if not logical.startswith("raw/"):
+                _reference_abort("RFQ receipt logical path is invalid")
+            rel = logical[len("raw/"):]
+            sealed_rfq[rel] = {
+                "file": rel, "size": candidate.get("size"),
+                "sha256": candidate.get("sha256"),
+            }
     selected = []
     for obj in receipt["objects"]:
         if obj.get("research_candidate") is not True:
@@ -2476,8 +2513,7 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
                     or obj.get("date") != match.group(1)
                     or obj.get("required") is not False
                     or obj.get("seal_binding") != seal_sha
-                    or obj.get("evidence_binding") in (None, "", [], {})
-                    or evidence_tier != "SEALED_CONFIRMATION"):
+                    or obj.get("evidence_binding") in (None, "", [], {})):
                 _reference_abort("RFQ reference is not sealed-only eligible: %s" % rel)
             state_text = json.dumps(obj, sort_keys=True).upper()
             if any(marker in state_text for marker in (
@@ -2636,10 +2672,6 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
                                 publication_components, tables, tl1_status,
                                 tier, tier_basis, channels, corr_objs,
                                 ledger_lines, l2_quality, live_dir):
-    if include_rfq:
-        _reference_abort(
-            "v3 tagger-precommit publication is RFQ-off; RFQ remains an "
-            "independent research capability")
     receipt, receipt_binding = _load_authoritative_receipt(
         receipt_path, date, seal_sha, seal_size, receipt_reader)
     selected = _receipt_reference_objects(
@@ -2861,7 +2893,7 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
             "destination": dest_url,
             "live_dir": os.path.abspath(os.fspath(live_dir)),
             "receipt_index": os.path.abspath(os.fspath(receipt_path)),
-            "include_rfq": False,
+            "include_rfq": bool(include_rfq),
             "publisher_commit": publisher_commit,
             "release_id": release_id,
             "manifest_key": manifest_key,
@@ -2880,7 +2912,7 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
             "prepared_plan_size": prepared_size,
             "reference_set_sha256": reference_set_sha,
             "s3_writes": 0,
-            "rfq": "OFF",
+            "rfq": (RFQ_RESEARCH_MODE if rfq_included else "OFF"),
         }, sort_keys=True))
         return 0
     existing = dest.read_manifest(manifest_key)
@@ -2894,7 +2926,8 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
                existing_version or "LOCAL_FIXTURE"))
         _reference_manifest_result(
             dest, manifest_key, raw, existing_version, release_id,
-            "REFERENCE_MANIFEST_ALREADY_COMMITTED")
+            "REFERENCE_MANIFEST_ALREADY_COMMITTED",
+            rfq=(RFQ_RESEARCH_MODE if rfq_included else "OFF"))
         return 0
     mpath = os.path.join(stage_dir, "MANIFEST.json")
     with open(mpath, "w") as f:
@@ -2917,7 +2950,8 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
         manifest_raw = handle.read(MAX_REFERENCE_MANIFEST_BYTES + 1)
     _reference_manifest_result(
         dest, manifest_key, manifest_raw, manifest_vid, release_id,
-        "REFERENCE_MANIFEST_COMMITTED")
+        "REFERENCE_MANIFEST_COMMITTED",
+        rfq=(RFQ_RESEARCH_MODE if rfq_included else "OFF"))
     return 0
 
 

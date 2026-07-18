@@ -24,6 +24,7 @@ import shutil
 import tempfile
 
 import canonical_receipts as cr
+import fresh_rfq_daily_eligibility as fresh_rfq_gate
 import publication_generation as pg
 import research_release
 import warehouse_common as wc
@@ -1736,13 +1737,15 @@ def load_forward_version_binding(path, descriptor, auxiliary,
 
 def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
                             quality_dir, aux_bundle, version_binding,
-                            include_rfq_durability=False):
+                            include_rfq_durability=False,
+                            fresh_rfq_eligibility=None):
     """Build the forward desired set without making an S3 call.
 
-    RFQ is excluded from the default byte-verification set under the operator's
-    closed/no-repair ruling.  The explicit function-only capability remains
-    for a future independently authorized RFQ receipt; no CLI flag exposes it
-    in the current core workflow.
+    RFQ is excluded by default under the old-lineage no-repair ruling.  A
+    future day may admit only the exact analysis objects in a revalidated
+    ``fresh-rfq-daily-eligibility-v1`` package.  The old function-only boolean
+    remains solely for compatibility with offline migration tests; production
+    callers use the content-addressed gate path, never an unbound boolean.
     """
     if not bucket or "/" in bucket:
         raise cr.ReceiptError("INVALID_BUCKET", repr(bucket))
@@ -1750,6 +1753,34 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
     (seal, binding, _manifest_payload, manifest_digest, _manifest_rows,
      raw_proofs, fact_proofs) = _forward_authoritative_day_inputs(
          date, raw_root, warehouse_root, quality_dir)
+    if include_rfq_durability and fresh_rfq_eligibility is not None:
+        raise cr.ReceiptError(
+            "RFQ_ELIGIBILITY_INVALID",
+            "legacy RFQ capability and daily eligibility are mutually exclusive")
+    eligibility = None
+    eligible_by_key = {}
+    if fresh_rfq_eligibility is not None:
+        try:
+            eligibility = fresh_rfq_gate.load_package(
+                pathlib.Path(fresh_rfq_eligibility), expected_date=date)
+        except (fresh_rfq_gate.EligibilityError, OSError) as exc:
+            raise cr.ReceiptError(
+                "RFQ_ELIGIBILITY_INVALID", str(exc)) from exc
+        if (eligibility.get("research_ready") is not True
+                or eligibility.get("old_lineage_state")
+                != "DATA_INTEGRITY_BLOCKED"
+                or eligibility.get("repair_state") != "FORBIDDEN"
+                or eligibility.get("old_lineage_overlap_count") != 0):
+            raise cr.ReceiptError(
+                "RFQ_ELIGIBILITY_INVALID", "daily marker is not fail-closed")
+        for row in eligibility["eligible_objects"]:
+            key = row["key"]
+            if (row["bucket"] != bucket
+                    or not key.startswith(prefix + "/raw/")
+                    or key in eligible_by_key):
+                raise cr.ReceiptError(
+                    "RFQ_ELIGIBILITY_INVALID", key)
+            eligible_by_key[key] = row
     seal_sha = binding["sha256"]
     objects = []
     seen = {"physical": set(), "logical": set()}
@@ -1757,12 +1788,27 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
 
     included_raw_proofs = []
     deferred_rfq_proofs = []
+    observed_eligible = set()
     for proof in sorted(raw_proofs, key=lambda item: item["file"]):
         rel = proof["file"]
         path_date, basename = cr._raw_rel_parts(rel)
         kind, channel = cr._raw_classification(rel)
         is_rfq = kind in {"raw_rfq", "raw_rfq_receipts"}
-        if is_rfq and not include_rfq_durability:
+        eligible_row = None
+        if is_rfq and eligibility is not None:
+            canonical_key = cr._join_key(prefix, "raw", rel)
+            eligible_row = eligible_by_key.get(canonical_key)
+            if eligible_row is None:
+                deferred_rfq_proofs.append(proof)
+                continue
+            if (kind != "raw_rfq"
+                    or proof["size"] != eligible_row["size"]
+                    or proof["sha256"] != eligible_row["sha256"]):
+                raise cr.ReceiptError(
+                    "RFQ_ELIGIBILITY_INVALID",
+                    "%s does not match the sealed raw proof" % canonical_key)
+            observed_eligible.add(canonical_key)
+        elif is_rfq and not include_rfq_durability:
             deferred_rfq_proofs.append(proof)
             continue
         included_raw_proofs.append(proof)
@@ -1776,8 +1822,20 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
             durability_scope=True, research_candidate=False,
             exposure_policy=("FORBIDDEN_RFQ_DEFAULT" if is_rfq
                              else "FORBIDDEN_RAW"),
-            version_resolution="SEALED_CURRENT_EXACT")
+            version_resolution=(
+                "FRESH_RFQ_ELIGIBILITY_EXACT_VERSION" if eligible_row
+                else "SEALED_CURRENT_EXACT"),
+            canonical_source=(
+                "FRESH_RFQ_DAILY_ELIGIBILITY" if eligible_row
+                else "EXISTING_CANONICAL_SYNC"),
+            expected_version_id=(
+                eligible_row["version_id"] if eligible_row else None))
         cr._add_unique(objects, seen, obj)
+    if eligibility is not None and observed_eligible != set(eligible_by_key):
+        missing = sorted(set(eligible_by_key) - observed_eligible)
+        raise cr.ReceiptError(
+            "RFQ_ELIGIBILITY_INVALID",
+            "eligible object is absent from seal.raw_files: %s" % missing[:1])
     families.append(cr._family(
         "raw_durability", "REQUIRED_CORE", "seal.raw_files",
         len(included_raw_proofs), len(included_raw_proofs),
@@ -1786,8 +1844,12 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
     if deferred_rfq_proofs:
         families.append(cr._family(
             "raw_rfq_deferred", "CONDITIONAL",
-            "operator RFQ branch closed; separate future receipt required",
-            0, 0, "NOT_APPLICABLE", "RFQ_BRANCH_CLOSED_NO_REPAIR",
+            ("old/receipt/watermark RFQ remains excluded"
+             if eligibility is not None else
+             "operator RFQ branch closed; separate future receipt required"),
+            0, 0, "NOT_APPLICABLE",
+            ("NON_ELIGIBLE_RFQ_EXCLUDED" if eligibility is not None
+             else "RFQ_BRANCH_CLOSED_NO_REPAIR"),
             semantic_sha256=cr.canonical_sha256(deferred_rfq_proofs)))
 
     for proof in sorted(fact_proofs, key=lambda item: item["file"]):
@@ -1842,6 +1904,20 @@ def build_forward_inventory(date, bucket, prefix, raw_root, warehouse_root,
         witness_payload, date, bucket, prefix, seal_sha, binding["size"],
         descriptor["generation_witness_contract"]["seal_sealed_at_utc"])
     witness_seal = witness["seal"]
+    if eligibility is not None:
+        eligible_seal = eligibility["source_seal"]
+        expected_eligible_seal = {
+            "bucket": witness_seal["bucket"],
+            "key": witness_seal["key"],
+            "version_id": witness_seal["VersionId"],
+            "size": witness_seal["size"],
+            "sha256": witness_seal["sha256"],
+        }
+        if any(eligible_seal.get(field) != value
+               for field, value in expected_eligible_seal.items()):
+            raise cr.ReceiptError(
+                "RFQ_ELIGIBILITY_INVALID",
+                "daily RFQ gate is bound to a different exact day seal")
     seal_objects = [row for row in objects if row["source_kind"] == "seal"]
     if (len(seal_objects) != 1
             or witness_seal["key"] != seal_objects[0]["key"]
@@ -2080,10 +2156,16 @@ def main(argv=None):
     _common_args(plan)
     plan.add_argument("--aux-bundle", required=True)
     plan.add_argument("--version-binding", required=True)
+    plan.add_argument(
+        "--fresh-rfq-eligibility",
+        help="validated date=D/ELIGIBLE.json; admits only its exact RFQ set")
     shadow = sub.add_parser("shadow-forward")
     _common_args(shadow)
     shadow.add_argument("--aux-bundle", required=True)
     shadow.add_argument("--version-binding", required=True)
+    shadow.add_argument(
+        "--fresh-rfq-eligibility",
+        help="validated date=D/ELIGIBLE.json; admits only its exact RFQ set")
     shadow.add_argument("--aws-cli", default="aws")
     shadow.add_argument("--metadata-only", action="store_true")
     shadow.add_argument("--probe-limit", type=int)
@@ -2144,7 +2226,10 @@ def main(argv=None):
         seal_binding, objects = build_forward_inventory(
             args.date, args.bucket, args.prefix, raw_root, warehouse_root,
             quality_dir, os.path.abspath(args.aux_bundle),
-            os.path.abspath(args.version_binding))
+            os.path.abspath(args.version_binding),
+            fresh_rfq_eligibility=(
+                os.path.abspath(args.fresh_rfq_eligibility)
+                if args.fresh_rfq_eligibility else None))
     except cr.ReceiptError as exc:
         print("BLOCKED_INTEGRITY %s" % exc, file=os.sys.stderr)
         return 2

@@ -91,6 +91,7 @@ RFQ_BINDING_SCHEMA = "canonical-rfq-eligibility-binding-v1"
 RFQ_BINDING_STATE = "ELIGIBLE_SEALED_REFERENCE"
 RFQ_DUAL_TAG_STATE = "DUAL_TAGGED_VERIFIED"
 RFQ_EXPOSURE_POLICY = "RESEARCH_ELIGIBLE_SEALED_RFQ"
+RFQ_RESEARCH_MODE = "FRESH_SEALED"
 RFQ_PROJECTION_FIELDS = (
     "logical_source_key", "bucket", "key", "VersionId", "size", "sha256",
     "last_modified_utc",
@@ -328,7 +329,7 @@ def load_single_writer_audit(path, policy_evidence_path, *, date, bucket,
             "evidence_tier": LAYERED_EVIDENCE_TIER,
             "live_policy_readback": False,
             "limitations": LAYERED_LIMITATIONS,
-            "rfq": "OFF",
+            "rfq": (RFQ_RESEARCH_MODE if include_sealed_rfq else "OFF"),
         }
         for field, expected in layered_fixed.items():
             if layered.get(field) != expected:
@@ -610,7 +611,7 @@ def _is_raw_object(obj, prefix):
             or logical.startswith("raw/"))
 
 
-def select_tag_targets(receipt, prefix):
+def select_tag_targets(receipt, prefix, *, skip_rfq_candidates=False):
     """Return the complete warehouse/control candidate set or fail closed."""
     targets = []
     for obj in receipt["objects"]:
@@ -618,6 +619,8 @@ def select_tag_targets(receipt, prefix):
             continue
         key = str(obj.get("key") or "")
         if _is_rfq_object(obj):
+            if skip_rfq_candidates:
+                continue
             raise cr.ReceiptError(
                 "RFQ_TAGGING_FORBIDDEN",
                 "%s is raw/RFQ" % obj.get("logical_source_key"))
@@ -1248,7 +1251,9 @@ def _proof_target(obj, *, role, logical_key):
         "source_version_id": obj.get("VersionId"),
         "size": obj.get("size"),
         "sha256": obj.get("sha256"),
-        "required_tags": {TAG_KEY: TAG_VALUE},
+        "required_tags": ({TAG_KEY: TAG_VALUE, RFQ_TAG_KEY: RFQ_TAG_VALUE}
+                          if _is_rfq_object(obj)
+                          else {TAG_KEY: TAG_VALUE}),
     }
     if (not isinstance(row["logical_key"], str) or not row["logical_key"]
             or not isinstance(row["source_bucket"], str)
@@ -1327,22 +1332,25 @@ def _load_tagged_for_precommit(tagged_index_path, byte_index_path, reader,
         raise cr.ReceiptError(
             "TAGGED_PARENT_MISMATCH",
             "tagged index does not bind the exact byte-attestation parent")
+    rfq_candidates = [
+        obj for obj in tagged_receipt.get("objects") or []
+        if obj.get("research_candidate") is True and _is_rfq_object(obj)]
+    rfq_binding = (rfq_candidates[0].get("evidence_binding")
+                   if rfq_candidates else None)
     _validate_tagged_transition(
         byte_receipt, tagged_receipt, audit_sha=audit_sha,
-        rfq_binding=None, prefix=prefix)
-    if any(obj.get("research_candidate") is True and _is_rfq_object(obj)
-           for obj in tagged_receipt.get("objects") or []):
-        raise cr.ReceiptError(
-            "RFQ_TAGGING_FORBIDDEN", "precommit proof is structurally RFQ-off")
-    targets = select_tag_targets(tagged_receipt, prefix)
+        rfq_binding=rfq_binding, prefix=prefix)
+    targets = select_tag_targets(
+        tagged_receipt, prefix, skip_rfq_candidates=True)
     return (tagged_index, tagged_receipt, byte_index, targets,
-            bucket, prefix)
+            rfq_candidates, bucket, prefix)
 
 
 def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
                            tagger, output_root, expected_tagger_principal,
                            identity_provider=None, expected_bucket=None,
-                           expected_prefix=None, generated_at=None):
+                           expected_prefix=None, generated_at=None,
+                           include_sealed_rfq=False):
     """Read back every exact tag target and emit a zero-mutation proof.
 
     The tagged receipt and its byte parent are exact-GET and fully validated
@@ -1350,10 +1358,17 @@ def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
     non-RFQ research-candidate set, so a publisher can compare it
     bidirectionally with the manifest references without tag-read permission.
     """
-    (tagged, receipt, _byte_index, candidates,
+    if not isinstance(include_sealed_rfq, bool):
+        raise cr.ReceiptError(
+            "RFQ_OPTION_PAIR_REQUIRED", "include_sealed_rfq must be boolean")
+    (tagged, receipt, _byte_index, candidates, rfq_candidates,
      bucket, _prefix) = _load_tagged_for_precommit(
         tagged_index, byte_receipt_index, reader,
         expected_bucket=expected_bucket, expected_prefix=expected_prefix)
+    if bool(rfq_candidates) != include_sealed_rfq:
+        raise cr.ReceiptError(
+            "RFQ_PRECOMMIT_MODE_MISMATCH",
+            "tagged receipt RFQ state differs from verify-only invocation")
     principal = (_IAM_USER_ARN_RE.fullmatch(expected_tagger_principal)
                  if isinstance(expected_tagger_principal, str) else None)
     if principal is None:
@@ -1382,7 +1397,11 @@ def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
         "VersionId": receipt_binding["VersionId"],
     }
     puts_before = getattr(tagger, "tag_puts", 0)
-    verify_target_tags([receipt_target] + candidates, tagger)
+    all_candidates = candidates + rfq_candidates
+    rfq_identities = {_target_identity(obj) for obj in rfq_candidates}
+    verify_target_tags(
+        [receipt_target] + all_candidates, tagger,
+        rfq_identities=rfq_identities)
     puts_after = getattr(tagger, "tag_puts", 0)
     if puts_after != puts_before:
         raise cr.ReceiptError(
@@ -1395,7 +1414,7 @@ def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
         logical_key=receipt_logical)]
     rows.extend(_proof_target(
         obj, role="RESEARCH_CANDIDATE",
-        logical_key=obj["logical_source_key"]) for obj in candidates)
+        logical_key=obj["logical_source_key"]) for obj in all_candidates)
     rows.sort(key=lambda row: (
         row["role"], row["logical_key"], row["source_bucket"],
         row["source_key"], row["source_version_id"]))
@@ -1425,13 +1444,13 @@ def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
         "tagged_receipt_object": copy.deepcopy(receipt_binding),
         "target_set_sha256": cr.canonical_sha256(rows),
         "target_count": len(rows),
-        "research_candidate_count": len(candidates),
+        "research_candidate_count": len(all_candidates),
         "targets": rows,
         "tagger_sts_caller_arn": identity["Arn"],
         "tagger_sts_account": identity["Account"],
         "tagger_sts_user_id": identity["UserId"],
         "generated_at_utc": timestamp,
-        "rfq": "OFF",
+        "rfq": RFQ_RESEARCH_MODE if include_sealed_rfq else "OFF",
         "tag_puts": 0,
     }
     body = _json_bytes(payload)
@@ -1879,9 +1898,8 @@ def main(argv=None):
             print("REFUSED: verify-only requires %s" % ", ".join(missing),
                   file=os.sys.stderr)
             return 2
-        if (args.include_sealed_rfq or args.rfq_eligibility_evidence
-                or args.operator_approved):
-            print("REFUSED: verify-only is RFQ-off, read-only, and accepts no "
+        if (args.rfq_eligibility_evidence or args.operator_approved):
+            print("REFUSED: verify-only accepts no eligibility evidence or "
                   "write approval", file=os.sys.stderr)
             return 2
         reader = cr.AwsCliS3Client(args.aws_cli)
@@ -1893,7 +1911,8 @@ def main(argv=None):
                 reader=reader, tagger=tagger,
                 output_root=os.path.abspath(args.proof_output_root),
                 expected_tagger_principal=args.expected_tagger_principal,
-                expected_bucket=args.bucket, expected_prefix=args.prefix)
+                expected_bucket=args.bucket, expected_prefix=args.prefix,
+                include_sealed_rfq=args.include_sealed_rfq)
         except cr.ReceiptError as exc:
             print("BLOCKED_INTEGRITY %s" % exc, file=os.sys.stderr)
             return 2
@@ -1904,7 +1923,8 @@ def main(argv=None):
             "target_set_sha256": proof["target_set_sha256"],
             "target_count": proof["target_count"],
             "tag_puts": tagger.tag_puts,
-            "rfq": "OFF",
+            "rfq": (RFQ_RESEARCH_MODE
+                    if args.include_sealed_rfq else "OFF"),
         }, sort_keys=True))
         return 0
     if args.recover_existing_only:
@@ -1997,6 +2017,7 @@ def main(argv=None):
         "receipt_puts": writer.puts,
         "receipt_reused": writer.reused,
         "prune_eligible": False,
+        "rfq": (RFQ_RESEARCH_MODE if args.include_sealed_rfq else "OFF"),
     }, sort_keys=True))
     return 0
 

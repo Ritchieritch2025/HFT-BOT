@@ -1224,7 +1224,8 @@ def test_crash_after_receipt_tag_before_final_index_is_rerunnable(
     assert len(tagger.puts) == puts_after_crash
 
 
-def _make_precommit_proof(receipt_tree, result, tagger, writer):
+def _make_precommit_proof(receipt_tree, result, tagger, writer, *,
+                          include_sealed_rfq=False):
     index_path, index, tagged = result
     binding = index["receipt_object"]
     tagged_body = writer.objects[(BUCKET, binding["key"])]
@@ -1244,7 +1245,8 @@ def _make_precommit_proof(receipt_tree, result, tagger, writer):
         output_root=str(receipt_tree["root"] / "tag-precommit"),
         expected_tagger_principal=USER_ARN,
         expected_bucket=BUCKET, expected_prefix=PREFIX,
-        generated_at="2026-07-13T04:11:00Z")
+        generated_at="2026-07-13T04:11:00Z",
+        include_sealed_rfq=include_sealed_rfq)
 
 
 def test_verify_only_proves_receipt_and_complete_non_rfq_set_without_puts(
@@ -1268,6 +1270,32 @@ def test_verify_only_proves_receipt_and_complete_non_rfq_set_without_puts(
     assert all(row["role"] != "RESEARCH_CANDIDATE"
                or "/raw/" not in ("/" + row["source_key"])
                for row in proof["targets"])
+
+
+def test_verify_only_proves_complete_dual_tagged_fresh_rfq_set(receipt_tree):
+    evidence_path, _evidence = _write_rfq_authority(receipt_tree)
+    result, tagger, writer = _run(
+        receipt_tree, include_sealed_rfq=True,
+        rfq_evidence=evidence_path)
+    puts_before = len(tagger.puts)
+    _path, _proof_sha, proof = _make_precommit_proof(
+        receipt_tree, result, tagger, writer, include_sealed_rfq=True)
+
+    assert proof["rfq"] == cet.RFQ_RESEARCH_MODE
+    rfq_rows = [row for row in proof["targets"]
+                if row["required_tags"].get(cet.RFQ_TAG_KEY) ==
+                cet.RFQ_TAG_VALUE]
+    assert len(rfq_rows) == 2
+    assert all(row["required_tags"] == {
+        cet.TAG_KEY: cet.TAG_VALUE,
+        cet.RFQ_TAG_KEY: cet.RFQ_TAG_VALUE,
+    } for row in rfq_rows)
+    assert proof["research_candidate_count"] == \
+        sum(obj["research_candidate"] for obj in result[2]["objects"])
+    assert len(tagger.puts) == puts_before
+
+    with pytest.raises(cr.ReceiptError, match="RFQ_PRECOMMIT_MODE_MISMATCH"):
+        _make_precommit_proof(receipt_tree, result, tagger, writer)
 
 
 def test_tag_removed_before_verify_only_fails_and_emits_no_proof(receipt_tree):

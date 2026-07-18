@@ -114,8 +114,10 @@ def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
     raw_root = tmp_path / "work" / "raw"
     warehouse_root = tmp_path / "work" / "warehouse"
     quality_dir = tmp_path / "work" / "event_packs"
+    fresh_rfq_root = live / "fresh_rfq_research"
     home = tmp_path / "home"
-    for path in (live, raw_root, warehouse_root, quality_dir, home):
+    for path in (live, raw_root, warehouse_root, quality_dir,
+                 fresh_rfq_root, home):
         path.mkdir(parents=True, exist_ok=True)
     durable_dir = (live / "canonical_receipts" / "durable"
                    / ("date=" + DATE))
@@ -227,6 +229,7 @@ def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
         "raw_root": raw_root,
         "warehouse_root": warehouse_root,
         "quality_dir": quality_dir,
+        "fresh_rfq_root": fresh_rfq_root,
         "home": home,
         "audit_root": audit_root,
         "durable_index": index_path,
@@ -306,6 +309,8 @@ def _make_daily_proof(live):
 
 def _reference_publisher_output(command):
     """Return strict prepare/commit result fixtures for wrapped publishers."""
+    rfq_mode = (daily.RFQ_FRESH if "--include-rfq" in command
+                else daily.RFQ_OFF)
     if "--prepare-only" in command:
         root = Path(command[command.index("--prepare-output-root") + 1])
         payload = (json.dumps({
@@ -327,7 +332,7 @@ def _reference_publisher_output(command):
             "prepared_plan_size": len(payload),
             "reference_set_sha256": "c" * 64,
             "s3_writes": 0,
-            "rfq": "OFF",
+            "rfq": rfq_mode,
         }) + "\n"
     if "--prepared-plan" in command:
         plan = Path(command[command.index("--prepared-plan") + 1])
@@ -345,7 +350,7 @@ def _reference_publisher_output(command):
                 "verification_state": "EXACT_VERSION_FULL_SHA256",
             },
             "data_uploads": 0,
-            "rfq": "OFF",
+            "rfq": rfq_mode,
             "prepared_plan_sha256": plan_sha,
         }) + "\n"
     return None
@@ -359,6 +364,7 @@ def _args(tree, *extra):
         "--raw-root", str(tree["raw_root"]),
         "--warehouse-root", str(tree["warehouse_root"]),
         "--quality-dir", str(tree["quality_dir"]),
+        "--fresh-rfq-eligibility-root", str(tree["fresh_rfq_root"]),
         "--tagger-credentials-file", str(tree["tagger_creds"]),
         "--publisher-env-file", str(tree["publisher_env"]),
         "--home", str(tree["home"]),
@@ -474,6 +480,107 @@ def test_any_rfq_object_refuses_before_subprocess(tmp_path, monkeypatch):
     assert daily.main(_args(tree, "--dry-run")) == 2
 
 
+def test_daily_fresh_rfq_gate_is_per_date_and_degrades_only_to_off(
+        tmp_path, monkeypatch):
+    root = tmp_path / "fresh"
+    marker_path = root / ("date=" + DATE) / "ELIGIBLE.json"
+    marker_path.parent.mkdir(parents=True)
+    marker_path.write_text("{}\n")
+    args = SimpleNamespace(fresh_rfq_eligibility_root=str(root))
+    marker = {"eligibility_sha256": "e" * 64}
+    monkeypatch.setattr(
+        daily, "_load_fresh_rfq_gate",
+        lambda path, date: marker if path == marker_path and date == DATE
+        else pytest.fail("wrong daily gate lookup"))
+
+    assert daily._fresh_rfq_gate_for_date(DATE, args) == (
+        daily.RFQ_FRESH, marker_path, marker, "STRICT_GATE_PASS")
+    assert daily._fresh_rfq_gate_for_date(
+        "2026-07-15", args)[0] == daily.RFQ_OFF
+
+    def invalid(*_args):
+        raise daily.GateError("RFQ_ELIGIBILITY_INVALID", "tampered")
+
+    monkeypatch.setattr(daily, "_load_fresh_rfq_gate", invalid)
+    mode, path, value, reason = daily._fresh_rfq_gate_for_date(DATE, args)
+    assert (mode, path, value) == (daily.RFQ_OFF, None, None)
+    assert reason.startswith("RFQ_ELIGIBILITY_INVALID:")
+
+
+def test_execute_fresh_rfq_requires_paired_gate_tag_and_manifest_modes(
+        tmp_path, monkeypatch):
+    tree = _fixture_tree(tmp_path)
+    gate_path = tree["fresh_rfq_root"] / ("date=" + DATE) / "ELIGIBLE.json"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    gate_path.write_text("{}\n")
+    evidence = tmp_path / "RFQ-ELIGIBILITY.json"
+    evidence.write_text("{}\n")
+    marker = {"eligibility_sha256": "e" * 64}
+    plan = daily.DatePlan(
+        DATE, tree["durable_index"],
+        tree["durable_index"].with_name(f"receipt-{RECEIPT_SHA}.json"),
+        RECEIPT_SHA, tree["audit"], tree["evidence"], None,
+        tree["audit_sha"], rfq_mode=daily.RFQ_FRESH,
+        fresh_rfq_eligibility=gate_path,
+        fresh_rfq_eligibility_sha256=marker["eligibility_sha256"],
+        rfq_eligibility_evidence=evidence)
+    args = SimpleNamespace(
+        python=str(Path(sys.executable).absolute()),
+        aws_cli=str(tree["aws"]), live_dir=str(tree["live"]),
+        tagger_principal=daily.DEFAULT_TAGGER_ARN,
+        dest=daily.DEFAULT_DEST, quality_dir=str(tree["quality_dir"]),
+        raw_vault="s3://kalshi-vault-ritcardo/ec2/raw")
+    calls = []
+    tagged = tmp_path / "TAGGED-DURABLE.json"
+    tagged.write_text("{}\n")
+
+    monkeypatch.setattr(
+        daily, "_load_fresh_rfq_gate",
+        lambda path, date: marker if path == gate_path and date == DATE
+        else pytest.fail("fresh gate binding changed"))
+    monkeypatch.setattr(daily, "_require_arms", lambda _args: None)
+    monkeypatch.setattr(daily, "_verify_seal", lambda *_a, **_kw: None)
+    monkeypatch.setattr(
+        daily, "_identity", lambda command, expected_arn, **_kw: {
+            "Arn": expected_arn, "Account": "321572485933", "UserId": "U"})
+    monkeypatch.setattr(daily, "_validate_tagged_index", lambda *_a, **_kw: "f" * 64)
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if "--verify-only" in command:
+            proof = _make_daily_proof(tree["live"])
+            return json.dumps({
+                "state": "EXACT_VERSION_TAG_READBACK_VERIFIED",
+                "proof": str(proof), "tag_puts": 0,
+                "rfq": daily.RFQ_FRESH,
+            }) + "\n"
+        return json.dumps({
+            "index": str(tagged), "rfq": daily.RFQ_FRESH,
+        }) + "\n"
+
+    def fake_publisher(command, **_kwargs):
+        calls.append(command)
+        return _reference_publisher_output(command)
+
+    monkeypatch.setattr(daily, "_run", fake_run)
+    monkeypatch.setattr(daily, "_publisher_run", fake_publisher)
+
+    _tagged, result = daily.execute_date(
+        plan, args, tag_env={}, publisher_environment={})
+    assert result["rfq"] == daily.RFQ_FRESH
+    tag = next(command for command in calls
+               if "canonical_eligibility_tagger.py" in " ".join(command)
+               and "--verify-only" not in command)
+    proof = next(command for command in calls if "--verify-only" in command)
+    prepare = next(command for command in calls if "--prepare-only" in command)
+    commit = next(command for command in calls if "--prepared-plan" in command)
+    assert "--include-sealed-rfq" in tag
+    assert tag[tag.index("--rfq-eligibility-evidence") + 1] == str(evidence)
+    assert "--include-sealed-rfq" in proof
+    assert "--include-rfq" in prepare and "--no-rfq" not in prepare
+    assert "--include-rfq" in commit and "--no-rfq" not in commit
+
+
 def test_credential_environments_are_disjoint(tmp_path, monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "publisher-leak")
     monkeypatch.setenv("KALSHI_API_KEY_ID", "trading-leak")
@@ -576,7 +683,9 @@ def test_real_plan_uses_non_rfq_tagger_and_explicit_live_dir(
                     "proof": str(proof), "tag_puts": 0, "rfq": "OFF",
                 }) + "\n"
             tagged = _make_tagged(tree["live"], tree["audit_sha"])
-            return json.dumps({"index": str(tagged)}) + "\n"
+            return json.dumps({
+                "index": str(tagged), "rfq": daily.RFQ_OFF,
+            }) + "\n"
         return ""
 
     monkeypatch.setattr(daily, "_identity", fake_identity)
