@@ -422,6 +422,25 @@ for root in "${MUTABLE_ROOTS[@]}" "$LOCK_ROOT"; do
     exit 2
   fi
 done
+# The earlier recursive read ACL intentionally touched every live input.  On a
+# lock already owned by SERVICE_USER that creates a redundant named-user ACL
+# and widens the effective mode to 0640.  Remove all extended ACLs and restore
+# the exact ownership/mode required by the fail-closed writer lock validator.
+if [ ! -f "$GENERATION_WRITER_LOCK" ] || [ -L "$GENERATION_WRITER_LOCK" ]; then
+  echo "REFUSED: generation writer lock is not a regular non-symlink file" >&2
+  exit 2
+fi
+setfacl -b "$GENERATION_WRITER_LOCK"
+chown "$SERVICE_USER:$SERVICE_GROUP" "$GENERATION_WRITER_LOCK"
+chmod 0600 "$GENERATION_WRITER_LOCK"
+if [ "$(stat -c %u "$GENERATION_WRITER_LOCK")" -ne \
+       "$(id -u "$SERVICE_USER")" ] || \
+   [ "$(stat -c %g "$GENERATION_WRITER_LOCK")" -ne \
+       "$(id -g "$SERVICE_USER")" ] || \
+   [ "$(stat -c %a "$GENERATION_WRITER_LOCK")" != 600 ]; then
+  echo "REFUSED: generation writer lock ownership/mode is not exact" >&2
+  exit 2
+fi
 runuser -u "$SERVICE_USER" -- test -w "$GENERATION_WRITER_LOCK"
 runuser -u "$SERVICE_USER" -- test -r \
   "$RUNTIME_LINK/tools/research_v3_daily.py"

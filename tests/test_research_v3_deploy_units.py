@@ -150,6 +150,20 @@ def test_installer_quiesces_and_installs_generation_units_before_cutover():
     assert "generation-daily 0750" in tmpfiles
 
 
+def test_installer_restores_exact_generation_writer_lock_after_recursive_acl():
+    installer = _text("deploy/install_kalshi_research_v3_daily.sh")
+
+    broad_acl = installer.index('setfacl -R -m "u:$SERVICE_USER:r-X"')
+    clear_lock_acl = installer.index('setfacl -b "$GENERATION_WRITER_LOCK"')
+    exact_lock_mode = installer.index('chmod 0600 "$GENERATION_WRITER_LOCK"')
+    lock_write_probe = installer.index(
+        'runuser -u "$SERVICE_USER" -- test -w "$GENERATION_WRITER_LOCK"')
+
+    assert broad_acl < clear_lock_acl < exact_lock_mode < lock_write_probe
+    assert '[ -L "$GENERATION_WRITER_LOCK" ]' in installer
+    assert 'stat -c %a "$GENERATION_WRITER_LOCK"' in installer
+
+
 def test_installer_uses_immutable_release_for_all_privileged_installs():
     installer = _text("deploy/install_kalshi_research_v3_daily.sh")
     assert 'IMMUTABLE_RUNTIME="$RUNTIME_RELEASES/$COMMIT"' in installer
