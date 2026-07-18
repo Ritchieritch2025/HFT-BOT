@@ -21,7 +21,10 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Sequence
+
+import deep03_authority_gate
 
 
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
@@ -129,20 +132,27 @@ def _run_command(
     *,
     step: str,
     log_root: Path,
+    timeout_seconds: int,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> subprocess.CompletedProcess[str]:
-    result = runner(
-        list(command),
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env={
-            key: value
-            for key, value in os.environ.items()
-            if key not in STATIC_CREDENTIAL_NAMES
-        },
-    )
+    try:
+        result = runner(
+            list(command),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout_seconds,
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if key not in STATIC_CREDENTIAL_NAMES
+            },
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AutoResearchError(
+            "%s exceeded the exact-release runtime window" % step
+        ) from exc
     output = result.stdout or ""
     _atomic_text(log_root / (step + ".log"), output)
     if result.returncode != 0:
@@ -183,6 +193,8 @@ def _completion_is_current(
     *,
     selection_sha256: str,
     release_ids: list[str],
+    authority_release_id: str,
+    authority_sha256: str,
 ) -> bool:
     if not path.is_file() or path.is_symlink():
         return False
@@ -194,6 +206,8 @@ def _completion_is_current(
         and value.get("strict_acceptance_claimed") is False
         and value.get("selection_sha256") == selection_sha256
         and value.get("release_ids") == release_ids
+        and value.get("authority_release_id") == authority_release_id
+        and value.get("authority_sha256") == authority_sha256
         and value.get("rfq") == "OFF"
     )
 
@@ -209,12 +223,39 @@ def run_cycle(
     tools_root: Path,
     w09_tools_root: Path,
     hook: Path,
+    authority_binding: dict[str, Any],
+    required_release_ids: list[str],
     max_attempts: int = 3,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     _refuse_credentials()
+    authority_release_id = authority_binding.get("release_id")
+    authority_sha256 = authority_binding.get("authority_sha256")
+    max_runtime_seconds = authority_binding.get("effective_runtime_seconds")
+    if (
+        authority_binding.get("state") != "AUTHORIZED"
+        or authority_binding.get("mode") != MODE
+        or not isinstance(authority_release_id, str)
+        or not isinstance(authority_sha256, str)
+        or len(authority_sha256) != 64
+        or not isinstance(max_runtime_seconds, int)
+        or isinstance(max_runtime_seconds, bool)
+        or max_runtime_seconds <= 0
+    ):
+        raise AutoResearchError("exact-release authority binding is absent")
+    if not required_release_ids or len(required_release_ids) != len(
+        set(required_release_ids)
+    ):
+        raise AutoResearchError("authority has no unique exact input release set")
     if max_attempts < 1 or max_attempts > 10:
         raise AutoResearchError("max_attempts must be in [1,10]")
+    deadline = time.monotonic() + max_runtime_seconds
+
+    def remaining_seconds() -> int:
+        remaining = int(deadline - time.monotonic())
+        if remaining <= 0:
+            raise AutoResearchError("exact-release runtime window expired")
+        return remaining
     cache = Path(cache).resolve()
     state_root = Path(state_root).resolve()
     run_root = Path(run_root).resolve()
@@ -241,6 +282,8 @@ def run_cycle(
                 "mode": MODE,
                 "strict_acceptance_claimed": False,
                 "rfq": "OFF",
+                "authority_release_id": authority_release_id,
+                "authority_sha256": authority_sha256,
                 "step": current_step,
                 **extra,
             }
@@ -261,6 +304,7 @@ def run_cycle(
                 [*reader, "inventory"],
                 step="01-inventory",
                 log_root=log_root,
+                timeout_seconds=remaining_seconds(),
                 runner=runner,
             )
 
@@ -280,6 +324,7 @@ def run_cycle(
                 selector_command,
                 step="02-selection",
                 log_root=log_root,
+                timeout_seconds=remaining_seconds(),
                 runner=runner,
             )
             try:
@@ -297,6 +342,10 @@ def run_cycle(
                 or len(selection_sha) != 64
             ):
                 raise AutoResearchError("selector output contract mismatch")
+            if release_ids != required_release_ids:
+                raise AutoResearchError(
+                    "selected release set differs from exact-release authority"
+                )
             selection_path = state_root / "selections" / (selection_sha + ".json")
             _atomic_json(selection_path, selection)
 
@@ -317,6 +366,7 @@ def run_cycle(
                     [*reader, "fetch", "--release", release_id],
                     step="03-fetch-%03d" % index,
                     log_root=log_root,
+                    timeout_seconds=remaining_seconds(),
                     runner=runner,
                 )
                 current_step = "VERIFY_%d_OF_%d" % (index, len(release_ids))
@@ -325,6 +375,7 @@ def run_cycle(
                     [*reader, "verify", "--release", release_id],
                     step="04-verify-%03d" % index,
                     log_root=log_root,
+                    timeout_seconds=remaining_seconds(),
                     runner=runner,
                 )
 
@@ -334,6 +385,7 @@ def run_cycle(
                 [*reader, "view", "--include-non-confirmation"],
                 step="05-exploratory-view",
                 log_root=log_root,
+                timeout_seconds=remaining_seconds(),
                 runner=runner,
             )
 
@@ -355,6 +407,7 @@ def run_cycle(
                     ],
                     step="06-query-canary-%03d" % index,
                     log_root=log_root,
+                    timeout_seconds=remaining_seconds(),
                     runner=runner,
                 )
                 canary = _load_json(receipt, "exploratory canary receipt")
@@ -367,11 +420,15 @@ def run_cycle(
                 ):
                     raise AutoResearchError("exploratory canary receipt mismatch")
 
-            completion_path = state_root / "completed" / (selection_sha + ".json")
+            completion_path = state_root / "completed" / (
+                selection_sha + "-" + authority_sha256[:12] + ".json"
+            )
             if _completion_is_current(
                 completion_path,
                 selection_sha256=selection_sha,
                 release_ids=release_ids,
+                authority_release_id=authority_release_id,
+                authority_sha256=authority_sha256,
             ):
                 current_step = "IDEMPOTENT_COMPLETE"
                 return status(
@@ -382,10 +439,11 @@ def run_cycle(
                     completion_pointer=str(completion_path),
                 )
 
-            prefix = "mode1-%s-%s-%s" % (
+            prefix = "mode1-%s-%s-%s-%s" % (
                 selection["start_date"].replace("-", ""),
                 selection["end_date"].replace("-", ""),
                 selection_sha[:12],
+                authority_sha256[:12],
             )
             existing = sorted(run_root.glob(prefix + "-a*"))
             attempt = len(existing) + 1
@@ -419,6 +477,7 @@ def run_cycle(
                 prepare_command,
                 step="07-research-prepare",
                 log_root=log_root,
+                timeout_seconds=remaining_seconds(),
                 runner=runner,
             )
 
@@ -442,6 +501,7 @@ def run_cycle(
                 ],
                 step="08-research-run",
                 log_root=log_root,
+                timeout_seconds=remaining_seconds(),
                 runner=runner,
             )
             complete = _load_json(run_dir / "RUN_COMPLETE.json", "RUN_COMPLETE")
@@ -473,6 +533,7 @@ def run_cycle(
                     ],
                     step="09-post-research-hook",
                     log_root=log_root,
+                    timeout_seconds=remaining_seconds(),
                     runner=runner,
                 )
                 hook_ran = True
@@ -485,6 +546,12 @@ def run_cycle(
                 "strict_acceptance_claimed": False,
                 "selection_sha256": selection_sha,
                 "release_ids": release_ids,
+                "authority_release_id": authority_release_id,
+                "authority_sha256": authority_sha256,
+                "arm_sha256": authority_binding.get("arm_sha256"),
+                "adopted_plan_sha256": authority_binding.get(
+                    "adopted_plan_sha256"
+                ),
                 "rfq": "OFF",
                 "run_id": run_id,
                 "run_dir": str(run_dir),
@@ -518,8 +585,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cache", default="/srv/w09-research/cache-v3-exploratory")
     parser.add_argument("--state-root", default="/srv/w09-research/automation")
     parser.add_argument("--run-root", default="/srv/w09-research/runs")
-    parser.add_argument("--start-date", default="2026-07-10")
-    parser.add_argument("--end-date")
+    parser.add_argument("--authority", required=True, type=Path)
+    parser.add_argument("--arm-file", required=True, type=Path)
+    parser.add_argument("--plan", required=True, type=Path)
+    parser.add_argument("--runtime-commit", required=True, type=Path)
     parser.add_argument("--python", default="/opt/w09/venv/bin/python")
     parser.add_argument("--tools-root", default="/opt/w09/research/tools")
     parser.add_argument("--w09-tools-root", default="/opt/w09/research/tools")
@@ -530,19 +599,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-attempts", type=int, default=3)
     args = parser.parse_args(argv)
     try:
+        authority = deep03_authority_gate.validate_authority(
+            authority_path=args.authority,
+            arm_path=args.arm_file,
+            plan_path=args.plan,
+            runtime_commit_path=args.runtime_commit,
+        )
         result = run_cycle(
             cache=Path(args.cache),
             state_root=Path(args.state_root),
             run_root=Path(args.run_root),
-            start_date=args.start_date,
-            end_date=args.end_date,
+            start_date=authority["input_start_date"],
+            end_date=authority["input_end_date"],
             python=args.python,
             tools_root=Path(args.tools_root),
             w09_tools_root=Path(args.w09_tools_root),
             hook=Path(args.hook),
+            authority_binding=authority,
+            required_release_ids=authority["authorized_input_release_ids"],
             max_attempts=args.max_attempts,
         )
-    except (AutoResearchError, OSError, ValueError) as exc:
+    except (
+        AutoResearchError,
+        deep03_authority_gate.AuthorityError,
+        OSError,
+        ValueError,
+    ) as exc:
         print("W09_EXPLORATORY_AUTORESEARCH_REFUSED: %s" % exc, file=sys.stderr)
         return 2
     print(

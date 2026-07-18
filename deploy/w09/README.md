@@ -189,6 +189,25 @@ W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
   bash deploy/w09/push_and_install.sh
 ```
 
+The normal installer creates none of the three execution-gate files. That
+future release must install all of these as root-owned mode `0444` files:
+
+- `/etc/w09/deep03/adopted-plan.md`, whose exact SHA is named by authority;
+- `/etc/w09/deep03/AUTHORITY.json`, binding verbatim operator text, adopted
+  plan SHA, installed source commit, D3-W2A/OPEN_DISCOVERY, exact v3 release
+  IDs, fixed W09 write roots, positive spend cap, runtime/expiry, RFQ OFF, and
+  every mutation/credential/order/Telegram boolean explicitly false;
+- `/etc/w09/deep03/approvals/d3-w2a-execution-arm.json`, binding the byte SHA
+  of that authority, the same release and source commit, and a narrower active
+  UTC window.
+
+`deep03_authority_gate.py` validates all three plus
+`/opt/w09/research/release-commit.txt` before every service cycle. The consumer
+validates them again and refuses if its selected release list differs by even
+one ID. A missing, expired, writable, linked, SHA-mismatched, generic, or
+zero-spend authority leaves the service skipped/refused; the installer never
+fabricates a passing example.
+
 After that separate release and the reviewed role policy both exist, the
 operator may explicitly enable the timer and start an immediate cycle:
 

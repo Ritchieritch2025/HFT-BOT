@@ -56,6 +56,15 @@ if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
 fi
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
+    echo "W09_SOURCE_GATE: release worktree must be clean" >&2
+    exit 65
+fi
+SOURCE_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
+if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "W09_SOURCE_GATE: exact source commit is invalid" >&2
+    exit 65
+fi
 
 tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
@@ -72,6 +81,7 @@ cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
+printf '%s\n' "$SOURCE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \
@@ -81,6 +91,7 @@ for file in \
     w09_idle_confirm_stop.py w09_idle_proof.py v3_query_canary.py \
     v3_query_canary.sha256 exploratory_v3_query_canary.py \
     exploratory_release_selector.py exploratory_autoresearch.py \
+    deep03_authority_gate.py \
     w09-exploratory-autoresearch.service \
     w09-exploratory-autoresearch.timer; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"

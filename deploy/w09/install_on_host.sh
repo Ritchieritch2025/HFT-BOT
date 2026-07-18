@@ -64,6 +64,11 @@ if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
     echo "W09_INSTALL_REFUSED: exploratory autoresearch payload mismatch" >&2
     exit 65
 fi
+if ! grep -Eq '^[0-9a-f]{40}$' \
+    "$PAYLOAD_ROOT/deploy/w09/source-commit.txt" 2>/dev/null; then
+    echo "W09_INSTALL_REFUSED: missing or invalid exact source commit" >&2
+    exit 65
+fi
 if ! grep -qx 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
     "$PAYLOAD_ROOT/shutdown-behavior-stop.confirmed" 2>/dev/null; then
     echo "W09_INSTALL_REFUSED: stop-not-terminate behavior was not confirmed" >&2
@@ -127,7 +132,8 @@ systemctl enable --now chrony.service
 systemctl restart chrony.service
 
 install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" \
-    "$INSTALL_ROOT/tools/research" "$INSTALL_ROOT/config" /etc/w09
+    "$INSTALL_ROOT/tools/research" "$INSTALL_ROOT/config" /etc/w09 \
+    /etc/w09/deep03 /etc/w09/deep03/approvals
 install -m 0644 "$PAYLOAD_ROOT/tools/research_data.py" \
     "$INSTALL_ROOT/tools/research_data.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
@@ -158,6 +164,10 @@ install -m 0755 \
     "$INSTALL_ROOT/tools/exploratory_release_selector.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/exploratory_autoresearch.py" \
     "$INSTALL_ROOT/tools/exploratory_autoresearch.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/deep03_authority_gate.py" \
+    "$INSTALL_ROOT/tools/deep03_authority_gate.py"
+install -m 0444 "$PAYLOAD_ROOT/deploy/w09/source-commit.txt" \
+    "$INSTALL_ROOT/release-commit.txt"
 QUERY_CANARY_SHA="$(awk \
     '$2 == "deploy/w09/v3_query_canary.py" {print $1}' \
     "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.sha256")"
@@ -241,6 +251,7 @@ sha256sum \
     "$INSTALL_ROOT/tools/exploratory_v3_query_canary.py" \
     "$INSTALL_ROOT/tools/exploratory_release_selector.py" \
     "$INSTALL_ROOT/tools/exploratory_autoresearch.py" \
+    "$INSTALL_ROOT/tools/deep03_authority_gate.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_common.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_prepare.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_methods.py" \
