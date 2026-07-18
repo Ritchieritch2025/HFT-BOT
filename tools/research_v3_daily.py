@@ -1266,6 +1266,17 @@ def _last_json(output: str, label: str) -> dict:
     return value
 
 
+def _json_document(output: str, label: str) -> dict:
+    """Parse one complete JSON document, including AWS CLI pretty output."""
+    try:
+        value = json.loads(output)
+    except (TypeError, ValueError) as exc:
+        raise GateError("COMMAND_OUTPUT_INVALID", f"{label}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise GateError("COMMAND_OUTPUT_INVALID", f"{label}: root is not an object")
+    return value
+
+
 def _data_env(args) -> dict[str, str]:
     env = _base_env(pathlib.Path(args.home))
     env.update({
@@ -1422,7 +1433,7 @@ def _verify_terminal_status(status: dict, status_path: pathlib.Path,
             "TERMINAL_STATE_INVALID", "terminal tagged index differs")
 
     aws = os.path.abspath(args.aws_cli)
-    head = _last_json(_publisher_run([
+    head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", binding["bucket"],
         "--key", binding["key"], "--version-id", binding["VersionId"],
         "--output", "json",
@@ -1439,7 +1450,7 @@ def _verify_terminal_status(status: dict, status_path: pathlib.Path,
     with tempfile.TemporaryDirectory(
             prefix="research-v3-terminal-manifest-") as root:
         output = pathlib.Path(root) / "MANIFEST.json"
-        got = _last_json(_publisher_run([
+        got = _json_document(_publisher_run([
             aws, "s3api", "get-object", "--bucket", binding["bucket"],
             "--key", binding["key"], "--version-id", binding["VersionId"],
             "--output", "json", str(output),
@@ -1537,7 +1548,7 @@ def _exact_remote_catalog_bytes(
         key: str, version_id: str, output: pathlib.Path, *, args,
         publisher_environment: dict[str, str]) -> tuple[int, str]:
     aws = os.path.abspath(args.aws_cli)
-    response = _last_json(_publisher_run([
+    response = _json_document(_publisher_run([
         aws, "s3api", "get-object", "--bucket", DEFAULT_BUCKET, "--key", key,
         "--version-id", version_id, str(output),
     ], args=args, publisher_environment=publisher_environment,
@@ -1620,7 +1631,7 @@ def _list_exact_version_history(
             command.extend(["--key-marker", key_marker])
             if version_marker is not None:
                 command.extend(["--version-id-marker", version_marker])
-        page = _last_json(_publisher_run(
+        page = _json_document(_publisher_run(
             command, args=args, publisher_environment=publisher_environment,
             label=f"bounded exact-key history {key} page {pages}", timeout=120),
             f"bounded exact-key history {key} page {pages}")
@@ -1702,7 +1713,7 @@ def _discover_exact_generation_witness(
         raise GateError(
             "GENERATION_WITNESS_REQUIRED", "witness prefix is invalid")
     aws = os.path.abspath(args.aws_cli)
-    listing = _last_json(_publisher_run([
+    listing = _json_document(_publisher_run([
         aws, "s3api", "list-objects-v2", "--bucket", DEFAULT_BUCKET,
         "--prefix", prefix, "--max-keys", "1000", "--no-paginate",
         "--output", "json",
@@ -1732,7 +1743,7 @@ def _discover_exact_generation_witness(
         raise GateError(
             "GENERATION_WITNESS_INVALID", "content-addressed listing invalid")
     key_digest = match.group(1)
-    head = _last_json(_publisher_run([
+    head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
         "--key", key, "--output", "json",
     ], args=args, publisher_environment=publisher_environment,
@@ -1823,7 +1834,7 @@ def _resolve_forward_exact_version(
             except FileNotFoundError:
                 pass
     try:
-        current = _last_json(_publisher_run([
+        current = _json_document(_publisher_run([
             aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
             "--key", key, "--output", "json",
         ], args=args, publisher_environment=publisher_environment,
@@ -2322,7 +2333,7 @@ def refresh_policy_patrol_evidence(
             or binding["size"] <= 0
             or binding["size"] > MAX_RECEIPT_BYTES):
         raise GateError("POLICY_CANARY_INVALID", "authority receipt is not bounded")
-    head = _last_json(_publisher_run([
+    head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
         "--key", binding["key"], "--version-id", binding["VersionId"],
         "--output", "json",
@@ -2370,7 +2381,7 @@ def refresh_policy_patrol_evidence(
             "no bounded non-RFQ research candidate exists",
         )
     target = candidates[0]
-    target_head = _last_json(_publisher_run([
+    target_head = _json_document(_publisher_run([
         aws, "s3api", "head-object", "--bucket", DEFAULT_BUCKET,
         "--key", target["key"], "--version-id", target["VersionId"],
         "--output", "json",
@@ -2393,7 +2404,7 @@ def refresh_policy_patrol_evidence(
             raise GateError(
                 "POLICY_CANARY_INVALID", "exact candidate bytes do not match receipt")
 
-    before = _last_json(_run(tagger_command(
+    before = _json_document(_run(tagger_command(
         aws, args.tagger_principal, [
         aws, "s3api", "get-object-tagging", "--bucket", DEFAULT_BUCKET,
         "--key", key, "--version-id", version_id, "--output", "json",
@@ -2409,7 +2420,7 @@ def refresh_policy_patrol_evidence(
         "--key", key, "--version-id", version_id, "--tagging", tagging,
     ]), cwd=ROOT, env=tag_env, label="tagger exact tag positive canary",
         timeout=120)
-    after = _last_json(_run(tagger_command(
+    after = _json_document(_run(tagger_command(
         aws, args.tagger_principal, [
         aws, "s3api", "get-object-tagging", "--bucket", DEFAULT_BUCKET,
         "--key", key, "--version-id", version_id, "--output", "json",

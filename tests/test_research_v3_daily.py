@@ -87,6 +87,17 @@ def _write_json(path, value, mode=0o600):
     return path
 
 
+def test_complete_json_document_parser_accepts_pretty_aws_output_only():
+    payload = {"IsTruncated": False, "Contents": [{"Key": "exact"}]}
+
+    assert daily._json_document(
+        json.dumps(payload, indent=2), "aws response") == payload
+    with pytest.raises(daily.GateError, match="COMMAND_OUTPUT_INVALID"):
+        daily._json_document(
+            "unexpected diagnostic\n" + json.dumps(payload, indent=2),
+            "aws response")
+
+
 def _fixture_tree(tmp_path, *, rfq=False, tagged=False):
     live = tmp_path / "work" / "live"
     raw_root = tmp_path / "work" / "raw"
@@ -974,13 +985,13 @@ def test_generation_witness_discovery_is_exact_and_never_lists_history(
             return json.dumps({
                 "IsTruncated": False,
                 "Contents": [{"Key": key, "Size": len(raw)}],
-            })
+            }, indent=2)
         if "head-object" in command:
             return json.dumps({
                 "VersionId": "witness-version-1",
                 "ContentLength": len(raw),
                 "LastModified": "2026-07-15T02:02:00Z",
-            })
+            }, indent=2)
         raise AssertionError(command)
 
     def fake_exact(observed_key, version_id, output, **_kwargs):
