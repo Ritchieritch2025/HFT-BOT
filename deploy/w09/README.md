@@ -24,6 +24,15 @@ before packaging, checked again on the host, and installed non-executable with
 mode `0644`.  The W09 wrapper adds IMDSv2/session-token signing without adding
 any S3 operation.
 
+The bounded Deep03 D3-W2A open-discovery payload is a separate four-module
+set pinned by `deep03_open_discovery_modules.sha256`. The installer checks it
+before copying any module and installs two argument-preserving wrappers:
+`deep03-v3-prepare` and `deep03-v3-run`. The prepare command requires one or
+more explicit V3 release IDs and refuses copied-v2, `latest` selection, RFQ,
+static AWS credentials, trading credentials, marker drift and non-content-
+addressed cache files. The runner has no network client and produces only
+`EXPLORATORY_ONLY` descriptive D3-W2A artifacts.
+
 The general selector remains copied-v2 by default for rollback compatibility.
 The acceptance script is deliberately a separate v3 canary path: it uses an
 isolated `cache-v3-canary`, passes `--require-v3-reference`, refuses copied-v2
@@ -98,6 +107,55 @@ the operational artifact cannot silently retain a stale PASS.
 
 `W09_READY` does not authorize research. Track A remains held until the
 separate `W05_ACCEPTED` operator gate exists.
+
+## 4. Run one explicit D3-W2A open-discovery cycle
+
+After acceptance, inventory, fetch and verify the exact V3 releases for every
+date in the first research window: **2026-07-10 through 2026-07-17 inclusive**.
+Copy each exact release ID from its verified cache directory; do not invoke a
+newest/latest selector in the research command and do not omit a date merely
+to reduce local I/O. Keep both preparation and execution under the shutdown
+inhibitor:
+
+```bash
+RUN_ID="d3-w2a-open-$(date -u +%Y%m%dT%H%M%SZ)"
+RID_0710="2026-07-10__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0711="2026-07-11__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0712="2026-07-12__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0713="2026-07-13__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0714="2026-07-14__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0715="2026-07-15__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0716="2026-07-16__v3ref__seal-EXACT8__pub-EXACT16"
+RID_0717="2026-07-17__v3ref__seal-EXACT8__pub-EXACT16"
+
+w09-run deep03-v3-prepare \
+  --cache /srv/w09-research/cache-v3-canary \
+  --run-root /srv/w09-research/runs \
+  --run-id "$RUN_ID" \
+  --release "$RID_0710" \
+  --release "$RID_0711" \
+  --release "$RID_0712" \
+  --release "$RID_0713" \
+  --release "$RID_0714" \
+  --release "$RID_0715" \
+  --release "$RID_0716" \
+  --release "$RID_0717"
+
+w09-run deep03-v3-run \
+  --run-dir "/srv/w09-research/runs/$RUN_ID"
+```
+
+For multiple explicit dates, repeat `--release EXACT_RELEASE_ID`. The first
+run is the complete eight-day window, not a capacity sample. For the currently
+published set, `INPUT_MANIFEST.json` should recompute 8 dates, 2,657 candidate
+objects and 29,473,216,651 bytes from the exact manifests; these values are an
+operator cross-check, never hard-coded input defaults. Any difference must be
+explained from the exact release ledger before interpreting results. Success
+is only `RUN_COMPLETE.json` written last after `INPUT_MANIFEST.json`, quality,
+estimability, exclusions, per-method receipts, `RESULTS.json`, the self-
+contained `REPORT/index.html`, and `ARTIFACT_SHA256SUMS`. B01–B04 each close as
+`EXECUTED` or `NOT_ESTIMABLE` with evidence. This run never reads RFQ and never
+emits a strategy-PnL, confirmation, promotion, shadow or order claim.
 
 Copied-v2 rollback is explicit: restore the prior broad `research/*` reader
 policy (after review), use `/srv/w09-research/cache`, and run the selector
