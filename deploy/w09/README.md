@@ -28,8 +28,14 @@ The general selector remains copied-v2 by default for rollback compatibility.
 The acceptance script is deliberately a separate v3 canary path: it uses an
 isolated `cache-v3-canary`, passes `--require-v3-reference`, refuses copied-v2
 even when that v2 release has a newer data date or publication time,
-and never asks to fetch RFQ. Installing this bundle alone does not publish a
-v3 manifest or enable canonical IAM.
+and never asks to fetch RFQ. After exact-version `verify`, acceptance runs the
+SHA-256-pinned `v3_query_canary.py`. That reader calls the canonical v3
+manifest validator, requires the verified marker and active-view provenance to
+name the same date/release, and makes DuckDB execute `DESCRIBE` plus `LIMIT 1`
+against one manifest-bound `local_key` for every facts table. Its atomic JSON
+receipt contains source/version/query/schema/row hashes, not sampled values.
+Installing this bundle alone does not publish a v3 manifest or enable
+canonical IAM.
 
 ## 1. Confirm stop-not-terminate, then install
 
@@ -81,7 +87,14 @@ with `idle_for_sec >= 1800` and a different boot ID. It then uses the instance
 profile to run `inventory`, explicitly selects the newest v3 reference by
 **data date** (same-date ties by publisher time), fetches its exact VersionIds
 with RFQ OFF, and runs explicit `verify`. Success requires
-`REFERENCE_V3/CANONICAL_REFERENCE` and ends with `W09_READY`.
+`REFERENCE_V3/CANONICAL_REFERENCE`, `SEALED_CONFIRMATION`, RFQ OFF, an exact
+`view/.view_provenance.json` date-to-release binding, and a passing real
+DuckDB query receipt. Only then does it end with `W09_READY`.
+
+The query receipt is written under
+`/srv/w09-research/acceptance/v3-query-canary-<release-id>.json`. A failed
+rerun atomically replaces an older green receipt with a `REFUSED` receipt, so
+the operational artifact cannot silently retain a stale PASS.
 
 `W09_READY` does not authorize research. Track A remains held until the
 separate `W05_ACCEPTED` operator gate exists.

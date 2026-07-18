@@ -66,4 +66,26 @@ print("CANONICAL_REFERENCE_VERIFIED release=%s tier=%s tl1=%s" %
        marker.get("tl1_status")))
 PY
 
-echo "W09_READY release_id=$RID mode=REFERENCE_V3 storage=CANONICAL_REFERENCE rfq=OFF source=S3_ONLY production_ssh=NONE compute_usd_per_running_hour=0.4713 track_A=HELD_PENDING_W05_ACCEPTED"
+sha256sum -c /etc/w09/v3_query_canary.sha256
+QUERY_RECEIPT="$LOG_ROOT/v3-query-canary-$RID.json"
+w09-run /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/v3_query_canary.py \
+  --cache "$CACHE" --release "$RID" --receipt "$QUERY_RECEIPT" \
+  | tee "$LOG_ROOT/v3-query-canary.txt"
+python3 - "$QUERY_RECEIPT" "$RID" <<'PY'
+import json, sys
+receipt = json.load(open(sys.argv[1]))
+if (receipt.get("state") != "W09_V3_DUCKDB_QUERY_CANARY_PASS"
+        or receipt.get("release_id") != sys.argv[2]
+        or receipt.get("storage_mode") != "REFERENCE_V3"
+        or receipt.get("version_binding_mode") != "CANONICAL_REFERENCE"
+        or receipt.get("evidence_tier") != "SEALED_CONFIRMATION"
+        or receipt.get("rfq") != "OFF"
+        or not isinstance(receipt.get("table_count"), int)
+        or receipt["table_count"] < 1):
+    raise SystemExit("QUERY_CANARY_GATE: receipt contract mismatch")
+print("DUCKDB_QUERY_CANARY_VERIFIED release=%s tables=%d" %
+      (receipt["release_id"], receipt["table_count"]))
+PY
+
+echo "W09_READY release_id=$RID mode=REFERENCE_V3 storage=CANONICAL_REFERENCE rfq=OFF duckdb_query_canary=PASS source=S3_ONLY production_ssh=NONE compute_usd_per_running_hour=0.4713 track_A=HELD_PENDING_W05_ACCEPTED"
