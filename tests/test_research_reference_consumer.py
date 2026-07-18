@@ -38,6 +38,13 @@ def _json_bytes(value):
     return json.dumps(value, sort_keys=True, indent=2).encode() + b"\n"
 
 
+def _pin_legacy_manifest(manifest):
+    pin = (manifest["release_id"], ref.canonical_sha256(manifest),
+           manifest["published_at_utc"])
+    ref.LEGACY_V3_MANIFEST_PINS = frozenset(
+        set(ref.LEGACY_V3_MANIFEST_PINS) | {pin})
+
+
 def _manifest_csv(facts):
     fields = (
         "date", "table", "category", "subcategory", "row_count",
@@ -63,7 +70,7 @@ def _manifest_csv(facts):
 
 
 def build_release(*, with_rfq=False, receipt_variant="fixture",
-                  rfq_date=DATE):
+                  rfq_date=DATE, legacy=False, pin_legacy=True):
     line = ",".join(FACT_COLUMNS) + "\nTICKER,1,1,1,1,1,1,1\n"
     fact_payload = line.encode()
     facts = []
@@ -306,8 +313,8 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "l2_evidence_ok": True,
         "downgrade_reasons": [],
     }
-    component_corrections = {"files": [], "ledger_day_sha256": None}
-    component_gap = {
+    legacy_component_corrections = {"files": [], "ledger_day_sha256": None}
+    legacy_component_gap = {
         "affirmative_receipt": True,
         "receipt_inventory_matched_seal": True,
         "non_affirmative_reason": None,
@@ -315,7 +322,7 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "capture_gaps_sha256": gap_projection_item["sha256"],
         "l2_gaps_sha256": l2_item["sha256"],
     }
-    component_rfq = {
+    legacy_component_rfq = {
         "included": with_rfq,
         "files": [{
             "file": item["logical_key"][len("raw_rfq/"):],
@@ -424,6 +431,41 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
     }
     source_bytes[(BUCKET, receipt_binding["key"],
                   receipt_binding["version_id"])] = receipt_payload
+    def component_projection(kinds):
+        return [{key: item.get(key) for key in (
+            "logical_key", "source_bucket", "source_key",
+            "source_version_id", "size", "sha256", "kind", "channel",
+            "evidence_binding")}
+                for item in objects if item.get("kind") in kinds]
+
+    correction_refs = component_projection({
+        "correction", "corrections_ledger_day"})
+    gap_refs = component_projection({
+        "capture_gap_receipt", "capture_gaps_projection"})
+    l2_refs = component_projection({"l2_quality_receipt"})
+    if legacy:
+        component_corrections = legacy_component_corrections
+        component_gap = legacy_component_gap
+        component_l2 = l2_quality
+        component_rfq = legacy_component_rfq
+        corrections_digest = ref.canonical_sha256(component_corrections)
+        gap_digest = ref.canonical_sha256(component_gap)
+        l2_digest = ref.canonical_sha256(component_l2)
+    else:
+        component_corrections = {"objects": correction_refs}
+        component_gap = {
+            "affirmative_receipt": bool(gap_refs),
+            "objects": gap_refs,
+        }
+        component_l2 = {
+            "affirmative_receipt": bool(l2_refs),
+            "objects": l2_refs,
+        }
+        component_rfq = {"included": with_rfq}
+        corrections_digest = ref.canonical_sha256(correction_refs)
+        gap_digest = ref.canonical_sha256(gap_refs)
+        l2_digest = ref.canonical_sha256(l2_refs)
+
     state = {
         "schema": ref.SCHEMA,
         "storage_mode": ref.STORAGE_MODE,
@@ -433,9 +475,9 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "object_semantics_sha256": semantics_sha,
         "evidence_tier": "SEALED_CONFIRMATION",
         "evidence_basis_sha256": ref.canonical_sha256(evidence_basis),
-        "corrections_digest": ref.canonical_sha256(component_corrections),
-        "gap_evidence_digest": ref.canonical_sha256(component_gap),
-        "l2_quality_digest": ref.canonical_sha256(l2_quality),
+        "corrections_digest": corrections_digest,
+        "gap_evidence_digest": gap_digest,
+        "l2_quality_digest": l2_digest,
         "tl1_status": "TL1",
         "rfq_policy": ref.RFQ_POLICY,
         "rfq_included": with_rfq,
@@ -443,9 +485,23 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "canonical_receipt_binding_sha256":
             ref.canonical_sha256(receipt_binding),
     }
+    if not legacy:
+        state["manifest_contract_version"] = ref.MANIFEST_CONTRACT_VERSION
     state_sha = ref.canonical_sha256(state)
     rid = "%s__v3ref__seal-%s__pub-%s" % (
         DATE, seal_sha[:8], state_sha[:16])
+    publication_components = {
+        "seal_sha256": seal_sha,
+        "corrections": component_corrections,
+        "gap_evidence": component_gap,
+        "rfq": component_rfq,
+    }
+    if not legacy:
+        publication_components.update({
+            "source": "IMMUTABLE_CANONICAL_RECEIPT_EXACT_VERSIONS",
+            "l2_quality": component_l2,
+        })
+    channels["orderbooks_l2"]["seq_quality"] = component_l2
     manifest = {
         "schema": ref.SCHEMA,
         "schema_version": 3,
@@ -479,13 +535,8 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "object_semantics_sha256": semantics_sha,
         "publication_state": state,
         "publication_state_sha256": state_sha,
-        "publication_components": {
-            "seal_sha256": seal_sha,
-            "corrections": component_corrections,
-            "gap_evidence": component_gap,
-            "rfq": component_rfq,
-        },
-        "l2_quality": l2_quality,
+        "publication_components": publication_components,
+        "l2_quality": component_l2,
         "evidence": {"tier": "SEALED_CONFIRMATION", "basis": evidence_basis},
         "evidence_tier": "SEALED_CONFIRMATION",
         "evidence_tier_basis": evidence_basis,
@@ -502,8 +553,8 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         "tl1_status": "TL1",
         "channels": channels,
         "corrections": {
-            "included_files": 0,
-            "ledger_day_entries": 0,
+            "included_files": len(correction_refs),
+            "ledger_day_entries": 0 if legacy else None,
             "cutoff_utc": "2026-07-14T04:00:00Z",
             "digest": state["corrections_digest"],
             "note": "fixture",
@@ -520,6 +571,39 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
         },
         "objects": objects,
     }
+    if not legacy:
+        manifest["manifest_contract_version"] = \
+            ref.MANIFEST_CONTRACT_VERSION
+        manifest["eligibility_enforcement"] = {
+            "publisher_exact_tag_inspection": "NOT_AUTHORIZED_BY_DESIGN",
+            "publisher_tag_mutation": "ACCESS_DENIED",
+            "tagger_precommit_proof": {
+                "schema_version":
+                    "canonical-eligibility-precommit-proof-v1",
+                "proof_sha256": ref.canonical_sha256({
+                    "fixture": receipt_variant,
+                    "receipt_set_sha256": receipt_set_sha,
+                }),
+                "generated_at_utc": "2026-07-14T03:59:59Z",
+                "tagger_sts_caller_arn": (
+                    "arn:aws:iam::123456789012:user/"
+                    "canonical-eligibility-tagger"),
+                "target_set_sha256": ref.canonical_sha256({
+                    "fixture_targets": reference_sha,
+                }),
+                "target_count": len(objects) + 1,
+                "research_candidate_count": len(objects),
+                "rfq": "OFF",
+            },
+            "tagger_exact_set_readback":
+                "CONTENT_ADDRESSED_PRECOMMIT_PROOF",
+            "consumer_exact_tag_revalidation":
+                "W09_S3_EXISTING_OBJECT_TAG_RESEARCH_ELIGIBLE_TRUE",
+            "consumer_enforcement_scope":
+                "EACH_CANONICAL_SOURCE_EXACT_VERSION",
+        }
+    if legacy and pin_legacy:
+        _pin_legacy_manifest(manifest)
     return rid, manifest, source_bytes
 
 
@@ -620,10 +704,44 @@ def _store_for(*releases):
 def test_strict_manifest_contract_accepts_complete_core_release():
     rid, manifest, _source = build_release()
     descriptor = ref.validate_manifest(manifest, rid)
+    assert descriptor["manifest_contract_version"] == \
+        ref.MANIFEST_CONTRACT_VERSION
     assert descriptor["release_id"] == rid
     assert set(descriptor["tables"]) == {
         "orderbooks_l1", "orderbooks_full", "trades"}
     assert descriptor["storage_mode"] == "CANONICAL_REFERENCE"
+
+
+def test_markerless_v3_requires_exact_historical_pin(monkeypatch):
+    monkeypatch.setattr(ref, "LEGACY_V3_MANIFEST_PINS", frozenset())
+    rid, manifest, _source = build_release(
+        receipt_variant="unallowlisted-legacy", legacy=True,
+        pin_legacy=False)
+    with pytest.raises(ref.ReferenceManifestError,
+                       match="explicit historical allowlist"):
+        ref.validate_manifest(manifest, rid)
+
+    pin = (rid, ref.canonical_sha256(manifest), manifest["published_at_utc"])
+    monkeypatch.setattr(ref, "LEGACY_V3_MANIFEST_PINS", frozenset({pin}))
+    assert ref.validate_manifest(manifest, rid)["release_id"] == rid
+
+    changed = copy.deepcopy(manifest)
+    changed["publisher_commit"] = "e" * 40
+    with pytest.raises(ref.ReferenceManifestError,
+                       match="explicit historical allowlist"):
+        ref.validate_manifest(changed, rid)
+
+
+def test_pinned_markerless_v3_cannot_cross_cutover(monkeypatch):
+    monkeypatch.setattr(ref, "LEGACY_V3_MANIFEST_PINS", frozenset())
+    rid, manifest, _source = build_release(
+        receipt_variant="post-cutover-legacy", legacy=True,
+        pin_legacy=False)
+    manifest["published_at_utc"] = "2026-07-17T00:00:00Z"
+    pin = (rid, ref.canonical_sha256(manifest), manifest["published_at_utc"])
+    monkeypatch.setattr(ref, "LEGACY_V3_MANIFEST_PINS", frozenset({pin}))
+    with pytest.raises(ref.ReferenceManifestError, match="fixed contract cutover"):
+        ref.validate_manifest(manifest, rid)
 
 
 def _bound_receipt(manifest, source):
@@ -703,6 +821,7 @@ def test_manifest_rejects_nonclosed_or_malformed_rfq_binding(
     rfq = next(item for item in manifest["objects"]
                if item["kind"] == "rfq")
     rfq["evidence_binding"][field] = bad_value
+    _pin_legacy_manifest(manifest)
     with pytest.raises(ref.ReferenceManifestError,
                        match="RFQ eligibility binding|SHA-256"):
         ref.validate_manifest(manifest, rid)
@@ -877,6 +996,7 @@ def test_tampered_durable_receipt_object_set_fails_closed(tmp_path):
     rid = "%s__v3ref__seal-%s__pub-%s" % (
         DATE, manifest["source_seal"]["sha256"][:8], state_sha[:16])
     manifest["release_id"] = rid
+    _pin_legacy_manifest(manifest)
 
     store = _store_for((rid, manifest, source))
     cache = str(tmp_path / "cache")

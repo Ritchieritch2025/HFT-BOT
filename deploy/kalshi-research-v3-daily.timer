@@ -1,0 +1,12 @@
+[Unit]
+Description=Run zero-copy research v3 publication after the daily seal window
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=30min
+Persistent=true
+RandomizedDelaySec=120
+Unit=kalshi-research-v3-daily.service
+
+[Install]
+WantedBy=timers.target

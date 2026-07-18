@@ -1,0 +1,56 @@
+[Unit]
+Description=Kalshi bounded publisher-only legacy generation witness migration
+Wants=network-online.target
+After=network-online.target
+# One-shot manual backfill of the four explicitly authorized legacy dates.
+# It is installed disabled and never participates in capture scheduling.
+
+[Service]
+Type=oneshot
+User=kalshi-research-v3
+Group=kalshi-research-v3
+SupplementaryGroups=kalshi-publication
+WorkingDirectory=/opt/kalshi-research-v3
+UMask=0077
+Environment=PATH=/opt/kalshi-research-v3/.venv/bin:/snap/aws-cli/current/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/kalshi-research-v3
+StateDirectory=kalshi-research-v3
+StateDirectoryMode=0700
+LoadCredentialEncrypted=publisher.env:/etc/credstore.encrypted/kalshi-research-v3-publisher.env
+ExecCondition=/usr/bin/test -f /etc/kalshi-research-v3/approvals/cutover-approved
+ExecCondition=+/usr/bin/test ! -e /home/ubuntu/.kalshi/research_s3.env.sh
+ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/warehouse/.publication-locks
+ExecStartPre=/usr/bin/test -d /home/ubuntu/hft-bot/work/live/canonical_receipts/generation-migration-proofs
+ExecStartPre=/usr/bin/test -f /home/ubuntu/hft-bot/work/live/canonical_receipts/generation-witness.lock
+ExecStart=/opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/canonical_generation_daily.py --publisher-env-file %d/publisher.env --migrate-all-legacy --operator-approved
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=24h
+CPUWeight=20
+CPUQuota=150%
+IOWeight=10
+MemoryHigh=4G
+MemoryMax=6G
+TasksMax=256
+OOMScoreAdjust=500
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/opt/kalshi-research-v3 /home/ubuntu/hft-bot/work/raw /home/ubuntu/hft-bot/work/warehouse /home/ubuntu/hft-bot/work/event_packs /home/ubuntu/.kalshi /etc/kalshi-research-v3/approvals
+ReadWritePaths=/home/ubuntu/hft-bot/work/warehouse/.publication-locks /home/ubuntu/hft-bot/work/live/canonical_receipts/generation-migration-proofs /home/ubuntu/hft-bot/work/live/canonical_receipts/generation-witness.lock

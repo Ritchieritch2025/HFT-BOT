@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry zero-copy canonical durable receipt construction
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=30min
+Persistent=true
+RandomizedDelaySec=120
+Unit=kalshi-research-v3-durable.service
+
+[Install]
+WantedBy=timers.target

@@ -1096,7 +1096,17 @@ def _verify_reference_tree(rdir, descriptor, require_rfq):
             _load_reference_json(l2_path, "L2 quality receipt"), seal, date)
     elif os.path.lexists(l2_path):
         raise ReferenceVerificationError("unexpected L2 quality receipt")
-    if descriptor["channels"]["orderbooks_l2"].get("seq_quality") != l2_quality:
+    modern_contract = (
+        descriptor.get("manifest_contract_version")
+        == ref.MANIFEST_CONTRACT_VERSION)
+    # In the fixed modern contract, the channel alias is an immutable
+    # component/reference binding.  The decoded receipt remains independently
+    # validated above and is used to rederive the evidence tier; it is not the
+    # same JSON type as that binding.  Historical pinned v3 manifests retain
+    # the legacy raw-statistics alias comparison.
+    if (not modern_contract
+            and descriptor["channels"]["orderbooks_l2"].get("seq_quality")
+            != l2_quality):
         raise ReferenceVerificationError("L2 receipt differs from channel summary")
 
     expected_tier, expected_basis = _derive_reference_tier(
@@ -1133,7 +1143,9 @@ def _verify_reference_tree(rdir, descriptor, require_rfq):
                     raise ReferenceVerificationError(
                         "correction ledger is not a date-only projection")
                 ledger_lines += 1
-    if ledger_lines != descriptor["corrections"].get("ledger_day_entries"):
+    if (not modern_contract
+            and ledger_lines
+            != descriptor["corrections"].get("ledger_day_entries")):
         raise ReferenceVerificationError("correction ledger count mismatch")
 
     tables_out = {}

@@ -6,6 +6,7 @@ service, or W09 operation is used by this suite.
 """
 import copy
 import csv
+import datetime
 import glob
 import hashlib
 import json
@@ -23,6 +24,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import canonical_receipts as cr  # noqa: E402
 import forward_canonical_receipts as fcr  # noqa: E402
+import publication_generation as pg  # noqa: E402
 import research_release as rr  # noqa: E402
 import research_reference as ref  # noqa: E402
 import test_research_bridge as bridge  # noqa: E402
@@ -485,7 +487,8 @@ def reference_tree(tmp_path, monkeypatch):
         (gap_rows[0]["start_us"], gap_rows[0]["end_us"]))
     bridge.write_l2_receipt(str(quality), DATE, raw)
 
-    for name in ("series", "events", "markets"):
+    for name in ("series", "events", "markets", "settlements",
+                 "series_classified"):
         path = root / "warehouse" / "catalog" / name / "part-00000.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(("catalog-%s" % name).encode())
@@ -569,6 +572,68 @@ def _fixture_reader(tree, payload=None):
         tree["parent_binding"], tree["parent_payload"])
 
 
+def _tag_precommit_proof(tree, *, mutate=None, generated_at=None):
+    """Materialize the tagger/publisher handoff without publisher tag reads."""
+    receipt = tree["tagged_receipt"]
+    binding = tree["receipt_binding"]
+    rows = [{
+        "role": "TAGGED_RECEIPT",
+        "logical_key": binding["key"],
+        "source_bucket": binding["bucket"],
+        "source_key": binding["key"],
+        "source_version_id": binding["VersionId"],
+        "size": binding["size"],
+        "sha256": binding["sha256"],
+        "required_tags": {"research-eligible": "true"},
+    }]
+    for obj in receipt["objects"]:
+        if (obj.get("research_candidate") is not True
+                or rr._is_rfq_receipt_object(obj)):
+            continue
+        rows.append({
+            "role": "RESEARCH_CANDIDATE",
+            "logical_key": obj["logical_source_key"],
+            "source_bucket": obj["bucket"],
+            "source_key": obj["key"],
+            "source_version_id": obj["VersionId"],
+            "size": obj["size"],
+            "sha256": obj["sha256"],
+            "required_tags": {"research-eligible": "true"},
+        })
+    rows.sort(key=lambda row: (
+        row["role"], row["logical_key"], row["source_bucket"],
+        row["source_key"], row["source_version_id"]))
+    payload = {
+        "schema_version": rr.TAG_PRECOMMIT_PROOF_SCHEMA,
+        "state": rr.TAG_PRECOMMIT_PROOF_STATE,
+        "date": DATE,
+        "tagged_receipt_set_sha256": receipt["receipt_set_sha256"],
+        "byte_attestation_receipt_set_sha256":
+            receipt["byte_attestation_receipt_set_sha256"],
+        "eligibility_single_writer_audit_sha256":
+            receipt["eligibility_single_writer_audit_sha256"],
+        "tagged_receipt_object": copy.deepcopy(binding),
+        "target_set_sha256": rr.canonical_digest(rows),
+        "target_count": len(rows),
+        "research_candidate_count": len(rows) - 1,
+        "targets": rows,
+        "tagger_sts_caller_arn":
+            "arn:aws:iam::123456789012:user/canonical-eligibility-tagger",
+        "tagger_sts_account": "123456789012",
+        "tagger_sts_user_id": "AIDAFIXTURETAGGER",
+        "generated_at_utc": generated_at or datetime.datetime.now(
+            datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "rfq": "OFF",
+        "tag_puts": 0,
+    }
+    if mutate is not None:
+        mutate(payload)
+    raw = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode()
+    path = tree["root"] / ("PRECOMMIT-%s.json" % _sha(raw))
+    path.write_bytes(raw)
+    return path
+
+
 def _rewrite_tagged_control(tree, tagged):
     payload = (json.dumps(tagged, sort_keys=True, indent=2) + "\n").encode()
     binding = copy.deepcopy(tree["receipt_binding"])
@@ -607,17 +672,18 @@ def _rewrite_parent_control(tree, parent):
 
 def _publish_reference(tree, dest, receipt=None, include_rfq=False,
                        receipt_reader=None, tag_reader=None,
-                       yellow_alert=None):
+                       yellow_alert=None, proof=None):
     if receipt is not None:
         _write_receipt(tree, receipt)
     reader = receipt_reader or _fixture_reader(tree)
     tree["last_receipt_reader"] = reader
+    proof = proof or _tag_precommit_proof(tree)
     return rr.publish(
         DATE, str(dest), include_rfq, str(tree["quality"]),
         str(tree["root"] / "vault"), str(tree["root"] / "live"), False,
         reference_receipt=str(tree["index_path"]),
         reference_receipt_reader=reader,
-        reference_tag_reader=tag_reader,
+        reference_tag_precommit_proof=str(proof),
         reference_yellow_alert=(str(yellow_alert)
                                 if yellow_alert is not None else None))
 
@@ -627,7 +693,8 @@ def _publish_reference_input(tree, dest, index_path, reader):
         DATE, str(dest), False, str(tree["quality"]),
         str(tree["root"] / "vault"), str(tree["root"] / "live"), False,
         reference_receipt=str(index_path),
-        reference_receipt_reader=reader)
+        reference_receipt_reader=reader,
+        reference_tag_precommit_proof=str(_tag_precommit_proof(tree)))
 
 
 def _single_manifest(dest):
@@ -645,6 +712,8 @@ def test_reference_publish_is_manifest_only_and_digests_recompute(reference_tree
     assert all_files == [path]
     assert manifest["schema"] == rr.REFERENCE_MANIFEST_SCHEMA
     assert manifest["schema_version"] == 3
+    assert manifest["manifest_contract_version"] == \
+        rr.REFERENCE_CONTRACT_VERSION
     assert manifest["storage_mode"] == "CANONICAL_REFERENCE"
     assert manifest["post_upload_verification"]["data_objects_uploaded"] == 0
     assert manifest["rfq_included"] is False
@@ -668,14 +737,25 @@ def test_reference_publish_is_manifest_only_and_digests_recompute(reference_tree
     operations = [op[0] for op in reference_tree["last_receipt_reader"].ops]
     assert operations[:4] == ["head", "get_exact", "head", "get_exact"]
     assert operations.count("get_exact") == 2
-    assert operations.count("get_tags") == 1 + len(manifest["objects"])
+    assert operations.count("get_tags") == 0
+    enforcement = manifest["eligibility_enforcement"]
+    assert enforcement["publisher_exact_tag_inspection"] == \
+        "NOT_AUTHORIZED_BY_DESIGN"
+    assert enforcement["tagger_exact_set_readback"] == \
+        "CONTENT_ADDRESSED_PRECOMMIT_PROOF"
+    assert enforcement["consumer_exact_tag_revalidation"] == \
+        "W09_S3_EXISTING_OBJECT_TAG_RESEARCH_ELIGIBLE_TRUE"
+    assert enforcement["tagger_precommit_proof"]["target_count"] == \
+        1 + len(manifest["objects"])
     components = manifest["publication_components"]
     state = manifest["publication_state"]
-    assert rr.canonical_digest(components["corrections"]) == \
+    assert state["manifest_contract_version"] == \
+        rr.REFERENCE_CONTRACT_VERSION
+    assert rr.canonical_digest(components["corrections"]["objects"]) == \
         state["corrections_digest"]
-    assert rr.canonical_digest(components["gap_evidence"]) == \
+    assert rr.canonical_digest(components["gap_evidence"]["objects"]) == \
         state["gap_evidence_digest"]
-    assert rr.canonical_digest(manifest["l2_quality"]) == \
+    assert rr.canonical_digest(manifest["l2_quality"]["objects"]) == \
         state["l2_quality_digest"]
 
     six = ("logical_key", "source_bucket", "source_key",
@@ -700,23 +780,256 @@ def test_reference_publish_is_manifest_only_and_digests_recompute(reference_tree
          manifest["publication_state_sha256"][:16]))
 
 
+def test_two_phase_prepare_then_fresh_proof_commit_skips_expensive_rebuild(
+        reference_tree, monkeypatch, capsys):
+    dest = reference_tree["root"] / "two-phase-dest"
+    prepared_root = reference_tree["root"] / "prepared"
+    stage_root = reference_tree["root"] / "commit-stage"
+    stage_root.mkdir()
+    monkeypatch.setenv("RESEARCH_STAGE_ROOT", str(stage_root))
+    monkeypatch.setattr(ref, "TRUSTED_BUCKET",
+                        reference_tree["receipt_binding"]["bucket"])
+    reader = _fixture_reader(reference_tree)
+
+    assert rr.publish(
+        DATE, str(dest), False, str(reference_tree["quality"]),
+        str(reference_tree["root"] / "vault"),
+        str(reference_tree["root"] / "live"), False,
+        reference_receipt=str(reference_tree["index_path"]),
+        reference_receipt_reader=reader,
+        reference_prepare_only=True,
+        reference_prepare_output_root=str(prepared_root)) == 0
+    plans = list(prepared_root.glob("PREPARED-*.json"))
+    assert len(plans) == 1
+    plan, plan_sha = rr._read_prepared_reference_plan(plans[0])
+    assert plan["state"] == rr.REFERENCE_PREPARED_PLAN_STATE
+    assert plan["manifest_template"]["published_at_utc"] is None
+    assert plan["manifest_template"]["eligibility_enforcement"][
+        "tagger_precommit_proof"] is None
+    assert not list(dest.glob("releases/*/MANIFEST.json"))
+
+    stale = _tag_precommit_proof(
+        reference_tree, generated_at="2000-01-01T00:00:00Z")
+    with pytest.raises(SystemExit, match="precommit proof is stale"):
+        rr.publish(
+            DATE, str(dest), False, str(reference_tree["quality"]),
+            str(reference_tree["root"] / "vault"),
+            str(reference_tree["root"] / "live"), False,
+            reference_receipt=str(reference_tree["index_path"]),
+            reference_receipt_reader=_fixture_reader(reference_tree),
+            reference_tag_precommit_proof=str(stale),
+            reference_prepared_plan=str(plans[0]))
+    assert not list(dest.glob("releases/*/MANIFEST.json"))
+
+    prepared_at = datetime.datetime.fromisoformat(
+        plan["prepared_at_utc"].replace("Z", "+00:00"))
+    before_prepare = _tag_precommit_proof(
+        reference_tree,
+        generated_at=(prepared_at - datetime.timedelta(seconds=1)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"))
+    with pytest.raises(SystemExit, match="predates the prepared"):
+        rr.publish(
+            DATE, str(dest), False, str(reference_tree["quality"]),
+            str(reference_tree["root"] / "vault"),
+            str(reference_tree["root"] / "live"), False,
+            reference_receipt=str(reference_tree["index_path"]),
+            reference_receipt_reader=_fixture_reader(reference_tree),
+            reference_tag_precommit_proof=str(before_prepare),
+            reference_prepared_plan=str(plans[0]))
+
+    fresh = _tag_precommit_proof(reference_tree)
+    monkeypatch.setattr(
+        rr, "verify_against",
+        lambda *_a, **_kw: pytest.fail(
+            "prepared commit reopened expensive fact inputs"))
+    commit_reader = _fixture_reader(reference_tree)
+    assert rr.publish(
+        DATE, str(dest), False, str(reference_tree["quality"]),
+        str(reference_tree["root"] / "vault"),
+        str(reference_tree["root"] / "live"), False,
+        reference_receipt=str(reference_tree["index_path"]),
+        reference_receipt_reader=commit_reader,
+        reference_tag_precommit_proof=str(fresh),
+        reference_prepared_plan=str(plans[0])) == 0
+    assert [op[0] for op in commit_reader.ops] == [
+        "head", "get_exact", "head", "get_exact"]
+    _path, manifest = _single_manifest(dest)
+    assert manifest["eligibility_enforcement"]["tagger_precommit_proof"][
+        "proof_sha256"] == fresh.name[10:-5]
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["state"] == "REFERENCE_MANIFEST_COMMITTED"
+    assert result["prepared_plan_sha256"] == plan_sha
+    assert result["manifest_object"]["sha256"] == _sha(
+        _path.read_bytes())
+
+
+def test_prepared_plan_tamper_and_direct_real_s3_fail_closed(
+        reference_tree, monkeypatch):
+    prepared_root = reference_tree["root"] / "prepared-tamper"
+    assert rr.publish(
+        DATE, str(reference_tree["root"] / "unused-dest"), False,
+        str(reference_tree["quality"]),
+        str(reference_tree["root"] / "vault"),
+        str(reference_tree["root"] / "live"), False,
+        reference_receipt=str(reference_tree["index_path"]),
+        reference_receipt_reader=_fixture_reader(reference_tree),
+        reference_prepare_only=True,
+        reference_prepare_output_root=str(prepared_root)) == 0
+    plan = next(prepared_root.glob("PREPARED-*.json"))
+    plan.write_bytes(plan.read_bytes() + b" ")
+    with pytest.raises(SystemExit, match="content-address hash mismatch"):
+        rr._read_prepared_reference_plan(plan)
+
+    monkeypatch.setattr(rr, "require_reference_patrol_clear",
+                        lambda *_a, **_kw: None)
+    with pytest.raises(SystemExit, match="prepare-only -> tagger proof"):
+        rr.publish(
+            DATE, "s3://kalshi-vault-ritcardo/research", False,
+            str(reference_tree["quality"]),
+            str(reference_tree["root"] / "vault"),
+            str(reference_tree["root"] / "live"), True,
+            reference_receipt=str(reference_tree["index_path"]),
+            reference_receipt_reader=_fixture_reader(reference_tree),
+            reference_tag_precommit_proof=str(
+                _tag_precommit_proof(reference_tree)))
+
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("strip_marker", "unknown or mixed manifest contract version"),
+    ("strip_enforcement", "eligibility_enforcement contract mismatch"),
+    ("downgrade_marker", "unknown or mixed manifest contract version"),
+    ("strip_both", "unknown or mixed manifest contract version"),
+    ("legacy_components", "publication_components is incomplete"),
+])
+def test_manifest_contract_marker_fails_closed_on_stripping_or_mixed_downgrade(
+        reference_tree, monkeypatch, mutation, expected):
+    dest = reference_tree["root"] / ("contract-downgrade-" + mutation)
+    assert _publish_reference(reference_tree, dest) == 0
+    _path, manifest = _single_manifest(dest)
+    monkeypatch.setattr(ref, "TRUSTED_BUCKET",
+                        manifest["source_seal"]["bucket"])
+    candidate = copy.deepcopy(manifest)
+    if mutation == "strip_marker":
+        candidate.pop("manifest_contract_version")
+    elif mutation == "strip_enforcement":
+        candidate.pop("eligibility_enforcement")
+    elif mutation == "downgrade_marker":
+        candidate["manifest_contract_version"] = "legacy"
+    elif mutation == "strip_both":
+        candidate.pop("manifest_contract_version")
+        candidate.pop("eligibility_enforcement")
+    else:
+        components = candidate["publication_components"]
+        candidate["publication_components"] = {
+            key: components[key]
+            for key in ("seal_sha256", "corrections", "gap_evidence", "rfq")
+        }
+    with pytest.raises(ref.ReferenceManifestError, match=expected):
+        ref.validate_manifest(candidate, candidate["release_id"])
+
+
 def test_actual_forward_inventory_receipt_publishes_reference(reference_tree):
     """Integration: consume forward_canonical_receipts, not a hand schema."""
     root = reference_tree["root"]
     production_bucket = "kalshi-vault-ritcardo"
-    aux_path, _descriptor = fcr.freeze_forward_auxiliary_set(
+    aux_path, descriptor = fcr.freeze_forward_auxiliary_set(
         DATE, production_bucket, PREFIX, str(root / "raw"),
         str(root / "warehouse"),
         str(reference_tree["quality"]), str(root / "forward-aux"))
+    seal_path = root / "warehouse" / "seals" / ("date=%s.json" % DATE)
+    _loaded_descriptor, auxiliary = fcr.load_forward_auxiliary_set(
+        aux_path, DATE, production_bucket, PREFIX, reference_tree["seal"],
+        _sha(seal_path.read_bytes()))
+    observed_at = "2026-07-12T04:00:00Z"
+    catalog_files = []
+    for rel in cr.CATALOG_REQUIRED:
+        source = root / "warehouse" / "catalog" / rel
+        payload = source.read_bytes()
+        catalog_files.append({
+            "relative_path": "catalog/" + rel,
+            "size": len(payload), "sha256": _sha(payload),
+        })
+    catalog_generation = pg.build_manifest("catalog", catalog_files)
+    dim_files = []
+    for name in cr.DIM_REQUIRED:
+        source = (root / "warehouse" / "dim" / "snapshots"
+                  / ("date=%s" % DATE) / name)
+        payload = source.read_bytes()
+        dim_files.append({
+            "relative_path": "dim/snapshots/date=%s/%s" % (DATE, name),
+            "size": len(payload), "sha256": _sha(payload),
+        })
+    dim_generation = pg.build_manifest(
+        "dim", dim_files, date=DATE,
+        source_catalog_generation_id=catalog_generation["generation_id"])
+    witness_members = []
+    for number, row in enumerate(
+            catalog_generation["files"] + dim_generation["files"], 1):
+        logical = "warehouse/" + row["relative_path"]
+        witness_members.append({
+            "logical_source_key": logical,
+            "bucket": production_bucket,
+            "key": PREFIX + "/" + logical,
+            "VersionId": "generation-member-%d" % number,
+            "size": row["size"], "sha256": row["sha256"],
+            "LastModified": observed_at,
+        })
+    witness_members.sort(key=lambda row: row["logical_source_key"])
+    seal_exact = {
+        "bucket": production_bucket,
+        "key": "%s/warehouse/seals/date=%s.json" % (PREFIX, DATE),
+        "VersionId": "generation-seal-version",
+        "size": len(seal_path.read_bytes()),
+        "sha256": _sha(seal_path.read_bytes()),
+        "LastModified": reference_tree["seal"]["sealed_at"],
+    }
+    witness = fcr.build_generation_witness_payload(
+        DATE, production_bucket, PREFIX, seal_exact,
+        catalog_generation, dim_generation, witness_members)
+    witness_key, witness_raw = fcr.generation_witness_artifact(witness)
+    witness_object = {
+        "bucket": production_bucket, "key": witness_key,
+        "VersionId": "generation-witness-version",
+        "size": len(witness_raw), "sha256": _sha(witness_raw),
+        "LastModified": observed_at,
+    }
+    resolutions = []
+    for number, target in enumerate(
+            fcr.forward_version_resolution_targets(auxiliary),
+            len(witness_members) + 1):
+        version_id = "forward-version-%d" % number
+        resolutions.append({
+            "logical_source_key": target["logical_source_key"],
+            "bucket": target["bucket"], "key": target["key"],
+            "size": target["size"], "sha256": target["sha256"],
+            "VersionId": version_id, "LastModified": observed_at,
+            "resolution": "CURRENT_EXACT_SHA256_MATCH",
+            "resolver_evidence": {
+                "logical_source_key": target["logical_source_key"],
+                "key": target["key"], "current_version_id": version_id,
+                "current_exact_sha256_match": True,
+                "history_pages": 0, "versions_seen": 1,
+                "same_size_candidates": 1, "exact_gets": 1,
+                "matching_version_ids": [version_id],
+                "selected_version_id": version_id,
+                "selection_rule": fcr.FORWARD_VERSION_SELECTION_RULE,
+            },
+        })
+    version_binding, _binding_payload = fcr.write_forward_version_binding(
+        str(root / "forward-version-binding"), descriptor, auxiliary,
+        DATE, production_bucket, PREFIX, witness, witness_object,
+        resolutions)
     seal_binding, objects = fcr.build_forward_inventory(
         DATE, production_bucket, PREFIX, str(root / "raw"),
         str(root / "warehouse"),
-        str(reference_tree["quality"]), aux_path)
+        str(reference_tree["quality"]), aux_path, str(version_binding))
     total = len(objects)
     for obj in objects:
         obj.update({
-            "VersionId": "version-%s" % _sha(obj["key"].encode())[:16],
-            "last_modified_utc": "2026-07-12T04:00:00Z",
+            "VersionId": (obj.get("_expected_version_id")
+                          or "version-%s" % _sha(obj["key"].encode())[:16]),
+            "last_modified_utc": (
+                obj.get("_expected_last_modified_utc") or observed_at),
             "durability_verified": True,
             "verification_state": "EXACT_VERSION_FULL_SHA256",
             "_inventory_complete": True,
@@ -785,6 +1098,8 @@ def test_active_yellow_alert_blocks_v3_at_publish_entry(reference_tree):
         rr.main([
             "research_release.py", "publish-reference", "--date", DATE,
             "--receipt", str(reference_tree["index_path"]),
+            "--tag-precommit-proof",
+            str(_tag_precommit_proof(reference_tree)),
             "--dest", str(dest), "--live-dir", str(fixed.parents[1]),
         ])
 
@@ -842,7 +1157,7 @@ def test_s3_v3_manifest_rechecks_yellow_immediately_before_put(
 
 
 @pytest.mark.parametrize("fault", [
-    "null_version", "receipt_digest", "extra", "missing", "hash", "path",
+    "null_version", "receipt_digest", "extra", "path",
     "shadow_state", "untagged", "family_digest",
 ])
 def test_reference_receipt_faults_fail_before_manifest(reference_tree, fault):
@@ -1040,7 +1355,8 @@ def test_candidate_exact_head_gate_fails_closed(reference_tree, fault):
 
 
 @pytest.mark.parametrize("target", ["receipt", "candidate"])
-def test_exact_version_eligibility_tag_is_revalidated(reference_tree, target):
+def test_publisher_never_reads_tags_even_with_reader_tag_override(
+        reference_tree, target):
     reader = _fixture_reader(reference_tree)
     if target == "receipt":
         obj = reference_tree["receipt_binding"]
@@ -1050,28 +1366,45 @@ def test_exact_version_eligibility_tag_is_revalidated(reference_tree, target):
     identity = (obj["bucket"], obj["key"], obj["VersionId"])
     reader.tag_overrides[identity] = {}
     dest = reference_tree["root"] / ("bad-tag-%s" % target)
-    with pytest.raises(SystemExit, match="research-eligible=true"):
-        _publish_reference(reference_tree, dest, receipt_reader=reader)
-    assert not list(dest.glob("releases/*/MANIFEST.json"))
+    assert _publish_reference(reference_tree, dest, receipt_reader=reader) == 0
+    assert all(op[0] != "get_tags" for op in reader.ops)
 
 
-def test_tag_response_must_bind_requested_version(reference_tree):
-    reader = _fixture_reader(reference_tree)
-    candidate = next(item for item in reference_tree["tagged_receipt"]["objects"]
-                     if item["research_candidate"])
-    identity = (candidate["bucket"], candidate["key"], candidate["VersionId"])
-    original = reader.get_tags
+def test_precommit_proof_target_version_tamper_fails(reference_tree):
+    def mutate(proof):
+        proof["targets"][1]["source_version_id"] = "different-version"
 
-    def wrong_version(bucket, key, version_id):
-        result = original(bucket, key, version_id)
-        if (bucket, key, version_id) == identity:
-            result["VersionId"] = "different-version"
-        return result
-
-    reader.get_tags = wrong_version
+    proof = _tag_precommit_proof(reference_tree, mutate=mutate)
     dest = reference_tree["root"] / "bad-tag-version"
-    with pytest.raises(SystemExit, match="tag response is malformed"):
-        _publish_reference(reference_tree, dest, receipt_reader=reader)
+    with pytest.raises(SystemExit, match="target-set digest mismatch"):
+        _publish_reference(reference_tree, dest, proof=proof)
+
+
+@pytest.mark.parametrize("fault", ["byte_tamper", "stale", "incomplete"])
+def test_precommit_proof_tamper_stale_or_incomplete_fails_closed(
+        reference_tree, fault):
+    if fault == "stale":
+        proof = _tag_precommit_proof(
+            reference_tree, generated_at="2000-01-01T00:00:00Z")
+        expected = "stale"
+    elif fault == "incomplete":
+        def mutate(payload):
+            payload["targets"].pop()
+            payload["target_count"] = len(payload["targets"])
+            payload["research_candidate_count"] -= 1
+            payload["target_set_sha256"] = rr.canonical_digest(
+                payload["targets"])
+
+        proof = _tag_precommit_proof(reference_tree, mutate=mutate)
+        expected = "complete manifest reference set differ"
+    else:
+        proof = _tag_precommit_proof(reference_tree)
+        proof.write_bytes(proof.read_bytes() + b" ")
+        expected = "content-address hash mismatch"
+    dest = reference_tree["root"] / ("bad-proof-" + fault)
+    with pytest.raises(SystemExit, match=expected):
+        _publish_reference(reference_tree, dest, proof=proof)
+    assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
 def test_offline_fixture_can_inject_separate_object_and_tag_readers(
@@ -1083,7 +1416,7 @@ def test_offline_fixture_can_inject_separate_object_and_tag_readers(
         reference_tree, dest, receipt_reader=object_reader,
         tag_reader=tag_reader) == 0
     assert all(op[0] != "get_tags" for op in object_reader.ops)
-    assert all(op[0] == "get_tags" for op in tag_reader.ops)
+    assert tag_reader.ops == []
 
 
 def test_tagged_receipt_storage_class_must_be_online(reference_tree):
@@ -1113,7 +1446,7 @@ def test_forbidden_rfq_candidate_is_never_admitted(reference_tree):
 
 
 @pytest.mark.parametrize("missing_side", ["stage", "receipt"])
-def test_capture_gap_projection_set_mismatch_fails_closed(
+def test_canonical_receipt_not_mutable_stage_is_reference_authority(
         reference_tree, missing_side):
     receipt = copy.deepcopy(reference_tree["receipt"])
     if missing_side == "stage":
@@ -1125,9 +1458,12 @@ def test_capture_gap_projection_set_mismatch_fails_closed(
         receipt["objects"].remove(projection)
         _refresh_receipt(receipt)
     dest = reference_tree["root"] / ("missing-projection-%s" % missing_side)
-    with pytest.raises(SystemExit, match="stage/receipt logical set mismatch"):
-        _publish_reference(reference_tree, dest, receipt)
-    assert not list(dest.glob("releases/*/MANIFEST.json"))
+    assert _publish_reference(reference_tree, dest, receipt) == 0
+    _path, manifest = _single_manifest(dest)
+    projection_present = any(
+        obj["kind"] == "capture_gaps_projection"
+        for obj in manifest["objects"])
+    assert projection_present is (missing_side == "stage")
 
 
 def _eligible_rfq_receipt(tree):
@@ -1181,36 +1517,23 @@ def test_rfq_structured_eligibility_binding_is_strict(reference_tree, fault):
     assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
-def test_rfq_exact_version_requires_dual_tag_readback(reference_tree):
+def test_v3_precommit_path_keeps_rfq_structurally_off(reference_tree):
     receipt = _eligible_rfq_receipt(reference_tree)
     _write_receipt(reference_tree, receipt)
-    reader = _fixture_reader(reference_tree)
-    rfq = next(obj for obj in reference_tree["tagged_receipt"]["objects"]
-               if obj["source_kind"] == "raw_rfq")
-    identity = (rfq["bucket"], rfq["key"], rfq["VersionId"])
-    reader.tag_overrides[identity] = {"research-eligible": "true"}
-    dest = reference_tree["root"] / "rfq-missing-channel-tag"
-    with pytest.raises(SystemExit, match="research-channel=rfq"):
-        _publish_reference(
-            reference_tree, dest, include_rfq=True, receipt_reader=reader)
+    dest = reference_tree["root"] / "rfq-precommit-off"
+    with pytest.raises(SystemExit, match="RFQ-off"):
+        _publish_reference(reference_tree, dest, include_rfq=True)
     assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
-def test_eligible_sealed_rfq_requires_explicit_opt_in(reference_tree):
+def test_eligible_sealed_rfq_remains_an_independent_capability_boundary(
+        reference_tree):
     receipt = _eligible_rfq_receipt(reference_tree)
     dest = reference_tree["root"] / "eligible-rfq"
-    assert _publish_reference(
-        reference_tree, dest, receipt, include_rfq=True) == 0
-    _path, manifest = _single_manifest(dest)
-    rfq_refs = [obj for obj in manifest["objects"]
-                if obj["kind"] == "rfq"]
-    assert len(rfq_refs) == sum(
-        obj["source_kind"] in ("raw_rfq", "raw_rfq_receipts")
-        for obj in receipt["objects"])
-    assert manifest["rfq_included"] is True
-    assert all(obj["logical_key"].startswith("raw_rfq/date=")
-               and obj["channel"] == "rfq"
-               and obj["required"] is False for obj in rfq_refs)
+    with pytest.raises(SystemExit, match="independent research capability"):
+        _publish_reference(
+            reference_tree, dest, receipt, include_rfq=True)
+    assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
 def test_manifest_conditional_create_conflict_fails_closed(reference_tree,
@@ -1305,6 +1628,7 @@ def test_publish_reference_cli_is_explicit_and_defaults_rfq_off(
     rc = rr.main([
         "research_release.py", "publish-reference", "--date", DATE,
         "--receipt", str(reference_tree["index_path"]),
+        "--tag-precommit-proof", str(_tag_precommit_proof(reference_tree)),
         "--dest", str(dest), "--quality-dir", str(reference_tree["quality"]),
         "--raw-vault", str(reference_tree["root"] / "vault"),
         "--live-dir", str(reference_tree["root"] / "live"),
@@ -1315,4 +1639,4 @@ def test_publish_reference_cli_is_explicit_and_defaults_rfq_off(
     assert manifest["rfq_included"] is False
     assert [op[0] for op in reader.ops][:4] == \
         ["head", "get_exact", "head", "get_exact"]
-    assert any(op[0] == "get_tags" for op in reader.ops)
+    assert all(op[0] != "get_tags" for op in reader.ops)

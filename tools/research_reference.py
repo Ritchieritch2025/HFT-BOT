@@ -15,6 +15,15 @@ import re
 
 SCHEMA = "research-release-manifest-v3-reference"
 STORAGE_MODE = "CANONICAL_REFERENCE"
+MANIFEST_CONTRACT_VERSION = "reference-v3-tagger-precommit-v1"
+# Markerless v3 existed only as a short-lived pre-contract format.  It is
+# never inferred from missing fields: an operator-reviewed historical object
+# must be pinned by release id, canonical manifest digest, and publication
+# timestamp, and it must predate the fixed cutover.  The production allowlist
+# is intentionally empty because the read-only S3 inventory contains no
+# historical legacy-v3 manifests (the three pre-v3 objects are v1/v2).
+LEGACY_V3_CUTOVER_UTC = "2026-07-17T00:00:00Z"
+LEGACY_V3_MANIFEST_PINS = frozenset()
 TRUSTED_BUCKET = "kalshi-vault-ritcardo"
 RFQ_POLICY = "OPTIONAL_SEALED_ONLY"
 MAX_DURABLE_RECEIPT_BYTES = 16 * 1024 * 1024
@@ -115,6 +124,22 @@ def _size(value: object, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ReferenceManifestError(f"{label} has invalid size {value!r}")
     return value
+
+
+def _require_legacy_v3_pin(manifest: dict, release_id: str,
+                           published_at_utc: str) -> None:
+    """Admit only an explicitly pinned, pre-cutover markerless v3 object."""
+    published = datetime.datetime.fromisoformat(
+        published_at_utc.replace("Z", "+00:00"))
+    cutover = datetime.datetime.fromisoformat(
+        LEGACY_V3_CUTOVER_UTC.replace("Z", "+00:00"))
+    if published >= cutover:
+        raise ReferenceManifestError(
+            "legacy v3 manifest is at or after the fixed contract cutover")
+    pin = (release_id, canonical_sha256(manifest), published_at_utc)
+    if pin not in LEGACY_V3_MANIFEST_PINS:
+        raise ReferenceManifestError(
+            "legacy v3 manifest is not in the explicit historical allowlist")
 
 
 def _normalize_rfq_eligibility_binding(value: object,
@@ -426,6 +451,77 @@ def _normalize_receipt_object(value: object, release_date: str,
     return normalized
 
 
+def _valid_forward_version_binding(value: object) -> bool:
+    if (not isinstance(value, dict) or set(value) != {
+            "source_evidence", "forward_version_binding_sha256",
+            "resolver_evidence_sha256", "resolution"}
+            or not isinstance(value.get("forward_version_binding_sha256"), str)
+            or SHA256_RE.match(value["forward_version_binding_sha256"]) is None
+            or not isinstance(value.get("resolver_evidence_sha256"), str)
+            or SHA256_RE.match(value["resolver_evidence_sha256"]) is None):
+        return False
+    source = value.get("source_evidence")
+    provenance = source.get("provenance") if isinstance(source, dict) else None
+    resolution = value.get("resolution")
+    return ((provenance == "RETAINED_IMMUTABLE_AUX_SNAPSHOT"
+             and resolution in {
+                 "CURRENT_EXACT_SHA256_MATCH",
+                 "HISTORICAL_EXACT_SHA256_MATCH"})
+            or (provenance == "FULL_V2_SEAL_AUTHENTICATED_S3_CUTOFF"
+                and resolution
+                == "S3_AUTHENTICATED_CUTOFF_EXACT_VERSION")
+            or (provenance in {
+                    "PRODUCER_EXACT_GENERATION_WITNESS",
+                    "LEGACY_MIGRATION_GENERATION_WITNESS"}
+                and resolution
+                == "PRODUCER_GENERATION_WITNESS_EXACT_VERSION"))
+
+
+def _valid_forward_dim_source_evidence(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    provenance = value.get("provenance")
+    valid_sha = lambda item: (
+        isinstance(item, str) and SHA256_RE.match(item) is not None)
+    old = (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_generation_id"}
+        and provenance in {
+            "RETAINED_IMMUTABLE_AUX_SNAPSHOT",
+            "FULL_V2_SEAL_AUTHENTICATED_S3_CUTOFF"}
+        and valid_sha(value.get("dim_set_sha256"))
+        and isinstance(value.get("dim_generation_id"), str)
+        and bool(value["dim_generation_id"])
+        and isinstance(value.get("catalog_generation_id"), str)
+        and bool(value["catalog_generation_id"]))
+    if old:
+        return True
+    producer = (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_generation_id", "catalog_dim_coherence_claim"}
+        and provenance == "PRODUCER_EXACT_GENERATION_WITNESS"
+        and value.get("catalog_dim_coherence_claim") is True
+        and valid_sha(value.get("dim_set_sha256"))
+        and valid_sha(value.get("dim_generation_id"))
+        and valid_sha(value.get("catalog_generation_id")))
+    if producer:
+        return True
+    return (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_dim_coherence_claim", "dim_source_catalog_generation_id",
+        "selected_catalog_generation_id", "relationship"}
+        and provenance == "LEGACY_MIGRATION_GENERATION_WITNESS"
+        and value.get("catalog_dim_coherence_claim") is False
+        and value.get("relationship")
+        == "LEGACY_MIGRATION_COMBINATION_NOT_COHERENT"
+        and valid_sha(value.get("dim_set_sha256"))
+        and valid_sha(value.get("dim_generation_id"))
+        and valid_sha(value.get("dim_source_catalog_generation_id"))
+        and valid_sha(value.get("selected_catalog_generation_id"))
+        and value["dim_source_catalog_generation_id"]
+        != value["selected_catalog_generation_id"])
+
+
 def validate_manifest(manifest: object, requested_release_id: str | None = None) -> dict:
     """Validate v3 and return a normalized, transport-neutral descriptor."""
     if not isinstance(manifest, dict):
@@ -434,9 +530,30 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
         raise ReferenceManifestError("wrong v3 schema")
     if manifest.get("storage_mode") != STORAGE_MODE:
         raise ReferenceManifestError("wrong v3 storage_mode")
+    enforcement = manifest.get("eligibility_enforcement")
+    raw_components = manifest.get("publication_components")
+    legacy_component_fields = {
+        "seal_sha256", "corrections", "gap_evidence", "rfq"}
+    modern_component_fields = {
+        "source", "seal_sha256", "corrections", "gap_evidence",
+        "l2_quality", "rfq"}
+    contract_marker = manifest.get("manifest_contract_version")
+    if contract_marker == MANIFEST_CONTRACT_VERSION:
+        modern_contract = True
+    elif ("manifest_contract_version" not in manifest
+          and "eligibility_enforcement" not in manifest
+          and isinstance(raw_components, dict)
+          and set(raw_components) == legacy_component_fields):
+        # Shape recognition is only a candidate classification.  Admission is
+        # gated below by the explicit immutable historical pin and cutover.
+        modern_contract = False
+    else:
+        raise ReferenceManifestError(
+            "unknown or mixed manifest contract version")
     if manifest.get("publication_status") != "PUBLISHED":
         raise ReferenceManifestError("reference release is not PUBLISHED")
-    _utc(manifest.get("published_at_utc"), "published_at_utc")
+    published_at_utc = _utc(
+        manifest.get("published_at_utc"), "published_at_utc")
     if not isinstance(manifest.get("publisher_commit"), str) or not manifest["publisher_commit"]:
         raise ReferenceManifestError("publisher_commit is missing")
 
@@ -449,6 +566,8 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
     release_date = _date(manifest.get("date"), "manifest date")
     if match.group(1) != release_date:
         raise ReferenceManifestError("release_id date differs from manifest date")
+    if not modern_contract:
+        _require_legacy_v3_pin(manifest, release_id, published_at_utc)
 
     source_seal = _normalize_source_seal(manifest.get("source_seal"), release_date)
     if match.group(2) != source_seal["sha256"][:8]:
@@ -541,7 +660,16 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
                 f"RFQ object carries blocked/quarantined semantics: {logical}"
             )
         if item["kind"] == "dim_snapshot":
-            if item["seal_binding"] is not None or item["evidence_binding"] is not None:
+            forward = item["evidence_binding"]
+            source_evidence = (forward.get("source_evidence")
+                               if isinstance(forward, dict) else None)
+            forward_valid = (
+                item["seal_binding"] == source_seal["sha256"]
+                and _valid_forward_version_binding(forward)
+                and _valid_forward_dim_source_evidence(source_evidence))
+            legacy_valid = (item["seal_binding"] is None
+                            and item["evidence_binding"] is None)
+            if not (forward_valid or legacy_valid):
                 raise ReferenceManifestError(
                     f"dated dim snapshot carries an unsupported binding: {logical}"
                 )
@@ -660,6 +788,8 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
         "canonical_receipt_set_sha256",
         "canonical_receipt_binding_sha256",
     }
+    if modern_contract:
+        state_fields.add("manifest_contract_version")
     if set(state) != state_fields:
         raise ReferenceManifestError(
             "publication_state fields differ from the v3 contract"
@@ -680,6 +810,8 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
         "rfq_policy": RFQ_POLICY,
         "rfq_included": rfq_included,
     }
+    if modern_contract:
+        fixed_state["manifest_contract_version"] = MANIFEST_CONTRACT_VERSION
     for key, expected in fixed_state.items():
         if state.get(key) != expected:
             raise ReferenceManifestError(f"publication_state {key} mismatch")
@@ -728,72 +860,172 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
         raise ReferenceManifestError(
             "publication_state canonical receipt object binding mismatch")
 
-    publication_components = manifest.get("publication_components")
+    if modern_contract:
+        expected_enforcement_fields = {
+            "publisher_exact_tag_inspection", "publisher_tag_mutation",
+            "tagger_precommit_proof", "tagger_exact_set_readback",
+            "consumer_exact_tag_revalidation", "consumer_enforcement_scope",
+        }
+        if (not isinstance(enforcement, dict)
+                or set(enforcement) != expected_enforcement_fields
+                or enforcement.get("publisher_exact_tag_inspection")
+                != "NOT_AUTHORIZED_BY_DESIGN"
+                or enforcement.get("publisher_tag_mutation") != "ACCESS_DENIED"
+                or enforcement.get("tagger_exact_set_readback")
+                != "CONTENT_ADDRESSED_PRECOMMIT_PROOF"
+                or enforcement.get("consumer_exact_tag_revalidation")
+                != "W09_S3_EXISTING_OBJECT_TAG_RESEARCH_ELIGIBLE_TRUE"
+                or enforcement.get("consumer_enforcement_scope")
+                != "EACH_CANONICAL_SOURCE_EXACT_VERSION"):
+            raise ReferenceManifestError(
+                "eligibility_enforcement contract mismatch")
+        tag_proof = enforcement.get("tagger_precommit_proof")
+        proof_fields = {
+            "schema_version", "proof_sha256", "generated_at_utc",
+            "tagger_sts_caller_arn", "target_set_sha256", "target_count",
+            "research_candidate_count", "rfq",
+        }
+        if (not isinstance(tag_proof, dict) or set(tag_proof) != proof_fields
+                or tag_proof.get("schema_version")
+                != "canonical-eligibility-precommit-proof-v1"
+                or tag_proof.get("rfq") != "OFF"
+                or tag_proof.get("target_count") != len(objects) + 1
+                or tag_proof.get("research_candidate_count") != len(objects)
+                or re.fullmatch(
+                    r"arn:aws:iam::[0-9]{12}:user/[A-Za-z0-9+=,.@_/-]+",
+                    str(tag_proof.get("tagger_sts_caller_arn") or "")) is None):
+            raise ReferenceManifestError(
+                "tagger precommit proof binding is invalid")
+        _sha(tag_proof.get("proof_sha256"),
+             "tagger precommit proof sha256")
+        _sha(tag_proof.get("target_set_sha256"),
+             "tagger precommit target_set_sha256")
+        _utc(tag_proof.get("generated_at_utc"),
+             "tagger precommit generated_at_utc")
+
+    publication_components = raw_components
+    expected_component_fields = (
+        modern_component_fields if modern_contract else legacy_component_fields)
     if (not isinstance(publication_components, dict)
-            or set(publication_components)
-            != {"seal_sha256", "corrections", "gap_evidence", "rfq"}):
+            or set(publication_components) != expected_component_fields):
         raise ReferenceManifestError("publication_components is incomplete")
     if publication_components.get("seal_sha256") != source_seal["sha256"]:
         raise ReferenceManifestError("publication_components seal mismatch")
+    if (modern_contract and publication_components.get("source")
+            != "IMMUTABLE_CANONICAL_RECEIPT_EXACT_VERSIONS"):
+        raise ReferenceManifestError("publication_components source mismatch")
     component_corrections = publication_components.get("corrections")
     component_gap = publication_components.get("gap_evidence")
+    component_l2 = (publication_components.get("l2_quality")
+                    if modern_contract else None)
     component_rfq = publication_components.get("rfq")
     if (not isinstance(component_corrections, dict)
             or not isinstance(component_gap, dict)
+            or (modern_contract and not isinstance(component_l2, dict))
             or not isinstance(component_rfq, dict)):
         raise ReferenceManifestError("publication_components blocks are malformed")
-    if state.get("corrections_digest") != canonical_sha256(
-            component_corrections):
-        raise ReferenceManifestError("publication component corrections mismatch")
-    if state.get("gap_evidence_digest") != canonical_sha256(component_gap):
-        raise ReferenceManifestError("publication component gap evidence mismatch")
-    if (component_rfq.get("included") is not rfq_included
-            or not isinstance(component_rfq.get("files"), list)):
-        raise ReferenceManifestError("publication component RFQ switch mismatch")
-    component_rfq_files = sorted(component_rfq["files"], key=lambda row: (
-        row.get("file", "") if isinstance(row, dict) else ""))
-    expected_rfq_files = sorted(({
-        "file": item["logical_key"][len("raw_rfq/"):],
-        "size": item["size"],
-        "sha256": item["sha256"],
-    } for item in rfq_rows), key=lambda row: row["file"])
-    if component_rfq_files != expected_rfq_files:
-        raise ReferenceManifestError("publication component RFQ files mismatch")
 
-    by_kind = {item["kind"]: item for item in objects
-               if item["kind"] in {
-                   "capture_gap_receipt", "capture_gaps_projection",
-                   "l2_quality_receipt",
-                   "corrections_ledger_day"}}
-    gap_receipt = by_kind["capture_gap_receipt"]
-    gap_projection = by_kind.get("capture_gaps_projection")
-    l2_receipt = by_kind.get("l2_quality_receipt")
-    if (component_gap.get("affirmative_receipt") is not True
-            or component_gap.get("receipt_inventory_matched_seal") is not True
-            or component_gap.get("non_affirmative_reason") is not None
-            or component_gap.get("gap_receipt_sha256") != gap_receipt["sha256"]
-            or component_gap.get("capture_gaps_sha256")
-            != (gap_projection["sha256"] if gap_projection else None)
-            or component_gap.get("l2_gaps_sha256")
-            != (l2_receipt["sha256"] if l2_receipt else None)):
-        raise ReferenceManifestError("publication component quality bindings mismatch")
+    def component_projection(kinds):
+        return [{key: item.get(key) for key in (
+            "logical_key", "source_bucket", "source_key",
+            "source_version_id", "size", "sha256", "kind", "channel",
+            "evidence_binding")}
+                for item in objects if item.get("kind") in kinds]
 
-    correction_files = component_corrections.get("files")
-    if not isinstance(correction_files, list):
-        raise ReferenceManifestError("publication component corrections files invalid")
-    expected_correction_rows = sorted(({
-        "key": item["local_key"], "size": item["size"],
-        "sha256": item["sha256"],
-    } for item in objects if item["kind"] == "correction"),
-        key=lambda row: row["key"])
-    if sorted(correction_files, key=lambda row: (
-            row.get("key", "") if isinstance(row, dict) else "")) \
-            != expected_correction_rows:
-        raise ReferenceManifestError("publication component correction files mismatch")
-    ledger_obj = by_kind.get("corrections_ledger_day")
-    if component_corrections.get("ledger_day_sha256") != (
-            ledger_obj["sha256"] if ledger_obj else None):
-        raise ReferenceManifestError("publication component ledger binding mismatch")
+    if modern_contract:
+        expected_corrections = component_projection({
+            "correction", "corrections_ledger_day"})
+        expected_gap = component_projection({
+            "capture_gap_receipt", "capture_gaps_projection"})
+        expected_l2 = component_projection({"l2_quality_receipt"})
+        if component_corrections != {"objects": expected_corrections}:
+            raise ReferenceManifestError(
+                "publication component corrections mismatch")
+        if component_gap != {
+                "affirmative_receipt": bool(expected_gap),
+                "objects": expected_gap}:
+            raise ReferenceManifestError(
+                "publication component gap evidence mismatch")
+        if component_l2 != {
+                "affirmative_receipt": bool(expected_l2),
+                "objects": expected_l2}:
+            raise ReferenceManifestError(
+                "publication component L2 quality mismatch")
+        if state.get("corrections_digest") != canonical_sha256(
+                expected_corrections):
+            raise ReferenceManifestError(
+                "publication component corrections mismatch")
+        if state.get("gap_evidence_digest") != canonical_sha256(expected_gap):
+            raise ReferenceManifestError(
+                "publication component gap evidence mismatch")
+        if state.get("l2_quality_digest") != canonical_sha256(expected_l2):
+            raise ReferenceManifestError(
+                "publication component L2 quality mismatch")
+        if component_rfq != {"included": rfq_included}:
+            raise ReferenceManifestError(
+                "publication component RFQ switch mismatch")
+    else:
+        if state.get("corrections_digest") != canonical_sha256(
+                component_corrections):
+            raise ReferenceManifestError(
+                "publication component corrections mismatch")
+        if state.get("gap_evidence_digest") != canonical_sha256(component_gap):
+            raise ReferenceManifestError(
+                "publication component gap evidence mismatch")
+        if (component_rfq.get("included") is not rfq_included
+                or not isinstance(component_rfq.get("files"), list)):
+            raise ReferenceManifestError(
+                "publication component RFQ switch mismatch")
+        component_rfq_files = sorted(
+            component_rfq["files"],
+            key=lambda row: row.get("file", "") if isinstance(row, dict) else "")
+        expected_rfq_files = sorted(({
+            "file": item["logical_key"][len("raw_rfq/"):],
+            "size": item["size"],
+            "sha256": item["sha256"],
+        } for item in rfq_rows), key=lambda row: row["file"])
+        if component_rfq_files != expected_rfq_files:
+            raise ReferenceManifestError(
+                "publication component RFQ files mismatch")
+
+        by_kind = {item["kind"]: item for item in objects
+                   if item["kind"] in {
+                       "capture_gap_receipt", "capture_gaps_projection",
+                       "l2_quality_receipt", "corrections_ledger_day"}}
+        gap_receipt = by_kind["capture_gap_receipt"]
+        gap_projection = by_kind.get("capture_gaps_projection")
+        l2_receipt = by_kind.get("l2_quality_receipt")
+        if (component_gap.get("affirmative_receipt") is not True
+                or component_gap.get("receipt_inventory_matched_seal") is not True
+                or component_gap.get("non_affirmative_reason") is not None
+                or component_gap.get("gap_receipt_sha256")
+                != gap_receipt["sha256"]
+                or component_gap.get("capture_gaps_sha256")
+                != (gap_projection["sha256"] if gap_projection else None)
+                or component_gap.get("l2_gaps_sha256")
+                != (l2_receipt["sha256"] if l2_receipt else None)):
+            raise ReferenceManifestError(
+                "publication component quality bindings mismatch")
+
+        correction_files = component_corrections.get("files")
+        if not isinstance(correction_files, list):
+            raise ReferenceManifestError(
+                "publication component corrections files invalid")
+        expected_correction_rows = sorted(({
+            "key": item["local_key"], "size": item["size"],
+            "sha256": item["sha256"],
+        } for item in objects if item["kind"] == "correction"),
+            key=lambda row: row["key"])
+        if sorted(correction_files, key=lambda row: (
+                row.get("key", "") if isinstance(row, dict) else "")) \
+                != expected_correction_rows:
+            raise ReferenceManifestError(
+                "publication component correction files mismatch")
+        ledger_obj = by_kind.get("corrections_ledger_day")
+        if component_corrections.get("ledger_day_sha256") != (
+                ledger_obj["sha256"] if ledger_obj else None):
+            raise ReferenceManifestError(
+                "publication component ledger binding mismatch")
 
     corrections = manifest.get("corrections")
     if not isinstance(corrections, dict):
@@ -803,14 +1035,22 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
     )
     if state.get("corrections_digest") != corrections_digest:
         raise ReferenceManifestError("publication_state corrections digest mismatch")
-    expected_correction_files = 1 if correction_keys else 0
+    expected_correction_files = (
+        len(expected_corrections) if modern_contract
+        else (1 if correction_keys else 0))
     if corrections.get("included_files") != expected_correction_files:
         raise ReferenceManifestError("corrections included_files mismatch")
     ledger_entries = corrections.get("ledger_day_entries")
-    if (not isinstance(ledger_entries, int) or isinstance(ledger_entries, bool)
-            or ledger_entries < 0
-            or (not correction_keys and ledger_entries != 0)):
-        raise ReferenceManifestError("corrections ledger_day_entries is invalid")
+    if modern_contract:
+        if ledger_entries is not None:
+            raise ReferenceManifestError(
+                "canonical-reference corrections cannot claim mutable ledger rows")
+    elif (not isinstance(ledger_entries, int)
+          or isinstance(ledger_entries, bool)
+          or ledger_entries < 0
+          or (not correction_keys and ledger_entries != 0)):
+        raise ReferenceManifestError(
+            "corrections ledger_day_entries is invalid")
 
     channels = manifest.get("channels")
     if not isinstance(channels, dict):
@@ -845,8 +1085,16 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
     l2_quality = manifest.get("l2_quality")
     if l2_quality != channels["orderbooks_l2"].get("seq_quality"):
         raise ReferenceManifestError("top-level L2 quality alias mismatch")
-    if state.get("l2_quality_digest") != canonical_sha256(l2_quality):
-        raise ReferenceManifestError("publication_state L2 quality digest mismatch")
+    if modern_contract:
+        if l2_quality != component_l2:
+            raise ReferenceManifestError(
+                "top-level L2 quality binding mismatch")
+        expected_l2_digest = canonical_sha256(expected_l2)
+    else:
+        expected_l2_digest = canonical_sha256(l2_quality)
+    if state.get("l2_quality_digest") != expected_l2_digest:
+        raise ReferenceManifestError(
+            "publication_state L2 quality digest mismatch")
 
     tables = manifest.get("tables")
     if not isinstance(tables, dict):
@@ -886,6 +1134,8 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
     return {
         "schema": SCHEMA,
         "storage_mode": STORAGE_MODE,
+        "manifest_contract_version": (
+            MANIFEST_CONTRACT_VERSION if modern_contract else None),
         "release_id": release_id,
         "date": release_date,
         "published_at_utc": manifest["published_at_utc"],

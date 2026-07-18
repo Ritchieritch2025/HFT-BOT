@@ -232,24 +232,21 @@ def test_dim_generation_binds_source_catalog_and_whole_date_group(tmp_path):
     assert all((warehouse / path).is_file() for path in dim_paths)
 
 
-def test_forward_freezer_rejects_dim_from_a_different_catalog(tmp_path):
-    warehouse = tmp_path / "warehouse"
+def test_forward_generation_witness_contract_replaces_timestamp_resolution():
     date = "2026-07-16"
-    paths = [
-        "dim/snapshots/date=%s/%s.csv" % (date, name)
-        for name in ("series", "events", "markets")]
-    for rel in paths:
-        _write(warehouse / rel, rel.encode())
-    old_catalog = "a" * 64
-    dim_manifest = pg.build_manifest(
-        "dim", pg.attest_files(str(warehouse), paths), date=date,
-        source_catalog_generation_id=old_catalog)
-    _install_manifest(warehouse, dim_manifest)
+    contract = fcr._generation_witness_contract({
+        "sha256": "a" * 64,
+        "sealed_at": "2026-07-17T02:00:00Z",
+    }, date, "kalshi-vault-fixture", "ec2")
 
-    with pytest.raises(cr.ReceiptError) as error:
-        fcr._freeze_forward_dim_generation(
-            date, str(warehouse), "b" * 64)
-    assert error.value.code == "FORWARD_GENERATION_MISMATCH"
+    assert contract["seal_sealed_at_utc"] == "2026-07-17T02:00:00Z"
+    assert contract["seal_sha256"] == "a" * 64
+    assert contract["discovery_rule"] == \
+        "EXACTLY_ONE_CONTENT_ADDRESSED_WITNESS"
+    assert contract["read_rule"] == \
+        "HEAD_VERSIONID_THEN_EXACT_GET_NO_FALLBACK"
+    assert contract["key_prefix"] == \
+        "ec2/control/publication-generations/v1/date=2026-07-16/"
 
 
 def test_classification_refreshes_the_same_catalog_generation(tmp_path):

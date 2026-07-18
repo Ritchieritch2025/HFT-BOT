@@ -1,0 +1,8 @@
+{
+  "filename": "duckdb-1.4.5-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl",
+  "platform": "CPython 3.12 / Linux aarch64 / glibc >= 2.26",
+  "pypi_project": "duckdb",
+  "sha256": "0c72b1dcf27a71ef5f3dc14b92b9ed9274c5584bb0e88590b78907cbb8e254f3",
+  "source": "https://files.pythonhosted.org/packages/5b/a2/dbc65b784ee731e246fe5b3066b61aa0afe01dbf4927d3f2db97ced45d6f/duckdb-1.4.5-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl",
+  "version": "1.4.5"
+}

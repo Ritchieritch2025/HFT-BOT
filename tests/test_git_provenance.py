@@ -46,6 +46,65 @@ def test_clean_exact_head_passes_and_unrelated_dirty_is_ignored(clean_repo):
         clean_repo, ("tools/critical.py",)) == expected
 
 
+def test_probe_uses_exact_safe_directory_and_sanitized_read_only_git_env(
+        clean_repo, monkeypatch):
+    expected = "c" * 40
+    responses = iter([
+        subprocess.CompletedProcess([], 0,
+                                    stdout=(str(clean_repo) + "\n").encode(),
+                                    stderr=b""),
+        subprocess.CompletedProcess([], 0,
+                                    stdout=(expected + "\n").encode(),
+                                    stderr=b""),
+        subprocess.CompletedProcess([], 0,
+                                    stdout=b"tools/critical.py\x00", stderr=b""),
+        subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+    ])
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return next(responses)
+
+    monkeypatch.setattr(gp.subprocess, "run", fake_run)
+    monkeypatch.setenv("GIT_DIR", "/tmp/attacker.git")
+    monkeypatch.setenv("GIT_WORK_TREE", "/tmp/attacker-tree")
+    assert gp.require_clean_head(
+        clean_repo, ("tools/critical.py",)) == expected
+    assert len(calls) == 4
+    for argv, kwargs in calls:
+        assert argv[0] == "/usr/bin/git"
+        assert "safe.directory=%s" % clean_repo.resolve() in argv
+        assert "core.fsmonitor=false" in argv
+        assert "core.hooksPath=/dev/null" in argv
+        assert kwargs["shell"] is False
+        assert kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0"
+        assert kwargs["env"]["GIT_CONFIG_NOSYSTEM"] == "1"
+        assert "GIT_DIR" not in kwargs["env"]
+        assert "GIT_WORK_TREE" not in kwargs["env"]
+
+
+def test_read_only_git_metadata_allows_clean_probe_but_still_detects_dirty(
+        clean_repo):
+    git_dir = clean_repo / ".git"
+    index = git_dir / "index"
+    old_dir_mode = git_dir.stat().st_mode & 0o777
+    old_index_mode = index.stat().st_mode & 0o777
+    try:
+        index.chmod(0o444)
+        git_dir.chmod(0o555)
+        expected = _git(clean_repo, "rev-parse", "HEAD")
+        assert gp.require_clean_head(
+            clean_repo, ("tools/critical.py",)) == expected
+        (clean_repo / "tools" / "critical.py").write_text("VALUE = 2\n")
+        with pytest.raises(
+                gp.GitProvenanceError, match="GIT_PROVENANCE_DIRTY"):
+            gp.require_clean_head(clean_repo, ("tools/critical.py",))
+    finally:
+        git_dir.chmod(old_dir_mode)
+        index.chmod(old_index_mode)
+
+
 @pytest.mark.parametrize("state", ["unstaged", "staged", "deleted"])
 def test_tracked_relevant_dirty_fails_closed(clean_repo, state):
     path = clean_repo / "tools" / "critical.py"

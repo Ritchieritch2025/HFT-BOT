@@ -103,6 +103,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -112,6 +113,7 @@ import git_provenance as gp  # noqa: E402
 MANIFEST_SCHEMA = "research-release-manifest-v2"
 REFERENCE_MANIFEST_SCHEMA = "research-release-manifest-v3-reference"
 REFERENCE_STORAGE_MODE = "CANONICAL_REFERENCE"
+REFERENCE_CONTRACT_VERSION = "reference-v3-tagger-precommit-v1"
 CANONICAL_RECEIPT_SCHEMA = "canonical-object-receipt-v1"
 CANONICAL_RECEIPT_STATE = "DURABLE_RECEIPT_VERIFIED"
 CANONICAL_RECEIPT_AUTHORITY = "CANONICAL_CONTROL_PLANE"
@@ -123,9 +125,93 @@ RFQ_DUAL_TAG_STATE = "DUAL_TAGGED_VERIFIED"
 MAX_DURABLE_INDEX_BYTES = 1024 * 1024
 MAX_CANONICAL_RECEIPT_BYTES = 16 * 1024 * 1024
 MAX_REFERENCE_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_TAG_PRECOMMIT_PROOF_BYTES = 16 * 1024 * 1024
+MAX_REFERENCE_PREPARED_PLAN_BYTES = 32 * 1024 * 1024
+TAG_PRECOMMIT_PROOF_SCHEMA = "canonical-eligibility-precommit-proof-v1"
+TAG_PRECOMMIT_PROOF_STATE = "EXACT_VERSION_TAG_READBACK_VERIFIED"
+TAG_PRECOMMIT_MAX_AGE_SECONDS = 15 * 60
+TAG_PRECOMMIT_FUTURE_SKEW_SECONDS = 5 * 60
+REFERENCE_PREPARED_PLAN_SCHEMA = "research-reference-prepared-plan-v1"
+REFERENCE_PREPARED_PLAN_STATE = "REFERENCE_MANIFEST_PREPARED"
+CANONICAL_TAGGER_ARN = (
+    "arn:aws:iam::321572485933:user/canonical-eligibility-tagger")
 DEST_DEFAULT = "s3://kalshi-vault-ritcardo/research"
 RAW_VAULT_DEFAULT = "s3://kalshi-vault-ritcardo/ec2/raw"
-DUCKDB_MEMORY_LIMIT = "8GB"  # spec HYGIENE: explicit on every connection
+DUCKDB_MEMORY_LIMIT = "4GB"  # bounded below the isolated daily cgroup ceiling
+CAPTURE_DISK_RESERVE_BYTES = 100 * 1024 * 1024 * 1024
+STAGE_METADATA_OVERHEAD_BYTES = 32 * 1024 * 1024
+
+
+def _research_stage_root():
+    path = os.environ.get(
+        "RESEARCH_STAGE_ROOT", os.path.join(wc.ROOT, "work", "research_stage"))
+    if not os.path.isabs(path):
+        raise SystemExit("REFUSED: RESEARCH_STAGE_ROOT must be absolute")
+    return os.path.realpath(path)
+
+
+def _regular_tree_bytes(root):
+    """Conservatively size files that this publisher will copy to staging."""
+    if not os.path.isdir(root):
+        return 0
+    total = 0
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        files.sort()
+        for name in dirs:
+            path = os.path.join(base, name)
+            if os.path.islink(path):
+                raise SystemExit(
+                    "REFUSED: staged input directory is a symlink: %s" % path)
+        for name in files:
+            path = os.path.join(base, name)
+            st = os.lstat(path)
+            if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+                raise SystemExit(
+                    "REFUSED: staged input is not a regular file: %s" % path)
+            total += st.st_size
+    return total
+
+
+def _estimated_stage_bytes(date, *, reference_mode, include_rfq, seal,
+                           warehouse_root, archive_root, quality_dir):
+    """Upper-bound bytes copied into the same-disk private stage.
+
+    Reference v3 does not copy immutable fact objects.  Mutable auxiliary
+    state is copied, so it is sized before the first stage write.  Legacy copy
+    publication also budgets every fact/RFQ byte because a hardlink may fall
+    back to a copy.
+    """
+    total = STAGE_METADATA_OVERHEAD_BYTES + len(
+        json.dumps(seal, sort_keys=True).encode("utf-8"))
+    if not reference_mode:
+        total += _regular_tree_bytes(
+            os.path.join(warehouse_root, "corrections", "date=%s" % date))
+        total += _regular_tree_bytes(
+            os.path.join(
+                warehouse_root, "dim", "snapshots", "date=%s" % date))
+        total += _regular_tree_bytes(os.path.join(warehouse_root, "catalog"))
+        for path in (
+                os.path.join(warehouse_root, "manifest.csv"),
+                os.path.join(
+                    quality_dir, "capture_gap_receipt_%s.json" % date),
+                os.path.join(quality_dir, "l2_gaps_%s.json" % date)):
+            if os.path.exists(path):
+                st = os.lstat(path)
+                if not stat.S_ISREG(st.st_mode):
+                    raise SystemExit(
+                        "REFUSED: staged input is not a regular file: %s" % path)
+                total += st.st_size
+        total += sum(int(row.get("size", 0))
+                     for row in seal.get("archive_file_stats", []))
+        if include_rfq:
+            total += sum(int(row.get("size", 0))
+                         for row in seal.get("raw_files", [])
+                         if _RFQ_RE.match(os.path.basename(
+                             str(row.get("file", "")))))
+    return total
+
+
 LADDER_COLUMNS = ("exchange_ts_us", "recv_wall_ns", "recv_mono_ns",
                   "local_recv_ts_us")
 RFQ_FLAG_FILE = os.path.expanduser("~/.kalshi/research_include_rfq")
@@ -517,7 +603,7 @@ class S3Dest:
             raise SystemExit("ABORT (fail-closed): S3 object size %s != "
                              "frozen %d for %s"
                              % (head.get("ContentLength"), size, key))
-        tmp = os.path.join(wc.ROOT, "work", "research_stage",
+        tmp = os.path.join(_research_stage_root(),
                            ".verify-%d.tmp" % os.getpid())
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
         try:
@@ -965,6 +1051,11 @@ def _assert_existing_reference_equivalent(raw, expected):
         corrections = value.get("corrections")
         if isinstance(corrections, dict):
             corrections.pop("cutoff_utc", None)
+        enforcement = value.get("eligibility_enforcement")
+        if isinstance(enforcement, dict):
+            # A no-op rerun proves tags afresh but does not rewrite the
+            # historical proof recorded by the immutable manifest.
+            enforcement.pop("tagger_precommit_proof", None)
         return value
 
     if stable(existing) != stable(expected):
@@ -1045,6 +1136,536 @@ def _read_local_index_nofollow(path):
             os.close(fd)
 
 
+def _prepared_plan_bytes(value):
+    try:
+        return (json.dumps(value, indent=2, sort_keys=True,
+                           ensure_ascii=True, allow_nan=False) + "\n").encode(
+                               "utf-8")
+    except (TypeError, ValueError) as exc:
+        _reference_abort("prepared plan cannot be canonicalized: %s" % exc)
+
+
+def _write_prepared_reference_plan(root, value):
+    """Atomically retain one content-addressed prepare result for commit."""
+    root_value = os.fspath(root)
+    if not os.path.isabs(root_value):
+        _reference_abort("prepared plan output root must be absolute")
+    root = os.path.abspath(root_value)
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    root_stat = os.stat(root, follow_symlinks=False)
+    if (not stat.S_ISDIR(root_stat.st_mode) or stat.S_ISLNK(root_stat.st_mode)
+            or root_stat.st_uid not in {0, os.geteuid()}
+            or root_stat.st_mode & 0o022):
+        _reference_abort("prepared plan output root is not a trusted directory")
+    raw = _prepared_plan_bytes(value)
+    if len(raw) > MAX_REFERENCE_PREPARED_PLAN_BYTES:
+        _reference_abort("prepared plan exceeds its fixed byte bound")
+    digest = hashlib.sha256(raw).hexdigest()
+    path = os.path.join(root, "PREPARED-%s.json" % digest)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                     getattr(os, "O_CLOEXEC", 0), 0o600)
+    except FileExistsError:
+        existing, existing_sha = _read_prepared_reference_plan(path)
+        if existing_sha != digest or _prepared_plan_bytes(existing) != raw:
+            _reference_abort("prepared plan content-address conflict")
+        return path, digest, len(raw)
+    except OSError as exc:
+        _reference_abort("cannot create prepared plan: %s" % exc)
+    try:
+        with os.fdopen(fd, "wb", closefd=True) as handle:
+            fd = None
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if fd is not None:
+            os.close(fd)
+    return path, digest, len(raw)
+
+
+def _read_prepared_reference_plan(path):
+    """Freeze and authenticate a bounded PREPARED-<sha256>.json artifact."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        _reference_abort("O_NOFOLLOW is required for the prepared plan")
+    path = os.path.abspath(os.fspath(path))
+    match = re.fullmatch(r"PREPARED-([0-9a-f]{64})\.json",
+                         os.path.basename(path))
+    if match is None:
+        _reference_abort("prepared plan filename is not content-addressed")
+    fd = None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW |
+                     getattr(os, "O_CLOEXEC", 0))
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_size < 1
+                or before.st_size > MAX_REFERENCE_PREPARED_PLAN_BYTES
+                or before.st_uid not in {0, os.geteuid()}
+                or before.st_mode & 0o022):
+            _reference_abort("prepared plan is not a bounded regular file")
+        chunks = []
+        total = 0
+        while total <= MAX_REFERENCE_PREPARED_PLAN_BYTES:
+            chunk = os.read(
+                fd, min(1 << 20,
+                        MAX_REFERENCE_PREPARED_PLAN_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(fd)
+        named = os.stat(path, follow_symlinks=False)
+        fingerprint = lambda value: (
+            value.st_dev, value.st_ino, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+        if (len(raw) != before.st_size
+                or fingerprint(before) != fingerprint(after)
+                or stat.S_ISLNK(named.st_mode)
+                or not stat.S_ISREG(named.st_mode)
+                or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):
+            _reference_abort("prepared plan changed while reading")
+    except SystemExit:
+        raise
+    except OSError as exc:
+        _reference_abort("cannot safely read prepared plan: %s" % exc)
+    finally:
+        if fd is not None:
+            os.close(fd)
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != match.group(1):
+        _reference_abort("prepared plan content-address hash mismatch")
+
+    def no_duplicates(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key %r" % key)
+            value[key] = item
+        return value
+
+    try:
+        plan = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeDecodeError, ValueError) as exc:
+        _reference_abort("prepared plan is invalid JSON: %s" % exc)
+    if not isinstance(plan, dict):
+        _reference_abort("prepared plan root is not an object")
+    return plan, digest
+
+
+def _read_tag_precommit_proof(path):
+    """Freeze one bounded, content-addressed local tagger proof."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        _reference_abort("O_NOFOLLOW is required for the precommit proof")
+    path = os.path.abspath(os.fspath(path))
+    match = re.fullmatch(r"PRECOMMIT-([0-9a-f]{64})\.json",
+                         os.path.basename(path))
+    if match is None:
+        _reference_abort("precommit proof filename is not content-addressed")
+    fd = None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW |
+                     getattr(os, "O_CLOEXEC", 0))
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_size < 1
+                or before.st_size > MAX_TAG_PRECOMMIT_PROOF_BYTES):
+            _reference_abort("precommit proof is not a bounded regular file")
+        chunks = []
+        total = 0
+        while total <= MAX_TAG_PRECOMMIT_PROOF_BYTES:
+            chunk = os.read(
+                fd, min(1 << 20,
+                        MAX_TAG_PRECOMMIT_PROOF_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(fd)
+        path_after = os.stat(path, follow_symlinks=False)
+        fingerprint = lambda value: (
+            value.st_dev, value.st_ino, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+        if (len(raw) != before.st_size
+                or fingerprint(before) != fingerprint(after)
+                or stat.S_ISLNK(path_after.st_mode)
+                or not stat.S_ISREG(path_after.st_mode)
+                or (path_after.st_dev, path_after.st_ino)
+                != (after.st_dev, after.st_ino)):
+            _reference_abort("precommit proof changed while reading")
+    except SystemExit:
+        raise
+    except OSError as exc:
+        _reference_abort("cannot safely read precommit proof: %s" % exc)
+    finally:
+        if fd is not None:
+            os.close(fd)
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != match.group(1):
+        _reference_abort("precommit proof content-address hash mismatch")
+
+    def no_duplicates(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key %r" % key)
+            value[key] = item
+        return value
+
+    try:
+        proof = json.loads(raw.decode("utf-8"),
+                           object_pairs_hook=no_duplicates)
+    except (UnicodeDecodeError, ValueError) as exc:
+        _reference_abort("precommit proof is invalid JSON: %s" % exc)
+    if not isinstance(proof, dict):
+        _reference_abort("precommit proof root is not an object")
+    return proof, digest
+
+
+def _validate_tag_precommit_proof(path, *, date, receipt,
+                                  receipt_binding, references,
+                                  expected_tagger_arn=None, now=None):
+    """Bind a fresh tagger readback proof to every manifest reference."""
+    proof, proof_sha = _read_tag_precommit_proof(path)
+    root_fields = {
+        "schema_version", "state", "date",
+        "tagged_receipt_set_sha256",
+        "byte_attestation_receipt_set_sha256",
+        "eligibility_single_writer_audit_sha256",
+        "tagged_receipt_object", "target_set_sha256", "target_count",
+        "research_candidate_count", "targets", "tagger_sts_caller_arn",
+        "tagger_sts_account", "tagger_sts_user_id", "generated_at_utc",
+        "rfq", "tag_puts",
+    }
+    if set(proof) != root_fields:
+        _reference_abort("precommit proof root differs from the fixed schema")
+    fixed = {
+        "schema_version": TAG_PRECOMMIT_PROOF_SCHEMA,
+        "state": TAG_PRECOMMIT_PROOF_STATE,
+        "date": date,
+        "tagged_receipt_set_sha256": receipt.get("receipt_set_sha256"),
+        "byte_attestation_receipt_set_sha256":
+            receipt.get("byte_attestation_receipt_set_sha256"),
+        "eligibility_single_writer_audit_sha256":
+            receipt.get("eligibility_single_writer_audit_sha256"),
+        "rfq": "OFF",
+        "tag_puts": 0,
+    }
+    if any(proof.get(field) != expected for field, expected in fixed.items()):
+        _reference_abort("precommit proof receipt/lineage binding mismatch")
+    generated = _canonical_modified(
+        proof.get("generated_at_utc"), "precommit proof generated_at_utc")
+    try:
+        generated_dt = datetime.datetime.fromisoformat(
+            generated.replace("Z", "+00:00"))
+    except ValueError as exc:
+        _reference_abort("precommit proof time is invalid: %s" % exc)
+    now_dt = now or datetime.datetime.now(datetime.timezone.utc)
+    if now_dt.tzinfo is None:
+        _reference_abort("precommit proof validation time is not timezone-aware")
+    age = (now_dt.astimezone(datetime.timezone.utc) - generated_dt).total_seconds()
+    if age < -TAG_PRECOMMIT_FUTURE_SKEW_SECONDS:
+        _reference_abort("precommit proof is from the future")
+    if age > TAG_PRECOMMIT_MAX_AGE_SECONDS:
+        _reference_abort("precommit proof is stale")
+
+    arn = proof.get("tagger_sts_caller_arn")
+    account = proof.get("tagger_sts_account")
+    user_id = proof.get("tagger_sts_user_id")
+    arn_match = (re.fullmatch(
+        r"arn:aws:iam::([0-9]{12}):user/[A-Za-z0-9+=,.@_/-]+", arn)
+        if isinstance(arn, str) else None)
+    if (arn_match is None or account != arn_match.group(1)
+            or not isinstance(user_id, str) or not user_id.strip()
+            or (expected_tagger_arn is not None and arn != expected_tagger_arn)):
+        _reference_abort("precommit proof tagger STS identity is invalid")
+
+    tagged_object = proof.get("tagged_receipt_object")
+    if not isinstance(tagged_object, dict):
+        _reference_abort("precommit proof tagged receipt object is missing")
+    expected_receipt = {
+        "bucket": receipt_binding["bucket"],
+        "key": receipt_binding["key"],
+        "VersionId": receipt_binding["version_id"],
+        "size": receipt_binding["size"],
+        "sha256": receipt_binding["sha256"],
+    }
+    if any(tagged_object.get(field) != value
+           for field, value in expected_receipt.items()):
+        _reference_abort("precommit proof tagged receipt binding mismatch")
+
+    target_fields = {
+        "role", "logical_key", "source_bucket", "source_key",
+        "source_version_id", "size", "sha256", "required_tags",
+    }
+    targets = proof.get("targets")
+    if not isinstance(targets, list) or not targets:
+        _reference_abort("precommit proof target set is empty")
+    normalized = []
+    for number, row in enumerate(targets):
+        if not isinstance(row, dict) or set(row) != target_fields:
+            _reference_abort("precommit proof target %d is malformed" % number)
+        if (row.get("role") not in
+                ("TAGGED_RECEIPT", "RESEARCH_CANDIDATE")
+                or row.get("required_tags") != {"research-eligible": "true"}
+                or not _valid_sha256(row.get("sha256"))
+                or not isinstance(row.get("size"), int)
+                or isinstance(row.get("size"), bool) or row["size"] < 0):
+            _reference_abort("precommit proof target %d is invalid" % number)
+        for field in ("logical_key", "source_bucket", "source_key",
+                      "source_version_id"):
+            if not isinstance(row.get(field), str) or not row[field]:
+                _reference_abort("precommit proof target %d is invalid" % number)
+        normalized.append(dict(row))
+    normalized.sort(key=lambda row: (
+        row["role"], row["logical_key"], row["source_bucket"],
+        row["source_key"], row["source_version_id"]))
+    if targets != normalized:
+        _reference_abort("precommit proof target set is not canonically ordered")
+    identities = [(row["source_bucket"], row["source_key"],
+                   row["source_version_id"]) for row in normalized]
+    if len(set(identities)) != len(identities):
+        _reference_abort("precommit proof target set contains duplicates")
+    if (proof.get("target_count") != len(normalized)
+            or proof.get("target_set_sha256")
+            != canonical_digest(normalized)):
+        _reference_abort("precommit proof target-set digest mismatch")
+
+    expected = [{
+        "role": "TAGGED_RECEIPT",
+        "logical_key": receipt_binding["key"],
+        "source_bucket": receipt_binding["bucket"],
+        "source_key": receipt_binding["key"],
+        "source_version_id": receipt_binding["version_id"],
+        "size": receipt_binding["size"],
+        "sha256": receipt_binding["sha256"],
+        "required_tags": {"research-eligible": "true"},
+    }]
+    for ref in references:
+        if ref.get("kind") == "rfq" or ref.get("channel") == "rfq":
+            _reference_abort("precommit proof path is structurally RFQ-off")
+        expected.append({
+            "role": "RESEARCH_CANDIDATE",
+            "logical_key": ref["logical_key"],
+            "source_bucket": ref["source_bucket"],
+            "source_key": ref["source_key"],
+            "source_version_id": ref["source_version_id"],
+            "size": ref["size"],
+            "sha256": ref["sha256"],
+            "required_tags": {"research-eligible": "true"},
+        })
+    expected.sort(key=lambda row: (
+        row["role"], row["logical_key"], row["source_bucket"],
+        row["source_key"], row["source_version_id"]))
+    if normalized != expected:
+        _reference_abort(
+            "precommit proof and complete manifest reference set differ")
+    if proof.get("research_candidate_count") != len(references):
+        _reference_abort("precommit proof candidate count is incomplete")
+    return {
+        "schema_version": TAG_PRECOMMIT_PROOF_SCHEMA,
+        "proof_sha256": proof_sha,
+        "generated_at_utc": generated,
+        "tagger_sts_caller_arn": arn,
+        "target_set_sha256": proof["target_set_sha256"],
+        "target_count": proof["target_count"],
+        "research_candidate_count": proof["research_candidate_count"],
+        "rfq": "OFF",
+    }
+
+
+def _reference_manifest_result(dest, manifest_key, raw, version_id,
+                               release_id, state, *, prepared_plan_sha256=None):
+    """Emit a machine-readable exact MANIFEST receipt as the final line."""
+    digest = hashlib.sha256(raw).hexdigest()
+    if isinstance(dest, S3Dest):
+        if (not isinstance(version_id, str) or not version_id
+                or version_id.lower() == "null"):
+            _reference_abort("S3 MANIFEST result has no exact VersionId")
+        binding = {
+            "bucket": dest.bucket,
+            "key": dest._key(manifest_key),
+            "VersionId": version_id,
+            "size": len(raw),
+            "sha256": digest,
+            "verification_state": "EXACT_VERSION_FULL_SHA256",
+        }
+    else:
+        binding = {
+            "bucket": None,
+            "key": manifest_key,
+            "VersionId": None,
+            "size": len(raw),
+            "sha256": digest,
+            "verification_state": "LOCAL_FIXTURE_FULL_SHA256",
+        }
+    result = {
+        "schema_version": "research-reference-manifest-commit-result-v1",
+        "state": state,
+        "release_id": release_id,
+        "manifest_object": binding,
+        "data_uploads": 0,
+        "rfq": "OFF",
+    }
+    if prepared_plan_sha256 is not None:
+        result["prepared_plan_sha256"] = prepared_plan_sha256
+    print(json.dumps(result, sort_keys=True))
+    return result
+
+
+def _commit_prepared_reference(*, date, dest_url, live_dir, receipt_path,
+                               receipt_reader, tag_precommit_proof,
+                               prepared_plan_path, include_rfq):
+    """Validate one frozen plan and perform only the small MANIFEST commit.
+
+    No facts/catalog/dim files are reopened here.  The publisher re-authenticates
+    the small tagged receipt, proves that its exact candidate set equals the
+    content-addressed plan, validates a fresh tagger proof, and then performs
+    the conditional MANIFEST create.  The publisher process never receives
+    tagger credentials.
+    """
+    if include_rfq:
+        _reference_abort(
+            "prepared v3 publication is RFQ-off; RFQ remains independent")
+    plan, plan_sha = _read_prepared_reference_plan(prepared_plan_path)
+    plan_fields = {
+        "schema_version", "state", "prepared_at_utc", "date",
+        "destination", "live_dir", "receipt_index", "include_rfq",
+        "publisher_commit", "release_id", "manifest_key",
+        "reference_set_sha256", "manifest_template",
+    }
+    if set(plan) != plan_fields:
+        _reference_abort("prepared plan root differs from the fixed schema")
+    fixed = {
+        "schema_version": REFERENCE_PREPARED_PLAN_SCHEMA,
+        "state": REFERENCE_PREPARED_PLAN_STATE,
+        "date": date,
+        "destination": dest_url,
+        "live_dir": os.path.abspath(os.fspath(live_dir)),
+        "receipt_index": os.path.abspath(os.fspath(receipt_path)),
+        "include_rfq": False,
+    }
+    if any(plan.get(field) != expected for field, expected in fixed.items()):
+        _reference_abort("prepared plan invocation binding mismatch")
+    _canonical_modified(plan.get("prepared_at_utc"),
+                        "prepared plan prepared_at_utc")
+    commit = plan.get("publisher_commit")
+    if (not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+            or commit != code_commit()):
+        _reference_abort("prepared plan publisher commit is not current")
+    if not _valid_sha256(plan.get("reference_set_sha256")):
+        _reference_abort("prepared plan reference set digest is invalid")
+
+    template = plan.get("manifest_template")
+    if not isinstance(template, dict):
+        _reference_abort("prepared plan manifest template is missing")
+    manifest = json.loads(json.dumps(template, sort_keys=True))
+    release_id = plan.get("release_id")
+    manifest_key = plan.get("manifest_key")
+    expected_key = "releases/%s/MANIFEST.json" % release_id
+    if (not isinstance(release_id, str)
+            or not isinstance(manifest_key, str)
+            or manifest_key != expected_key
+            or manifest.get("release_id") != release_id
+            or manifest.get("date") != date
+            or manifest.get("published_at_utc") is not None
+            or (manifest.get("eligibility_enforcement") or {}).get(
+                "tagger_precommit_proof") is not None
+            or manifest.get("reference_set_sha256")
+            != plan["reference_set_sha256"]):
+        _reference_abort("prepared plan manifest template binding mismatch")
+    source_seal = manifest.get("source_seal")
+    if (not isinstance(source_seal, dict)
+            or not _valid_sha256(source_seal.get("sha256"))
+            or not isinstance(source_seal.get("size"), int)
+            or isinstance(source_seal.get("size"), bool)
+            or source_seal["size"] <= 0):
+        _reference_abort("prepared plan source seal binding is invalid")
+
+    exact_reader = receipt_reader or _make_canonical_receipt_reader()
+    receipt, receipt_binding = _load_authoritative_receipt(
+        receipt_path, date, source_seal["sha256"], source_seal["size"],
+        exact_reader, verify_candidates=False)
+    selected = _receipt_reference_objects(
+        receipt, False, receipt.get("seal"), manifest.get("evidence_tier"),
+        source_seal["sha256"])
+    references = [ref for _logical, ref in selected]
+    if references != manifest.get("objects"):
+        _reference_abort(
+            "prepared plan and current authoritative receipt reference sets differ")
+    projection = [{key: ref[key] for key in (
+        "logical_key", "source_bucket", "source_key", "source_version_id",
+        "size", "sha256")} for ref in references]
+    if canonical_digest(projection) != plan["reference_set_sha256"]:
+        _reference_abort("prepared plan reference set does not recompute")
+    canonical_receipt = manifest.get("canonical_receipt")
+    if (not isinstance(canonical_receipt, dict)
+            or canonical_receipt.get("receipt_set_sha256")
+            != receipt.get("receipt_set_sha256")
+            or canonical_receipt.get("receipt_object") != receipt_binding):
+        _reference_abort("prepared plan canonical receipt binding mismatch")
+
+    dest = make_dest(dest_url)
+    if isinstance(dest, S3Dest):
+        dest.bind_reference_patrol(live_dir)
+    expected_tagger = (CANONICAL_TAGGER_ARN
+                       if isinstance(dest, S3Dest) else None)
+    proof_binding = _validate_tag_precommit_proof(
+        tag_precommit_proof, date=date, receipt=receipt,
+        receipt_binding=receipt_binding, references=references,
+        expected_tagger_arn=expected_tagger)
+    prepared_at = datetime.datetime.fromisoformat(
+        plan["prepared_at_utc"].replace("Z", "+00:00"))
+    proof_at = datetime.datetime.fromisoformat(
+        proof_binding["generated_at_utc"].replace("Z", "+00:00"))
+    if proof_at < prepared_at:
+        _reference_abort(
+            "tagger precommit proof predates the prepared manifest plan")
+    manifest["eligibility_enforcement"][
+        "tagger_precommit_proof"] = proof_binding
+    manifest["published_at_utc"] = datetime.datetime.now(
+        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        import research_reference as reference_contract
+        reference_contract.validate_manifest(manifest, release_id)
+    except Exception as exc:
+        _reference_abort("prepared manifest contract validation failed: %s" % exc)
+
+    existing = dest.read_manifest(manifest_key)
+    if existing is not None:
+        raw, existing_version = existing
+        _assert_existing_reference_equivalent(raw, manifest)
+        _reference_manifest_result(
+            dest, manifest_key, raw, existing_version, release_id,
+            "REFERENCE_MANIFEST_ALREADY_COMMITTED",
+            prepared_plan_sha256=plan_sha)
+        return 0
+
+    stage_root = _research_stage_root()
+    os.makedirs(stage_root, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+            prefix=".reference-commit-", dir=stage_root) as stage_dir:
+        manifest_path = os.path.join(stage_dir, "MANIFEST.json")
+        raw = _prepared_plan_bytes(manifest)
+        with open(manifest_path, "xb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        final_proof = _validate_tag_precommit_proof(
+            tag_precommit_proof, date=date, receipt=receipt,
+            receipt_binding=receipt_binding, references=references,
+            expected_tagger_arn=expected_tagger)
+        if final_proof != proof_binding:
+            _reference_abort("precommit proof changed before manifest commit")
+        manifest_version = dest.upload_manifest(manifest_path, manifest_key)
+    _reference_manifest_result(
+        dest, manifest_key, raw, manifest_version, release_id,
+        "REFERENCE_MANIFEST_COMMITTED", prepared_plan_sha256=plan_sha)
+    return 0
+
+
 def _canonical_modified(value, label):
     try:
         import canonical_receipts as cr
@@ -1089,37 +1710,6 @@ def _require_exact_head(reader, obj, label):
     return head
 
 
-def _require_exact_tags(tag_reader, obj, required, label):
-    """Read GetObjectVersionTagging and enforce tags on that exact version."""
-    if tag_reader is None or not hasattr(tag_reader, "get_tags"):
-        _reference_abort("an exact-version tag reader is required")
-    try:
-        payload = tag_reader.get_tags(
-            obj["bucket"], obj["key"], obj["VersionId"])
-    except SystemExit:
-        raise
-    except Exception as exc:
-        _reference_abort("%s exact tag read failed: %s" % (label, exc))
-    if (not isinstance(payload, dict)
-            or payload.get("VersionId") != obj["VersionId"]
-            or not isinstance(payload.get("TagSet"), list)
-            or len(payload["TagSet"]) > 10):
-        _reference_abort("%s exact tag response is malformed" % label)
-    tags = {}
-    for row in payload["TagSet"]:
-        if (not isinstance(row, dict) or set(row) != {"Key", "Value"}
-                or not isinstance(row.get("Key"), str) or not row["Key"]
-                or not isinstance(row.get("Value"), str)
-                or row["Key"] in tags):
-            _reference_abort("%s exact tag response is malformed" % label)
-        tags[row["Key"]] = row["Value"]
-    for key, expected in required.items():
-        if tags.get(key) != expected:
-            _reference_abort("%s lacks exact tag %s=%s" %
-                             (label, key, expected))
-    return tags
-
-
 def _is_rfq_receipt_object(obj):
     key = str(obj.get("key") or "")
     logical = str(obj.get("logical_source_key") or "")
@@ -1129,6 +1719,74 @@ def _is_rfq_receipt_object(obj):
                 and _RFQ_RE.match(os.path.basename(key)) is not None)
             or (logical.startswith("raw/")
                 and _RFQ_RE.match(os.path.basename(logical)) is not None))
+
+
+def _is_forward_version_binding(value):
+    if not (isinstance(value, dict)
+            and set(value) == {
+                "source_evidence", "forward_version_binding_sha256",
+                "resolver_evidence_sha256", "resolution"}
+            and _valid_sha256(value.get("forward_version_binding_sha256"))
+            and _valid_sha256(value.get("resolver_evidence_sha256"))):
+        return False
+    source = value.get("source_evidence")
+    provenance = source.get("provenance") if isinstance(source, dict) else None
+    resolution = value.get("resolution")
+    return ((provenance == "RETAINED_IMMUTABLE_AUX_SNAPSHOT"
+             and resolution in {
+                 "CURRENT_EXACT_SHA256_MATCH",
+                 "HISTORICAL_EXACT_SHA256_MATCH"})
+            or (provenance == "FULL_V2_SEAL_AUTHENTICATED_S3_CUTOFF"
+                and resolution
+                == "S3_AUTHENTICATED_CUTOFF_EXACT_VERSION")
+            or (provenance in {
+                    "PRODUCER_EXACT_GENERATION_WITNESS",
+                    "LEGACY_MIGRATION_GENERATION_WITNESS"}
+                and resolution
+                == "PRODUCER_GENERATION_WITNESS_EXACT_VERSION"))
+
+
+def _is_forward_dim_source_evidence(value):
+    if not isinstance(value, dict):
+        return False
+    provenance = value.get("provenance")
+    old = (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_generation_id"}
+        and provenance in {
+            "RETAINED_IMMUTABLE_AUX_SNAPSHOT",
+            "FULL_V2_SEAL_AUTHENTICATED_S3_CUTOFF"}
+        and _valid_sha256(value.get("dim_set_sha256"))
+        and isinstance(value.get("dim_generation_id"), str)
+        and bool(value["dim_generation_id"])
+        and isinstance(value.get("catalog_generation_id"), str)
+        and bool(value["catalog_generation_id"]))
+    if old:
+        return True
+    producer = (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_generation_id", "catalog_dim_coherence_claim"}
+        and provenance == "PRODUCER_EXACT_GENERATION_WITNESS"
+        and value.get("catalog_dim_coherence_claim") is True
+        and _valid_sha256(value.get("dim_set_sha256"))
+        and _valid_sha256(value.get("dim_generation_id"))
+        and _valid_sha256(value.get("catalog_generation_id")))
+    if producer:
+        return True
+    return (set(value) == {
+        "provenance", "dim_set_sha256", "dim_generation_id",
+        "catalog_dim_coherence_claim", "dim_source_catalog_generation_id",
+        "selected_catalog_generation_id", "relationship"}
+        and provenance == "LEGACY_MIGRATION_GENERATION_WITNESS"
+        and value.get("catalog_dim_coherence_claim") is False
+        and value.get("relationship")
+        == "LEGACY_MIGRATION_COMBINATION_NOT_COHERENT"
+        and _valid_sha256(value.get("dim_set_sha256"))
+        and _valid_sha256(value.get("dim_generation_id"))
+        and _valid_sha256(value.get("dim_source_catalog_generation_id"))
+        and _valid_sha256(value.get("selected_catalog_generation_id"))
+        and value["dim_source_catalog_generation_id"]
+        != value["selected_catalog_generation_id"])
 
 
 def _make_canonical_receipt_reader():
@@ -1343,7 +2001,7 @@ def _validate_parent_lineage(receipt, parent, parent_sha):
 
 
 def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
-                                tag_reader=None):
+                                verify_candidates=True):
     """Authenticate a durable index, exact-GET its receipt, then validate it.
 
     The receipt digest contract is owned by canonical_receipts.py.  Reusing
@@ -1351,7 +2009,11 @@ def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
     from silently disagreeing about which object semantics are authoritative.
     A self-declared local receipt is never authority: the local input is only
     the durable index written after S3 read-back, and the receipt body is read
-    again by the index's exact receipt-object VersionId.
+    again by the index's exact receipt-object VersionId.  The expensive prepare
+    phase HEADs every candidate.  A prepared commit may set
+    ``verify_candidates=False`` because it re-reads the immutable exact receipt
+    and compares its full reference set to the content-addressed prepared plan;
+    this keeps the proof-to-commit window bounded to small control reads.
     """
     try:
         index_payload = _read_local_index_nofollow(path)
@@ -1672,10 +2334,6 @@ def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
                 _reference_abort(
                     "RFQ eligibility binding is invalid for %s" % logical)
 
-    exact_tag_reader = tag_reader or reader
-    _require_exact_tags(
-        exact_tag_reader, receipt_object,
-        {"research-eligible": "true"}, "durable tagged receipt")
     for obj in research_candidates:
         logical = obj["logical_source_key"]
         is_rfq = _is_rfq_receipt_object(obj)
@@ -1683,10 +2341,6 @@ def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
             if not obj["key"].startswith(canonical_prefix + "/raw/"):
                 _reference_abort("RFQ candidate leaves canonical raw scope: %s"
                                  % logical)
-            required_tags = {
-                "research-eligible": "true",
-                "research-channel": "rfq",
-            }
         else:
             if not (obj["key"].startswith(canonical_prefix + "/warehouse/")
                     or obj["key"].startswith(
@@ -1694,11 +2348,9 @@ def _load_authoritative_receipt(path, date, seal_sha, seal_size, reader,
                 _reference_abort(
                     "research candidate leaves warehouse/control scope: %s" %
                     logical)
-            required_tags = {"research-eligible": "true"}
-        _require_exact_head(reader, obj, "research candidate %s" % logical)
-        _require_exact_tags(
-            exact_tag_reader, obj, required_tags,
-            "research candidate %s" % logical)
+        if verify_candidates:
+            _require_exact_head(reader, obj,
+                                "research candidate %s" % logical)
     receipt_binding = {
         "bucket": receipt_bucket,
         "key": receipt_key,
@@ -1858,14 +2510,21 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
                          and key == direct_key)
             elif manifest_logical.startswith(
                     "warehouse/dim/snapshots/"):
+                dim_binding_valid = (
+                    (obj.get("seal_binding") is None
+                     and obj.get("evidence_binding") is None)
+                    or (obj.get("seal_binding") == seal_sha
+                        and _is_forward_version_binding(
+                            obj.get("evidence_binding"))
+                        and _is_forward_dim_source_evidence(
+                            obj["evidence_binding"].get("source_evidence"))))
                 valid = (manifest_logical in {
                     "warehouse/dim/snapshots/date=%s/series.csv" % receipt["date"],
                     "warehouse/dim/snapshots/date=%s/events.csv" % receipt["date"],
                     "warehouse/dim/snapshots/date=%s/markets.csv" % receipt["date"],
                 } and kind == "dim_snapshot" and channel in (None, "dim")
                          and key == direct_key
-                         and obj.get("seal_binding") is None
-                         and obj.get("evidence_binding") is None)
+                         and dim_binding_valid)
             elif manifest_logical.startswith("warehouse/catalog/"):
                 rel = manifest_logical[len("warehouse/catalog/"):]
                 valid = (rel in {
@@ -1931,13 +2590,14 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
                 _reference_abort("reference is outside the fixed canonical "
                                  "contract: %s -> %s" %
                                  (manifest_logical, key))
-            if kind != "dim_snapshot":
-                if obj.get("seal_binding") != seal_sha:
-                    _reference_abort("reference has a different seal binding: %s"
-                                     % manifest_logical)
-                if obj.get("evidence_binding") in (None, "", [], {}):
-                    _reference_abort("reference has no evidence binding: %s" %
-                                     manifest_logical)
+            if (kind != "dim_snapshot"
+                    and obj.get("seal_binding") != seal_sha):
+                _reference_abort("reference has a different seal binding: %s"
+                                 % manifest_logical)
+            if (kind != "dim_snapshot"
+                    and obj.get("evidence_binding") in (None, "", [], {})):
+                _reference_abort("reference has no evidence binding: %s" %
+                                 manifest_logical)
         ref = {
             "logical_key": manifest_logical,
             "source_bucket": obj["bucket"],
@@ -1969,34 +2629,30 @@ def _receipt_reference_objects(receipt, include_rfq, seal, evidence_tier,
 
 def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
                                 receipt_path, receipt_reader,
-                                receipt_tag_reader, include_rfq,
+                                tag_precommit_proof, include_rfq,
+                                prepare_only, prepare_output_root,
                                 seal, seal_sha,
                                 seal_size,
                                 publication_components, tables, tl1_status,
                                 tier, tier_basis, channels, corr_objs,
                                 ledger_lines, l2_quality, live_dir):
+    if include_rfq:
+        _reference_abort(
+            "v3 tagger-precommit publication is RFQ-off; RFQ remains an "
+            "independent research capability")
     receipt, receipt_binding = _load_authoritative_receipt(
-        receipt_path, date, seal_sha, seal_size, receipt_reader,
-        receipt_tag_reader)
-    stage_inventory = _stage_reference_inventory(
-        stage_objects, stage_dir, date)
+        receipt_path, date, seal_sha, seal_size, receipt_reader)
     selected = _receipt_reference_objects(
         receipt, include_rfq, seal, tier, seal_sha)
-    selected_by_receipt_logical = {logical: ref for logical, ref in selected}
-    wanted = set(selected_by_receipt_logical)
-    staged = set(stage_inventory)
-    if wanted != staged:
-        _reference_abort(
-            "stage/receipt logical set mismatch missing_from_receipt=%s "
-            "missing_from_stage=%s" %
-            (sorted(staged - wanted)[:8], sorted(wanted - staged)[:8]))
-    for logical, ref in selected_by_receipt_logical.items():
-        frozen = stage_inventory[logical]
-        if (ref["size"] != frozen["size"]
-                or ref["sha256"] != frozen["sha256"]):
-            _reference_abort("stage/receipt byte mismatch for %s" % logical)
-
     references = [ref for _logical, ref in selected]
+    expected_tagger = (CANONICAL_TAGGER_ARN
+                       if dest_url.startswith("s3://") else None)
+    proof_binding = None
+    if not prepare_only:
+        proof_binding = _validate_tag_precommit_proof(
+            tag_precommit_proof, date=date, receipt=receipt,
+            receipt_binding=receipt_binding, references=references,
+            expected_tagger_arn=expected_tagger)
     reference_projection = [{
         key: ref[key] for key in (
             "logical_key", "source_bucket", "source_key",
@@ -2009,16 +2665,59 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
             "seal_binding", "evidence_binding")
     } for ref in references]
     object_semantics_sha = canonical_digest(semantics_projection)
+    def receipt_projection(kinds):
+        return [{key: ref.get(key) for key in (
+            "logical_key", "source_bucket", "source_key",
+            "source_version_id", "size", "sha256", "kind", "channel",
+            "evidence_binding")}
+                for ref in references if ref.get("kind") in kinds]
+
+    correction_refs = receipt_projection({
+        "correction", "corrections_ledger_day"})
+    gap_refs = receipt_projection({
+        "capture_gap_receipt", "capture_gaps_projection"})
+    l2_refs = receipt_projection({"l2_quality_receipt"})
+    facts_l2 = any(ref.get("kind") == "facts"
+                   and ref.get("channel") == "orderbooks_full"
+                   for ref in references)
+    gap_affirmative = any(
+        ref.get("kind") == "capture_gap_receipt" for ref in references)
+    l2_affirmative = bool(l2_refs)
+    tier, tier_basis = derive_evidence_tier(
+        seal, gap_affirmative,
+        None if gap_affirmative else "canonical gap receipt absent",
+        l2_facts_present=facts_l2,
+        l2_evidence_ok=l2_affirmative,
+        l2_reason=(None if l2_affirmative
+                   else "canonical L2 quality receipt absent"))
+    publication_components = {
+        "source": "IMMUTABLE_CANONICAL_RECEIPT_EXACT_VERSIONS",
+        "seal_sha256": seal_sha,
+        "corrections": {"objects": correction_refs},
+        "gap_evidence": {
+            "affirmative_receipt": gap_affirmative,
+            "objects": gap_refs,
+        },
+        "l2_quality": {
+            "affirmative_receipt": l2_affirmative,
+            "objects": l2_refs,
+        },
+        "rfq": {
+            "included": any(ref.get("kind") == "rfq"
+                            for ref in references),
+        },
+    }
+    l2_quality = publication_components["l2_quality"]
     tier_basis_sha = canonical_digest(tier_basis)
-    corrections_digest = canonical_digest(
-        publication_components["corrections"])
-    gap_digest = canonical_digest(publication_components["gap_evidence"])
-    l2_digest = canonical_digest(l2_quality)
+    corrections_digest = canonical_digest(correction_refs)
+    gap_digest = canonical_digest(gap_refs)
+    l2_digest = canonical_digest(l2_refs)
     rfq_included = any(ref["kind"] == "rfq" for ref in references)
     receipt_binding_sha = canonical_digest(receipt_binding)
     publication_state = {
         "schema": REFERENCE_MANIFEST_SCHEMA,
         "storage_mode": REFERENCE_STORAGE_MODE,
+        "manifest_contract_version": REFERENCE_CONTRACT_VERSION,
         "date": date,
         "source_seal_binding_sha256": seal_sha,
         "reference_set_sha256": reference_set_sha,
@@ -2059,16 +2758,22 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
     now = datetime.datetime.now(datetime.timezone.utc)\
         .strftime("%Y-%m-%dT%H:%M:%SZ")
     channels_out = json.loads(json.dumps(channels))
+    channels_out["orderbooks_l1"]["gap_receipt_affirmative"] = \
+        gap_affirmative
+    channels_out["orderbooks_l1"]["gap_receipt"] = (
+        "CANONICAL_EXACT_VERSION" if gap_affirmative
+        else "NO_AFFIRMATIVE_GAP_RECEIPT")
+    channels_out["orderbooks_l2"]["seq_quality"] = l2_quality
     channels_out["rfq"]["status"] = (
         "INCLUDED_SEALED_REFERENCE" if rfq_included
         else "EXCLUDED_EXPLICIT_OPT_IN_REQUIRED")
     corrections = {
-        "included_files": len(corr_objs),
-        "ledger_day_entries": len(ledger_lines),
+        "included_files": len(correction_refs),
+        "ledger_day_entries": None,
         "cutoff_utc": now,
         "digest": corrections_digest,
-        "note": "canonical exact-version references; sealed archives remain "
-                "write-once and correction state participates in release identity",
+        "note": "derived exclusively from canonical exact-version receipt; "
+                "current mutable producer paths were not reconstructed",
     }
     publication_components = json.loads(json.dumps(
         publication_components, sort_keys=True))
@@ -2079,13 +2784,14 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
     manifest = {
         "schema": REFERENCE_MANIFEST_SCHEMA,
         "schema_version": 3,
+        "manifest_contract_version": REFERENCE_CONTRACT_VERSION,
         "storage_mode": REFERENCE_STORAGE_MODE,
         "release_id": release_id,
         "date": date,
         "publication_status": "PUBLISHED",
         "rfq_policy": "OPTIONAL_SEALED_ONLY",
         "rfq_included": rfq_included,
-        "published_at_utc": now,
+        "published_at_utc": None if prepare_only else now,
         "publisher_commit": publisher_commit,
         "canonical_receipt": {
             "schema_version": CANONICAL_RECEIPT_SCHEMA,
@@ -2096,6 +2802,17 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
             "prune_eligible": False,
             "receipt_set_sha256": receipt["receipt_set_sha256"],
             "receipt_object": receipt_binding,
+        },
+        "eligibility_enforcement": {
+            "publisher_exact_tag_inspection": "NOT_AUTHORIZED_BY_DESIGN",
+            "publisher_tag_mutation": "ACCESS_DENIED",
+            "tagger_precommit_proof": proof_binding,
+            "tagger_exact_set_readback":
+                "CONTENT_ADDRESSED_PRECOMMIT_PROOF",
+            "consumer_exact_tag_revalidation":
+                "W09_S3_EXISTING_OBJECT_TAG_RESEARCH_ELIGIBLE_TRUE",
+            "consumer_enforcement_scope":
+                "EACH_CANONICAL_SOURCE_EXACT_VERSION",
         },
         "source_seal": source_seal,
         "reference_set_sha256": reference_set_sha,
@@ -2133,6 +2850,39 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
         "objects": references,
     }
     manifest_key = "%s/MANIFEST.json" % rel_prefix
+    if prepare_only:
+        if not prepare_output_root:
+            _reference_abort("--prepare-output-root is required for prepare-only")
+        prepared = {
+            "schema_version": REFERENCE_PREPARED_PLAN_SCHEMA,
+            "state": REFERENCE_PREPARED_PLAN_STATE,
+            "prepared_at_utc": now,
+            "date": date,
+            "destination": dest_url,
+            "live_dir": os.path.abspath(os.fspath(live_dir)),
+            "receipt_index": os.path.abspath(os.fspath(receipt_path)),
+            "include_rfq": False,
+            "publisher_commit": publisher_commit,
+            "release_id": release_id,
+            "manifest_key": manifest_key,
+            "reference_set_sha256": reference_set_sha,
+            "manifest_template": manifest,
+        }
+        prepared_path, prepared_sha, prepared_size = \
+            _write_prepared_reference_plan(prepare_output_root, prepared)
+        print(json.dumps({
+            "schema_version": REFERENCE_PREPARED_PLAN_SCHEMA,
+            "state": REFERENCE_PREPARED_PLAN_STATE,
+            "date": date,
+            "release_id": release_id,
+            "prepared_plan": prepared_path,
+            "prepared_plan_sha256": prepared_sha,
+            "prepared_plan_size": prepared_size,
+            "reference_set_sha256": reference_set_sha,
+            "s3_writes": 0,
+            "rfq": "OFF",
+        }, sort_keys=True))
+        return 0
     existing = dest.read_manifest(manifest_key)
     if existing is not None:
         raw, existing_version = existing
@@ -2142,15 +2892,32 @@ def _publish_reference_manifest(*, date, dest_url, stage_dir, stage_objects,
               "manifest_version=%s)" %
               (state_sha[:16], dest.describe(), rel_prefix,
                existing_version or "LOCAL_FIXTURE"))
+        _reference_manifest_result(
+            dest, manifest_key, raw, existing_version, release_id,
+            "REFERENCE_MANIFEST_ALREADY_COMMITTED")
         return 0
     mpath = os.path.join(stage_dir, "MANIFEST.json")
     with open(mpath, "w") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")
+    # This is the final authorization boundary before MANIFEST PutObject.
+    # Re-read the content-addressed proof so tamper/staleness during staging
+    # cannot inherit the earlier validation.
+    final_proof_binding = _validate_tag_precommit_proof(
+        tag_precommit_proof, date=date, receipt=receipt,
+        receipt_binding=receipt_binding, references=references,
+        expected_tagger_arn=expected_tagger)
+    if final_proof_binding != proof_binding:
+        _reference_abort("precommit proof changed before manifest commit")
     manifest_vid = dest.upload_manifest(mpath, manifest_key)
     print("[research_release] published reference %s: %d exact objects, "
           "data uploads=0, manifest_version=%s -> %s/%s" %
           (release_id, len(references), manifest_vid, dest.describe(), rel_prefix))
+    with open(mpath, "rb") as handle:
+        manifest_raw = handle.read(MAX_REFERENCE_MANIFEST_BYTES + 1)
+    _reference_manifest_result(
+        dest, manifest_key, manifest_raw, manifest_vid, release_id,
+        "REFERENCE_MANIFEST_COMMITTED")
     return 0
 
 
@@ -2170,11 +2937,33 @@ def refuse_gate(msg):
 
 def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
             live_dir, operator_approved, reference_receipt=None,
-            reference_receipt_reader=None, reference_tag_reader=None,
-            reference_yellow_alert=None):
+            reference_receipt_reader=None,
+            reference_tag_precommit_proof=None,
+            reference_yellow_alert=None, reference_prepare_only=False,
+            reference_prepare_output_root=None,
+            reference_prepared_plan=None):
     reference_mode = reference_receipt is not None
     require_reference_patrol_clear(
         reference_mode, reference_yellow_alert, dest_url, live_dir)
+    if (reference_prepare_only or reference_prepared_plan) and not reference_mode:
+        _reference_abort("reference phase controls require a receipt index")
+    if reference_prepare_only and reference_prepared_plan:
+        _reference_abort("prepare-only and prepared-plan are mutually exclusive")
+    if reference_prepare_only and not reference_prepare_output_root:
+        _reference_abort("prepare-only requires --prepare-output-root")
+    if (not reference_prepare_only and reference_prepare_output_root):
+        _reference_abort("prepare-output-root is valid only with prepare-only")
+    if reference_prepare_only and reference_tag_precommit_proof:
+        _reference_abort("prepare-only must run before a tagger proof exists")
+    if (reference_mode and not reference_prepare_only
+            and not reference_tag_precommit_proof):
+        _reference_abort(
+            "a fresh content-addressed tagger precommit proof is required")
+    if (reference_mode and dest_url.startswith("s3://")
+            and not reference_prepare_only and not reference_prepared_plan):
+        _reference_abort(
+            "real S3 v3 publication requires prepare-only -> tagger proof -> "
+            "prepared-plan commit")
     # ---- remediation items 6+7: write gate + credential namespace ------------
     if dest_url.startswith("s3://"):
         if not operator_approved:
@@ -2185,6 +2974,16 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                 "publisher runs only on the EC2 box with vaultWriter — the "
                 "read namespace and the write namespace never share a host "
                 "role" % research_env_file())
+
+    if reference_prepared_plan:
+        exact_reader = (reference_receipt_reader or
+                        _make_canonical_receipt_reader())
+        return _commit_prepared_reference(
+            date=date, dest_url=dest_url, live_dir=live_dir,
+            receipt_path=reference_receipt, receipt_reader=exact_reader,
+            tag_precommit_proof=reference_tag_precommit_proof,
+            prepared_plan_path=reference_prepared_plan,
+            include_rfq=bool(include_rfq))
 
     cfg = wc.load_config()
     warehouse_root = cfg["warehouse_root"]
@@ -2208,7 +3007,40 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         key=lambda r: r["file"])
     rfq_effective = bool(include_rfq and rfq_entries)
 
-    stage_root = os.path.join(wc.ROOT, "work", "research_stage")
+    stage_root = _research_stage_root()
+    os.makedirs(stage_root, exist_ok=True)
+    now = time.time()
+    for name in os.listdir(stage_root):
+        if not (re.fullmatch(r"\.pending-\d+", name)
+                or re.fullmatch(
+                    r"\.reference-pending-\d{4}-\d{2}-\d{2}-\d+", name)):
+            continue
+        stale = os.path.join(stage_root, name)
+        try:
+            if now - os.stat(stale).st_mtime > 24 * 60 * 60:
+                shutil.rmtree(stale)
+        except FileNotFoundError:
+            pass
+    estimated_stage_bytes = _estimated_stage_bytes(
+        date, reference_mode=reference_mode, include_rfq=rfq_effective,
+        seal=seal, warehouse_root=warehouse_root, archive_root=archive_root,
+        quality_dir=quality_dir)
+    shares_capture_disk = (
+        os.stat(stage_root).st_dev == os.stat(raw_root).st_dev)
+    # Local fixture destinations do not share a production capture volume.
+    # Every real S3 publication on the production same-disk stage preserves a
+    # full 100 GiB independently of the bytes this release expects to copy.
+    capture_reserve = (CAPTURE_DISK_RESERVE_BYTES
+                       if shares_capture_disk and dest_url.startswith("s3://")
+                       else 0)
+    required_free = estimated_stage_bytes + capture_reserve
+    actual_free = shutil.disk_usage(stage_root).free
+    if actual_free < required_free:
+        raise SystemExit(
+            "REFUSED: research stage disk budget failed "
+            "(free=%d expected_copy=%d capture_reserve=%d same_disk=%s)" %
+            (actual_free, estimated_stage_bytes, capture_reserve,
+             str(shares_capture_disk).lower()))
     pending = os.path.join(stage_root, ".pending-%d" % os.getpid())
     shutil.rmtree(pending, ignore_errors=True)
     os.makedirs(pending, exist_ok=True)
@@ -2232,13 +3064,14 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         """Seal-attested write-once files (facts, sealed rfq raw): verified
         against the seal, then hardlinked (copy fallback)."""
         dst = safe_join(stage["dir"], key)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        try:
-            os.link(src, dst)
-        except OSError:
-            shutil.copyfile(src, dst)
+        if not reference_mode:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copyfile(src, dst)
         objects.append({"key": key, "size": frozen[1], "sha256": frozen[0]})
-        return objects[-1]
+        return src if reference_mode else dst
 
     def stage_bytes(key, payload):
         dst = safe_join(stage["dir"], key)
@@ -2255,14 +3088,15 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         corr_dir = os.path.join(warehouse_root, "corrections",
                                 "date=%s" % date)
         corr_objs = []
-        if os.path.isdir(corr_dir):
+        if not reference_mode and os.path.isdir(corr_dir):
             for base, _d, files in os.walk(corr_dir):
                 for fn in sorted(files):
                     src = os.path.join(base, fn)
                     key = "corrections/date=%s/%s" % (
                         date, os.path.relpath(src, corr_dir))
                     corr_objs.append(stage_copy(key, src))
-        ledger_lines = day_ledger_lines(warehouse_root, date)
+        ledger_lines = ([] if reference_mode
+                        else day_ledger_lines(warehouse_root, date))
         ledger_obj = None
         if ledger_lines:
             ledger_obj = stage_bytes(
@@ -2277,7 +3111,8 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         # byte-for-byte. Done-markers and bare/header-only CSVs prove
         # nothing (they are shipped only as auxiliary record snapshots).
         gap_record = os.path.join(quality_dir, "capture_gaps.csv")
-        gaps_csv = day_gap_intervals(gap_record, date)
+        gaps_csv = (None if reference_mode
+                    else day_gap_intervals(gap_record, date))
         gap_obj = None
         if gaps_csv is not None:
             buf = ["start_us,end_us"]
@@ -2290,7 +3125,9 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         gap_receipt_obj = None
         gap_reason = None
         receipt_gaps = None
-        if not os.path.isfile(receipt_src):
+        if reference_mode:
+            gap_reason = "derived later from immutable canonical receipt"
+        elif not os.path.isfile(receipt_src):
             gap_reason = ("no per-date scan receipt "
                           "(capture_gap_receipt_%s.json)" % date)
         else:
@@ -2343,7 +3180,7 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         l2_gap_obj = None
         l2_quality = None
         l2_reason = "no per-date L2 receipt (l2_gaps_%s.json)" % date
-        if os.path.isfile(l2_gaps_src):
+        if not reference_mode and os.path.isfile(l2_gaps_src):
             l2_gap_obj = stage_copy("quality/l2_gaps.json", l2_gaps_src)
             with open(os.path.join(stage["dir"],
                                    "quality/l2_gaps.json")) as f:
@@ -2408,16 +3245,17 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
     try:
         # ---- manifest.csv date rows must still match the seal (copy first,
         # fix 2: drift check runs on the frozen staged copy) --------------------
-        wm_obj = stage_copy("warehouse_manifest/manifest.csv",
-                            os.path.join(warehouse_root, "manifest.csv"))
-        staged_wm = os.path.join(stage_dir, "warehouse_manifest",
-                                 "manifest.csv")
-        manifest_sha, _rows = wc.manifest_date_sha256(staged_wm, date)
-        if manifest_sha != seal.get("manifest_date_sha256"):
-            raise SystemExit("ABORT (fail-closed): manifest_date_sha256 "
-                             "drift for %s (seal %s != staged copy %s)"
-                             % (date, seal.get("manifest_date_sha256"),
-                                manifest_sha))
+        if not reference_mode:
+            wm_obj = stage_copy("warehouse_manifest/manifest.csv",
+                                os.path.join(warehouse_root, "manifest.csv"))
+            staged_wm = os.path.join(stage_dir, "warehouse_manifest",
+                                     "manifest.csv")
+            manifest_sha, _rows = wc.manifest_date_sha256(staged_wm, date)
+            if manifest_sha != seal.get("manifest_date_sha256"):
+                raise SystemExit("ABORT (fail-closed): manifest_date_sha256 "
+                                 "drift for %s (seal %s != staged copy %s)"
+                                 % (date, seal.get("manifest_date_sha256"),
+                                    manifest_sha))
 
         # ---- facts: exact sealed set, re-verified byte-for-byte ---------------
         table_sample = {}
@@ -2427,10 +3265,9 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                 raise SystemExit("ABORT (fail-closed): sealed archive file "
                                  "missing locally: %s" % src)
             frozen = verify_against(entry, src, "facts")
-            stage_link_attested("facts/%s" % entry["file"], src, frozen)
-            table_sample.setdefault(entry["table"],
-                                    os.path.join(stage_dir, "facts",
-                                                 entry["file"]))
+            sampled = stage_link_attested(
+                "facts/%s" % entry["file"], src, frozen)
+            table_sample.setdefault(entry["table"], sampled)
 
         # ---- schema freeze (duckdb on the STAGED copies) -----------------------
         conn = duckdb_connect()
@@ -2457,14 +3294,14 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
         # ---- dim snapshot / catalog (mutable aux: copy first, fix 2) ----------
         dim_snap = os.path.join(warehouse_root, "dim", "snapshots",
                                 "date=%s" % date)
-        if os.path.isdir(dim_snap):
+        if not reference_mode and os.path.isdir(dim_snap):
             for base, _d, files in os.walk(dim_snap):
                 for fn in sorted(files):
                     src = os.path.join(base, fn)
                     stage_copy("dim/snapshots/date=%s/%s"
                                % (date, os.path.relpath(src, dim_snap)), src)
         catalog_dir = os.path.join(warehouse_root, "catalog")
-        if os.path.isdir(catalog_dir):
+        if not reference_mode and os.path.isdir(catalog_dir):
             for base, _d, files in os.walk(catalog_dir):
                 for fn in sorted(files):
                     src = os.path.join(base, fn)
@@ -2574,7 +3411,9 @@ def publish(date, dest_url, include_rfq, quality_dir, raw_vault_url,
                 date=date, dest_url=dest_url, stage_dir=stage_dir,
                 stage_objects=objects, receipt_path=reference_receipt,
                 receipt_reader=exact_reader,
-                receipt_tag_reader=(reference_tag_reader or exact_reader),
+                tag_precommit_proof=reference_tag_precommit_proof,
+                prepare_only=bool(reference_prepare_only),
+                prepare_output_root=reference_prepare_output_root,
                 include_rfq=bool(include_rfq), seal=seal, seal_sha=seal_sha,
                 seal_size=len(seal_bytes),
                 publication_components=publication_state, tables=tables,
@@ -2725,6 +3564,22 @@ def main(argv):
     ref.add_argument("--receipt", required=True,
                      help="local DURABLE receipt index whose receipt_object "
                           "is exact-version read back before publication")
+    ref.add_argument(
+        "--tag-precommit-proof",
+        help="fresh content-addressed verify-only proof from the dedicated "
+             "tagger identity")
+    phase = ref.add_mutually_exclusive_group()
+    phase.add_argument(
+        "--prepare-only", action="store_true",
+        help="run the expensive immutable freeze and emit a content-addressed "
+             "prepared plan without writing MANIFEST")
+    phase.add_argument(
+        "--prepared-plan",
+        help="commit one content-addressed prepared plan after a fresh tagger "
+             "proof; skips all expensive fact/schema rebuilding")
+    ref.add_argument(
+        "--prepare-output-root",
+        help="absolute local directory for content-addressed prepared plans")
     ref.add_argument("--dest", default=os.environ.get("RESEARCH_DEST",
                                                       DEST_DEFAULT))
     rg = ref.add_mutually_exclusive_group()
@@ -2749,7 +3604,19 @@ def main(argv):
                    args.raw_vault, args.live_dir, args.operator_approved,
                    reference_receipt=(args.receipt
                                       if args.cmd == "publish-reference"
-                                      else None))
+                                      else None),
+                   reference_tag_precommit_proof=(
+                       args.tag_precommit_proof
+                       if args.cmd == "publish-reference" else None),
+                   reference_prepare_only=(
+                       bool(args.prepare_only)
+                       if args.cmd == "publish-reference" else False),
+                   reference_prepare_output_root=(
+                       args.prepare_output_root
+                       if args.cmd == "publish-reference" else None),
+                   reference_prepared_plan=(
+                       args.prepared_plan
+                       if args.cmd == "publish-reference" else None))
 
 
 if __name__ == "__main__":

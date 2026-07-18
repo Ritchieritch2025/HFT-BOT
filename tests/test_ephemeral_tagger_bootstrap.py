@@ -325,7 +325,9 @@ def test_direct_shebang_and_lookalike_python_are_forbidden(pins, tmp_path):
 
 
 def test_production_pins_are_fixed_and_overrides_fail_closed(pins):
-    assert str(bootstrap.PRODUCTION_PINS.aws_cli) == "/snap/bin/aws"
+    assert str(bootstrap.PRODUCTION_PINS.aws_cli) == \
+        "/snap/aws-cli/current/bin/aws"
+    assert str(bootstrap.PRODUCTION_PINS.aws_cli) != "/snap/bin/aws"
     assert str(bootstrap.PRODUCTION_PINS.python) == "/usr/bin/python3"
     overridden = bootstrap.RuntimePins(
         aws_cli=pins.aws_cli,

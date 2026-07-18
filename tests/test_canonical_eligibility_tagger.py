@@ -26,6 +26,7 @@ MODIFIED = "2026-07-13T04:00:00Z"
 ROLE_ARN = "arn:aws:iam::123456789012:role/canonical-eligibility-tagger"
 CALLER_ARN = ("arn:aws:sts::123456789012:assumed-role/"
               "canonical-eligibility-tagger/fixture-session")
+USER_ARN = "arn:aws:iam::123456789012:user/canonical-eligibility-tagger"
 
 
 def _sha(payload):
@@ -647,8 +648,7 @@ def test_reference_publisher_accepts_real_rfq_tagger_output(receipt_tree):
     ])
     loaded, _source_binding = rr._load_authoritative_receipt(
         str(index_path), DATE, _sha(receipt_tree["seal_payload"]),
-        len(receipt_tree["seal_payload"]), reader,
-        tag_reader=PublisherExactTagReader())
+        len(receipt_tree["seal_payload"]), reader)
     rfq_rows = [obj for obj in loaded["objects"]
                 if cet._is_rfq_object(obj)]
     assert len(rfq_rows) == 3
@@ -1188,9 +1188,8 @@ def test_idempotent_rerun_reuses_tags_and_tagged_receipt(receipt_tree):
     assert first[1]["receipt_object_eligibility_tag_state"] == \
         "TAGGED_VERIFIED"
     assert first[1]["complete"] is True
-    pending = next((receipt_tree["root"] / "tagged" /
-                    ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
-    assert json.loads(pending.read_text())["complete"] is False
+    assert not list((receipt_tree["root"] / "tagged" /
+                     ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
 
 
 def test_crash_after_receipt_tag_before_final_index_is_rerunnable(
@@ -1223,6 +1222,164 @@ def test_crash_after_receipt_tag_before_final_index_is_rerunnable(
     assert result[1]["receipt_object_eligibility_tag_state"] == \
         "TAGGED_VERIFIED"
     assert len(tagger.puts) == puts_after_crash
+
+
+def _make_precommit_proof(receipt_tree, result, tagger, writer):
+    index_path, index, tagged = result
+    binding = index["receipt_object"]
+    tagged_body = writer.objects[(BUCKET, binding["key"])]
+    reader = MultiExactReceiptReader([
+        (binding, tagged_body),
+        (receipt_tree["receipt_binding"], receipt_tree["body"]),
+    ])
+    tagger.identity = {
+        "Account": "123456789012",
+        "Arn": USER_ARN,
+        "UserId": "AIDAFIXTURETAGGER",
+    }
+    return cet.create_precommit_proof(
+        tagged_index=str(index_path),
+        byte_receipt_index=str(receipt_tree["index_path"]),
+        reader=reader, tagger=tagger,
+        output_root=str(receipt_tree["root"] / "tag-precommit"),
+        expected_tagger_principal=USER_ARN,
+        expected_bucket=BUCKET, expected_prefix=PREFIX,
+        generated_at="2026-07-13T04:11:00Z")
+
+
+def test_verify_only_proves_receipt_and_complete_non_rfq_set_without_puts(
+        receipt_tree):
+    result, tagger, writer = _run(receipt_tree)
+    puts_before = len(tagger.puts)
+    path, proof_sha, proof = _make_precommit_proof(
+        receipt_tree, result, tagger, writer)
+    assert path.name == "PRECOMMIT-%s.json" % proof_sha
+    assert _sha(path.read_bytes()) == proof_sha
+    assert proof["state"] == cet.PRECOMMIT_PROOF_STATE
+    assert proof["rfq"] == "OFF"
+    assert proof["tag_puts"] == 0
+    assert proof["target_count"] == 1 + sum(
+        obj["research_candidate"] for obj in result[2]["objects"])
+    assert proof["research_candidate_count"] == proof["target_count"] - 1
+    assert proof["target_set_sha256"] == cr.canonical_sha256(
+        proof["targets"])
+    assert proof["tagger_sts_caller_arn"] == USER_ARN
+    assert len(tagger.puts) == puts_before
+    assert all(row["role"] != "RESEARCH_CANDIDATE"
+               or "/raw/" not in ("/" + row["source_key"])
+               for row in proof["targets"])
+
+
+def test_tag_removed_before_verify_only_fails_and_emits_no_proof(receipt_tree):
+    result, tagger, writer = _run(receipt_tree)
+    candidate = next(obj for obj in result[2]["objects"]
+                     if obj["research_candidate"])
+    tagger.tags[(candidate["bucket"], candidate["key"],
+                 candidate["VersionId"])].pop(cet.TAG_KEY)
+    puts_before = len(tagger.puts)
+    with pytest.raises(cr.ReceiptError, match="DATA_TAG_REVERIFY_FAILED"):
+        _make_precommit_proof(receipt_tree, result, tagger, writer)
+    assert len(tagger.puts) == puts_before
+    assert not (receipt_tree["root"] / "tag-precommit").exists()
+
+
+def test_historical_recovery_requires_existing_exact_remote_receipt(
+        receipt_tree):
+    tagger = FakeTagger(fail_put_at=3)
+    writer = FakeReceiptWriter()
+    with pytest.raises(cr.ReceiptError, match="FIXTURE_PUT_FAILED"):
+        _run(receipt_tree, tagger=tagger, writer=writer)
+    pending = next((receipt_tree["root"] / "tagged" /
+                    ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
+    intent = json.loads(pending.read_text())
+    binding = intent["receipt_object"]
+    stored = writer.objects[(BUCKET, binding["key"])]
+    reader = MultiExactReceiptReader([
+        (binding, stored),
+        (receipt_tree["receipt_binding"], receipt_tree["body"]),
+    ])
+    tagger.fail_put_at = None
+    tagger.fail_get_at = None
+    result = cet.recover_existing_tagged_receipt(
+        pending_index=str(pending),
+        receipt_index=str(receipt_tree["index_path"]),
+        single_writer_audit=str(receipt_tree["audit_path"]),
+        policy_evidence=str(receipt_tree["evidence_path"]),
+        reader=reader, tagger=tagger,
+        output_root=str(receipt_tree["root"] / "tagged"),
+        expected_bucket=BUCKET, expected_prefix=PREFIX,
+        now_utc="2026-07-14T04:10:01Z")
+    assert result[1]["complete"] is True
+    assert result[1]["receipt_object"] == binding
+    assert not pending.exists()
+    assert len(writer.calls) == 1
+
+
+def test_historical_precreate_crash_is_abandoned_without_aws_writes(
+        receipt_tree):
+    tagger = FakeTagger()
+    with pytest.raises(cr.ReceiptError, match="FIXTURE_RECEIPT_PUT_FAILED"):
+        _run(receipt_tree, tagger=tagger, writer=FailingReceiptWriter())
+    pending = next((receipt_tree["root"] / "tagged" /
+                    ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
+    gets_before, puts_before = len(tagger.gets), len(tagger.puts)
+    with pytest.raises(cr.ReceiptError, match="ABANDON_REQUIRES_FRESH_AUDIT"):
+        cet.recover_existing_tagged_receipt(
+            pending_index=str(pending),
+            receipt_index=str(receipt_tree["index_path"]),
+            single_writer_audit=str(receipt_tree["audit_path"]),
+            policy_evidence=str(receipt_tree["evidence_path"]),
+            reader=receipt_tree["reader"], tagger=tagger,
+            output_root=str(receipt_tree["root"] / "tagged"),
+            expected_bucket=BUCKET, expected_prefix=PREFIX,
+            now_utc="2026-07-14T04:10:01Z")
+    assert len(tagger.gets) == gets_before
+    assert len(tagger.puts) == puts_before
+
+
+def test_historical_missing_bound_remote_receipt_is_abandoned_without_writes(
+        receipt_tree):
+    tagger = FakeTagger(fail_put_at=3)
+    writer = FakeReceiptWriter()
+    with pytest.raises(cr.ReceiptError, match="FIXTURE_PUT_FAILED"):
+        _run(receipt_tree, tagger=tagger, writer=writer)
+    pending = next((receipt_tree["root"] / "tagged" /
+                    ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
+    assert json.loads(pending.read_text())["receipt_object"]["VersionId"]
+    tagger.fail_put_at = None
+    gets_before, puts_before = len(tagger.gets), len(tagger.puts)
+    # The fixture reader knows the byte parent but not the newly created tagged
+    # receipt VersionId, exactly modelling a missing/unreadable remote object.
+    with pytest.raises(cr.ReceiptError, match="ABANDON_REQUIRES_FRESH_AUDIT"):
+        cet.recover_existing_tagged_receipt(
+            pending_index=str(pending),
+            receipt_index=str(receipt_tree["index_path"]),
+            single_writer_audit=str(receipt_tree["audit_path"]),
+            policy_evidence=str(receipt_tree["evidence_path"]),
+            reader=receipt_tree["reader"], tagger=tagger,
+            output_root=str(receipt_tree["root"] / "tagged"),
+            expected_bucket=BUCKET, expected_prefix=PREFIX,
+            now_utc="2026-07-14T04:10:01Z")
+    assert len(tagger.gets) == gets_before
+    assert len(tagger.puts) == puts_before
+    assert pending.exists()
+
+
+def test_existing_only_recovery_rejects_under_24h_pending(receipt_tree):
+    with pytest.raises(cr.ReceiptError, match="FIXTURE_RECEIPT_PUT_FAILED"):
+        _run(receipt_tree, writer=FailingReceiptWriter())
+    pending = next((receipt_tree["root"] / "tagged" /
+                    ("date=%s" % DATE)).glob("TAGGED-PENDING-*.json"))
+    with pytest.raises(cr.ReceiptError, match="TAGGER_RECOVERY_NOT_HISTORICAL"):
+        cet.recover_existing_tagged_receipt(
+            pending_index=str(pending),
+            receipt_index=str(receipt_tree["index_path"]),
+            single_writer_audit=str(receipt_tree["audit_path"]),
+            policy_evidence=str(receipt_tree["evidence_path"]),
+            reader=receipt_tree["reader"], tagger=FakeTagger(),
+            output_root=str(receipt_tree["root"] / "tagged"),
+            expected_bucket=BUCKET, expected_prefix=PREFIX,
+            now_utc="2026-07-14T04:09:59Z")
 
 
 def test_byte_receipt_exact_get_has_16_mib_limit(receipt_tree):
@@ -1287,8 +1444,7 @@ def test_tagged_receipt_has_new_digest_and_reference_publisher_accepts_it(
     ])
     loaded, source_binding = rr._load_authoritative_receipt(
         str(index_path), DATE, _sha(receipt_tree["seal_payload"]),
-        len(receipt_tree["seal_payload"]), reader,
-        tag_reader=PublisherExactTagReader())
+        len(receipt_tree["seal_payload"]), reader)
     assert loaded["receipt_set_sha256"] == index["receipt_set_sha256"]
     assert source_binding["version_id"] == tagged_binding["VersionId"]
     candidates = [obj for obj in loaded["objects"]

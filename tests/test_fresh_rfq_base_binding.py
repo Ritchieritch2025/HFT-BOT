@@ -31,6 +31,47 @@ def _sha(raw: bytes) -> str:
 
 def _retarget_manifest(manifest: dict) -> None:
     manifest["objects"].sort(key=lambda row: row["logical_key"])
+    if (manifest.get("manifest_contract_version")
+            == reference.MANIFEST_CONTRACT_VERSION):
+        def component_projection(kinds):
+            return [{key: row.get(key) for key in (
+                "logical_key", "source_bucket", "source_key",
+                "source_version_id", "size", "sha256", "kind", "channel",
+                "evidence_binding")}
+                    for row in manifest["objects"]
+                    if row.get("kind") in kinds]
+
+        corrections = component_projection({
+            "correction", "corrections_ledger_day"})
+        gaps = component_projection({
+            "capture_gap_receipt", "capture_gaps_projection"})
+        l2 = component_projection({"l2_quality_receipt"})
+        components = manifest["publication_components"]
+        components["corrections"] = {"objects": corrections}
+        components["gap_evidence"] = {
+            "affirmative_receipt": bool(gaps), "objects": gaps}
+        components["l2_quality"] = {
+            "affirmative_receipt": bool(l2), "objects": l2}
+        components["rfq"] = {"included": manifest["rfq_included"]}
+        manifest["l2_quality"] = components["l2_quality"]
+        manifest["channels"]["orderbooks_l2"]["seq_quality"] = \
+            manifest["l2_quality"]
+        manifest["corrections"]["included_files"] = len(corrections)
+        manifest["corrections"]["ledger_day_entries"] = None
+        state = manifest["publication_state"]
+        state["corrections_digest"] = reference.canonical_sha256(corrections)
+        state["gap_evidence_digest"] = reference.canonical_sha256(gaps)
+        state["l2_quality_digest"] = reference.canonical_sha256(l2)
+        manifest["corrections"]["digest"] = state["corrections_digest"]
+        proof = manifest["eligibility_enforcement"]["tagger_precommit_proof"]
+        proof["target_count"] = len(manifest["objects"]) + 1
+        proof["research_candidate_count"] = len(manifest["objects"])
+        proof["target_set_sha256"] = reference.canonical_sha256([{
+            "bucket": row["source_bucket"],
+            "key": row["source_key"],
+            "version_id": row["source_version_id"],
+            "size": row["size"], "sha256": row["sha256"],
+        } for row in manifest["objects"]])
     reference_sha = reference.reference_set_sha256(manifest["objects"])
     semantics_sha = reference.object_semantics_sha256(manifest["objects"])
     manifest["reference_set_sha256"] = reference_sha
@@ -163,19 +204,6 @@ def test_rejects_missing_fact_family_even_when_reference_v3_still_valid(family):
             for row in manifest["objects"]
             if row["kind"] != "l2_quality_receipt"
         ]
-        manifest["l2_quality"] = None
-        manifest["channels"]["orderbooks_l2"]["seq_quality"] = None
-        manifest["publication_state"]["l2_quality_digest"] = (
-            reference.canonical_sha256(None)
-        )
-        manifest["publication_components"]["gap_evidence"][
-            "l2_gaps_sha256"
-        ] = None
-        manifest["publication_state"]["gap_evidence_digest"] = (
-            reference.canonical_sha256(
-                manifest["publication_components"]["gap_evidence"]
-            )
-        )
     _retarget_manifest(manifest)
     reference.validate_manifest(manifest)
     with pytest.raises(binding.FreshRfqBaseBindingError) as error:

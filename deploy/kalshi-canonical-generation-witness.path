@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch producer dim generations for exact S3 witness publication
+
+[Path]
+PathChanged=/home/ubuntu/hft-bot/work/warehouse/.publication-generations/dim
+Unit=kalshi-canonical-generation-witness.service
+
+[Install]
+WantedBy=multi-user.target

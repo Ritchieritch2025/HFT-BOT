@@ -294,7 +294,12 @@ def _lock_path(warehouse_root, name):
     lock_dir = os.path.join(root, LOCK_DIR)
     if os.path.lexists(lock_dir) and os.path.islink(lock_dir):
         raise GenerationError("lock directory is a symlink")
-    os.makedirs(lock_dir, mode=0o700, exist_ok=True)
+    # Production pre-creates this as a setgid directory owned by the stable
+    # publication-lock group.  0770/0660 are intentional: capture (ubuntu)
+    # and the isolated research publisher use different UIDs but must contend
+    # on the same inode.  A 0600 lock silently gives each side a different
+    # safety model by making the other side fail at open(2).
+    os.makedirs(lock_dir, mode=0o770, exist_ok=True)
     path = os.path.join(lock_dir, name + ".lock")
     if os.path.lexists(path) and os.path.islink(path):
         raise GenerationError("lock file is a symlink")
@@ -324,7 +329,15 @@ def generation_locks(warehouse_root, requests, timeout=5.0, poll=0.05):
             flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
             if hasattr(os, "O_NOFOLLOW"):
                 flags |= os.O_NOFOLLOW
-            fd = os.open(path, flags, 0o600)
+            fd = os.open(path, flags, 0o660)
+            current_mode = stat.S_IMODE(os.fstat(fd).st_mode)
+            if current_mode != 0o660:
+                if os.fstat(fd).st_uid != os.geteuid():
+                    os.close(fd)
+                    raise GenerationError(
+                        "%s lock has unsafe/inaccessible mode %04o" %
+                        (name, current_mode))
+                os.fchmod(fd, 0o660)
             operation = (fcntl.LOCK_SH if requests[name] == "shared"
                          else fcntl.LOCK_EX) | fcntl.LOCK_NB
             while True:

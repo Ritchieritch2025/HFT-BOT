@@ -41,6 +41,7 @@ bucket-policy controls that it records.
 """
 import argparse
 import copy
+import datetime
 import hashlib
 import json
 import os
@@ -57,6 +58,15 @@ import warehouse_common as wc
 
 AUDIT_SCHEMA = "canonical-eligibility-single-writer-audit-v1"
 AUDIT_STATE = "SINGLE_WRITER_VERIFIED"
+LAYERED_EVIDENCE_SCHEMA = "canonical-eligibility-layered-policy-evidence-v1"
+LAYERED_EVIDENCE_TIER = "OPERATOR_AUTHORIZATION_PLUS_BEHAVIORAL_PATROL"
+OPERATOR_AUTHORIZATION_SHA256 = (
+    "3c77302612e70fdb5e6534657812c581a78ab93cf9dde6ab0e11c84e84940910")
+LAYERED_LIMITATIONS = [
+    "operator policy hashes are a durable authorization, not live readback",
+    "daily patrol covers tagger and publisher tested paths, not every principal",
+    "independent administrative drift enumeration remains engineering debt",
+]
 TAG_KEY = "research-eligible"
 TAG_VALUE = "true"
 RFQ_TAG_KEY = "research-channel"
@@ -65,7 +75,10 @@ MAX_S3_TAGS = 10
 TAGGED_PHASE = "TAGGED_ELIGIBILITY_VERIFIED"
 PENDING_INDEX_SCHEMA = "canonical-tagged-receipt-pending-index-v1"
 PENDING_INDEX_STATE = "TAGGED_RECEIPT_OBJECT_TAG_PENDING"
+PRECOMMIT_PROOF_SCHEMA = "canonical-eligibility-precommit-proof-v1"
+PRECOMMIT_PROOF_STATE = "EXACT_VERSION_TAG_READBACK_VERIFIED"
 MAX_DURABLE_INDEX_BYTES = 1024 * 1024
+MAX_PRECOMMIT_PROOF_BYTES = 16 * 1024 * 1024
 MAX_SINGLE_WRITER_AUDIT_BYTES = 64 * 1024
 MAX_POLICY_EVIDENCE_BYTES = 1024 * 1024
 MAX_RFQ_ELIGIBILITY_EVIDENCE_BYTES = 4 * 1024 * 1024
@@ -97,6 +110,9 @@ RFQ_BINDING_FIELDS = frozenset({
 })
 TAGGER_PROVENANCE_PATHS = cr.CANONICAL_RECEIPT_PROVENANCE_PATHS + (
     "tools/canonical_eligibility_tagger.py",
+    "tools/research_v3_daily.py",
+    "docs/plan_releases/pipeline/"
+    "W-PUB-REF-01C_OPERATOR_ATTESTED_AUTHORIZATION_2026-07-17.json",
 )
 
 _IAM_USER_ARN_RE = re.compile(
@@ -186,7 +202,7 @@ def _load_json_file(path, code, *, limit, label):
     return parsed, payload
 
 
-def _validate_audit_freshness(audited_at_utc, now_utc):
+def _validate_audit_freshness(audited_at_utc, now_utc, *, require_fresh=True):
     try:
         audited = cr._parse_utc(audited_at_utc, "audit audited_at_utc")
         now = cr._parse_utc(now_utc, "eligibility operation time")
@@ -197,7 +213,7 @@ def _validate_audit_freshness(audited_at_utc, now_utc):
         raise cr.ReceiptError(
             "SINGLE_WRITER_AUDIT_STALE",
             "audit is %.0f seconds in the future" % -age)
-    if age > MAX_AUDIT_AGE_SECONDS:
+    if require_fresh and age > MAX_AUDIT_AGE_SECONDS:
         raise cr.ReceiptError(
             "SINGLE_WRITER_AUDIT_STALE",
             "audit is %.0f seconds old; limit is %d" %
@@ -238,7 +254,7 @@ def _validate_principal_spec(audit):
 
 def load_single_writer_audit(path, policy_evidence_path, *, date, bucket,
                              receipt_set_sha256, now_utc,
-                             include_sealed_rfq=False):
+                             include_sealed_rfq=False, require_fresh=True):
     """Validate and bind the explicit single-writer authorization evidence."""
     audit, raw = _load_json_file(
         path, "SINGLE_WRITER_AUDIT_INVALID",
@@ -282,7 +298,8 @@ def load_single_writer_audit(path, policy_evidence_path, *, date, bucket,
             raise cr.ReceiptError(
                 "SINGLE_WRITER_AUDIT_INVALID", "%s is missing" % field)
     _validate_principal_spec(audit)
-    _validate_audit_freshness(audit.get("audited_at_utc"), now_utc)
+    _validate_audit_freshness(
+        audit.get("audited_at_utc"), now_utc, require_fresh=require_fresh)
     if not _valid_sha256(audit.get("policy_evidence_sha256")):
         raise cr.ReceiptError(
             "SINGLE_WRITER_AUDIT_INVALID", "policy evidence digest is invalid")
@@ -298,6 +315,58 @@ def load_single_writer_audit(path, policy_evidence_path, *, date, bucket,
         raise cr.ReceiptError(
             "POLICY_EVIDENCE_MISMATCH",
             "policy evidence bytes do not match the audit binding")
+    if audit.get("evidence_tier") is not None:
+        layered = _parse_json_object(evidence, "POLICY_EVIDENCE_INVALID")
+        authorization = layered.get("operator_authorization")
+        patrol = layered.get("behavioral_patrol")
+        layered_fixed = {
+            "schema_version": LAYERED_EVIDENCE_SCHEMA,
+            "state": "OPERATOR_AUTHORIZATION_AND_FRESH_PATROL_BOUND",
+            "date": date,
+            "bucket": bucket,
+            "receipt_set_sha256": receipt_set_sha256,
+            "evidence_tier": LAYERED_EVIDENCE_TIER,
+            "live_policy_readback": False,
+            "limitations": LAYERED_LIMITATIONS,
+            "rfq": "OFF",
+        }
+        for field, expected in layered_fixed.items():
+            if layered.get(field) != expected:
+                raise cr.ReceiptError(
+                    "POLICY_EVIDENCE_INVALID",
+                    "layered %s=%r, expected %r" %
+                    (field, layered.get(field), expected))
+        audit_fixed = {
+            "evidence_tier": LAYERED_EVIDENCE_TIER,
+            "operator_authorization_sha256":
+                OPERATOR_AUTHORIZATION_SHA256,
+            "live_policy_readback": False,
+            "limitations": LAYERED_LIMITATIONS,
+            "auditor": "layered-authorization-patrol-v1",
+        }
+        for field, expected in audit_fixed.items():
+            if audit.get(field) != expected:
+                raise cr.ReceiptError(
+                    "SINGLE_WRITER_AUDIT_INVALID",
+                    "%s=%r, expected %r" %
+                    (field, audit.get(field), expected))
+        if (not isinstance(authorization, dict)
+                or authorization.get("sha256")
+                != OPERATOR_AUTHORIZATION_SHA256
+                or not isinstance(authorization.get("size"), int)
+                or authorization["size"] <= 0
+                or not isinstance(patrol, dict)
+                or not _valid_sha256(patrol.get("sha256"))
+                or patrol.get("sha256")
+                != audit.get("behavioral_patrol_sha256")
+                or not isinstance(patrol.get("size"), int)
+                or patrol["size"] <= 0):
+            raise cr.ReceiptError(
+                "POLICY_EVIDENCE_INVALID",
+                "layered authorization/patrol bindings are invalid")
+        _validate_audit_freshness(
+            patrol.get("generated_at_utc"), now_utc,
+            require_fresh=require_fresh)
     return audit, hashlib.sha256(raw).hexdigest()
 
 
@@ -1169,6 +1238,213 @@ def _validate_tagged_receipt(payload, *, parent_sha, audit_sha, bucket,
     return payload
 
 
+def _proof_target(obj, *, role, logical_key):
+    """Return the fixed exact-version projection committed by a proof."""
+    row = {
+        "role": role,
+        "logical_key": logical_key,
+        "source_bucket": obj.get("bucket"),
+        "source_key": obj.get("key"),
+        "source_version_id": obj.get("VersionId"),
+        "size": obj.get("size"),
+        "sha256": obj.get("sha256"),
+        "required_tags": {TAG_KEY: TAG_VALUE},
+    }
+    if (not isinstance(row["logical_key"], str) or not row["logical_key"]
+            or not isinstance(row["source_bucket"], str)
+            or not row["source_bucket"]
+            or not isinstance(row["source_key"], str)
+            or not row["source_key"]
+            or not crc._valid_version_id(row["source_version_id"])
+            or not isinstance(row["size"], int)
+            or isinstance(row["size"], bool) or row["size"] < 0
+            or not _valid_sha256(row["sha256"])):
+        raise cr.ReceiptError(
+            "PRECOMMIT_PROOF_INVALID", "invalid exact-version proof target")
+    return row
+
+
+def _load_tagged_for_precommit(tagged_index_path, byte_index_path, reader,
+                               *, expected_bucket=None,
+                               expected_prefix=None):
+    """Exact-read and prove one tagged receipt's complete non-RFQ lineage."""
+    tagged_index, _raw = _load_json_file(
+        tagged_index_path, "TAGGED_INDEX_INVALID",
+        limit=MAX_DURABLE_INDEX_BYTES, label="tagged durable index")
+    date = tagged_index.get("date")
+    try:
+        cr._validate_date(date)
+    except cr.ReceiptError as exc:
+        raise cr.ReceiptError("TAGGED_INDEX_INVALID", exc.detail)
+    tagged_sha = tagged_index.get("receipt_set_sha256")
+    parent_sha = tagged_index.get("byte_attestation_receipt_set_sha256")
+    audit_sha = tagged_index.get("eligibility_single_writer_audit_sha256")
+    fixed = {
+        "schema_version": crc.DURABLE_INDEX_SCHEMA,
+        "state": crc.DURABLE_STATE,
+        "complete": True,
+        "completed": True,
+        "prune_eligible": False,
+        "receipt_phase": TAGGED_PHASE,
+        "receipt_object_eligibility_tag_state": "TAGGED_VERIFIED",
+    }
+    if (any(tagged_index.get(field) != value
+            for field, value in fixed.items())
+            or not _valid_sha256(tagged_sha)
+            or not _valid_sha256(parent_sha)
+            or not _valid_sha256(audit_sha)
+            or tagged_sha == parent_sha):
+        raise cr.ReceiptError(
+            "TAGGED_INDEX_INVALID", "tagged index authority/lineage is invalid")
+
+    tagged_receipt, prefix, tagged_body = _read_exact_receipt(
+        tagged_index, reader, expected_bucket=expected_bucket,
+        expected_prefix=expected_prefix)
+    binding = tagged_index["receipt_object"]
+    bucket = binding["bucket"]
+    _validate_tagged_receipt(
+        tagged_receipt, parent_sha=parent_sha, audit_sha=audit_sha,
+        bucket=bucket, prefix=prefix)
+    if (tagged_receipt.get("receipt_set_sha256") != tagged_sha
+            or tagged_index.get("receipt_payload_size") != len(tagged_body)
+            or tagged_index.get("receipt_payload_sha256")
+            != hashlib.sha256(tagged_body).hexdigest()):
+        raise cr.ReceiptError(
+            "TAGGED_INDEX_INVALID", "tagged remote byte binding mismatch")
+
+    byte_index, byte_receipt, byte_prefix = load_durable_byte_receipt(
+        byte_index_path, reader, expected_bucket=bucket,
+        expected_prefix=prefix)
+    if (byte_prefix != prefix
+            or byte_receipt.get("date") != date
+            or byte_receipt.get("receipt_set_sha256") != parent_sha
+            or tagged_index.get("byte_receipt_object")
+            != byte_index.get("receipt_object")
+            or tagged_index.get("byte_receipt_payload_size")
+            != byte_index.get("receipt_payload_size")
+            or tagged_index.get("byte_receipt_payload_sha256")
+            != byte_index.get("receipt_payload_sha256")):
+        raise cr.ReceiptError(
+            "TAGGED_PARENT_MISMATCH",
+            "tagged index does not bind the exact byte-attestation parent")
+    _validate_tagged_transition(
+        byte_receipt, tagged_receipt, audit_sha=audit_sha,
+        rfq_binding=None, prefix=prefix)
+    if any(obj.get("research_candidate") is True and _is_rfq_object(obj)
+           for obj in tagged_receipt.get("objects") or []):
+        raise cr.ReceiptError(
+            "RFQ_TAGGING_FORBIDDEN", "precommit proof is structurally RFQ-off")
+    targets = select_tag_targets(tagged_receipt, prefix)
+    return (tagged_index, tagged_receipt, byte_index, targets,
+            bucket, prefix)
+
+
+def create_precommit_proof(*, tagged_index, byte_receipt_index, reader,
+                           tagger, output_root, expected_tagger_principal,
+                           identity_provider=None, expected_bucket=None,
+                           expected_prefix=None, generated_at=None):
+    """Read back every exact tag target and emit a zero-mutation proof.
+
+    The tagged receipt and its byte parent are exact-GET and fully validated
+    first.  The proof includes the receipt object itself plus the complete
+    non-RFQ research-candidate set, so a publisher can compare it
+    bidirectionally with the manifest references without tag-read permission.
+    """
+    (tagged, receipt, _byte_index, candidates,
+     bucket, _prefix) = _load_tagged_for_precommit(
+        tagged_index, byte_receipt_index, reader,
+        expected_bucket=expected_bucket, expected_prefix=expected_prefix)
+    principal = (_IAM_USER_ARN_RE.fullmatch(expected_tagger_principal)
+                 if isinstance(expected_tagger_principal, str) else None)
+    if principal is None:
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_IDENTITY_INVALID",
+            "precommit proof requires the dedicated IAM user ARN")
+    provider = identity_provider or tagger
+    if not callable(getattr(provider, "get_caller_identity", None)):
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_IDENTITY_INVALID",
+            "an STS get-caller-identity provider is required")
+    identity = provider.get_caller_identity()
+    if (not isinstance(identity, dict)
+            or identity.get("Arn") != expected_tagger_principal
+            or identity.get("Account") != principal.group(2)
+            or not isinstance(identity.get("UserId"), str)
+            or not identity["UserId"].strip()):
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_MISMATCH",
+            "ambient caller is not the dedicated precommit tag reader")
+
+    receipt_binding = tagged["receipt_object"]
+    receipt_target = {
+        "bucket": receipt_binding["bucket"],
+        "key": receipt_binding["key"],
+        "VersionId": receipt_binding["VersionId"],
+    }
+    puts_before = getattr(tagger, "tag_puts", 0)
+    verify_target_tags([receipt_target] + candidates, tagger)
+    puts_after = getattr(tagger, "tag_puts", 0)
+    if puts_after != puts_before:
+        raise cr.ReceiptError(
+            "PRECOMMIT_PROOF_MUTATION_FORBIDDEN",
+            "verify-only mode observed a tag mutation")
+
+    receipt_logical = receipt_binding["key"]
+    rows = [_proof_target(
+        receipt_binding, role="TAGGED_RECEIPT",
+        logical_key=receipt_logical)]
+    rows.extend(_proof_target(
+        obj, role="RESEARCH_CANDIDATE",
+        logical_key=obj["logical_source_key"]) for obj in candidates)
+    rows.sort(key=lambda row: (
+        row["role"], row["logical_key"], row["source_bucket"],
+        row["source_key"], row["source_version_id"]))
+    if len({(row["source_bucket"], row["source_key"],
+             row["source_version_id"]) for row in rows}) != len(rows):
+        raise cr.ReceiptError(
+            "PRECOMMIT_PROOF_INVALID", "duplicate exact-version target")
+    timestamp = generated_at or cr._now()
+    try:
+        if timestamp != cr._canonical_utc(
+                timestamp, "precommit proof generated_at_utc"):
+            raise cr.ReceiptError(
+                "PRECOMMIT_PROOF_INVALID", "non-canonical proof time")
+    except cr.ReceiptError as exc:
+        if exc.code == "PRECOMMIT_PROOF_INVALID":
+            raise
+        raise cr.ReceiptError("PRECOMMIT_PROOF_INVALID", exc.detail)
+    payload = {
+        "schema_version": PRECOMMIT_PROOF_SCHEMA,
+        "state": PRECOMMIT_PROOF_STATE,
+        "date": receipt["date"],
+        "tagged_receipt_set_sha256": receipt["receipt_set_sha256"],
+        "byte_attestation_receipt_set_sha256":
+            receipt["byte_attestation_receipt_set_sha256"],
+        "eligibility_single_writer_audit_sha256":
+            receipt["eligibility_single_writer_audit_sha256"],
+        "tagged_receipt_object": copy.deepcopy(receipt_binding),
+        "target_set_sha256": cr.canonical_sha256(rows),
+        "target_count": len(rows),
+        "research_candidate_count": len(candidates),
+        "targets": rows,
+        "tagger_sts_caller_arn": identity["Arn"],
+        "tagger_sts_account": identity["Account"],
+        "tagger_sts_user_id": identity["UserId"],
+        "generated_at_utc": timestamp,
+        "rfq": "OFF",
+        "tag_puts": 0,
+    }
+    body = _json_bytes(payload)
+    if len(body) > MAX_PRECOMMIT_PROOF_BYTES:
+        raise cr.ReceiptError(
+            "PRECOMMIT_PROOF_INVALID", "proof exceeds the fixed size limit")
+    proof_sha = hashlib.sha256(body).hexdigest()
+    root = pathlib.Path(output_root) / ("date=%s" % receipt["date"])
+    path = root / ("PRECOMMIT-%s.json" % proof_sha)
+    cr.write_atomic_json(path, payload)
+    return path, proof_sha, payload
+
+
 def _equivalent_tagged_body(stored, expected, *, parent_sha, audit_sha,
                             bucket, prefix):
     try:
@@ -1246,6 +1522,8 @@ def publish_tagged_receipt(payload, *, byte_index, byte_receipt, audit_sha,
         "byte_receipt_payload_sha256":
             byte_index["receipt_payload_sha256"],
         "eligibility_single_writer_audit_sha256": audit_sha,
+        "transaction_created_at_utc":
+            payload["eligibility_verified_at_utc"],
         "receipt_object_eligibility_tag_state": "NOT_YET_PUBLISHED",
     }
     # The intent is durable locally before the conditional remote create.  A
@@ -1298,6 +1576,8 @@ def publish_tagged_receipt(payload, *, byte_index, byte_receipt, audit_sha,
         "state": PENDING_INDEX_STATE,
         "complete": False,
         "completed": False,
+        "transaction_created_at_utc":
+            payload["eligibility_verified_at_utc"],
         "receipt_object_eligibility_tag_state":
             "PENDING_TAG_VERIFICATION",
     })
@@ -1328,6 +1608,170 @@ def publish_tagged_receipt(payload, *, byte_index, byte_receipt, audit_sha,
     path = root / ("TAGGED-DURABLE-%s.json" %
                    index["receipt_set_sha256"])
     cr.write_atomic_json(path, index)
+    # The complete index is the atomic commit point.  The matching pending
+    # marker is no longer recovery authority and must not keep the daily queue
+    # artificially nonterminal after a successful retry.
+    try:
+        os.unlink(pending_path)
+    except FileNotFoundError:
+        pass
+    return path, index, stored_payload
+
+
+def recover_existing_tagged_receipt(*, pending_index, receipt_index,
+                                    single_writer_audit, policy_evidence,
+                                    reader, tagger, output_root,
+                                    identity_provider=None,
+                                    expected_bucket=None,
+                                    expected_prefix=None, now_utc=None):
+    """Finish a stale tagged transaction without creating a remote object.
+
+    This path intentionally has no receipt writer.  It is only valid after a
+    >24h crash when the pending marker already carries a non-null VersionId
+    and that exact remote receipt reproduces the pending size/SHA and the
+    immutable byte-parent lineage.  A pre-create crash is abandoned; it can
+    never borrow a historical audit to create new remote receipt bytes.
+    """
+    operation_time = now_utc or cr._now()
+    try:
+        now = cr._parse_utc(operation_time, "recovery operation time")
+    except cr.ReceiptError as exc:
+        raise cr.ReceiptError("TAGGER_RECOVERY_INVALID", exc.detail)
+    intent, _intent_raw = _load_json_file(
+        pending_index, "TAGGER_RECOVERY_INVALID",
+        limit=MAX_DURABLE_INDEX_BYTES, label="tagged pending intent")
+    digest = intent.get("receipt_set_sha256")
+    if (intent.get("schema_version") != PENDING_INDEX_SCHEMA
+            or intent.get("state") != PENDING_INDEX_STATE
+            or intent.get("complete") is not False
+            or intent.get("completed") is not False
+            or intent.get("prune_eligible") is not False
+            or intent.get("receipt_phase") != TAGGED_PHASE
+            or not _valid_sha256(digest)
+            or pathlib.Path(pending_index).name
+            != "TAGGED-PENDING-%s.json" % digest):
+        raise cr.ReceiptError(
+            "TAGGER_RECOVERY_INVALID", "pending marker state/path is invalid")
+    created_text = intent.get("transaction_created_at_utc")
+    if created_text is not None:
+        try:
+            created = cr._parse_utc(created_text, "pending transaction time")
+            if created_text != cr._canonical_utc(
+                    created_text, "pending transaction time"):
+                raise cr.ReceiptError(
+                    "TAGGER_RECOVERY_INVALID", "non-canonical pending time")
+        except cr.ReceiptError as exc:
+            if exc.code == "TAGGER_RECOVERY_INVALID":
+                raise
+            raise cr.ReceiptError("TAGGER_RECOVERY_INVALID", exc.detail)
+    else:
+        try:
+            created = datetime.datetime.fromtimestamp(
+                os.stat(pending_index, follow_symlinks=False).st_mtime,
+                tz=datetime.timezone.utc)
+        except OSError as exc:
+            raise cr.ReceiptError("TAGGER_RECOVERY_INVALID", str(exc))
+    age = (now - created).total_seconds()
+    if age <= MAX_AUDIT_AGE_SECONDS:
+        raise cr.ReceiptError(
+            "TAGGER_RECOVERY_NOT_HISTORICAL",
+            "existing-only historical recovery requires a >24h pending marker")
+
+    # A pending marker written before conditional receipt creation has only an
+    # expected_receipt_object (no VersionId).  Historical authority must stop
+    # here without STS, tag reads, tag writes, or any receipt PutObject.
+    binding = intent.get("receipt_object")
+    if (not isinstance(binding, dict)
+            or not crc._valid_version_id(binding.get("VersionId"))):
+        raise cr.ReceiptError(
+            "ABANDON_REQUIRES_FRESH_AUDIT",
+            "pending marker has no exact remote tagged-receipt binding")
+    try:
+        stored_payload, prefix, stored = _read_exact_receipt(
+            intent, reader, expected_bucket=expected_bucket,
+            expected_prefix=expected_prefix)
+    except cr.ReceiptError as exc:
+        raise cr.ReceiptError(
+            "ABANDON_REQUIRES_FRESH_AUDIT",
+            "exact remote tagged receipt is absent or unverifiable: %s" %
+            exc.detail)
+
+    byte_index, byte_receipt, byte_prefix = load_durable_byte_receipt(
+        receipt_index, reader, expected_bucket=binding["bucket"],
+        expected_prefix=prefix)
+    parent_sha = byte_receipt["receipt_set_sha256"]
+    audit_sha = intent.get("eligibility_single_writer_audit_sha256")
+    if (byte_prefix != prefix
+            or intent.get("date") != byte_receipt.get("date")
+            or intent.get("byte_attestation_receipt_set_sha256") != parent_sha
+            or intent.get("byte_receipt_object")
+            != byte_index.get("receipt_object")
+            or intent.get("byte_receipt_payload_size")
+            != byte_index.get("receipt_payload_size")
+            or intent.get("byte_receipt_payload_sha256")
+            != byte_index.get("receipt_payload_sha256")
+            or not _valid_sha256(audit_sha)):
+        raise cr.ReceiptError(
+            "TAGGER_RECOVERY_INVALID", "pending byte-parent binding mismatch")
+    _validate_tagged_receipt(
+        stored_payload, parent_sha=parent_sha, audit_sha=audit_sha,
+        bucket=binding["bucket"], prefix=prefix)
+    _validate_tagged_transition(
+        byte_receipt, stored_payload, audit_sha=audit_sha,
+        rfq_binding=None, prefix=prefix)
+    if any(obj.get("research_candidate") is True and _is_rfq_object(obj)
+           for obj in stored_payload.get("objects") or []):
+        raise cr.ReceiptError(
+            "RFQ_TAGGING_FORBIDDEN", "historical recovery is RFQ-off")
+
+    audit, observed_audit_sha = load_single_writer_audit(
+        single_writer_audit, policy_evidence,
+        date=byte_receipt["date"], bucket=binding["bucket"],
+        receipt_set_sha256=parent_sha, now_utc=operation_time,
+        include_sealed_rfq=False, require_fresh=False)
+    if observed_audit_sha != audit_sha:
+        raise cr.ReceiptError(
+            "TAGGER_RECOVERY_INVALID", "historical audit digest mismatch")
+    provider = identity_provider or tagger
+    if not callable(getattr(provider, "get_caller_identity", None)):
+        raise cr.ReceiptError(
+            "TAGGER_CALLER_IDENTITY_INVALID",
+            "an STS get-caller-identity provider is required")
+    verify_ambient_caller(audit, provider.get_caller_identity())
+
+    targets = select_tag_targets(byte_receipt, prefix)
+    receipt_target = {
+        "bucket": binding["bucket"], "key": binding["key"],
+        "VersionId": binding["VersionId"],
+    }
+    preflight = preflight_all_tags(targets + [receipt_target], tagger)
+    apply_and_verify_tags(preflight, tagger)
+    verify_target_tags(targets + [receipt_target], tagger)
+
+    root = pathlib.Path(output_root) / ("date=%s" % byte_receipt["date"])
+    cr.write_atomic_json(root / ("receipt-%s.json" % digest), stored_payload)
+    index_fields = (
+        "date", "receipt_set_sha256", "receipt_object",
+        "receipt_payload_size", "receipt_payload_sha256", "prune_eligible",
+        "receipt_phase", "byte_attestation_receipt_set_sha256",
+        "byte_receipt_object", "byte_receipt_payload_size",
+        "byte_receipt_payload_sha256",
+        "eligibility_single_writer_audit_sha256",
+    )
+    index = {field: copy.deepcopy(intent[field]) for field in index_fields}
+    index.update({
+        "schema_version": crc.DURABLE_INDEX_SCHEMA,
+        "state": crc.DURABLE_STATE,
+        "complete": True,
+        "completed": True,
+        "receipt_object_eligibility_tag_state": "TAGGED_VERIFIED",
+    })
+    path = root / ("TAGGED-DURABLE-%s.json" % digest)
+    cr.write_atomic_json(path, index)
+    try:
+        os.unlink(pending_index)
+    except FileNotFoundError:
+        pass
     return path, index, stored_payload
 
 
@@ -1395,10 +1839,20 @@ def run_eligibility_tagging(*, receipt_index, single_writer_audit,
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--receipt-index", required=True)
-    parser.add_argument("--single-writer-audit", required=True)
-    parser.add_argument("--policy-evidence", required=True)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--receipt-index")
+    parser.add_argument("--single-writer-audit")
+    parser.add_argument("--policy-evidence")
+    parser.add_argument("--verify-only", action="store_true",
+                        help="emit a zero-PUT exact-version tag proof")
+    parser.add_argument("--recover-existing-only", action="store_true",
+                        help="finish a >24h pending exact receipt without "
+                             "creating any remote receipt object")
+    parser.add_argument("--pending-index")
+    parser.add_argument("--tagged-index")
+    parser.add_argument("--byte-receipt-index")
+    parser.add_argument("--expected-tagger-principal")
+    parser.add_argument("--proof-output-root")
     parser.add_argument("--include-sealed-rfq", action="store_true")
     parser.add_argument("--rfq-eligibility-evidence")
     parser.add_argument("--bucket", default="kalshi-vault-ritcardo")
@@ -1409,6 +1863,103 @@ def main(argv=None):
         "--output-root", default=os.path.join(
             wc.ROOT, "work", "live", "canonical_receipts", "tagged"))
     args = parser.parse_args(argv)
+    if args.verify_only and args.recover_existing_only:
+        print("REFUSED: verify-only and recovery modes are mutually exclusive",
+              file=os.sys.stderr)
+        return 2
+    if args.verify_only:
+        required = {
+            "--tagged-index": args.tagged_index,
+            "--byte-receipt-index": args.byte_receipt_index,
+            "--expected-tagger-principal": args.expected_tagger_principal,
+            "--proof-output-root": args.proof_output_root,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            print("REFUSED: verify-only requires %s" % ", ".join(missing),
+                  file=os.sys.stderr)
+            return 2
+        if (args.include_sealed_rfq or args.rfq_eligibility_evidence
+                or args.operator_approved):
+            print("REFUSED: verify-only is RFQ-off, read-only, and accepts no "
+                  "write approval", file=os.sys.stderr)
+            return 2
+        reader = cr.AwsCliS3Client(args.aws_cli)
+        tagger = AwsCliExactVersionTagger(args.aws_cli)
+        try:
+            path, proof_sha, proof = create_precommit_proof(
+                tagged_index=os.path.abspath(args.tagged_index),
+                byte_receipt_index=os.path.abspath(args.byte_receipt_index),
+                reader=reader, tagger=tagger,
+                output_root=os.path.abspath(args.proof_output_root),
+                expected_tagger_principal=args.expected_tagger_principal,
+                expected_bucket=args.bucket, expected_prefix=args.prefix)
+        except cr.ReceiptError as exc:
+            print("BLOCKED_INTEGRITY %s" % exc, file=os.sys.stderr)
+            return 2
+        print(json.dumps({
+            "state": PRECOMMIT_PROOF_STATE,
+            "proof": str(path),
+            "proof_sha256": proof_sha,
+            "target_set_sha256": proof["target_set_sha256"],
+            "target_count": proof["target_count"],
+            "tag_puts": tagger.tag_puts,
+            "rfq": "OFF",
+        }, sort_keys=True))
+        return 0
+    if args.recover_existing_only:
+        required = {
+            "--receipt-index": args.receipt_index,
+            "--single-writer-audit": args.single_writer_audit,
+            "--policy-evidence": args.policy_evidence,
+            "--pending-index": args.pending_index,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            print("REFUSED: recovery requires %s" % ", ".join(missing),
+                  file=os.sys.stderr)
+            return 2
+        if (args.include_sealed_rfq or args.rfq_eligibility_evidence
+                or not args.operator_approved):
+            print("REFUSED: existing-only recovery is RFQ-off and requires "
+                  "--operator-approved", file=os.sys.stderr)
+            return 2
+        reader = cr.AwsCliS3Client(args.aws_cli)
+        tagger = AwsCliExactVersionTagger(args.aws_cli)
+        try:
+            path, index, payload = recover_existing_tagged_receipt(
+                pending_index=os.path.abspath(args.pending_index),
+                receipt_index=os.path.abspath(args.receipt_index),
+                single_writer_audit=os.path.abspath(args.single_writer_audit),
+                policy_evidence=os.path.abspath(args.policy_evidence),
+                reader=reader, tagger=tagger,
+                output_root=os.path.abspath(args.output_root),
+                expected_bucket=args.bucket, expected_prefix=args.prefix)
+        except cr.ReceiptError as exc:
+            print("BLOCKED_INTEGRITY %s" % exc, file=os.sys.stderr)
+            return 2
+        print(json.dumps({
+            "state": TAGGED_PHASE,
+            "recovery": "HISTORICAL_EXISTING_REMOTE_ONLY",
+            "index": str(path),
+            "receipt_set_sha256": index["receipt_set_sha256"],
+            "byte_attestation_receipt_set_sha256":
+                payload["byte_attestation_receipt_set_sha256"],
+            "tag_puts": tagger.tag_puts,
+            "receipt_puts": 0,
+            "rfq": "OFF",
+        }, sort_keys=True))
+        return 0
+    required = {
+        "--receipt-index": args.receipt_index,
+        "--single-writer-audit": args.single_writer_audit,
+        "--policy-evidence": args.policy_evidence,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        print("REFUSED: tagging requires %s" % ", ".join(missing),
+              file=os.sys.stderr)
+        return 2
     if bool(args.include_sealed_rfq) != bool(args.rfq_eligibility_evidence):
         print("REFUSED: --include-sealed-rfq and "
               "--rfq-eligibility-evidence are a required pair",

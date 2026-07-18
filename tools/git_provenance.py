@@ -22,11 +22,41 @@ class GitProvenanceError(RuntimeError):
         self.detail = detail
 
 
+def _git_environment():
+    """Return a fixed, non-interactive environment for read-only Git probes.
+
+    Production releases are deliberately owned by root while the publisher
+    runs as an unprivileged service account.  Git's safe-directory protection
+    must therefore be satisfied explicitly, without trusting a caller-owned
+    global config, hooks, object-directory override, or writable index refresh.
+    """
+    return {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "HOME": "/nonexistent",
+        "XDG_CONFIG_HOME": "/nonexistent",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
 def _run_git(repo_root, args):
+    root = os.path.realpath(os.fspath(repo_root))
+    command = [
+        "/usr/bin/git",
+        "-c", "safe.directory=%s" % root,
+        "-c", "core.fsmonitor=false",
+        "-c", "core.hooksPath=/dev/null",
+        "-c", "core.untrackedCache=false",
+        "-C", root,
+    ] + list(args)
     try:
         result = subprocess.run(
-            ["git"] + list(args), cwd=repo_root, capture_output=True,
-            timeout=10)
+            command, cwd=root, capture_output=True, timeout=10,
+            shell=False, env=_git_environment())
     except (OSError, subprocess.SubprocessError) as exc:
         raise GitProvenanceError("GIT_PROVENANCE_UNKNOWN", str(exc))
     if result.returncode:
@@ -36,6 +66,26 @@ def _run_git(repo_root, args):
             "GIT_PROVENANCE_UNKNOWN",
             detail or "git %s exited %d" % (args[0], result.returncode))
     return result.stdout
+
+
+def resolve_head(repo_root):
+    """Resolve one exact commit from a root-owned read-only checkout."""
+    try:
+        root = os.path.realpath(os.fspath(repo_root))
+    except (TypeError, ValueError, OSError) as exc:
+        raise GitProvenanceError("GIT_PROVENANCE_UNKNOWN", str(exc))
+    if not os.path.isdir(root):
+        raise GitProvenanceError(
+            "GIT_PROVENANCE_UNKNOWN", "repository root is not a directory")
+    raw_head = _run_git(root, ["rev-parse", "--verify", "HEAD^{commit}"])
+    try:
+        head = raw_head.decode("ascii", "strict").strip()
+    except UnicodeDecodeError as exc:
+        raise GitProvenanceError("GIT_PROVENANCE_UNKNOWN", str(exc))
+    if _COMMIT_RE.fullmatch(head) is None:
+        raise GitProvenanceError(
+            "GIT_PROVENANCE_UNKNOWN", "HEAD is not an exact 40-hex commit")
+    return head
 
 
 def _safe_relevant_paths(paths):
@@ -88,14 +138,7 @@ def require_clean_head(repo_root, relevant_paths):
             "GIT_PROVENANCE_UNKNOWN",
             "configured root is not the repository top level")
 
-    raw_head = _run_git(root, ["rev-parse", "--verify", "HEAD^{commit}"])
-    try:
-        head = raw_head.decode("ascii", "strict").strip()
-    except UnicodeDecodeError as exc:
-        raise GitProvenanceError("GIT_PROVENANCE_UNKNOWN", str(exc))
-    if _COMMIT_RE.fullmatch(head) is None:
-        raise GitProvenanceError(
-            "GIT_PROVENANCE_UNKNOWN", "HEAD is not an exact 40-hex commit")
+    head = resolve_head(root)
 
     # Requiring each path to be tracked makes a newly introduced, untracked
     # mutation implementation a hard failure rather than an invisible file.

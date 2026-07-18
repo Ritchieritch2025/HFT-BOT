@@ -604,18 +604,23 @@ def publish_prune_authority(date, bucket, prefix, receipt_index, reader,
 
 
 def _load_forward_bundle(date, bucket, prefix, raw_root, warehouse_root,
-                         quality_dir, aux_bundle):
+                         quality_dir, aux_bundle, version_binding):
     seal, binding, *_unused = cr._authoritative_day_inputs(
         date, raw_root, warehouse_root)
-    return fcr.load_forward_auxiliary_set(
+    descriptor, rows = fcr.load_forward_auxiliary_set(
         aux_bundle, date, bucket, prefix, seal, binding["sha256"])
+    fcr.load_forward_version_binding(
+        version_binding, descriptor, rows, date, bucket, prefix)
+    return descriptor, rows
 
 
 def sync_small_controls(date, bucket, prefix, raw_root, warehouse_root,
-                        quality_dir, aux_bundle, writer, output_root):
+                        quality_dir, aux_bundle, version_binding,
+                        writer, output_root):
     """Upload only retained small-control bytes from one validated bundle."""
     _descriptor, rows = _load_forward_bundle(
-        date, bucket, prefix, raw_root, warehouse_root, quality_dir, aux_bundle)
+        date, bucket, prefix, raw_root, warehouse_root, quality_dir,
+        aux_bundle, version_binding)
     controls = [row for row in rows
                 if row.get("storage_mode") == "LOCAL_FROZEN_BACKFILL"]
     if not controls:
@@ -775,14 +780,14 @@ def validate_shadow_receipt(source, expected_bucket=None,
 
 def validate_forward_shadow_authority(shadow, date, bucket, prefix,
                                       raw_root, warehouse_root, quality_dir,
-                                      aux_bundle):
+                                      aux_bundle, version_binding):
     """Rebuild the forward whitelist and require exact two-way equality."""
     if shadow.get("date") != date:
         raise cr.ReceiptError(
             "SHADOW_RECEIPT_INVALID", "requested date differs from receipt")
     expected_seal, expected_objects = fcr.build_forward_inventory(
         date, bucket, prefix, raw_root, warehouse_root, quality_dir,
-        aux_bundle)
+        aux_bundle, version_binding)
     expected_by_logical = {
         row["logical_source_key"]: row for row in expected_objects}
     observed_by_logical = {
@@ -861,7 +866,7 @@ def _equivalent_durable_body(stored_bytes, requested_shadow, bucket, prefix):
 def publish_durable_receipt(date, bucket, prefix, writer, output_root, *,
                             seal_binding, verified_objects, verified_at,
                             publisher_code_commit, raw_root, warehouse_root,
-                            quality_dir, aux_bundle):
+                            quality_dir, aux_bundle, version_binding):
     """Publish only an in-process, complete exact-version verification.
 
     The private completeness markers on ``verified_objects`` are deliberately
@@ -886,7 +891,7 @@ def publish_durable_receipt(date, bucket, prefix, writer, output_root, *,
             "disk shadow differs from in-process exact verification")
     validate_forward_shadow_authority(
         shadow, date, bucket, prefix, raw_root, warehouse_root, quality_dir,
-        aux_bundle)
+        aux_bundle, version_binding)
     payload = copy.deepcopy(shadow)
     payload.update({
         "state": DURABLE_STATE,
@@ -949,6 +954,7 @@ def main(argv=None):
     controls = sub.add_parser("sync-controls")
     _source_args(controls)
     controls.add_argument("--aux-bundle", required=True)
+    controls.add_argument("--version-binding", required=True)
     controls.add_argument("--aws-cli", default="aws")
     controls.add_argument("--operator-approved", action="store_true")
     controls.add_argument(
@@ -957,6 +963,7 @@ def main(argv=None):
     receipt = sub.add_parser("publish-receipt")
     _source_args(receipt)
     receipt.add_argument("--aux-bundle", required=True)
+    receipt.add_argument("--version-binding", required=True)
     receipt.add_argument("--aws-cli", default="aws")
     receipt.add_argument("--operator-approved", action="store_true")
     receipt.add_argument(
@@ -1010,7 +1017,8 @@ def main(argv=None):
             seal_binding, inventory = fcr.build_forward_inventory(
                 args.date, args.bucket, args.prefix, raw_root,
                 warehouse_root, quality_dir,
-                os.path.abspath(args.aux_bundle))
+                os.path.abspath(args.aux_bundle),
+                os.path.abspath(args.version_binding))
             verified, failures, complete = cr.verify_inventory(
                 inventory, writer.reader,
                 os.path.join(output_root, ".verification-tmp"))
@@ -1027,7 +1035,8 @@ def main(argv=None):
                 publisher_code_commit=cr._code_commit(),
                 raw_root=raw_root, warehouse_root=warehouse_root,
                 quality_dir=quality_dir,
-                aux_bundle=os.path.abspath(args.aux_bundle))
+                aux_bundle=os.path.abspath(args.aux_bundle),
+                version_binding=os.path.abspath(args.version_binding))
             result = {
                 "state": DURABLE_STATE,
                 "index": str(path),
@@ -1040,7 +1049,8 @@ def main(argv=None):
             path, payload = sync_small_controls(
                 args.date, args.bucket, args.prefix, raw_root, warehouse_root,
                 quality_dir,
-                os.path.abspath(args.aux_bundle), writer,
+                os.path.abspath(args.aux_bundle),
+                os.path.abspath(args.version_binding), writer,
                 os.path.abspath(args.output_root))
             result = {
                 "state": payload["state"],

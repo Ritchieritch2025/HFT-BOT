@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry publisher-only exact canonical generation witnesses
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=30min
+Persistent=true
+RandomizedDelaySec=120
+Unit=kalshi-canonical-generation-witness.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+{
+  "account_id": "321572485933",
+  "attestation_date_utc": "2026-07-17",
+  "attestation_source": "operator console application and readback reported in the authorized session",
+  "bucket": "kalshi-vault-ritcardo",
+  "complete_bucket_policy_sha256": "d9961561ce2e434a40bde5f62e716c0567a1148c0a5f9b42a07a8b70d2bb02d5",
+  "evidence_tier": "OPERATOR_ATTESTED_STATIC_POLICY_BASELINE",
+  "limitations": [
+    "this is a durable operator attestation, not a live AWS policy readback",
+    "daily behavioral patrol detects tested-path failures but cannot enumerate an unobserved third principal",
+    "administrative policy-drift enumeration requires a future independent read-only auditor"
+  ],
+  "managed_policy_name": "canonical-eligibility-tagger-policy",
+  "schema_version": "research-v3-operator-policy-authorization-v1",
+  "state": "OPERATOR_ATTESTED_APPLIED_AND_READ_BACK",
+  "tagger_identity_policy_sha256": "2fa7dbe4103f01b26fe871c1a0c8f215f2aba4396e6902db1cdcf08eeae275a0",
+  "tagger_principal": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
+}

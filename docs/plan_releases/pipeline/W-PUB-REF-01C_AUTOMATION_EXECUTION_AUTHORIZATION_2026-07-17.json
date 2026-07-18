@@ -1,0 +1,42 @@
+{
+  "authorization_date_utc": "2026-07-17",
+  "authorization_scope": {
+    "allowed_aws_mutations": [
+      "content-addressed canonical control and durable receipt conditional creates",
+      "content-addressed publication-generation witness conditional creates under ec2/control/publication-generations/v1/date=*/witness-*.json",
+      "generation-aware canonical catalog and dated-dim original-key synchronization under ec2/warehouse",
+      "exact-VersionId research-eligible tag updates by the dedicated tagger principal",
+      "write-once research v3 MANIFEST conditional creates"
+    ],
+    "automatic_schedule": "sealed dates are retried by the isolated daily timer",
+    "bucket": "kalshi-vault-ritcardo",
+    "future_dates": "each newly sealed UTC date",
+    "generation_scope": "canonical original-key generations and their small immutable witnesses; never a research-prefix data copy",
+    "historical_dates": "2026-07-10 through 2026-07-16",
+    "prefixes": [
+      "ec2/control/canonical-receipts/",
+      "ec2/control/publication-generations/v1/",
+      "ec2/warehouse/catalog/",
+      "ec2/warehouse/dim/",
+      "ec2/warehouse/",
+      "research/releases/"
+    ],
+    "publisher_principal": "arn:aws:iam::321572485933:user/vaultWriter",
+    "storage_mode": "ZERO_COPY_EXACT_VERSION_REFERENCE",
+    "tagger_principal": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
+  },
+  "operator_directives": [
+    "能不能不要再这样拖了，我需要你以最快的速度把这个问题解决掉，让我们所有以前的数据可以用来做研究并且以后收集的数据都没日自动给好权限，每天都有新数据出炉提供给研究端",
+    "不要再给我加任务了，你已经有了所有需要完成这个任务的工具"
+  ],
+  "policy_baseline_attestation_sha256": "3c77302612e70fdb5e6534657812c581a78ab93cf9dde6ab0e11c84e84940910",
+  "prohibitions": [
+    "no bulk canonical data copy into the research prefix",
+    "no plaintext credential output or operator credential handling",
+    "no old damaged RFQ repair or reopening",
+    "no RFQ inclusion in the base daily v3 release"
+  ],
+  "rfq_scope": "OFF; fresh RFQ remains a separately authorized and separately evidenced branch",
+  "schema_version": "research-v3-automation-execution-authorization-v1",
+  "state": "OPERATOR_AUTHORIZED_ISOLATED_AUTOMATIC_EXECUTION"
+}

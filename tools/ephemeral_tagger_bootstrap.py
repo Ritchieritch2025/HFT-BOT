@@ -114,7 +114,9 @@ class RuntimePins:
 
 
 PRODUCTION_PINS = RuntimePins(
-    aws_cli=pathlib.Path("/snap/bin/aws"),
+    # Bypass the snap-confine wrapper: this bootstrap deliberately sets
+    # no_new_privs before invoking AWS, which makes /snap/bin/aws unusable.
+    aws_cli=pathlib.Path("/snap/aws-cli/current/bin/aws"),
     python=pathlib.Path("/usr/bin/python3"),
     tagger=TAGGER,
     production=True,

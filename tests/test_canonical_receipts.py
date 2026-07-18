@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import canonical_receipts as cr  # noqa: E402
 import canonical_receipt_control as crc  # noqa: E402
 import forward_canonical_receipts as fcr  # noqa: E402
+import publication_generation as pg  # noqa: E402
 import warehouse_common as wc  # noqa: E402
 
 
@@ -33,6 +34,7 @@ DATE = "2026-07-13"
 NEXT_DATE = "2026-07-14"
 BUCKET = "kalshi-vault-fixture"
 PREFIX = "ec2"
+HISTORICAL_DATE = "2026-07-10"
 
 
 def _sha(payload):
@@ -70,6 +72,118 @@ def _archive_entry(rel, table, payload):
         "inode": 1,
         "mtime_ns": 1,
         "ctime_ns": 1,
+    }
+
+
+def _historical_metadata_tree(tmp_path, date=HISTORICAL_DATE):
+    """A full-v2 day whose raw directory deliberately does not exist."""
+    raw_root = tmp_path / "pruned-raw"
+    warehouse = tmp_path / "warehouse"
+    facts = warehouse / "facts"
+    quality = tmp_path / "event_packs"
+    quality.mkdir(parents=True)
+
+    manifest_rows = []
+    archive_entries = []
+    for table, ext, payload in (
+            ("orderbooks_l1", "parquet", b"historical-l1"),
+            ("orderbooks_full", "parquet", b"historical-l2"),
+            ("trades", "csv.gz", b"historical-trades")):
+        name = wc.partition_file(table, "Sports", "Baseball", date, ext)
+        rel = ("%s/category=Sports/subcategory=Baseball/date=%s/%s"
+               % (table, date, name))
+        path = facts / rel
+        _write(path, payload)
+        stat = path.stat()
+        archive_entries.append({
+            "file": rel,
+            "table": table,
+            "size": len(payload),
+            "sha256": _sha(payload),
+            "md5": hashlib.md5(payload).hexdigest(),  # noqa: S324
+            "inode": stat.st_ino,
+            "mtime_ns": stat.st_mtime_ns,
+            "ctime_ns": stat.st_ctime_ns,
+        })
+        manifest_rows.append([
+            date, table, "Sports", "Baseball", 1, str(path),
+            hashlib.md5(payload).hexdigest(),  # noqa: S324
+            "2026-07-11T02:00:00Z",
+        ])
+
+    manifest = warehouse / "manifest.csv"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    with manifest.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(cr.MANIFEST_FIELDS)
+        writer.writerows(manifest_rows)
+    manifest_sha, _rows = wc.manifest_date_sha256(str(manifest), date)
+
+    firehose_payload = b"historical-firehose-not-retained"
+    l2_payload = b"historical-l2-not-retained"
+    rfq_payload = b"historical-rfq-not-retained"
+    raw_entries = [
+        _seal_file_entry(
+            "date=%s/firehose_00.ndjson" % date, firehose_payload),
+        _seal_file_entry("date=%s/l2_00.ndjson" % date, l2_payload),
+        _seal_file_entry("date=%s/rfq_00.ndjson" % date, rfq_payload),
+    ]
+    capture = {
+        "schema_version": "capture-gap-scan-receipt-v1",
+        "date": date,
+        "files": [{
+            "file": raw_entries[0]["file"],
+            "bytes": raw_entries[0]["size"],
+        }],
+        "n_files": 1,
+        "total_bytes": raw_entries[0]["size"],
+        "records": 1,
+        "unparsed": 0,
+        "unreadable": False,
+        "gaps": [],
+    }
+    _write(
+        quality / ("capture_gap_receipt_%s.json" % date),
+        json.dumps(capture, sort_keys=True) + "\n")
+    l2 = {
+        "schema_version": "l2-gap-receipt-v1",
+        "date": date,
+        "file_inventory": [{
+            "file": raw_entries[1]["file"],
+            "bytes": raw_entries[1]["size"],
+        }],
+        "no_l2_files": False,
+        "lines": 1,
+        "parse_errors": 0,
+        "seq_gap_events": 0,
+        "seq_missed_total": 0,
+        "sids_total": 1,
+        "sids_with_seq_gaps": 0,
+    }
+    _write(
+        quality / ("l2_gaps_%s.json" % date),
+        json.dumps(l2, sort_keys=True) + "\n")
+    seal = {
+        "version": 2,
+        "method": "full_v2",
+        "status": "SEALED",
+        "date": date,
+        "sealed_at": "2026-07-11T02:00:00Z",
+        "manifest_date_sha256": manifest_sha,
+        "archive_files": len(archive_entries),
+        "archive_rows": len(manifest_rows),
+        "archive_file_stats": archive_entries,
+        "raw_files": raw_entries,
+    }
+    _write(
+        warehouse / "seals" / ("date=%s.json" % date),
+        json.dumps(seal, sort_keys=True, indent=2) + "\n")
+    return {
+        "date": date,
+        "raw_root": raw_root,
+        "warehouse": warehouse,
+        "quality": quality,
+        "facts": facts,
     }
 
 
@@ -1299,6 +1413,45 @@ def test_metadata_only_and_probe_limit_are_explicitly_non_authoritative(receipt_
         )
 
 
+def test_forward_cli_metadata_preflight_is_rc0_without_receipt(
+        receipt_tree, tmp_path, monkeypatch, capsys):
+    """Pin the deployed CLI contract consumed by the daily orchestrator."""
+    seal_binding, objects = _build(receipt_tree)
+    client = FakeExactVersionClient(receipt_tree["payloads"])
+    monkeypatch.setattr(
+        fcr, "build_forward_inventory",
+        lambda *_args, **_kwargs: (seal_binding, objects))
+    monkeypatch.setattr(cr, "AwsCliS3Client", lambda _aws: client)
+    monkeypatch.setattr(wc, "load_config", lambda: {
+        "raw_root": str(receipt_tree["raw_root"]),
+        "warehouse_root": str(receipt_tree["warehouse"]),
+    })
+    output = tmp_path / "metadata-preflight"
+    rc = fcr.main([
+        "shadow-forward", "--date", DATE, "--bucket", BUCKET,
+        "--prefix", PREFIX, "--aux-bundle", str(tmp_path / "unused-aux"),
+        "--version-binding", str(tmp_path / "unused-version-binding"),
+        "--aws-cli", "/fixture/aws", "--metadata-only",
+        "--output-root", str(output),
+    ])
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    expected_status = output / ("date=" + DATE) / "SHADOW_STATUS.json"
+    assert result == {
+        "failures": 0,
+        "receipt": None,
+        "state": "METADATA_PREFLIGHT_VERIFIED",
+        "status": str(expected_status),
+    }
+    status = json.loads(expected_status.read_text())
+    assert status["state"] == "METADATA_PREFLIGHT_VERIFIED"
+    assert status["metadata_only"] is True
+    assert status["content_verification_complete"] is False
+    assert status["complete"] is False
+    assert status["failures"] == []
+    assert not any(op[0] == "get_exact" for op in client.ops)
+
+
 def test_stable_digest_ignores_time_and_order_but_binds_semantics(receipt_tree):
     seal_binding, objects = _build(receipt_tree)
     _client, verified, failures, complete = _verify_all(receipt_tree, objects)
@@ -1592,6 +1745,8 @@ def _forward_bundle(tree, root):
     path, descriptor = fcr.freeze_forward_auxiliary_set(
         DATE, BUCKET, PREFIX, str(tree["raw_root"]),
         str(tree["warehouse"]), str(tree["quality"]), str(root))
+    _write_fixture_forward_binding(
+        tree, Path(path), Path(root) / "version-bindings")
     payloads = dict(tree["payloads"])
     for row in descriptor["objects"]:
         if row["local_relpath"] is not None:
@@ -1601,7 +1756,120 @@ def _forward_bundle(tree, root):
     return Path(path), descriptor, payloads
 
 
-def test_forward_aux_is_deterministic_and_copies_zero_catalog_bytes(
+def _write_fixture_forward_binding(tree, bundle, output_root):
+    loaded_descriptor, rows = fcr.load_forward_auxiliary_set(
+        str(bundle), DATE, BUCKET, PREFIX, tree["seal"],
+        cr.sha256_file(str(tree["seal_path"])))
+    catalog_files = []
+    for rel in cr.CATALOG_REQUIRED + cr.CATALOG_OPTIONAL:
+        key = "%s/warehouse/catalog/%s" % (PREFIX, rel)
+        payload = tree["payloads"].get(key)
+        if payload is not None:
+            catalog_files.append({
+                "relative_path": "catalog/" + rel,
+                "size": len(payload), "sha256": _sha(payload),
+            })
+    catalog_generation = pg.build_manifest("catalog", catalog_files)
+    dim_files = []
+    for name in cr.DIM_REQUIRED:
+        key = "%s/warehouse/dim/snapshots/date=%s/%s" % (
+            PREFIX, DATE, name)
+        payload = tree["payloads"][key]
+        dim_files.append({
+            "relative_path": "dim/snapshots/date=%s/%s" % (DATE, name),
+            "size": len(payload), "sha256": _sha(payload),
+        })
+    dim_generation = pg.build_manifest(
+        "dim", dim_files, date=DATE,
+        source_catalog_generation_id=catalog_generation["generation_id"])
+    member_objects = []
+    for row in catalog_generation["files"] + dim_generation["files"]:
+        logical = "warehouse/" + row["relative_path"]
+        member_objects.append({
+            "logical_source_key": logical,
+            "bucket": BUCKET, "key": PREFIX + "/" + logical,
+            "VersionId": "v1", "size": row["size"],
+            "sha256": row["sha256"],
+            "LastModified": "2026-07-14T02:30:00Z",
+        })
+    member_objects.sort(key=lambda row: row["logical_source_key"])
+    seal_raw = tree["seal_path"].read_bytes()
+    exact_seal = {
+        "bucket": BUCKET,
+        "key": "%s/warehouse/seals/date=%s.json" % (PREFIX, DATE),
+        "VersionId": "v1", "size": len(seal_raw),
+        "sha256": _sha(seal_raw),
+        "LastModified": "2026-07-14T02:30:00Z",
+    }
+    witness = fcr.build_generation_witness_payload(
+        DATE, BUCKET, PREFIX, exact_seal, catalog_generation,
+        dim_generation, member_objects)
+    witness_key, witness_raw = fcr.generation_witness_artifact(witness)
+    tree["payloads"][witness_key] = witness_raw
+    witness_object = {
+        "bucket": BUCKET, "key": witness_key, "VersionId": "v1",
+        "size": len(witness_raw), "sha256": _sha(witness_raw),
+        "LastModified": "2026-07-14T02:30:00Z",
+    }
+    resolutions = []
+    for row in fcr.forward_version_resolution_targets(rows):
+        evidence = {
+            "logical_source_key": row["logical_source_key"],
+            "key": row["key"], "current_version_id": "v1",
+            "current_exact_sha256_match": True,
+            "history_pages": 0, "versions_seen": 1,
+            "same_size_candidates": 1, "exact_gets": 1,
+            "matching_version_ids": ["v1"],
+            "selected_version_id": "v1",
+            "selection_rule": fcr.FORWARD_VERSION_SELECTION_RULE,
+        }
+        resolutions.append({
+            "logical_source_key": row["logical_source_key"],
+            "bucket": row["bucket"], "key": row["key"],
+            "size": row["size"], "sha256": row["sha256"],
+            "VersionId": "v1", "LastModified": "2026-07-14T02:30:00Z",
+            "resolution": "CURRENT_EXACT_SHA256_MATCH",
+            "resolver_evidence": evidence,
+        })
+    path, _payload = fcr.write_forward_version_binding(
+        str(output_root), loaded_descriptor, rows, DATE, BUCKET, PREFIX,
+        witness, witness_object, resolutions)
+    return Path(path)
+
+
+def _forward_binding(bundle):
+    matches = list((bundle.parent.parent / "version-bindings").glob(
+        "date=*/VERSION-BINDING-*.json"))
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _forward_client(payloads, **kwargs):
+    client = FakeExactVersionClient(payloads, **kwargs)
+    return client
+
+
+def _write_rehashed_forward_binding(output_dir, payload):
+    payload = copy.deepcopy(payload)
+    evidence = {row["logical_source_key"]: row
+                for row in payload["resolver_evidence"]}
+    for row in payload["objects"]:
+        row["resolver_evidence_sha256"] = cr.canonical_sha256(
+            evidence[row["logical_source_key"]])
+    payload["object_set_sha256"] = cr.canonical_sha256(payload["objects"])
+    payload["resolver_evidence_set_sha256"] = cr.canonical_sha256(
+        payload["resolver_evidence"])
+    projection = {key: value for key, value in payload.items()
+                  if key != "version_binding_sha256"}
+    digest = cr.canonical_sha256(projection)
+    payload["version_binding_sha256"] = digest
+    path = Path(output_dir) / ("VERSION-BINDING-%s.json" % digest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    return path
+
+
+def test_forward_aux_is_deterministic_and_copies_no_catalog_or_dim_bytes(
         receipt_tree, tmp_path):
     first, descriptor, _payloads = _forward_bundle(
         receipt_tree, tmp_path / "forward-a")
@@ -1612,14 +1880,20 @@ def test_forward_aux_is_deterministic_and_copies_zero_catalog_bytes(
     assert first.name == second.name
     catalog = [row for row in descriptor["objects"]
                if row["family"] == "catalog_at_publication"]
-    assert catalog
-    assert all(row["storage_mode"] == "LOCAL_HASH_ATTESTATION"
-               and row["local_relpath"] is None
-               and row["expected_version_id"] is None
-               for row in catalog)
+    dims = [row for row in descriptor["objects"]
+            if row["family"] == "dim_snapshot"]
+    assert catalog == [] and dims == []
+    assert descriptor["generation_witness_contract"] == \
+        fcr._generation_witness_contract({
+            "sha256": cr.sha256_file(str(receipt_tree["seal_path"])),
+            "sealed_at": receipt_tree["seal"]["sealed_at"],
+        }, DATE, BUCKET, PREFIX)
+    assert descriptor["generation_witness_contract"]["key_prefix"] == \
+        "%s/control/publication-generations/v1/date=%s/" % (PREFIX, DATE)
     local_files = {path.relative_to(first).as_posix()
                    for path in first.rglob("*") if path.is_file()}
-    assert not any(path.startswith("catalog/") for path in local_files)
+    assert not any(path.startswith("publication-snapshot/")
+                   for path in local_files)
     assert not any(row["family"] == "catalog_cutoff_evidence"
                    for row in descriptor["objects"])
 
@@ -1687,7 +1961,7 @@ def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
     seal_binding, objects = fcr.build_forward_inventory(
         DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
         str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-        str(bundle))
+        str(bundle), str(_forward_binding(bundle)))
     families = {row["name"]: row for row in seal_binding["families"]}
     assert families["catalog_at_publication"]["state"] == "PRESENT_VERIFIED"
     assert "catalog_cutoff_evidence" not in families
@@ -1701,7 +1975,8 @@ def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
     _future_binding, future_objects = fcr.build_forward_inventory(
         DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
         str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-        str(bundle), include_rfq_durability=True)
+        str(bundle), str(_forward_binding(bundle)),
+        include_rfq_durability=True)
     rfq = [row for row in future_objects if row.get("channel") == "rfq"]
     assert rfq
     assert all(row["research_candidate"] is False
@@ -1715,29 +1990,110 @@ def test_forward_inventory_defers_rfq_by_default_but_preserves_capability(
     assert other_raw and all(row["required"] is True for row in other_raw)
     catalog = [row for row in objects
                if row["family"] == "catalog_at_publication"]
-    assert catalog and all("_expected_version_id" not in row for row in catalog)
+    assert catalog and all(row["_expected_version_id"] == "v1"
+                           for row in catalog)
 
 
-def test_forward_inventory_rejects_correction_changed_after_freeze(
+def test_forward_inventory_uses_bound_versions_after_local_sources_change(
         receipt_tree, tmp_path):
     bundle, _descriptor, _payloads = _forward_bundle(
         receipt_tree, tmp_path / "forward")
+    binding_path = _forward_binding(bundle)
+    binding_payload = json.loads(binding_path.read_text())
+    frozen = {
+        row["logical_source_key"]: (row["size"], row["sha256"])
+        for row in binding_payload["objects"]
+        if row["family"] in {"catalog_at_publication", "dim_snapshot",
+                             "corrections_at_cutoff"}
+    }
+    catalog_path = (receipt_tree["warehouse"] / "catalog" / "series"
+                    / "part-00000.parquet")
+    catalog_path.write_bytes(b"producer-new-catalog-generation")
+    dim_path = (receipt_tree["warehouse"] / "dim" / "snapshots"
+                / ("date=%s" % DATE) / "series.csv")
+    dim_path.write_bytes(b"id,value\nseries,producer-new\n")
     late_path = (receipt_tree["warehouse"] / "corrections"
                  / ("date=%s" % DATE) / "late_rows.ndjson")
     with late_path.open("ab") as handle:
         handle.write(late_path.read_bytes().splitlines()[0] + b"\n")
-    with pytest.raises(
-            cr.ReceiptError, match="FORWARD_CORRECTIONS_CHANGED"):
-        fcr.build_forward_inventory(
-            DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
-            str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-            str(bundle))
+
+    _binding, objects = fcr.build_forward_inventory(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(bundle), str(_forward_binding(bundle)))
+    observed = {
+        row["logical_source_key"]: (row["size"], row["sha256"])
+        for row in objects if row["logical_source_key"] in frozen
+    }
+    assert observed == frozen
+    witness_objects = [row for row in objects if row["family"] in {
+        "catalog_at_publication", "dim_snapshot"}]
+    assert witness_objects
+    assert all("_local_path" not in row and "_local_payload" not in row
+               and row["canonical_source"]
+               == "EXACT_GENERATION_WITNESS_MEMBER"
+               for row in witness_objects)
+
+
+def test_forward_binding_rejects_witness_member_not_bound_by_manifest(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    payload = json.loads(_forward_binding(bundle).read_text())
+    witness = payload["generation_witness"]
+    witness["objects"][0]["sha256"] = "0" * 64
+    witness["object_set_sha256"] = cr.canonical_sha256(witness["objects"])
+    seal_raw = receipt_tree["seal_path"].read_bytes()
+    with pytest.raises(cr.ReceiptError, match="witness member mismatch"):
+        fcr.validate_generation_witness(
+            witness, DATE, BUCKET, PREFIX, _sha(seal_raw), len(seal_raw),
+            receipt_tree["seal"]["sealed_at"])
+
+
+@pytest.mark.parametrize("link_kind", ["member", "root"])
+def test_forward_freeze_does_not_read_local_catalog_symlinks(
+        receipt_tree, tmp_path, link_kind):
+    catalog = receipt_tree["warehouse"] / "catalog"
+    if link_kind == "member":
+        member = catalog / "series" / "part-00000.parquet"
+        payload = member.read_bytes()
+        member.unlink()
+        outside = tmp_path / "outside.parquet"
+        outside.write_bytes(payload)
+        member.symlink_to(outside)
+    else:
+        moved = receipt_tree["warehouse"] / "catalog-real"
+        catalog.rename(moved)
+        catalog.symlink_to(moved, target_is_directory=True)
+    path, descriptor = fcr.freeze_forward_auxiliary_set(
+        DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+        str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+        str(tmp_path / ("symlink-" + link_kind)))
+    assert Path(path).is_dir()
+    assert not any(row["family"] in {
+        "catalog_at_publication", "dim_snapshot"}
+        for row in descriptor["objects"])
+
+
+def test_forward_binding_requires_every_generation_witness_member(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
+        receipt_tree, tmp_path / "forward")
+    payload = json.loads(_forward_binding(bundle).read_text())
+    witness = payload["generation_witness"]
+    witness["objects"].pop()
+    witness["object_set_sha256"] = cr.canonical_sha256(witness["objects"])
+    seal_raw = receipt_tree["seal_path"].read_bytes()
+    with pytest.raises(cr.ReceiptError, match="witness member set incomplete"):
+        fcr.validate_generation_witness(
+            witness, DATE, BUCKET, PREFIX, _sha(seal_raw), len(seal_raw),
+            receipt_tree["seal"]["sealed_at"])
 
 
 @pytest.mark.parametrize("field", ["size", "sha256", "evidence_binding"])
 def test_forward_inventory_rejects_forged_large_correction_attestation(
         receipt_tree, tmp_path, field):
-    bundle, descriptor, _payloads = _forward_bundle(
+    bundle, descriptor, payloads = _forward_bundle(
         receipt_tree, tmp_path / ("forward-%s" % field))
     tampered = copy.deepcopy(descriptor)
     late = next(row for row in tampered["objects"]
@@ -1765,11 +2121,28 @@ def test_forward_inventory_rejects_forged_large_correction_attestation(
         json.dumps(tampered, sort_keys=True, indent=2) + "\n")
     renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
     bundle.rename(renamed)
-    with pytest.raises(cr.ReceiptError):
-        fcr.build_forward_inventory(
+    version_binding = (_forward_binding(renamed)
+                       if field == "evidence_binding" else
+                       _write_fixture_forward_binding(
+                           receipt_tree, renamed,
+                           tmp_path / ("forged-binding-" + field)))
+    if field == "evidence_binding":
+        with pytest.raises(cr.ReceiptError):
+            fcr.build_forward_inventory(
+                DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
+                str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
+                str(renamed), str(version_binding))
+    else:
+        _binding, objects = fcr.build_forward_inventory(
             DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
             str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-            str(renamed))
+            str(renamed), str(version_binding))
+        _verified, failures, complete = cr.verify_inventory(
+            objects, _forward_client(payloads), str(tmp_path / "exact"))
+        assert not complete
+        assert any(row["family"] == "corrections_at_cutoff"
+                   and row["code"] in {"SIZE_MISMATCH", "SHA256_MISMATCH"}
+                   for row in failures)
 
 
 def test_forward_loader_rejects_legacy_large_correction_before_read(
@@ -1866,8 +2239,8 @@ def test_forward_full_verification_captures_version_and_last_modified(
     seal_binding, objects = fcr.build_forward_inventory(
         DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
         str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-        str(bundle))
-    client = FakeExactVersionClient(payloads)
+        str(bundle), str(_forward_binding(bundle)))
+    client = _forward_client(payloads)
     verified, failures, complete = cr.verify_inventory(
         objects, client, str(tmp_path / "exact"))
     assert complete and failures == []
@@ -1887,9 +2260,9 @@ def test_forward_verification_requires_last_modified(receipt_tree, tmp_path):
     _seal_binding, objects = fcr.build_forward_inventory(
         DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
         str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-        str(bundle))
+        str(bundle), str(_forward_binding(bundle)))
     bad_key = objects[0]["key"]
-    client = FakeExactVersionClient(
+    client = _forward_client(
         payloads, missing_last_modified_for=bad_key)
     verified, failures, complete = cr.verify_inventory(
         objects, client, str(tmp_path / "exact"))
@@ -1907,45 +2280,40 @@ def test_forward_freeze_rejects_missing_l2_quality(receipt_tree, tmp_path):
             str(tmp_path / "forward"))
 
 
-def test_forward_bundle_rejects_catalog_digest_tamper(receipt_tree, tmp_path):
-    bundle, descriptor, _payloads = _forward_bundle(
+def test_forward_version_binding_rejects_catalog_digest_tamper(
+        receipt_tree, tmp_path):
+    bundle, _descriptor, _payloads = _forward_bundle(
         receipt_tree, tmp_path / "forward")
-    path = bundle / "AUX_SET.json"
-    tampered = copy.deepcopy(descriptor)
+    descriptor, rows = fcr.load_forward_auxiliary_set(
+        str(bundle), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+        cr.sha256_file(str(receipt_tree["seal_path"])))
+    path = _forward_binding(bundle)
+    tampered = json.loads(path.read_text())
     row = next(item for item in tampered["objects"]
                if item["family"] == "catalog_at_publication")
     row["sha256"] = "0" * 64
-    projection = {key: value for key, value in tampered.items()
-                  if key != "aux_set_sha256"}
-    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
     path.write_text(json.dumps(tampered, sort_keys=True, indent=2) + "\n")
-    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
-    bundle.rename(renamed)
-    with pytest.raises(cr.ReceiptError, match="catalog|desired set|digest"):
-        fcr.load_forward_auxiliary_set(
-            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
-            cr.sha256_file(str(receipt_tree["seal_path"])))
+    with pytest.raises(cr.ReceiptError, match="binding digest mismatch"):
+        fcr.load_forward_version_binding(
+            str(path), descriptor, rows, DATE, BUCKET, PREFIX)
 
 
-def test_forward_bundle_rejects_catalog_table_semantic_tamper(
+def test_forward_version_binding_rejects_catalog_table_semantic_tamper(
         receipt_tree, tmp_path):
-    bundle, descriptor, _payloads = _forward_bundle(
+    bundle, _descriptor, _payloads = _forward_bundle(
         receipt_tree, tmp_path / "forward")
-    tampered = copy.deepcopy(descriptor)
+    descriptor, rows = fcr.load_forward_auxiliary_set(
+        str(bundle), DATE, BUCKET, PREFIX, receipt_tree["seal"],
+        cr.sha256_file(str(receipt_tree["seal_path"])))
+    path = _forward_binding(bundle)
+    tampered = json.loads(path.read_text())
     row = next(item for item in tampered["objects"]
                if item["family"] == "catalog_at_publication")
     row["table"] = "forged_table"
-    projection = {key: value for key, value in tampered.items()
-                  if key != "aux_set_sha256"}
-    tampered["aux_set_sha256"] = cr.canonical_sha256(projection)
-    (bundle / "AUX_SET.json").write_text(
-        json.dumps(tampered, sort_keys=True, indent=2) + "\n")
-    renamed = bundle.with_name("aux-set=%s" % tampered["aux_set_sha256"])
-    bundle.rename(renamed)
-    with pytest.raises(cr.ReceiptError, match="catalog semantics"):
-        fcr.load_forward_auxiliary_set(
-            str(renamed), DATE, BUCKET, PREFIX, receipt_tree["seal"],
-            cr.sha256_file(str(receipt_tree["seal_path"])))
+    path.write_text(json.dumps(tampered, sort_keys=True, indent=2) + "\n")
+    with pytest.raises(cr.ReceiptError, match="binding digest mismatch"):
+        fcr.load_forward_version_binding(
+            str(path), descriptor, rows, DATE, BUCKET, PREFIX)
 
 
 def test_forward_bundle_rejects_control_logical_path_forgery(
@@ -2062,8 +2430,9 @@ def _forward_shadow(tree, tmp_path):
         tree, tmp_path / "forward")
     seal_binding, objects = fcr.build_forward_inventory(
         DATE, BUCKET, PREFIX, str(tree["raw_root"]),
-        str(tree["warehouse"]), str(tree["quality"]), str(bundle))
-    client = FakeExactVersionClient(payloads)
+        str(tree["warehouse"]), str(tree["quality"]), str(bundle),
+        str(_forward_binding(bundle)))
+    client = _forward_client(payloads)
     verified, failures, complete = cr.verify_inventory(
         objects, client, str(tmp_path / "exact"))
     assert complete and failures == []
@@ -2081,7 +2450,8 @@ def test_small_control_sync_uploads_only_allowlisted_retained_bytes(
     path, result = crc.sync_small_controls(
         DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
         str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-        str(bundle), writer, str(tmp_path / "control-index"))
+        str(bundle), str(_forward_binding(bundle)), writer,
+        str(tmp_path / "control-index"))
     assert path.is_file()
     assert result["state"] == "CANONICAL_CONTROLS_VERIFIED"
     assert result["large_data_upload_bytes"] == 0
@@ -2106,7 +2476,8 @@ def test_small_control_sync_stops_before_put_when_total_exceeds_limit(
         crc.sync_small_controls(
             DATE, BUCKET, PREFIX, str(receipt_tree["raw_root"]),
             str(receipt_tree["warehouse"]), str(receipt_tree["quality"]),
-            str(bundle), writer, str(tmp_path / "control-index"))
+            str(bundle), str(_forward_binding(bundle)), writer,
+            str(tmp_path / "control-index"))
     assert writer.calls == []
 
 
@@ -2123,7 +2494,8 @@ def test_durable_receipt_is_new_payload_and_conditional_writer_target(
         publisher_code_commit="b" * 40,
         raw_root=str(receipt_tree["raw_root"]),
         warehouse_root=str(receipt_tree["warehouse"]),
-        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle))
+        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle),
+        version_binding=str(_forward_binding(bundle)))
     assert index_path.is_file()
     assert shadow_path.read_bytes() == shadow_before
     assert len(writer.calls) == 1
@@ -2156,7 +2528,8 @@ def test_durable_writer_rejects_in_process_object_scope_spoof(
             raw_root=str(receipt_tree["raw_root"]),
             warehouse_root=str(receipt_tree["warehouse"]),
             quality_dir=str(receipt_tree["quality"]),
-            aux_bundle=str(bundle))
+            aux_bundle=str(bundle),
+            version_binding=str(_forward_binding(bundle)))
     assert writer.calls == []
 
 
@@ -2181,7 +2554,8 @@ def test_durable_writer_rejects_partial_or_metadata_object(
             raw_root=str(receipt_tree["raw_root"]),
             warehouse_root=str(receipt_tree["warehouse"]),
             quality_dir=str(receipt_tree["quality"]),
-            aux_bundle=str(bundle))
+            aux_bundle=str(bundle),
+            version_binding=str(_forward_binding(bundle)))
     assert writer.calls == []
 
 
@@ -2196,7 +2570,8 @@ def test_durable_receipt_reuses_first_writer_metadata_across_output_roots(
         publisher_code_commit="b" * 40,
         raw_root=str(receipt_tree["raw_root"]),
         warehouse_root=str(receipt_tree["warehouse"]),
-        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle))
+        quality_dir=str(receipt_tree["quality"]), aux_bundle=str(bundle),
+        version_binding=str(_forward_binding(bundle)))
     _path1, first = crc.publish_durable_receipt(
         output_root=str(tmp_path / "durable-1"),
         verified_at="2026-07-14T04:00:00Z", **common)
@@ -2280,3 +2655,175 @@ def test_control_writer_source_has_no_large_copy_delete_tag_or_lifecycle_surface
         "delete-objects", "put-bucket-lifecycle", "put-object-legal-hold",
     ):
         assert forbidden not in source
+
+
+def test_historical_authority_accepts_pruned_raw_with_exact_receipts(tmp_path):
+    tree = _historical_metadata_tree(tmp_path)
+    assert not tree["raw_root"].exists()
+
+    _seal, binding, *_rest = fcr.historical_authoritative_day_inputs(
+        tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+        str(tree["quality"]))
+
+    authority = binding["historical_metadata_authority"]
+    assert authority["schema_version"] == \
+        fcr.HISTORICAL_METADATA_AUTHORITY_SCHEMA
+    assert authority["state"] == \
+        fcr.HISTORICAL_METADATA_AUTHORITY_STATE
+    assert authority["local_raw_bytes_read"] == 0
+    assert authority["raw_rebuild_or_download"] is False
+    assert authority["capture_receipt"]["sha256"]
+    assert authority["l2_receipt"]["sha256"]
+
+
+@pytest.mark.parametrize("tamper", ["missing", "inventory"])
+def test_historical_authority_rejects_missing_or_mismatched_capture(
+        tmp_path, tamper):
+    tree = _historical_metadata_tree(tmp_path)
+    path = tree["quality"] / (
+        "capture_gap_receipt_%s.json" % tree["date"])
+    if tamper == "missing":
+        path.unlink()
+    else:
+        value = json.loads(path.read_text())
+        value["files"][0]["bytes"] += 1
+        path.write_text(json.dumps(value, sort_keys=True) + "\n")
+
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    assert "CAPTURE_RECEIPT_" in blocked.value.detail
+
+
+@pytest.mark.parametrize("tamper", ["missing", "hash"])
+def test_historical_authority_rejects_missing_or_changed_fact(
+        tmp_path, tamper):
+    tree = _historical_metadata_tree(tmp_path)
+    fact = next(tree["facts"].rglob("*.parquet"))
+    if tamper == "missing":
+        fact.unlink()
+    else:
+        fact.write_bytes(b"X" * fact.stat().st_size)
+
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    assert "SEALED_METADATA_INVALID" in blocked.value.detail
+
+
+def test_historical_authority_rejects_boolean_l2_inventory_bytes(tmp_path):
+    tree = _historical_metadata_tree(tmp_path)
+    path = tree["quality"] / ("l2_gaps_%s.json" % tree["date"])
+    value = json.loads(path.read_text())
+    value["file_inventory"][0]["bytes"] = True
+    path.write_text(json.dumps(value, sort_keys=True) + "\n")
+
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    assert "L2_RECEIPT_INVALID" in blocked.value.detail
+
+
+@pytest.mark.parametrize("tamper", ["extra", "table"])
+def test_historical_authority_requires_exact_manifest_fact_projection(
+        tmp_path, tamper):
+    tree = _historical_metadata_tree(tmp_path)
+    seal_path = (tree["warehouse"] / "seals"
+                 / ("date=%s.json" % tree["date"]))
+    seal = json.loads(seal_path.read_text())
+    if tamper == "extra":
+        payload = b"hidden-extra-fact"
+        path = tree["facts"] / "hidden.bin"
+        _write(path, payload)
+        stat = path.stat()
+        seal["archive_file_stats"].append({
+            "file": "hidden.bin",
+            "table": "trades",
+            "size": len(payload),
+            "sha256": _sha(payload),
+            "md5": hashlib.md5(payload).hexdigest(),  # noqa: S324
+            "inode": stat.st_ino,
+            "mtime_ns": stat.st_mtime_ns,
+            "ctime_ns": stat.st_ctime_ns,
+        })
+        seal["archive_files"] += 1
+    else:
+        seal["archive_file_stats"][0]["table"] = "trades"
+    seal_path.write_text(json.dumps(seal, sort_keys=True, indent=2) + "\n")
+
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    expected_reason = (
+        "MANIFEST_FACT_PROJECTION_MISMATCH" if tamper == "extra"
+        else "SEALED_METADATA_INVALID")
+    assert expected_reason in blocked.value.detail
+
+
+def test_historical_authority_rechecks_fact_fingerprint_at_return(
+        tmp_path, monkeypatch):
+    tree = _historical_metadata_tree(tmp_path)
+    fact = next(tree["facts"].rglob("*.parquet"))
+    original = fcr._historical_receipt
+
+    def mutate_after_fact_hash(path, date, label):
+        result = original(path, date, label)
+        if label == "CAPTURE_RECEIPT":
+            fact.write_bytes(b"Z" * fact.stat().st_size)
+        return result
+
+    monkeypatch.setattr(fcr, "_historical_receipt", mutate_after_fact_hash)
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    assert "FACT_BYTES_CHANGED" in blocked.value.detail
+
+
+def test_historical_authority_rejects_l2_facts_without_sealed_l2_source(
+        tmp_path):
+    tree = _historical_metadata_tree(tmp_path)
+    seal_path = (tree["warehouse"] / "seals"
+                 / ("date=%s.json" % tree["date"]))
+    seal = json.loads(seal_path.read_text())
+    seal["raw_files"] = [
+        row for row in seal["raw_files"]
+        if not Path(row["file"]).name.startswith("l2_")]
+    seal_path.write_text(json.dumps(seal, sort_keys=True, indent=2) + "\n")
+
+    with pytest.raises(cr.ReceiptError) as blocked:
+        fcr.historical_authoritative_day_inputs(
+            tree["date"], str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+    assert blocked.value.code == "HISTORICAL_METADATA_AUTHORITY_BLOCKED"
+    assert "L2_SEAL_SOURCE_MISSING" in blocked.value.detail
+
+
+def test_historical_authority_rejects_nonlegacy_and_forward_path_unchanged(
+        tmp_path, monkeypatch):
+    tree = _historical_metadata_tree(tmp_path)
+    with pytest.raises(cr.ReceiptError, match="DATE_NOT_ALLOWLISTED"):
+        fcr.historical_authoritative_day_inputs(
+            "2026-07-17", str(tree["raw_root"]), str(tree["warehouse"]),
+            str(tree["quality"]))
+
+    sentinel = object()
+    calls = []
+
+    def ordinary(date, raw_root, warehouse_root):
+        calls.append((date, raw_root, warehouse_root))
+        return sentinel
+
+    monkeypatch.setattr(cr, "_authoritative_day_inputs", ordinary)
+    assert fcr._forward_authoritative_day_inputs(
+        "2026-07-17", "raw", "warehouse", "quality") is sentinel
+    assert calls == [("2026-07-17", "raw", "warehouse")]
