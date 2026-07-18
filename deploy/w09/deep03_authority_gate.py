@@ -30,12 +30,44 @@ INSTANCE_ID = "i-0e53d134dceffe166"
 ROLE = "w09-research-runner"
 PLAN_INSTALL_PATH = "/etc/w09/deep03/adopted-plan.md"
 WRITE_ROOTS = {
-    "/srv/w09-research/cache-v3-exploratory",
+    "/srv/w09-research/cache",
     "/srv/w09-research/automation",
     "/srv/w09-research/runs",
 }
 NETWORK_OPERATIONS = ["S3_READONLY_MANIFEST_AND_EXACT_VERSION"]
+AUTHORIZED_TOOL_CLASSES = [
+    "DUCKDB_LOCAL_ANALYTICS",
+    "LOCAL_FILESYSTEM_IMMUTABLE_ARTIFACTS",
+    "PYTHON3_PINNED_PAYLOAD",
+    "SYSTEMD_ONESHOT",
+]
+AUTHORIZED_API_CLASSES = [
+    "AWS_EC2_IMDSV2",
+    "AWS_S3_GET_CANONICAL_OBJECT_VERSION_READONLY",
+    "AWS_S3_GET_RELEASE_MANIFEST_READONLY",
+    "AWS_S3_LIST_RELEASE_NAMESPACE_READONLY",
+]
+AUTHORIZED_CREDENTIAL_CLASSES = [
+    "W09_INSTANCE_PROFILE_EPHEMERAL_ONLY",
+]
+REQUIRED_PREREQUISITE_HASHES = {
+    "independent_plan_audit",
+    "prior_exposure_ledger",
+    "w09_exact_version_read",
+    "w1_data_quality",
+    "w1_input_manifest",
+    "w1_split_seal",
+}
+REQUIRED_NAMED_SUPERSESSION = "SECTION_4_15_1_PRE_READER_FEED_GATE"
+AUTHORIZED_METHOD_SCOPE = {
+    "D3-B01-MARKOUT": "PARTIAL_DESCRIPTIVE_ONLY",
+    "D3-B02-ONESIDE": "PARTIAL_DESCRIPTIVE_ONLY",
+    "D3-B03-XMKT": "NOT_ESTIMABLE_PREFLIGHT_ONLY",
+    "D3-B04-RHYTHM": "PARTIAL_DESCRIPTIVE_ONLY",
+}
 RELEASE_RE = re.compile(r"^D3-W2A-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+W0_RELEASE_RE = re.compile(r"^D3-W0-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+W1_RELEASE_RE = re.compile(r"^D3-W1-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 V3_RELEASE_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})__v3ref__seal-[0-9a-f]{8}"
     r"__pub-[0-9a-f]{16}$"
@@ -54,6 +86,10 @@ FALSE_AUTHORITY_FIELDS = (
     "rfq_included",
     "strict_acceptance_claimed",
     "candidate_or_profit_claim",
+    "s3_write_permission",
+    "full_w1_completion_claim",
+    "full_w2a_completion_claim",
+    "post_research_hook_permission",
 )
 
 
@@ -152,7 +188,68 @@ def _release_ids(value: Any, start_date: Any, end_date: Any) -> list[str]:
     return list(value)
 
 
-def validate_authority(
+def _exact_string_list(value: Any, expected: list[str], label: str) -> None:
+    if value != expected:
+        raise AuthorityError("%s differs from the fixed narrow release scope" % label)
+
+
+def _required_sha_map(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != REQUIRED_PREREQUISITE_HASHES:
+        raise AuthorityError("prerequisite_receipt_sha256s has incomplete keys")
+    for label, digest in value.items():
+        if not isinstance(label, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise AuthorityError("invalid prerequisite receipt SHA-256: %s" % label)
+    return dict(value)
+
+
+def _active_prompt(authority: dict[str, Any]) -> None:
+    state = authority.get("active_prompt_state")
+    path = authority.get("active_prompt_path")
+    digest = authority.get("active_prompt_sha256")
+    if state == "EXPLICIT_NONE":
+        if path is not None or digest is not None:
+            raise AuthorityError("explicit-none active prompt must have null path/SHA")
+        return
+    if state != "BOUND":
+        raise AuthorityError("active_prompt_state must be BOUND or EXPLICIT_NONE")
+    if not isinstance(path, str) or not path.startswith("/") or not path:
+        raise AuthorityError("bound active prompt path must be absolute")
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        raise AuthorityError("bound active prompt SHA-256 is invalid")
+
+
+def _source_identity(authority: dict[str, Any]) -> None:
+    branch = authority.get("authorized_branch")
+    worktree = authority.get("authorized_worktree")
+    if (
+        not isinstance(branch, str)
+        or not branch
+        or len(branch) > 255
+        or any(ord(character) < 0x20 for character in branch)
+    ):
+        raise AuthorityError("authorized_branch is invalid")
+    if (
+        not isinstance(worktree, str)
+        or not worktree.startswith("/")
+        or len(worktree) > 4096
+        or any(ord(character) < 0x20 for character in worktree)
+    ):
+        raise AuthorityError("authorized_worktree is invalid")
+
+
+def _upstream_release(
+    authority: dict[str, Any], *, prefix: str, pattern: re.Pattern[str]
+) -> tuple[str, str]:
+    release_id = authority.get("%s_release_id" % prefix)
+    release_sha = authority.get("%s_release_sha256" % prefix)
+    if not isinstance(release_id, str) or pattern.fullmatch(release_id) is None:
+        raise AuthorityError("%s release ID is invalid" % prefix.upper())
+    if not isinstance(release_sha, str) or SHA256_RE.fullmatch(release_sha) is None:
+        raise AuthorityError("%s release SHA-256 is invalid" % prefix.upper())
+    return release_id, release_sha
+
+
+def validate_authority_bundle(
     *,
     authority_path: Path,
     arm_path: Path,
@@ -160,7 +257,7 @@ def validate_authority(
     runtime_commit_path: Path,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, bytes]]:
     now = now or dt.datetime.now(dt.timezone.utc)
     authority_raw = _secure_bytes(
         Path(authority_path),
@@ -211,6 +308,58 @@ def validate_authority(
     for field in FALSE_AUTHORITY_FIELDS:
         if authority.get(field) is not False:
             raise AuthorityError("authority field must be explicit false: %s" % field)
+    _active_prompt(authority)
+    named_supersessions = authority.get("named_supersessions")
+    if (
+        not isinstance(named_supersessions, list)
+        or not named_supersessions
+        or any(not isinstance(item, str) or not item for item in named_supersessions)
+        or len(named_supersessions) != len(set(named_supersessions))
+        or REQUIRED_NAMED_SUPERSESSION not in named_supersessions
+    ):
+        raise AuthorityError(
+            "named_supersessions must include the section 4.15.1 pre-reader feed gate"
+        )
+    _source_identity(authority)
+    _exact_string_list(
+        authority.get("authorized_tool_classes"),
+        AUTHORIZED_TOOL_CLASSES,
+        "authorized_tool_classes",
+    )
+    _exact_string_list(
+        authority.get("authorized_api_classes"),
+        AUTHORIZED_API_CLASSES,
+        "authorized_api_classes",
+    )
+    _exact_string_list(
+        authority.get("authorized_credential_classes"),
+        AUTHORIZED_CREDENTIAL_CLASSES,
+        "authorized_credential_classes",
+    )
+    prerequisite_hashes = _required_sha_map(
+        authority.get("prerequisite_receipt_sha256s")
+    )
+    audit_sha = authority.get("audit_sha256")
+    if not isinstance(audit_sha, str) or SHA256_RE.fullmatch(audit_sha) is None:
+        raise AuthorityError("audit_sha256 is invalid")
+    if prerequisite_hashes["independent_plan_audit"] != audit_sha:
+        raise AuthorityError("audit_sha256 differs from prerequisite audit binding")
+    audit_verdict = authority.get("independent_audit_verdict")
+    if audit_verdict not in {
+        "PASS_FOR_RELEASE_DRAFTING",
+        "PASS_WITH_EXPLICIT_BLOCKERS",
+    }:
+        raise AuthorityError("independent audit verdict does not permit release drafting")
+    w0_release_id, w0_release_sha = _upstream_release(
+        authority, prefix="w0", pattern=W0_RELEASE_RE
+    )
+    w1_release_id, w1_release_sha = _upstream_release(
+        authority, prefix="w1", pattern=W1_RELEASE_RE
+    )
+    if authority.get("session_count") != 1:
+        raise AuthorityError("session_count must be exactly 1")
+    if authority.get("authorized_method_scope") != AUTHORIZED_METHOD_SCOPE:
+        raise AuthorityError("authorized method scope is not the partial W2A scope")
     _exact_text_sha(
         authority.get("operator_text_verbatim"),
         authority.get("operator_text_sha256"),
@@ -294,7 +443,7 @@ def validate_authority(
     if active_window_seconds <= 0:
         raise AuthorityError("authority/arm active window is exhausted")
 
-    return {
+    result = {
         "schema_version": "deep03-w09-authority-gate-pass-v1",
         "state": "AUTHORIZED",
         "release_id": release_id,
@@ -313,7 +462,53 @@ def validate_authority(
         "effective_runtime_seconds": min(max_runtime, active_window_seconds),
         "expires_at_utc": authority["expires_at_utc"],
         "arm_expires_at_utc": arm["expires_at_utc"],
+        "active_prompt_state": authority["active_prompt_state"],
+        "active_prompt_path": authority["active_prompt_path"],
+        "active_prompt_sha256": authority["active_prompt_sha256"],
+        "operator_text_sha256": authority["operator_text_sha256"],
+        "named_supersessions": list(named_supersessions),
+        "authorized_branch": authority["authorized_branch"],
+        "authorized_worktree": authority["authorized_worktree"],
+        "authorized_tool_classes": list(AUTHORIZED_TOOL_CLASSES),
+        "authorized_api_classes": list(AUTHORIZED_API_CLASSES),
+        "authorized_credential_classes": list(AUTHORIZED_CREDENTIAL_CLASSES),
+        "prerequisite_receipt_sha256s": prerequisite_hashes,
+        "audit_sha256": audit_sha,
+        "independent_audit_verdict": audit_verdict,
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": w0_release_sha,
+        "w1_release_id": w1_release_id,
+        "w1_release_sha256": w1_release_sha,
+        "session_count": 1,
+        "authorized_method_scope": dict(AUTHORIZED_METHOD_SCOPE),
     }
+    artifacts = {
+        "AUTHORITY.json": authority_raw,
+        "EXECUTION_ARM.json": arm_raw,
+        "ADOPTED_PLAN.md": plan_raw,
+        "BASE_COMMIT.txt": runtime_raw,
+    }
+    return result, artifacts
+
+
+def validate_authority(
+    *,
+    authority_path: Path,
+    arm_path: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    expected_owner_uid: int = 0,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    result, _artifacts = validate_authority_bundle(
+        authority_path=authority_path,
+        arm_path=arm_path,
+        plan_path=plan_path,
+        runtime_commit_path=runtime_commit_path,
+        expected_owner_uid=expected_owner_uid,
+        now=now,
+    )
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

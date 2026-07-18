@@ -582,7 +582,7 @@ def run_cycle(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cache", default="/srv/w09-research/cache-v3-exploratory")
+    parser.add_argument("--cache", default="/srv/w09-research/cache")
     parser.add_argument("--state-root", default="/srv/w09-research/automation")
     parser.add_argument("--run-root", default="/srv/w09-research/runs")
     parser.add_argument("--authority", required=True, type=Path)
