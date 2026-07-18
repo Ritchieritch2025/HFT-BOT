@@ -28,6 +28,17 @@ if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
     echo "W09_INSTALL_REFUSED: reader module integrity mismatch" >&2
     exit 65
 fi
+for file in v3_query_canary.py v3_query_canary.sha256; do
+    if [ ! -f "$PAYLOAD_ROOT/deploy/w09/$file" ]; then
+        echo "W09_INSTALL_REFUSED: missing v3 query canary payload: $file" >&2
+        exit 66
+    fi
+done
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/v3_query_canary.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: v3 query canary integrity mismatch" >&2
+    exit 65
+fi
 if ! grep -qx 'instance=i-0e53d134dceffe166 behavior=stop operator-confirmed' \
     "$PAYLOAD_ROOT/shutdown-behavior-stop.confirmed" 2>/dev/null; then
     echo "W09_INSTALL_REFUSED: stop-not-terminate behavior was not confirmed" >&2
@@ -90,7 +101,8 @@ install -m 0644 "$PAYLOAD_ROOT/deploy/w09/amazon-time-sync.sources" \
 systemctl enable --now chrony.service
 systemctl restart chrony.service
 
-install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" "$INSTALL_ROOT/config"
+install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" "$INSTALL_ROOT/config" \
+    /etc/w09
 install -m 0644 "$PAYLOAD_ROOT/tools/research_data.py" \
     "$INSTALL_ROOT/tools/research_data.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
@@ -103,6 +115,20 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_data_instance_profile.py" \
     "$INSTALL_ROOT/tools/research_data_instance_profile.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/select_newest_release.py" \
     "$INSTALL_ROOT/tools/select_newest_release.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.py" \
+    "$INSTALL_ROOT/tools/v3_query_canary.py"
+QUERY_CANARY_SHA="$(awk \
+    '$2 == "deploy/w09/v3_query_canary.py" {print $1}' \
+    "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.sha256")"
+if ! [[ "$QUERY_CANARY_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "W09_INSTALL_REFUSED: invalid v3 query canary SHA manifest" >&2
+    exit 65
+fi
+printf '%s  %s\n' "$QUERY_CANARY_SHA" \
+    "$INSTALL_ROOT/tools/v3_query_canary.py" \
+    > /etc/w09/v3_query_canary.sha256
+chmod 0444 /etc/w09/v3_query_canary.sha256
+sha256sum -c /etc/w09/v3_query_canary.sha256 >/dev/null
 
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
@@ -118,7 +144,6 @@ PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
     'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
 
 install -d -o ubuntu -g ubuntu -m 0750 /srv/w09-research "$CACHE_ROOT"
-install -d -m 0755 /etc/w09
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/cost-contract.json" \
     /etc/w09/cost-contract.json
 cat > /usr/local/bin/research_data <<'EOF'
