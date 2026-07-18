@@ -48,7 +48,7 @@ TAGGER = (ROOT / "tools" / "canonical_eligibility_tagger.py").resolve()
 USER_NAME = "canonical-eligibility-tagger"
 TAGGER_ARN = "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
 BROKER_ARN = (
-    "arn:aws:iam::321572485933:user/canonical-credential-broker"
+    "arn:aws:iam::321572485933:user/canonical-eligibility-tagger-key-broker"
 )
 ACCOUNT = "321572485933"
 REGION = "us-east-2"

@@ -37,7 +37,7 @@ DEFAULT_TAGGER_ARN = (
     "arn:aws:iam::321572485933:user/canonical-eligibility-tagger"
 )
 DEFAULT_CREDENTIAL_BROKER_ARN = (
-    "arn:aws:iam::321572485933:user/canonical-credential-broker"
+    "arn:aws:iam::321572485933:user/canonical-eligibility-tagger-key-broker"
 )
 DEFAULT_PUBLISHER_ARN = "arn:aws:iam::321572485933:user/vaultWriter"
 DEFAULT_BUCKET = "kalshi-vault-ritcardo"

@@ -40,7 +40,7 @@ def test_installer_requires_publisher_and_gates_full_mode_on_broker_pair():
         'FULL_PUBLICATION_READY=1') < installer.index(
         'if [ "$FULL_PUBLICATION_READY" -eq 1 ]; then')
     assert "canonical-ephemeral-tagger-identities-v2" in installer
-    assert "canonical-credential-broker" in installer
+    assert "canonical-eligibility-tagger-key-broker" in installer
     assert ("BROKER_CRED=/etc/credstore.encrypted/"
             "kalshi-research-v3-credential-broker.env") in installer
     assert "LEGACY_TAG_CRED=/etc/credstore.encrypted/" \

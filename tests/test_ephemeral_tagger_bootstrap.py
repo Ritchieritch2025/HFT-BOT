@@ -71,7 +71,8 @@ def _main_argv(pins, *options, command=None):
 def broker_credential_env(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", BROKER_KEY)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", BROKER_SECRET)
-    monkeypatch.setenv("AWS_PROFILE", "canonical-credential-broker")
+    monkeypatch.setenv(
+        "AWS_PROFILE", "canonical-eligibility-tagger-key-broker")
     monkeypatch.setenv("KALSHI_API_KEY", "must-not-leak")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-leak")
     monkeypatch.setenv("PYTHONPATH", "/tmp/poison")
@@ -402,7 +403,7 @@ def test_sterile_environment_drops_all_ambient_injection_vectors():
         "AWS_ACCESS_KEY_ID": BROKER_KEY,
         "AWS_SECRET_ACCESS_KEY": BROKER_SECRET,
         "AWS_SESSION_TOKEN": "session",
-        "AWS_PROFILE": "canonical-credential-broker",
+        "AWS_PROFILE": "canonical-eligibility-tagger-key-broker",
         "AWS_ENDPOINT_URL": "https://attacker.invalid",
         "AWS_ENDPOINT_URL_STS": "https://attacker.invalid",
         "KALSHI_API_KEY": "secret",

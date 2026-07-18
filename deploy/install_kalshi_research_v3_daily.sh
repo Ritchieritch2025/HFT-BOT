@@ -226,7 +226,7 @@ with open(sys.argv[1], "rb") as handle:
 fixed = {
     "schema_version": "canonical-ephemeral-tagger-identities-v2",
     "account": "321572485933",
-    "broker_arn": "arn:aws:iam::321572485933:user/canonical-credential-broker",
+    "broker_arn": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger-key-broker",
     "tagger_arn": "arn:aws:iam::321572485933:user/canonical-eligibility-tagger",
 }
 assert set(value) == set(fixed) | {"broker_user_id", "tagger_user_id"}
