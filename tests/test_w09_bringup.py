@@ -186,10 +186,10 @@ class TestIdleGuard(unittest.TestCase):
     def test_real_idle_baseline_accepts_procps_empty_selection(self):
         """procps rc=1/no-output means the research user owns no work."""
         responses = [
-            mock.Mock(returncode=0, stdout="", stderr=""),  # ss
-            mock.Mock(returncode=0, stdout="", stderr=""),  # loginctl
-            mock.Mock(returncode=1, stdout="", stderr=""),  # ps: no match
-            mock.Mock(returncode=0, stdout="", stderr=""),  # inhibitors
+            subprocess.CompletedProcess([], 0, "", ""),  # ss
+            subprocess.CompletedProcess([], 0, "", ""),  # loginctl
+            subprocess.CompletedProcess([], 1, "", ""),  # ps: no match
+            subprocess.CompletedProcess([], 0, "", ""),  # inhibitors
         ]
         with mock.patch.object(self.module.os.path, "exists",
                                return_value=False), \
@@ -199,9 +199,11 @@ class TestIdleGuard(unittest.TestCase):
 
     def test_procps_rc1_with_error_still_fails_closed_and_names_sensor(self):
         responses = [
-            mock.Mock(returncode=0, stdout="", stderr=""),
-            mock.Mock(returncode=0, stdout="", stderr=""),
-            mock.Mock(returncode=1, stdout="", stderr="permission denied"),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess(
+                [], 1, "", "permission denied: must-not-log-this"
+            ),
         ]
         with mock.patch.object(self.module.os.path, "exists",
                                return_value=False), \
@@ -215,6 +217,41 @@ class TestIdleGuard(unittest.TestCase):
             "nonzero-exit",
         )
         self.assertNotIn("stderr", self.module.LAST_SENSOR_ERROR)
+
+    def test_sensor_error_event_is_structured_and_redacted(self):
+        responses = [
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess(
+                [], 1, "", "permission denied: must-not-log-this"
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            self.module.RUN_DIR = os.path.join(tmp, "run")
+            self.module.STATE_DIR = os.path.join(tmp, "state")
+            self.module.IDLE_STATE = os.path.join(
+                self.module.RUN_DIR, "idle_since.json")
+            self.module.LOCK_PATH = os.path.join(
+                self.module.RUN_DIR, "check.lock")
+            self.module.EVENT_LOG = os.path.join(
+                self.module.STATE_DIR, "events.jsonl")
+            with mock.patch.object(self.module.os.path, "exists",
+                                   return_value=False), \
+                    mock.patch.object(self.module.subprocess, "run",
+                                      side_effect=responses), \
+                    mock.patch.object(self.module, "boot_id",
+                                      return_value="boot-a"):
+                self.assertEqual(self.module.main(), 0)
+            with open(self.module.EVENT_LOG, encoding="utf-8") as handle:
+                raw_event = handle.read()
+            self.assertNotIn("must-not-log-this", raw_event)
+            event = json.loads(raw_event)
+            self.assertEqual(event["reason"], "sensor-error")
+            self.assertEqual(event["sensor_error"], {
+                "sensor": "ps",
+                "failure_kind": "nonzero-exit",
+                "returncode": 1,
+            })
 
     def test_unwrapped_ubuntu_process_means_busy(self):
         def sensor(args, allowed_empty_returncodes=()):
@@ -259,6 +296,75 @@ class TestIdleGuard(unittest.TestCase):
                 events = [json.loads(line) for line in handle]
             self.assertEqual(events[-1]["decision"], "poweroff-requested")
             self.assertGreaterEqual(events[-1]["idle_for_sec"], 1800)
+
+    def test_stale_boot_idle_state_restarts_timer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.module.RUN_DIR = os.path.join(tmp, "run")
+            self.module.STATE_DIR = os.path.join(tmp, "state")
+            self.module.IDLE_STATE = os.path.join(
+                self.module.RUN_DIR, "idle_since.json")
+            self.module.LOCK_PATH = os.path.join(
+                self.module.RUN_DIR, "check.lock")
+            self.module.EVENT_LOG = os.path.join(
+                self.module.STATE_DIR, "events.jsonl")
+            os.makedirs(self.module.RUN_DIR)
+            with open(self.module.IDLE_STATE, "w", encoding="utf-8") as handle:
+                json.dump({"boot_id": "old-boot", "uptime": 1.0}, handle)
+            poweroff = mock.Mock(return_value=mock.Mock(returncode=0))
+            with mock.patch.object(self.module, "busy_reason",
+                                   return_value=None), \
+                    mock.patch.object(self.module, "boot_id",
+                                      return_value="new-boot"), \
+                    mock.patch.object(self.module, "uptime_seconds",
+                                      return_value=4000.0), \
+                    mock.patch.object(self.module.subprocess, "run", poweroff):
+                self.assertEqual(self.module.main(), 0)
+            poweroff.assert_not_called()
+            with open(self.module.IDLE_STATE, encoding="utf-8") as handle:
+                state = json.load(handle)
+            self.assertEqual(state, {"boot_id": "new-boot", "uptime": 4000.0})
+
+    def test_sensor_failure_on_final_recheck_cancels_shutdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.module.RUN_DIR = os.path.join(tmp, "run")
+            self.module.STATE_DIR = os.path.join(tmp, "state")
+            self.module.IDLE_STATE = os.path.join(
+                self.module.RUN_DIR, "idle_since.json")
+            self.module.LOCK_PATH = os.path.join(
+                self.module.RUN_DIR, "check.lock")
+            self.module.EVENT_LOG = os.path.join(
+                self.module.STATE_DIR, "events.jsonl")
+            os.makedirs(self.module.RUN_DIR)
+            with open(self.module.IDLE_STATE, "w", encoding="utf-8") as handle:
+                json.dump({"boot_id": "boot-a", "uptime": 100.0}, handle)
+            checks = iter((None, None, "sensor-error"))
+
+            def reason():
+                value = next(checks)
+                if value == "sensor-error":
+                    self.module.LAST_SENSOR_ERROR = {
+                        "sensor": "ps",
+                        "failure_kind": "nonzero-exit",
+                        "returncode": 1,
+                    }
+                return value
+
+            poweroff = mock.Mock(return_value=mock.Mock(returncode=0))
+            with mock.patch.object(self.module, "busy_reason", side_effect=reason), \
+                    mock.patch.object(self.module, "boot_id",
+                                      return_value="boot-a"), \
+                    mock.patch.object(self.module, "uptime_seconds",
+                                      return_value=2000.0), \
+                    mock.patch.object(self.module.time, "sleep"), \
+                    mock.patch.object(self.module.subprocess, "run", poweroff):
+                self.assertEqual(self.module.main(), 0)
+            poweroff.assert_not_called()
+            self.assertFalse(os.path.exists(self.module.IDLE_STATE))
+            with open(self.module.EVENT_LOG, encoding="utf-8") as handle:
+                event = json.loads(handle.readlines()[-1])
+            self.assertEqual(event["decision"], "shutdown-cancelled")
+            self.assertEqual(event["reason"], "sensor-error")
+            self.assertEqual(event["sensor_error"]["sensor"], "ps")
 
 
 class TestIdleProof(unittest.TestCase):

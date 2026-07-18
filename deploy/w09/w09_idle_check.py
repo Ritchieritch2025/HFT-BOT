@@ -222,9 +222,12 @@ def main() -> int:
             reason = busy_reason()
             if reason:
                 remove_idle_state()
-                append_event({"decision": "shutdown-cancelled",
-                              "reason": reason,
-                              "idle_for_sec": int(idle_for)})
+                event = {"decision": "shutdown-cancelled",
+                         "reason": reason,
+                         "idle_for_sec": int(idle_for)}
+                if reason == "sensor-error" and LAST_SENSOR_ERROR:
+                    event["sensor_error"] = LAST_SENSOR_ERROR
+                append_event(event)
                 return 0
             if _attempt == 0:
                 time.sleep(5)

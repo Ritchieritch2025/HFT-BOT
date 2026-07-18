@@ -6,12 +6,14 @@ red/yellow/info, and pushes with per-condition anti-spam (one push per state
 CHANGE + a re-send every REALERT_MIN while still bad).
 
 Checks implemented now:
-  RED    capture down / feed stale; disk > DISK_RED_PCT; balance CHANGED
-         (5-min poll — no live authz, balance must be flat); chrony offset;
+  RED    capture down / feed stale; disk > DISK_RED_PCT; chrony offset;
          seal_alarm present (export/seal failed past alarm line)
   YELLOW capture gap; W09 powered-on idle > N h
+  INFO   balance changes (one-shot account reconciliation event)
 Info-tier and cost/event-volume/upstream live in the daily summary + intel
-modules; this engine owns the fast event-triggered signals.
+modules; this engine owns the fast event-triggered signals.  One-shot account
+order/fill/settlement events are delegated to tg_orders.py after the fault
+state machine completes.
 
 Test hook: touch work/live/monitor/TEST_GAP to force a synthetic yellow gap
 alert (acceptance §④ — flag only, never touches real capture data).
@@ -22,6 +24,7 @@ import glob
 import importlib.util
 import os
 import subprocess
+import sys
 import time
 
 import tg_common as tg
@@ -107,28 +110,66 @@ def _balance_now():
         return False, None
 
 
+def _balance_change_text(prev, val):
+    return "💰 余额｜$%s → $%s" % (prev, val)
+
+
+def _deliver_pending_balance(st):
+    """Deliver an unsent one-shot balance event before advancing its baseline.
+
+    Balance changes are events, not active fault conditions.  Keeping an
+    explicit pending record prevents Telegram delivery failures from losing an
+    event and avoids the old false ``已恢复:balance`` message one minute later.
+    """
+    pending = st.get("pending_change")
+    if not isinstance(pending, dict):
+        st.pop("pending_change", None)
+        return True
+    prev, val = pending.get("from"), pending.get("to")
+    if prev is None or val is None:
+        st.pop("pending_change", None)
+        return True
+    if not tg.send(_balance_change_text(prev, val)):
+        return False
+    st["value"] = str(val)
+    st.pop("pending_change", None)
+    return True
+
+
 def check_balance_tripwire(fired):
-    """5-min poll; ANY change from the last seen value = RED. 3 consecutive
-    read failures = YELLOW. State in monitor/balance_state.json."""
+    """Poll balance every five minutes and emit one-shot reconciliation info.
+
+    Three consecutive read failures remain an active YELLOW condition.  The
+    condition is re-added between actual polls so the generic recovery state
+    machine cannot mistake a skipped poll for endpoint recovery.
+    """
     st = tg.read_json("balance_state.json", {}) or {}
     now = time.time()
+    if not _deliver_pending_balance(st):
+        tg.write_json("balance_state.json", st)
+        return
     if now - st.get("last_poll", 0) < _f("BALANCE_POLL_MIN", 5) * 60:
+        if st.get("fail_streak", 0) >= _f("BALANCE_FAIL_YELLOW", 3):
+            fired.append((tg.YELLOW, "balance_endpoint",
+                          "余额端点连续 %d 次读取失败" % st["fail_streak"]))
+        tg.write_json("balance_state.json", st)
         return
     ok, val = _balance_now()
     st["last_poll"] = now
     if not ok:
         st["fail_streak"] = st.get("fail_streak", 0) + 1
         if st["fail_streak"] >= _f("BALANCE_FAIL_YELLOW", 3):
-            fired.append((tg.YELLOW, "balance",
+            fired.append((tg.YELLOW, "balance_endpoint",
                           "余额端点连续 %d 次读取失败" % st["fail_streak"]))
     else:
         st["fail_streak"] = 0
         prev = st.get("value")
         if prev is not None and val != prev:
-            fired.append((tg.RED, "balance",
-                          "Kalshi 余额变动:%s → %s(当前无实盘授权,余额应为直线;"
-                          "疑似未授权活动或账户异常)" % (prev, val)))
-        st["value"] = val
+            st["pending_change"] = {"from": str(prev), "to": str(val),
+                                    "observed_at": int(now)}
+            _deliver_pending_balance(st)
+        else:
+            st["value"] = val
     tg.write_json("balance_state.json", st)
 
 
@@ -170,6 +211,66 @@ def collect():
     return fired
 
 
+def _run_order_activity():
+    """Run the account-event poll out of process with a hard time budget."""
+    path = os.path.join(tg.ROOT, "deploy", "tg_orders.py")
+    timeout_s = max(5, int(_f("ORDER_ACTIVITY_TIMEOUT_S", 20)))
+    try:
+        result = subprocess.run([sys.executable, path],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        return False, "超过 %d 秒时限" % timeout_s
+    except Exception as exc:
+        return False, "无法启动:%s" % str(exc)[:80]
+    if result.returncode != 0:
+        return False, "退出码 %d" % result.returncode
+    return True, ""
+
+
+def check_order_activity_monitor():
+    """Run order events after core alerts and surface persistent failures.
+
+    The child-process boundary prevents a slow account endpoint or parser bug
+    from holding this minute-level pipeline alert service indefinitely.
+    """
+    state_name = "order_activity_health.json"
+    st = tg.read_json(state_name, {}) or {}
+    now = int(time.time())
+    threshold = max(1, int(_f("ORDER_ACTIVITY_FAIL_YELLOW", 3)))
+    ok, detail = _run_order_activity()
+    if ok:
+        if st.get("alerted"):
+            since = int(st.get("since", now))
+            duration = max(0, (now - since) // 60)
+            if not tg.send("✅ 已恢复:order_activity(持续约 %d 分钟)" %
+                           duration):
+                st["fail_streak"] = 0
+                st["last_ok"] = now
+                tg.write_json(state_name, st)
+                return
+        tg.write_json(state_name, {"fail_streak": 0, "last_ok": now})
+        return
+
+    streak = int(st.get("fail_streak", 0) or 0) + 1
+    st.update({"fail_streak": streak, "last_failure": now,
+               "detail": detail})
+    st.setdefault("since", now)
+    tg.log("order activity monitor failed (%d): %s" % (streak, detail))
+    realert_s = max(60, int(_f("REALERT_MIN", 30)) * 60)
+    due = (not st.get("alerted") or
+           now - int(st.get("last_sent", 0) or 0) >= realert_s)
+    if streak >= threshold and due:
+        message = ("⚠️ Kalshi 订单动态监控连续 %d 次失败（%s）。"
+                   "订单推送可能延迟；恢复后会用重叠窗口补抓，请临时在交易所核对。"
+                   % (streak, detail))
+        if tg.send(message):
+            st["alerted"] = True
+            st["last_sent"] = now
+    tg.write_json(state_name, st)
+
+
 def main():
     fired = collect()
     now = int(time.time())
@@ -191,6 +292,14 @@ def main():
             dur_min = max(0, (now - info.get("since", now)) // 60)
             tg.send("✅ 已恢复:%s(持续约 %d 分钟)" % (key, dur_min))
     tg.write_json("alert_state.json", seen)
+
+    # Account activity is an event stream, never an active/recovery condition.
+    # Run it last and out of process so it cannot suppress or indefinitely hold
+    # the pipeline alert checks above.
+    try:
+        check_order_activity_monitor()
+    except Exception as e:
+        tg.log("order activity monitor crashed: %s" % str(e)[:160])
 
 
 if __name__ == "__main__":

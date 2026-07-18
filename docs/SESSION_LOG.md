@@ -6,6 +6,50 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-18 03:40 UTC — 7/10–7/16 零拷贝收据闭环、每日自动清单上线、Fresh RFQ 隔离切换成功
+
+- code/deploy: isolated branch `w-rfq-fresh-01` at
+  `f39f574068fe544e27e759963db8aabe5755148b` (`Parallelize canonical
+  integrity verification`) 已推送并部署到
+  `/opt/kalshi-research-v3-releases/f39f574...`；producer 主工作树的用户
+  RFQ 修改未暂存、未覆盖。新 durable verifier 以 4 workers 并行 exact
+  GET/SHA，语义与单线程版相同；完整测试和独立审计均 PASS。
+- historical zero-copy result: 7/10–7/16 共 `3,724` 个 exact-VersionId
+  对象、`364,124,344,021` bytes 全部逐对象验证并发布不可变 durable
+  receipts；每日明细为 466/39,414,431,696、484/43,203,522,627、
+  541/53,220,350,118、528/49,261,458,477、577/61,212,551,314、
+  578/65,663,484,551、550/52,148,545,238。7/16 receipt set 是
+  `ad8c36d16b6cafb34403bbedb982aafd5dd53a5dadbcc50e0aa1cc53400471f2`；
+  最长一次校验 03:30:07Z 正常退出，4.0G memory peak、0 swap/OOM。
+  没有把 canonical 大对象复制进 research prefix。
+- automation: `kalshi-canonical-generation-witness.{path,timer}` 与
+  `kalshi-research-v3-durable.timer` 已启用并 active；手动 canary 均
+  success，随后按约 30 分钟重试新封印日期。full daily publisher timer
+  仍 fail-closed disabled，因为 production 上没有 tagger credential；现有
+  `vaultWriter` 对 tagger 的 `ListAccessKeys/CreateAccessKey` 均 explicit
+  denied，主机也没有 instance profile/ambient AWS identity。Mac 仅有的
+  `researchReader` 经 STS 验证后同样无任何 IAM 查询/创建权限；仓库批准的
+  ephemeral bootstrap 必须由 `vaultWriter` 调用 List/Create/Update/Delete
+  access key，故当前也会 fail closed。这里只能声称 durable receipts READY，
+  不能虚报 eligibility tags、v3 MANIFEST 或 W09 canary 已完成。
+- fresh RFQ cutover: generation `fresh-rfq-20260719-01`，strict T0
+  `2026-07-19T00:00:00Z`；284 条旧受损对象仅作为 deny identity，旧 RFQ
+  仍 `DATA_INTEGRITY_BLOCKED/no-repair`。root-owned clean runtime、precommit
+  authority、dry-run `BOUND_AUTHORITY`、systemd verify 与独立 restart gate
+  全 PASS；envelope file SHA `8de2bef2...`，drop-in SHA `aa6d68ae...`。
+  03:34:46Z 只重启 RFQ service 一次：supervisor `208009 -> 1346076`，唯一
+  child `1346087`，`subscription_proven=true`，跨过旧版约 50 秒故障周期后
+  PID/NRestarts 仍稳定。主 L1/L2 pipeline PID 始终为 `36630`、NRestarts=0，
+  hourly S3 sync active。
+- current boundary/handoff: 7/18 03 时是维护影响小时，禁止入选；Fresh RFQ
+  首个候选日是 7/19，须等 7/19 24/24 小时及 7/20 00/01 watermark strict
+  PASS 后才能生成独立 eligibility evidence。7/17 producer seal 在 03:00Z
+  因 ingest backlog 报 `UNSEALED_PAST_ALARM_LINE`；ingest 正在追赶，磁盘
+  仅 33% 使用且 pipeline 每小时自动重试，未重启采集。W09
+  `18.226.151.192` 公网 SSH 仍 timeout，production 到其公网/私网也不可达；
+  本 session 未启动 W09、未写 eligibility tags、未发布 research v3
+  MANIFEST。
+
 ## 2026-07-17 15:38 UTC — 六项检测实测交付：三层假绿修复，L2 07-14 重算，生产重建/RFQ 风险记账
 
 - commits:

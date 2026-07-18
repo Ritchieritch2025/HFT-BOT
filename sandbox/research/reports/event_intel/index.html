@@ -1,0 +1,1820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Intelligence — Kalshi Sports Archive</title>
+<style>
+:root{
+  --bg:#0b0e14; --bg2:#101522; --bg3:#161d2e; --line:#232c42;
+  --fg:#d7e0f0; --dim:#8492ad; --faint:#5a6785;
+  --accent:#4da3ff; --mid:#e8eefc;
+  --buy:#37c98b; --sell:#ff5d5d; --ask:#ffab40; --rfq:#b388ff;
+  --score:#ffe14d; --gap:#ff3b3b; --warn:#ffb02e;
+  font-size:13px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--fg);
+  font:12px/1.45 "SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  display:grid; grid-template-rows:auto auto auto 1fr auto; overflow:hidden;
+}
+#hdr{
+  display:flex; align-items:center; gap:14px; padding:7px 14px;
+  background:var(--bg2); border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+#hdr h1{font-size:14px; letter-spacing:.08em; color:var(--mid); font-weight:600}
+#hdr h1 span{color:var(--accent)}
+.badge{padding:2px 8px; border-radius:3px; font-size:10px; letter-spacing:.06em;
+  border:1px solid var(--line); color:var(--dim); white-space:nowrap}
+.badge.warn{border-color:var(--warn); color:var(--warn)}
+.badge.red{border-color:var(--gap); color:var(--gap)}
+#mode-banner{background:#3a2a08; color:var(--warn); border-color:var(--warn)}
+.ctl{display:flex; align-items:center; gap:5px; color:var(--dim); font-size:11px}
+select,input[type=number]{
+  background:var(--bg3); color:var(--fg); border:1px solid var(--line);
+  border-radius:3px; padding:3px 6px; font:inherit; font-size:11px;
+}
+button{background:var(--bg3); color:var(--fg); border:1px solid var(--line);
+  border-radius:3px; padding:3px 9px; font:inherit; font-size:11px; cursor:pointer}
+button:hover{border-color:var(--accent)}
+#toggles{display:flex; align-items:center; gap:4px; padding:4px 14px;
+  background:var(--bg2); border-bottom:1px solid var(--line); flex-wrap:wrap}
+.tg{display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
+  border:1px solid var(--line); border-radius:10px; cursor:pointer;
+  color:var(--dim); font-size:10.5px; user-select:none; white-space:nowrap}
+.tg .dot{width:8px; height:8px; border-radius:2px; background:var(--faint)}
+.tg.on{color:var(--fg); border-color:#33405f; background:var(--bg3)}
+#replaybar{display:grid; grid-template-columns:auto auto auto auto auto minmax(180px,1fr) auto auto;
+  align-items:center; gap:8px; padding:5px 14px; background:#0d1320;
+  border-bottom:1px solid var(--line); color:var(--dim); font-size:10.5px}
+#replay-play{min-width:78px; color:var(--mid); border-color:var(--accent)}
+#replay-step{white-space:nowrap}
+#replay-range{width:100%; accent-color:var(--accent)}
+#replay-clock{min-width:190px; text-align:right; color:var(--mid); font-variant-numeric:tabular-nums}
+#replay-source{color:var(--warn); white-space:nowrap}
+.replay-follow{display:flex; align-items:center; gap:4px; white-space:nowrap}
+@media (max-width:1100px){
+  #replaybar{grid-template-columns:auto auto auto auto minmax(150px,1fr) auto auto}
+  #replay-source{display:none}
+  #replay-clock{min-width:150px}
+}
+#main{display:grid; grid-template-columns:252px 1fr 340px; min-height:0}
+@media (max-width:1200px){ #main{grid-template-columns:210px 1fr 280px} }
+#side{background:var(--bg2); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; min-height:0}
+#sports{display:flex; border-bottom:1px solid var(--line)}
+#sports .sp{flex:1; text-align:center; padding:6px 2px; cursor:pointer;
+  color:var(--dim); border-bottom:2px solid transparent; font-size:11px}
+#sports .sp.on{color:var(--accent); border-bottom-color:var(--accent)}
+#eps{overflow-y:auto; flex:1 1 40%; border-bottom:1px solid var(--line)}
+.ep{padding:7px 10px; border-bottom:1px solid #141a2a; cursor:pointer}
+.ep:hover{background:var(--bg3)}
+.ep.on{background:var(--bg3); border-left:2px solid var(--accent)}
+.ep .t{color:var(--mid); font-size:11.5px}
+.ep .s{color:var(--faint); font-size:10px; margin-top:2px}
+.ep .l2tag{color:var(--buy); font-size:9px; border:1px solid var(--buy);
+  padding:0 4px; border-radius:2px; margin-left:5px}
+#mkts{overflow-y:auto; flex:1 1 35%}
+#mkts h3, #eps-h{padding:5px 10px 3px; color:var(--faint); font-size:10px;
+  letter-spacing:.1em; text-transform:uppercase}
+.mk{padding:5px 10px; cursor:pointer; border-bottom:1px solid #141a2a; font-size:10.5px}
+.mk:hover{background:var(--bg3)}
+.mk.on{background:var(--bg3); border-left:2px solid var(--buy)}
+.mk .mt{color:var(--fg)}
+.mk .ms{color:var(--faint); font-size:9.5px}
+#center{display:flex; flex-direction:column; min-width:0; min-height:0}
+#viewtabs{display:flex; gap:2px; align-items:center; padding:0 12px;
+  background:var(--bg2); border-bottom:1px solid var(--line)}
+.vtab{padding:5px 12px; cursor:pointer; color:var(--dim);
+  border-bottom:2px solid transparent; font-size:11px; letter-spacing:.05em}
+.vtab.on{color:var(--accent); border-bottom-color:var(--accent)}
+#heat-kind-badge{margin-left:10px}
+#chart{flex:1; min-height:0}
+#heat-wrap{position:relative; flex:1; min-height:0; display:none; overflow:hidden}
+#heat-canvas{position:absolute; inset:0; width:100%; height:100%}
+#heat-chart{position:absolute; inset:0}
+#heat-proxy-label{position:absolute; top:6px; left:64px; z-index:6;
+  padding:2px 9px; font-size:10px; letter-spacing:.05em; border-radius:3px;
+  background:rgba(11,14,20,.85); pointer-events:none; display:none}
+#heat-proxy-label.warn{color:var(--warn); border:1px solid var(--warn)}
+#heat-proxy-label.real{color:#66e0ff; border:1px solid #274a5e}
+#heat-empty{position:absolute; inset:0; display:none; align-items:center;
+  justify-content:center; color:var(--faint); font-size:12px; z-index:4;
+  text-align:center; padding:0 40px}
+#heat-tip{position:absolute; display:none; z-index:9; background:#101522;
+  border:1px solid var(--line); padding:6px 9px; font-size:10px;
+  color:var(--fg); pointer-events:none; max-width:340px; line-height:1.5}
+#chart-note{padding:2px 12px; color:var(--faint); font-size:10px;
+  background:var(--bg2); border-top:1px solid var(--line);
+  display:flex; gap:16px; flex-wrap:wrap}
+#tape{background:var(--bg2); border-left:1px solid var(--line);
+  display:flex; flex-direction:column; min-height:0}
+#tape-h{padding:6px 10px; border-bottom:1px solid var(--line);
+  color:var(--dim); font-size:10.5px; display:flex; justify-content:space-between}
+#tape-rows{overflow-y:auto; flex:1}
+.tr{padding:4px 8px; border-bottom:1px solid #141a2a; cursor:pointer;
+  display:grid; grid-template-columns:auto 1fr auto; gap:2px 8px; font-size:10px}
+.tr:hover{background:var(--bg3)}
+.tr .tt{color:var(--dim)}
+.tr .ty{font-weight:600}
+.tr .det{grid-column:1/4; color:var(--faint)}
+.tr .sz{text-align:right; color:var(--fg)}
+#drawer{background:var(--bg2); border-top:1px solid var(--line)}
+#drawer-h{display:flex; gap:2px; align-items:center; padding:0 12px}
+#drawer-h .dtab{padding:6px 12px; cursor:pointer; color:var(--dim);
+  border-bottom:2px solid transparent; font-size:11px}
+#drawer-h .dtab.on{color:var(--accent); border-bottom-color:var(--accent)}
+#drawer-h #drawer-toggle{margin-left:auto}
+#drawer-body{height:300px; display:none; overflow:hidden}
+#drawer.open #drawer-body{display:block}
+.dpane{display:none; height:100%; overflow:auto; padding:8px 14px}
+.dpane.on{display:block}
+#dist-pane.on{display:grid; grid-template-columns:230px 1fr 1fr; gap:10px}
+#dist-stats{font-size:10.5px; color:var(--dim); overflow:auto}
+#dist-stats b{color:var(--fg)}
+#dist-stats .note{color:var(--warn)}
+#dist-ecdf,#dist-hist{min-height:0}
+table.q{border-collapse:collapse; font-size:10.5px; margin:4px 0}
+table.q td,table.q th{border:1px solid var(--line); padding:3px 8px; text-align:left}
+table.q th{color:var(--dim); font-weight:normal}
+.def{margin:5px 0; font-size:10.5px}
+.def b{color:var(--mid)}
+.def i{color:var(--faint); font-style:normal}
+#loading{position:fixed; inset:0; background:rgba(11,14,20,.85);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--dim); z-index:50; font-size:13px}
+#console-status{position:fixed; left:-9999px; top:0}
+.chip{display:inline-block; padding:0 5px; border-radius:2px; font-size:9px}
+</style>
+</head>
+<body>
+<div id="console-status">BOOT</div>
+<div id="loading">loading archive artifacts…</div>
+
+<div id="hdr">
+  <h1>EVENT <span>INTELLIGENCE</span></h1>
+  <span class="badge" id="archive-badge">LOCAL ARCHIVE</span>
+  <span class="badge warn" title="Archived days predate the W-TL1 timestamp ladder: only ts_utc (exchange-or-coarse time) exists. No receive/decision clocks.">PRE-TL1 · EXCHANGE-OR-COARSE TIME ONLY</span>
+  <span class="badge" id="mode-banner" title="Full-window percentiles use future information relative to each marker. Descriptive exploration only; never a tradable signal.">LOOK-AHEAD / EXPLORATORY</span>
+  <span class="ctl">mode
+    <select id="mode-sel">
+      <option value="descriptive">DESCRIPTIVE (full window)</option>
+      <option value="causal">CAUSAL REPLAY (prior-hour cohorts)</option>
+    </select></span>
+  <span class="ctl">threshold
+    <select id="thr-sel">
+      <option value="p99">p99</option>
+      <option value="p99.5">p99.5</option>
+      <option value="p99.9">p99.9</option>
+      <option value="custom">custom ≥</option>
+    </select>
+    <input type="number" id="thr-custom" value="500" min="1" style="width:70px; display:none"> </span>
+  <span class="ctl">time
+    <select id="tz-sel"><option value="utc">UTC</option><option value="local">local</option></select></span>
+  <span class="badge" id="regime-badge" title="Regime background bands are an explainable exploratory description (message rate, trade rate, mid move, spread vs trailing baselines) — not predictive.">REGIMES: EXPLORATORY</span>
+</div>
+
+<div id="toggles"></div>
+
+<div id="replaybar">
+  <span id="replay-source" title="This source is a closed local artifact. Playback is historical; it is not a live feed.">ARCHIVE REPLAY · NOT LIVE</span>
+  <button id="replay-reset" type="button" title="Return to the start of the archived event">↺ reset</button>
+  <button id="replay-play" type="button">▶ play</button>
+  <span class="ctl">speed
+    <select id="replay-speed">
+      <option value="1">1×</option><option value="10">10×</option>
+      <option value="60">60×</option><option value="300">300×</option>
+      <option value="900" selected>900×</option><option value="3600">3600×</option>
+    </select>
+  </span>
+  <button id="replay-step" type="button" title="Jump to the next recorded activity">next event ›</button>
+  <input id="replay-range" type="range" min="0" max="1" value="0" step="1000" aria-label="Historical replay position">
+  <span class="replay-follow"><input id="replay-follow" type="checkbox" checked> follow</span>
+  <span id="replay-clock">waiting for episode…</span>
+</div>
+
+<div id="main">
+  <div id="side">
+    <div id="sports"></div>
+    <div id="eps-h">Main events (by traded volume)</div>
+    <div id="eps"></div>
+    <div id="mkts"><h3>Contracts / markets</h3><div id="mkt-rows"></div></div>
+  </div>
+  <div id="center">
+    <div id="viewtabs">
+      <div class="vtab on" id="vtab-heat" title="Bookmap-style time × price heat of resting displayed depth (REAL full-book replay where captured; honest L1 touch-band proxy otherwise)">MARKET HEATMAP</div>
+      <div class="vtab" id="vtab-tracks" title="v1 six-track synchronized timeline">TRACKS (v1)</div>
+      <span class="badge" id="heat-kind-badge" style="display:none"></span>
+    </div>
+    <div id="heat-wrap">
+      <canvas id="heat-canvas"></canvas>
+      <div id="heat-chart"></div>
+      <div id="heat-proxy-label"></div>
+      <div id="heat-empty"></div>
+      <div id="heat-tip"></div>
+    </div>
+    <div id="chart"></div>
+    <div id="chart-note">
+      <span id="note-episode"></span>
+      <span id="note-quality"></span>
+    </div>
+  </div>
+  <div id="tape">
+    <div id="tape-h"><span>LARGE-ACTIVITY CANDIDATE TAPE (revealed + visible)</span><span id="tape-count"></span></div>
+    <div id="tape-rows"></div>
+  </div>
+</div>
+
+<div id="drawer" class="open">
+  <div id="drawer-h">
+    <div class="dtab on" data-pane="dist-pane">Distributions</div>
+    <div class="dtab" data-pane="quality-pane">Data quality &amp; channels</div>
+    <div class="dtab" data-pane="def-pane">Definitions &amp; honesty rules</div>
+    <button id="drawer-toggle">▾ collapse</button>
+  </div>
+  <div id="drawer-body">
+    <div class="dpane on" id="dist-pane">
+      <div id="dist-stats">
+        <div style="margin-bottom:6px">
+          <select id="dist-mkt" style="max-width:210px"></select><br>
+          <select id="dist-metric" style="max-width:210px; margin-top:4px"></select>
+        </div>
+        <div id="dist-text"></div>
+      </div>
+      <div id="dist-ecdf"></div>
+      <div id="dist-hist"></div>
+    </div>
+    <div class="dpane" id="quality-pane"></div>
+    <div class="dpane" id="def-pane"></div>
+  </div>
+</div>
+
+<script src="assets/echarts.min.js"></script>
+<script>
+"use strict";
+/* Event Intelligence Dashboard — offline, JSONP-loaded artifacts.
+   All rendered values come from real archived rows; empty channels render
+   as explicit empty states, never as fabricated data. */
+(function(){
+var CS = document.getElementById("console-status");
+var jsErrors = [];
+window.addEventListener("error", function(e){
+  jsErrors.push(String(e.message||e));
+  CS.textContent = "JS-ERROR: " + jsErrors.join(" | ");
+});
+
+/* ---------- artifact loading (script-tag JSONP works over file://) ------- */
+var pending = {};
+window.__EI_LOAD__ = function(name, payload){
+  if (pending[name]) { var cb = pending[name]; delete pending[name]; cb(payload); }
+};
+function loadArtifact(name, src, cb){
+  pending[name] = cb;
+  var s = document.createElement("script");
+  s.src = src;
+  s.onerror = function(){
+    delete pending[name];
+    cb(null);
+  };
+  document.head.appendChild(s);
+}
+
+/* ---------- state -------------------------------------------------------- */
+var S = {
+  index: null, episode: null, sport: null, epKey: null, focusMkt: null,
+  mode: "descriptive", tier: "p99", customSize: 500, tz: "utc",
+  zoom: null,           // [t0,t1] ms visible
+  toggles: {},
+  episodeCache: {},
+  replayNow: null,
+  replayPlaying: false,
+  replaySpeed: 900,
+  replayFollow: true,
+  replayActive: true,
+  replayWindowMs: 3600000,
+  replayFrame: null,
+  replayLastWall: null,
+  replayTapeWall: 0,
+  replayPaintWall: 0,
+  replayUiWall: 0,
+  replaySources: {},
+  replayOverlays: null,
+  replayZoomProgrammatic: false,
+  view: "heat",          // "heat" (v2 primary) | "tracks" (v1, secondary tab)
+  tracksDirty: true,
+  heatCache: {},         // heatmap artifact name -> decoded artifact
+  heatSources: {},       // heat overlay series id -> replay reveal source
+  heatHover: false,      // true while an ECharts item is hovered (suppress cell tip)
+};
+var TIERS = {"p99":{q:0.99,min:500},"p99.5":{q:0.995,min:1000},"p99.9":{q:0.999,min:5000}};
+
+var EVIDENCE = [
+  {id:"price",   label:"price",            color:"#e8eefc", on:true},
+  {id:"trades",  label:"trade flow",       color:"#4da3ff", on:true},
+  {id:"prints",  label:"large prints",     color:"#4da3ff", on:true},
+  {id:"bid_add", label:"bid additions",    color:"#37c98b", on:true},
+  {id:"ask_add", label:"ask additions",    color:"#ffab40", on:true},
+  {id:"drops",   label:"cancels/depletion",color:"#ff5d5d", on:true},
+  {id:"bursts",  label:"message bursts",   color:"#ffe14d", on:true},
+  {id:"l2",      label:"L2 depth/imbalance",color:"#66e0ff", on:true},
+  {id:"rfq",     label:"RFQ",              color:"#b388ff", on:true},
+  {id:"score",   label:"score/game events",color:"#ffe14d", on:true},
+];
+EVIDENCE.forEach(function(e){ S.toggles[e.id] = e.on; });
+
+var TYPE_META = {
+  trade:        {label:"TRADE PRINT",  color:"#4da3ff", toggle:"prints",
+                 desc:"actual executed trade — not the originating order; a trade ID is not an account"},
+  l1_bid_add:   {label:"L1 BID ADD",   color:"#37c98b", toggle:"bid_add",
+                 desc:"aggregate displayed-size increase at best bid (L1 proxy; may be many orders)"},
+  l1_ask_add:   {label:"L1 ASK ADD",   color:"#ffab40", toggle:"ask_add",
+                 desc:"aggregate displayed-size increase at best ask (L1 proxy; may be many orders)"},
+  l1_bid_drop:  {label:"L1 BID DROP",  color:"#ff5d5d", toggle:"drops",
+                 desc:"aggregate displayed-size decrease at best bid — cancellation or depletion; L1 cannot distinguish"},
+  l1_ask_drop:  {label:"L1 ASK DROP",  color:"#ff5d5d", toggle:"drops",
+                 desc:"aggregate displayed-size decrease at best ask — cancellation or depletion; L1 cannot distinguish"},
+  l2_add:       {label:"L2 LEVEL ADD", color:"#66e0ff", toggle:"l2",
+                 desc:"real L2 price-level size addition (a level is not necessarily one order)"},
+  l2_remove:    {label:"L2 REMOVE",    color:"#ff5d5d", toggle:"l2",
+                 desc:"real L2 price-level size removal"},
+  l2_depletion: {label:"L2 DEPLETION", color:"#ff8a3b", toggle:"l2",
+                 desc:"real L2 price level went to zero"},
+  rfq_created:  {label:"RFQ CREATE",   color:"#b388ff", toggle:"rfq", desc:"request-for-quote created"},
+  rfq_deleted:  {label:"RFQ DELETE",   color:"#8a6fd1", toggle:"rfq", desc:"request-for-quote deleted"},
+  score:        {label:"SCORE EVENT",  color:"#ffe14d", toggle:"score", desc:"verified score/game-state event"},
+  gap:          {label:"DATA GAP",     color:"#ff3b3b", toggle:"price",
+                 desc:"heartbeat contract violated (>65 min silence): book state untrusted"},
+};
+
+/* ---------- utils --------------------------------------------------------- */
+function $(id){ return document.getElementById(id); }
+function el(tag, cls, txt){ var d=document.createElement(tag); if(cls)d.className=cls; if(txt!=null)d.textContent=txt; return d; }
+function fmtTs(ms, withDate){
+  var d = new Date(ms);
+  function p(n){ return (n<10?"0":"")+n; }
+  if (S.tz === "utc"){
+    return (withDate? (d.getUTCMonth()+1)+"-"+p(d.getUTCDate())+" " : "") +
+      p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds())+"Z";
+  }
+  return (withDate? (d.getMonth()+1)+"-"+p(d.getDate())+" " : "") +
+    p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+}
+function fmtN(v, dp){ if(v==null) return "—";
+  return Number(v).toLocaleString("en-US",{maximumFractionDigits:dp==null?1:dp}); }
+function logSize(contracts){
+  if (!contracts || contracts<=0) return 5;
+  return Math.max(5, Math.min(20, 4 + 4.2*Math.log10(contracts)));
+}
+function abbr(v){
+  if (v==null) return "";
+  var a = Math.abs(v);
+  if (a>=1e6) return (v/1e6).toFixed(a>=1e7?0:1)+"M";
+  if (a>=1e3) return (v/1e3).toFixed(a>=1e4?0:1)+"k";
+  return String(v);
+}
+
+/* ---------- historical replay clock ---------------------------------------
+   This animates a CLOSED archive.  It never claims that the file is live and
+   never advances beyond the episode artifact's source watermark. */
+function replayBounds(){
+  if (!S.episode) return null;
+  return [S.episode.window.t0_ms, S.episode.window.t1_ms];
+}
+function replayClockText(){
+  var b = replayBounds();
+  if (!b || S.replayNow==null) return "waiting for episode…";
+  var pct = b[1] > b[0] ? 100*(S.replayNow-b[0])/(b[1]-b[0]) : 100;
+  return fmtTs(S.replayNow,true)+" · "+pct.toFixed(1)+"% · closes "+fmtTs(b[1],true);
+}
+function replayDataTime(row){
+  if (Array.isArray(row)) return Number(row[0]);
+  if (row && Array.isArray(row.value)) return Number(row.value[0]);
+  return NaN;
+}
+function replayUpperBound(data, cutoff){
+  var lo=0, hi=data.length;
+  while(lo<hi){
+    var mid=(lo+hi)>>1;
+    if (replayDataTime(data[mid])<=cutoff) lo=mid+1; else hi=mid;
+  }
+  return lo;
+}
+function clippedAreas(areas, now){
+  var out=[];
+  (areas||[]).forEach(function(pair){
+    var start=Number(pair[0].xAxis), end=Number(pair[1].xAxis);
+    // A >65-minute silence becomes knowable only when that detection delay
+    // has elapsed; never paint the gap from its start while still inside it.
+    if (pair[0].name==="DATA GAP" && now<start+65*60000) return;
+    if (start>now) return;
+    var a=Object.assign({},pair[0]);
+    var b=Object.assign({},pair[1],{xAxis:Math.min(end,now)});
+    out.push([a,b]);
+  });
+  return out;
+}
+function updateReplayData(force){
+  if (!S.replayActive || S.replayNow==null) return;
+  updateHeatReveal(force);
+  if (!chart) return;
+  var updates=[];
+  Object.keys(S.replaySources).forEach(function(id){
+    var src=S.replaySources[id];
+    var count=replayUpperBound(src.data,S.replayNow-src.delayMs);
+    if (force || count!==src.revealed){
+      src.revealed=count;
+      updates.push({id:id,data:src.data.slice(0,count)});
+    }
+  });
+  var ov=S.replayOverlays;
+  if (ov){
+    if (ov.midId) updates.push({id:ov.midId,markArea:{data:
+      clippedAreas(ov.regimeAreas,S.replayNow-60000).concat(clippedAreas(ov.gapAreas,S.replayNow))}});
+    if (ov.msgId) updates.push({id:ov.msgId,markArea:{data:clippedAreas(ov.regimeAreas,S.replayNow-60000)}});
+  }
+  if (updates.length) chart.setOption({series:updates},{lazyUpdate:true});
+}
+function updateReplayUi(){
+  var b=replayBounds();
+  $("replay-play").textContent = S.replayPlaying ? "❚❚ pause" :
+    (b && S.replayNow>=b[1] ? "▶ replay from start" : "▶ resume replay");
+  $("replay-clock").textContent = replayClockText();
+  $("replay-follow").checked = S.replayFollow;
+  if (S.replayNow!=null) $("replay-range").value = String(Math.round(S.replayNow));
+  if (b) $("replay-source").textContent=(S.replayPlaying || S.replayNow<b[1] ?
+    "OPTIONAL ARCHIVE REPLAY" : "FULL ARCHIVE OVERVIEW")+
+    " · NOT LIVE · source closed "+fmtTs(b[1],true);
+}
+function pauseReplay(){
+  S.replayPlaying = false;
+  S.replayLastWall = null;
+  if (S.replayFrame!=null){ cancelAnimationFrame(S.replayFrame); S.replayFrame=null; }
+  updateReplayUi();
+}
+function prepareReplay(ep){
+  pauseReplay();
+  var t0=ep.window.t0_ms, t1=ep.window.t1_ms;
+  var duration=Math.max(60000,t1-t0);
+  S.replayWindowMs=Math.max(30*60000,Math.min(3*3600000,duration*0.12));
+  // Default to the complete event. Replay is an optional diagnostic, not the
+  // primary product view; opening at t0 made the analysis canvas look empty.
+  S.replayNow=t1;
+  S.zoom=[t0,t1];
+  var range=$("replay-range");
+  range.min=String(Math.round(t0)); range.max=String(Math.round(t1));
+  range.step="1000"; range.value=String(Math.round(t1));
+  updateReplayUi();
+}
+function cursorSeries(){
+  if (S.replayNow==null) return [];
+  return GRIDS.map(function(g,i){
+    return {id:"replay-cursor-"+i, name:"replay clock", type:"line",
+      xAxisIndex:i, yAxisIndex:i, data:[], silent:true, symbol:"none",
+      markLine:{silent:true, symbol:["none","none"], animation:false,
+        lineStyle:{color:"#ffe14d",width:1,opacity:0.78},
+        label:{show:i===0,position:"insideEndTop",color:"#ffe14d",fontSize:9,
+          formatter:fmtTs(S.replayNow,true)},
+        data:[{xAxis:S.replayNow}]}};
+  });
+}
+function updateReplayCursor(){
+  if (!S.episode || !chart || S.view!=="tracks") return;
+  chart.setOption({series:cursorSeries()}, {lazyUpdate:true});
+}
+function dispatchZoom(start, end){
+  var c = S.view==="heat" ? heatChart : chart;
+  if (!c) return;
+  S.replayZoomProgrammatic=true;
+  c.dispatchAction({type:"dataZoom",startValue:start,endValue:end});
+  setTimeout(function(){S.replayZoomProgrammatic=false;},0);
+}
+function applyReplayView(forceFollow){
+  if (!S.episode || S.replayNow==null) return;
+  var b=replayBounds();
+  if (S.replayFollow || forceFollow){
+    var end=Math.max(b[0]+1000,Math.min(b[1],S.replayNow));
+    var start=Math.max(b[0],end-S.replayWindowMs);
+    S.zoom=[start,end];
+    dispatchZoom(start,end);
+  }
+  updateReplayCursor();
+  updateHeatCursor();
+  updateReplayUi();
+}
+function setReplayPosition(ms, forceFollow){
+  var b=replayBounds(); if(!b) return;
+  S.replayNow=Math.max(b[0],Math.min(b[1],Number(ms)||b[0]));
+  var wall=Date.now();
+  if (wall-S.replayPaintWall>80 || S.replayNow>=b[1]){
+    S.replayPaintWall=wall; updateReplayData(false);
+  }
+  if (forceFollow || wall-S.replayUiWall>50 || S.replayNow>=b[1]){
+    S.replayUiWall=wall; applyReplayView(forceFollow);
+  }
+  if (wall-S.replayTapeWall>180 || S.replayNow>=b[1]){
+    S.replayTapeWall=wall; renderTape();
+  }
+  if (S.replayNow>=b[1]) pauseReplay();
+}
+function replayTick(wall){
+  if (!S.replayPlaying) return;
+  if (S.replayLastWall==null) S.replayLastWall=wall;
+  var elapsed=Math.max(0,Math.min(250,wall-S.replayLastWall));
+  S.replayLastWall=wall;
+  setReplayPosition(S.replayNow+elapsed*S.replaySpeed,false);
+  if (S.replayPlaying) S.replayFrame=requestAnimationFrame(replayTick);
+}
+function startReplay(){
+  var b=replayBounds(); if(!b) return;
+  if (S.replayNow==null || S.replayNow>=b[1]) setReplayPosition(b[0],true);
+  S.replayPlaying=true; S.replayLastWall=null; updateReplayUi();
+  if (S.replayFrame!=null) cancelAnimationFrame(S.replayFrame);
+  S.replayFrame=requestAnimationFrame(replayTick);
+}
+function stepReplay(){
+  if (!S.episode) return;
+  pauseReplay();
+  var next=null;
+  (S.episode.tape||[]).some(function(m){
+    if (m.t>S.replayNow && markerPasses(m)){ next=m.t; return true; }
+    return false;
+  });
+  setReplayPosition(next==null?S.episode.window.t1_ms:next,true);
+}
+
+/* threshold logic — refuses tier labels on inadequate cohorts */
+function markerPasses(m){
+  if (m.type === "gap") return true;
+  var meta = TYPE_META[m.type];
+  if (meta && !S.toggles[meta.toggle]) return false;
+  if (m.type.indexOf("rfq")===0 || m.type==="score") return true;
+  if (S.tier === "custom") return (m.contracts||0) >= S.customSize;
+  var tier = TIERS[S.tier];
+  if (S.mode === "descriptive"){
+    if (m.d_pct == null) return false;
+    if (m.d_n != null && m.d_n < tier.min) return false;  // label refused
+    return m.d_pct >= tier.q;
+  }
+  // causal: c_tier is highest tier passed with adequate strictly-prior cohort
+  if (!m.c_tier) return false;
+  var order = ["p99","p99.5","p99.9"];
+  return order.indexOf(m.c_tier) >= order.indexOf(S.tier);
+}
+function cohortWarning(m){
+  if (S.tier==="custom") return null;
+  var tier = TIERS[S.tier];
+  if (S.mode==="descriptive" && m.d_n!=null && m.d_n < tier.min)
+    return "cohort n="+m.d_n+" < "+tier.min+" — "+S.tier+" label refused";
+  if (S.mode==="causal" && m.c_n!=null && m.c_n < tier.min)
+    return "prior cohort n="+m.c_n+" < "+tier.min+" — "+S.tier+" label refused";
+  return null;
+}
+
+/* ---------- boot ---------------------------------------------------------- */
+loadArtifact("index", "data/index.js", function(idx){
+  if (!idx){ $("loading").textContent = "FAILED: data/index.js missing — run event_intel.py build";
+    CS.textContent = "JS-ERROR: index artifact missing"; return; }
+  S.index = idx;
+  var h = parseHash();
+  if (h.mode === "causal"){ S.mode = "causal"; $("mode-sel").value = "causal";
+    $("mode-banner").textContent = "CAUSAL REPLAY — PRIOR-HOUR FROZEN THRESHOLDS"; }
+  if (h.thr && (TIERS[h.thr] || h.thr === "custom")){ S.tier = h.thr; $("thr-sel").value = h.thr; }
+  S.sport = h.sport || idx.sports.filter(function(s){return s.episodes.length;})[0].sport;
+  buildToggles(); buildSports(); buildDefinitions(); buildQualityPane();
+  var eps = sportEpisodes(S.sport);
+  var target = h.ep && eps.some(function(e){return e.safe_key===h.ep;}) ? h.ep :
+    (eps[0] && eps[0].safe_key);
+  if (target) selectEpisode(target); else { $("loading").textContent="no episodes"; }
+});
+function parseHash(){
+  var out = {};
+  location.hash.replace(/^#/,"").split("&").forEach(function(kv){
+    var p = kv.split("="); if(p[0]) out[p[0]] = decodeURIComponent(p[1]||"");
+  });
+  return out;
+}
+function writeHash(){
+  if (!S.epKey) return;
+  location.hash = "sport="+encodeURIComponent(S.sport)+
+    "&ep="+encodeURIComponent(S.epKey)+
+    "&mkt="+encodeURIComponent(S.focusMkt||"")+
+    "&view="+S.view;
+}
+function sportEpisodes(sport){
+  var blk = S.index.sports.filter(function(s){return s.sport===sport;})[0];
+  return blk ? blk.episodes : [];
+}
+
+/* ---------- selector panels ---------------------------------------------- */
+function buildSports(){
+  var host = $("sports"); host.textContent="";
+  S.index.sports.forEach(function(blk){
+    var d = el("div","sp"+(blk.sport===S.sport?" on":""), blk.sport);
+    d.onclick = function(){
+      S.sport = blk.sport; buildSports();
+      var eps = sportEpisodes(blk.sport);
+      if (eps.length) selectEpisode(eps[0].safe_key); else buildEpisodeList();
+    };
+    host.appendChild(d);
+  });
+  buildEpisodeList();
+}
+function buildEpisodeList(){
+  var host = $("eps"); host.textContent="";
+  sportEpisodes(S.sport).forEach(function(e){
+    var d = el("div","ep"+(e.safe_key===S.epKey?" on":""));
+    var t = el("div","t", e.title);
+    if (e.has_l2) t.appendChild(el("span","l2tag","REAL L2"));
+    d.appendChild(t);
+    d.appendChild(el("div","s", e.sub || e.key));
+    d.appendChild(el("div","s", fmtN(e.volume,0)+" contracts · "+fmtN(e.trades,0)+
+      " trades · "+e.markets+" mkts · "+e.events+" event tickers"));
+    d.title = "episode key: "+e.key+"\nwindow: "+e.t0_utc+" → "+e.t1_utc;
+    d.onclick = function(){ selectEpisode(e.safe_key); };
+    host.appendChild(d);
+  });
+  if (!host.children.length) host.appendChild(el("div","ep","no episodes in local archive for this sport"));
+}
+function buildMarketList(){
+  var host = $("mkt-rows"); host.textContent="";
+  (S.episode.markets||[]).forEach(function(mk){
+    var d = el("div","mk"+(mk.ticker===S.focusMkt?" on":""));
+    d.appendChild(el("div","mt",(mk.yes_sub_title||mk.title||mk.ticker)));
+    var l2 = mk.l2 && mk.l2.available ? " · REAL L2" : "";
+    d.appendChild(el("div","ms", mk.ticker+l2));
+    d.appendChild(el("div","ms", fmtN(mk.volume,0)+" contracts / "+fmtN(mk.n_trades,0)+" trades"));
+    d.title = "market_ticker: "+mk.ticker+"\nevent_ticker: "+mk.event_ticker;
+    d.onclick = function(){ S.focusMkt = mk.ticker; writeHash(); buildMarketList(); renderChart(true); renderTape(); buildDistSelectors(); };
+    host.appendChild(d);
+  });
+}
+function buildToggles(){
+  var host = $("toggles"); host.textContent="";
+  host.appendChild(el("span","ctl","evidence:"));
+  EVIDENCE.forEach(function(evd){
+    var d = el("span","tg"+(S.toggles[evd.id]?" on":""));
+    var dot = el("span","dot"); dot.style.background = evd.color;
+    d.appendChild(dot); d.appendChild(document.createTextNode(evd.label));
+    d.onclick = function(){
+      S.toggles[evd.id] = !S.toggles[evd.id];
+      d.className = "tg"+(S.toggles[evd.id]?" on":"");
+      renderChart(false); renderTape();
+    };
+    host.appendChild(d);
+  });
+}
+
+/* ---------- episode selection --------------------------------------------- */
+function selectEpisode(safeKey){
+  $("loading").style.display = "flex";
+  $("loading").textContent = "loading episode artifact…";
+  function ready(ep){
+    if (!ep){ $("loading").textContent = "FAILED to load episode artifact "+safeKey;
+      CS.textContent = "JS-ERROR: episode artifact missing "+safeKey; return; }
+    S.episodeCache[safeKey] = ep;
+    S.episode = ep; S.epKey = safeKey; S.zoom = null;
+    prepareReplay(ep);
+    S.focusMkt = ep.markets.length ? ep.markets[0].ticker : null;
+    // prefer a market with real L2 as default focus if present
+    ep.markets.forEach(function(mk){ if (mk.l2 && mk.l2.available && S.focusMkt===ep.markets[0].ticker && !(ep.markets[0].l2||{}).available) S.focusMkt = mk.ticker; });
+    var h = parseHash();
+    if (h.mkt && ep.markets.some(function(k){return k.ticker===h.mkt;}))
+      S.focusMkt = h.mkt;
+    S.tracksDirty = true;
+    // v2: the MARKET HEATMAP is the primary view and the default landing —
+    // REAL full-book heat for L2-covered markets, honest degraded L1
+    // touch-band otherwise. The v1 tracks stay one tab away.
+    setView(h.view==="tracks" ? "tracks" : "heat", true);
+    buildEpisodeList(); buildMarketList(); renderTape();
+    buildDistSelectors(); buildQualityPane();
+    $("loading").style.display = "none";
+    CS.textContent = jsErrors.length ? CS.textContent : "RENDER-OK "+safeKey;
+  }
+  if (S.episodeCache[safeKey]) { ready(S.episodeCache[safeKey]); return; }
+  loadArtifact("episode:"+safeKey, "data/episodes/"+safeKey+".js", ready);
+}
+
+/* ---------- chart ---------------------------------------------------------- */
+var chart = echarts.init($("chart"), null, {renderer:"canvas"});
+var GRIDS = [
+  {id:"price", top:"4%",  height:"27%", label:"PRICE (¢, YES)"},
+  {id:"flow",  top:"34%", height:"13%", label:"EXECUTED FLOW (signed contracts/min)"},
+  {id:"liq",   top:"50%", height:"13%", label:"DISPLAYED LIQUIDITY"},
+  {id:"tempo", top:"66%", height:"11%", label:"TEMPO + REGIMES (archived msgs/min)"},
+  {id:"rfq",   top:"80%", height:"5%",  label:"RFQ"},
+  {id:"score", top:"87%", height:"5%",  label:"SCORE / GAME STATE"},
+];
+
+function mkFocus(){
+  if (!S.episode) return null;
+  var f = null;
+  S.episode.markets.forEach(function(mk){ if (mk.ticker===S.focusMkt) f = mk; });
+  return f || S.episode.markets[0] || null;
+}
+function markerTip(m){
+  var lines = [];
+  var meta = TYPE_META[m.type] || {label:m.type, desc:""};
+  lines.push("<b style='color:"+(meta.color||"#fff")+"'>"+meta.label+"</b>"+
+    (m.side? " · "+m.side.toUpperCase():""));
+  lines.push(fmtTs(m.t,true)+" <span style='color:#8492ad'>("+
+    (S.tz==="utc"?"UTC":"local")+"; PRE-TL1 exchange-or-coarse time)</span>");
+  if (m.market) lines.push("market: "+m.market);
+  if (m.price_c!=null) lines.push("price: "+fmtN(m.price_c,2)+"¢");
+  if (m.contracts!=null) lines.push("size: "+fmtN(m.contracts,1)+" contracts");
+  if (m.cash!=null) lines.push("taker cash: $"+fmtN(m.cash,2));
+  if (m.id) lines.push("trade_id: "+m.id+" <span style='color:#8492ad'>(a trade ID is not an account)</span>");
+  if (m.d_pct!=null) lines.push("descriptive pct: "+(100*m.d_pct).toFixed(2)+
+    "% of n="+fmtN(m.d_n,0)+" <span style='color:#ffb02e'>(full-window, look-ahead)</span>");
+  if (m.c_tier) lines.push("causal tier: "+m.c_tier+" (prior-hour cohort n="+fmtN(m.c_n,0)+
+    ", frozen thr="+fmtN(m.c_thr,1)+")");
+  else if (m.c_n!=null) lines.push("causal: no tier (prior cohort n="+fmtN(m.c_n,0)+" or below threshold)");
+  var w = cohortWarning(m); if (w) lines.push("<span style='color:#ffb02e'>"+w+"</span>");
+  (m.flags||[]).forEach(function(f){ lines.push("<span style='color:#8492ad'>· "+f+"</span>"); });
+  if (meta.desc) lines.push("<span style='color:#8492ad'>"+meta.desc+"</span>");
+  return lines.join("<br>");
+}
+
+/* renderChart dispatches to the ACTIVE view; the v1 six-track renderer is
+   renderTracks below and is untouched in behavior. */
+function renderChart(rebuildZoom){
+  if (S.view === "heat"){ S.tracksDirty = true; renderHeatActive(false); return; }
+  S.tracksDirty = false;
+  renderTracks(rebuildZoom);
+}
+function renderTracks(rebuildZoom){
+  if (!S.episode) return;
+  var ep = S.episode, mk = mkFocus();
+  if (!mk){ chart.clear(); return; }
+  var xs = {min: ep.window.t0_ms - 60000, max: ep.window.t1_ms + 60000};
+
+  var price = mk.price || [];
+  var bid = [], ask = [], midLast = [], rangeLo = [], rangeH = [], bidQ = [], askQ = [];
+  price.forEach(function(r){
+    bid.push([r[0], r[1]]); ask.push([r[0], r[2]]);
+    midLast.push([r[0], r[5]]);
+    if (r[3]!=null && r[4]!=null){ rangeLo.push([r[0], r[3]]); rangeH.push([r[0], r[4]-r[3]]); }
+    bidQ.push([r[0], r[7]]); askQ.push([r[0], r[8]]);
+  });
+  var flow = mk.flow || [];
+  var buyBars=[], sellBars=[], unkBars=[], lastPx=[];
+  flow.forEach(function(r){
+    buyBars.push([r[0], r[1]]); sellBars.push([r[0], -(r[2]||0)]);
+    unkBars.push([r[0], r[3]]); lastPx.push([r[0], r[5]]);
+  });
+  var tempo = ep.tempo || [];
+  var msgs=[], trds=[], burst=[];
+  tempo.forEach(function(r){ msgs.push([r[0],r[1]]); trds.push([r[0],r[2]]); burst.push([r[0],r[5]]); });
+
+  // markers for focus market, filtered by mode/threshold/toggles
+  var mkMarkers = (mk.markers||[]).filter(markerPasses);
+  var printPts=[], bidAddPts=[], askAddPts=[], dropPts=[];
+  mkMarkers.forEach(function(m){
+    var pt = {value:[m.t, 0], marker:m, symbolSize:logSize(m.contracts)};
+    if (m.type==="trade"){
+      var y = m.side==="no" ? -(m.contracts||0) : (m.contracts||0);
+      pt.value=[m.t, y]; printPts.push(pt);
+    } else if (m.type==="l1_bid_add"){ pt.value=[m.t, m.contracts]; bidAddPts.push(pt); }
+    else if (m.type==="l1_ask_add"){ pt.value=[m.t, m.contracts]; askAddPts.push(pt); }
+    else if (m.type==="l1_bid_drop"||m.type==="l1_ask_drop"){ pt.value=[m.t, m.contracts]; dropPts.push(pt); }
+  });
+  var l2 = mk.l2 && mk.l2.available ? mk.l2 : null;
+  var l2Yes=[], l2No=[], l2Imb=[], l2Pts=[];
+  if (l2 && S.toggles.l2){
+    l2.depth.forEach(function(r){ l2Yes.push([r[0],r[1]]); l2No.push([r[0],r[2]]); l2Imb.push([r[0],r[3]]); });
+    (l2.markers||[]).filter(markerPasses).forEach(function(m){
+      l2Pts.push({value:[m.t, m.contracts], marker:m, symbolSize:logSize(m.contracts)});
+    });
+  }
+  var rfqPts=[], scorePts=[];
+  if (ep.rfq && ep.rfq.available && S.toggles.rfq)
+    ep.rfq.events.forEach(function(evd){
+      rfqPts.push({value:[(evd.ts_utc/1000)||evd.t, 0],
+        marker:{t:(evd.ts_utc/1000)||evd.t, type:evd.kind, market:evd.market_ticker,
+          contracts:evd.contracts, price_c:null, flags:["requester shown only as static hash"]},
+        symbolSize:9});
+    });
+  if (ep.score && ep.score.available && S.toggles.score)
+    ep.score.events.forEach(function(evd){
+      var t = Date.parse(evd.provider_ts_utc);
+      scorePts.push({value:[t,0], marker:{t:t, type:"score", market:null,
+        contracts:null, price_c:null,
+        flags:[JSON.stringify(evd.payload).slice(0,120),
+               evd.post_hoc?"POST-HOC BACKFILL":"live-captured",
+               "mapping confidence "+evd.mapping_confidence]}, symbolSize:10});
+    });
+
+  // regime bands + gaps
+  var regimeColors = {CALM:"rgba(60,140,90,0.05)", BUILDING:"rgba(77,163,255,0.09)",
+    BURST:"rgba(255,171,64,0.14)", DISLOCATION:"rgba(255,93,93,0.16)",
+    RECOVERY:"rgba(179,136,255,0.10)", UNKNOWN:"rgba(120,120,120,0.05)"};
+  var regimeAreas = (S.toggles.bursts? (ep.regimes||[]) : []).map(function(r){
+    return [{xAxis:r.t0, itemStyle:{color:regimeColors[r.label]||"rgba(120,120,120,0.04)"},
+             regime:r, name:r.label}, {xAxis:r.t1}];
+  });
+  var gapAreas = (mk.gaps||[]).map(function(g){
+    return [{xAxis:g[0], itemStyle:{color:"rgba(255,59,59,0.13)",
+      decal:{symbol:"rect", dashArrayX:[2,4], dashArrayY:[2,4], rotation:Math.PI/4,
+             color:"rgba(255,59,59,0.35)"}},
+      name:"DATA GAP"}, {xAxis:g[1]}];
+  });
+
+  var xAxes = GRIDS.map(function(g,i){
+    return {gridIndex:i, type:"time", min:xs.min, max:xs.max,
+      axisLine:{lineStyle:{color:"#232c42"}},
+      axisLabel:{show:i===GRIDS.length-1, color:"#8492ad", fontSize:10,
+        formatter:function(v){ return fmtTs(v,true); }},
+      splitLine:{show:false}, axisPointer:{show:true}};
+  });
+  function yax(i, extra){
+    var o = {gridIndex:i, type:"value",
+      axisLabel:{color:"#8492ad", fontSize:9, formatter:function(v){ return abbr(v); }},
+      splitLine:{lineStyle:{color:"#161d2e"}},
+      axisLine:{show:false}, scale:true};
+    for (var k in (extra||{})) o[k]=extra[k];
+    return o;
+  }
+  var yAxes = [
+    yax(0, {axisLabel:{color:"#8492ad", fontSize:9}}), yax(1), yax(2),
+    yax(3), yax(4,{min:-1,max:1,axisLabel:{show:false},splitLine:{show:false}}),
+    yax(5,{min:-1,max:1,axisLabel:{show:false},splitLine:{show:false}}),
+  ];
+  var gridTitles = [
+    GRIDS[0].label, GRIDS[1].label,
+    l2 ? "REAL L2 DEPTH — top-5 levels/side (contracts)"
+       : "DISPLAYED LIQUIDITY — L1 touch qty (contracts)",
+    GRIDS[3].label, GRIDS[4].label, GRIDS[5].label,
+  ];
+
+  var series = [];
+  if (S.toggles.price){
+    series.push(
+      {name:"intraminute mid range", type:"line", xAxisIndex:0, yAxisIndex:0, data:rangeLo,
+        stack:"midrange", lineStyle:{opacity:0}, symbol:"none", silent:true, areaStyle:{opacity:0}},
+      {name:"mid min–max", type:"line", xAxisIndex:0, yAxisIndex:0, data:rangeH,
+        stack:"midrange", lineStyle:{opacity:0}, symbol:"none", silent:true,
+        areaStyle:{color:"rgba(232,238,252,0.10)"}},
+      {name:"best bid", type:"line", step:"end", xAxisIndex:0, yAxisIndex:0, data:bid,
+        symbol:"none", lineStyle:{color:"#37c98b", width:1}, connectNulls:false},
+      {name:"best ask", type:"line", step:"end", xAxisIndex:0, yAxisIndex:0, data:ask,
+        symbol:"none", lineStyle:{color:"#ffab40", width:1}, connectNulls:false},
+      {name:"mid (minute last)", type:"line", xAxisIndex:0, yAxisIndex:0, data:midLast,
+        symbol:"none", lineStyle:{color:"#e8eefc", width:1.8}, z:5,
+        markArea:{silent:false, label:{show:false}, emphasis:{label:{show:false}},
+          data:regimeAreas.concat(gapAreas)}},
+      {name:"last trade px", type:"line", xAxisIndex:0, yAxisIndex:0, data:lastPx,
+        symbol:"none", lineStyle:{color:"#4da3ff", width:1, type:"dotted", opacity:0.9}}
+    );
+  }
+  if (S.toggles.trades){
+    series.push(
+      {name:"taker buy /min", type:"bar", xAxisIndex:1, yAxisIndex:1, data:buyBars,
+        itemStyle:{color:"rgba(55,201,139,0.75)"}, barMaxWidth:4, stack:"fl", large:true},
+      {name:"taker sell /min", type:"bar", xAxisIndex:1, yAxisIndex:1, data:sellBars,
+        itemStyle:{color:"rgba(255,93,93,0.75)"}, barMaxWidth:4, stack:"fl", large:true},
+      {name:"unknown side /min", type:"bar", xAxisIndex:1, yAxisIndex:1, data:unkBars,
+        itemStyle:{color:"rgba(132,146,173,0.5)"}, barMaxWidth:4, stack:"fl", large:true}
+    );
+  }
+  if (S.toggles.prints)
+    series.push({name:"large prints", type:"scatter", xAxisIndex:1, yAxisIndex:1,
+      data:printPts, itemStyle:{color:"rgba(77,163,255,0.6)", borderColor:"#0b0e14", borderWidth:0.5},
+      symbolSize:function(v,p){ return p.data.symbolSize; }, z:6});
+  if (l2 && S.toggles.l2){
+    series.push(
+      {name:"yes-side depth", type:"line", xAxisIndex:2, yAxisIndex:2, data:l2Yes,
+        symbol:"none", areaStyle:{color:"rgba(55,201,139,0.18)"}, lineStyle:{color:"#37c98b", width:1}},
+      {name:"no-side depth", type:"line", xAxisIndex:2, yAxisIndex:2, data:l2No,
+        symbol:"none", areaStyle:{color:"rgba(255,171,64,0.15)"}, lineStyle:{color:"#ffab40", width:1}},
+      {name:"L2 events", type:"scatter", xAxisIndex:2, yAxisIndex:2, data:l2Pts,
+        itemStyle:{color:function(p){
+          var t = p.data.marker.type;
+          return t==="l2_add" ? "#66e0ff" : (t==="l2_depletion" ? "#ff8a3b" : "#ff5d5d");
+        }}, symbol:"diamond", symbolSize:function(v,p){ return p.data.symbolSize; }, z:6}
+    );
+  } else {
+    series.push(
+      {name:"bid touch qty (L1 proxy)", type:"line", step:"end", xAxisIndex:2, yAxisIndex:2, data:bidQ,
+        symbol:"none", areaStyle:{color:"rgba(55,201,139,0.13)"}, lineStyle:{color:"#37c98b", width:1}},
+      {name:"ask touch qty (L1 proxy)", type:"line", step:"end", xAxisIndex:2, yAxisIndex:2, data:askQ,
+        symbol:"none", areaStyle:{color:"rgba(255,171,64,0.11)"}, lineStyle:{color:"#ffab40", width:1}}
+    );
+    if (S.toggles.bid_add)
+      series.push({name:"bid additions", type:"scatter", xAxisIndex:2, yAxisIndex:2, data:bidAddPts,
+        symbol:"triangle", itemStyle:{color:"#37c98b", opacity:0.7},
+        symbolSize:function(v,p){ return p.data.symbolSize; }, z:6});
+    if (S.toggles.ask_add)
+      series.push({name:"ask additions", type:"scatter", xAxisIndex:2, yAxisIndex:2, data:askAddPts,
+        symbol:"triangle", itemStyle:{color:"#ffab40", opacity:0.7},
+        symbolSize:function(v,p){ return p.data.symbolSize; }, z:6});
+    if (S.toggles.drops)
+      series.push({name:"cancels/depletion", type:"scatter", xAxisIndex:2, yAxisIndex:2, data:dropPts,
+        symbol:"triangle", symbolRotate:180, itemStyle:{color:"#ff5d5d", opacity:0.55},
+        symbolSize:function(v,p){ return p.data.symbolSize; }, z:6});
+  }
+  series.push(
+    {name:"msgs/min (archived)", type:"line", xAxisIndex:3, yAxisIndex:3, data:msgs,
+      symbol:"none", lineStyle:{color:"#4da3ff", width:1}, areaStyle:{color:"rgba(77,163,255,0.10)"},
+      markArea:{silent:false, label:{show:false}, emphasis:{label:{show:false}},
+        data:regimeAreas}},
+    {name:"trades/min", type:"line", xAxisIndex:3, yAxisIndex:3, data:trds,
+      symbol:"none", lineStyle:{color:"#e8eefc", width:1, opacity:0.7}}
+  );
+  series.push({name:"rfq events", type:"scatter", xAxisIndex:4, yAxisIndex:4, data:rfqPts,
+    symbol:"rect", itemStyle:{color:"#b388ff"}, symbolSize:9});
+  series.push({name:"score events", type:"scatter", xAxisIndex:5, yAxisIndex:5, data:scorePts,
+    symbol:"path://M0,-8 L2,-2 8,-2 3,2 5,8 0,4 -5,8 -3,2 -8,-2 -2,-2 Z",
+    itemStyle:{color:"#ffe14d"}, symbolSize:12});
+  cursorSeries().forEach(function(s){ series.push(s); });
+
+  // Preserve the full arrays outside ECharts, then reveal only the prefix that
+  // was observable at the replay clock. Minute aggregates become available at
+  // bucket close (+60s); exact markers and real L2 deltas reveal at their row
+  // timestamp. Stable IDs let the clock update prefixes without rebuilding the
+  // whole six-track option on every animation frame.
+  S.replaySources={};
+  var midSeriesId=null, msgSeriesId=null;
+  series.forEach(function(s,i){
+    if (!s.id) s.id="ei-"+String(s.name||("series-"+i)).toLowerCase().replace(/[^a-z0-9]+/g,"-")+"-"+i;
+    if (s.name==="mid (minute last)") midSeriesId=s.id;
+    if (s.name==="msgs/min (archived)") msgSeriesId=s.id;
+    if (!Array.isArray(s.data) || !s.data.length || s.name==="replay clock") return;
+    var exact=s.type==="scatter" || s.xAxisIndex===4 || s.xAxisIndex===5 ||
+      (l2 && s.xAxisIndex===2);
+    var full=s.data;
+    var delay=exact?0:60000;
+    var revealed=S.replayActive && S.replayNow!=null ?
+      replayUpperBound(full,S.replayNow-delay) : full.length;
+    S.replaySources[s.id]={data:full,delayMs:delay,revealed:revealed};
+    s.data=full.slice(0,revealed);
+  });
+  S.replayOverlays={midId:midSeriesId,msgId:msgSeriesId,
+    regimeAreas:regimeAreas,gapAreas:gapAreas};
+  series.forEach(function(s){
+    if (s.id===midSeriesId && s.markArea) s.markArea.data=
+      clippedAreas(regimeAreas,S.replayNow-60000).concat(clippedAreas(gapAreas,S.replayNow));
+    if (s.id===msgSeriesId && s.markArea) s.markArea.data=
+      clippedAreas(regimeAreas,S.replayNow-60000);
+  });
+
+  var graphics = [];
+  GRIDS.forEach(function(g, i){
+    graphics.push({type:"text", left:62,
+      top:(parseFloat(g.top)-1.9)+"%",
+      style:{text:gridTitles[i], fill:"#5a6785", fontSize:9.5,
+        fontFamily:"monospace"}, silent:true});
+  });
+  function emptyState(gridIdx, text){
+    var g = GRIDS[gridIdx];
+    graphics.push({type:"text", left:"center", top: (parseFloat(g.top)+parseFloat(g.height)/2-1)+"%",
+      style:{text:text, fill:"#5a6785", fontSize:11, fontFamily:"monospace"}, silent:true});
+  }
+  if (!(ep.rfq && ep.rfq.available)) emptyState(4, (ep.rfq&&ep.rfq.status)||"RFQ UNAVAILABLE");
+  if (!(ep.score && ep.score.available)) emptyState(5, (ep.score&&ep.score.status)||"SCORE/GAME STATE NOT CAPTURED FOR THIS ARCHIVE");
+  if (l2) graphics.push({type:"text", right:20, top:"50.5%",
+    style:{text:"REAL L2 (watchlist window "+fmtTs(l2.window.t0_ms,true)+"–"+fmtTs(l2.window.t1_ms)+"; "+l2.seq.note+")",
+      fill:"#66e0ff", fontSize:9.5, fontFamily:"monospace"}, silent:true});
+  else graphics.push({type:"text", right:20, top:"50.5%",
+    style:{text:"AGGREGATE L1 PROXY — best-touch only; NOT individual orders", fill:"#ffb02e",
+      fontSize:9.5, fontFamily:"monospace"}, silent:true});
+
+  var opt = {
+    animation:false,
+    backgroundColor:"#0b0e14",
+    textStyle:{fontFamily:"monospace"},
+    grid: GRIDS.map(function(g){ return {left:58, right:14, top:g.top, height:g.height}; }),
+    xAxis:xAxes, yAxis:yAxes, series:series, graphic:graphics,
+    axisPointer:{link:[{xAxisIndex:"all"}], lineStyle:{color:"#4da3ff", opacity:0.5}},
+    tooltip:{trigger:"item", backgroundColor:"#101522", borderColor:"#232c42",
+      textStyle:{color:"#d7e0f0", fontSize:10.5, fontFamily:"monospace"},
+      confine:true, extraCssText:"max-width:380px; white-space:normal;",
+      formatter:function(p){
+        if (p.data && p.data.marker) return markerTip(p.data.marker);
+        if (p.data && p.data.regime){
+          var r = p.data.regime, c = r.components||{};
+          return "<b>"+r.label+"</b> "+fmtTs(r.t0,true)+" → "+fmtTs(r.t1)+"<br>rule: "+r.rule+
+            "<br>msgs="+c.msgs+" trades="+c.trades+" midMove="+fmtN(c.mid_move_c,1)+
+            "¢ spread="+fmtN(c.spread_med_c,1)+"¢<br>baseline med="+fmtN(c.baseline_med,1)+
+            " MAD="+fmtN(c.baseline_mad,1)+" burstThr="+fmtN(c.burst_thr,1)+
+            " burstScore="+fmtN(c.burst_score,2)+
+            "<br><span style='color:#8492ad'>exploratory description, not a prediction</span>";
+        }
+        if (p.data && p.data.name==="DATA GAP")
+          return "<b style='color:#ff3b3b'>DATA GAP / BOOK STATE UNTRUSTED</b><br>"+
+                 "heartbeat contract violated (>65 min without any archived row)";
+        var v = p.value;
+        return p.seriesName+"<br>"+fmtTs(v[0],true)+" · "+fmtN(v[1],2);
+      }},
+    dataZoom:[
+      {type:"inside", xAxisIndex:[0,1,2,3,4,5], filterMode:"none", throttle:60},
+      {type:"slider", xAxisIndex:[0,1,2,3,4,5], filterMode:"none", height:16, bottom:2,
+       backgroundColor:"#101522", borderColor:"#232c42", fillerColor:"rgba(77,163,255,0.15)",
+       handleStyle:{color:"#4da3ff"}, textStyle:{color:"#8492ad", fontSize:9},
+       labelFormatter:function(v){ return fmtTs(v,true); }},
+    ],
+  };
+  chart.setOption(opt, {notMerge:true});
+  if (S.zoom){
+    S.replayZoomProgrammatic=true;
+    chart.dispatchAction({type:"dataZoom", startValue:S.zoom[0], endValue:S.zoom[1]});
+    setTimeout(function(){S.replayZoomProgrammatic=false;},0);
+  }
+
+  $("note-episode").textContent = ep.title+" · "+ep.key+" · focus "+ (mk.ticker) +
+    " · window "+fmtTs(ep.window.t0_ms,true)+"–"+fmtTs(ep.window.t1_ms,true)+
+    (S.tz==="utc"?" UTC":" local");
+  var q = ep.quality;
+  $("note-quality").textContent = "sport trades: raw "+
+    fmtN(q.trade_quality.raw_rows,0)+" → safe IDs "+
+    fmtN(q.trade_quality.safe_unique_trade_ids,0)+
+    " · conflicting IDs excluded "+
+    fmtN(q.trade_quality.conflicting_trade_ids_excluded,0)+
+    " · L1 rows "+fmtN(q.l1_rows,0)+" · gaps "+q.capture_gaps+" · seals: none (legacy days)";
+}
+
+chart.on("datazoom", function(){
+  var o = chart.getOption();
+  if (o.dataZoom && o.dataZoom[0]){
+    S.zoom = [o.dataZoom[0].startValue, o.dataZoom[0].endValue];
+    if (!S.replayZoomProgrammatic && S.replayFollow){
+      S.replayFollow=false; updateReplayUi();
+    }
+    renderTape();
+  }
+});
+window.addEventListener("resize", function(){ chart.resize();
+  if (heatChart){ heatChart.resize(); heatRedraw(); }
+  distE && distE.resize(); distH && distH.resize(); });
+
+/* ---------- tape ------------------------------------------------------------ */
+function tapeRows(){
+  if (!S.episode) return {rows:[], total:0, refused:0};
+  var t0 = S.zoom ? S.zoom[0] : -Infinity, t1 = S.zoom ? S.zoom[1] : Infinity;
+  if (S.replayNow!=null) t1=Math.min(t1,S.replayNow);
+  var rows = [], refused = 0;
+  (S.episode.tape||[]).forEach(function(m){
+    if (m.t < t0 || m.t > t1) return;
+    if (!markerPasses(m)){ if (m.type!=="gap") refused++; return; }
+    rows.push(m);
+  });
+  return {rows:rows, total:rows.length, refused:refused};
+}
+function renderTape(){
+  var host = $("tape-rows"); host.textContent = "";
+  var res = tapeRows();
+  var shown = res.rows.slice(Math.max(0,res.rows.length-400));
+  $("tape-count").textContent = "showing "+shown.length+" of "+res.total+
+    (res.refused? " ("+res.refused+" below threshold/cohort)" : "");
+  shown.forEach(function(m){
+    var meta = TYPE_META[m.type] || {label:m.type, color:"#888"};
+    var d = el("div","tr");
+    d.appendChild(el("span","tt", fmtTs(m.t, true)));
+    var ty = el("span","ty", meta.label); ty.style.color = meta.color;
+    d.appendChild(ty);
+    d.appendChild(el("span","sz", m.contracts!=null ? fmtN(m.contracts,0) : ""));
+    var det = (m.market||"") +
+      (m.price_c!=null? " @ "+fmtN(m.price_c,2)+"¢":"") +
+      (m.side? " · "+m.side:"") +
+      (m.d_pct!=null? " · pct "+(100*m.d_pct).toFixed(2)+"% (n="+fmtN(m.d_n,0)+")":"") +
+      (m.c_tier? " · causal "+m.c_tier:"") +
+      (m.cash!=null? " · $"+fmtN(m.cash,0):"") +
+      (m.type==="gap" ? " → "+fmtTs(m.t_end,true) : "");
+    d.appendChild(el("span","det", det));
+    d.title = (m.flags||[]).join("\n");
+    d.onclick = function(){
+      pauseReplay();
+      var pad = Math.max(120000, ((m.t_end||m.t) - m.t) * 2);
+      S.zoom = [m.t - pad, (m.t_end||m.t) + pad];
+      S.replayNow=m.t; S.replayFollow=false; updateReplayUi();
+      if (m.market && m.market !== S.focusMkt &&
+          S.episode.markets.some(function(k){return k.ticker===m.market;})){
+        S.focusMkt = m.market; buildMarketList(); renderChart(false);
+      }
+      updateReplayData(true); updateReplayCursor(); updateHeatCursor();
+      dispatchZoom(S.zoom[0], S.zoom[1]);
+      renderTape();
+    };
+    host.appendChild(d);
+  });
+  if (S.replayFollow && host.lastElementChild) host.scrollTop=host.scrollHeight;
+  if (!shown.length) host.appendChild(el("div","tr","no candidates in the visible range at this threshold"));
+}
+
+/* ---------- MARKET HEATMAP (v2 primary view) --------------------------------
+   Bookmap-style time × price (1–99¢) grid. Cell color = log-scaled RESTING
+   DISPLAYED DEPTH reconstructed at artifact-build time from REAL
+   orderbooks_full snapshot+delta replay. Markets without full-book capture
+   get the honest degraded touch-band (AGGREGATE L1 PROXY) — depth is NEVER
+   fabricated. Rendering: one raw canvas for heat cells (offscreen ImageData
+   at 1px/bin, blitted DPR-aware on zoom/pan) under a transparent ECharts
+   canvas for axes, crosshair, brush and the overlay lines/dots/markers. */
+var heatChart = null;
+var HEAT = {art:null};
+
+function rampLUT(stops){
+  var lut=[];
+  for (var i=0;i<256;i++){
+    var t=i/255*(stops.length-1), k=Math.min(stops.length-2,Math.floor(t)), f=t-k;
+    var a=stops[k], b=stops[k+1];
+    lut.push([Math.round(a[0]+(b[0]-a[0])*f), Math.round(a[1]+(b[1]-a[1])*f),
+              Math.round(a[2]+(b[2]-a[2])*f)]);
+  }
+  return lut;
+}
+/* Sequential ramps anchored at the page surface (zero depth = surface),
+   bid = green family, ask = orange family — same hues as every other bid/ask
+   encoding on this page; monotone lightness by construction. */
+var BID_LUT = rampLUT([[13,26,27],[18,77,55],[55,201,139],[186,242,218]]);
+var ASK_LUT = rampLUT([[28,22,13],[105,67,20],[255,171,64],[255,226,178]]);
+
+function decodeU32(b64){
+  var bin=atob(b64), n=bin.length, u8=new Uint8Array(n);
+  for (var i=0;i<n;i++) u8[i]=bin.charCodeAt(i);
+  return new Uint32Array(u8.buffer); // little-endian per artifact contract
+}
+
+function buildHeatImage(art){
+  var nb=art.n_bins, P=art.price_rows;
+  var cnv=document.createElement("canvas"); cnv.width=nb; cnv.height=P;
+  var ctx=cnv.getContext("2d");
+  var img=ctx.createImageData(nb,P);
+  var d=img.data, i, o;
+  function put(bin, cent, e){
+    o=((P-cent)*nb+bin)*4; d[o]=e[0]; d[o+1]=e[1]; d[o+2]=e[2]; d[o+3]=255;
+  }
+  if (art.kind==="l2_full"){
+    var bid=art._bid, ask=art._ask;
+    var maxLog=Math.log(1+art.max_cell_e4/1e4);
+    for (var b=0;b<nb;b++){
+      for (var c=1;c<=P;c++){
+        var vb=bid[b*P+c-1], va=ask[b*P+c-1];
+        if (!vb && !va) continue;
+        var v=Math.max(vb,va)/1e4, lut=vb>=va?BID_LUT:ASK_LUT;
+        var t=maxLog>0?Math.log(1+v)/maxLog:1;
+        // floor 18 keeps real (nonzero) depth from vanishing into the surface
+        put(b, c, lut[Math.max(18,Math.min(255,Math.round(t*255)))]);
+      }
+    }
+  } else if (art.kind==="l1_touch"){
+    var tc=art.touch, mx=0;
+    for (i=0;i<nb;i++){
+      if (tc.bid_qty_e4[i]>mx) mx=tc.bid_qty_e4[i];
+      if (tc.ask_qty_e4[i]>mx) mx=tc.ask_qty_e4[i];
+    }
+    var mLog=Math.log(1+mx/1e4);
+    function touchPut(bin, price_e4, q_e4, lut){
+      var cent=Math.floor(price_e4/100);
+      if (cent<1||cent>P||!(q_e4>0)) return;
+      var t=mLog>0?Math.log(1+q_e4/1e4)/mLog:1;
+      put(bin, cent, lut[Math.max(46,Math.min(255,Math.round(t*255)))]);
+    }
+    for (i=0;i<nb;i++){
+      if (tc.bid_price_e4[i]>0) touchPut(i, tc.bid_price_e4[i], tc.bid_qty_e4[i], BID_LUT);
+      if (tc.ask_price_e4[i]>0) touchPut(i, tc.ask_price_e4[i], tc.ask_qty_e4[i], ASK_LUT);
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return cnv;
+}
+
+var hatchCache={};
+function hatchTile(color){
+  if (hatchCache[color]) return hatchCache[color];
+  var c=document.createElement("canvas"); c.width=8; c.height=8;
+  var x=c.getContext("2d");
+  x.strokeStyle=color; x.lineWidth=1.3;
+  x.beginPath(); x.moveTo(-2,6); x.lineTo(6,-2);
+  x.moveTo(2,10); x.lineTo(10,2); x.stroke();
+  hatchCache[color]=c;
+  return c;
+}
+function drawHatch(ctx, x0, x1, yTop, yBot, color, label, labelColor){
+  if (x1-x0 < 2) return;
+  ctx.fillStyle = ctx.createPattern(hatchTile(color), "repeat");
+  ctx.fillRect(x0, yTop, x1-x0, yBot-yTop);
+  if (label && x1-x0 > 110){
+    ctx.fillStyle = labelColor; ctx.font="9.5px monospace"; ctx.textAlign="center";
+    ctx.fillText(label, (x0+x1)/2, (yTop+yBot)/2);
+  }
+}
+
+function heatClear(){
+  var cv=$("heat-canvas");
+  if (cv && cv.width) cv.getContext("2d").clearRect(0,0,cv.width,cv.height);
+  if (heatChart) heatChart.clear();
+}
+function showHeatEmpty(text){
+  var d=$("heat-empty");
+  d.textContent = text || "no heatmap artifact";
+  d.style.display = "flex";
+  $("heat-proxy-label").style.display="none";
+  $("heat-kind-badge").style.display="none";
+}
+
+function heatRedraw(){
+  var cv=$("heat-canvas"), wrap=$("heat-wrap");
+  if (!cv || S.view!=="heat") return;
+  var w=wrap.clientWidth, h=wrap.clientHeight;
+  if (!w || !h) return;
+  var dpr=window.devicePixelRatio||1;
+  if (cv.width!==Math.round(w*dpr) || cv.height!==Math.round(h*dpr)){
+    cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  }
+  var ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  var art=HEAT.art;
+  if (!art || !art._image || !heatChart || !S.episode) return;
+  var z=S.zoom || [S.episode.window.t0_ms, S.episode.window.t1_ms];
+  function px(t){ return heatChart.convertToPixel({xAxisIndex:0}, t); }
+  function py(v){ return heatChart.convertToPixel({yAxisIndex:0}, v); }
+  var gx0=px(z[0]), gx1=px(z[1]), gyTop=py(100), gyBot=py(0);
+  if (![gx0,gx1,gyTop,gyBot].every(isFinite)) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(gx0, gyTop, gx1-gx0, gyBot-gyTop); ctx.clip();
+  var t0m=art.t0_us/1000, t1m=art.t1_us/1000, binMs=art.bin_us/1000;
+  // replay honesty: a bin's state is knowable only at bin close
+  var visBins = (S.replayActive && S.replayNow!=null && S.replayNow < t1m)
+    ? Math.max(0, Math.floor((S.replayNow - t0m)/binMs)) : art.n_bins;
+  var heatEnd = t0m + visBins*binMs;
+  var a=Math.max(z[0], t0m), b=Math.min(z[1], heatEnd);
+  if (b > a){
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(art._image,
+      (a-t0m)/binMs, 0, (b-a)/binMs, art.price_rows,
+      px(a), py(100), px(b)-px(a), py(1)-py(100));
+  }
+  if (art.kind==="l2_full"){
+    // outside the watchlist capture window there IS no full-book channel
+    if (t0m > z[0])
+      drawHatch(ctx, gx0, Math.min(gx1, px(t0m)), gyTop, gyBot,
+        "rgba(90,103,133,0.30)", "NO FULL-BOOK CAPTURE", "#5a6785");
+    if (t1m < z[1])
+      drawHatch(ctx, Math.max(gx0, px(t1m)), gx1, gyTop, gyBot,
+        "rgba(90,103,133,0.30)", "NO FULL-BOOK CAPTURE", "#5a6785");
+  } else {
+    (art.gaps_ms||[]).forEach(function(g){
+      // a >65-min silence is only knowable once the detection delay elapsed
+      if (S.replayActive && S.replayNow!=null && S.replayNow < g[0]+65*60000) return;
+      var hx0=Math.max(gx0, px(g[0])), hx1=Math.min(gx1, px(Math.min(g[1],
+        (S.replayActive&&S.replayNow!=null)?S.replayNow:g[1])));
+      drawHatch(ctx, hx0, hx1, gyTop, gyBot,
+        "rgba(255,59,59,0.35)", "DATA GAP / BOOK STATE UNTRUSTED", "#ff3b3b");
+    });
+  }
+  ctx.restore();
+}
+
+function heatCursorSeries(){
+  return {id:"heat-cursor", name:"replay clock", type:"line", data:[],
+    silent:true, symbol:"none",
+    markLine:{silent:true, symbol:["none","none"], animation:false,
+      lineStyle:{color:"#ffe14d", width:1, opacity:0.78},
+      label:{show:true, position:"insideEndTop", color:"#ffe14d", fontSize:9,
+        formatter:S.replayNow!=null?fmtTs(S.replayNow,true):""},
+      data:S.replayNow!=null?[{xAxis:S.replayNow}]:[]}};
+}
+function updateHeatCursor(){
+  if (!heatChart || S.view!=="heat" || !HEAT.art) return;
+  heatChart.setOption({series:[heatCursorSeries()]}, {lazyUpdate:true});
+}
+function updateHeatReveal(force){
+  if (S.view!=="heat" || !heatChart || !HEAT.art ||
+      !S.replayActive || S.replayNow==null) return;
+  var updates=[];
+  Object.keys(S.heatSources).forEach(function(id){
+    var src=S.heatSources[id];
+    var count=replayUpperBound(src.data, S.replayNow-src.delayMs);
+    if (force || count!==src.revealed){
+      src.revealed=count;
+      updates.push({id:id, data:src.data.slice(0,count)});
+    }
+  });
+  if (updates.length) heatChart.setOption({series:updates}, {lazyUpdate:true});
+  heatRedraw();
+  updateHeatCursor();
+}
+
+function renderHeatActive(landing){
+  if (!S.episode || S.view!=="heat") return;
+  var mk = mkFocus();
+  if (!mk || !mk.heatmap || mk.heatmap.kind==="unavailable"){
+    HEAT.art=null; heatClear();
+    showHeatEmpty(mk && mk.heatmap ? mk.heatmap.note :
+      "no heatmap artifact for this market — rebuild with event_intel.py build");
+    return;
+  }
+  $("heat-empty").style.display="none";
+  var meta=mk.heatmap;
+  if (S.heatCache[meta.name]){
+    HEAT.art=S.heatCache[meta.name];
+    renderHeatChart(landing===true);
+    return;
+  }
+  $("loading").style.display="flex";
+  $("loading").textContent="loading heatmap artifact…";
+  loadArtifact("heatmap:"+meta.name, meta.src, function(art){
+    $("loading").style.display="none";
+    if (!art){
+      showHeatEmpty("FAILED to load heatmap artifact "+meta.src);
+      CS.textContent = "JS-ERROR: heatmap artifact missing "+meta.name;
+      return;
+    }
+    if (art.kind==="l2_full"){
+      art._bid=decodeU32(art.bid_b64);
+      art._ask=decodeU32(art.ask_b64);
+    }
+    art._image=buildHeatImage(art);
+    S.heatCache[meta.name]=art;
+    if (S.view==="heat" && mkFocus() && mkFocus().ticker===art.market_ticker){
+      HEAT.art=art;
+      renderHeatChart(landing===true);
+    }
+  });
+}
+
+function renderHeatChart(landing){
+  var ep=S.episode, mk=mkFocus(), art=HEAT.art;
+  if (!ep || !mk || !art) return;
+  if (!heatChart){
+    heatChart=echarts.init($("heat-chart"), null, {renderer:"canvas"});
+    wireHeatChart();
+  }
+  var xs={min:ep.window.t0_ms-60000, max:ep.window.t1_ms+60000};
+  var t0m=art.t0_us/1000, binMs=art.bin_us/1000;
+
+  var bidLine=[], askLine=[], midLine=[], i, t, bb, ba;
+  for (i=0;i<art.n_bins;i++){
+    t=t0m+i*binMs;
+    if (art.kind==="l2_full"){ bb=art.best_bid_e4[i]; ba=art.best_ask_e4[i]; }
+    else { bb=art.touch.bid_price_e4[i]; ba=art.touch.ask_price_e4[i]; }
+    bidLine.push([t, bb>0?bb/100:null]);
+    askLine.push([t, ba>0?ba/100:null]);
+    midLine.push([t, (bb>0&&ba>0)?(bb+ba)/200:null]);
+  }
+  var dots=[];
+  if (S.toggles.prints)
+    (art.trades.rows||[]).forEach(function(r){
+      var side=r[3];
+      dots.push({value:[r[0], r[1]], symbolSize:logSize(r[2]),
+        itemStyle:{color:side==="yes"?"#37c98b":(side==="no"?"#ff5d5d":"#8492ad"),
+          borderColor:"#0b0e14", borderWidth:0.5, opacity:0.92},
+        marker:{t:r[0], type:"trade", side:side, price_c:r[1], contracts:r[2],
+          cash:null, id:r[4],
+          flags:["LARGE-ACTIVITY CANDIDATE — NO ACTOR IDENTITY",
+                 "ACTUAL TRADE PRINT (not the originating order)",
+                 side ? "taker side: "+side+" — taker_side archive field "+
+                        "(deprecated fallback; docs/kalshi_ws_protocol.md I9)"
+                      : "taker side unknown — shown neutral, never guessed"]}});
+    });
+  var lam=[];
+  var lamSrc=(art.kind==="l2_full" && mk.l2 && mk.l2.available)
+    ? (mk.l2.markers||[]) : (mk.markers||[]);
+  lamSrc.filter(markerPasses).forEach(function(m){
+    if (m.price_c==null || m.type==="trade") return;
+    lam.push({value:[m.t, m.price_c], marker:m, symbolSize:logSize(m.contracts)});
+  });
+
+  var series=[];
+  if (S.toggles.price){
+    // in the degraded L1 view the heat IS the touch band those lines trace —
+    // translucent lines keep the honest heat visible underneath
+    var lineOp = art.kind==="l1_touch" ? 0.55 : 1;
+    series.push(
+      {id:"heat-bid-line", name:"best bid", type:"line", step:"end", data:bidLine,
+       symbol:"none", lineStyle:{color:"#37c98b", width:1, opacity:lineOp}, connectNulls:false, z:4},
+      {id:"heat-ask-line", name:"best ask", type:"line", step:"end", data:askLine,
+       symbol:"none", lineStyle:{color:"#ffab40", width:1, opacity:lineOp}, connectNulls:false, z:4},
+      {id:"heat-mid-line", name:"mid", type:"line", data:midLine,
+       symbol:"none", lineStyle:{color:"#e8eefc", width:1.6, opacity:lineOp}, connectNulls:false, z:5});
+  }
+  series.push(
+    {id:"heat-trades", name:"trade prints", type:"scatter", data:dots,
+     symbolSize:function(v,p){ return p.data.symbolSize; }, z:7},
+    {id:"heat-lam", name:"large-activity candidates", type:"scatter", data:lam,
+     symbol:"diamond",
+     itemStyle:{color:function(p){
+       var ty=p.data.marker.type;
+       return ty==="l2_add"?"#66e0ff":(ty==="l2_depletion"?"#ff8a3b":
+         (ty.indexOf("add")>=0?"#37c98b":"#ff5d5d"));
+     }, borderColor:"#0b0e14", borderWidth:0.5},
+     symbolSize:function(v,p){ return p.data.symbolSize; }, z:8},
+    heatCursorSeries());
+
+  S.heatSources={};
+  series.forEach(function(s){
+    if (s.id==="heat-cursor" || !Array.isArray(s.data) || !s.data.length) return;
+    var delay = s.type==="line" ? Math.max(1000, binMs) : 0; // lines close at bin end
+    var full=s.data;
+    var revealed = S.replayActive && S.replayNow!=null
+      ? replayUpperBound(full, S.replayNow-delay) : full.length;
+    S.heatSources[s.id]={data:full, delayMs:delay, revealed:revealed};
+    s.data=full.slice(0,revealed);
+  });
+
+  var opt={
+    animation:false,
+    backgroundColor:"transparent",
+    textStyle:{fontFamily:"monospace"},
+    grid:[{left:58, right:14, top:26, bottom:56}],
+    xAxis:[{type:"time", min:xs.min, max:xs.max,
+      axisLine:{lineStyle:{color:"#232c42"}},
+      axisLabel:{color:"#8492ad", fontSize:10,
+        formatter:function(v){ return fmtTs(v,true); }},
+      splitLine:{show:false},
+      axisPointer:{show:true, lineStyle:{color:"#4da3ff", opacity:0.5},
+        label:{backgroundColor:"#161d2e", color:"#d7e0f0", fontSize:9,
+          formatter:function(p){ return fmtTs(p.value,true); }}}}],
+    yAxis:[{type:"value", min:0, max:100, name:"PRICE (¢, YES)",
+      nameTextStyle:{color:"#5a6785", fontSize:9.5},
+      axisLabel:{color:"#8492ad", fontSize:9},
+      splitLine:{lineStyle:{color:"#10151f"}},
+      axisPointer:{show:true, lineStyle:{color:"#4da3ff", opacity:0.5},
+        label:{backgroundColor:"#161d2e", color:"#d7e0f0", fontSize:9,
+          formatter:function(p){ return Number(p.value).toFixed(1)+"¢"; }}}}],
+    tooltip:{trigger:"item", backgroundColor:"#101522", borderColor:"#232c42",
+      textStyle:{color:"#d7e0f0", fontSize:10.5, fontFamily:"monospace"},
+      confine:true, extraCssText:"max-width:380px; white-space:normal;",
+      formatter:function(p){
+        if (p.data && p.data.marker) return markerTip(p.data.marker);
+        var v=p.value;
+        return p.seriesName+"<br>"+fmtTs(v[0],true)+" · "+fmtN(v[1],2)+"¢";
+      }},
+    dataZoom:[
+      {type:"inside", xAxisIndex:[0], filterMode:"none", throttle:60},
+      {type:"slider", xAxisIndex:[0], filterMode:"none", height:16, bottom:2,
+       backgroundColor:"#101522", borderColor:"#232c42",
+       fillerColor:"rgba(77,163,255,0.15)", handleStyle:{color:"#4da3ff"},
+       textStyle:{color:"#8492ad", fontSize:9},
+       labelFormatter:function(v){ return fmtTs(v,true); }},
+    ],
+    series:series,
+  };
+  heatChart.setOption(opt, {notMerge:true});
+  if (landing && art.kind==="l2_full"){
+    // land INSIDE the real full-book window; outside it there is no channel
+    S.zoom=[Math.max(xs.min, t0m-60000),
+            Math.min(xs.max, art.t1_us/1000+60000)];
+  }
+  if (!S.zoom) S.zoom=[ep.window.t0_ms, ep.window.t1_ms];
+  S.replayZoomProgrammatic=true;
+  heatChart.dispatchAction({type:"dataZoom", startValue:S.zoom[0], endValue:S.zoom[1]});
+  setTimeout(function(){ S.replayZoomProgrammatic=false; }, 0);
+  setHeatLabels(mk, art);
+  heatRedraw();
+  CS.textContent = jsErrors.length ? CS.textContent :
+    "RENDER-OK heatmap "+mk.ticker+" "+art.kind;
+}
+
+function setHeatLabels(mk, art){
+  var lbl=$("heat-proxy-label");
+  if (art.kind==="l1_touch"){
+    lbl.textContent="AGGREGATE L1 PROXY — touch depth only; NOT full book";
+    lbl.className="warn";
+  } else {
+    lbl.textContent="REAL L2 FULL BOOK — resting displayed depth, log color · "+
+      "window "+fmtTs(art.t0_us/1000,true)+"–"+fmtTs(art.t1_us/1000,true);
+    lbl.title=art.seq_note||"";
+    lbl.className="real";
+  }
+  lbl.style.display="block";
+  var badge=$("heat-kind-badge");
+  badge.style.display="";
+  badge.textContent = art.kind==="l2_full" ?
+    "HEAT: REAL L2 DEPTH" : "HEAT: L1 TOUCH PROXY (DEGRADED)";
+  badge.className = "badge"+(art.kind==="l2_full"?"":" warn");
+  var tr=art.trades||{rows:[]};
+  $("note-episode").textContent = S.episode.title+" · "+S.episode.key+
+    " · focus "+mk.ticker+" · heat "+art.n_bins+" bins × "+art.price_rows+
+    " price rows · bin "+(art.bin_us/1e6)+"s · "+
+    (art.kind==="l2_full"?"orderbooks_full replay":"L1 touch band");
+  $("note-quality").textContent = "trade dots: "+tr.rows.length+
+    (tr.truncated?" shown (+"+tr.truncated+" smallest dropped at cap "+tr.cap+")":"")+
+    " · taker yes=green / no=red / unknown=neutral (taker_side archive field)";
+}
+
+function heatSeekTape(tMs){
+  pauseReplay();
+  setReplayPosition(tMs, false);
+  updateReplayData(true);
+  renderTape();
+  var host=$("tape-rows");
+  if (host.lastElementChild) host.scrollTop=host.scrollHeight;
+}
+
+function wireHeatChart(){
+  heatChart.on("datazoom", function(){
+    var o=heatChart.getOption();
+    if (o.dataZoom && o.dataZoom[0]){
+      S.zoom=[o.dataZoom[0].startValue, o.dataZoom[0].endValue];
+      if (!S.replayZoomProgrammatic && S.replayFollow){
+        S.replayFollow=false; updateReplayUi();
+      }
+      heatRedraw();
+      renderTape();
+    }
+  });
+  heatChart.on("mouseover", function(){ S.heatHover=true; $("heat-tip").style.display="none"; });
+  heatChart.on("mouseout", function(){ S.heatHover=false; });
+  heatChart.on("click", function(p){
+    if (p.data && p.data.marker) heatSeekTape(p.data.marker.t);
+  });
+  heatChart.getZr().on("click", function(e){
+    if (S.heatHover || !HEAT.art) return; // item clicks handled above
+    if (!heatChart.containPixel({gridIndex:0},[e.offsetX,e.offsetY])) return;
+    heatSeekTape(heatChart.convertFromPixel({xAxisIndex:0}, e.offsetX));
+  });
+  var div=$("heat-chart");
+  div.addEventListener("mousemove", heatTipMove);
+  div.addEventListener("mouseleave", function(){ $("heat-tip").style.display="none"; });
+}
+
+function heatTipMove(e){
+  var art=HEAT.art, tip=$("heat-tip");
+  if (!art || !heatChart || S.heatHover){ tip.style.display="none"; return; }
+  var rect=$("heat-chart").getBoundingClientRect();
+  var x=e.clientX-rect.left, y=e.clientY-rect.top;
+  if (!heatChart.containPixel({gridIndex:0},[x,y])){ tip.style.display="none"; return; }
+  var t=heatChart.convertFromPixel({xAxisIndex:0}, x);
+  var cent=Math.floor(heatChart.convertFromPixel({yAxisIndex:0}, y));
+  if (cent<1 || cent>art.price_rows){ tip.style.display="none"; return; }
+  var t0m=art.t0_us/1000, binMs=art.bin_us/1000;
+  var bin=Math.floor((t-t0m)/binMs);
+  var lines=["<b>"+cent+"¢ row</b> · "+fmtTs(t,true)+
+    " <span style='color:#8492ad'>(PRE-TL1 exchange-or-coarse time)</span>"];
+  if (S.replayActive && S.replayNow!=null && t0m+(bin+1)*binMs > S.replayNow &&
+      bin>=0 && bin<art.n_bins){
+    lines.push("<span style='color:#ffe14d'>not yet revealed at the replay clock</span>");
+  } else if (bin<0 || bin>=art.n_bins){
+    lines.push(art.kind==="l2_full"
+      ? "<b style='color:#8492ad'>NO FULL-BOOK CAPTURE</b> at this time (watchlist window only)"
+      : "outside the archived window");
+  } else if (art.kind==="l2_full"){
+    var vb=art._bid[bin*art.price_rows+cent-1]/1e4;
+    var va=art._ask[bin*art.price_rows+cent-1]/1e4;
+    lines.push("bid depth: "+(vb>0?fmtN(vb,1)+" contracts":"—"));
+    lines.push("ask depth: "+(va>0?fmtN(va,1)+" contracts":"—"));
+    lines.push("<span style='color:#8492ad'>resting displayed depth at bin close · REAL "+
+      "orderbooks_full replay · sub-penny levels aggregated into whole-cent rows</span>");
+  } else {
+    var tc=art.touch, tvb=null, tva=null;
+    if (tc.bid_price_e4[bin]>0 && Math.floor(tc.bid_price_e4[bin]/100)===cent)
+      tvb=tc.bid_qty_e4[bin]/1e4;
+    if (tc.ask_price_e4[bin]>0 && Math.floor(tc.ask_price_e4[bin]/100)===cent)
+      tva=tc.ask_qty_e4[bin]/1e4;
+    var inGap=(art.gaps_ms||[]).some(function(g){ return t>=g[0] && t<=g[1]; });
+    if (inGap) lines.push("<b style='color:#ff3b3b'>DATA GAP / BOOK STATE UNTRUSTED</b>");
+    if (tvb!=null) lines.push("bid TOUCH qty: "+fmtN(tvb,1)+" contracts");
+    if (tva!=null) lines.push("ask TOUCH qty: "+fmtN(tva,1)+" contracts");
+    if (tvb==null && tva==null && !inGap)
+      lines.push("no touch at this price — full depth was NOT captured for "+
+        "this market; only the best bid/ask band is known");
+    lines.push("<span style='color:#ffb02e'>AGGREGATE L1 PROXY — touch depth only; NOT full book</span>");
+  }
+  tip.innerHTML=lines.join("<br>");
+  tip.style.display="block";
+  tip.style.left=Math.min(x+14, rect.width-tip.offsetWidth-8)+"px";
+  tip.style.top=Math.max(4, y-12-tip.offsetHeight)+"px";
+}
+
+function setView(v, landing){
+  S.view = v==="tracks" ? "tracks" : "heat";
+  $("vtab-heat").className = "vtab"+(S.view==="heat"?" on":"");
+  $("vtab-tracks").className = "vtab"+(S.view==="tracks"?" on":"");
+  var heatVis = S.view==="heat";
+  $("heat-wrap").style.display = heatVis?"block":"none";
+  $("chart").style.display = heatVis?"none":"block";
+  writeHash();
+  if (heatVis){
+    if (heatChart) heatChart.resize();
+    renderHeatActive(landing===true);
+  } else {
+    $("heat-kind-badge").style.display="none";
+    $("heat-tip").style.display="none";
+    chart.resize();
+    if (S.tracksDirty){ renderTracks(true); S.tracksDirty=false; }
+    if (S.zoom) dispatchZoom(S.zoom[0], S.zoom[1]);
+    updateReplayCursor();
+  }
+}
+$("vtab-heat").onclick = function(){ if (S.view!=="heat") setView("heat"); };
+$("vtab-tracks").onclick = function(){ if (S.view!=="tracks") setView("tracks"); };
+
+/* ---------- distributions drawer -------------------------------------------- */
+var distE = null, distH = null;
+function buildDistSelectors(){
+  if (!S.episode) return;
+  var mktSel = $("dist-mkt"); mktSel.textContent="";
+  S.episode.markets.forEach(function(mk){
+    var o = el("option", null, mk.yes_sub_title || mk.ticker); o.value = mk.ticker;
+    if (mk.ticker===S.focusMkt) o.selected = true;
+    mktSel.appendChild(o);
+  });
+  mktSel.onchange = renderDist;
+  var mSel = $("dist-metric");
+  mSel.onchange = renderDist;
+  renderDist();
+}
+function renderDist(){
+  var tk = $("dist-mkt").value;
+  var mk = null; S.episode.markets.forEach(function(k){ if(k.ticker===tk) mk=k; });
+  if (!mk) return;
+  var metrics = {};
+  Object.keys(mk.dist||{}).forEach(function(k){ metrics[k]=mk.dist[k]; });
+  if (mk.l2 && mk.l2.available) Object.keys(mk.l2.dist).forEach(function(k){ metrics[k]=mk.l2.dist[k]; });
+  if (mk.heatmap && mk.heatmap.dist)
+    Object.keys(mk.heatmap.dist).forEach(function(k){ metrics[k]=mk.heatmap.dist[k]; });
+  var mSel = $("dist-metric");
+  var prev = mSel.value;
+  mSel.textContent="";
+  Object.keys(metrics).forEach(function(k){
+    var o = el("option", null, k); o.value=k; if(k===prev) o.selected=true;
+    mSel.appendChild(o);
+  });
+  var key = mSel.value || Object.keys(metrics)[0];
+  var d = metrics[key];
+  if (!d) return;
+  var txt = $("dist-text"); txt.textContent="";
+  function row(k,v){ var p=el("div"); p.innerHTML="<b>"+k+":</b> "+v; txt.appendChild(p); }
+  row("n", fmtN(d.n,0)); row("p50", fmtN(d.p50,2)); row("p99", fmtN(d.p99,2));
+  row("max", fmtN(d.max,2)); row("unit", d.unit);
+  row("population", d.population); row("provenance", d.provenance);
+  (d.notes||[]).forEach(function(nn){ var p=el("div","note","· "+nn); txt.appendChild(p); });
+  if (!distE){ distE = echarts.init($("dist-ecdf")); distH = echarts.init($("dist-hist")); }
+  var base = {animation:false, backgroundColor:"transparent",
+    grid:{left:55, right:15, top:26, bottom:24},
+    textStyle:{fontFamily:"monospace"},
+    tooltip:{backgroundColor:"#101522", borderColor:"#232c42", textStyle:{color:"#d7e0f0", fontSize:10}}};
+  distE.setOption(Object.assign({}, base, {
+    title:{text:"ECDF — "+key, textStyle:{color:"#8492ad", fontSize:11}},
+    xAxis:{type:"log", name:d.unit, axisLabel:{color:"#8492ad", fontSize:9}, nameTextStyle:{color:"#5a6785"}},
+    yAxis:{type:"value", min:0, max:1, axisLabel:{color:"#8492ad", fontSize:9},
+      splitLine:{lineStyle:{color:"#161d2e"}}},
+    series:[{type:"line", step:"end", symbol:"none",
+      data:(d.ecdf||[]).filter(function(p){return p[0]!=null && p[0]>0;}),
+      lineStyle:{color:"#4da3ff"}, areaStyle:{color:"rgba(77,163,255,0.08)"}}]
+  }), {notMerge:true});
+  distH.setOption(Object.assign({}, base, {
+    title:{text:"log-bin histogram — "+key, textStyle:{color:"#8492ad", fontSize:11}},
+    xAxis:{type:"category", data:(d.hist||[]).map(function(h){ return fmtN(h[0],1); }),
+      axisLabel:{color:"#8492ad", fontSize:8, rotate:40}},
+    yAxis:{type:"value", axisLabel:{color:"#8492ad", fontSize:9},
+      splitLine:{lineStyle:{color:"#161d2e"}}},
+    series:[{type:"bar", data:(d.hist||[]).map(function(h){ return h[2]; }),
+      itemStyle:{color:"rgba(77,163,255,0.6)"}}]
+  }), {notMerge:true});
+}
+
+/* ---------- quality + definitions panes -------------------------------------- */
+function buildQualityPane(){
+  var host = $("quality-pane"); host.textContent="";
+  if (!S.index) return;
+  var inv = S.index.inventory;
+  var t = el("table","q");
+  t.innerHTML = "<tr><th>channel</th><th>status</th><th>local dates</th><th>note</th></tr>";
+  Object.keys(inv).forEach(function(k){
+    var c = inv[k];
+    var trr = el("tr");
+    trr.appendChild(el("td",null,k));
+    var st = el("td",null,c.status);
+    st.style.color = c.status==="REAL" ? "#37c98b" :
+      (c.status==="REAL_PROXY" ? "#ffab40" : (c.status==="PRE-TL1"?"#ffb02e":"#ff5d5d"));
+    trr.appendChild(st);
+    trr.appendChild(el("td",null,(c.dates||[]).join(", ")||"—"));
+    trr.appendChild(el("td",null,c.note));
+    t.appendChild(trr);
+  });
+  host.appendChild(t);
+  if (S.episode){
+    var q = S.episode.quality;
+    var t2 = el("table","q");
+    t2.innerHTML = "<tr><th>episode quality — "+S.episode.key+"</th><th>value</th></tr>";
+    [["raw trade rows (sport files)", fmtN(q.trade_quality.raw_rows,0)],
+     ["safe unique trade IDs", fmtN(q.trade_quality.safe_unique_trade_ids,0)],
+     ["conflicting trade IDs EXCLUDED", fmtN(q.trade_quality.conflicting_trade_ids_excluded,0)],
+     ["L1 rows (this episode's markets)", fmtN(q.l1_rows,0)],
+     ["capture gaps (>65min silence)", q.capture_gaps],
+     ["gap rule", q.gap_rule],
+     ["day seals", q.seals],
+     ["timestamp ladder", q.timestamp_ladder + " — " + S.episode.time_note]]
+      .forEach(function(rw){
+        var trr = el("tr");
+        trr.appendChild(el("td",null,rw[0])); trr.appendChild(el("td",null,String(rw[1])));
+        t2.appendChild(trr);
+      });
+    host.appendChild(t2);
+    var idn = S.episode.identity;
+    var t3 = el("table","q");
+    t3.innerHTML = "<tr><th>episode identity</th><th></th></tr>";
+    [["episode key", idn.episode_key],
+     ["derivation method", idn.derivation.method],
+     ["rule", idn.derivation.rule],
+     ["catalog events with titles", idn.derivation.catalog_events_with_titles],
+     ["team-pair consistency", idn.derivation.team_pair_consistency==null?"n/a":
+        (100*idn.derivation.team_pair_consistency).toFixed(0)+"%"],
+     ["event tickers", idn.events.map(function(e){return e.ticker;}).join(", ")]]
+      .forEach(function(rw){
+        var trr=el("tr"); trr.appendChild(el("td",null,String(rw[0])));
+        trr.appendChild(el("td",null,String(rw[1]))); t3.appendChild(trr);
+      });
+    host.appendChild(t3);
+    if (S.episode.score && !S.episode.score.available){
+      var p = el("div","def");
+      p.innerHTML = "<b>score/game-state:</b> "+S.episode.score.status+
+        " — prospective capture: <i>"+
+        (S.episode.score.prospective_capture? S.episode.score.prospective_capture.endpoints.join(" · "):"")+
+        "</i> (must record raw payload + recv_wall_ns + recv_mono_ns + mapping + corrections + gaps; POST-HOC backfill must be labeled)";
+      host.appendChild(p);
+    }
+  }
+}
+function buildDefinitions(){
+  var host = $("def-pane"); host.textContent="";
+  var rows = [
+    ["Whale proxy (colloquial)", "every marker's evidence label is LARGE-ACTIVITY CANDIDATE — NO ACTOR IDENTITY. No account, person or trader is ever identified or implied."],
+    ["TRADE PRINT", "an executed trade from the trades feed after duplicate-ID collapse; conflicting bodies are excluded and counted. A trade is not the originating order; a trade ID is not an account."],
+    ["L1 BID/ASK ADD / DROP", "same-price displayed-size change at the best touch, from change-only L1 states. AGGREGATE PROXY: one change may be many orders; drops cannot distinguish cancellation from depletion (the trade-coincidence flag is a hint, not proof)."],
+    ["L2 ADD / REMOVE / DEPLETION", "real full-depth price-level updates (watchlist capture only). A price level is not necessarily one order."],
+    ["MESSAGE BURST / REGIMES", "archived state-change rate (not raw packet rate) vs a trailing 60-min median/MAD baseline. CALM / BUILDING / BURST / DISLOCATION / RECOVERY / UNKNOWN with the exact rule and component values in each band's tooltip. Exploratory description — not predictive, not profitable."],
+    ["DESCRIPTIVE mode", "percentiles computed on the full archived window — they see the future relative to each marker (LOOK-AHEAD banner). For exploration only."],
+    ["CAUSAL REPLAY mode", "thresholds frozen at each hour boundary from strictly-prior observations; p99 needs n≥500, p99.5 n≥1,000, p99.9 n≥5,000 — labels are refused otherwise."],
+    ["MARKET HEATMAP (primary view)", "time × price (1–99¢) grid; cell color = log-scaled RESTING DISPLAYED DEPTH at that whole-cent price row, reconstructed by replaying REAL orderbooks_full snapshot+delta rows and sampling at each bin close. Sub-penny price levels are real (E4 fixed-point) and are AGGREGATED into their whole-cent row for the grid; NO-side resting depth is displayed at the equivalent YES ask price (100¢ − p). Full-grid heat exists ONLY for markets with real full-book capture."],
+    ["HEATMAP DEGRADED MODE", "markets without full-book capture render AGGREGATE L1 PROXY touch-band heat only — the best-bid and best-ask price rows; every other cell stays empty because that depth was never captured. Depth is NEVER fabricated or interpolated."],
+    ["TRADE DOT TAKER SIDE", "heatmap trade dots: size = contracts, color = archived taker_side ('yes' buy = green, 'no' sell = red; deprecated fallback field per docs/kalshi_ws_protocol.md I9 — taker_outcome_side/taker_book_side do not exist on these archive days). Missing value renders neutral gray with 'taker side unknown' — never guessed."],
+    ["Temporal proximity", "an event near a price move is not proof of causation; this dashboard shows coincidence structure only."],
+    ["Time discipline", "these archive days predate the W-TL1 receive-clock ladder: only ts_utc (exchange-or-coarse) exists. No decision-time claims are supported; Kalshi exchange timestamps are millisecond-granular."],
+    ["DATA GAP", "the pipeline guarantees hourly heartbeats per active market; >65 minutes without any archived row means capture loss — the book state across the gap is untrusted (hatched red)."],
+    ["Tradable?", "everything here is DESCRIPTIVE or UNAVAILABLE; nothing on this page is a tradable signal. Strategy thresholds must be frozen on TRAIN data and applied forward, per the research governance docs."],
+  ];
+  rows.forEach(function(r){
+    var d = el("div","def");
+    d.innerHTML = "<b>"+r[0]+"</b> — "+r[1];
+    host.appendChild(d);
+  });
+}
+
+/* Narrow read-only test surface used by the headless interaction smoke test. */
+window.__EI_TEST__={
+  state:function(){ return {playing:S.replayPlaying,cursorMs:S.replayNow,
+    speed:S.replaySpeed,follow:S.replayFollow,sourceKind:"ARCHIVE",
+    sourceClosedAt:S.episode?S.episode.window.t1_ms:null,
+    view:S.view, heatKind:HEAT.art?HEAT.art.kind:null,
+    heatMarket:HEAT.art?HEAT.art.market_ticker:null}; },
+  revealedMaxTimes:function(){
+    var out={}; Object.keys(S.replaySources).forEach(function(id){
+      var src=S.replaySources[id], n=src.revealed;
+      out[id]=n?replayDataTime(src.data[n-1])+src.delayMs:null;
+    }); return out;
+  },
+  visibleTapeTimes:function(){ return tapeRows().rows.map(function(m){return m.t;}); },
+  play:startReplay,
+  pause:pauseReplay,
+  seek:function(ms){ pauseReplay(); setReplayPosition(ms,true); updateReplayData(true); renderTape(); },
+  reset:function(){ var b=replayBounds(); if(b) this.seek(b[0]); }
+};
+
+/* ---------- control wiring ----------------------------------------------------- */
+$("mode-sel").onchange = function(){
+  S.mode = this.value;
+  var b = $("mode-banner");
+  if (S.mode==="descriptive"){ b.textContent="LOOK-AHEAD / EXPLORATORY"; b.style.display=""; }
+  else { b.textContent="CAUSAL REPLAY — PRIOR-HOUR FROZEN THRESHOLDS"; }
+  renderChart(false); renderTape();
+};
+$("thr-sel").onchange = function(){
+  S.tier = this.value;
+  $("thr-custom").style.display = S.tier==="custom" ? "" : "none";
+  renderChart(false); renderTape();
+};
+$("thr-custom").onchange = function(){ S.customSize = Number(this.value)||1; renderChart(false); renderTape(); };
+$("tz-sel").onchange = function(){ S.tz = this.value; renderChart(false); renderTape(); updateReplayUi(); };
+$("replay-play").onclick = function(){ S.replayPlaying ? pauseReplay() : startReplay(); };
+$("replay-reset").onclick = function(){
+  var b=replayBounds(); if(!b) return;
+  pauseReplay(); setReplayPosition(b[0],true); updateReplayData(true); renderTape();
+};
+$("replay-step").onclick = stepReplay;
+$("replay-speed").onchange = function(){ S.replaySpeed=Number(this.value)||1; S.replayLastWall=null; updateReplayUi(); };
+$("replay-range").oninput = function(){ pauseReplay(); setReplayPosition(Number(this.value),true); updateReplayData(true); renderTape(); };
+$("replay-follow").onchange = function(){ S.replayFollow=this.checked; if(S.replayFollow) applyReplayView(true); };
+document.addEventListener("visibilitychange",function(){ if(document.hidden) pauseReplay(); });
+document.querySelectorAll(".dtab").forEach(function(t){
+  t.onclick = function(){
+    document.querySelectorAll(".dtab").forEach(function(x){x.className="dtab";});
+    document.querySelectorAll(".dpane").forEach(function(x){x.className="dpane";});
+    t.className = "dtab on";
+    $(t.getAttribute("data-pane")).className += " on";
+    if (t.getAttribute("data-pane")==="dist-pane" && distE){ distE.resize(); distH.resize(); }
+  };
+});
+$("drawer-toggle").onclick = function(){
+  var d = $("drawer");
+  d.className = d.className==="open" ? "" : "open";
+  this.textContent = d.className==="open" ? "▾ collapse" : "▴ expand";
+  setTimeout(function(){ chart.resize(); }, 30);
+};
+})();
+</script>
+</body>
+</html>
