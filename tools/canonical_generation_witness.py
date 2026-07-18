@@ -141,9 +141,14 @@ def _sterile_publisher_environment() -> dict[str, str]:
         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
         "AWS_DEFAULT_REGION", "AWS_REGION",
     }
+    # The fixed parent runner explicitly points both SDK configuration paths
+    # at /dev/null.  Accept only that sterile sentinel (or no value); reject
+    # every profile and every real configuration/credential path.
     if (os.environ.get("AWS_PROFILE")
-            or os.environ.get("AWS_SHARED_CREDENTIALS_FILE")
-            or os.environ.get("AWS_CONFIG_FILE")):
+            or os.environ.get("AWS_SHARED_CREDENTIALS_FILE") not in {
+                None, "", "/dev/null"}
+            or os.environ.get("AWS_CONFIG_FILE") not in {
+                None, "", "/dev/null"}):
         raise WitnessError(
             "PUBLISHER_CREDENTIAL_MODE_INVALID",
             "profile/shared AWS configuration is forbidden")

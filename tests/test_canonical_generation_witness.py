@@ -837,6 +837,44 @@ def test_sterile_publisher_environment_drops_trading_proxy_and_endpoint(
     assert env["AWS_STS_REGIONAL_ENDPOINTS"] == "regional"
 
 
+def test_sterile_publisher_environment_accepts_parent_devnull_sentinels(
+        monkeypatch):
+    for name in list(gw.os.environ):
+        if name.startswith("AWS_"):
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "publisher")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("AWS_CONFIG_FILE", "/dev/null")
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/dev/null")
+
+    env = gw._sterile_publisher_environment()
+
+    assert env["AWS_CONFIG_FILE"] == "/dev/null"
+    assert env["AWS_SHARED_CREDENTIALS_FILE"] == "/dev/null"
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AWS_PROFILE", "publisher"),
+        ("AWS_CONFIG_FILE", "/tmp/config"),
+        ("AWS_SHARED_CREDENTIALS_FILE", "/tmp/credentials"),
+    ],
+)
+def test_sterile_publisher_environment_rejects_profile_or_real_config_path(
+        monkeypatch, name, value):
+    for candidate in list(gw.os.environ):
+        if candidate.startswith("AWS_"):
+            monkeypatch.delenv(candidate, raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "publisher")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(
+            gw.WitnessError, match="profile/shared AWS configuration"):
+        gw._sterile_publisher_environment()
+
+
 def test_real_aws_mutator_pins_binary_authorization_and_clean_commit(
         monkeypatch, tmp_path):
     authorization = tmp_path / "authorization"
