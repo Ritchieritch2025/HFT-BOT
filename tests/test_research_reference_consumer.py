@@ -807,6 +807,59 @@ def test_without_rfq_descriptor_still_ignores_eligible_receipt_rfq():
     assert result["research_candidates"] == len(descriptor["objects"])
 
 
+def test_durable_receipt_accepts_registered_empty_not_applicable_family():
+    rid, manifest, source = build_release()
+    descriptor = ref.validate_manifest(manifest, rid)
+    receipt = _bound_receipt(manifest, source)
+    receipt["families"].append({
+        "name": "empty_conditional",
+        "policy": "CONDITIONAL",
+        "expected_basis": "fixture-no-objects",
+        "expected_count": 0,
+        "observed_count": 0,
+        "state": "NOT_APPLICABLE",
+        "reason_code": "NO_OBJECTS_EXPECTED",
+        "semantic_sha256": ref.canonical_sha256({
+            "family": "empty_conditional",
+            "state": "NOT_APPLICABLE",
+        }),
+        "objects_digest": ref.canonical_sha256([]),
+    })
+    _retarget_descriptor_receipt(descriptor, receipt)
+
+    result = ref.validate_durable_receipt(receipt, descriptor)
+
+    assert result["research_candidates"] == len(descriptor["objects"])
+
+
+def test_durable_receipt_still_rejects_object_in_unregistered_family():
+    rid, manifest, source = build_release()
+    descriptor = ref.validate_manifest(manifest, rid)
+    receipt = _bound_receipt(manifest, source)
+    row = receipt["objects"][0]
+    row["family"] = "unregistered"
+    registered = receipt["families"][0]
+    registered_rows = [
+        item for item in receipt["objects"]
+        if item["family"] == registered["name"]
+    ]
+    registered["expected_count"] = len(registered_rows)
+    registered["observed_count"] = len(registered_rows)
+    registered["objects_digest"] = ref.canonical_sha256([{
+        "bucket": item["bucket"],
+        "key": item["key"],
+        "size": item["size"],
+        "sha256": item["sha256"],
+    } for item in sorted(
+        registered_rows, key=lambda item: (item["bucket"], item["key"]))])
+    _retarget_descriptor_receipt(descriptor, receipt)
+
+    with pytest.raises(
+            ref.ReferenceManifestError,
+            match="object names an unregistered family"):
+        ref.validate_durable_receipt(receipt, descriptor)
+
+
 @pytest.mark.parametrize(("field", "bad_value"), [
     ("state", "PENDING"),
     ("evidence_tier", "SEALED_DEGRADED_EVIDENCE"),

@@ -1369,7 +1369,11 @@ def validate_durable_receipt(receipt: object, descriptor: dict) -> dict:
         if (family.get("policy") in {"REQUIRED_CORE", "REQUIRED_RESEARCH"}
                 and state != "PRESENT_VERIFIED"):
             raise ReferenceManifestError("durable receipt required family failed")
-    if set(objects_by_family) != family_names:
+    # A registered NOT_APPLICABLE family legitimately has zero objects and is
+    # therefore absent from ``objects_by_family``.  The per-family checks above
+    # already require its expected/observed counts to be zero.  Fail closed
+    # only when an object names a family that the receipt did not register.
+    if set(objects_by_family).difference(family_names):
         raise ReferenceManifestError(
             "durable receipt object names an unregistered family")
 
