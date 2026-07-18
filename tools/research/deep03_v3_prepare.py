@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 import shutil
 import sys
@@ -16,20 +17,52 @@ from deep03_v3_common import (
     atomic_write_json,
     build_input_manifest,
     input_projection_sha256,
+    load_authority_context,
     refuse_credential_environment,
     sha256_file,
     source_hashes,
     utc_now,
     validate_explicit_releases,
     validate_run_id,
+    write_authority_bundle,
 )
 
 
 def prepare_run(
-    *, cache_root: Path, run_root: Path, run_id: str, release_ids: list[str]
+    *,
+    cache_root: Path,
+    run_root: Path,
+    run_id: str,
+    release_ids: list[str],
+    authority_path: Path,
+    arm_path: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
+    expected_owner_uid: int = 0,
+    authority_now: dt.datetime | None = None,
 ) -> Path:
     refuse_credential_environment()
     validate_run_id(run_id)
+    authority_context = load_authority_context(
+        authority_path=authority_path,
+        arm_path=arm_path,
+        plan_path=plan_path,
+        runtime_commit_path=runtime_commit_path,
+        audit_path=audit_path,
+        w0_release_path=w0_release_path,
+        w1_release_path=w1_release_path,
+        w1_complete_path=w1_complete_path,
+        expected_owner_uid=expected_owner_uid,
+        now=authority_now,
+    )
+    if release_ids != authority_context["binding"]["authorized_input_release_ids"]:
+        raise Deep03InputError(
+            "prepare release IDs differ from exact-release authority"
+        )
     run_root = Path(run_root).resolve()
     run_root.mkdir(parents=True, exist_ok=True)
     destination = run_root / run_id
@@ -50,8 +83,12 @@ def prepare_run(
                 raise Deep03InputError(f"run directory already exists: {destination}")
             releases = validate_explicit_releases(Path(cache_root), release_ids)
             manifest = build_input_manifest(
-                run_id=run_id, cache_root=Path(cache_root), release_records=releases
+                run_id=run_id,
+                cache_root=Path(cache_root),
+                release_records=releases,
+                authority_context=authority_context,
             )
+            write_authority_bundle(stage, authority_context)
             input_path = stage / "INPUT_MANIFEST.json"
             atomic_write_json(input_path, manifest, exclusive=True)
             receipt = {
@@ -64,6 +101,10 @@ def prepare_run(
                 "input_manifest_sha256": sha256_file(input_path),
                 "input_projection_sha256": input_projection_sha256(manifest),
                 "source_modules_sha256": source_hashes(),
+                "authority_binding": authority_context["binding"],
+                "authority_artifact_sha256s": authority_context[
+                    "artifact_sha256s"
+                ],
                 "release_ids": list(release_ids),
                 "release_count": len(releases),
                 "rfq_objects": 0,
@@ -94,6 +135,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cache", required=True, type=Path)
     parser.add_argument("--run-root", required=True, type=Path)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--authority", required=True, type=Path)
+    parser.add_argument("--arm-file", required=True, type=Path)
+    parser.add_argument("--plan", required=True, type=Path)
+    parser.add_argument("--runtime-commit", required=True, type=Path)
+    parser.add_argument("--audit", required=True, type=Path)
+    parser.add_argument("--w0-release", required=True, type=Path)
+    parser.add_argument("--w1-release", required=True, type=Path)
+    parser.add_argument("--w1-complete", required=True, type=Path)
     parser.add_argument(
         "--release",
         action="append",
@@ -108,6 +157,14 @@ def main(argv: list[str] | None = None) -> int:
             run_root=args.run_root,
             run_id=args.run_id,
             release_ids=args.releases,
+            authority_path=args.authority,
+            arm_path=args.arm_file,
+            plan_path=args.plan,
+            runtime_commit_path=args.runtime_commit,
+            audit_path=args.audit,
+            w0_release_path=args.w0_release,
+            w1_release_path=args.w1_release,
+            w1_complete_path=args.w1_complete,
         )
     except Deep03InputError as exc:
         print(f"D3_W2A_PREPARE_REFUSED: {exc}", file=sys.stderr)

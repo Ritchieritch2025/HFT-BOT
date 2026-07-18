@@ -29,6 +29,7 @@ from test_research_reference_consumer import (  # noqa: E402
     _store_for,
     build_release,
 )
+from test_w09_exploratory_autoresearch import _authority_files  # noqa: E402
 
 
 DEEP03_MODULES = {
@@ -85,14 +86,37 @@ def test_input_gate_rejects_rfq_and_marker_manifest_drift(tmp_path):
 
 def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
     cache, rid = _materialize(tmp_path)
+    (
+        _gate,
+        authority,
+        arm,
+        plan,
+        runtime,
+        audit,
+        w0,
+        w1,
+        w1_complete,
+    ) = _authority_files(tmp_path / "authority", [rid])
+    authority_kwargs = {
+        "authority_path": authority,
+        "arm_path": arm,
+        "plan_path": plan,
+        "runtime_commit_path": runtime,
+        "audit_path": audit,
+        "w0_release_path": w0,
+        "w1_release_path": w1,
+        "w1_complete_path": w1_complete,
+        "expected_owner_uid": os.getuid(),
+    }
     run_dir = prepare_run(
         cache_root=cache,
         run_root=tmp_path / "runs",
         run_id="tiny-v3-open-discovery",
         release_ids=[rid],
+        **authority_kwargs,
     )
     complete_path = run_discovery(
-        run_dir=run_dir, memory_limit="1GB", threads=1
+        run_dir=run_dir, memory_limit="1GB", threads=1, **authority_kwargs
     )
     complete = json.loads(complete_path.read_text())
     method = json.loads((run_dir / "METHOD_EXECUTION_RECEIPT.json").read_text())
@@ -103,6 +127,24 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
     assert complete["strict_acceptance_claimed"] is False
     assert complete["release_ids"] == [rid]
     assert complete["all_declared_methods_closed"] is True
+    manifest = json.loads((run_dir / "INPUT_MANIFEST.json").read_text())
+    assert complete["authority_binding"] == manifest["authority_binding"]
+    assert complete["authority_artifact_sha256s"] == manifest[
+        "authority_artifact_sha256s"
+    ]
+    for name in (
+        "ADOPTED_PLAN.md",
+        "AUDIT.md",
+        "AUTHORITY.json",
+        "BASE_COMMIT.txt",
+        "D3_W0_RELEASE.json",
+        "D3_W1_RELEASE.json",
+        "EXECUTION_ARM.json",
+        "W1_COMPLETE.json",
+    ):
+        assert hashlib.sha256((run_dir / name).read_bytes()).hexdigest() == manifest[
+            "authority_artifact_sha256s"
+        ][name]
     assert method["declared_methods"] == [
         "D3-B01-MARKOUT",
         "D3-B02-ONESIDE",
@@ -131,7 +173,66 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
         if path.is_file() and path != complete_path
     )
     with pytest.raises(Deep03InputError, match="RUN_COMPLETE is immutable"):
-        run_discovery(run_dir=run_dir, memory_limit="1GB", threads=1)
+        run_discovery(
+            run_dir=run_dir,
+            memory_limit="1GB",
+            threads=1,
+            **authority_kwargs,
+        )
+
+
+def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(tmp_path):
+    cache, rid = _materialize(tmp_path)
+    (
+        _gate,
+        authority,
+        arm,
+        plan,
+        runtime,
+        audit,
+        w0,
+        w1,
+        w1_complete,
+    ) = _authority_files(tmp_path / "authority", [rid])
+    authority_kwargs = {
+        "authority_path": authority,
+        "arm_path": arm,
+        "plan_path": plan,
+        "runtime_commit_path": runtime,
+        "audit_path": audit,
+        "w0_release_path": w0,
+        "w1_release_path": w1,
+        "w1_complete_path": w1_complete,
+        "expected_owner_uid": os.getuid(),
+    }
+    authority.chmod(0o644)
+    with pytest.raises(Deep03InputError, match="exact authority refused.*writable"):
+        prepare_run(
+            cache_root=cache,
+            run_root=tmp_path / "refused-runs",
+            run_id="authority-bypass-refused",
+            release_ids=[rid],
+            **authority_kwargs,
+        )
+    authority.chmod(0o444)
+    run_dir = prepare_run(
+        cache_root=cache,
+        run_root=tmp_path / "runs",
+        run_id="authority-drift-refused",
+        release_ids=[rid],
+        **authority_kwargs,
+    )
+    copied = run_dir / "AUTHORITY.json"
+    copied.write_bytes(copied.read_bytes() + b"\n")
+    with pytest.raises(
+        Deep03InputError, match="run authority artifact differs from exact authority"
+    ):
+        run_discovery(
+            run_dir=run_dir,
+            memory_limit="1GB",
+            threads=1,
+            **authority_kwargs,
+        )
 
 
 def _synthetic_method_input(tmp_path: Path) -> dict:

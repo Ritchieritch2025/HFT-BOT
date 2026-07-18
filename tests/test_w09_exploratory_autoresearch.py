@@ -258,12 +258,39 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
             "effective_runtime_seconds": 3600,
         },
         "required_release_ids": [rid],
+        "authority_path": tmp_path / "authority.json",
+        "arm_path": tmp_path / "arm.json",
+        "plan_path": tmp_path / "plan.md",
+        "runtime_commit_path": tmp_path / "commit.txt",
+        "audit_path": tmp_path / "audit.md",
+        "w0_release_path": tmp_path / "w0.json",
+        "w1_release_path": tmp_path / "w1.json",
+        "w1_complete_path": tmp_path / "W1_COMPLETE.json",
         "runner": fake_runner,
     }
     first = automation.run_cycle(**kwargs)
     assert first["state"] == "RESEARCH_COMPLETE"
     assert first["idempotent_noop"] is False
     assert any(Path(row[1]).name == "deep03_v3_runner.py" for row in commands)
+    deep03_commands = [
+        row
+        for row in commands
+        if len(row) > 1
+        and Path(row[1]).name in {"deep03_v3_prepare.py", "deep03_v3_runner.py"}
+    ]
+    assert deep03_commands
+    for command in deep03_commands:
+        for flag in (
+            "--authority",
+            "--arm-file",
+            "--plan",
+            "--runtime-commit",
+            "--audit",
+            "--w0-release",
+            "--w1-release",
+            "--w1-complete",
+        ):
+            assert flag in command
 
     commands.clear()
     second = automation.run_cycle(**kwargs)
@@ -305,6 +332,19 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "deep03_authority_gate.py" in service
     assert "--authority /etc/w09/deep03/AUTHORITY.json" in service
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
+    assert "--audit /etc/w09/deep03/audit.md" in service
+    assert (
+        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-01.json"
+        in service
+    )
+    assert (
+        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-01.json"
+        in service
+    )
+    assert (
+        "--w1-complete /etc/w09/deep03/prerequisites/W1_COMPLETE.json"
+        in service
+    )
     assert "exploratory_autoresearch.sha256" in service
     assert "OnUnitInactiveSec=30min" in timer
     assert "Persistent=true" in timer
@@ -341,23 +381,57 @@ def test_static_credentials_are_refused_without_printing_values(tmp_path, monkey
             hook=tmp_path / "hook",
             authority_binding={},
             required_release_ids=["unused"],
+            authority_path=tmp_path / "authority.json",
+            arm_path=tmp_path / "arm.json",
+            plan_path=tmp_path / "plan.md",
+            runtime_commit_path=tmp_path / "commit.txt",
+            audit_path=tmp_path / "audit.md",
+            w0_release_path=tmp_path / "w0.json",
+            w1_release_path=tmp_path / "w1.json",
+            w1_complete_path=tmp_path / "W1_COMPLETE.json",
         )
     assert "never-print-this-value" not in str(caught.value)
 
 
-def _authority_files(tmp_path: Path):
+def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     gate = _load("w09_deep03_authority_fixture", W09 / "deep03_authority_gate.py")
     plan = tmp_path / "adopted-plan.md"
     runtime = tmp_path / "release-commit.txt"
     authority_path = tmp_path / "AUTHORITY.json"
     arm_path = tmp_path / "arm.json"
+    audit_path = tmp_path / "audit.md"
+    w0_release_path = tmp_path / "D3-W0.json"
+    w1_release_path = tmp_path / "D3-W1.json"
+    w1_complete_path = tmp_path / "W1_COMPLETE.json"
     plan.write_text("# adopted audited deep03 plan\n")
     runtime.write_text("1" * 40 + "\n")
     operator_text = (
         "Authorize exact D3-W2A exploratory execution under "
         "D3-W2A-2026-07-18.01 for the named release set."
     )
-    release_id = "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
+    release_ids = release_ids or [
+        "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
+    ]
+    release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
+    w0_release_id = "D3-W0-2026-07-18.01"
+    w1_release_id = "D3-W1-2026-07-18.01"
+    audit_path.write_bytes(b"independent_plan_audit")
+    w0_release_path.write_text(json.dumps({"release_id": w0_release_id}) + "\n")
+    w1_release_path.write_text(json.dumps({"release_id": w1_release_id}) + "\n")
+    w1_complete_path.write_text(
+        json.dumps({"state": "W1_COMPLETE", "release_id": w1_release_id}) + "\n"
+    )
+    prerequisite_hashes = {
+        key: hashlib.sha256(key.encode("ascii")).hexdigest()
+        for key in gate.REQUIRED_PREREQUISITE_HASHES
+    }
+    prerequisite_hashes["independent_plan_audit"] = hashlib.sha256(
+        audit_path.read_bytes()
+    ).hexdigest()
+    prerequisite_hashes["w1_completion"] = hashlib.sha256(
+        w1_complete_path.read_bytes()
+    ).hexdigest()
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
@@ -388,21 +462,18 @@ def _authority_files(tmp_path: Path):
         "authorized_tool_classes": gate.AUTHORIZED_TOOL_CLASSES,
         "authorized_api_classes": gate.AUTHORIZED_API_CLASSES,
         "authorized_credential_classes": gate.AUTHORIZED_CREDENTIAL_CLASSES,
-        "prerequisite_receipt_sha256s": {
-            key: hashlib.sha256(key.encode("ascii")).hexdigest()
-            for key in gate.REQUIRED_PREREQUISITE_HASHES
-        },
-        "audit_sha256": hashlib.sha256(b"independent_plan_audit").hexdigest(),
+        "prerequisite_receipt_sha256s": prerequisite_hashes,
+        "audit_sha256": hashlib.sha256(audit_path.read_bytes()).hexdigest(),
         "independent_audit_verdict": "PASS_WITH_EXPLICIT_BLOCKERS",
-        "w0_release_id": "D3-W0-2026-07-18.01",
-        "w0_release_sha256": "2" * 64,
-        "w1_release_id": "D3-W1-2026-07-18.01",
-        "w1_release_sha256": "3" * 64,
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": hashlib.sha256(w0_release_path.read_bytes()).hexdigest(),
+        "w1_release_id": w1_release_id,
+        "w1_release_sha256": hashlib.sha256(w1_release_path.read_bytes()).hexdigest(),
         "session_count": 1,
         "authorized_method_scope": gate.AUTHORIZED_METHOD_SCOPE,
-        "authorized_input_release_ids": [release_id],
-        "input_start_date": "2026-07-13",
-        "input_end_date": "2026-07-13",
+        "authorized_input_release_ids": release_ids,
+        "input_start_date": release_dates[0],
+        "input_end_date": release_dates[-1],
         "spending_cap_usd": 25.0,
         "max_runtime_seconds": 3600,
         **{field: False for field in gate.FALSE_AUTHORITY_FIELDS},
@@ -421,18 +492,41 @@ def _authority_files(tmp_path: Path):
         "expires_at_utc": "2026-07-19T11:00:00Z",
     }
     arm_path.write_text(json.dumps(arm, sort_keys=True) + "\n")
-    for path in (plan, runtime, authority_path, arm_path):
+    for path in (
+        plan,
+        runtime,
+        authority_path,
+        arm_path,
+        audit_path,
+        w0_release_path,
+        w1_release_path,
+        w1_complete_path,
+    ):
         path.chmod(0o444)
-    return gate, authority_path, arm_path, plan, runtime
+    return (
+        gate,
+        authority_path,
+        arm_path,
+        plan,
+        runtime,
+        audit_path,
+        w0_release_path,
+        w1_release_path,
+        w1_complete_path,
+    )
 
 
 def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
-    gate, authority, arm, plan, runtime = _authority_files(tmp_path)
-    result = gate.validate_authority(
+    gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = _authority_files(tmp_path)
+    result, artifacts = gate.validate_authority_bundle(
         authority_path=authority,
         arm_path=arm,
         plan_path=plan,
         runtime_commit_path=runtime,
+        audit_path=audit,
+        w0_release_path=w0,
+        w1_release_path=w1,
+        w1_complete_path=w1_complete,
         expected_owner_uid=os.getuid(),
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
@@ -442,10 +536,23 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
     ]
     assert result["base_commit"] == "1" * 40
+    assert set(artifacts) == {
+        "ADOPTED_PLAN.md",
+        "AUDIT.md",
+        "AUTHORITY.json",
+        "BASE_COMMIT.txt",
+        "D3_W0_RELEASE.json",
+        "D3_W1_RELEASE.json",
+        "EXECUTION_ARM.json",
+        "W1_COMPLETE.json",
+    }
+    assert hashlib.sha256(artifacts["AUDIT.md"]).hexdigest() == result[
+        "audit_sha256"
+    ]
 
 
 def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):
-    gate, authority, arm, plan, runtime = _authority_files(tmp_path)
+    gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = _authority_files(tmp_path)
     now = dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc)
     arm.chmod(0o644)
     with pytest.raises(gate.AuthorityError, match="writable"):
@@ -454,6 +561,10 @@ def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):
             arm_path=arm,
             plan_path=plan,
             runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
             expected_owner_uid=os.getuid(),
             now=now,
         )
@@ -465,8 +576,51 @@ def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):
             arm_path=arm,
             plan_path=plan,
             runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
             expected_owner_uid=os.getuid(),
             now=now,
+        )
+
+
+@pytest.mark.parametrize(
+    ("artifact_name", "message"),
+    [
+        ("audit", "independent audit bytes differ"),
+        ("w0", "D3-W0 release bytes differ"),
+        ("w1", "D3-W1 release bytes differ"),
+        ("w1_complete", "W1_COMPLETE bytes differ"),
+    ],
+)
+def test_authority_gate_refuses_prerequisite_byte_drift(
+    tmp_path, artifact_name, message
+):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = files
+    targets = {
+        "audit": audit,
+        "w0": w0,
+        "w1": w1,
+        "w1_complete": w1_complete,
+    }
+    target = targets[artifact_name]
+    target.chmod(0o644)
+    target.write_bytes(target.read_bytes() + b" ")
+    target.chmod(0o444)
+    with pytest.raises(gate.AuthorityError, match=message):
+        gate.validate_authority(
+            authority_path=authority,
+            arm_path=arm,
+            plan_path=plan,
+            runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
+            expected_owner_uid=os.getuid(),
+            now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
         )
 
 
@@ -490,7 +644,7 @@ def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):
 def test_authority_gate_refuses_missing_or_broadened_narrow_scope(
     tmp_path, field, replacement, message
 ):
-    gate, authority_path, arm, plan, runtime = _authority_files(tmp_path)
+    gate, authority_path, arm, plan, runtime, audit, w0, w1, w1_complete = _authority_files(tmp_path)
     authority = json.loads(authority_path.read_text())
     authority[field] = replacement
     authority_path.chmod(0o644)
@@ -507,6 +661,10 @@ def test_authority_gate_refuses_missing_or_broadened_narrow_scope(
             arm_path=arm,
             plan_path=plan,
             runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
             expected_owner_uid=os.getuid(),
             now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
         )

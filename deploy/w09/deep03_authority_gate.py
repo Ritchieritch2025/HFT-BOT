@@ -55,6 +55,7 @@ REQUIRED_PREREQUISITE_HASHES = {
     "prior_exposure_ledger",
     "w09_exact_version_read",
     "w1_data_quality",
+    "w1_completion",
     "w1_input_manifest",
     "w1_split_seal",
 }
@@ -255,6 +256,10 @@ def validate_authority_bundle(
     arm_path: Path,
     plan_path: Path,
     runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
@@ -283,8 +288,35 @@ def validate_authority_bundle(
         max_bytes=256,
         expected_owner_uid=expected_owner_uid,
     )
+    audit_raw = _secure_bytes(
+        Path(audit_path),
+        label="independent audit",
+        max_bytes=16 * 1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
+    w0_release_raw = _secure_bytes(
+        Path(w0_release_path),
+        label="D3-W0 release",
+        max_bytes=1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
+    w1_release_raw = _secure_bytes(
+        Path(w1_release_path),
+        label="D3-W1 release",
+        max_bytes=1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
+    w1_complete_raw = _secure_bytes(
+        Path(w1_complete_path),
+        label="W1_COMPLETE receipt",
+        max_bytes=4 * 1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
     authority = _json(authority_raw, "AUTHORITY.json")
     arm = _json(arm_raw, "execution arm")
+    w0_release_document = _json(w0_release_raw, "D3-W0 release")
+    w1_release_document = _json(w1_release_raw, "D3-W1 release")
+    _json(w1_complete_raw, "W1_COMPLETE receipt")
     authority_sha = hashlib.sha256(authority_raw).hexdigest()
 
     fixed = {
@@ -344,6 +376,8 @@ def validate_authority_bundle(
         raise AuthorityError("audit_sha256 is invalid")
     if prerequisite_hashes["independent_plan_audit"] != audit_sha:
         raise AuthorityError("audit_sha256 differs from prerequisite audit binding")
+    if hashlib.sha256(audit_raw).hexdigest() != audit_sha:
+        raise AuthorityError("independent audit bytes differ from authority")
     audit_verdict = authority.get("independent_audit_verdict")
     if audit_verdict not in {
         "PASS_FOR_RELEASE_DRAFTING",
@@ -356,6 +390,19 @@ def validate_authority_bundle(
     w1_release_id, w1_release_sha = _upstream_release(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
+    if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
+        raise AuthorityError("D3-W0 release bytes differ from authority")
+    if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
+        raise AuthorityError("D3-W1 release bytes differ from authority")
+    if w0_release_document.get("release_id") != w0_release_id:
+        raise AuthorityError("D3-W0 release document ID mismatch")
+    if w1_release_document.get("release_id") != w1_release_id:
+        raise AuthorityError("D3-W1 release document ID mismatch")
+    if (
+        hashlib.sha256(w1_complete_raw).hexdigest()
+        != prerequisite_hashes["w1_completion"]
+    ):
+        raise AuthorityError("W1_COMPLETE bytes differ from prerequisite binding")
     if authority.get("session_count") != 1:
         raise AuthorityError("session_count must be exactly 1")
     if authority.get("authorized_method_scope") != AUTHORIZED_METHOD_SCOPE:
@@ -487,6 +534,10 @@ def validate_authority_bundle(
         "EXECUTION_ARM.json": arm_raw,
         "ADOPTED_PLAN.md": plan_raw,
         "BASE_COMMIT.txt": runtime_raw,
+        "AUDIT.md": audit_raw,
+        "D3_W0_RELEASE.json": w0_release_raw,
+        "D3_W1_RELEASE.json": w1_release_raw,
+        "W1_COMPLETE.json": w1_complete_raw,
     }
     return result, artifacts
 
@@ -497,6 +548,10 @@ def validate_authority(
     arm_path: Path,
     plan_path: Path,
     runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
@@ -505,6 +560,10 @@ def validate_authority(
         arm_path=arm_path,
         plan_path=plan_path,
         runtime_commit_path=runtime_commit_path,
+        audit_path=audit_path,
+        w0_release_path=w0_release_path,
+        w1_release_path=w1_release_path,
+        w1_complete_path=w1_complete_path,
         expected_owner_uid=expected_owner_uid,
         now=now,
     )
@@ -517,6 +576,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--arm-file", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--runtime-commit", required=True, type=Path)
+    parser.add_argument("--audit", required=True, type=Path)
+    parser.add_argument("--w0-release", required=True, type=Path)
+    parser.add_argument("--w1-release", required=True, type=Path)
+    parser.add_argument("--w1-complete", required=True, type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -525,6 +588,10 @@ def main(argv: list[str] | None = None) -> int:
             arm_path=args.arm_file,
             plan_path=args.plan,
             runtime_commit_path=args.runtime_commit,
+            audit_path=args.audit,
+            w0_release_path=args.w0_release,
+            w1_release_path=args.w1_release,
+            w1_complete_path=args.w1_complete,
         )
     except AuthorityError as exc:
         print("D3_W2A_AUTHORITY_REFUSED: %s" % exc, file=sys.stderr)
