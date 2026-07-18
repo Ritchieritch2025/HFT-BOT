@@ -1,0 +1,39 @@
+{
+  "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
+  "all_inputs_prior_exposed": true,
+  "audit_sha256": "7b9c448096488a34324ab543e4bbeeed36ee5d62f5613c7f85efed1f95115ad2",
+  "authorized_input_dates": [
+    "2026-07-10",
+    "2026-07-11",
+    "2026-07-12",
+    "2026-07-13",
+    "2026-07-14",
+    "2026-07-15",
+    "2026-07-16",
+    "2026-07-17"
+  ],
+  "authorized_input_release_ids": [
+    "2026-07-10__v3ref__seal-86c01ed0__pub-45f5b99ff4fdf580",
+    "2026-07-11__v3ref__seal-de2e77c8__pub-e038f638b307da69",
+    "2026-07-12__v3ref__seal-bc37de4c__pub-abd451660aeedf0c",
+    "2026-07-13__v3ref__seal-7f6e5c1b__pub-55f66e41dba1484d",
+    "2026-07-14__v3ref__seal-2d6a4941__pub-748d8d77f665d60a",
+    "2026-07-15__v3ref__seal-22aa1b04__pub-4ae53f539c340052",
+    "2026-07-16__v3ref__seal-60b2674e__pub-fd365b5cd76099a0",
+    "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
+  ],
+  "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+  "expected_object_bytes": 29473216651,
+  "expected_object_count": 2657,
+  "holdout_opened": false,
+  "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
+  "release_id": "D3-W1-2026-07-18.01",
+  "research_execution_authority": false,
+  "rfq_included": false,
+  "runtime_commit": "0776ee3680e5d7c41c67a68d4c8c7f03947718c6",
+  "schema_version": "deep03-w1-release-v1",
+  "state": "RELEASE_CANDIDATE",
+  "strict_acceptance_claimed": false,
+  "w0_release_id": "D3-W0-2026-07-18.01",
+  "w0_release_sha256": "9d0ac41c47518eb1ca20a493763a6fee1c703e58c147161349f30fd10c153360"
+}
