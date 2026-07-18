@@ -19,8 +19,9 @@ for module in research_data.py research_reference.py warehouse_common.py; do
         exit 66
     fi
 done
-for module in deep03_v3_common.py deep03_v3_prepare.py \
-              deep03_v3_methods.py deep03_v3_runner.py; do
+for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
+              deep03_v3_prepare.py deep03_v3_methods.py \
+              deep03_v3_runner.py; do
     if [ ! -f "$PAYLOAD_ROOT/tools/research/$module" ]; then
         echo "W09_INSTALL_REFUSED: missing Deep03 module: $module" >&2
         exit 66
@@ -140,8 +141,9 @@ install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
     "$INSTALL_ROOT/tools/research_reference.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/warehouse_common.py" \
     "$INSTALL_ROOT/tools/warehouse_common.py"
-for module in deep03_v3_common.py deep03_v3_prepare.py \
-              deep03_v3_methods.py deep03_v3_runner.py; do
+for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
+              deep03_v3_prepare.py deep03_v3_methods.py \
+              deep03_v3_runner.py; do
     install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
         "$INSTALL_ROOT/tools/research/$module"
 done
@@ -212,6 +214,13 @@ exec /opt/w09/venv/bin/python \
   /opt/w09/research/tools/research/deep03_v3_prepare.py "$@"
 EOF
 chmod 0755 /usr/local/bin/deep03-v3-prepare
+cat > /usr/local/bin/deep03-v3-w1-preflight <<'EOF'
+#!/bin/sh
+set -eu
+exec /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/research/deep03_v3_w1_preflight.py "$@"
+EOF
+chmod 0755 /usr/local/bin/deep03-v3-w1-preflight
 cat > /usr/local/bin/deep03-v3-run <<'EOF'
 #!/bin/sh
 set -eu
@@ -253,6 +262,7 @@ sha256sum \
     "$INSTALL_ROOT/tools/exploratory_autoresearch.py" \
     "$INSTALL_ROOT/tools/deep03_authority_gate.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_common.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_w1_preflight.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_prepare.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_methods.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_runner.py" \

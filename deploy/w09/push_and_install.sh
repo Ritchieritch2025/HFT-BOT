@@ -73,8 +73,9 @@ mkdir -p "$tmp/tools/research" "$tmp/config" "$tmp/deploy/w09"
 cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
-for module in deep03_v3_common.py deep03_v3_prepare.py \
-              deep03_v3_methods.py deep03_v3_runner.py; do
+for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
+              deep03_v3_prepare.py deep03_v3_methods.py \
+              deep03_v3_runner.py; do
     cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
 done
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"

@@ -34,6 +34,7 @@ from test_w09_exploratory_autoresearch import _authority_files  # noqa: E402
 
 DEEP03_MODULES = {
     "tools/research/deep03_v3_common.py",
+    "tools/research/deep03_v3_w1_preflight.py",
     "tools/research/deep03_v3_prepare.py",
     "tools/research/deep03_v3_methods.py",
     "tools/research/deep03_v3_runner.py",
@@ -392,4 +393,5 @@ def test_w09_payload_sha_pins_and_installs_every_deep03_module():
     assert "deep03_open_discovery_modules.sha256" in push
     assert "deep03_open_discovery_modules.sha256" in install
     assert "/usr/local/bin/deep03-v3-prepare" in install
+    assert "/usr/local/bin/deep03-v3-w1-preflight" in install
     assert "/usr/local/bin/deep03-v3-run" in install

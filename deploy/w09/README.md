@@ -24,10 +24,13 @@ before packaging, checked again on the host, and installed non-executable with
 mode `0644`.  The W09 wrapper adds IMDSv2/session-token signing without adding
 any S3 operation.
 
-The bounded Deep03 D3-W2A open-discovery payload is a separate four-module
+The bounded Deep03 D3-W2A open-discovery payload is a separate five-module
 set pinned by `deep03_open_discovery_modules.sha256`. The installer checks it
-before copying any module and installs two argument-preserving wrappers:
-`deep03-v3-prepare` and `deep03-v3-run`. The prepare command requires one or
+before copying any module and installs three argument-preserving wrappers:
+`deep03-v3-w1-preflight`, `deep03-v3-prepare`, and `deep03-v3-run`. The W1
+preflight command records the exact input, data-quality, prior-exposure and
+no-holdout receipts without network access or research computation. The
+prepare command requires one or
 more explicit V3 release IDs and refuses copied-v2, `latest` selection, RFQ,
 static AWS credentials, trading credentials, marker drift and non-content-
 addressed cache files. The runner has no network client and produces only

@@ -107,6 +107,7 @@ def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
     completion_path = build_preflight(**args)
     root = completion_path.parent
     completion = json.loads(completion_path.read_text())
+    inputs = json.loads((root / "INPUT_MANIFEST.json").read_text())
     dq = json.loads((root / "DATA_QUALITY_RECEIPT.json").read_text())
     split = json.loads((root / "SPLIT_MANIFEST_OPEN_DISCOVERY.json").read_text())
     prior = [
@@ -115,6 +116,8 @@ def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
     ]
 
     assert completion["state"] == "W1_COMPLETE_EXPLORATORY_PRECHECK"
+    assert inputs["schema_version"] == "deep03-w1-v3-input-manifest-v1"
+    assert "authority_binding" not in inputs
     assert completion["research_execution_started"] is False
     assert completion["holdout_opened"] is False
     assert completion["strict_acceptance_claimed"] is False

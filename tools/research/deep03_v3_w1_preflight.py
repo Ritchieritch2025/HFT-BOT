@@ -10,6 +10,7 @@ no-holdout split that a later exact D3-W2A authority must bind.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,9 +23,7 @@ from deep03_v3_common import (
     MODE,
     atomic_write_bytes,
     atomic_write_json,
-    build_input_manifest,
     canonical_json_bytes,
-    input_projection_sha256,
     load_json,
     refuse_credential_environment,
     sha256_file,
@@ -35,11 +34,46 @@ from deep03_v3_common import (
 
 SCHEMA_W0 = "deep03-w0-release-v1"
 SCHEMA_W1 = "deep03-w1-release-v1"
+SCHEMA_INPUT = "deep03-w1-v3-input-manifest-v1"
 SCHEMA_DQ = "deep03-w1-data-quality-receipt-v1"
 SCHEMA_PRIOR = "deep03-w1-prior-exposure-ledger-v1"
 SCHEMA_SPLIT = "deep03-w1-open-discovery-split-v1"
 SCHEMA_COMPLETE = "deep03-w1-exploratory-precheck-completion-v1"
 CANARY_STATE = "W09_V3_EXPLORATORY_QUERY_CANARY_PASS"
+
+
+def _build_w1_input_manifest(
+    *, release_id: str, cache_root: Path, releases: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Record exact W1 inputs without fabricating later W2A authority."""
+    objects = [obj for release in releases for obj in release["objects"]]
+    return {
+        "schema_version": SCHEMA_INPUT,
+        "release_id": release_id,
+        "created_at_utc": utc_now(),
+        "mode": MODE,
+        "research_execution_started": False,
+        "strict_acceptance_claimed": False,
+        "selection_mode": "EXPLICIT_RELEASE_IDS_ONLY",
+        "cache_root": str(Path(cache_root).resolve()),
+        "release_ids": [release["release_id"] for release in releases],
+        "release_dates": [release["date"] for release in releases],
+        "rfq_policy": "FORBIDDEN_AND_ABSENT",
+        "version_binding_mode": "CANONICAL_REFERENCE",
+        "release_count": len(releases),
+        "object_count": len(objects),
+        "object_bytes": sum(int(obj["size"]) for obj in objects),
+        "releases": [
+            {key: value for key, value in release.items() if key != "objects"}
+            for release in releases
+        ],
+        "objects": objects,
+    }
+
+
+def _w1_input_projection_sha256(value: dict[str, Any]) -> str:
+    stable = {key: item for key, item in value.items() if key != "created_at_utc"}
+    return hashlib.sha256(canonical_json_bytes(stable)).hexdigest()
 
 
 def _exact_file(path: Path, expected_sha256: str, label: str) -> bytes:
@@ -174,10 +208,10 @@ def build_preflight(
     if dates != w1.get("authorized_input_dates"):
         raise Deep03InputError("W1 release date set differs from exact manifests")
     canaries = _canary_records(canary_paths, releases)
-    input_manifest = build_input_manifest(
-        run_id=w1_release_id,
+    input_manifest = _build_w1_input_manifest(
+        release_id=w1_release_id,
         cache_root=cache_root,
-        release_records=releases,
+        releases=releases,
     )
 
     output_dir = Path(output_dir).resolve()
@@ -278,7 +312,7 @@ def build_preflight(
             "adopted_plan_sha256": plan_sha256,
             "audit_sha256": audit_sha256,
             "authorized_input_release_ids": release_ids,
-            "input_projection_sha256": input_projection_sha256(input_manifest),
+            "input_projection_sha256": _w1_input_projection_sha256(input_manifest),
             "artifacts_sha256": artifacts,
             "release_count": len(releases),
             "object_count": input_manifest["object_count"],
