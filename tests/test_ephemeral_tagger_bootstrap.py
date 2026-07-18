@@ -116,7 +116,7 @@ class FakeAwsAndTagger:
 
     def __call__(self, command, **kwargs):
         env = kwargs["env"]
-        self.calls.append((list(command), dict(env), kwargs.get("input_text")))
+        self.calls.append((list(command), dict(env), kwargs.get("input_bytes")))
         flat = " ".join(command)
         if "sts get-caller-identity" in flat:
             if env.get("AWS_ACCESS_KEY_ID") == BROKER_KEY:
@@ -156,7 +156,7 @@ class FakeAwsAndTagger:
                 "Status": self.create_status,
             }}))
         if "iam update-access-key" in flat:
-            payload = json.loads(kwargs["input_text"])
+            payload = json.loads(kwargs["input_bytes"].decode("utf-8"))
             assert payload == {
                 "UserName": bootstrap.USER_NAME,
                 "AccessKeyId": KEY_ID,
@@ -166,7 +166,7 @@ class FakeAwsAndTagger:
             assert env["AWS_ACCESS_KEY_ID"] == BROKER_KEY
             return _completed(command, stdout="{}")
         if "iam delete-access-key" in flat:
-            payload = json.loads(kwargs["input_text"])
+            payload = json.loads(kwargs["input_bytes"].decode("utf-8"))
             assert payload["AccessKeyId"] == KEY_ID
             assert KEY_ID not in command
             assert env["AWS_ACCESS_KEY_ID"] == BROKER_KEY
@@ -558,6 +558,27 @@ def test_stable_exception_suppresses_sensitive_exception_chain(monkeypatch):
         type(process.value), process.value, process.value.__traceback__))
     assert process.value.__suppress_context__ is True
     assert "ambient-secret" not in rendered
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or not hasattr(os, "memfd_create"),
+    reason="production IAM payload transport requires Linux memfd",
+)
+def test_run_process_passes_cli_input_through_inherited_memfd():
+    payload = b'{"AccessKeyId":"sensitive-fixture"}'
+    script = (
+        "import pathlib,sys; uri=sys.argv[-1]; "
+        "assert uri.startswith('file:///proc/self/fd/'); "
+        "print(pathlib.Path(uri[7:]).read_text())"
+    )
+    result = bootstrap._run_process(
+        [sys.executable, "-I", "-c", script],
+        env={"PATH": "/usr/bin:/bin"}, timeout=5, label="memfd fixture",
+        input_bytes=payload,
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"AccessKeyId": "sensitive-fixture"}
+    assert all("sensitive-fixture" not in item for item in result.args)
 
 
 def test_main_requires_real_user_ids_and_service_isolation_gate(

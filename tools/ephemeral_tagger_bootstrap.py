@@ -312,27 +312,66 @@ def _terminate_child(process: subprocess.Popen) -> None:
 
 
 def _run_process(command: list[str], *, env: dict[str, str], timeout: int,
-                 label: str, input_text: str | None = None,
+                 label: str, input_bytes: bytes | None = None,
                  max_output_bytes: int = MAX_AWS_RESPONSE_BYTES
                  ) -> subprocess.CompletedProcess:
+    run_command = list(command)
+    memfd = None
+    if input_bytes is not None:
+        if (not sys.platform.startswith("linux")
+                or not hasattr(os, "memfd_create")
+                or not isinstance(input_bytes, bytes)
+                or not input_bytes
+                or len(input_bytes) > MAX_AWS_RESPONSE_BYTES):
+            raise GateError(
+                "COMMAND_INPUT_INVALID",
+                f"{label} requires a bounded Linux in-memory payload",
+            )
+        try:
+            flags = getattr(os, "MFD_CLOEXEC", 0)
+            memfd = os.memfd_create("kalshi-iam-cli-input", flags)
+            view = memoryview(input_bytes)
+            written = 0
+            while written < len(view):
+                count = os.write(memfd, view[written:])
+                if count <= 0:
+                    raise OSError("short memfd write")
+                written += count
+            os.lseek(memfd, 0, os.SEEK_SET)
+            os.fchmod(memfd, 0o400)
+            run_command.extend([
+                "--cli-input-json", f"file:///proc/self/fd/{memfd}",
+            ])
+        except OSError:
+            if memfd is not None:
+                os.close(memfd)
+            raise GateError(
+                "COMMAND_INPUT_INVALID",
+                f"{label} could not create an in-memory payload",
+            ) from None
     try:
         process = subprocess.Popen(
-            command,
+            run_command,
             env=env,
             cwd=str(ROOT),
-            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             shell=False,
             close_fds=True,
+            pass_fds=(() if memfd is None else (memfd,)),
             start_new_session=True,
             preexec_fn=_child_hardening if sys.platform.startswith("linux") else None,
         )
     except (OSError, subprocess.SubprocessError):
+        if memfd is not None:
+            os.close(memfd)
         raise GateError("COMMAND_FAILED", f"{label} could not start") from None
+    if memfd is not None:
+        os.close(memfd)
     try:
-        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         _terminate_child(process)
         raise GateError("COMMAND_TIMEOUT", f"{label} timed out") from None
@@ -343,7 +382,8 @@ def _run_process(command: list[str], *, env: dict[str, str], timeout: int,
     stderr = stderr or ""
     if len(stdout.encode("utf-8")) + len(stderr.encode("utf-8")) > max_output_bytes:
         raise GateError("COMMAND_OUTPUT_INVALID", f"{label} output is too large")
-    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    return subprocess.CompletedProcess(
+        run_command, process.returncode, stdout, stderr)
 
 
 def _validate_executable(path: pathlib.Path, *, label: str,
@@ -530,17 +570,17 @@ class AwsIamBootstrap:
               environment: dict[str, str] | None = None,
               input_payload: dict | None = None) -> dict:
         command = [self.executable, *arguments, "--output", "json"]
-        input_text = None
+        input_bytes = None
         if input_payload is not None:
-            command.extend(["--cli-input-json", "file:///dev/stdin"])
-            input_text = json.dumps(
-                input_payload, sort_keys=True, separators=(",", ":"))
+            input_bytes = json.dumps(
+                input_payload, sort_keys=True,
+                separators=(",", ":")).encode("utf-8")
         result = _run_process(
             command,
             env=self.environment if environment is None else environment,
             timeout=60,
             label=label,
-            input_text=input_text,
+            input_bytes=input_bytes,
         )
         if result.returncode:
             raise GateError(
