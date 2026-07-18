@@ -315,6 +315,11 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "AUTHORITY.json" not in installer
     assert "d3-w2a-execution-arm.json" not in installer
     assert "release-commit.txt" in installer
+    autoresearch = (W09 / "exploratory_autoresearch.py").read_text()
+    gate_source = (W09 / "deep03_authority_gate.py").read_text()
+    assert 'default="/srv/w09-research/cache"' in autoresearch
+    assert "cache-v3-exploratory" not in autoresearch
+    assert "/srv/w09-research/cache" in gate_source
 
 
 def test_static_credentials_are_refused_without_printing_values(tmp_path, monkeypatch):
@@ -374,6 +379,27 @@ def _authority_files(tmp_path: Path):
         "execution_class": "EXPLORATORY_ONLY",
         "authorized_write_roots": sorted(gate.WRITE_ROOTS),
         "allowed_network_operations": gate.NETWORK_OPERATIONS,
+        "active_prompt_state": "EXPLICIT_NONE",
+        "active_prompt_path": None,
+        "active_prompt_sha256": None,
+        "named_supersessions": [gate.REQUIRED_NAMED_SUPERSESSION],
+        "authorized_branch": "w-deep03-gate-hardening",
+        "authorized_worktree": "/Users/ritcardo/HFT-BOT-deep03-gate-hardening",
+        "authorized_tool_classes": gate.AUTHORIZED_TOOL_CLASSES,
+        "authorized_api_classes": gate.AUTHORIZED_API_CLASSES,
+        "authorized_credential_classes": gate.AUTHORIZED_CREDENTIAL_CLASSES,
+        "prerequisite_receipt_sha256s": {
+            key: hashlib.sha256(key.encode("ascii")).hexdigest()
+            for key in gate.REQUIRED_PREREQUISITE_HASHES
+        },
+        "audit_sha256": hashlib.sha256(b"independent_plan_audit").hexdigest(),
+        "independent_audit_verdict": "PASS_WITH_EXPLICIT_BLOCKERS",
+        "w0_release_id": "D3-W0-2026-07-18.01",
+        "w0_release_sha256": "2" * 64,
+        "w1_release_id": "D3-W1-2026-07-18.01",
+        "w1_release_sha256": "3" * 64,
+        "session_count": 1,
+        "authorized_method_scope": gate.AUTHORIZED_METHOD_SCOPE,
         "authorized_input_release_ids": [release_id],
         "input_start_date": "2026-07-13",
         "input_end_date": "2026-07-13",
@@ -441,4 +467,46 @@ def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):
             runtime_commit_path=runtime,
             expected_owner_uid=os.getuid(),
             now=now,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("active_prompt_state", None, "active_prompt_state"),
+        ("named_supersessions", [], "section 4.15.1"),
+        ("authorized_branch", "", "authorized_branch"),
+        ("authorized_tool_classes", [], "authorized_tool_classes"),
+        ("authorized_api_classes", [], "authorized_api_classes"),
+        ("authorized_credential_classes", [], "authorized_credential_classes"),
+        ("prerequisite_receipt_sha256s", {}, "incomplete keys"),
+        ("w0_release_id", "D3-W2A-wrong", "W0 release ID"),
+        ("w1_release_sha256", "bad", "W1 release SHA-256"),
+        ("session_count", 2, "session_count"),
+        ("authorized_method_scope", {}, "partial W2A scope"),
+        ("s3_write_permission", True, "explicit false"),
+    ],
+)
+def test_authority_gate_refuses_missing_or_broadened_narrow_scope(
+    tmp_path, field, replacement, message
+):
+    gate, authority_path, arm, plan, runtime = _authority_files(tmp_path)
+    authority = json.loads(authority_path.read_text())
+    authority[field] = replacement
+    authority_path.chmod(0o644)
+    authority_path.write_text(json.dumps(authority, sort_keys=True) + "\n")
+    authority_path.chmod(0o444)
+    arm_value = json.loads(arm.read_text())
+    arm_value["authority_sha256"] = hashlib.sha256(authority_path.read_bytes()).hexdigest()
+    arm.chmod(0o644)
+    arm.write_text(json.dumps(arm_value, sort_keys=True) + "\n")
+    arm.chmod(0o444)
+    with pytest.raises(gate.AuthorityError, match=message):
+        gate.validate_authority(
+            authority_path=authority_path,
+            arm_path=arm,
+            plan_path=plan,
+            runtime_commit_path=runtime,
+            expected_owner_uid=os.getuid(),
+            now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
         )
