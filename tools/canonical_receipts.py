@@ -2046,14 +2046,15 @@ def build_desired_inventory(date, bucket, prefix, raw_root, warehouse_root,
                             include_rfq_durability=False):
     """Build one frozen local inventory; this function performs no S3 call.
 
-    The public plan/shadow CLI always uses the default RFQ-off contract.  RFQ
-    proof metadata remains sealed, but no RFQ object enters the S3 reader or
-    full-byte hashing set.  A future independently authorized workflow may
-    opt in only by calling this function explicitly; there is deliberately no
-    CLI flag for that capability.
+    Base inventory is permanently RFQ-free.  RFQ proof metadata remains
+    sealed, but RFQ objects can enter only the independent overlay workflow.
     """
     if not bucket or "/" in bucket:
         raise ReceiptError("INVALID_BUCKET", repr(bucket))
+    if include_rfq_durability:
+        raise ReceiptError(
+            "RFQ_OVERLAY_REQUIRED",
+            "base canonical inventory is permanently RFQ-free")
     prefix = _safe_rel(prefix.strip("/"), "canonical prefix")
     (seal, binding, _manifest_payload, manifest_digest, _manifest_rows,
      raw_proofs, fact_proofs) = _authoritative_day_inputs(

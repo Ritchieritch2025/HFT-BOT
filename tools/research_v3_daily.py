@@ -8,11 +8,9 @@ the existing v3 reference publisher.  A failure exits non-zero and records a
 small local status; it never starts, stops, reloads, or signals a production
 service.
 
-RFQ is off by default.  A future date is enabled only when its fixed-name
-``fresh-rfq-daily-eligibility-v1`` package revalidates the complete strict-T0,
-single-session, 24+2 receipt/source-evidence/seal chain.  The exact allowlist
-then follows the durable receipt, dual-tag proof, manifest, and W09 consumer;
-any missing or invalid gate falls back to RFQ-off without blocking L1/L2.
+RFQ is structurally off.  Queue entries are dates only, durable receipts that
+contain an RFQ object are rejected, the tagger is never given an RFQ option,
+and the publisher is always invoked with ``--no-rfq``.
 """
 
 from __future__ import annotations
@@ -48,8 +46,6 @@ DEFAULT_PRODUCTION_WAREHOUSE_ROOT = pathlib.Path(
     "/home/ubuntu/hft-bot/work/warehouse")
 DEFAULT_PRODUCTION_QUALITY_DIR = pathlib.Path(
     "/home/ubuntu/hft-bot/work/event_packs")
-DEFAULT_FRESH_RFQ_ELIGIBILITY_ROOT = pathlib.Path(
-    "/home/ubuntu/hft-bot/work/live/fresh_rfq_research")
 DEFAULT_PRODUCTION_HOME = pathlib.Path("/var/lib/kalshi-research-v3")
 DEFAULT_CREDENTIAL_DIRECTORY = pathlib.Path(
     "/run/credentials/kalshi-research-v3-daily.service")
@@ -102,13 +98,6 @@ PREPARED_PLAN_SCHEMA = "research-reference-prepared-plan-v1"
 PREPARED_PLAN_STATE = "REFERENCE_MANIFEST_PREPARED"
 MANIFEST_COMMIT_RESULT_SCHEMA = \
     "research-reference-manifest-commit-result-v1"
-RFQ_OFF = "OFF"
-RFQ_FRESH = "FRESH_SEALED"
-FRESH_RFQ_AUTHORIZATION = (
-    ROOT / "docs" / "plan_releases" / "pipeline"
-    / "W-RFQ-FRESH-01_AUTHORIZATION_AND_EXECUTION_2026-07-17.md")
-FRESH_RFQ_AUTHORIZATION_SHA256 = (
-    "fd6cf9780b4a4743f51daf0a7a926e0ddcb4e77fd11a6bc1029d28911df6d5e7")
 
 
 class GateError(RuntimeError):
@@ -152,10 +141,6 @@ class DatePlan:
     audit_sha256: str
     pending_index: pathlib.Path | None = None
     historical_existing_only: bool = False
-    rfq_mode: str = RFQ_OFF
-    fresh_rfq_eligibility: pathlib.Path | None = None
-    fresh_rfq_eligibility_sha256: str | None = None
-    rfq_eligibility_evidence: pathlib.Path | None = None
 
 
 def _validate_date(value: str) -> str:
@@ -438,88 +423,7 @@ def _require_rfq_off(receipt: dict, label: str) -> None:
             raise GateError("RFQ_GATE", "RFQ family is not hard-closed")
 
 
-def _load_fresh_rfq_gate(path: pathlib.Path, date: str) -> dict:
-    authorization = _read_regular(
-        FRESH_RFQ_AUTHORIZATION, 1024 * 1024,
-        "fresh RFQ operator authorization")
-    if hashlib.sha256(authorization).hexdigest() != \
-            FRESH_RFQ_AUTHORIZATION_SHA256:
-        raise GateError(
-            "RFQ_AUTHORIZATION_INVALID",
-            "fresh RFQ operator authorization bytes changed")
-    tools_dir = str(ROOT / "tools")
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    try:
-        import fresh_rfq_daily_eligibility as fresh_gate
-        marker = fresh_gate.load_package(
-            pathlib.Path(path), expected_date=date)
-    except Exception as exc:
-        raise GateError("RFQ_ELIGIBILITY_INVALID", str(exc)) from exc
-    return marker
-
-
-def _fresh_rfq_gate_for_date(date: str, args) -> tuple[str, pathlib.Path | None,
-                                                       dict | None, str]:
-    """Return a per-date mode; every gate error degrades only RFQ to OFF."""
-    root_value = getattr(args, "fresh_rfq_eligibility_root", None)
-    if not root_value:
-        return RFQ_OFF, None, None, "ELIGIBILITY_ROOT_NOT_CONFIGURED"
-    root = pathlib.Path(root_value).absolute()
-    marker_path = root / f"date={date}" / "ELIGIBLE.json"
-    if not marker_path.exists():
-        return RFQ_OFF, None, None, "ELIGIBILITY_MARKER_MISSING"
-    try:
-        marker = _load_fresh_rfq_gate(marker_path, date)
-    except GateError as exc:
-        return RFQ_OFF, None, None, f"{exc.code}:{exc.detail}"
-    return RFQ_FRESH, marker_path, marker, "STRICT_GATE_PASS"
-
-
-def _require_rfq_mode(receipt: dict, label: str, mode: str, *,
-                      eligibility: dict | None = None) -> None:
-    if mode == RFQ_OFF:
-        _require_rfq_off(receipt, label)
-        return
-    if mode != RFQ_FRESH:
-        raise GateError("RFQ_GATE", f"unknown RFQ mode {mode!r}")
-    objects = receipt.get("objects")
-    if not isinstance(objects, list) or not objects:
-        raise GateError("DURABLE_RECEIPT_INVALID", f"{label} objects are empty")
-    rfq = [obj for obj in objects if _is_rfq_object(obj)]
-    if not rfq:
-        raise GateError("RFQ_GATE", f"{label} has no fresh RFQ exact set")
-    for obj in rfq:
-        if (obj.get("source_kind") != "raw_rfq"
-                or obj.get("channel") != "rfq"
-                or obj.get("required") is not False
-                or not isinstance(obj.get("VersionId"), str)
-                or not obj["VersionId"]
-                or obj.get("durability_verified") is not True
-                or obj.get("verification_state")
-                != "EXACT_VERSION_FULL_SHA256"):
-            raise GateError("RFQ_GATE", f"{label} has unsafe RFQ semantics")
-    if eligibility is not None:
-        expected = sorted([{
-            "bucket": row["bucket"], "key": row["key"],
-            "VersionId": row["version_id"], "size": row["size"],
-            "sha256": row["sha256"],
-        } for row in eligibility["eligible_objects"]],
-            key=lambda row: (row["key"], row["VersionId"]))
-        observed = sorted([{
-            "bucket": row.get("bucket"), "key": row.get("key"),
-            "VersionId": row.get("VersionId"), "size": row.get("size"),
-            "sha256": row.get("sha256"),
-        } for row in rfq], key=lambda row: (row["key"], row["VersionId"]))
-        if observed != expected:
-            raise GateError(
-                "RFQ_GATE", "durable RFQ set differs from daily eligibility")
-
-
-def _validate_durable_index(path: pathlib.Path, date: str, *,
-                            rfq_mode: str = RFQ_OFF,
-                            eligibility: dict | None = None
-                            ) -> tuple[dict, pathlib.Path]:
+def _validate_durable_index(path: pathlib.Path, date: str) -> tuple[dict, pathlib.Path]:
     index, _raw = _read_json(path, MAX_INDEX_BYTES, "durable index")
     digest = index.get("receipt_set_sha256")
     binding = index.get("receipt_object")
@@ -559,8 +463,7 @@ def _validate_durable_index(path: pathlib.Path, date: str, *,
             or binding.get("size") != len(raw)
             or binding.get("sha256") != hashlib.sha256(raw).hexdigest()):
         raise GateError("DURABLE_NOT_READY", "receipt/index binding mismatch")
-    _require_rfq_mode(
-        receipt, "durable receipt", rfq_mode, eligibility=eligibility)
+    _require_rfq_off(receipt, "durable receipt")
     return index, receipt_path
 
 
@@ -578,7 +481,6 @@ def _parse_utc(value: object, label: str) -> dt.datetime:
 
 def _validate_audit(audit_path: pathlib.Path, evidence_path: pathlib.Path,
                     date: str, receipt_sha: str, tagger_arn: str, *,
-                    rfq_mode: str = RFQ_OFF,
                     require_fresh: bool = True,
                     expected_sha256: str | None = None,
                     now: dt.datetime | None = None) -> str:
@@ -616,18 +518,11 @@ def _validate_audit(audit_path: pathlib.Path, evidence_path: pathlib.Path,
             or audit.get("policy_evidence_sha256")
             != hashlib.sha256(evidence).hexdigest()):
         raise GateError("SINGLE_WRITER_AUDIT_INVALID", str(audit_path))
-    if rfq_mode == RFQ_FRESH and (
-            audit.get("rfq_tag_key") != "research-channel"
-            or audit.get("rfq_tag_value") != "rfq"
-            or audit.get("rfq_exact_version_scope_verified") is not True):
-        raise GateError("SINGLE_WRITER_AUDIT_INVALID", str(audit_path))
     return audit_sha
 
 
 def _validate_tagged_index(path: pathlib.Path, date: str,
-                           byte_receipt_sha: str, *,
-                           rfq_mode: str = RFQ_OFF,
-                           eligibility: dict | None = None) -> str:
+                           byte_receipt_sha: str) -> str:
     index, _raw = _read_json(path, MAX_INDEX_BYTES, "tagged durable index")
     digest = index.get("receipt_set_sha256")
     audit_sha = index.get("eligibility_single_writer_audit_sha256")
@@ -680,19 +575,7 @@ def _validate_tagged_index(path: pathlib.Path, date: str,
             or index.get("receipt_payload_sha256")
             != hashlib.sha256(receipt_raw).hexdigest()):
         raise GateError("TAGGED_INDEX_INVALID", "tagged receipt binding mismatch")
-    _require_rfq_mode(
-        receipt, "tagged durable receipt", rfq_mode,
-        eligibility=eligibility)
-    if rfq_mode == RFQ_FRESH:
-        rfq = [obj for obj in receipt["objects"] if _is_rfq_object(obj)]
-        if any(obj.get("research_candidate") is not True
-               or obj.get("research_eligible") is not True
-               or obj.get("eligibility_tag_state")
-               != "DUAL_TAGGED_VERIFIED"
-               or obj.get("exposure_policy")
-               != "RESEARCH_ELIGIBLE_SEALED_RFQ" for obj in rfq):
-            raise GateError(
-                "RFQ_GATE", "tagged RFQ set lacks the dual-tag transition")
+    _require_rfq_off(receipt, "tagged durable receipt")
     return audit_sha
 
 
@@ -789,56 +672,37 @@ def _historical_audit_pair(audit_root: pathlib.Path, date: str,
 
 def prepare_date_plan(date: str, live_dir: pathlib.Path,
                       audit_root: pathlib.Path, tagger_arn: str,
-                      receipt_root: pathlib.Path | None = None, *,
-                      rfq_mode: str = RFQ_OFF,
-                      fresh_rfq_eligibility: pathlib.Path | None = None,
-                      eligibility: dict | None = None,
-                      rfq_eligibility_evidence: pathlib.Path | None = None
-                      ) -> DatePlan:
+                      receipt_root: pathlib.Path | None = None) -> DatePlan:
     date = _validate_date(date)
     live_dir = pathlib.Path(live_dir).absolute()
     durable = _find_durable(date, live_dir, receipt_root)
     if durable is None:
         raise GateError("DURABLE_NOT_READY", f"no durable index for {date}")
-    index, receipt_path = _validate_durable_index(
-        durable, date, rfq_mode=rfq_mode, eligibility=eligibility)
+    index, receipt_path = _validate_durable_index(durable, date)
     digest = index["receipt_set_sha256"]
     audit, evidence = _audit_pair(audit_root, date, digest)
     audit_sha = _validate_audit(
-        audit, evidence, date, digest, tagger_arn, require_fresh=True,
-        rfq_mode=rfq_mode)
+        audit, evidence, date, digest, tagger_arn, require_fresh=True)
     tagged_dir = live_dir / "canonical_receipts" / "tagged" / f"date={date}"
     tagged = _one_match(tagged_dir, "TAGGED-DURABLE-*.json",
                         "tagged durable index")
     if tagged is not None:
-        historical_sha = _validate_tagged_index(
-            tagged, date, digest, rfq_mode=rfq_mode,
-            eligibility=eligibility)
+        historical_sha = _validate_tagged_index(tagged, date, digest)
         historical, historical_evidence = _historical_audit_pair(
             audit_root, date, digest, historical_sha)
         _validate_audit(
             historical, historical_evidence, date, digest, tagger_arn,
-            require_fresh=False, expected_sha256=historical_sha,
-            rfq_mode=rfq_mode)
+            require_fresh=False, expected_sha256=historical_sha)
     return DatePlan(
         date, durable, receipt_path, digest, audit, evidence, tagged,
-        audit_sha, rfq_mode=rfq_mode,
-        fresh_rfq_eligibility=fresh_rfq_eligibility,
-        fresh_rfq_eligibility_sha256=(
-            eligibility.get("eligibility_sha256") if eligibility else None),
-        rfq_eligibility_evidence=rfq_eligibility_evidence)
+        audit_sha)
 
 
 def pending_recovery_plan(date: str, durable: pathlib.Path,
                           live_dir: pathlib.Path, audit_root: pathlib.Path,
-                          tagger_arn: str, *, rfq_mode: str = RFQ_OFF,
-                          fresh_rfq_eligibility: pathlib.Path | None = None,
-                          eligibility: dict | None = None,
-                          rfq_eligibility_evidence: pathlib.Path | None = None
-                          ) -> DatePlan | None:
+                          tagger_arn: str) -> DatePlan | None:
     """Resume the exact historical audit bound by one durable pending intent."""
-    index, receipt_path = _validate_durable_index(
-        durable, date, rfq_mode=rfq_mode, eligibility=eligibility)
+    index, receipt_path = _validate_durable_index(durable, date)
     parent_sha = index["receipt_set_sha256"]
     root = (pathlib.Path(live_dir).absolute() / "canonical_receipts"
             / "tagged" / f"date={date}")
@@ -866,8 +730,7 @@ def pending_recovery_plan(date: str, durable: pathlib.Path,
         audit_root, date, parent_sha, audit_sha)
     _validate_audit(
         audit, evidence, date, parent_sha, tagger_arn,
-        require_fresh=False, expected_sha256=audit_sha,
-        rfq_mode=rfq_mode)
+        require_fresh=False, expected_sha256=audit_sha)
     created_at = intent.get("transaction_created_at_utc")
     if created_at is not None:
         created = _parse_utc(created_at, "pending transaction_created_at_utc")
@@ -885,42 +748,27 @@ def pending_recovery_plan(date: str, durable: pathlib.Path,
     if age < -dt.timedelta(minutes=5):
         raise GateError("TAGGER_RECOVERY_INVALID", "pending marker is future-dated")
     historical_existing_only = age > dt.timedelta(hours=24)
-    if historical_existing_only and rfq_mode == RFQ_FRESH:
-        raise GateError(
-            "RFQ_RECOVERY_EXPIRED",
-            "fresh RFQ pending transaction exceeded the audited recovery window")
     return DatePlan(
         date, durable, receipt_path, parent_sha, audit, evidence, None,
-        audit_sha, pending[0], historical_existing_only,
-        rfq_mode=rfq_mode,
-        fresh_rfq_eligibility=fresh_rfq_eligibility,
-        fresh_rfq_eligibility_sha256=(
-            eligibility.get("eligibility_sha256") if eligibility else None),
-        rfq_eligibility_evidence=rfq_eligibility_evidence)
+        audit_sha, pending[0], historical_existing_only)
 
 
 def _validate_completed_state(date: str, receipt_sha: str,
                               live_dir: pathlib.Path,
                               audit_root: pathlib.Path,
-                              tagger_arn: str, *,
-                              rfq_mode: str = RFQ_OFF,
-                              eligibility: dict | None = None
-                              ) -> pathlib.Path:
+                              tagger_arn: str) -> pathlib.Path:
     tagged_dir = (pathlib.Path(live_dir) / "canonical_receipts" / "tagged"
                   / f"date={date}")
     tagged = _one_match(
         tagged_dir, "TAGGED-DURABLE-*.json", "tagged durable index")
     if tagged is None:
         raise GateError("COMPLETED_STATE_INVALID", "tagged index is missing")
-    historical_sha = _validate_tagged_index(
-        tagged, date, receipt_sha, rfq_mode=rfq_mode,
-        eligibility=eligibility)
+    historical_sha = _validate_tagged_index(tagged, date, receipt_sha)
     audit, evidence = _historical_audit_pair(
         audit_root, date, receipt_sha, historical_sha)
     _validate_audit(
         audit, evidence, date, receipt_sha, tagger_arn,
-        require_fresh=False, expected_sha256=historical_sha,
-        rfq_mode=rfq_mode)
+        require_fresh=False, expected_sha256=historical_sha)
     tagged_index, _raw = _read_json(
         tagged, MAX_INDEX_BYTES, "completed tagged index")
     stale_pending = tagged.with_name(
@@ -1057,9 +905,7 @@ def _validate_manifest_object_binding(binding: object, release_id: str,
 
 def _validate_local_terminal_status(status: object, path: pathlib.Path,
                                     date: str,
-                                    live_dir: pathlib.Path, *,
-                                    expected_rfq: str = RFQ_OFF,
-                                    eligibility: dict | None = None):
+                                    live_dir: pathlib.Path):
     """Validate the local half of a terminal receipt.
 
     This deliberately does not call AWS.  It can prove only that the status
@@ -1087,7 +933,7 @@ def _validate_local_terminal_status(status: object, path: pathlib.Path,
             or status.get("durable_receipt_set_sha256") != receipt_sha
             or status.get("destination") != DEFAULT_DEST
             or status.get("live_dir") != str(live)
-            or status.get("rfq") != expected_rfq
+            or status.get("rfq") != "OFF"
             or not isinstance(release_id, str)
             or re.fullmatch(release_pattern, release_id) is None
             or not isinstance(status.get("prepared_plan_sha256"), str)
@@ -1108,9 +954,7 @@ def _validate_local_terminal_status(status: object, path: pathlib.Path,
         if durable is None:
             raise GateError(
                 "TERMINAL_STATE_INVALID", "durable index is missing")
-        durable_index, _receipt = _validate_durable_index(
-            durable, date, rfq_mode=expected_rfq,
-            eligibility=eligibility)
+        durable_index, _receipt = _validate_durable_index(durable, date)
         if durable_index["receipt_set_sha256"] != receipt_sha:
             raise GateError(
                 "TERMINAL_STATE_INVALID", "durable receipt binding changed")
@@ -1122,9 +966,7 @@ def _validate_local_terminal_status(status: object, path: pathlib.Path,
                 or resolved.parent != expected_root):
             raise GateError(
                 "TERMINAL_STATE_INVALID", "tagged index path is not canonical")
-        _validate_tagged_index(
-            resolved, date, receipt_sha, rfq_mode=expected_rfq,
-            eligibility=eligibility)
+        _validate_tagged_index(resolved, date, receipt_sha)
     except GateError:
         raise
     except (KeyError, OSError, TypeError, ValueError) as exc:
@@ -1484,8 +1326,7 @@ def _publisher_run(command: list[str], *, args,
 
 
 def _validate_prepared_result(output: str, *, date: str,
-                              prepared_root: pathlib.Path,
-                              expected_rfq: str = RFQ_OFF):
+                              prepared_root: pathlib.Path):
     result = _last_json(output, f"reference prepare {date}")
     required = {
         "schema_version", "state", "date", "release_id", "prepared_plan",
@@ -1509,7 +1350,7 @@ def _validate_prepared_result(output: str, *, date: str,
             or result["prepared_plan_size"] < 1
             or result["prepared_plan_size"] > MAX_REFERENCE_PREPARED_PLAN_BYTES
             or result.get("s3_writes") != 0
-            or result.get("rfq") != expected_rfq):
+            or result.get("rfq") != "OFF"):
         raise GateError(
             "REFERENCE_PREPARE_OUTPUT_INVALID",
             "publisher prepare result differs from the fixed zero-write contract",
@@ -1540,8 +1381,7 @@ def _validate_prepared_result(output: str, *, date: str,
 
 
 def _validate_manifest_commit_result(output: str, *, date: str,
-                                     prepared_plan_sha256: str,
-                                     expected_rfq: str = RFQ_OFF) -> dict:
+                                     prepared_plan_sha256: str) -> dict:
     result = _last_json(output, f"reference manifest commit {date}")
     required = {
         "schema_version", "state", "release_id", "manifest_object",
@@ -1561,7 +1401,7 @@ def _validate_manifest_commit_result(output: str, *, date: str,
             or result.get("prepared_plan_sha256")
             != prepared_plan_sha256
             or result.get("data_uploads") != 0
-            or result.get("rfq") != expected_rfq):
+            or result.get("rfq") != "OFF"):
         raise GateError(
             "REFERENCE_COMMIT_OUTPUT_INVALID",
             "publisher commit result differs from the fixed manifest-only contract",
@@ -1580,22 +1420,15 @@ def _verify_terminal_status(status: dict, status_path: pathlib.Path,
                             date: str, receipt_sha: str,
                             live_dir: pathlib.Path,
                             audit_root: pathlib.Path, tagger_arn: str, *,
-                            args, publisher_environment: dict[str, str],
-                            eligibility: dict | None = None):
+                            args, publisher_environment: dict[str, str]):
     """Authenticate one terminal STATUS against exact MANIFEST bytes."""
-    rfq_mode = status.get("rfq") if isinstance(status, dict) else None
-    if rfq_mode not in {RFQ_OFF, RFQ_FRESH}:
-        raise GateError(
-            "TERMINAL_STATE_INVALID", "terminal RFQ mode is invalid")
     tagged, binding = _validate_local_terminal_status(
-        status, status_path, date, live_dir, expected_rfq=rfq_mode,
-        eligibility=eligibility)
+        status, status_path, date, live_dir)
     if status["durable_receipt_set_sha256"] != receipt_sha:
         raise GateError(
             "TERMINAL_STATE_INVALID", "terminal durable receipt differs")
     completed_tagged = _validate_completed_state(
-        date, receipt_sha, live_dir, audit_root, tagger_arn,
-        rfq_mode=rfq_mode, eligibility=eligibility)
+        date, receipt_sha, live_dir, audit_root, tagger_arn)
     if completed_tagged != tagged:
         raise GateError(
             "TERMINAL_STATE_INVALID", "terminal tagged index differs")
@@ -1659,8 +1492,7 @@ def _verify_terminal_status(status: dict, status_path: pathlib.Path,
     }
     if (descriptor.get("date") != date
             or descriptor.get("release_id") != status["release_id"]
-            or descriptor.get("rfq_included") is not (
-                rfq_mode == RFQ_FRESH)
+            or descriptor.get("rfq_included") is not False
             or descriptor.get("canonical_receipt_set_sha256")
             != tagged_index["receipt_set_sha256"]
             or descriptor.get("receipt_object") != expected_normalized):
@@ -2150,18 +1982,14 @@ def _sync_catalog_and_freeze(
 
 
 def ensure_durable(date: str, args, *,
-                   publisher_environment: dict[str, str],
-                   rfq_mode: str = RFQ_OFF,
-                   fresh_rfq_eligibility: pathlib.Path | None = None,
-                   eligibility: dict | None = None) -> pathlib.Path:
+                   publisher_environment: dict[str, str]) -> pathlib.Path:
     """Build the immutable durable receipt when the daily producer is absent."""
     live_dir = pathlib.Path(args.live_dir).absolute()
     receipt_root = (pathlib.Path(args.receipt_root).absolute()
                     if args.receipt_root else None)
     existing = _find_durable(date, live_dir, receipt_root)
     if existing is not None:
-        _validate_durable_index(
-            existing, date, rfq_mode=rfq_mode, eligibility=eligibility)
+        _validate_durable_index(existing, date)
         return existing
 
     python = os.path.abspath(args.python)
@@ -2203,8 +2031,6 @@ def ensure_durable(date: str, args, *,
         "--warehouse-root", warehouse_root, "--quality-dir", quality_dir,
         "--aux-bundle", str(aux_bundle),
         "--version-binding", str(version_binding),
-        *(["--fresh-rfq-eligibility", str(fresh_rfq_eligibility)]
-          if rfq_mode == RFQ_FRESH and fresh_rfq_eligibility else []),
     ], cwd=ROOT, env=_data_env(args), label=f"plan forward {date}"),
         "plan-forward")
     if (planned.get("state") != "FORWARD_INVENTORY_PLANNED"
@@ -2238,8 +2064,6 @@ def ensure_durable(date: str, args, *,
         "--warehouse-root", warehouse_root, "--quality-dir", quality_dir,
         "--aux-bundle", str(aux_bundle), "--aws-cli", aws,
         "--version-binding", str(version_binding),
-        *(["--fresh-rfq-eligibility", str(fresh_rfq_eligibility)]
-          if rfq_mode == RFQ_FRESH and fresh_rfq_eligibility else []),
         "--metadata-only", "--workers", str(CANONICAL_VERIFY_WORKERS),
         "--output-root",
         str(canonical / "forward-metadata-preflight"),
@@ -2257,8 +2081,6 @@ def ensure_durable(date: str, args, *,
     durable = _last_json(_publisher_run([
         python, str(ROOT / "tools" / "canonical_receipt_control.py"),
         "publish-receipt", *common,
-        *(["--fresh-rfq-eligibility", str(fresh_rfq_eligibility)]
-          if rfq_mode == RFQ_FRESH and fresh_rfq_eligibility else []),
         "--workers", str(CANONICAL_VERIFY_WORKERS),
         "--output-root", str(canonical / "durable"),
     ], args=args, publisher_environment=publisher_environment,
@@ -2273,8 +2095,7 @@ def ensure_durable(date: str, args, *,
         index_path.resolve(strict=True).relative_to(expected_root.resolve(strict=True))
     except (OSError, ValueError) as exc:
         raise GateError("DURABLE_PUBLICATION_INVALID", str(exc)) from exc
-    _validate_durable_index(
-        index_path, date, rfq_mode=rfq_mode, eligibility=eligibility)
+    _validate_durable_index(index_path, date)
     return index_path
 
 
@@ -2366,49 +2187,6 @@ def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _write_rfq_eligibility_evidence(
-        durable_index: pathlib.Path, date: str, marker: dict,
-        output_root: pathlib.Path) -> pathlib.Path:
-    """Derive the tagger's exact-set evidence from the revalidated gate."""
-    index, receipt_path = _validate_durable_index(
-        durable_index, date, rfq_mode=RFQ_FRESH, eligibility=marker)
-    receipt, _raw = _read_json(
-        receipt_path, MAX_RECEIPT_BYTES, "fresh RFQ durable receipt")
-    tools_dir = str(ROOT / "tools")
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    try:
-        import canonical_eligibility_tagger as eligibility
-        targets = eligibility.select_rfq_targets(receipt, DEFAULT_PREFIX)
-        rows = eligibility._sort_rfq_projection([
-            eligibility._rfq_projection(obj) for obj in targets])
-        exact_sha = eligibility.rfq_exact_set_sha256(targets)
-    except Exception as exc:
-        raise GateError("RFQ_ELIGIBILITY_INVALID", str(exc)) from exc
-    payload = {
-        "schema_version": "canonical-rfq-eligibility-evidence-v1",
-        "state": "SEALED_RFQ_ELIGIBILITY_VERIFIED",
-        "date": date,
-        "bucket": DEFAULT_BUCKET,
-        "prefix": DEFAULT_PREFIX,
-        "byte_receipt_set_sha256": index["receipt_set_sha256"],
-        "seal_sha256": receipt["seal"]["sha256"],
-        "evidence_tier": "SEALED_CONFIRMATION",
-        "integrity_state": "PASS",
-        "quarantine_state": "CLEAR",
-        "repair_branch_state": "CLOSED_NO_REPAIR",
-        "rfq_exact_set_sha256": exact_sha,
-        "objects": rows,
-        "decided_at_utc": marker["generated_at_utc"],
-        "decider": "fresh-rfq-daily-eligibility-v1",
-        "source_evidence_sha256": marker["source_evidence_sha256"],
-    }
-    path, _sha, _size = _write_content_addressed(
-        pathlib.Path(output_root) / f"date={date}",
-        "RFQ-ELIGIBILITY", payload)
-    return path
-
-
 def _static_policy(path: pathlib.Path, expected_sha: str,
                    label: str) -> dict:
     payload, raw = _read_json(path, MAX_POLICY_EVIDENCE_BYTES, label)
@@ -2450,8 +2228,7 @@ def _validate_operator_authorization(args) -> tuple[dict, bytes]:
 
 
 def _tag_set(value: object, label: str, *,
-             add_eligible: bool = False,
-             add_rfq_channel: bool = False) -> list[dict[str, str]]:
+             add_eligible: bool = False) -> list[dict[str, str]]:
     if not isinstance(value, dict) or not isinstance(value.get("TagSet"), list):
         raise GateError("POLICY_CANARY_INVALID", f"{label} TagSet missing")
     tags: dict[str, str] = {}
@@ -2463,8 +2240,6 @@ def _tag_set(value: object, label: str, *,
         tags[row["Key"]] = row["Value"]
     if add_eligible:
         tags["research-eligible"] = "true"
-    if add_rfq_channel:
-        tags["research-channel"] = "rfq"
     if len(tags) > 10:
         raise GateError("POLICY_CANARY_INVALID", "S3 tag limit would be exceeded")
     return [{"Key": key, "Value": tags[key]} for key in sorted(tags)]
@@ -2472,8 +2247,7 @@ def _tag_set(value: object, label: str, *,
 
 def _reusable_policy_patrol(root: pathlib.Path, date: str,
                             receipt_sha: str,
-                            refresh_hours: int,
-                            rfq_mode: str = RFQ_OFF) -> pathlib.Path | None:
+                            refresh_hours: int) -> pathlib.Path | None:
     pointer = pathlib.Path(root) / "CURRENT.json"
     if not pointer.exists():
         return None
@@ -2505,10 +2279,6 @@ def _reusable_policy_patrol(root: pathlib.Path, date: str,
                 or payload.get("schema_version")
                 != "research-v3-policy-patrol-evidence-v1"
                 or payload.get("approved_static_policy_sha256") != expected
-                or not isinstance(payload.get("checks"), dict)
-                or payload["checks"].get("rfq") != rfq_mode
-                or (rfq_mode == RFQ_FRESH and payload["checks"].get(
-                    "fresh_rfq_dual_tag_readback") != "PASS")
                 or dt.datetime.now(dt.timezone.utc) - generated
                 > dt.timedelta(hours=refresh_hours)):
             return None
@@ -2520,9 +2290,7 @@ def _reusable_policy_patrol(root: pathlib.Path, date: str,
 def refresh_policy_patrol_evidence(
         durable_index: pathlib.Path, date: str, args, *,
         tag_env: dict[str, str],
-        publisher_environment: dict[str, str],
-        rfq_mode: str = RFQ_OFF,
-        eligibility: dict | None = None) -> pathlib.Path:
+        publisher_environment: dict[str, str]) -> pathlib.Path:
     """Refresh static-hash plus live-behavior evidence without self-auditing.
 
     The principals available on the host cannot read IAM or bucket policy.
@@ -2531,13 +2299,12 @@ def refresh_policy_patrol_evidence(
     independent auditor must still produce the receipt-scoped
     ``SINGLE_WRITER_VERIFIED`` artifact.
     """
-    index, receipt_path = _validate_durable_index(
-        durable_index, date, rfq_mode=rfq_mode, eligibility=eligibility)
+    index, receipt_path = _validate_durable_index(durable_index, date)
     receipt_sha = index["receipt_set_sha256"]
     root = (pathlib.Path(args.live_dir).absolute() / "research_v3_daily"
             / "policy-patrol" / f"date={date}" / f"receipt={receipt_sha}")
     reusable = _reusable_policy_patrol(
-        root, date, receipt_sha, args.audit_refresh_hours, rfq_mode)
+        root, date, receipt_sha, args.audit_refresh_hours)
     if reusable is not None:
         return reusable
 
@@ -2592,18 +2359,14 @@ def refresh_policy_patrol_evidence(
                 "POLICY_CANARY_INVALID", "remote authority receipt mismatch")
         remote_receipt, _remote_raw = _read_json(
             remote_path, MAX_RECEIPT_BYTES, "exact remote authority receipt")
-    _require_rfq_mode(
-        remote_receipt, "exact remote authority receipt", rfq_mode,
-        eligibility=eligibility)
+    _require_rfq_off(remote_receipt, "exact remote authority receipt")
     tools_dir = str(ROOT / "tools")
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)
     try:
         import canonical_eligibility_tagger as eligibility
-        selected = (eligibility.select_rfq_targets(
+        selected = eligibility.select_tag_targets(
             remote_receipt, DEFAULT_PREFIX)
-            if rfq_mode == RFQ_FRESH else
-            eligibility.select_tag_targets(remote_receipt, DEFAULT_PREFIX))
     except Exception as exc:
         raise GateError("POLICY_CANARY_INVALID", str(exc)) from exc
     candidates = sorted([
@@ -2618,7 +2381,7 @@ def refresh_policy_patrol_evidence(
     if not candidates:
         raise GateError(
             "POLICY_CANARY_INVALID",
-            "no bounded research canary candidate exists",
+            "no bounded non-RFQ research candidate exists",
         )
     target = candidates[0]
     target_head = _json_document(_publisher_run([
@@ -2651,8 +2414,7 @@ def refresh_policy_patrol_evidence(
     ]), cwd=ROOT, env=tag_env, label="tagger exact tag preflight",
         timeout=120), "tagger exact tag preflight")
     desired = _tag_set(
-        before, "tagger exact tag preflight", add_eligible=True,
-        add_rfq_channel=(rfq_mode == RFQ_FRESH))
+        before, "tagger exact tag preflight", add_eligible=True)
     tagging = json.dumps({"TagSet": desired}, sort_keys=True,
                          separators=(",", ":"))
     _require_arms(args)
@@ -2716,21 +2478,16 @@ def refresh_policy_patrol_evidence(
                                "verified_in_same_exec_shell": True},
         "canary_target": {"bucket": DEFAULT_BUCKET, "key": key,
                           "VersionId": version_id,
-                          "class": (
-                              "SMALLEST_BOUNDED_FRESH_RFQ_CANDIDATE"
-                              if rfq_mode == RFQ_FRESH else
-                              "SMALLEST_BOUNDED_RECEIPT_CANDIDATE")},
+                          "class": "SMALLEST_BOUNDED_RECEIPT_CANDIDATE"},
         "checks": {
             "tagger_exact_version_get": "PASS",
             "tagger_exact_version_put_preserve_and_readback": "PASS",
-            "fresh_rfq_dual_tag_readback": (
-                "PASS" if rfq_mode == RFQ_FRESH else "NOT_APPLICABLE"),
             "tagger_versionless_put": "ACCESS_DENIED",
             "publisher_exact_version_get_tagging": "UNAVAILABLE_EXPECTED",
             "publisher_exact_version_put_tagging": "ACCESS_DENIED",
             "tag_enforcement":
                 "TAGGER_READBACK_PLUS_W09_CONSUMER_REVALIDATION",
-            "rfq": rfq_mode,
+            "rfq": "OFF",
         },
     }
     evidence_path, evidence_sha, _evidence_size = _write_content_addressed(
@@ -2749,18 +2506,14 @@ def refresh_policy_patrol_evidence(
 
 def refresh_layered_single_writer_audit(
         durable_index: pathlib.Path, date: str, args, *,
-        patrol_evidence: pathlib.Path,
-        rfq_mode: str = RFQ_OFF,
-        eligibility: dict | None = None
-        ) -> tuple[pathlib.Path, pathlib.Path]:
+        patrol_evidence: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     """Bind durable operator authorization to a fresh behavioral patrol.
 
     This is an explicit transition tier: it preserves the operator's applied
     policy authorization and refreshes tested-path liveness automatically,
     while recording that administrative drift is not live-enumerated.
     """
-    index, _receipt_path = _validate_durable_index(
-        durable_index, date, rfq_mode=rfq_mode, eligibility=eligibility)
+    index, _receipt_path = _validate_durable_index(durable_index, date)
     receipt_sha = index["receipt_set_sha256"]
     audit_root = pathlib.Path(args.audit_root).absolute()
     current_audit, current_evidence = _audit_pair(
@@ -2769,8 +2522,7 @@ def refresh_layered_single_writer_audit(
         try:
             _validate_audit(
                 current_audit, current_evidence, date, receipt_sha,
-                args.tagger_principal, require_fresh=True,
-                rfq_mode=rfq_mode)
+                args.tagger_principal, require_fresh=True)
             current, _raw = _read_json(
                 current_audit, MAX_AUDIT_BYTES, "current layered audit")
             audited = _parse_utc(current.get("audited_at_utc"), "audited_at_utc")
@@ -2806,10 +2558,6 @@ def refresh_layered_single_writer_audit(
             or patrol.get("date") != date
             or patrol.get("receipt_set_sha256") != receipt_sha
             or patrol.get("global_single_writer_proven") is not False
-            or not isinstance(patrol.get("checks"), dict)
-            or patrol["checks"].get("rfq") != rfq_mode
-            or (rfq_mode == RFQ_FRESH and patrol["checks"].get(
-                "fresh_rfq_dual_tag_readback") != "PASS")
             or dt.datetime.now(dt.timezone.utc) - generated
             > dt.timedelta(hours=24)):
         raise GateError("POLICY_CANARY_INVALID", str(patrol_evidence))
@@ -2839,7 +2587,7 @@ def refresh_layered_single_writer_audit(
         },
         "live_policy_readback": False,
         "limitations": limitations,
-        "rfq": rfq_mode,
+        "rfq": "OFF",
     }
     root = (audit_root / f"date={date}" / f"receipt={receipt_sha}")
     evidence_path, evidence_sha, evidence_size = _write_content_addressed(
@@ -2867,12 +2615,6 @@ def refresh_layered_single_writer_audit(
         "policy_evidence_size": evidence_size,
         "policy_evidence_sha256": evidence_sha,
     }
-    if rfq_mode == RFQ_FRESH:
-        audit_payload.update({
-            "rfq_tag_key": "research-channel",
-            "rfq_tag_value": "rfq",
-            "rfq_exact_version_scope_verified": True,
-        })
     audit_path, audit_sha, _audit_size = _write_content_addressed(
         root, "single-writer-audit", audit_payload)
     _atomic_json(root / "CURRENT.json", {
@@ -2887,8 +2629,7 @@ def refresh_layered_single_writer_audit(
     })
     _validate_audit(
         audit_path, evidence_path, date, receipt_sha, args.tagger_principal,
-        require_fresh=True, expected_sha256=audit_sha,
-        rfq_mode=rfq_mode)
+        require_fresh=True, expected_sha256=audit_sha)
     return audit_path, evidence_path
 
 
@@ -2905,7 +2646,7 @@ def _print_plan(plan: DatePlan, *, mode: str, live_dir: pathlib.Path,
         "publisher_required": True,
         "publisher_live_dir": str(pathlib.Path(live_dir).absolute()),
         "destination": dest,
-        "rfq": plan.rfq_mode,
+        "rfq": "OFF",
         "aws_mutations": 0 if mode in ("CHECK", "DRY_RUN") else "GATED",
     }, sort_keys=True))
 
@@ -2914,25 +2655,6 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
                  publisher_environment: dict[str, str]):
     python = os.path.abspath(args.python)
     aws = os.path.abspath(args.aws_cli) if "/" in args.aws_cli else args.aws_cli
-    rfq_mode = plan.rfq_mode
-    if rfq_mode not in {RFQ_OFF, RFQ_FRESH}:
-        raise GateError("RFQ_GATE", f"unknown plan mode {rfq_mode!r}")
-    eligibility = None
-    if rfq_mode == RFQ_FRESH:
-        if (plan.fresh_rfq_eligibility is None
-                or plan.rfq_eligibility_evidence is None):
-            raise GateError(
-                "RFQ_ELIGIBILITY_INVALID",
-                "fresh plan lacks immutable gate/tagger evidence paths")
-        eligibility = _load_fresh_rfq_gate(
-            plan.fresh_rfq_eligibility, plan.date)
-        if (eligibility.get("eligibility_sha256")
-                != plan.fresh_rfq_eligibility_sha256):
-            raise GateError(
-                "RFQ_ELIGIBILITY_INVALID",
-                "fresh gate digest changed after planning")
-    release_rfq_flag = (
-        "--include-rfq" if rfq_mode == RFQ_FRESH else "--no-rfq")
 
     tagged = plan.tagged_index
     if tagged is None:
@@ -2972,12 +2694,6 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
             "--output-root", str(pathlib.Path(args.live_dir).absolute()
                                   / "canonical_receipts" / "tagged"),
         ]
-        if rfq_mode == RFQ_FRESH:
-            tag_command.extend([
-                "--include-sealed-rfq",
-                "--rfq-eligibility-evidence",
-                str(plan.rfq_eligibility_evidence),
-            ])
         if plan.historical_existing_only:
             if plan.pending_index is None:
                 raise GateError(
@@ -2999,16 +2715,12 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
                     result.get("recovery")
                     != "HISTORICAL_EXISTING_REMOTE_ONLY"
                     or result.get("receipt_puts") != 0
-                    or result.get("rfq") != RFQ_OFF):
+                    or result.get("rfq") != "OFF"):
                 raise ValueError(
                     "historical recovery did not prove zero remote receipt creates")
-            if result.get("rfq") != rfq_mode:
-                raise ValueError("tagger result RFQ mode differs from plan")
         except (IndexError, KeyError, TypeError, ValueError) as exc:
             raise GateError("TAGGER_OUTPUT_INVALID", str(exc)) from exc
-        _validate_tagged_index(
-            tagged, plan.date, plan.durable_set_sha256,
-            rfq_mode=rfq_mode, eligibility=eligibility)
+        _validate_tagged_index(tagged, plan.date, plan.durable_set_sha256)
 
     yellow = (pathlib.Path(args.live_dir).absolute()
               / "research_reference_patrol" / "YELLOW.json")
@@ -3031,7 +2743,7 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         "--receipt", str(tagged),
         "--prepare-only", "--prepare-output-root", str(prepared_root),
         "--dest", args.dest,
-        release_rfq_flag,
+        "--no-rfq",
         "--quality-dir", str(pathlib.Path(args.quality_dir).absolute()),
         "--live-dir", str(pathlib.Path(args.live_dir).absolute()),
         "--raw-vault", args.raw_vault,
@@ -3041,13 +2753,12 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         prepare, args=args, publisher_environment=publisher_environment,
         label=f"v3 reference prepare {plan.date}")
     prepared_plan, prepared_result = _validate_prepared_result(
-        prepare_output, date=plan.date, prepared_root=prepared_root,
-        expected_rfq=rfq_mode)
+        prepare_output, date=plan.date, prepared_root=prepared_root)
 
     # The dedicated tagger (never the publisher) now re-reads the tagged
     # receipt and every non-RFQ candidate exact VersionId.  The publisher gets
     # only this local proof, so tagger credentials never cross identities.
-    proof_command = [
+    proof_output = _run([
         python, str(ROOT / "tools" / "canonical_eligibility_tagger.py"),
         "--verify-only",
         "--tagged-index", str(tagged),
@@ -3059,10 +2770,7 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         "--proof-output-root", str(
             pathlib.Path(args.live_dir).absolute()
             / "canonical_receipts" / "tag-precommit"),
-    ]
-    if rfq_mode == RFQ_FRESH:
-        proof_command.append("--include-sealed-rfq")
-    proof_output = _run(proof_command, cwd=ROOT, env=tag_env,
+    ], cwd=ROOT, env=tag_env,
         label=f"precommit exact tag proof {plan.date}")
     try:
         proof_result = json.loads(proof_output.strip().splitlines()[-1])
@@ -3070,9 +2778,8 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         if (proof_result.get("state")
                 != "EXACT_VERSION_TAG_READBACK_VERIFIED"
                 or proof_result.get("tag_puts") != 0
-                or proof_result.get("rfq") != rfq_mode):
-            raise ValueError(
-                "verify-only result is not the planned zero-PUT proof")
+                or proof_result.get("rfq") != "OFF"):
+            raise ValueError("verify-only result is not a zero-PUT RFQ-off proof")
     except (IndexError, KeyError, TypeError, ValueError) as exc:
         raise GateError("TAG_PRECOMMIT_PROOF_INVALID", str(exc)) from exc
 
@@ -3083,7 +2790,7 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         "--prepared-plan", str(prepared_plan),
         "--tag-precommit-proof", str(proof),
         "--dest", args.dest,
-        release_rfq_flag,
+        "--no-rfq",
         "--quality-dir", str(pathlib.Path(args.quality_dir).absolute()),
         "--live-dir", str(pathlib.Path(args.live_dir).absolute()),
         "--raw-vault", args.raw_vault,
@@ -3094,8 +2801,7 @@ def execute_date(plan: DatePlan, args, *, tag_env: dict[str, str],
         label=f"v3 reference manifest commit {plan.date}")
     commit_result = _validate_manifest_commit_result(
         commit_output, date=plan.date,
-        prepared_plan_sha256=prepared_result["prepared_plan_sha256"],
-        expected_rfq=rfq_mode)
+        prepared_plan_sha256=prepared_result["prepared_plan_sha256"])
     if commit_result["release_id"] != prepared_result["release_id"]:
         raise GateError(
             "REFERENCE_COMMIT_OUTPUT_INVALID",
@@ -3123,11 +2829,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="date=D directories containing audit/evidence JSON")
     parser.add_argument("--raw-root", required=True)
     parser.add_argument("--warehouse-root", required=True)
-    parser.add_argument(
-        "--fresh-rfq-eligibility-root",
-        default=str(DEFAULT_FRESH_RFQ_ELIGIBILITY_ROOT),
-        help=("fixed local root containing immutable date=D/ELIGIBLE.json "
-              "packages; missing/invalid dates remain RFQ-off"))
     parser.add_argument(
         "--tagger-credentials-file",
         default=str(DEFAULT_TAGGER_CREDENTIAL_FILE))
@@ -3182,10 +2883,8 @@ def main(argv=None) -> int:
         raw_arg = pathlib.Path(args.raw_root)
         warehouse_arg = pathlib.Path(args.warehouse_root)
         quality_arg = pathlib.Path(args.quality_dir)
-        fresh_rfq_arg = pathlib.Path(args.fresh_rfq_eligibility_root)
         if any(not path.is_absolute() for path in (
-                live_arg, raw_arg, warehouse_arg, quality_arg,
-                fresh_rfq_arg)):
+                live_arg, raw_arg, warehouse_arg, quality_arg)):
             raise GateError(
                 "PRODUCTION_PATH_INVALID", "all production roots must be absolute")
         live_dir = live_arg.absolute()
@@ -3221,8 +2920,6 @@ def main(argv=None) -> int:
                     "aws_mutations": 0,
                 }, sort_keys=True), file=sys.stderr)
             for date in dates:
-                rfq_mode, gate_path, marker, rfq_reason = \
-                    _fresh_rfq_gate_for_date(date, args)
                 try:
                     durable = _find_durable(date, live_dir, receipt_root)
                     if durable is None:
@@ -3238,17 +2935,13 @@ def main(argv=None) -> int:
                                 "eligibility-audit", "eligibility-tags",
                                 "publish-reference",
                             ],
-                            "rfq": rfq_mode,
-                            "rfq_gate": rfq_reason,
+                            "rfq": "OFF",
                             "aws_mutations": 0,
                         }, sort_keys=True))
                         continue
                     plan = prepare_date_plan(
                         date, live_dir, pathlib.Path(args.audit_root),
-                        args.tagger_principal, receipt_root,
-                        rfq_mode=rfq_mode,
-                        fresh_rfq_eligibility=gate_path,
-                        eligibility=marker)
+                        args.tagger_principal, receipt_root)
                     _print_plan(
                         plan, mode=mode, live_dir=live_dir, dest=args.dest)
                 except GateError as exc:
@@ -3259,8 +2952,7 @@ def main(argv=None) -> int:
                         "date": date,
                         "code": exc.code,
                         "detail": exc.detail,
-                        "rfq": rfq_mode,
-                        "rfq_gate": rfq_reason,
+                        "rfq": "OFF",
                         "aws_mutations": 0,
                     }, sort_keys=True), file=sys.stderr)
             return 2 if failures else 0
@@ -3287,9 +2979,6 @@ def main(argv=None) -> int:
             warehouse_arg, DEFAULT_PRODUCTION_WAREHOUSE_ROOT, "warehouse root")
         _exact_existing_dir(
             quality_arg, DEFAULT_PRODUCTION_QUALITY_DIR, "quality root")
-        _exact_existing_dir(
-            fresh_rfq_arg, live_dir / "fresh_rfq_research",
-            "fresh RFQ eligibility root")
         home = _exact_existing_dir(
             pathlib.Path(args.home), DEFAULT_PRODUCTION_HOME, "HOME")
         audit_root = pathlib.Path(args.audit_root)
@@ -3371,18 +3060,12 @@ def main(argv=None) -> int:
                 for date in dates:
                     status_path = (state_root / f"date={date}"
                                    / "DURABLE_STATUS.json")
-                    rfq_mode, gate_path, marker, rfq_reason = \
-                        _fresh_rfq_gate_for_date(date, args)
                     try:
                         durable_path = ensure_durable(
                             date, args,
-                            publisher_environment=publisher_environment,
-                            rfq_mode=rfq_mode,
-                            fresh_rfq_eligibility=gate_path,
-                            eligibility=marker)
+                            publisher_environment=publisher_environment)
                         durable_index, receipt_path = _validate_durable_index(
-                            durable_path, date, rfq_mode=rfq_mode,
-                            eligibility=marker)
+                            durable_path, date)
                         status = {
                             "schema_version":
                                 "research-v3-durable-only-status-v1",
@@ -3397,8 +3080,7 @@ def main(argv=None) -> int:
                             "tagger_credentials_loaded": False,
                             "tag_writes": 0,
                             "research_manifest_writes": 0,
-                            "rfq": rfq_mode,
-                            "rfq_gate": rfq_reason,
+                            "rfq": "OFF",
                             "completed_at_utc": _utc_now(),
                         }
                         _atomic_json(status_path, status)
@@ -3414,8 +3096,7 @@ def main(argv=None) -> int:
                             "tagger_credentials_loaded": False,
                             "tag_writes": 0,
                             "research_manifest_writes": 0,
-                            "rfq": rfq_mode,
-                            "rfq_gate": rfq_reason,
+                            "rfq": "OFF",
                             "failed_at_utc": _utc_now(),
                         }
                         _record_attempt_failure(status_path, failure)
@@ -3423,29 +3104,16 @@ def main(argv=None) -> int:
                         print(json.dumps(failure, sort_keys=True),
                               file=sys.stderr)
                 return 2 if failures else 0
-            patrol_candidates: list[
-                tuple[str, pathlib.Path, str, dict | None]] = []
+            patrol_candidates: list[tuple[str, pathlib.Path]] = []
             for date in dates:
                 status_path = state_root / f"date={date}" / "PREPARE_STATUS.json"
-                rfq_mode, gate_path, marker, rfq_reason = \
-                    _fresh_rfq_gate_for_date(date, args)
                 try:
                     durable_path = ensure_durable(
                         date, args,
-                        publisher_environment=publisher_environment,
-                        rfq_mode=rfq_mode,
-                        fresh_rfq_eligibility=gate_path,
-                        eligibility=marker)
+                        publisher_environment=publisher_environment)
                     durable_index, _receipt_path = _validate_durable_index(
-                        durable_path, date, rfq_mode=rfq_mode,
-                        eligibility=marker)
+                        durable_path, date)
                     receipt_sha = durable_index["receipt_set_sha256"]
-                    rfq_evidence = None
-                    if rfq_mode == RFQ_FRESH:
-                        rfq_evidence = _write_rfq_eligibility_evidence(
-                            durable_path, date, marker,
-                            live_dir / "canonical_receipts"
-                            / "rfq-eligibility")
                     status_path = (state_root / f"date={date}"
                                    / f"receipt={receipt_sha}"
                                    / "STATUS.json")
@@ -3476,9 +3144,7 @@ def main(argv=None) -> int:
                                 prior, prior_status, date,
                                 prior_match.group(1), live_dir, audit_root,
                                 args.tagger_principal, args=args,
-                                publisher_environment=publisher_environment,
-                                eligibility=(marker if prior.get("rfq")
-                                             == RFQ_FRESH else None))
+                                publisher_environment=publisher_environment)
                             raise GateError(
                                 "IMMUTABLE_DATE_RECEIPT_CHANGED",
                                 f"{date} already published receipt "
@@ -3499,9 +3165,7 @@ def main(argv=None) -> int:
                                         live_dir, audit_root,
                                         args.tagger_principal, args=args,
                                         publisher_environment=
-                                        publisher_environment,
-                                        eligibility=(marker if old.get("rfq")
-                                                     == RFQ_FRESH else None))
+                                        publisher_environment)
                                 print(json.dumps({
                                     "state":
                                         "V3_REFERENCE_ALREADY_PUBLISHED",
@@ -3511,12 +3175,9 @@ def main(argv=None) -> int:
                                     "manifest_object": manifest_binding,
                                     "terminal_verification":
                                         "EXACT_VERSION_FULL_SHA256",
-                                    "rfq": old["rfq"],
+                                    "rfq": "OFF",
                                 }, sort_keys=True))
-                                patrol_candidates.append(
-                                    (date, durable_path, old["rfq"],
-                                     marker if old["rfq"] == RFQ_FRESH
-                                     else None))
+                                patrol_candidates.append((date, durable_path))
                                 continue
                             if (old.get("schema_version")
                                     != "research-v3-daily-status-v1"):
@@ -3530,24 +3191,16 @@ def main(argv=None) -> int:
                             # upgraded atomically to v2.
                     plan = pending_recovery_plan(
                         date, durable_path, live_dir, audit_root,
-                        args.tagger_principal, rfq_mode=rfq_mode,
-                        fresh_rfq_eligibility=gate_path,
-                        eligibility=marker,
-                        rfq_eligibility_evidence=rfq_evidence)
+                        args.tagger_principal)
                     if plan is None:
                         patrol = refresh_policy_patrol_evidence(
                             durable_path, date, args, tag_env=tag_env,
-                            publisher_environment=publisher_environment,
-                            rfq_mode=rfq_mode, eligibility=marker)
+                            publisher_environment=publisher_environment)
                         refresh_layered_single_writer_audit(
-                            durable_path, date, args, patrol_evidence=patrol,
-                            rfq_mode=rfq_mode, eligibility=marker)
+                            durable_path, date, args, patrol_evidence=patrol)
                         plan = prepare_date_plan(
                             date, live_dir, audit_root, args.tagger_principal,
-                            receipt_root, rfq_mode=rfq_mode,
-                            fresh_rfq_eligibility=gate_path,
-                            eligibility=marker,
-                            rfq_eligibility_evidence=rfq_evidence)
+                            receipt_root)
                     tagged, manifest_result = execute_date(
                         plan, args, tag_env=tag_env,
                         publisher_environment=publisher_environment)
@@ -3564,13 +3217,12 @@ def main(argv=None) -> int:
                             manifest_result["prepared_plan_sha256"],
                         "manifest_commit_state": manifest_result["state"],
                         "manifest_object": manifest_result["manifest_object"],
-                        "rfq": plan.rfq_mode,
+                        "rfq": "OFF",
                         "completed_at_utc": _utc_now(),
                     }
                     _atomic_json(status_path, status)
                     print(json.dumps(status, sort_keys=True))
-                    patrol_candidates.append(
-                        (date, durable_path, rfq_mode, marker))
+                    patrol_candidates.append((date, durable_path))
                 except GateError as exc:
                     failure = {
                         "schema_version": "research-v3-daily-status-v1",
@@ -3578,28 +3230,26 @@ def main(argv=None) -> int:
                         "date": date,
                         "code": exc.code,
                         "detail": exc.detail,
-                        "rfq": rfq_mode,
-                        "rfq_gate": rfq_reason,
+                        "rfq": "OFF",
                         "failed_at_utc": _utc_now(),
                     }
                     _record_attempt_failure(status_path, failure)
                     failures.append(failure)
                     print(json.dumps(failure, sort_keys=True), file=sys.stderr)
             if patrol_candidates:
-                patrol_date, patrol_durable, patrol_rfq, patrol_marker = max(
+                patrol_date, patrol_durable = max(
                     patrol_candidates, key=lambda row: row[0])
                 patrol_status = state_root / "POLICY_PATROL_STATUS.json"
                 try:
                     evidence = refresh_policy_patrol_evidence(
                         patrol_durable, patrol_date, args, tag_env=tag_env,
-                        publisher_environment=publisher_environment,
-                        rfq_mode=patrol_rfq, eligibility=patrol_marker)
+                        publisher_environment=publisher_environment)
                     _atomic_json(patrol_status, {
                         "schema_version": "research-v3-policy-patrol-status-v1",
                         "state": "POLICY_CANARY_PASS",
                         "date": patrol_date,
                         "policy_evidence": str(evidence),
-                        "rfq": patrol_rfq,
+                        "rfq": "OFF",
                         "checked_at_utc": _utc_now(),
                     })
                 except GateError as exc:
@@ -3609,7 +3259,7 @@ def main(argv=None) -> int:
                         "date": patrol_date,
                         "code": exc.code,
                         "detail": exc.detail,
-                        "rfq": patrol_rfq,
+                        "rfq": "OFF",
                         "failed_at_utc": _utc_now(),
                     }
                     _record_attempt_failure(patrol_status, failure)

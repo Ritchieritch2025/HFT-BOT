@@ -587,9 +587,9 @@ def _tag_precommit_proof(tree, *, mutate=None, generated_at=None):
         "required_tags": {"research-eligible": "true"},
     }]
     for obj in receipt["objects"]:
-        if obj.get("research_candidate") is not True:
+        if (obj.get("research_candidate") is not True
+                or rr._is_rfq_receipt_object(obj)):
             continue
-        is_rfq = rr._is_rfq_receipt_object(obj)
         rows.append({
             "role": "RESEARCH_CANDIDATE",
             "logical_key": obj["logical_source_key"],
@@ -598,9 +598,7 @@ def _tag_precommit_proof(tree, *, mutate=None, generated_at=None):
             "source_version_id": obj["VersionId"],
             "size": obj["size"],
             "sha256": obj["sha256"],
-            "required_tags": ({
-                "research-eligible": "true", "research-channel": "rfq"}
-                if is_rfq else {"research-eligible": "true"}),
+            "required_tags": {"research-eligible": "true"},
         })
     rows.sort(key=lambda row: (
         row["role"], row["logical_key"], row["source_bucket"],
@@ -625,10 +623,7 @@ def _tag_precommit_proof(tree, *, mutate=None, generated_at=None):
         "tagger_sts_user_id": "AIDAFIXTURETAGGER",
         "generated_at_utc": generated_at or datetime.datetime.now(
             datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "rfq": (rr.RFQ_RESEARCH_MODE if any(
-            rr._is_rfq_receipt_object(obj)
-            and obj.get("research_candidate") is True
-            for obj in receipt["objects"]) else "OFF"),
+        "rfq": "OFF",
         "tag_puts": 0,
     }
     if mutate is not None:
@@ -866,50 +861,6 @@ def test_two_phase_prepare_then_fresh_proof_commit_skips_expensive_rebuild(
     assert result["prepared_plan_sha256"] == plan_sha
     assert result["manifest_object"]["sha256"] == _sha(
         _path.read_bytes())
-
-
-def test_two_phase_prepared_plan_preserves_fresh_rfq_mode(
-        reference_tree, monkeypatch, capsys):
-    receipt = _eligible_rfq_receipt(reference_tree)
-    _write_receipt(reference_tree, receipt)
-    dest = reference_tree["root"] / "two-phase-rfq-dest"
-    prepared_root = reference_tree["root"] / "prepared-rfq"
-    stage_root = reference_tree["root"] / "commit-rfq-stage"
-    stage_root.mkdir()
-    monkeypatch.setenv("RESEARCH_STAGE_ROOT", str(stage_root))
-    monkeypatch.setattr(ref, "TRUSTED_BUCKET",
-                        reference_tree["receipt_binding"]["bucket"])
-
-    assert rr.publish(
-        DATE, str(dest), True, str(reference_tree["quality"]),
-        str(reference_tree["root"] / "vault"),
-        str(reference_tree["root"] / "live"), False,
-        reference_receipt=str(reference_tree["index_path"]),
-        reference_receipt_reader=_fixture_reader(reference_tree),
-        reference_prepare_only=True,
-        reference_prepare_output_root=str(prepared_root)) == 0
-    plan_path = next(prepared_root.glob("PREPARED-*.json"))
-    plan, _plan_sha = rr._read_prepared_reference_plan(plan_path)
-    assert plan["include_rfq"] is True
-    assert plan["manifest_template"]["rfq_included"] is True
-    assert any(row["kind"] == "rfq"
-               for row in plan["manifest_template"]["objects"])
-
-    proof = _tag_precommit_proof(reference_tree)
-    assert rr.publish(
-        DATE, str(dest), True, str(reference_tree["quality"]),
-        str(reference_tree["root"] / "vault"),
-        str(reference_tree["root"] / "live"), False,
-        reference_receipt=str(reference_tree["index_path"]),
-        reference_receipt_reader=_fixture_reader(reference_tree),
-        reference_tag_precommit_proof=str(proof),
-        reference_prepared_plan=str(plan_path)) == 0
-    _path, manifest = _single_manifest(dest)
-    assert manifest["rfq_included"] is True
-    assert manifest["eligibility_enforcement"]["tagger_precommit_proof"][
-        "rfq"] == rr.RFQ_RESEARCH_MODE
-    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert result["rfq"] == rr.RFQ_RESEARCH_MODE
 
 
 def test_prepared_plan_tamper_and_direct_real_s3_fail_closed(
@@ -1566,26 +1517,22 @@ def test_rfq_structured_eligibility_binding_is_strict(reference_tree, fault):
     assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
-def test_v3_precommit_path_includes_only_dual_tagged_sealed_rfq(reference_tree):
+def test_v3_precommit_path_keeps_rfq_structurally_off(reference_tree):
     receipt = _eligible_rfq_receipt(reference_tree)
     _write_receipt(reference_tree, receipt)
-    dest = reference_tree["root"] / "rfq-precommit-on"
-    assert _publish_reference(reference_tree, dest, include_rfq=True) == 0
-    _path, manifest = _single_manifest(dest)
-    rfq = [row for row in manifest["objects"] if row["kind"] == "rfq"]
-    assert rfq
-    assert manifest["rfq_included"] is True
-    assert manifest["eligibility_enforcement"]["tagger_precommit_proof"][
-        "rfq"] == rr.RFQ_RESEARCH_MODE
+    dest = reference_tree["root"] / "rfq-precommit-off"
+    with pytest.raises(SystemExit, match="RFQ-off"):
+        _publish_reference(reference_tree, dest, include_rfq=True)
+    assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 
-def test_dual_tagged_rfq_receipt_cannot_be_reinterpreted_as_rfq_off(
+def test_eligible_sealed_rfq_remains_an_independent_capability_boundary(
         reference_tree):
     receipt = _eligible_rfq_receipt(reference_tree)
     dest = reference_tree["root"] / "eligible-rfq"
-    with pytest.raises(SystemExit, match="precommit proof.*binding"):
+    with pytest.raises(SystemExit, match="independent research capability"):
         _publish_reference(
-            reference_tree, dest, receipt, include_rfq=False)
+            reference_tree, dest, receipt, include_rfq=True)
     assert not list(dest.glob("releases/*/MANIFEST.json"))
 
 

@@ -59,7 +59,6 @@ MUTABLE_ROOTS=(
   /home/ubuntu/hft-bot/work/live/canonical_receipts/durable
   /home/ubuntu/hft-bot/work/live/canonical_receipts/tagged
   /home/ubuntu/hft-bot/work/live/canonical_receipts/tag-precommit
-  /home/ubuntu/hft-bot/work/live/canonical_receipts/rfq-eligibility
   /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-aux
   /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-metadata-preflight
   /home/ubuntu/hft-bot/work/live/canonical_receipts/forward-version-bindings

@@ -1,0 +1,17 @@
+{
+  "schema_version": "fresh-rfq-production-authority-binding-v1",
+  "state": "READ_ONLY_PRODUCTION_BYTES_VERIFIED",
+  "observed_without_aws_write": true,
+  "runtime_envelope_path": "/var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260719-01/authority-envelope.json",
+  "runtime_envelope_file_sha256": "8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b",
+  "runtime_envelope_size": 42143,
+  "authority_sha256": "6540583799317c7f19a57f7d67c639afbd8832186fe55fd735e4f3cbb2cb9160",
+  "authority_envelope_sha256": "523543a651870b1611c8320957aa5ed0912da21b64a26ca0ee7bba1a8e47840b",
+  "strict_t0_utc": "2026-07-19T00:00:00Z",
+  "generation": "fresh-rfq-20260719-01",
+  "deployment_commit": "f39f574068fe544e27e759963db8aabe5755148b",
+  "precommitted_at_utc": "2026-07-18T03:30:07Z",
+  "old_284_object_set_sha256": "1873803765e70de69f4b398dcea7e4dc66c2749950c9d5f8c0d2d198c5087c71",
+  "old_lineage_state": "DATA_INTEGRITY_BLOCKED",
+  "repair_state": "FORBIDDEN"
+}

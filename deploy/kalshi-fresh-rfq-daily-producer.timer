@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry fresh RFQ D+1 evidence production hourly
+
+[Timer]
+OnCalendar=*-*-* *:17:00 UTC
+RandomizedDelaySec=180
+Persistent=true
+Unit=kalshi-fresh-rfq-daily-producer.service
+
+[Install]
+WantedBy=timers.target

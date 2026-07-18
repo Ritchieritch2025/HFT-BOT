@@ -5,11 +5,12 @@ This module is deliberately local-only.  It performs no AWS, network, process,
 service, tag, publication, or raw-data write.  A successful package proves that
 one complete UTC analysis day (24 hours plus the two D+1 watermark hours) is
 bound to the precommitted fresh-lane authority, one persistent capture session,
-strict PASS hour receipts, exact source evidence, and one full_v2 day seal.
+strict PASS hour receipts, exact source evidence, a fully paginated D+1 close
+inventory, a mandatory health observation, and one full_v2 day seal.
 
 ``ELIGIBLE.json`` is the commit marker.  It is written only by atomically
 renaming a fully populated ``date=D`` directory.  Consumers revalidate the
-four immutable inputs and rebuild the marker before enabling RFQ; a marker is
+six immutable inputs and rebuild the marker before enabling RFQ; a marker is
 never trusted by filename or by a self-declared state alone.
 """
 
@@ -31,6 +32,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fresh_rfq_receipts as fresh  # noqa: E402
+import fresh_rfq_close_inventory as close_inventory  # noqa: E402
 import precommit_fresh_rfq_authority as precommit  # noqa: E402
 
 
@@ -43,12 +45,34 @@ AUTHORITY_NAME = "AUTHORITY-ENVELOPE.json"
 SOURCE_NAME = "SOURCE-EVIDENCE.json"
 HOURS_NAME = "HOUR-RECEIPTS.json"
 SESSION_NAME = "SESSION-LEDGER.ndjson"
+HEALTH_NAME = "CAPTURE-HEALTH.json"
+CLOSE_INVENTORY_NAME = "CLOSE-INVENTORY.json"
 MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_LEDGER_BYTES = 64 * 1024 * 1024
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 EXACT_FIELDS = ("bucket", "key", "version_id", "size", "sha256")
-INPUT_NAMES = (AUTHORITY_NAME, SOURCE_NAME, HOURS_NAME, SESSION_NAME)
+INPUT_NAMES = (
+    AUTHORITY_NAME, SOURCE_NAME, HOURS_NAME, SESSION_NAME, HEALTH_NAME,
+    CLOSE_INVENTORY_NAME,
+)
+
+# These are not configuration knobs.  They bind the only production fresh
+# epoch authorized by the operator.  Tests may replace the complete binding as
+# one unit; production callers cannot select another generation or T0.
+PRODUCTION_STRICT_T0_UTC = "2026-07-19T00:00:00Z"
+PRODUCTION_GENERATION = "fresh-rfq-20260719-01"
+PRODUCTION_AUTHORITY_SHA256 = (
+    "6540583799317c7f19a57f7d67c639afbd8832186fe55fd735e4f3cbb2cb9160")
+PRODUCTION_ENVELOPE_SHA256 = (
+    "523543a651870b1611c8320957aa5ed0912da21b64a26ca0ee7bba1a8e47840b")
+PRODUCTION_ENVELOPE_FILE_SHA256 = (
+    "8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b")
+HEALTH_SCHEMA = "fresh-rfq-capture-health-receipt-v1"
+HEALTH_STATE = "CAPTURE_HEALTHY_NO_ALERT"
+CLOSE_ATTESTATION_SCHEMA = "fresh-rfq-close-inventory-transport-v1"
+CLOSE_ATTESTATION_STATE = "AWS_LIST_OBJECT_VERSIONS_FULLY_PAGINATED"
+PRODUCTION_ALERT_PATH = "/home/ubuntu/hft-bot/work/live/rfq_alert.json"
 
 
 class EligibilityError(RuntimeError):
@@ -232,20 +256,241 @@ def _source_sets(source: dict[str, Any]) -> tuple[list[dict[str, Any]],
     return analysis, watermark, containers
 
 
+def _require_production_authority(envelope: dict[str, Any],
+                                  authority: dict[str, Any]) -> None:
+    expected = {
+        "strict_t0_utc": PRODUCTION_STRICT_T0_UTC,
+        "generation": PRODUCTION_GENERATION,
+        "authority_sha256": PRODUCTION_AUTHORITY_SHA256,
+    }
+    for field, value in expected.items():
+        if authority.get(field) != value:
+            _fail("PRODUCTION_AUTHORITY_MISMATCH", field)
+    if envelope.get("envelope_sha256") != PRODUCTION_ENVELOPE_SHA256:
+        _fail("PRODUCTION_AUTHORITY_MISMATCH", "envelope_sha256")
+
+
+def build_health_receipt(*, date: str, authority_envelope: Any,
+                         session_ledger_sha256: str,
+                         session_ledger_row_count: int,
+                         checked_at_utc: str,
+                         alert_path: pathlib.Path) -> dict[str, Any]:
+    """Observe the fixed alert path and emit a mandatory canonical receipt."""
+    date = _date(date)
+    try:
+        envelope = precommit.validate_precommit_envelope(authority_envelope)
+    except (precommit.PrecommitError, fresh.FreshRfqError) as exc:
+        raise EligibilityError("AUTHORITY_INVALID", str(exc)) from exc
+    authority = envelope["authority"]
+    _require_production_authority(envelope, authority)
+    alert = pathlib.Path(alert_path).absolute()
+    if str(alert) != PRODUCTION_ALERT_PATH:
+        _fail("HEALTH_RECEIPT_INVALID", "alert path is not the fixed producer path")
+    alert_state = "ABSENT_AT_CHECK"
+    alert_file_sha256 = None
+    alert_observed_at_utc = None
+    if os.path.lexists(alert):
+        alert_value, alert_raw = _read_json(alert, "capture alert")
+        if (not isinstance(alert_value, dict)
+                or alert_value.get("type") != "rfq_capture_alert"
+                or alert_value.get("status") != "ALERT"
+                or not isinstance(alert_value.get("reason"), str)
+                or not alert_value["reason"]):
+            _fail("HEALTH_RECEIPT_INVALID", "capture alert schema is invalid")
+        try:
+            observed = dt.datetime.strptime(
+                alert_value.get("observed_at_utc"),
+                "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+            t0 = dt.datetime.strptime(
+                authority["strict_t0_utc"],
+                "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
+        if observed >= t0:
+            _fail("CAPTURE_ALERT_PRESENT", alert_value["observed_at_utc"])
+        alert_state = "PRESENT_PRE_T0_ONLY"
+        alert_file_sha256 = hashlib.sha256(alert_raw).hexdigest()
+        alert_observed_at_utc = alert_value["observed_at_utc"]
+    _sha(session_ledger_sha256, "health session ledger SHA")
+    if type(session_ledger_row_count) is not int or session_ledger_row_count != 26:
+        _fail("HEALTH_RECEIPT_INVALID", "exactly 26 selected ledger rows required")
+    try:
+        checked = dt.datetime.strptime(
+            checked_at_utc, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
+    close = (dt.datetime.strptime(date, "%Y-%m-%d").replace(
+        tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=2))
+    if checked < close:
+        _fail("HEALTH_RECEIPT_INVALID", "health check precedes D+1 02 close")
+    receipt = {
+        "schema_version": HEALTH_SCHEMA,
+        "state": HEALTH_STATE,
+        "date": date,
+        "generation": authority["generation"],
+        "strict_t0_utc": authority["strict_t0_utc"],
+        "authority_sha256": authority["authority_sha256"],
+        "authority_envelope_sha256": envelope["envelope_sha256"],
+        "alert_path": str(alert),
+        "alert_state": alert_state,
+        "alert_file_sha256": alert_file_sha256,
+        "alert_observed_at_utc": alert_observed_at_utc,
+        "session_ledger_sha256": session_ledger_sha256,
+        "session_ledger_row_count": session_ledger_row_count,
+        "checked_at_utc": checked_at_utc,
+    }
+    receipt["health_receipt_sha256"] = canonical_sha256(receipt)
+    return receipt
+
+
+def _validate_health_receipt(value: Any, *, date: str,
+                             envelope: dict[str, Any],
+                             session_ledger_sha256: str) -> dict[str, Any]:
+    fields = {
+        "schema_version", "state", "date", "generation", "strict_t0_utc",
+        "authority_sha256", "authority_envelope_sha256", "alert_path",
+        "alert_state", "alert_file_sha256", "alert_observed_at_utc",
+        "session_ledger_sha256", "session_ledger_row_count",
+        "checked_at_utc", "health_receipt_sha256",
+    }
+    authority = envelope["authority"]
+    if not isinstance(value, dict) or set(value) != fields:
+        _fail("HEALTH_RECEIPT_INVALID", "fields differ from fixed contract")
+    fixed = {
+        "schema_version": HEALTH_SCHEMA,
+        "state": HEALTH_STATE,
+        "date": date,
+        "generation": authority["generation"],
+        "strict_t0_utc": authority["strict_t0_utc"],
+        "authority_sha256": authority["authority_sha256"],
+        "authority_envelope_sha256": envelope["envelope_sha256"],
+        "alert_path": PRODUCTION_ALERT_PATH,
+        "session_ledger_sha256": session_ledger_sha256,
+        "session_ledger_row_count": 26,
+    }
+    if any(value.get(key) != expected for key, expected in fixed.items()):
+        _fail("HEALTH_RECEIPT_INVALID", "fixed binding differs")
+    alert_state = value.get("alert_state")
+    if alert_state == "ABSENT_AT_CHECK":
+        if (value.get("alert_file_sha256") is not None
+                or value.get("alert_observed_at_utc") is not None):
+            _fail("HEALTH_RECEIPT_INVALID", "absent alert has file evidence")
+    elif alert_state == "PRESENT_PRE_T0_ONLY":
+        _sha(value.get("alert_file_sha256"), "pre-T0 alert file SHA")
+        try:
+            observed = dt.datetime.strptime(
+                value.get("alert_observed_at_utc"),
+                "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+            t0 = dt.datetime.strptime(
+                authority["strict_t0_utc"],
+                "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
+        if observed >= t0:
+            _fail("HEALTH_RECEIPT_INVALID", "alert is not pre-T0")
+    else:
+        _fail("HEALTH_RECEIPT_INVALID", "unknown alert observation state")
+    supplied = _sha(value.get("health_receipt_sha256"), "health receipt SHA")
+    unsigned = dict(value)
+    unsigned.pop("health_receipt_sha256")
+    if supplied != canonical_sha256(unsigned):
+        _fail("HEALTH_RECEIPT_INVALID", "self digest mismatch")
+    try:
+        checked = dt.datetime.strptime(
+            value["checked_at_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
+    close = (dt.datetime.strptime(date, "%Y-%m-%d").replace(
+        tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=2))
+    if checked < close:
+        _fail("HEALTH_RECEIPT_INVALID", "health check precedes close")
+    return copy.deepcopy(value)
+
+
+def _validate_close_inventory(value: Any, *, date: str,
+                              source_evidence: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "schema_version", "state", "analysis_date", "bucket", "prefix",
+        "aws_cli", "list_request_count", "observed_at_utc", "snapshot",
+        "snapshot_sha256", "latest_exact_identities",
+        "attestation_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        _fail("CLOSE_INVENTORY_INVALID", "attestation fields differ")
+    next_date = (dt.date.fromisoformat(date) + dt.timedelta(days=1)).isoformat()
+    prefix = f"ec2/raw/date={next_date}/rfq_receipts_02.ndjson"
+    fixed = {
+        "schema_version": CLOSE_ATTESTATION_SCHEMA,
+        "state": CLOSE_ATTESTATION_STATE,
+        "analysis_date": date,
+        "bucket": fresh.SOURCE_BUCKET,
+        "prefix": prefix,
+        "aws_cli": "/snap/aws-cli/current/bin/aws",
+    }
+    if any(value.get(key) != expected for key, expected in fixed.items()):
+        _fail("CLOSE_INVENTORY_INVALID", "fixed transport binding differs")
+    if type(value.get("list_request_count")) is not int or \
+            value["list_request_count"] < 1:
+        _fail("CLOSE_INVENTORY_INVALID", "no paginated LIST request attested")
+    try:
+        observed = dt.datetime.strptime(
+            value["observed_at_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise EligibilityError("CLOSE_INVENTORY_INVALID", str(exc)) from exc
+    close_time = (dt.datetime.strptime(date, "%Y-%m-%d").replace(
+        tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=2))
+    if observed < close_time:
+        _fail("CLOSE_INVENTORY_INVALID", "LIST inventory precedes D+1 02 close")
+    snapshot = value.get("snapshot")
+    try:
+        close_inventory.validate_close_inventory_snapshot(snapshot)
+    except close_inventory.FreshRfqCloseInventoryError as exc:
+        raise EligibilityError("CLOSE_INVENTORY_INVALID", str(exc)) from exc
+    if (snapshot.get("analysis_date") != date
+            or snapshot.get("prefix") != prefix
+            or snapshot.get("snapshot_sha256") != value.get("snapshot_sha256")
+            or snapshot.get("page_count") != value["list_request_count"]):
+        _fail("CLOSE_INVENTORY_INVALID", "snapshot transport binding differs")
+    identities = _normalize_exact_rows(
+        value.get("latest_exact_identities"), "close inventory identities")
+    snapshot_identities = _normalize_exact_rows(
+        snapshot.get("latest_exact_identities"), "close snapshot identities")
+    if identities != snapshot_identities:
+        _fail("CLOSE_INVENTORY_INVALID", "snapshot exact set differs")
+    source_final = _normalize_exact_rows([
+        row for row in source_evidence.get("receipt_containers", [])
+        if row.get("key", "").startswith(prefix)
+    ], "source final close identities")
+    if identities != source_final:
+        _fail("CLOSE_INVENTORY_INVALID", "source final close set differs")
+    supplied = _sha(value.get("attestation_sha256"), "close attestation SHA")
+    unsigned = copy.deepcopy(value)
+    unsigned.pop("attestation_sha256")
+    if supplied != canonical_sha256(unsigned):
+        _fail("CLOSE_INVENTORY_INVALID", "attestation self digest mismatch")
+    return copy.deepcopy(value)
+
+
 def build_eligibility(*, date: str, authority_envelope: Any,
                       source_evidence: Any, hour_receipt_set: Any,
                       session_ledger_rows: list[dict[str, Any]],
+                      health_receipt: Any,
+                      close_inventory_receipt: Any,
                       input_sha256: dict[str, str], generated_at_utc: str,
-                      alert_absent: bool) -> dict[str, Any]:
+                      authority_file_sha256: str) -> dict[str, Any]:
     """Validate all local evidence and return one body-free admission marker."""
     date = _date(date)
-    if not alert_absent:
-        _fail("CAPTURE_ALERT_PRESENT", date)
     try:
         envelope = precommit.validate_precommit_envelope(authority_envelope)
         authority = envelope["authority"]
     except (precommit.PrecommitError, fresh.FreshRfqError) as exc:
         raise EligibilityError("AUTHORITY_INVALID", str(exc)) from exc
+    _require_production_authority(envelope, authority)
+    if authority_file_sha256 != PRODUCTION_ENVELOPE_FILE_SHA256:
+        _fail("PRODUCTION_AUTHORITY_MISMATCH", "authority envelope file SHA")
     expected_hours = _expected_hours(date)
     t0 = dt.datetime.strptime(
         authority["strict_t0_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -306,6 +551,10 @@ def build_eligibility(*, date: str, authority_envelope: Any,
                    for row in ordered_segments}
     if len(session_ids) != 1:
         _fail("MULTIPLE_CAPTURE_SESSIONS", "24+2 receipts mix sessions")
+    ledger_sha = input_sha256.get(SESSION_NAME)
+    _validate_health_receipt(
+        health_receipt, date=date, envelope=envelope,
+        session_ledger_sha256=ledger_sha)
 
     analysis, watermark, containers = _source_sets(source_evidence)
     deny = {(row["size"], row["sha256"])
@@ -331,6 +580,8 @@ def build_eligibility(*, date: str, authority_envelope: Any,
             key: value for key, value in source_evidence.items()
             if key != "evidence_sha256"}):
         _fail("SOURCE_EVIDENCE_INVALID", "self digest mismatch")
+    close_receipt = _validate_close_inventory(
+        close_inventory_receipt, date=date, source_evidence=source_evidence)
     if any(name not in input_sha256 for name in INPUT_NAMES):
         _fail("INPUT_BINDING_INVALID", "input hash set is incomplete")
     bindings = {name: _sha(input_sha256[name], name)
@@ -383,7 +634,11 @@ def build_eligibility(*, date: str, authority_envelope: Any,
         "old_284_object_set_sha256":
             authority["old_284_object_set_sha256"],
         "old_lineage_overlap_count": 0,
-        "alert_state": "ABSENT",
+        "alert_state": health_receipt["alert_state"],
+        "capture_health_receipt_sha256": health_receipt[
+            "health_receipt_sha256"],
+        "close_inventory_attestation_sha256": close_receipt[
+            "attestation_sha256"],
         "input_sha256": bindings,
         "generated_at_utc": generated_at_utc,
         "aws_reads": 0,
@@ -419,13 +674,12 @@ def _write_bytes(path: pathlib.Path, raw: bytes) -> None:
 def create_package(*, date: str, authority_path: pathlib.Path,
                    source_path: pathlib.Path, hour_receipts_path: pathlib.Path,
                    session_ledger_path: pathlib.Path,
-                   alert_path: pathlib.Path | None,
+                   health_receipt_path: pathlib.Path,
+                   close_inventory_path: pathlib.Path,
                    output_root: pathlib.Path,
                    generated_at_utc: str | None = None) -> pathlib.Path:
     """Create one immutable date directory; ``ELIGIBLE.json`` is last."""
     date = _date(date)
-    if alert_path is not None and os.path.lexists(alert_path):
-        _fail("CAPTURE_ALERT_PRESENT", str(alert_path))
     root = pathlib.Path(output_root).absolute()
     target = root / f"date={date}"
     if target.exists():
@@ -434,12 +688,16 @@ def create_package(*, date: str, authority_path: pathlib.Path,
         # timestamped mutable producer inputs.
         load_package(target / ELIGIBLE_NAME, expected_date=date)
         return target / ELIGIBLE_NAME
-    authority_value, _authority_raw = _read_json(authority_path, "authority")
+    authority_value, authority_raw = _read_json(authority_path, "authority")
     source_value, _source_raw = _read_json(source_path, "source evidence")
     hour_value, _hour_raw = _read_json(hour_receipts_path, "hour receipts")
     ledger_raw = _read_regular(
         session_ledger_path, MAX_LEDGER_BYTES, "session ledger")
     ledger_rows = _parse_ledger(ledger_raw)
+    health_value, _health_raw = _read_json(
+        health_receipt_path, "capture health receipt")
+    close_value, _close_raw = _read_json(
+        close_inventory_path, "close inventory receipt")
     expected = set(_expected_hours(date))
     authority = precommit.validate_precommit_envelope(
         authority_value)["authority"]
@@ -450,10 +708,12 @@ def create_package(*, date: str, authority_path: pathlib.Path,
                 and row.get("generation") == authority["generation"]
                 and row.get("segment_hour") in expected]
     normalized_inputs = {
-        AUTHORITY_NAME: _canonical_json_file(authority_value),
+        AUTHORITY_NAME: authority_raw,
         SOURCE_NAME: _canonical_json_file(source_value),
         HOURS_NAME: _canonical_json_file(hour_value),
         SESSION_NAME: _canonical_ledger(selected),
+        HEALTH_NAME: _canonical_json_file(health_value),
+        CLOSE_INVENTORY_NAME: _canonical_json_file(close_value),
     }
     input_sha = {name: hashlib.sha256(raw).hexdigest()
                  for name, raw in normalized_inputs.items()}
@@ -462,8 +722,10 @@ def create_package(*, date: str, authority_path: pathlib.Path,
     marker = build_eligibility(
         date=date, authority_envelope=authority_value,
         source_evidence=source_value, hour_receipt_set=hour_value,
-        session_ledger_rows=selected, input_sha256=input_sha,
-        generated_at_utc=generated_at_utc, alert_absent=True)
+        session_ledger_rows=selected, health_receipt=health_value,
+        close_inventory_receipt=close_value,
+        input_sha256=input_sha, generated_at_utc=generated_at_utc,
+        authority_file_sha256=hashlib.sha256(authority_raw).hexdigest())
 
     root.mkdir(parents=True, exist_ok=True, mode=0o750)
     pending = pathlib.Path(tempfile.mkdtemp(
@@ -519,9 +781,11 @@ def load_package(path: pathlib.Path, *, expected_date: str | None = None
         source_evidence=values[SOURCE_NAME],
         hour_receipt_set=values[HOURS_NAME],
         session_ledger_rows=values[SESSION_NAME],
+        health_receipt=values[HEALTH_NAME],
+        close_inventory_receipt=values[CLOSE_INVENTORY_NAME],
         input_sha256=hashes,
         generated_at_utc=marker.get("generated_at_utc"),
-        alert_absent=marker.get("alert_state") == "ABSENT",
+        authority_file_sha256=hashes[AUTHORITY_NAME],
     )
     if marker != rebuilt:
         _fail("ELIGIBILITY_INVALID", "marker differs from rebuilt evidence")
@@ -538,7 +802,8 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--source-evidence", required=True, type=pathlib.Path)
     build.add_argument("--hour-receipts", required=True, type=pathlib.Path)
     build.add_argument("--session-ledger", required=True, type=pathlib.Path)
-    build.add_argument("--alert-file", type=pathlib.Path)
+    build.add_argument("--health-receipt", required=True, type=pathlib.Path)
+    build.add_argument("--close-inventory", required=True, type=pathlib.Path)
     build.add_argument("--output-root", required=True, type=pathlib.Path)
     check = sub.add_parser("check")
     check.add_argument("--eligible", required=True, type=pathlib.Path)
@@ -551,7 +816,9 @@ def main(argv: list[str] | None = None) -> int:
                 source_path=args.source_evidence,
                 hour_receipts_path=args.hour_receipts,
                 session_ledger_path=args.session_ledger,
-                alert_path=args.alert_file, output_root=args.output_root)
+                health_receipt_path=args.health_receipt,
+                close_inventory_path=args.close_inventory,
+                output_root=args.output_root)
             value = load_package(path, expected_date=args.date)
             print(json.dumps({
                 "state": value["state"], "date": value["date"],

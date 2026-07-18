@@ -66,6 +66,64 @@ def _inputs(tmp_path, monkeypatch, *, overlap=None):
         "ledger": _write(tmp_path / "ledger.ndjson", segments, ndjson=True),
         "output": tmp_path / "eligible",
     }
+    alert = tmp_path / "rfq_alert.json"
+    monkeypatch.setattr(gate, "PRODUCTION_STRICT_T0_UTC",
+                        auth["strict_t0_utc"])
+    monkeypatch.setattr(gate, "PRODUCTION_GENERATION", auth["generation"])
+    monkeypatch.setattr(gate, "PRODUCTION_AUTHORITY_SHA256",
+                        auth["authority_sha256"])
+    monkeypatch.setattr(gate, "PRODUCTION_ENVELOPE_SHA256",
+                        envelope["envelope_sha256"])
+    monkeypatch.setattr(
+        gate, "PRODUCTION_ENVELOPE_FILE_SHA256",
+        hashlib.sha256(paths["authority"].read_bytes()).hexdigest())
+    monkeypatch.setattr(gate, "PRODUCTION_ALERT_PATH", str(alert.absolute()))
+    selected_ledger = b"".join(
+        gate.canonical_bytes(row) + b"\n" for row in segments)
+    health = gate.build_health_receipt(
+        date=DATE, authority_envelope=envelope,
+        session_ledger_sha256=hashlib.sha256(selected_ledger).hexdigest(),
+        session_ledger_row_count=26, checked_at_utc=GENERATED,
+        alert_path=alert)
+    paths["health"] = _write(tmp_path / "health.json", health)
+    close_prefix = "ec2/raw/date=2026-07-18/rfq_receipts_02.ndjson"
+    close_rows = [
+        {name: row[name] for name in gate.EXACT_FIELDS}
+        for row in evidence["receipt_containers"]
+        if row["key"].startswith(close_prefix)
+    ]
+    page = {
+        "request_key_marker": None,
+        "request_version_id_marker": None,
+        "response_key_marker": None,
+        "response_version_id_marker": None,
+        "is_truncated": False,
+        "next_key_marker": None,
+        "next_version_id_marker": None,
+        "versions": [{
+            "key": row["key"], "version_id": row["version_id"],
+            "is_latest": True, "size": row["size"],
+        } for row in close_rows],
+        "delete_markers": [],
+    }
+    snapshot = gate.close_inventory.build_close_inventory_snapshot(
+        analysis_date=DATE, pages=[page], exact_identities=close_rows)
+    close_receipt = {
+        "schema_version": gate.CLOSE_ATTESTATION_SCHEMA,
+        "state": gate.CLOSE_ATTESTATION_STATE,
+        "analysis_date": DATE,
+        "bucket": gate.fresh.SOURCE_BUCKET,
+        "prefix": close_prefix,
+        "aws_cli": "/snap/aws-cli/current/bin/aws",
+        "list_request_count": 1,
+        "observed_at_utc": GENERATED,
+        "snapshot": snapshot,
+        "snapshot_sha256": snapshot["snapshot_sha256"],
+        "latest_exact_identities": close_rows,
+    }
+    close_receipt["attestation_sha256"] = gate.canonical_sha256(close_receipt)
+    paths["close"] = _write(tmp_path / "close-inventory.json", close_receipt)
+    paths["alert"] = alert
     return auth, envelope, segments, evidence, hour_set, paths
 
 
@@ -76,7 +134,8 @@ def _create(paths, **kwargs):
         source_path=paths["source"],
         hour_receipts_path=paths["hours"],
         session_ledger_path=paths["ledger"],
-        alert_path=kwargs.get("alert_path"),
+        health_receipt_path=kwargs.get("health_path", paths["health"]),
+        close_inventory_path=kwargs.get("close_path", paths["close"]),
         output_root=paths["output"],
         generated_at_utc=GENERATED,
     )
@@ -140,10 +199,32 @@ def test_missing_hour_and_mixed_session_fail_closed(tmp_path, monkeypatch):
 def test_alert_and_old_lineage_overlap_fail_before_commit(tmp_path, monkeypatch):
     _auth, _envelope, _segments, evidence, _hours, paths = _inputs(
         tmp_path, monkeypatch)
-    alert = tmp_path / "ALERT.json"
-    alert.write_text("{}")
+    alert = paths["alert"]
+    _write(alert, {
+        "type": "rfq_capture_alert", "status": "ALERT",
+        "observed_at_utc": "2026-07-16T23:59:59Z", "reason": "pre-T0",
+    })
+    pre_t0 = gate.build_health_receipt(
+        date=DATE, authority_envelope=_envelope,
+        session_ledger_sha256=hashlib.sha256(
+            paths["ledger"].read_bytes()).hexdigest(),
+        session_ledger_row_count=26, checked_at_utc=GENERATED,
+        alert_path=alert)
+    assert pre_t0["alert_state"] == "PRESENT_PRE_T0_ONLY"
+    assert pre_t0["alert_file_sha256"] == hashlib.sha256(
+        alert.read_bytes()).hexdigest()
+
+    _write(alert, {
+        "type": "rfq_capture_alert", "status": "ALERT",
+        "observed_at_utc": "2026-07-17T00:00:00Z", "reason": "post-T0",
+    })
     with pytest.raises(gate.EligibilityError, match="CAPTURE_ALERT_PRESENT"):
-        _create(paths, alert_path=alert)
+        gate.build_health_receipt(
+            date=DATE, authority_envelope=_envelope,
+            session_ledger_sha256=hashlib.sha256(
+                paths["ledger"].read_bytes()).hexdigest(),
+            session_ledger_row_count=26, checked_at_utc=GENERATED,
+            alert_path=alert)
     assert not paths["output"].exists()
 
     alert.unlink()
@@ -184,7 +265,45 @@ def test_tamper_and_pre_t0_day_fail_closed(tmp_path, monkeypatch):
             source_path=paths["source"],
             hour_receipts_path=paths["hours"],
             session_ledger_path=paths["ledger"],
-            alert_path=None,
+            health_receipt_path=paths["health"],
+            close_inventory_path=paths["close"],
             output_root=paths["output"],
             generated_at_utc=GENERATED,
         )
+
+
+def test_health_receipt_is_mandatory_and_cannot_be_self_declared_absent(
+        tmp_path, monkeypatch):
+    _auth, _envelope, _segments, _evidence, _hours, paths = _inputs(
+        tmp_path, monkeypatch)
+    with pytest.raises((TypeError, gate.EligibilityError)):
+        gate.create_package(
+            date=DATE, authority_path=paths["authority"],
+            source_path=paths["source"], hour_receipts_path=paths["hours"],
+            session_ledger_path=paths["ledger"],
+            health_receipt_path=None, output_root=paths["output"],
+            close_inventory_path=paths["close"],
+            generated_at_utc=GENERATED)
+
+    health = json.loads(paths["health"].read_text())
+    health["alert_state"] = "ABSENT"
+    health["health_receipt_sha256"] = gate.canonical_sha256({
+        key: value for key, value in health.items()
+        if key != "health_receipt_sha256"})
+    bad = _write(tmp_path / "bad-health.json", health)
+    with pytest.raises(gate.EligibilityError, match="HEALTH_RECEIPT_INVALID"):
+        _create(paths, health_path=bad)
+
+
+def test_close_inventory_is_mandatory_and_bound_to_source_exact_set(
+        tmp_path, monkeypatch):
+    _auth, _envelope, _segments, _evidence, _hours, paths = _inputs(
+        tmp_path, monkeypatch)
+    close = json.loads(paths["close"].read_text())
+    close["latest_exact_identities"][0]["sha256"] = "0" * 64
+    close["attestation_sha256"] = gate.canonical_sha256({
+        key: value for key, value in close.items()
+        if key != "attestation_sha256"})
+    bad = _write(tmp_path / "bad-close.json", close)
+    with pytest.raises(gate.EligibilityError, match="CLOSE_INVENTORY_INVALID"):
+        _create(paths, close_path=bad)

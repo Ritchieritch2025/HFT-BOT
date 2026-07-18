@@ -888,8 +888,7 @@ def validate_manifest(manifest: object, requested_release_id: str | None = None)
         if (not isinstance(tag_proof, dict) or set(tag_proof) != proof_fields
                 or tag_proof.get("schema_version")
                 != "canonical-eligibility-precommit-proof-v1"
-                or tag_proof.get("rfq") != (
-                    "FRESH_SEALED" if rfq_included else "OFF")
+                or tag_proof.get("rfq") != "OFF"
                 or tag_proof.get("target_count") != len(objects) + 1
                 or tag_proof.get("research_candidate_count") != len(objects)
                 or re.fullmatch(

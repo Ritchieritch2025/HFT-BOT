@@ -593,7 +593,7 @@ def build_release(*, with_rfq=False, receipt_variant="fixture",
                 }),
                 "target_count": len(objects) + 1,
                 "research_candidate_count": len(objects),
-                "rfq": "FRESH_SEALED" if with_rfq else "OFF",
+                "rfq": "OFF",
             },
             "tagger_exact_set_readback":
                 "CONTENT_ADDRESSED_PRECOMMIT_PROOF",
