@@ -176,8 +176,11 @@ emits a strategy-PnL, confirmation, promotion, shadow or order claim.
 
 ## 5. Automatic MODE 1 operation
 
-The full installer enables the automatic timer. Upgrade the currently
-installed W09 from this clean release worktree with:
+The full installer installs but deliberately leaves the automatic timer
+disabled. The audit-candidate plan is PLAN-ONLY and supplies no execution
+authority. A future exact-SHA D3-W2A release must first name the authority,
+write root, input, cost and end/stopping rule. Only then may the operator
+upgrade the currently installed W09 from this clean release worktree with:
 
 ```bash
 cd /Users/ritcardo/HFT-BOT-tagger-release
@@ -186,12 +189,12 @@ W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
   bash deploy/w09/push_and_install.sh
 ```
 
-After the reviewed role policy is attached, start an immediate cycle instead
-of waiting for the timer:
+After that separate release and the reviewed role policy both exist, the
+operator may explicitly enable the timer and start an immediate cycle:
 
 ```bash
 ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192 \
-  'sudo systemctl start w09-exploratory-autoresearch.service'
+  'sudo systemctl enable --now w09-exploratory-autoresearch.timer; sudo systemctl start w09-exploratory-autoresearch.service'
 ssh -i ~/.ssh/kalshi-key.pem ubuntu@18.226.151.192 \
   'systemctl status --no-pager w09-exploratory-autoresearch.service; cat /srv/w09-research/automation/status.json'
 ```

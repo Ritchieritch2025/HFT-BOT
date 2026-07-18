@@ -281,6 +281,9 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "OnUnitInactiveSec=30min" in timer
     assert "Persistent=true" in timer
     assert "--with-rfq" not in service
+    installer = (W09 / "install_on_host.sh").read_text()
+    assert "enable --now w09-exploratory-autoresearch.timer" not in installer
+    assert "disable --now w09-exploratory-autoresearch.timer" in installer
 
 
 def test_static_credentials_are_refused_without_printing_values(tmp_path, monkeypatch):

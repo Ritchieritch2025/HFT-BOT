@@ -276,10 +276,15 @@ grep -Eq '"reason": "ssh-(tcp|session)"' /var/lib/w09-idle/events.jsonl
 
 chown -R ubuntu:ubuntu /srv/w09-research
 systemctl enable --now w09-idle-check.timer
-systemctl enable --now w09-exploratory-autoresearch.timer
+# The software bundle is installed, but an ordinary W09 bring-up is not an
+# exact-SHA deep03 W/phase execution release.  Keep research disabled until the
+# operator applies that separate authority and explicitly enables/starts it.
+systemctl disable --now w09-exploratory-autoresearch.timer \
+    >/dev/null 2>&1 || true
 systemctl is-active --quiet chrony.service
 systemctl is-active --quiet w09-idle-check.timer
-systemctl is-active --quiet w09-exploratory-autoresearch.timer
+test "$(systemctl is-enabled w09-exploratory-autoresearch.timer 2>/dev/null || true)" \
+    = disabled
 timedatectl show -p Timezone --value | grep -qx UTC
 
 trap - ERR
