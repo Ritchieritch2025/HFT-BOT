@@ -26,6 +26,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any, BinaryIO, Callable, Iterable, Iterator
 
@@ -37,6 +38,14 @@ SOURCE_BUCKET = "kalshi-vault-ritcardo"
 MAX_JSON_LINE_BYTES = 16 << 20
 MAX_S3_KEY_BYTES = 1024
 MAX_SHARD_ORDINAL = 1_000_000
+MAX_ACCUMULATED_RFQ_OCCURRENCES = 1_000_000
+MAX_ACCUMULATED_UNIQUE_RFQ_IDS = 1_000_000
+MAX_ACCUMULATOR_ESTIMATED_BYTES = 8 << 30
+MIN_ACCUMULATOR_HEADROOM_BYTES = 2 << 30
+MIN_EFFECTIVE_ACCUMULATOR_BUDGET_BYTES = 256 << 20
+MAX_ANALYSIS_RFQ_OBJECTS = 100_000
+MAX_DISTINCT_RECORD_TYPES = 4_096
+MAX_RECORD_TYPE_BYTES = 256
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -283,6 +292,11 @@ def _normalize_overlay_identities(
 ) -> tuple[list[dict[str, Any]], dict[str, tuple[str, int]]]:
     if not isinstance(value, list):
         _fail("OBJECT_LIST", "analysis_rfq_objects must be a list")
+    if len(value) > MAX_ANALYSIS_RFQ_OBJECTS:
+        _fail(
+            "OBJECT_LIST",
+            "analysis RFQ object count exceeds the fixed hard bound",
+        )
     rows: list[dict[str, Any]] = []
     path_parts: dict[str, tuple[str, int]] = {}
     for index, raw in enumerate(value):
@@ -629,6 +643,14 @@ def _project_rfq_created(
 
 
 def _count_rows(counts: dict[str, int], key: str) -> None:
+    try:
+        key_bytes = key.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        _fail("RECORD_TYPE_BOUND", "record type is not valid UTF-8")
+    if not key_bytes or len(key_bytes) > MAX_RECORD_TYPE_BYTES:
+        _fail("RECORD_TYPE_BOUND", "record type exceeds the fixed byte bound")
+    if key not in counts and len(counts) >= MAX_DISTINCT_RECORD_TYPES:
+        _fail("RECORD_TYPE_BOUND", "distinct record types exceed the hard bound")
     counts[key] = counts.get(key, 0) + 1
 
 
@@ -639,6 +661,27 @@ def _counts_list(counts: dict[str, int], key_name: str) -> list[dict[str, Any]]:
     ]
 
 
+def _available_memory_bytes() -> int | None:
+    """Return a conservative current-memory estimate when the OS exposes it."""
+    try:
+        with Path("/proc/meminfo").open("r", encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except (OSError, ValueError):
+        pass
+    try:
+        pages = os.sysconf("SC_AVPHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, OSError, ValueError):
+        return None
+    if type(pages) is int and type(page_size) is int and pages > 0 and page_size > 0:
+        return pages * page_size
+    return None
+
+
 class RequestProvenanceAccumulator:
     """Consume one preflighted analysis capture set exactly once.
 
@@ -647,11 +690,12 @@ class RequestProvenanceAccumulator:
     calls, and it does not close that stream.  The caller may therefore use it
     while an ``ExactReadSession.open_exact`` context is already active.
 
-    This is deliberately only a *body-byte* memory bound.  The published v1
-    schema requires materialized request, occurrence, and duplicate ledgers,
-    so accumulator state remains proportional to RFQ event volume.  A fully
-    bounded implementation requires a separately versioned, disk-spooled
-    receipt contract.
+    The published v1 schema requires materialized request, occurrence, and
+    duplicate ledgers, so this implementation applies fixed count limits plus
+    a conservative encoded-size-to-memory envelope before mutating any ledger.
+    It also preserves a fixed operating-system memory reserve when current
+    available memory is observable.  Crossing any bound fails closed; it can
+    never turn an unbounded event stream into an OOM.
     """
 
     def __init__(
@@ -744,11 +788,59 @@ class RequestProvenanceAccumulator:
         self._object_coverage: list[dict[str, Any]] = []
         self._marker_counts: dict[str, int] = {}
         self._irrelevant_counts: dict[str, int] = {}
-        # These collections are required by the v1 output schema and are
-        # intentionally documented as event-proportional, not fully bounded.
+        # These collections are required by the v1 output schema.  Every
+        # mutation is fenced by _reserve_projection's hard count and memory
+        # envelope below.
         self._rfq_occurrences: list[dict[str, Any]] = []
         self._duplicate_ledger: list[dict[str, Any]] = []
         self._primary_by_id: dict[str, dict[str, Any]] = {}
+        available = _available_memory_bytes()
+        if available is None:
+            self._projection_budget_bytes = MAX_ACCUMULATOR_ESTIMATED_BYTES
+        else:
+            self._projection_budget_bytes = min(
+                MAX_ACCUMULATOR_ESTIMATED_BYTES,
+                max(0, available - MIN_ACCUMULATOR_HEADROOM_BYTES),
+            )
+            if self._projection_budget_bytes < MIN_EFFECTIVE_ACCUMULATOR_BUDGET_BYTES:
+                _fail(
+                    "ACCUMULATOR_HEADROOM_INSUFFICIENT",
+                    "available memory cannot preserve the fixed RFQ reserve",
+                )
+        self._projection_estimated_bytes = 0
+
+    def _reserve_projection(
+        self,
+        *values: Any,
+        new_unique: bool,
+        duplicate_copy: bool,
+    ) -> None:
+        occurrence_count = len(self._rfq_occurrences)
+        if occurrence_count >= MAX_ACCUMULATED_RFQ_OCCURRENCES:
+            _fail(
+                "ACCUMULATOR_EVENT_LIMIT",
+                "RFQ occurrence count exceeds the fixed hard bound",
+            )
+        if new_unique and len(self._primary_by_id) >= MAX_ACCUMULATED_UNIQUE_RFQ_IDS:
+            _fail(
+                "ACCUMULATOR_UNIQUE_ID_LIMIT",
+                "unique RFQ ID count exceeds the fixed hard bound",
+            )
+        # Eight times canonical payload bytes plus 4 KiB per stored Python
+        # object is intentionally conservative for bounded identifier sizes.
+        # Duplicates are held in both the occurrence and duplicate ledgers.
+        copies = 2 if duplicate_copy else 1
+        payload_bytes = sum(len(canonical_bytes(value)) for value in values)
+        increment = copies * (4_096 + payload_bytes * 8)
+        if new_unique:
+            increment += 4_096 + payload_bytes * 8
+        projected = self._projection_estimated_bytes + increment
+        if projected > self._projection_budget_bytes:
+            _fail(
+                "ACCUMULATOR_MEMORY_BOUND",
+                "RFQ projection would exceed the fixed headroom-aware bound",
+            )
+        self._projection_estimated_bytes = projected
 
     @property
     def expected_objects(self) -> list[dict[str, Any]]:
@@ -919,11 +1011,6 @@ class RequestProvenanceAccumulator:
                         if previous is None:
                             classification = "RFQ_CREATED_PRIMARY"
                             primary = locator
-                            self._primary_by_id[request["request_id"]] = {
-                                "raw_sha256": raw_sha,
-                                "request": request,
-                                "locator": locator,
-                            }
                             occurrence_kind = "PRIMARY"
                         elif previous["raw_sha256"] == raw_sha:
                             if not _canonical_exact_equal(
@@ -951,6 +1038,19 @@ class RequestProvenanceAccumulator:
                             "primary_version_id": primary["version_id"],
                             "primary_line_number": primary["line_number"],
                         }
+                        self._reserve_projection(
+                            occurrence, request, locator,
+                            new_unique=previous is None,
+                            duplicate_copy=(
+                                occurrence_kind == "EXACT_RAW_DUPLICATE"
+                            ),
+                        )
+                        if previous is None:
+                            self._primary_by_id[request["request_id"]] = {
+                                "raw_sha256": raw_sha,
+                                "request": request,
+                                "locator": locator,
+                            }
                         self._rfq_occurrences.append(occurrence)
                         if occurrence_kind == "EXACT_RAW_DUPLICATE":
                             self._duplicate_ledger.append(
