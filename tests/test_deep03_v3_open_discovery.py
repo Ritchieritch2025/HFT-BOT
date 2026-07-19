@@ -276,7 +276,12 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
         **authority_kwargs,
     )
     complete_path = run_discovery(
-        run_dir=run_dir, memory_limit="1GB", threads=1, **authority_kwargs
+        run_dir=run_dir,
+        checkpoint_root=tmp_path / "checkpoints",
+        required_checkpoint_parent=tmp_path / "checkpoints",
+        memory_limit="1GB",
+        threads=1,
+        **authority_kwargs,
     )
     complete = json.loads(complete_path.read_text())
     method = json.loads((run_dir / "METHOD_EXECUTION_RECEIPT.json").read_text())
@@ -336,6 +341,8 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
     with pytest.raises(Deep03InputError, match="RUN_COMPLETE is immutable"):
         run_discovery(
             run_dir=run_dir,
+            checkpoint_root=tmp_path / "checkpoints",
+            required_checkpoint_parent=tmp_path / "checkpoints",
             memory_limit="1GB",
             threads=1,
             **authority_kwargs,
@@ -425,6 +432,8 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
     ):
         run_discovery(
             run_dir=run_dir,
+            checkpoint_root=tmp_path / "checkpoints",
+            required_checkpoint_parent=tmp_path / "checkpoints",
             memory_limit="1GB",
             threads=1,
             **authority_kwargs,
@@ -455,6 +464,8 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
     with pytest.raises(Deep03InputError, match="one-shot.*field mismatch: state"):
         run_discovery(
             run_dir=consumed_run,
+            checkpoint_root=tmp_path / "checkpoints",
+            required_checkpoint_parent=tmp_path / "checkpoints",
             memory_limit="1GB",
             threads=1,
             **authority_kwargs,
