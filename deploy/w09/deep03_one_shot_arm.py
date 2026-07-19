@@ -22,13 +22,15 @@ import sys
 from typing import Any
 
 
-CLAIM_SCHEMA = "deep03-w09-one-shot-arm-claim-v1"
+CLAIM_SCHEMA = "deep03-w09-one-shot-arm-claim-v2"
 AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 SERVICE_UNIT = "w09-exploratory-autoresearch.service"
+SERVICE_CGROUP = "/system.slice/w09-exploratory-autoresearch.service"
+RELEASE_ID = "D3-W2A-2026-07-18.03"
+DEFAULT_PROC_CGROUP_PATH = Path("/proc/self/cgroup")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 INVOCATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-RELEASE_RE = re.compile(r"^D3-W2A-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_CLAIM_BYTES = 64 * 1024
 
 
@@ -133,7 +135,7 @@ def load_arm_identity(
         authority.get("schema_version") != AUTHORITY_SCHEMA
         or authority.get("state") != "ACTIVE"
         or not isinstance(release_id, str)
-        or RELEASE_RE.fullmatch(release_id) is None
+        or release_id != RELEASE_ID
     ):
         raise OneShotArmError("authority identity is not an active D3-W2A release")
     if (
@@ -152,8 +154,7 @@ def load_arm_identity(
 
 def _validate_identity(identity: dict[str, str]) -> None:
     if (
-        not isinstance(identity.get("release_id"), str)
-        or RELEASE_RE.fullmatch(identity["release_id"]) is None
+        identity.get("release_id") != RELEASE_ID
         or not isinstance(identity.get("authority_sha256"), str)
         or SHA256_RE.fullmatch(identity["authority_sha256"]) is None
         or not isinstance(identity.get("arm_sha256"), str)
@@ -167,6 +168,52 @@ def _validate_invocation(invocation_id: str, service_unit: str) -> None:
         raise OneShotArmError("systemd INVOCATION_ID is missing or invalid")
     if service_unit != SERVICE_UNIT:
         raise OneShotArmError("one-shot claim is limited to the fixed W09 service")
+
+
+def _current_service_cgroup(
+    *,
+    service_unit: str,
+    proc_cgroup_path: Path = DEFAULT_PROC_CGROUP_PATH,
+) -> str:
+    """Read the kernel-owned cgroup-v2 identity for this exact process.
+
+    ``proc_cgroup_path`` is injectable only through the Python API so offline
+    tests can supply a synthetic proc file.  The deployed CLI never exposes a
+    path override and therefore always reads ``/proc/self/cgroup``.
+    """
+    if service_unit != SERVICE_UNIT:
+        raise OneShotArmError("one-shot claim is limited to the fixed W09 service")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(Path(proc_cgroup_path), flags)
+    except OSError as exc:
+        raise OneShotArmError("current process cgroup is missing or unsafe") from exc
+    try:
+        raw = os.read(fd, 16 * 1024 + 1)
+        if not raw or len(raw) > 16 * 1024:
+            raise OneShotArmError("current process cgroup is outside the accepted bound")
+    finally:
+        os.close(fd)
+    try:
+        lines = raw.decode("ascii").splitlines()
+    except UnicodeError as exc:
+        raise OneShotArmError("current process cgroup is not ASCII") from exc
+    unified: list[str] = []
+    for line in lines:
+        fields = line.split(":", 2)
+        if len(fields) == 3 and fields[0] == "0" and fields[1] == "":
+            unified.append(fields[2])
+    if len(unified) != 1:
+        raise OneShotArmError("current process has no unique cgroup-v2 identity")
+    if unified[0] != SERVICE_CGROUP:
+        raise OneShotArmError(
+            "current process is outside the fixed W09 service cgroup"
+        )
+    return unified[0]
 
 
 def _open_claim_root(
@@ -184,10 +231,11 @@ def _open_claim_root(
     except OSError as exc:
         raise OneShotArmError("one-shot claim root is missing or unsafe") from exc
     metadata = os.fstat(fd)
+    mode = stat.S_IMODE(metadata.st_mode)
     if (
         not stat.S_ISDIR(metadata.st_mode)
         or metadata.st_uid != expected_owner_uid
-        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        or mode != 0o750
     ):
         os.close(fd)
         raise OneShotArmError("one-shot claim root owner/mode is unsafe")
@@ -221,8 +269,8 @@ def _read_claim_at(
             raise OneShotArmError("one-shot claim is not a regular file")
         if metadata.st_uid != expected_owner_uid:
             raise OneShotArmError("one-shot claim has the wrong owner")
-        if metadata.st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
-            raise OneShotArmError("one-shot claim is writable")
+        if stat.S_IMODE(metadata.st_mode) != 0o440:
+            raise OneShotArmError("one-shot claim mode is not 0440")
         if metadata.st_size <= 0 or metadata.st_size > MAX_CLAIM_BYTES:
             raise OneShotArmError("one-shot claim size is outside the accepted bound")
         raw = b""
@@ -244,6 +292,7 @@ def _validate_claim_fields(
     identity: dict[str, str],
     invocation_id: str,
     service_unit: str,
+    service_cgroup: str,
     state: str,
 ) -> None:
     fixed = {
@@ -253,6 +302,7 @@ def _validate_claim_fields(
         "authority_sha256": identity["authority_sha256"],
         "arm_sha256": identity["arm_sha256"],
         "service_unit": service_unit,
+        "service_cgroup": service_cgroup,
         "invocation_id": invocation_id,
     }
     for field, expected in fixed.items():
@@ -268,15 +318,21 @@ def claim_one_shot(
     service_unit: str = SERVICE_UNIT,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
+    proc_cgroup_path: Path = DEFAULT_PROC_CGROUP_PATH,
 ) -> dict[str, Any]:
     """Atomically claim one exact ARM; an existing state can never be reused."""
     _validate_identity(identity)
     _validate_invocation(invocation_id, service_unit)
+    service_cgroup = _current_service_cgroup(
+        service_unit=service_unit,
+        proc_cgroup_path=proc_cgroup_path,
+    )
     payload = {
         "schema_version": CLAIM_SCHEMA,
         "state": "ACTIVE",
         **identity,
         "service_unit": service_unit,
+        "service_cgroup": service_cgroup,
         "invocation_id": invocation_id,
         "claimed_at_utc": _utc_now(now),
         "consumed_at_utc": None,
@@ -300,10 +356,11 @@ def claim_one_shot(
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         temp_fd = os.open(temporary, flags, 0o400, dir_fd=root_fd)
+        os.fchown(temp_fd, -1, os.fstat(root_fd).st_gid)
         written = 0
         while written < len(raw):
             written += os.write(temp_fd, raw[written:])
-        os.fchmod(temp_fd, 0o444)
+        os.fchmod(temp_fd, 0o440)
         os.fsync(temp_fd)
         os.close(temp_fd)
         temp_fd = None
@@ -337,10 +394,15 @@ def validate_active_claim(
     invocation_id: str,
     service_unit: str = SERVICE_UNIT,
     expected_owner_uid: int = 0,
+    proc_cgroup_path: Path = DEFAULT_PROC_CGROUP_PATH,
 ) -> tuple[dict[str, Any], bytes]:
     """Return immutable ACTIVE claim bytes or refuse direct/replayed execution."""
     _validate_identity(identity)
     _validate_invocation(invocation_id, service_unit)
+    service_cgroup = _current_service_cgroup(
+        service_unit=service_unit,
+        proc_cgroup_path=proc_cgroup_path,
+    )
     root_fd = _open_claim_root(claim_root, expected_owner_uid=expected_owner_uid)
     try:
         claim, raw = _read_claim_at(
@@ -355,6 +417,7 @@ def validate_active_claim(
         identity=identity,
         invocation_id=invocation_id,
         service_unit=service_unit,
+        service_cgroup=service_cgroup,
         state="ACTIVE",
     )
     if (
@@ -385,10 +448,15 @@ def consume_one_shot(
     service_unit: str = SERVICE_UNIT,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
+    proc_cgroup_path: Path = DEFAULT_PROC_CGROUP_PATH,
 ) -> dict[str, Any]:
     """Atomically transition an ACTIVE exact ARM claim to CONSUMED."""
     _validate_identity(identity)
     _validate_invocation(invocation_id, service_unit)
+    service_cgroup = _current_service_cgroup(
+        service_unit=service_unit,
+        proc_cgroup_path=proc_cgroup_path,
+    )
     name = _claim_name(identity["arm_sha256"])
     root_fd = _open_claim_root(claim_root, expected_owner_uid=expected_owner_uid)
     temporary = ".%s.%d.%s.consume" % (
@@ -407,6 +475,7 @@ def consume_one_shot(
                 identity=identity,
                 invocation_id=invocation_id,
                 service_unit=service_unit,
+                service_cgroup=service_cgroup,
                 state="CONSUMED",
             )
             return current
@@ -415,6 +484,7 @@ def consume_one_shot(
             identity=identity,
             invocation_id=invocation_id,
             service_unit=service_unit,
+            service_cgroup=service_cgroup,
             state="ACTIVE",
         )
         consumed = {
@@ -432,10 +502,11 @@ def consume_one_shot(
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         temp_fd = os.open(temporary, flags, 0o400, dir_fd=root_fd)
+        os.fchown(temp_fd, -1, os.fstat(root_fd).st_gid)
         written = 0
         while written < len(raw):
             written += os.write(temp_fd, raw[written:])
-        os.fchmod(temp_fd, 0o444)
+        os.fchmod(temp_fd, 0o440)
         os.fsync(temp_fd)
         os.close(temp_fd)
         temp_fd = None

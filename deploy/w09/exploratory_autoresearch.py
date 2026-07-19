@@ -235,6 +235,8 @@ def run_cycle(
         or authority_binding.get("arm_claim_state") != "ACTIVE"
         or authority_binding.get("arm_claim_service_unit")
         != "w09-exploratory-autoresearch.service"
+        or authority_binding.get("arm_claim_service_cgroup")
+        != "/system.slice/w09-exploratory-autoresearch.service"
         or authority_binding.get("arm_claim_invocation_id")
         != os.environ.get("INVOCATION_ID")
         or not isinstance(authority_release_id, str)

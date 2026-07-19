@@ -28,6 +28,9 @@ AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 WORK_PACKAGE = "D3-W2A"
+W2A_RELEASE_ID = "D3-W2A-2026-07-18.03"
+W0_RELEASE_ID = "D3-W0-2026-07-18.03"
+W1_RELEASE_ID = "D3-W1-2026-07-18.03"
 PHASE = "OPEN_DISCOVERY"
 INSTANCE_ID = "i-0e53d134dceffe166"
 ROLE = "w09-research-runner"
@@ -79,6 +82,9 @@ W1_ARTIFACT_PREREQUISITES = {
 }
 W1_CANARY_STATE = "W09_V3_EXPLORATORY_QUERY_CANARY_PASS"
 W1_EXACT_RELEASE_COUNT = 8
+EXPECTED_EVIDENCE_TIER = "SEALED_DEGRADED_EVIDENCE"
+EXPECTED_OBJECT_COUNT = 2657
+EXPECTED_OBJECT_BYTES = 29473216651
 W09_EFFECTIVE_RUNNING_USD_PER_HOUR = Decimal("0.50918")
 W09_MAX_SPENDING_CAP_USD = Decimal("15")
 AUTHORIZED_METHOD_SCOPE = {
@@ -87,7 +93,6 @@ AUTHORIZED_METHOD_SCOPE = {
     "D3-B03-XMKT": "NOT_ESTIMABLE_PREFLIGHT_ONLY",
     "D3-B04-RHYTHM": "PARTIAL_DESCRIPTIVE_ONLY",
 }
-RELEASE_RE = re.compile(r"^D3-W2A-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 W0_RELEASE_RE = re.compile(r"^D3-W0-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 W1_RELEASE_RE = re.compile(r"^D3-W1-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 V3_RELEASE_RE = re.compile(
@@ -310,6 +315,9 @@ def _validate_w1_dq(
         "schema_version": W1_DQ_SCHEMA,
         "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
         "mode": MODE,
+        "evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "object_count": EXPECTED_OBJECT_COUNT,
+        "object_bytes": EXPECTED_OBJECT_BYTES,
         "strict_acceptance_claimed": False,
         "exact_version_local_verification": "PASS",
         "holdout_opened": False,
@@ -322,6 +330,10 @@ def _validate_w1_dq(
         raise AuthorityError("embedded W1 DQ release IDs differ from authority")
     if value.get("release_count") != W1_EXACT_RELEASE_COUNT:
         raise AuthorityError("embedded W1 DQ must bind exactly eight releases")
+    if value.get("evidence_tier_counts") != {
+        EXPECTED_EVIDENCE_TIER: W1_EXACT_RELEASE_COUNT
+    }:
+        raise AuthorityError("embedded W1 DQ evidence tier counts differ")
     canaries = value.get("canaries")
     if not isinstance(canaries, list) or len(canaries) != W1_EXACT_RELEASE_COUNT:
         raise AuthorityError("embedded W1 DQ must contain exactly eight canaries")
@@ -335,6 +347,7 @@ def _validate_w1_dq(
         if (
             canary.get("state") != W1_CANARY_STATE
             or canary.get("date") != date
+            or canary.get("evidence_tier") != EXPECTED_EVIDENCE_TIER
             or canary.get("strict_acceptance_claimed") is not False
             or canary.get("rfq") != "OFF"
             or not isinstance(canary.get("sha256"), str)
@@ -372,6 +385,9 @@ def _validate_w1_completion(
         "w1_release_sha256": w1_release_sha,
         "authorized_input_release_ids": release_ids,
         "release_count": W1_EXACT_RELEASE_COUNT,
+        "evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "object_count": EXPECTED_OBJECT_COUNT,
+        "object_bytes": EXPECTED_OBJECT_BYTES,
         "all_inputs_prior_exposed": True,
         "holdout_opened": False,
         "strict_acceptance_claimed": False,
@@ -516,6 +532,9 @@ def validate_authority_bundle(
         "authorized_role": ROLE,
         "mode": MODE,
         "execution_class": "EXPLORATORY_ONLY",
+        "expected_evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": EXPECTED_OBJECT_BYTES,
         "adopted_plan_path": PLAN_INSTALL_PATH,
         "allowed_network_operations": NETWORK_OPERATIONS,
     }
@@ -523,7 +542,7 @@ def validate_authority_bundle(
         if authority.get(field) != expected:
             raise AuthorityError("AUTHORITY.json field mismatch: %s" % field)
     release_id = authority.get("release_id")
-    if not isinstance(release_id, str) or RELEASE_RE.fullmatch(release_id) is None:
+    if release_id != W2A_RELEASE_ID:
         raise AuthorityError("authority release_id is not an exact D3-W2A release")
     for field in FALSE_AUTHORITY_FIELDS:
         if authority.get(field) is not False:
@@ -578,6 +597,10 @@ def validate_authority_bundle(
     w1_release_id, w1_release_sha = _upstream_release(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
+    if w0_release_id != W0_RELEASE_ID:
+        raise AuthorityError("W0 release ID differs from the fixed .03 release")
+    if w1_release_id != W1_RELEASE_ID:
+        raise AuthorityError("W1 release ID differs from the fixed .03 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
@@ -592,6 +615,9 @@ def validate_authority_bundle(
         "adopted_plan_sha256": authority.get("adopted_plan_sha256"),
         "audit_sha256": audit_sha,
         "runtime_commit": authority.get("base_commit"),
+        "expected_evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": EXPECTED_OBJECT_BYTES,
         "research_execution_authority": False,
     }
     for field, expected in w0_fixed.items():
@@ -606,6 +632,9 @@ def validate_authority_bundle(
         "audit_sha256": audit_sha,
         "runtime_commit": authority.get("base_commit"),
         "mode": MODE,
+        "expected_evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": EXPECTED_OBJECT_BYTES,
         "rfq_included": False,
         "strict_acceptance_claimed": False,
         "holdout_opened": False,
@@ -752,6 +781,9 @@ def validate_authority_bundle(
         "input_start_date": start_date,
         "input_end_date": end_date,
         "authorized_input_release_ids": release_ids,
+        "expected_evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": EXPECTED_OBJECT_BYTES,
         "spending_cap_usd": spending_cap,
         "w09_effective_running_usd_per_hour": float(
             W09_EFFECTIVE_RUNNING_USD_PER_HOUR
@@ -780,6 +812,9 @@ def validate_authority_bundle(
             "exact_version_local_verification": "PASS",
             "canary_state": W1_CANARY_STATE,
             "canary_count": W1_EXACT_RELEASE_COUNT,
+            "evidence_tier": EXPECTED_EVIDENCE_TIER,
+            "object_count": EXPECTED_OBJECT_COUNT,
+            "object_bytes": EXPECTED_OBJECT_BYTES,
         },
         "audit_sha256": audit_sha,
         "independent_audit_verdict": audit_verdict,
@@ -845,6 +880,7 @@ def validate_claimed_authority_bundle(
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
     invocation_id: str | None = None,
+    proc_cgroup_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Validate the static release and its current systemd one-shot claim."""
     result, artifacts = validate_authority_bundle(
@@ -867,12 +903,17 @@ def validate_claimed_authority_bundle(
         "arm_sha256": result["arm_sha256"],
     }
     try:
+        claim_kwargs = {
+            "claim_root": Path(arm_claim_root),
+            "identity": identity,
+            "invocation_id": exact_invocation,
+            "service_unit": one_shot.SERVICE_UNIT,
+            "expected_owner_uid": expected_owner_uid,
+        }
+        if proc_cgroup_path is not None:
+            claim_kwargs["proc_cgroup_path"] = Path(proc_cgroup_path)
         claim, claim_raw = one_shot.validate_active_claim(
-            claim_root=Path(arm_claim_root),
-            identity=identity,
-            invocation_id=exact_invocation,
-            service_unit=one_shot.SERVICE_UNIT,
-            expected_owner_uid=expected_owner_uid,
+            **claim_kwargs,
         )
     except one_shot.OneShotArmError as exc:
         raise AuthorityError("one-shot execution claim refused: %s" % exc) from exc
@@ -882,6 +923,7 @@ def validate_claimed_authority_bundle(
         "arm_claim_sha256": hashlib.sha256(claim_raw).hexdigest(),
         "arm_claim_invocation_id": claim["invocation_id"],
         "arm_claim_service_unit": claim["service_unit"],
+        "arm_claim_service_cgroup": claim["service_cgroup"],
     }
     return claimed, {**artifacts, "ARM_CLAIM.json": claim_raw}
 

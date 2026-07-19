@@ -16,27 +16,31 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "research"))
 
-import research_data  # noqa: E402
-from deep03_v3_common import Deep03InputError, MODE  # noqa: E402
-from deep03_v3_w1_preflight import build_preflight  # noqa: E402
-from test_research_reference_consumer import (  # noqa: E402
-    _store_for,
-    build_release,
+from deep03_v3_common import (  # noqa: E402
+    Deep03InputError,
+    MODE,
+    validate_explicit_releases,
 )
+import deep03_v3_w1_preflight as w1_preflight  # noqa: E402
+from deep03_v3_w1_preflight import build_preflight  # noqa: E402
+from test_w09_exploratory_autoresearch import _materialize_degraded  # noqa: E402
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _fixture(tmp_path: Path) -> dict:
-    cache = tmp_path / "cache"
-    rid, manifest, source = build_release()
-    assert research_data.cmd_fetch(
-        _store_for((rid, manifest, source)), str(cache), rid, False
-    ) == 0
+def _fixture(tmp_path: Path, monkeypatch) -> dict:
+    cache, rid = _materialize_degraded(tmp_path)
     release = cache / "releases" / rid
+    manifest = json.loads((release / "MANIFEST.json").read_text())
     marker = json.loads((release / ".VERIFIED.json").read_text())
+    records = validate_explicit_releases(cache, [rid])
+    objects = records[0]["objects"]
+    expected_object_count = len(objects)
+    expected_object_bytes = sum(int(item["size"]) for item in objects)
+    monkeypatch.setattr(w1_preflight, "EXPECTED_OBJECT_COUNT", expected_object_count)
+    monkeypatch.setattr(w1_preflight, "EXPECTED_OBJECT_BYTES", expected_object_bytes)
 
     plan = tmp_path / "plan.md"
     audit = tmp_path / "audit.md"
@@ -44,8 +48,8 @@ def _fixture(tmp_path: Path) -> dict:
     audit.write_text("# independent audit\n")
     plan_sha = _sha(plan)
     audit_sha = _sha(audit)
-    w0_id = "D3-W0-2026-07-18.02"
-    w1_id = "D3-W1-2026-07-18.02"
+    w0_id = "D3-W0-2026-07-18.03"
+    w1_id = "D3-W1-2026-07-18.03"
     w0 = tmp_path / "W0.json"
     w0.write_text(json.dumps({
         "schema_version": "deep03-w0-release-v1",
@@ -53,6 +57,9 @@ def _fixture(tmp_path: Path) -> dict:
         "release_id": w0_id,
         "adopted_plan_sha256": plan_sha,
         "audit_sha256": audit_sha,
+        "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "expected_object_count": expected_object_count,
+        "expected_object_bytes": expected_object_bytes,
         "research_execution_authority": False,
     }, sort_keys=True) + "\n")
     w0_sha = _sha(w0)
@@ -66,6 +73,9 @@ def _fixture(tmp_path: Path) -> dict:
         "adopted_plan_sha256": plan_sha,
         "audit_sha256": audit_sha,
         "mode": MODE,
+        "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "expected_object_count": expected_object_count,
+        "expected_object_bytes": expected_object_bytes,
         "authorized_input_release_ids": [rid],
         "authorized_input_dates": [manifest["date"]],
         "rfq_included": False,
@@ -102,8 +112,8 @@ def _fixture(tmp_path: Path) -> dict:
     }
 
 
-def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
-    args = _fixture(tmp_path)
+def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path, monkeypatch):
+    args = _fixture(tmp_path, monkeypatch)
     completion_path = build_preflight(**args)
     root = completion_path.parent
     completion = json.loads(completion_path.read_text())
@@ -123,6 +133,10 @@ def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
     assert completion["strict_acceptance_claimed"] is False
     assert completion["rfq"] == "OFF_AND_ABSENT"
     assert dq["state"] == "W1_DQ_PASS_FOR_EXPLORATORY_ONLY"
+    assert dq["evidence_tier"] == "SEALED_DEGRADED_EVIDENCE"
+    assert dq["evidence_tier_counts"] == {"SEALED_DEGRADED_EVIDENCE": 1}
+    assert inputs["evidence_tier"] == "SEALED_DEGRADED_EVIDENCE"
+    assert completion["evidence_tier"] == "SEALED_DEGRADED_EVIDENCE"
     assert completion["embedded_data_quality_receipt"] == dq
     assert completion["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] == _sha(
         root / "DATA_QUALITY_RECEIPT.json"
@@ -136,8 +150,8 @@ def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
         build_preflight(**args)
 
 
-def test_w1_preflight_rejects_canary_or_release_scope_drift(tmp_path):
-    args = _fixture(tmp_path)
+def test_w1_preflight_rejects_canary_or_release_scope_drift(tmp_path, monkeypatch):
+    args = _fixture(tmp_path, monkeypatch)
     canary_path = args["canary_paths"][0]
     canary = json.loads(canary_path.read_text())
     canary["rfq"] = "ON"
@@ -145,7 +159,7 @@ def test_w1_preflight_rejects_canary_or_release_scope_drift(tmp_path):
     with pytest.raises(Deep03InputError, match="canary contract mismatch"):
         build_preflight(**args)
 
-    args = _fixture(tmp_path / "scope")
+    args = _fixture(tmp_path / "scope", monkeypatch)
     w1_path = args["w1_release_path"]
     w1 = json.loads(w1_path.read_text())
     w1["holdout_opened"] = True
@@ -155,9 +169,20 @@ def test_w1_preflight_rejects_canary_or_release_scope_drift(tmp_path):
         build_preflight(**args)
 
 
-def test_w1_preflight_rejects_plan_or_audit_sha_drift(tmp_path):
-    args = _fixture(tmp_path)
+def test_w1_preflight_rejects_plan_or_audit_sha_drift(tmp_path, monkeypatch):
+    args = _fixture(tmp_path, monkeypatch)
     bad = copy.deepcopy(args)
     bad["plan_sha256"] = "0" * 64
     with pytest.raises(Deep03InputError, match="adopted plan SHA-256 mismatch"):
         build_preflight(**bad)
+
+
+def test_w1_preflight_rejects_release_semantic_drift(tmp_path, monkeypatch):
+    args = _fixture(tmp_path, monkeypatch)
+    w0_path = args["w0_release_path"]
+    w0 = json.loads(w0_path.read_text())
+    w0["expected_object_count"] += 1
+    w0_path.write_text(json.dumps(w0, sort_keys=True) + "\n")
+    args["w0_release_sha256"] = _sha(w0_path)
+    with pytest.raises(Deep03InputError, match="W0 release semantic lock mismatch"):
+        build_preflight(**args)

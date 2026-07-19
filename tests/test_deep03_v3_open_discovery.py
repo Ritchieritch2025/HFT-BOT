@@ -34,6 +34,7 @@ from test_research_reference_consumer import (  # noqa: E402
 )
 from test_w09_exploratory_autoresearch import (  # noqa: E402
     _claimed_authority_files,
+    _materialize_degraded,
 )
 
 
@@ -78,15 +79,24 @@ def test_input_gate_requires_explicit_v3_and_rejects_latest_or_v2(tmp_path):
 
 def test_input_gate_rejects_rfq_and_marker_manifest_drift(tmp_path):
     rfq_cache, rfq_rid = _materialize(tmp_path / "rfq", with_rfq=True)
-    with pytest.raises(Deep03InputError, match="VERIFIED marker does not bind|RFQ"):
+    with pytest.raises(
+        Deep03InputError,
+        match="VERIFIED marker does not bind|RFQ|exact Deep03 semantic lock",
+    ):
         validate_explicit_releases(rfq_cache, [rfq_rid])
 
-    cache, rid = _materialize(tmp_path / "drift")
+    cache, rid = _materialize_degraded(tmp_path / "drift")
     marker_path = cache / "releases" / rid / ".VERIFIED.json"
     marker = json.loads(marker_path.read_text())
     marker["manifest_sha256"] = "0" * 64
     marker_path.write_text(json.dumps(marker))
     with pytest.raises(Deep03InputError, match="does not bind V3 manifest"):
+        validate_explicit_releases(cache, [rid])
+
+
+def test_input_gate_refuses_a_different_evidence_tier(tmp_path):
+    cache, rid = _materialize(tmp_path)
+    with pytest.raises(Deep03InputError, match="exact Deep03 semantic lock"):
         validate_explicit_releases(cache, [rid])
 
 
@@ -97,7 +107,18 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
     # production gate's separate contract tests retain the exact eight-release
     # W1/W2A requirement.
     monkeypatch.setattr(deep03_authority_gate, "W1_EXACT_RELEASE_COUNT", 1)
-    cache, rid = _materialize(tmp_path)
+    cache, rid = _materialize_degraded(tmp_path)
+    records = validate_explicit_releases(cache, [rid])
+    expected_object_count = len(records[0]["objects"])
+    expected_object_bytes = sum(
+        int(item["size"]) for item in records[0]["objects"]
+    )
+    monkeypatch.setattr(
+        deep03_authority_gate, "EXPECTED_OBJECT_COUNT", expected_object_count
+    )
+    monkeypatch.setattr(
+        deep03_authority_gate, "EXPECTED_OBJECT_BYTES", expected_object_bytes
+    )
     (
         _gate,
         authority,
@@ -110,7 +131,13 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
         w1_complete,
         claim_root,
         invocation_id,
-    ) = _claimed_authority_files(tmp_path / "authority", [rid])
+        proc_cgroup,
+    ) = _claimed_authority_files(
+        tmp_path / "authority",
+        [rid],
+        expected_object_count=expected_object_count,
+        expected_object_bytes=expected_object_bytes,
+    )
     authority_kwargs = {
         "authority_path": authority,
         "arm_path": arm,
@@ -123,6 +150,7 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
         "w1_complete_path": w1_complete,
         "expected_owner_uid": os.getuid(),
         "claim_invocation_id": invocation_id,
+        "claim_proc_cgroup_path": proc_cgroup,
     }
     run_dir = prepare_run(
         cache_root=cache,
@@ -202,7 +230,18 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(deep03_authority_gate, "W1_EXACT_RELEASE_COUNT", 1)
-    cache, rid = _materialize(tmp_path)
+    cache, rid = _materialize_degraded(tmp_path)
+    records = validate_explicit_releases(cache, [rid])
+    expected_object_count = len(records[0]["objects"])
+    expected_object_bytes = sum(
+        int(item["size"]) for item in records[0]["objects"]
+    )
+    monkeypatch.setattr(
+        deep03_authority_gate, "EXPECTED_OBJECT_COUNT", expected_object_count
+    )
+    monkeypatch.setattr(
+        deep03_authority_gate, "EXPECTED_OBJECT_BYTES", expected_object_bytes
+    )
     (
         _gate,
         authority,
@@ -215,7 +254,13 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
         w1_complete,
         claim_root,
         invocation_id,
-    ) = _claimed_authority_files(tmp_path / "authority", [rid])
+        proc_cgroup,
+    ) = _claimed_authority_files(
+        tmp_path / "authority",
+        [rid],
+        expected_object_count=expected_object_count,
+        expected_object_bytes=expected_object_bytes,
+    )
     authority_kwargs = {
         "authority_path": authority,
         "arm_path": arm,
@@ -228,6 +273,7 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
         "w1_complete_path": w1_complete,
         "expected_owner_uid": os.getuid(),
         "claim_invocation_id": invocation_id,
+        "claim_proc_cgroup_path": proc_cgroup,
     }
     empty_claim_root = tmp_path / "unclaimed"
     empty_claim_root.mkdir(mode=0o750)
@@ -288,6 +334,7 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
         exit_code="exited",
         exit_status="2",
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
     )
     with pytest.raises(Deep03InputError, match="one-shot.*field mismatch: state"):
         run_discovery(

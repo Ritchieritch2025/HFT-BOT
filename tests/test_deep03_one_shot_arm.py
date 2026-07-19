@@ -28,7 +28,7 @@ def _load():
 
 def _identity(suffix: str = "a") -> dict[str, str]:
     return {
-        "release_id": "D3-W2A-2026-07-18.02",
+        "release_id": "D3-W2A-2026-07-18.03",
         "authority_sha256": suffix * 64,
         "arm_sha256": chr(ord(suffix) + 1) * 64,
     }
@@ -40,19 +40,28 @@ def _claim_root(tmp_path: Path) -> Path:
     return root
 
 
+def _proc_cgroup(tmp_path: Path, cgroup: str | None = None) -> Path:
+    path = tmp_path / "proc-self-cgroup"
+    path.write_text("0::%s\n" % (cgroup or "/system.slice/w09-exploratory-autoresearch.service"))
+    return path
+
+
 def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
     arm = _load()
     root = _claim_root(tmp_path)
     identity = _identity()
     invocation = "1" * 32
+    proc_cgroup = _proc_cgroup(tmp_path)
     active = arm.claim_one_shot(
         claim_root=root,
         identity=identity,
         invocation_id=invocation,
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
         now=dt.datetime(2026, 7, 18, 14, tzinfo=dt.timezone.utc),
     )
     assert active["state"] == "ACTIVE"
+    assert active["service_cgroup"] == arm.SERVICE_CGROUP
     path = root / (identity["arm_sha256"] + ".json")
     assert path.stat().st_mode & 0o222 == 0
     validated, raw = arm.validate_active_claim(
@@ -60,6 +69,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
         identity=identity,
         invocation_id=invocation,
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
     )
     assert validated == active
     assert hashlib.sha256(raw).hexdigest() == hashlib.sha256(path.read_bytes()).hexdigest()
@@ -70,6 +80,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
             identity=identity,
             invocation_id=invocation,
             expected_owner_uid=os.getuid(),
+            proc_cgroup_path=proc_cgroup,
         )
 
     consumed = arm.consume_one_shot(
@@ -80,6 +91,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
         exit_code="exited",
         exit_status="0",
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
         now=dt.datetime(2026, 7, 18, 15, tzinfo=dt.timezone.utc),
     )
     assert consumed["state"] == "CONSUMED"
@@ -91,6 +103,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
             identity=identity,
             invocation_id=invocation,
             expected_owner_uid=os.getuid(),
+            proc_cgroup_path=proc_cgroup,
         )
     with pytest.raises(arm.OneShotArmError, match="already claimed or consumed"):
         arm.claim_one_shot(
@@ -98,6 +111,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
             identity=identity,
             invocation_id=invocation,
             expected_owner_uid=os.getuid(),
+            proc_cgroup_path=proc_cgroup,
         )
     # ExecStopPost may be asked to settle the same invocation twice; this is
     # idempotent, but never changes the recorded first terminal outcome.
@@ -109,6 +123,7 @@ def test_exact_arm_claims_once_and_is_permanently_consumed(tmp_path):
         exit_code="exited",
         exit_status="2",
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
     ) == consumed
 
 
@@ -116,6 +131,7 @@ def test_atomic_claim_has_one_winner_under_concurrency(tmp_path):
     arm = _load()
     root = _claim_root(tmp_path)
     identity = _identity("c")
+    proc_cgroup = _proc_cgroup(tmp_path)
 
     def attempt(index: int) -> str:
         try:
@@ -124,6 +140,7 @@ def test_atomic_claim_has_one_winner_under_concurrency(tmp_path):
                 identity=identity,
                 invocation_id=("%032x" % (index + 1)),
                 expected_owner_uid=os.getuid(),
+                proc_cgroup_path=proc_cgroup,
             )
             return "won"
         except arm.OneShotArmError:
@@ -140,11 +157,13 @@ def test_claim_is_bound_to_systemd_invocation_and_fixed_unit(tmp_path):
     arm = _load()
     root = _claim_root(tmp_path)
     identity = _identity("e")
+    proc_cgroup = _proc_cgroup(tmp_path)
     arm.claim_one_shot(
         claim_root=root,
         identity=identity,
         invocation_id="a" * 32,
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
     )
     with pytest.raises(arm.OneShotArmError, match="invocation_id"):
         arm.validate_active_claim(
@@ -152,6 +171,7 @@ def test_claim_is_bound_to_systemd_invocation_and_fixed_unit(tmp_path):
             identity=identity,
             invocation_id="b" * 32,
             expected_owner_uid=os.getuid(),
+            proc_cgroup_path=proc_cgroup,
         )
     with pytest.raises(arm.OneShotArmError, match="fixed W09 service"):
         arm.validate_active_claim(
@@ -160,6 +180,45 @@ def test_claim_is_bound_to_systemd_invocation_and_fixed_unit(tmp_path):
             invocation_id="a" * 32,
             service_unit="shell.service",
             expected_owner_uid=os.getuid(),
+            proc_cgroup_path=proc_cgroup,
+        )
+
+
+def test_same_invocation_outside_service_cgroup_is_refused(tmp_path):
+    arm = _load()
+    root = _claim_root(tmp_path)
+    identity = _identity("7")
+    invocation = "d" * 32
+    service_cgroup = _proc_cgroup(tmp_path)
+    arm.claim_one_shot(
+        claim_root=root,
+        identity=identity,
+        invocation_id=invocation,
+        expected_owner_uid=os.getuid(),
+        proc_cgroup_path=service_cgroup,
+    )
+    attacker_cgroup = _proc_cgroup(
+        tmp_path,
+        "/user.slice/user-1000.slice/user@1000.service/app.slice/ssh-session.scope",
+    )
+    with pytest.raises(arm.OneShotArmError, match="outside the fixed W09 service cgroup"):
+        arm.validate_active_claim(
+            claim_root=root,
+            identity=identity,
+            invocation_id=invocation,
+            expected_owner_uid=os.getuid(),
+            proc_cgroup_path=attacker_cgroup,
+        )
+    with pytest.raises(arm.OneShotArmError, match="outside the fixed W09 service cgroup"):
+        arm.consume_one_shot(
+            claim_root=root,
+            identity=identity,
+            invocation_id=invocation,
+            service_result="success",
+            exit_code="exited",
+            exit_status="0",
+            expected_owner_uid=os.getuid(),
+            proc_cgroup_path=attacker_cgroup,
         )
 
 
@@ -170,7 +229,7 @@ def test_identity_loader_rejects_mutable_or_cross_bound_arm(tmp_path):
     authority = {
         "schema_version": arm.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-18.02",
+        "release_id": "D3-W2A-2026-07-18.03",
     }
     authority_path.write_text(json.dumps(authority) + "\n")
     authority_sha = hashlib.sha256(authority_path.read_bytes()).hexdigest()

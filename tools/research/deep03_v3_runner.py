@@ -434,6 +434,7 @@ def run_discovery(
     expected_owner_uid: int = 0,
     authority_now: dt.datetime | None = None,
     claim_invocation_id: str | None = None,
+    claim_proc_cgroup_path: Path | None = None,
 ) -> Path:
     refuse_credential_environment()
     authority_context = load_authority_context(
@@ -449,6 +450,7 @@ def run_discovery(
         expected_owner_uid=expected_owner_uid,
         now=authority_now,
         claim_invocation_id=claim_invocation_id,
+        claim_proc_cgroup_path=claim_proc_cgroup_path,
     )
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():

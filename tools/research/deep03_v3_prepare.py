@@ -46,6 +46,7 @@ def prepare_run(
     expected_owner_uid: int = 0,
     authority_now: dt.datetime | None = None,
     claim_invocation_id: str | None = None,
+    claim_proc_cgroup_path: Path | None = None,
 ) -> Path:
     refuse_credential_environment()
     validate_run_id(run_id)
@@ -62,6 +63,7 @@ def prepare_run(
         expected_owner_uid=expected_owner_uid,
         now=authority_now,
         claim_invocation_id=claim_invocation_id,
+        claim_proc_cgroup_path=claim_proc_cgroup_path,
     )
     if release_ids != authority_context["binding"]["authorized_input_release_ids"]:
         raise Deep03InputError(

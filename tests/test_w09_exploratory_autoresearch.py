@@ -259,6 +259,9 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
             "arm_claim_sha256": "d" * 64,
             "arm_claim_invocation_id": invocation_id,
             "arm_claim_service_unit": "w09-exploratory-autoresearch.service",
+            "arm_claim_service_cgroup": (
+                "/system.slice/w09-exploratory-autoresearch.service"
+            ),
             "adopted_plan_sha256": "c" * 64,
             "max_runtime_seconds": 3600,
             "effective_runtime_seconds": 3600,
@@ -350,11 +353,11 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
     assert "--audit /etc/w09/deep03/audit.md" in service
     assert (
-        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-02.json"
+        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-03.json"
         in service
     )
     assert (
-        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-02.json"
+        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-03.json"
         in service
     )
     assert (
@@ -416,9 +419,19 @@ def test_static_credentials_are_refused_without_printing_values(tmp_path, monkey
     assert "never-print-this-value" not in str(caught.value)
 
 
-def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
+def _authority_files(
+    tmp_path: Path,
+    release_ids: list[str] | None = None,
+    *,
+    expected_object_count: int | None = None,
+    expected_object_bytes: int | None = None,
+):
     tmp_path.mkdir(parents=True, exist_ok=True)
     gate = _load("w09_deep03_authority_fixture", W09 / "deep03_authority_gate.py")
+    if expected_object_count is not None:
+        gate.EXPECTED_OBJECT_COUNT = expected_object_count
+    if expected_object_bytes is not None:
+        gate.EXPECTED_OBJECT_BYTES = expected_object_bytes
     plan = tmp_path / "adopted-plan.md"
     runtime = tmp_path / "release-commit.txt"
     authority_path = tmp_path / "AUTHORITY.json"
@@ -431,7 +444,7 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
     runtime.write_text("1" * 40 + "\n")
     operator_text = (
         "Authorize exact D3-W2A exploratory execution under "
-        "D3-W2A-2026-07-18.02 for the named release set."
+        "D3-W2A-2026-07-18.03 for the named release set."
     )
     release_ids = release_ids or [
         (
@@ -441,8 +454,8 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
-    w0_release_id = "D3-W0-2026-07-18.02"
-    w1_release_id = "D3-W1-2026-07-18.02"
+    w0_release_id = "D3-W0-2026-07-18.03"
+    w1_release_id = "D3-W1-2026-07-18.03"
     audit_path.write_bytes(b"independent_plan_audit")
     plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
     audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
@@ -453,6 +466,9 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "adopted_plan_sha256": plan_sha,
         "audit_sha256": audit_sha,
         "runtime_commit": "1" * 40,
+        "expected_evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": gate.EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": gate.EXPECTED_OBJECT_BYTES,
         "research_execution_authority": False,
     }, sort_keys=True) + "\n")
     w0_sha = hashlib.sha256(w0_release_path.read_bytes()).hexdigest()
@@ -466,6 +482,9 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "audit_sha256": audit_sha,
         "runtime_commit": "1" * 40,
         "mode": gate.MODE,
+        "expected_evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": gate.EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": gate.EXPECTED_OBJECT_BYTES,
         "authorized_input_release_ids": release_ids,
         "authorized_input_dates": release_dates,
         "rfq_included": False,
@@ -478,17 +497,24 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "schema_version": gate.W1_DQ_SCHEMA,
         "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
         "mode": gate.MODE,
+        "evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
         "strict_acceptance_claimed": False,
         "exact_version_local_verification": "PASS",
         "holdout_opened": False,
         "rfq": "OFF_AND_ABSENT",
         "release_ids": release_ids,
         "release_count": len(release_ids),
+        "object_count": gate.EXPECTED_OBJECT_COUNT,
+        "object_bytes": gate.EXPECTED_OBJECT_BYTES,
+        "evidence_tier_counts": {
+            gate.EXPECTED_EVIDENCE_TIER: len(release_ids)
+        },
         "canaries": [
             {
                 "release_id": release_id,
                 "date": release_id.split("__", 1)[0],
                 "state": gate.W1_CANARY_STATE,
+                "evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
                 "sha256": hashlib.sha256(release_id.encode("ascii")).hexdigest(),
                 "table_count": 3,
                 "strict_acceptance_claimed": False,
@@ -526,6 +552,9 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "artifacts_sha256": artifact_hashes,
         "embedded_data_quality_receipt": dq,
         "release_count": len(release_ids),
+        "evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
+        "object_count": gate.EXPECTED_OBJECT_COUNT,
+        "object_bytes": gate.EXPECTED_OBJECT_BYTES,
         "all_inputs_prior_exposed": True,
         "holdout_opened": False,
         "strict_acceptance_claimed": False,
@@ -546,7 +575,7 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-18.02",
+        "release_id": "D3-W2A-2026-07-18.03",
         "issued_at_utc": "2026-07-18T12:00:00Z",
         "expires_at_utc": "2026-07-19T12:00:00Z",
         "operator_text_verbatim": operator_text,
@@ -562,6 +591,9 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "authorized_role": gate.ROLE,
         "mode": gate.MODE,
         "execution_class": "EXPLORATORY_ONLY",
+        "expected_evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": gate.EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": gate.EXPECTED_OBJECT_BYTES,
         "authorized_write_roots": sorted(gate.WRITE_ROOTS),
         "allowed_network_operations": gate.NETWORK_OPERATIONS,
         "active_prompt_state": "EXPLICIT_NONE",
@@ -628,8 +660,19 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
     )
 
 
-def _claimed_authority_files(tmp_path: Path, release_ids: list[str] | None = None):
-    files = _authority_files(tmp_path, release_ids)
+def _claimed_authority_files(
+    tmp_path: Path,
+    release_ids: list[str] | None = None,
+    *,
+    expected_object_count: int | None = None,
+    expected_object_bytes: int | None = None,
+):
+    files = _authority_files(
+        tmp_path,
+        release_ids,
+        expected_object_count=expected_object_count,
+        expected_object_bytes=expected_object_bytes,
+    )
     gate, authority, arm_path, *_rest = files
     one_shot = _load(
         "w09_deep03_one_shot_fixture", W09 / "deep03_one_shot_arm.py"
@@ -637,6 +680,10 @@ def _claimed_authority_files(tmp_path: Path, release_ids: list[str] | None = Non
     claim_root = tmp_path / "one-shot"
     claim_root.mkdir(mode=0o750)
     invocation_id = "1" * 32
+    proc_cgroup = tmp_path / "proc-self-cgroup"
+    proc_cgroup.write_text(
+        "0::/system.slice/w09-exploratory-autoresearch.service\n"
+    )
     identity = one_shot.load_arm_identity(
         authority_path=authority,
         arm_path=arm_path,
@@ -647,8 +694,9 @@ def _claimed_authority_files(tmp_path: Path, release_ids: list[str] | None = Non
         identity=identity,
         invocation_id=invocation_id,
         expected_owner_uid=os.getuid(),
+        proc_cgroup_path=proc_cgroup,
     )
-    return (*files, claim_root, invocation_id)
+    return (*files, claim_root, invocation_id, proc_cgroup)
 
 
 def _rewrite_authority_and_arm(authority_path: Path, arm_path: Path, mutate) -> None:
@@ -695,12 +743,15 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
     assert result["state"] == "AUTHORIZED"
-    assert result["release_id"] == "D3-W2A-2026-07-18.02"
+    assert result["release_id"] == "D3-W2A-2026-07-18.03"
     assert len(result["authorized_input_release_ids"]) == 8
     assert result["authorized_input_release_ids"][0].startswith("2026-07-10__")
     assert result["base_commit"] == "1" * 40
     assert result["authorized_source_state"] == "DETACHED_EXACT_COMMIT"
     assert result["authorized_branch"] is None
+    assert result["expected_evidence_tier"] == "SEALED_DEGRADED_EVIDENCE"
+    assert result["expected_object_count"] == 2657
+    assert result["expected_object_bytes"] == 29473216651
     assert result["w09_exact_version_read_evidence"] == {
         "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
         "sha256": result["prerequisite_receipt_sha256s"][
@@ -709,6 +760,9 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         "exact_version_local_verification": "PASS",
         "canary_state": gate.W1_CANARY_STATE,
         "canary_count": 8,
+        "evidence_tier": gate.EXPECTED_EVIDENCE_TIER,
+        "object_count": gate.EXPECTED_OBJECT_COUNT,
+        "object_bytes": gate.EXPECTED_OBJECT_BYTES,
     }
     assert result["spending_cap_usd"] == 15.0
     assert result["required_max_runtime_cost_usd"] == 0.50918
@@ -725,6 +779,17 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     assert hashlib.sha256(artifacts["AUDIT.md"]).hexdigest() == result[
         "audit_sha256"
     ]
+    for name in ("D3_W0_RELEASE.json", "D3_W1_RELEASE.json"):
+        upstream = json.loads(artifacts[name])
+        assert upstream["expected_evidence_tier"] == result[
+            "expected_evidence_tier"
+        ]
+        assert upstream["expected_object_count"] == result[
+            "expected_object_count"
+        ]
+        assert upstream["expected_object_bytes"] == result[
+            "expected_object_bytes"
+        ]
 
 
 def test_claimed_authority_requires_current_systemd_one_shot(tmp_path):
@@ -740,6 +805,7 @@ def test_claimed_authority_requires_current_systemd_one_shot(tmp_path):
         w1_complete,
         claim_root,
         invocation_id,
+        proc_cgroup,
     ) = _claimed_authority_files(tmp_path)
     result, artifacts = gate.validate_claimed_authority_bundle(
         authority_path=authority,
@@ -753,10 +819,14 @@ def test_claimed_authority_requires_current_systemd_one_shot(tmp_path):
         w1_complete_path=w1_complete,
         expected_owner_uid=os.getuid(),
         invocation_id=invocation_id,
+        proc_cgroup_path=proc_cgroup,
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
     assert result["arm_claim_state"] == "ACTIVE"
     assert result["arm_claim_invocation_id"] == invocation_id
+    assert result["arm_claim_service_cgroup"] == (
+        "/system.slice/w09-exploratory-autoresearch.service"
+    )
     assert hashlib.sha256(artifacts["ARM_CLAIM.json"]).hexdigest() == result[
         "arm_claim_sha256"
     ]
@@ -773,6 +843,26 @@ def test_claimed_authority_requires_current_systemd_one_shot(tmp_path):
             w1_complete_path=w1_complete,
             expected_owner_uid=os.getuid(),
             invocation_id="2" * 32,
+            proc_cgroup_path=proc_cgroup,
+            now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
+        )
+    proc_cgroup.write_text(
+        "0::/user.slice/user-1000.slice/user@1000.service/app.slice/ssh-session.scope\n"
+    )
+    with pytest.raises(gate.AuthorityError, match="outside the fixed W09 service cgroup"):
+        gate.validate_claimed_authority(
+            authority_path=authority,
+            arm_path=arm,
+            arm_claim_root=claim_root,
+            plan_path=plan,
+            runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
+            expected_owner_uid=os.getuid(),
+            invocation_id=invocation_id,
+            proc_cgroup_path=proc_cgroup,
             now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
         )
 
@@ -865,6 +955,9 @@ def test_authority_gate_refuses_prerequisite_byte_drift(
         ("w1_release_sha256", "bad", "W1 release SHA-256"),
         ("session_count", 2, "session_count"),
         ("authorized_method_scope", {}, "partial W2A scope"),
+        ("expected_evidence_tier", "SEALED_CONFIRMATION", "field mismatch"),
+        ("expected_object_count", 2656, "field mismatch"),
+        ("expected_object_bytes", 29473216650, "field mismatch"),
         ("s3_write_permission", True, "explicit false"),
     ],
 )
@@ -988,6 +1081,35 @@ def test_authority_gate_cross_binds_w1_completion_identity_fields(
         _validate_authority_fixture(files)
 
 
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("evidence_tier", "SEALED_CONFIRMATION"),
+        ("object_count", 2656),
+        ("object_bytes", 29473216650),
+    ],
+)
+def test_authority_gate_cross_binds_w1_completion_semantics(
+    tmp_path, field, replacement
+):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    value[field] = replacement
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda document: document["prerequisite_receipt_sha256s"].update({
+            "w1_completion": hashlib.sha256(complete.read_bytes()).hexdigest()
+        }),
+    )
+    with pytest.raises(gate.AuthorityError, match="W1_COMPLETE field mismatch"):
+        _validate_authority_fixture(files)
+
+
 def test_authority_gate_cross_binds_w1_completion_and_prerequisite_map(tmp_path):
     files = _authority_files(tmp_path)
     gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
@@ -1035,6 +1157,83 @@ def test_authority_gate_parses_composite_dq_exact_pass_and_eight_canaries(tmp_pa
 
     _rewrite_authority_and_arm(authority, arm, update_authority)
     with pytest.raises(gate.AuthorityError, match="exact_version_local_verification"):
+        _validate_authority_fixture(files)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("evidence_tier", "SEALED_CONFIRMATION", "DQ field mismatch"),
+        ("object_count", 2656, "DQ field mismatch"),
+        ("object_bytes", 29473216650, "DQ field mismatch"),
+        (
+            "evidence_tier_counts",
+            {"SEALED_CONFIRMATION": 8},
+            "evidence tier counts differ",
+        ),
+    ],
+)
+def test_authority_gate_refuses_dq_semantic_drift(
+    tmp_path, field, replacement, message
+):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    dq = value["embedded_data_quality_receipt"]
+    dq[field] = replacement
+    dq_sha = hashlib.sha256(
+        json.dumps(
+            dq,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
+    ).hexdigest()
+    value["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] = dq_sha
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+
+    def update_authority(document):
+        hashes = document["prerequisite_receipt_sha256s"]
+        hashes["w1_completion"] = hashlib.sha256(complete.read_bytes()).hexdigest()
+        hashes["w1_data_quality"] = dq_sha
+        hashes["w09_exact_version_read"] = dq_sha
+
+    _rewrite_authority_and_arm(authority, arm, update_authority)
+    with pytest.raises(gate.AuthorityError, match=message):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_refuses_canary_evidence_tier_drift(tmp_path):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    dq = value["embedded_data_quality_receipt"]
+    dq["canaries"][0]["evidence_tier"] = "SEALED_CONFIRMATION"
+    dq_sha = hashlib.sha256(
+        json.dumps(
+            dq,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
+    ).hexdigest()
+    value["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] = dq_sha
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+
+    def update_authority(document):
+        hashes = document["prerequisite_receipt_sha256s"]
+        hashes["w1_completion"] = hashlib.sha256(complete.read_bytes()).hexdigest()
+        hashes["w1_data_quality"] = dq_sha
+        hashes["w09_exact_version_read"] = dq_sha
+
+    _rewrite_authority_and_arm(authority, arm, update_authority)
+    with pytest.raises(gate.AuthorityError, match="canary contract mismatch"):
         _validate_authority_fixture(files)
 
 

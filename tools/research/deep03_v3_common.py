@@ -35,10 +35,9 @@ RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 SCHEMA_INPUT = "deep03-d3-w2a-v3-input-manifest-v1"
 SCHEMA_PREPARE = "deep03-d3-w2a-v3-prepare-receipt-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
-ACCEPTED_EVIDENCE_TIERS = frozenset({
-    "SEALED_CONFIRMATION",
-    "SEALED_DEGRADED_EVIDENCE",
-})
+EXPECTED_EVIDENCE_TIER = "SEALED_DEGRADED_EVIDENCE"
+EXPECTED_OBJECT_COUNT = 2657
+EXPECTED_OBJECT_BYTES = 29473216651
 LABELS = [
     "SEALED_PENDING_QUALITY_ASSESSMENT",
     "EXPLORATORY_ONLY",
@@ -69,6 +68,7 @@ AUTHORITY_BINDING_FIELDS = (
     "arm_claim_sha256",
     "arm_claim_invocation_id",
     "arm_claim_service_unit",
+    "arm_claim_service_cgroup",
     "adopted_plan_sha256",
     "audit_sha256",
     "base_commit",
@@ -79,6 +79,9 @@ AUTHORITY_BINDING_FIELDS = (
     "authorized_phase_id",
     "authorized_work_package_id",
     "authorized_input_release_ids",
+    "expected_evidence_tier",
+    "expected_object_count",
+    "expected_object_bytes",
     "operator_text_sha256",
     "named_supersessions",
     "authorized_source_state",
@@ -228,22 +231,28 @@ def load_authority_context(
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
     claim_invocation_id: str | None = None,
+    claim_proc_cgroup_path: Path | None = None,
 ) -> dict[str, Any]:
     gate = _authority_gate_module()
     try:
+        gate_kwargs = {
+            "authority_path": Path(authority_path),
+            "arm_path": Path(arm_path),
+            "arm_claim_root": Path(arm_claim_root),
+            "plan_path": Path(plan_path),
+            "runtime_commit_path": Path(runtime_commit_path),
+            "audit_path": Path(audit_path),
+            "w0_release_path": Path(w0_release_path),
+            "w1_release_path": Path(w1_release_path),
+            "w1_complete_path": Path(w1_complete_path),
+            "expected_owner_uid": expected_owner_uid,
+            "now": now,
+            "invocation_id": claim_invocation_id,
+        }
+        if claim_proc_cgroup_path is not None:
+            gate_kwargs["proc_cgroup_path"] = Path(claim_proc_cgroup_path)
         binding, artifacts = gate.validate_claimed_authority_bundle(
-            authority_path=Path(authority_path),
-            arm_path=Path(arm_path),
-            arm_claim_root=Path(arm_claim_root),
-            plan_path=Path(plan_path),
-            runtime_commit_path=Path(runtime_commit_path),
-            audit_path=Path(audit_path),
-            w0_release_path=Path(w0_release_path),
-            w1_release_path=Path(w1_release_path),
-            w1_complete_path=Path(w1_complete_path),
-            expected_owner_uid=expected_owner_uid,
-            now=now,
-            invocation_id=claim_invocation_id,
+            **gate_kwargs,
         )
     except gate.AuthorityError as exc:
         raise Deep03InputError("exact authority refused: %s" % exc) from exc
@@ -378,9 +387,9 @@ def validate_explicit_releases(
             raise Deep03InputError(
                 f"strict V3 manifest gate failed for {release_id}: {exc}"
             ) from exc
-        if descriptor.get("evidence_tier") not in ACCEPTED_EVIDENCE_TIERS:
+        if descriptor.get("evidence_tier") != EXPECTED_EVIDENCE_TIER:
             raise Deep03InputError(
-                "evidence tier is outside the MODE 1 exploratory allowlist: "
+                "evidence tier differs from the exact Deep03 semantic lock: "
                 f"{release_id}:{descriptor.get('evidence_tier')}"
             )
 
@@ -518,6 +527,18 @@ def build_input_manifest(
         for obj in objects
         if obj["kind"] in {"facts", "dim_snapshot", "capture_gaps_projection"}
     ]
+    evidence_tier = authority_context["binding"].get("expected_evidence_tier")
+    object_count = len(objects)
+    object_bytes = sum(int(obj["size"]) for obj in objects)
+    if evidence_tier != EXPECTED_EVIDENCE_TIER or any(
+        release.get("evidence_tier") != evidence_tier
+        for release in release_records
+    ):
+        raise Deep03InputError("input evidence tier differs from exact authority")
+    if authority_context["binding"].get("expected_object_count") != object_count:
+        raise Deep03InputError("input object count differs from exact authority")
+    if authority_context["binding"].get("expected_object_bytes") != object_bytes:
+        raise Deep03InputError("input object bytes differ from exact authority")
     return {
         "schema_version": SCHEMA_INPUT,
         "run_id": validate_run_id(run_id),
@@ -526,6 +547,7 @@ def build_input_manifest(
         "strict_acceptance_claimed": False,
         "research_stage": "OPEN_DISCOVERY",
         "work_package": "D3-W2A",
+        "evidence_tier": evidence_tier,
         "evidence_labels": list(LABELS),
         "authority_binding": authority_context["binding"],
         "authority_artifact_sha256s": authority_context["artifact_sha256s"],
@@ -546,8 +568,8 @@ def build_input_manifest(
         },
         "source_modules_sha256": source_hashes(),
         "release_count": len(release_records),
-        "object_count": len(objects),
-        "object_bytes": sum(int(obj["size"]) for obj in objects),
+        "object_count": object_count,
+        "object_bytes": object_bytes,
         "sealed_fact_rows": sum(
             int(obj["row_count"] or 0) for obj in objects if obj["kind"] == "facts"
         ),
@@ -575,6 +597,7 @@ def stable_input_projection(value: dict[str, Any]) -> dict[str, Any]:
             "strict_acceptance_claimed",
             "research_stage",
             "work_package",
+            "evidence_tier",
             "evidence_labels",
             "authority_binding",
             "authority_artifact_sha256s",

@@ -20,6 +20,9 @@ from typing import Any
 
 from deep03_v3_common import (
     Deep03InputError,
+    EXPECTED_EVIDENCE_TIER,
+    EXPECTED_OBJECT_BYTES,
+    EXPECTED_OBJECT_COUNT,
     MODE,
     atomic_write_bytes,
     atomic_write_json,
@@ -52,6 +55,7 @@ def _build_w1_input_manifest(
         "release_id": release_id,
         "created_at_utc": utc_now(),
         "mode": MODE,
+        "evidence_tier": EXPECTED_EVIDENCE_TIER,
         "research_execution_started": False,
         "strict_acceptance_claimed": False,
         "selection_mode": "EXPLICIT_RELEASE_IDS_ONLY",
@@ -188,6 +192,13 @@ def build_preflight(
     )
     if w0.get("adopted_plan_sha256") != plan_sha256 or w0.get("audit_sha256") != audit_sha256:
         raise Deep03InputError("D3-W0 release does not bind plan/audit")
+    expected_semantics = {
+        "expected_evidence_tier": EXPECTED_EVIDENCE_TIER,
+        "expected_object_count": EXPECTED_OBJECT_COUNT,
+        "expected_object_bytes": EXPECTED_OBJECT_BYTES,
+    }
+    if any(w0.get(field) != expected for field, expected in expected_semantics.items()):
+        raise Deep03InputError("D3-W0 release semantic lock mismatch")
     if (
         w1.get("w0_release_id") != w0_release_id
         or w1.get("w0_release_sha256") != w0_release_sha256
@@ -198,6 +209,10 @@ def build_preflight(
         or w1.get("rfq_included") is not False
         or w1.get("strict_acceptance_claimed") is not False
         or w1.get("holdout_opened") is not False
+        or any(
+            w1.get(field) != expected
+            for field, expected in expected_semantics.items()
+        )
     ):
         raise Deep03InputError("D3-W1 release scope/binding mismatch")
 
@@ -213,6 +228,16 @@ def build_preflight(
         cache_root=cache_root,
         releases=releases,
     )
+    if (
+        input_manifest["evidence_tier"] != EXPECTED_EVIDENCE_TIER
+        or input_manifest["object_count"] != EXPECTED_OBJECT_COUNT
+        or input_manifest["object_bytes"] != EXPECTED_OBJECT_BYTES
+        or any(
+            row["evidence_tier"] != EXPECTED_EVIDENCE_TIER
+            for row in releases
+        )
+    ):
+        raise Deep03InputError("W1 input semantics differ from the exact release lock")
 
     output_dir = Path(output_dir).resolve()
     if output_dir.exists():
@@ -234,6 +259,7 @@ def build_preflight(
             "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
             "generated_at_utc": utc_now(),
             "mode": MODE,
+            "evidence_tier": EXPECTED_EVIDENCE_TIER,
             "strict_acceptance_claimed": False,
             "strict_canary_expected_state": "REFUSED_UNLESS_SEALED_CONFIRMATION",
             "release_ids": release_ids,
@@ -282,6 +308,7 @@ def build_preflight(
             "schema_version": SCHEMA_SPLIT,
             "state": "NO_HOLDOUT_ALL_PRIOR_EXPOSED",
             "mode": MODE,
+            "evidence_tier": EXPECTED_EVIDENCE_TIER,
             "open_discovery_release_ids": release_ids,
             "open_discovery_dates": dates,
             "train_release_ids": [],
@@ -305,6 +332,7 @@ def build_preflight(
             "state": "W1_COMPLETE_EXPLORATORY_PRECHECK",
             "completed_at_utc": utc_now(),
             "mode": MODE,
+            "evidence_tier": EXPECTED_EVIDENCE_TIER,
             "w0_release_id": w0_release_id,
             "w0_release_sha256": w0_release_sha256,
             "w1_release_id": w1_release_id,
