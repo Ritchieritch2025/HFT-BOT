@@ -213,6 +213,26 @@ def test_refill_is_causal_positive_depth_recovery_and_features_are_exact():
     assert episode["duration_us"] == 50_000
 
 
+def test_clean_full_stream_end_observes_no_refill_through_fixed_horizon():
+    base = 6_500_000_000_000
+    engine = l2.L2ReplayEngine()
+    engine.process(row(
+        base, "M1", "snapshot", yes=[[4000, 20_000]],
+        no=[[5000, 20_000]], seq=1,
+    ))
+    engine.process(row(
+        base + 1_000_000, "M1", "delta", side="yes", price=4000,
+        delta=-10_000, seq=2,
+    ))
+    episodes = engine.finish(
+        observation_end_ns=base + 2 * l2.EPISODE_HORIZON_NS
+    )
+    assert len(episodes) == 1
+    assert episodes[0]["endpoint_reason"] == "right_censored_1s_horizon"
+    assert episodes[0]["duration_us"] == 1_000_000
+    assert episodes[0]["event_observed"] is False
+
+
 def _write_exact_fixture(tmp_path: Path) -> dict[str, object]:
     objects: list[dict[str, object]] = []
     releases = []
