@@ -77,6 +77,19 @@ def test_catalog_scans_only_verified_content_addressed_v3(tmp_path):
     assert first["copied_bytes"] == 0
 
 
+def test_catalog_records_and_ignores_coexisting_legacy_release_dirs(tmp_path):
+    cache, release_id = _cache(tmp_path)
+    legacy = cache / "releases" / "2026-07-13__seal-7f6e5c1b__pub-f8e4c0abc742b7d5"
+    shutil.copytree(cache / "releases" / release_id, legacy, symlinks=True)
+
+    catalog = build_catalog(cache)
+
+    assert catalog["state"] == "READY"
+    assert catalog["release_count"] == 1
+    assert catalog["releases"][0]["release_id"] == release_id
+    assert catalog["ignored_non_v3_release_dirs"] == [legacy.name]
+
+
 def test_resolver_selects_exact_release_and_emits_ready_preflight(tmp_path):
     cache, release_id = _cache(tmp_path)
     catalog = build_catalog(cache)

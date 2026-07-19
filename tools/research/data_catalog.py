@@ -29,6 +29,9 @@ SCHEMA = "research-data-catalog-v1"
 MAX_MANIFEST_BYTES = 64 * 1024 * 1024
 MAX_MARKER_BYTES = 4 * 1024 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+V3_RELEASE_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}__v3ref__seal-[0-9a-f]{8}__pub-[0-9a-f]{16}$"
+)
 CHANNEL_FAMILIES = {
     "orderbooks_l1": "L1",
     "orderbooks_full": "L2",
@@ -282,8 +285,16 @@ def build_catalog(cache_root: Path) -> dict[str, Any]:
 
     releases: list[dict[str, Any]] = []
     rejected: list[dict[str, str]] = []
+    ignored_non_v3_release_dirs: list[str] = []
     for release_dir in sorted(releases_root.iterdir(), key=lambda path: path.name):
         if not release_dir.is_dir() or release_dir.is_symlink():
+            continue
+        # The production cache deliberately coexists with legacy copied-v2
+        # releases.  They are outside this catalog's REFERENCE_V3 trust domain,
+        # so record and ignore them.  A malformed directory that *claims* the
+        # v3 namespace is still audited below and makes the catalog partial.
+        if V3_RELEASE_RE.fullmatch(release_dir.name) is None:
+            ignored_non_v3_release_dirs.append(release_dir.name)
             continue
         marker_path = release_dir / ".VERIFIED.json"
         if not marker_path.exists():
@@ -309,6 +320,7 @@ def build_catalog(cache_root: Path) -> dict[str, Any]:
         "dates": sorted({row["date"] for row in releases}),
         "releases": releases,
         "rejected_releases": rejected,
+        "ignored_non_v3_release_dirs": ignored_non_v3_release_dirs,
         "network_reads": 0,
         "copied_bytes": 0,
         "zero_copy": True,
