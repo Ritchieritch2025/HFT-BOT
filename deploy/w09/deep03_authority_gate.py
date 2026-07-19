@@ -598,9 +598,9 @@ def validate_authority_bundle(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
     if w0_release_id != W0_RELEASE_ID:
-        raise AuthorityError("W0 release ID differs from the fixed .03 release")
+        raise AuthorityError("W0 release ID differs from the fixed .04 release")
     if w1_release_id != W1_RELEASE_ID:
-        raise AuthorityError("W1 release ID differs from the fixed .03 release")
+        raise AuthorityError("W1 release ID differs from the fixed .04 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
