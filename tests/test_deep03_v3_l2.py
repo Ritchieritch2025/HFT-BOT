@@ -189,6 +189,26 @@ def test_snapshot_reset_censors_and_never_counts_as_refill():
     assert episode["refill_ns"] is None
 
 
+def test_unknown_message_type_invalidates_epoch_and_censors_episode():
+    base = 5_500_000_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        row(base + 1_000_000, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, seq=2),
+        row(base + 2_000_000, "M1", "mystery", seq=3),
+        row(base + 3_000_000, "M1", "delta", side="yes", price=4000,
+            delta=8_000, seq=4),
+    ])
+    assert result["replay_rows"][2]["classification"] == \
+        "REJECTED_INVALID_MESSAGE_TYPE"
+    assert result["replay_rows"][2]["book_valid"] is False
+    assert result["replay_rows"][3]["classification"] == \
+        "REJECTED_DELTA_BEFORE_SNAPSHOT"
+    assert result["episodes"][0]["endpoint_reason"] == \
+        "right_censored_invalid_epoch"
+
+
 def test_refill_is_causal_positive_depth_recovery_and_features_are_exact():
     base = 6_000_000_000_000
     result = l2.replay_rows([
@@ -733,6 +753,36 @@ def test_bounded_execution_excludes_bad_date_without_killing_clean_dates_and_ref
     manifest["objects"].append(absent_fact)
     with pytest.raises(l2.L2ResearchError, match="declared ABSENT"):
         l2._validate_scope(manifest)
+    con.close()
+
+
+def test_missing_bad_day_quality_receipt_is_local_exclusion(tmp_path: Path):
+    manifest = _write_exact_fixture(tmp_path)
+    manifest["objects"] = [
+        obj for obj in manifest["objects"]
+        if not (
+            obj["kind"] == "l2_quality_receipt"
+            and obj["date"] == "2026-07-13"
+        )
+    ]
+    con = duckdb.connect()
+    store = l2.BoundedCheckpointStore(
+        tmp_path / "missing-quality-checkpoints",
+        l2.bounded_source_binding(manifest),
+    )
+    result = l2.execute_l2_snbd_bounded(
+        con, manifest, store, market_buckets=1
+    )
+    assert result["availability"]["included_clean_dates"] == [
+        "2026-07-12", "2026-07-15", "2026-07-17"
+    ]
+    assert result["quality"]["2026-07-13"]["analysis_disposition"] == \
+        "EXCLUDED_DATA_QUALITY"
+    assert result["quality"]["2026-07-13"]["blockers"][0].startswith(
+        "quality_receipt_error:"
+    )
+    assert result["row_accounting"]["physical_coverage_rows"] == 18
+    store.close()
     con.close()
 
 
