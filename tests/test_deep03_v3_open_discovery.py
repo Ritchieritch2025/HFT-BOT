@@ -25,7 +25,13 @@ from deep03_v3_common import (  # noqa: E402
     Deep03InputError,
     validate_explicit_releases,
 )
-from deep03_v3_methods import execute_all  # noqa: E402
+from deep03_v3_methods import (  # noqa: E402
+    L1_INTERVAL_COLUMNS,
+    _l1_interval_select_sql,
+    _manifest_release_dates,
+    _materialize_l1_intervals,
+    execute_all,
+)
 from deep03_v3_prepare import prepare_run  # noqa: E402
 from deep03_v3_runner import run_discovery  # noqa: E402
 from test_research_reference_consumer import (  # noqa: E402
@@ -429,6 +435,7 @@ def _synthetic_method_input(tmp_path: Path) -> dict:
             {
                 "kind": "facts",
                 "channel": channel,
+                "date": "2026-07-17",
                 "logical_key": "warehouse/" + local,
                 "local_path": str(path),
                 "release_id": "fixture-v3",
@@ -441,6 +448,7 @@ def _synthetic_method_input(tmp_path: Path) -> dict:
         {
             "kind": "dim_snapshot",
             "channel": None,
+            "date": "2026-07-17",
             "logical_key": "warehouse/dim/snapshots/date=2026-07-17/markets.csv",
             "local_path": str(markets),
             "release_id": "fixture-v3",
@@ -449,10 +457,17 @@ def _synthetic_method_input(tmp_path: Path) -> dict:
             "row_count": None,
         }
     )
-    return {"release_ids": ["fixture-v3"], "objects": objects}
+    return {
+        "release_ids": ["fixture-v3"],
+        "release_dates": ["2026-07-17"],
+        "releases": [{"release_id": "fixture-v3", "date": "2026-07-17"}],
+        "objects": objects,
+    }
 
 
-def test_corrected_methods_execute_or_close_not_estimable_with_evidence(tmp_path):
+def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
+    tmp_path, capsys
+):
     con = duckdb.connect()
     try:
         _capabilities, methods = execute_all(con, _synthetic_method_input(tmp_path))
@@ -484,6 +499,14 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(tmp_path
         }
     finally:
         con.close()
+    assert capsys.readouterr().out.splitlines() == [
+        "D3_W2A_STAGE l1_intervals date=2026-07-17 state=START",
+        "D3_W2A_STAGE l1_intervals date=2026-07-17 state=COMPLETE",
+        "D3_W2A_STAGE trade_id_qc state=START",
+        "D3_W2A_STAGE trade_id_qc state=COMPLETE",
+        "D3_W2A_STAGE trades_dedup state=START",
+        "D3_W2A_STAGE trades_dedup state=COMPLETE",
+    ]
     status = {method["method_id"]: method["status"] for method in methods}
     assert status == {
         "D3-B01-MARKOUT": "EXECUTED",
@@ -503,6 +526,176 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(tmp_path
     b04 = next(method for method in methods if method["method_id"] == "D3-B04-RHYTHM")
     assert b04["summary"][0]["active_market_minutes"] == 2
     assert b04["summary"][0]["trades_per_active_market_minute"] == 0.5
+
+
+def test_chunked_l1_intervals_equal_legacy_single_query_for_ties_gaps_and_censor():
+    con = duckdb.connect()
+    try:
+        con.execute(
+            "CREATE TEMP TABLE capture_gaps("
+            "date DATE,start_us BIGINT,end_us BIGINT)"
+        )
+        con.execute(
+            "INSERT INTO capture_gaps VALUES "
+            "(DATE '2026-07-17',250,275),(DATE '2026-07-18',1150,1175)"
+        )
+        con.execute(
+            "CREATE TEMP TABLE l1_enriched("
+            "date DATE,t_us BIGINT,market_ticker VARCHAR,event_proxy VARCHAR,"
+            "sport VARCHAR,book_state VARCHAR,occurrence_us BIGINT,"
+            "close_us BIGINT,recv_wall_ns BIGINT,recv_mono_ns BIGINT,"
+            "ws_sid BIGINT,ws_seq BIGINT)"
+        )
+        con.executemany(
+            "INSERT INTO l1_enriched VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                # Same receive timestamp, resolved only by the retained causal
+                # tie-breaks: ONE_SIDED leads TWO_SIDED by recv_wall_ns.
+                ("2026-07-17", 100, "M1", "E1", "Tennis", "TWO_SIDED", 150, 500, 20, 2, 1, 2),
+                ("2026-07-17", 100, "M1", "E1", "Tennis", "ONE_SIDED", 150, 500, 10, 1, 1, 1),
+                # This interval is cut at the next capture gap (250), while
+                # the following state begins inside that gap and gets zero.
+                ("2026-07-17", 200, "M1", "E1", "Tennis", "TWO_SIDED", 150, 500, 30, 3, 1, 3),
+                ("2026-07-17", 260, "M1", "E1", "Tennis", "ONE_SIDED", 150, 500, 40, 4, 1, 4),
+                ("2026-07-17", 400, "M1", "E1", "Tennis", "INVALID_BOOK", 150, 500, 50, 5, 1, 5),
+                # The second date proves lead() never crosses a date boundary.
+                ("2026-07-18", 1000, "M1", "E2", "Soccer", "TWO_SIDED", 1100, 1400, 10, 1, 2, 1),
+                ("2026-07-18", 1200, "M1", "E2", "Soccer", "ONE_SIDED", 1100, 1400, 20, 2, 2, 2),
+            ],
+        )
+        con.execute(
+            "CREATE TEMP TABLE l1_intervals_legacy AS "
+            + _l1_interval_select_sql(None)
+        )
+        _materialize_l1_intervals(con, ("2026-07-18", "2026-07-17"))
+
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM l1_intervals_legacy EXCEPT ALL "
+            "SELECT * FROM l1_intervals)"
+        ).fetchone()[0] == 0
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM l1_intervals EXCEPT ALL "
+            "SELECT * FROM l1_intervals_legacy)"
+        ).fetchone()[0] == 0
+        assert con.execute(
+            "SELECT book_state,duration_us FROM l1_intervals "
+            "WHERE date=DATE '2026-07-17' AND t_us=100 "
+            "ORDER BY book_state"
+        ).fetchall() == [("ONE_SIDED", 0), ("TWO_SIDED", 100)]
+        assert con.execute(
+            "SELECT interval_end_us,duration_us FROM l1_intervals "
+            "WHERE date=DATE '2026-07-17' AND t_us=200"
+        ).fetchone() == (250, 50)
+        assert con.execute(
+            "SELECT starts_in_gap,duration_us FROM l1_intervals "
+            "WHERE date=DATE '2026-07-17' AND t_us=260"
+        ).fetchone() == (True, 0)
+        assert con.execute(
+            "SELECT count(*) FROM l1_intervals "
+            "WHERE right_censored AND duration_us=0"
+        ).fetchone()[0] == 2
+        assert con.execute(
+            "SELECT DISTINCT phase FROM l1_intervals "
+            "WHERE date=DATE '2026-07-17' ORDER BY phase"
+        ).fetchall() == [
+            ("POST_SCHEDULED_START_PROXY",),
+            ("PRE_SCHEDULED_START",),
+        ]
+        assert [
+            (row[0], row[1])
+            for row in con.execute("DESCRIBE l1_intervals").fetchall()
+        ] == [
+            ("date", "DATE"),
+            ("t_us", "BIGINT"),
+            ("market_ticker", "VARCHAR"),
+            ("event_proxy", "VARCHAR"),
+            ("sport", "VARCHAR"),
+            ("book_state", "VARCHAR"),
+            ("right_censored", "BOOLEAN"),
+            ("starts_in_gap", "BOOLEAN"),
+            ("interval_end_us", "BIGINT"),
+            ("duration_us", "BIGINT"),
+            ("phase", "VARCHAR"),
+        ]
+        assert tuple(row[0] for row in con.execute(
+            "DESCRIBE l1_intervals"
+        ).fetchall()) == L1_INTERVAL_COLUMNS
+    finally:
+        con.close()
+
+
+def test_l1_interval_materializer_uses_only_sorted_exact_manifest_date_inserts(
+    capsys,
+):
+    class RecordingConnection:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql):
+            self.statements.append(" ".join(sql.split()))
+            return self
+
+    con = RecordingConnection()
+    _materialize_l1_intervals(con, ("2026-07-18", "2026-07-17"))
+    assert capsys.readouterr().out.splitlines() == [
+        "D3_W2A_STAGE l1_intervals date=2026-07-17 state=START",
+        "D3_W2A_STAGE l1_intervals date=2026-07-17 state=COMPLETE",
+        "D3_W2A_STAGE l1_intervals date=2026-07-18 state=START",
+        "D3_W2A_STAGE l1_intervals date=2026-07-18 state=COMPLETE",
+    ]
+    assert len(con.statements) == 3
+    assert con.statements[0].startswith(
+        "CREATE OR REPLACE TEMP TABLE l1_intervals(date DATE,t_us BIGINT"
+    )
+    inserts = con.statements[1:]
+    assert [
+        "DATE '2026-07-17'" in inserts[0],
+        "DATE '2026-07-18'" in inserts[1],
+    ] == [True, True]
+    for statement in inserts:
+        assert statement.startswith(
+            "INSERT INTO l1_intervals(date,t_us,market_ticker,event_proxy,"
+        )
+        assert statement.count("DATE '") == 1
+        assert "FROM l1_enriched l WHERE l.date=DATE '" in statement
+        assert "PARTITION BY date,market_ticker" in statement
+        assert (
+            "ORDER BY t_us,coalesce(recv_wall_ns,0), "
+            "coalesce(recv_mono_ns,0),coalesce(ws_sid,0), "
+            "coalesce(ws_seq,0)"
+        ) in statement
+    assert not any("preserve_insertion_order" in statement for statement in inserts)
+
+
+def test_l1_interval_dates_are_manifest_bound_and_reject_code_shaped_input():
+    manifest = {
+        "release_dates": ["2026-07-18", "2026-07-17"],
+        "releases": [
+            {"date": "2026-07-17"},
+            {"date": "2026-07-18"},
+        ],
+        "objects": [
+            {
+                "kind": "facts",
+                "channel": "orderbooks_l1",
+                "date": "2026-07-17",
+                "logical_key": "warehouse/facts/category=Sports/date=2026-07-17/a.parquet",
+            },
+            {
+                "kind": "facts",
+                "channel": "orderbooks_l1",
+                "date": "2026-07-18",
+                "logical_key": "warehouse/facts/category=Sports/date=2026-07-18/a.parquet",
+            },
+        ],
+    }
+    assert _manifest_release_dates(manifest) == ("2026-07-17", "2026-07-18")
+
+    manifest["release_dates"][1] = "2026-07-17'; DROP TABLE l1_enriched;--"
+    with pytest.raises(ValueError, match="invalid Deep03 release date"):
+        _manifest_release_dates(manifest)
 
 
 def test_w09_payload_sha_pins_and_installs_every_deep03_module():

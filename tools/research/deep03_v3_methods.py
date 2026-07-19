@@ -29,6 +29,19 @@ METHODS = (
 HORIZONS_US = (1_000_000, 5_000_000, 30_000_000)
 MAX_BOOK_AGE_US = 5_000_000
 BOOK_TTL_US = 60_000_000
+L1_INTERVAL_COLUMNS = (
+    "date",
+    "t_us",
+    "market_ticker",
+    "event_proxy",
+    "sport",
+    "book_state",
+    "right_censored",
+    "starts_in_gap",
+    "interval_end_us",
+    "duration_us",
+    "phase",
+)
 
 
 def _json_value(value: Any) -> Any:
@@ -169,6 +182,129 @@ def _spread_logodds_sql(bid: str, ask: str) -> str:
     return f"({logit(ask)})-({logit(bid)})"
 
 
+def _canonical_date(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Deep03 release date must be a canonical ISO string")
+    try:
+        parsed = dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid Deep03 release date: {value!r}") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"non-canonical Deep03 release date: {value!r}")
+    return value
+
+
+def _manifest_release_dates(input_manifest: dict[str, Any]) -> tuple[str, ...]:
+    """Return the manifest-bound dates in deterministic chronological order."""
+    raw_dates = input_manifest.get("release_dates")
+    if not isinstance(raw_dates, list) or not raw_dates:
+        raise ValueError("INPUT_MANIFEST release_dates is missing or empty")
+    dates = tuple(_canonical_date(value) for value in raw_dates)
+    if len(dates) != len(set(dates)):
+        raise ValueError("INPUT_MANIFEST release_dates contains a duplicate date")
+
+    releases = input_manifest.get("releases")
+    if not isinstance(releases, list) or len(releases) != len(dates):
+        raise ValueError("INPUT_MANIFEST release summaries do not bind release_dates")
+    summary_dates = tuple(
+        _canonical_date(release.get("date"))
+        for release in releases
+        if isinstance(release, dict)
+    )
+    if len(summary_dates) != len(dates) or set(summary_dates) != set(dates):
+        raise ValueError("INPUT_MANIFEST release summary dates differ from release_dates")
+
+    l1_dates = {
+        _canonical_date(obj.get("date"))
+        for obj in _fact_objects(input_manifest, "orderbooks_l1")
+    }
+    if not l1_dates.issubset(set(dates)):
+        raise ValueError("L1 object date falls outside INPUT_MANIFEST release_dates")
+    return tuple(sorted(dates))
+
+
+def _l1_interval_select_sql(exact_date: str | None) -> str:
+    """Build the unchanged interval estimand, optionally bounded to one date."""
+    date_filter = ""
+    if exact_date is not None:
+        date_filter = f"l.date=DATE {quote(_canonical_date(exact_date))} AND "
+    return f"""
+        WITH ordered AS (
+          -- Keep the exact causal ordering keys in the window, but do not
+          -- carry the full L1 row through its blocking sort.  The exact-date
+          -- predicate makes each production sort one manifest day wide.
+          SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+                 occurrence_us,close_us,
+                 lead(t_us) OVER (
+                   PARTITION BY date,market_ticker
+                   ORDER BY t_us,coalesce(recv_wall_ns,0),
+                            coalesce(recv_mono_ns,0),coalesce(ws_sid,0),
+                            coalesce(ws_seq,0)
+                 ) AS next_t_us
+          FROM l1_enriched l
+          WHERE {date_filter}date IS NOT NULL AND market_ticker IS NOT NULL
+                AND t_us IS NOT NULL
+        ), bounded AS (
+          SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+                 occurrence_us,next_t_us IS NULL AS right_censored,
+                 CASE WHEN next_t_us IS NULL THEN t_us ELSE
+                   least(next_t_us,t_us+{BOOK_TTL_US},
+                     CASE WHEN close_us>t_us THEN close_us
+                          ELSE t_us+{BOOK_TTL_US} END)
+                 END AS base_end_us
+          FROM ordered
+        ), gap_bound AS (
+          SELECT b.date,b.t_us,b.market_ticker,b.event_proxy,b.sport,
+                 b.book_state,b.occurrence_us,b.right_censored,b.base_end_us,
+                 (SELECT min(g.start_us) FROM capture_gaps g
+                  WHERE g.date=b.date AND g.start_us>b.t_us
+                    AND g.start_us<b.base_end_us) AS next_gap_start_us,
+                 EXISTS(SELECT 1 FROM capture_gaps g
+                        WHERE g.date=b.date AND g.start_us<=b.t_us
+                          AND g.end_us>b.t_us) AS starts_in_gap
+          FROM bounded b
+        )
+        SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+               right_censored,starts_in_gap,
+               least(base_end_us,coalesce(next_gap_start_us,base_end_us))
+                 AS interval_end_us,
+               CASE WHEN right_censored OR starts_in_gap THEN 0
+                    ELSE greatest(0,least(base_end_us,
+                         coalesce(next_gap_start_us,base_end_us))-t_us)
+               END AS duration_us,
+               {_phase_sql('gap_bound')} AS phase
+        FROM gap_bound
+    """
+
+
+def _materialize_l1_intervals(con, dates: tuple[str, ...]) -> None:
+    """Materialize fixed-width L1 intervals with one bounded sort per date."""
+    bounded_dates = tuple(sorted(_canonical_date(date) for date in dates))
+    if len(bounded_dates) != len(set(bounded_dates)):
+        raise ValueError("L1 interval materialization received duplicate dates")
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE l1_intervals("
+        "date DATE,t_us BIGINT,market_ticker VARCHAR,event_proxy VARCHAR,"
+        "sport VARCHAR,book_state VARCHAR,right_censored BOOLEAN,"
+        "starts_in_gap BOOLEAN,interval_end_us BIGINT,duration_us BIGINT,"
+        "phase VARCHAR)"
+    )
+    columns = ",".join(L1_INTERVAL_COLUMNS)
+    for date in bounded_dates:
+        print(
+            f"D3_W2A_STAGE l1_intervals date={date} state=START",
+            flush=True,
+        )
+        con.execute(
+            f"INSERT INTO l1_intervals({columns}) "
+            + _l1_interval_select_sql(date)
+        )
+        print(
+            f"D3_W2A_STAGE l1_intervals date={date} state=COMPLETE",
+            flush=True,
+        )
+
+
 def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
     """Create normalized receive-clock views and return explicit capabilities."""
     capabilities: dict[str, Any] = {
@@ -247,6 +383,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
 
     l1_objects = _fact_objects(input_manifest, "orderbooks_l1")
     if l1_objects:
+        release_dates = _manifest_release_dates(input_manifest)
         l1_paths = [Path(obj["local_path"]) for obj in l1_objects]
         con.execute(
             "CREATE OR REPLACE TEMP VIEW l1_source AS " + _relation_sql(l1_paths)
@@ -288,60 +425,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             "ELSE 'INVALID_BOOK' END AS book_state "
             "FROM l1_norm l LEFT JOIN dim_market d USING(date,market_ticker)"
         )
-        con.execute(
-            f"""
-            CREATE OR REPLACE TEMP TABLE l1_intervals AS
-            WITH ordered AS (
-              -- Keep the exact causal ordering keys in the window, but do not
-              -- carry the full L1 row through its blocking sort.  In
-              -- particular, prices, quantities, series/league labels and the
-              -- four tie-break columns are not consumed by B02/B04 after
-              -- next_t_us has been derived.  Projecting them here caused the
-              -- eight-day W09 run to exhaust DuckDB's 32 GB budget while
-              -- building this table.
-              SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
-                     occurrence_us,close_us,
-                     lead(t_us) OVER (
-                       PARTITION BY date,market_ticker
-                       ORDER BY t_us,coalesce(recv_wall_ns,0),
-                                coalesce(recv_mono_ns,0),coalesce(ws_sid,0),
-                                coalesce(ws_seq,0)
-                     ) AS next_t_us
-              FROM l1_enriched l
-              WHERE date IS NOT NULL AND market_ticker IS NOT NULL
-                    AND t_us IS NOT NULL
-            ), bounded AS (
-              SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
-                     occurrence_us,next_t_us IS NULL AS right_censored,
-                     CASE WHEN next_t_us IS NULL THEN t_us ELSE
-                       least(next_t_us,t_us+{BOOK_TTL_US},
-                         CASE WHEN close_us>t_us THEN close_us
-                              ELSE t_us+{BOOK_TTL_US} END)
-                     END AS base_end_us
-              FROM ordered
-            ), gap_bound AS (
-              SELECT b.date,b.t_us,b.market_ticker,b.event_proxy,b.sport,
-                     b.book_state,b.occurrence_us,b.right_censored,b.base_end_us,
-                     (SELECT min(g.start_us) FROM capture_gaps g
-                      WHERE g.date=b.date AND g.start_us>b.t_us
-                        AND g.start_us<b.base_end_us) AS next_gap_start_us,
-                     EXISTS(SELECT 1 FROM capture_gaps g
-                            WHERE g.date=b.date AND g.start_us<=b.t_us
-                              AND g.end_us>b.t_us) AS starts_in_gap
-              FROM bounded b
-            )
-            SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
-                   right_censored,starts_in_gap,
-                   least(base_end_us,coalesce(next_gap_start_us,base_end_us))
-                     AS interval_end_us,
-                   CASE WHEN right_censored OR starts_in_gap THEN 0
-                        ELSE greatest(0,least(base_end_us,
-                             coalesce(next_gap_start_us,base_end_us))-t_us)
-                   END AS duration_us,
-                   {_phase_sql('gap_bound')} AS phase
-            FROM gap_bound
-            """
-        )
+        _materialize_l1_intervals(con, release_dates)
 
     trade_objects = _fact_objects(input_manifest, "trades")
     if trade_objects:
@@ -373,6 +457,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             + ",".join(projections)
             + " FROM trades_source"
         )
+        print("D3_W2A_STAGE trade_id_qc state=START", flush=True)
         con.execute(
             """
             CREATE OR REPLACE TEMP TABLE trade_id_qc AS
@@ -385,6 +470,8 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             FROM trades_norm WHERE trade_id IS NOT NULL GROUP BY trade_id
             """
         )
+        print("D3_W2A_STAGE trade_id_qc state=COMPLETE", flush=True)
+        print("D3_W2A_STAGE trades_dedup state=START", flush=True)
         con.execute(
             """
             CREATE OR REPLACE TEMP TABLE trades_dedup AS
@@ -403,6 +490,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             ) WHERE rn=1
             """
         )
+        print("D3_W2A_STAGE trades_dedup state=COMPLETE", flush=True)
         con.execute(
             """
             CREATE OR REPLACE TEMP VIEW trades_clean AS
