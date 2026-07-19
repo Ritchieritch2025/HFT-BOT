@@ -46,6 +46,31 @@ def _quote(value: str | Path) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _fact_relation(path: Path) -> str:
+    """Route a fact object to its DuckDB reader by production file format.
+
+    The warehouse contract (docs/warehouse_schema.md) ships orderbooks_l1 and
+    orderbooks_full as .parquet and trades/settlements as .csv.gz.  Reading is
+    routed exactly like the audited handler in deep03_v3_methods._relation_sql;
+    an unknown extension is a refusal, never a guessed format.
+    """
+    name = path.name.lower()
+    if name.endswith(".parquet"):
+        return (
+            f"read_parquet({_quote(path)},union_by_name=true,"
+            "hive_partitioning=true)"
+        )
+    if name.endswith(".csv.gz") or name.endswith(".csv"):
+        return (
+            f"read_csv({_quote(path)},header=true,union_by_name=true,"
+            "hive_partitioning=true,all_varchar=true)"
+        )
+    raise MarketGraphError(
+        f"fact object has an unsupported file format (expected .parquet, "
+        f".csv.gz or .csv): {path}"
+    )
+
+
 def _columns(con, relation: str) -> set[str]:
     return {str(row[0]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
 
@@ -262,8 +287,7 @@ def _scan_fact_support(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             raise MarketGraphError(f"fact object is missing: {path}")
         con.execute(
             "CREATE OR REPLACE TEMP VIEW fullscope_fact_source AS "
-            f"SELECT * FROM read_parquet({_quote(path)},union_by_name=true,"
-            "hive_partitioning=true)"
+            f"SELECT * FROM {_fact_relation(path)}"
         )
         columns = _columns(con, "fullscope_fact_source")
         ticker = "market_ticker" if "market_ticker" in columns else (

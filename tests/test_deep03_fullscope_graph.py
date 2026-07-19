@@ -1,3 +1,4 @@
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -31,6 +32,29 @@ def _write_fact(path: Path, rows: list[tuple[str, str, int]]) -> int:
     escaped = str(path).replace("'", "''")
     con.execute(f"COPY x TO '{escaped}' (FORMAT PARQUET)")
     con.close()
+    return len(rows)
+
+
+# Production trades fact format (docs/warehouse_schema.md): gzip-compressed
+# csv, never parquet.  The fixture mirrors the real header shape so the graph
+# module is exercised against the byte format the warehouse actually ships.
+TRADES_CSV_HEADER = (
+    "ts_utc,market_ticker,series_ticker,event_ticker,category,subcategory,"
+    "group,trade_id,yes_price_e4,no_price_e4,count_e4,taker_side,"
+    "exchange_ts_us,recv_wall_ns,recv_mono_ns,local_recv_ts_us"
+)
+
+
+def _write_trades_csv_gz(path: Path, rows: list[tuple[str, str, int]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [TRADES_CSV_HEADER]
+    for index, (date, ticker, value) in enumerate(rows):
+        lines.append(
+            f"{date}T12:00:00Z,{ticker},S1,E1,Sports,League,League,"
+            f"trade-{index},{5000 + value},{5000 - value},10000,yes,"
+            f"1767000000000000,1767000000000000000,{value},1767000000000000"
+        )
+    path.write_bytes(gzip.compress(("\n".join(lines) + "\n").encode("utf-8")))
     return len(rows)
 
 
@@ -85,12 +109,12 @@ def _fixture(tmp_path: Path):
             )
     l1_10 = tmp_path / "facts" / "l1_10.parquet"
     l1_12 = tmp_path / "facts" / "l1_12.parquet"
-    trades = tmp_path / "facts" / "trades.parquet"
+    trades = tmp_path / "facts" / "trades__Sports__League__2026-07-12.csv.gz"
     l2 = tmp_path / "facts" / "l2.parquet"
     counts = {
         "l1_10": _write_fact(l1_10, [("2026-07-10", "M1", 1)]),
         "l1_12": _write_fact(l1_12, [("2026-07-12", "M1", 2)]),
-        "trades": _write_fact(trades, [("2026-07-12", "M1", 1)]),
+        "trades": _write_trades_csv_gz(trades, [("2026-07-12", "M1", 1)]),
         "orderbooks_full": _write_fact(
             l2,
             [("2026-07-12", "M1", 1), ("2026-07-12", "M1", 2)],
@@ -153,6 +177,61 @@ def test_graph_scans_all_fact_rows_and_exposes_absent_l2_date(tmp_path):
     receipt = json.loads((tmp_path / "out" / "MARKET_GRAPH_RECEIPT.json").read_text())
     assert receipt["claims"]["arbitrage_or_pnl"] is False
     assert (tmp_path / "out" / "MARKET_GRAPH.parquet").is_file()
+
+
+def test_fixture_fidelity_trades_are_production_csv_gz(tmp_path):
+    """Fixture tripwire: the manifest mixes trades .csv.gz with orderbook
+    .parquet exactly like the production warehouse.  A graph module that
+    reads every fact object with read_parquet (the .10 run failure) cannot
+    pass this test."""
+    module = _load()
+    manifest = _fixture(tmp_path)
+    trades_objects = [
+        row
+        for row in manifest["objects"]
+        if row["kind"] == "facts" and row["channel"] == "trades"
+    ]
+    assert trades_objects, "fixture must carry a trades fact object"
+    for row in trades_objects:
+        assert row["local_path"].endswith(".csv.gz")
+        with gzip.open(row["local_path"], "rt", encoding="utf-8") as handle:
+            assert handle.readline().strip() == TRADES_CSV_HEADER
+    orderbook_objects = [
+        row
+        for row in manifest["objects"]
+        if row["kind"] == "facts"
+        and row["channel"] in ("orderbooks_l1", "orderbooks_full")
+    ]
+    assert orderbook_objects
+    assert all(row["local_path"].endswith(".parquet") for row in orderbook_objects)
+    result = module.build_market_graph(duckdb.connect(), manifest)
+    assert result["support_conservation"]["source_rows"]["trades"] == 1
+
+
+def test_graph_refuses_unknown_fact_extension(tmp_path):
+    module = _load()
+    manifest = _fixture(tmp_path)
+    rogue = tmp_path / "facts" / "trades__Sports__League__2026-07-10.ndjson"
+    rogue.parent.mkdir(parents=True, exist_ok=True)
+    rogue.write_text('{"market_ticker":"M1"}\n', encoding="utf-8")
+    manifest["objects"].append(
+        _obj(
+            rogue,
+            date="2026-07-10",
+            logical=(
+                "warehouse/facts/trades/category=Sports/date=2026-07-10/"
+                + rogue.name
+            ),
+            kind="facts",
+            channel="trades",
+            rows=1,
+        )
+    )
+    with pytest.raises(
+        module.MarketGraphError, match="unsupported file format"
+    ) as excinfo:
+        module.build_market_graph(duckdb.connect(), manifest)
+    assert rogue.name in str(excinfo.value)
 
 
 def test_graph_fails_closed_on_declared_fact_row_drift(tmp_path):

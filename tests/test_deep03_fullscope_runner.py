@@ -35,7 +35,12 @@ def _manifest(tmp_path: Path, run_id: str = "fullscope-fixture") -> dict:
                 "evidence_basis": {"downgrade_reasons": ["fixture"]},
             }
         )
-        for channel, size in (("orderbooks_l1", 10), ("trades", 20)):
+        # Production formats (docs/warehouse_schema.md): orderbooks are
+        # .parquet, trades are .csv.gz — the fixture manifest mirrors that.
+        for channel, size, extension in (
+            ("orderbooks_l1", 10, "parquet"),
+            ("trades", 20, "csv.gz"),
+        ):
             objects.append(
                 {
                     "release_id": release_id,
@@ -44,9 +49,9 @@ def _manifest(tmp_path: Path, run_id: str = "fullscope-fixture") -> dict:
                     "channel": channel,
                     "logical_key": (
                         f"warehouse/facts/{channel}/category=Sports/"
-                        f"date={date}/part.parquet"
+                        f"date={date}/part.{extension}"
                     ),
-                    "local_path": str(tmp_path / f"{date}-{channel}.parquet"),
+                    "local_path": str(tmp_path / f"{date}-{channel}.{extension}"),
                     "source_version_id": f"version-{date}-{channel}",
                     "sha256": hashlib.sha256(f"{date}-{channel}".encode()).hexdigest(),
                     "size": size,

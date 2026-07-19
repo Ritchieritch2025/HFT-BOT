@@ -28,9 +28,9 @@ AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 WORK_PACKAGE = "D3-W2A"
-W2A_RELEASE_ID = "D3-W2A-2026-07-19.10"
-W0_RELEASE_ID = "D3-W0-2026-07-19.10"
-W1_RELEASE_ID = "D3-W1-2026-07-19.10"
+W2A_RELEASE_ID = "D3-W2A-2026-07-19.11"
+W0_RELEASE_ID = "D3-W0-2026-07-19.11"
+W1_RELEASE_ID = "D3-W1-2026-07-19.11"
 PHASE = "OPEN_DISCOVERY"
 INSTANCE_ID = "i-0e53d134dceffe166"
 INSTANCE_TYPE = "r8g.2xlarge"
@@ -608,9 +608,9 @@ def validate_authority_bundle(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
     if w0_release_id != W0_RELEASE_ID:
-        raise AuthorityError("W0 release ID differs from the fixed .10 release")
+        raise AuthorityError("W0 release ID differs from the fixed .11 release")
     if w1_release_id != W1_RELEASE_ID:
-        raise AuthorityError("W1 release ID differs from the fixed .10 release")
+        raise AuthorityError("W1 release ID differs from the fixed .11 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
