@@ -63,6 +63,12 @@ def test_adopted_deep03_plan_without_frontmatter_keeps_audited_window():
     spec = compile_plan(text, plan.name)
     assert spec["plugin_id"] == "deep03"
     assert spec["date_window"] == {"start": "2026-07-10", "end": "2026-07-17"}
+    assert spec["data_requirements"]["required"] == [
+        "L1",
+        "TRADES",
+        "MARKET_GRAPH",
+    ]
+    assert spec["data_requirements"]["optional"] == ["L2"]
 
 
 @pytest.mark.parametrize(

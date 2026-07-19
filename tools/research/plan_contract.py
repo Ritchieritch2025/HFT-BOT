@@ -25,8 +25,11 @@ REGISTERED_PLUGINS = {
     "deep03": {
         "aliases": {"deep03", "d3-w2a", "deep03-open-discovery"},
         "execution_class": "READONLY_EXPLORATORY",
-        "default_required": ["L1", "L2", "TRADES", "MARKET_GRAPH"],
-        "default_optional": [],
+        # The audited 8-day .03 window has L1/trades/market graph throughout
+        # and L2 from 2026-07-12 onward.  L2 enriches the estimable methods but
+        # cannot be a per-day hard gate for the authorized 07-10..17 release.
+        "default_required": ["L1", "TRADES", "MARKET_GRAPH"],
+        "default_optional": ["L2"],
         "default_forbidden": ["RFQ"],
     }
 }
@@ -136,7 +139,11 @@ def _data_requirements(metadata: dict[str, Any], plugin_id: str | None) -> dict[
     if not required and plugin_id:
         required = list(defaults["default_required"])
     if not optional and plugin_id:
-        optional = list(defaults["default_optional"])
+        optional = [
+            family
+            for family in defaults["default_optional"]
+            if family not in required and family not in forbidden
+        ]
     if not forbidden and plugin_id:
         forbidden = list(defaults["default_forbidden"])
     overlap = (set(required) & set(optional)) | (set(required) & set(forbidden)) | (
