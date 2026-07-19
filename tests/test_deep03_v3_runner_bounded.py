@@ -229,6 +229,9 @@ def test_fresh_run_reuses_dataset_namespace_but_failed_run_is_not_retryable(
         (run_root / "fresh-b" / "REPRODUCTION_RECEIPT.json").read_text()
     )
     assert reproduction["checkpoint_reuse_receipt_sha256"]
+    report = (run_root / "fresh-b" / "REPORT" / "index.html").read_text()
+    assert "Execution queries / receipt references" in report
+    assert "<h3>Exact queries</h3>" not in report
 
     failed = run_root / "failed-arm-run"
     failed.mkdir(parents=True)
