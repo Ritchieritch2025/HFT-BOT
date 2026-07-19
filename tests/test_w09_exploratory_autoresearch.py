@@ -359,11 +359,11 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
     assert "--audit /etc/w09/deep03/audit.md" in service
     assert (
-        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-06.json"
+        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-08.json"
         in service
     )
     assert (
-        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-06.json"
+        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-08.json"
         in service
     )
     assert (
@@ -450,7 +450,7 @@ def _authority_files(
     runtime.write_text("1" * 40 + "\n")
     operator_text = (
         "Authorize exact D3-W2A exploratory execution under "
-        "D3-W2A-2026-07-18.06 for the named release set."
+        "D3-W2A-2026-07-18.08 for the named release set."
     )
     release_ids = release_ids or [
         (
@@ -460,8 +460,8 @@ def _authority_files(
         for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
-    w0_release_id = "D3-W0-2026-07-18.06"
-    w1_release_id = "D3-W1-2026-07-18.06"
+    w0_release_id = "D3-W0-2026-07-18.08"
+    w1_release_id = "D3-W1-2026-07-18.08"
     audit_path.write_bytes(b"independent_plan_audit")
     plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
     audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
@@ -581,7 +581,7 @@ def _authority_files(
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-18.06",
+        "release_id": "D3-W2A-2026-07-18.08",
         "issued_at_utc": "2026-07-18T12:00:00Z",
         "expires_at_utc": "2026-07-19T12:00:00Z",
         "operator_text_verbatim": operator_text,
@@ -594,6 +594,7 @@ def _authority_files(
         "authorized_phase_id": gate.PHASE,
         "authorized_work_package_id": gate.WORK_PACKAGE,
         "authorized_instance_id": gate.INSTANCE_ID,
+        "authorized_instance_type": gate.INSTANCE_TYPE,
         "authorized_role": gate.ROLE,
         "mode": gate.MODE,
         "execution_class": "EXPLORATORY_ONLY",
@@ -637,6 +638,7 @@ def _authority_files(
         "authority_sha256": authority_sha,
         "base_commit": authority["base_commit"],
         "authorized_work_package_id": gate.WORK_PACKAGE,
+        "authorized_instance_type": gate.INSTANCE_TYPE,
         "mode": gate.MODE,
         "armed_at_utc": "2026-07-18T12:01:00Z",
         "expires_at_utc": "2026-07-19T11:00:00Z",
@@ -749,7 +751,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
     assert result["state"] == "AUTHORIZED"
-    assert result["release_id"] == "D3-W2A-2026-07-18.06"
+    assert result["release_id"] == "D3-W2A-2026-07-18.08"
     assert len(result["authorized_input_release_ids"]) == 8
     assert result["authorized_input_release_ids"][0].startswith("2026-07-10__")
     assert result["base_commit"] == "1" * 40
@@ -758,6 +760,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     assert result["expected_evidence_tier"] == "SEALED_DEGRADED_EVIDENCE"
     assert result["expected_object_count"] == 2657
     assert result["expected_object_bytes"] == 29473216651
+    assert result["authorized_instance_type"] == "r8g.2xlarge"
     assert result["w09_exact_version_read_evidence"] == {
         "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
         "sha256": result["prerequisite_receipt_sha256s"][

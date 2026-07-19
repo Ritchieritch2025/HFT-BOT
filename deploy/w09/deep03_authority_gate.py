@@ -28,11 +28,12 @@ AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 WORK_PACKAGE = "D3-W2A"
-W2A_RELEASE_ID = "D3-W2A-2026-07-18.06"
-W0_RELEASE_ID = "D3-W0-2026-07-18.06"
-W1_RELEASE_ID = "D3-W1-2026-07-18.06"
+W2A_RELEASE_ID = "D3-W2A-2026-07-18.08"
+W0_RELEASE_ID = "D3-W0-2026-07-18.08"
+W1_RELEASE_ID = "D3-W1-2026-07-18.08"
 PHASE = "OPEN_DISCOVERY"
 INSTANCE_ID = "i-0e53d134dceffe166"
+INSTANCE_TYPE = "r8g.2xlarge"
 ROLE = "w09-research-runner"
 PLAN_INSTALL_PATH = "/etc/w09/deep03/adopted-plan.md"
 WRITE_ROOTS = {
@@ -529,6 +530,7 @@ def validate_authority_bundle(
         "authorized_phase_id": PHASE,
         "authorized_work_package_id": WORK_PACKAGE,
         "authorized_instance_id": INSTANCE_ID,
+        "authorized_instance_type": INSTANCE_TYPE,
         "authorized_role": ROLE,
         "mode": MODE,
         "execution_class": "EXPLORATORY_ONLY",
@@ -598,9 +600,9 @@ def validate_authority_bundle(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
     if w0_release_id != W0_RELEASE_ID:
-        raise AuthorityError("W0 release ID differs from the fixed .06 release")
+        raise AuthorityError("W0 release ID differs from the fixed .08 release")
     if w1_release_id != W1_RELEASE_ID:
-        raise AuthorityError("W1 release ID differs from the fixed .06 release")
+        raise AuthorityError("W1 release ID differs from the fixed .08 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
@@ -752,6 +754,7 @@ def validate_authority_bundle(
         "authority_sha256": authority_sha,
         "base_commit": runtime_commit,
         "authorized_work_package_id": WORK_PACKAGE,
+        "authorized_instance_type": INSTANCE_TYPE,
         "mode": MODE,
     }
     for field, expected in arm_fixed.items():
@@ -778,6 +781,7 @@ def validate_authority_bundle(
         "mode": MODE,
         "authorized_phase_id": PHASE,
         "authorized_work_package_id": WORK_PACKAGE,
+        "authorized_instance_type": INSTANCE_TYPE,
         "input_start_date": start_date,
         "input_end_date": end_date,
         "authorized_input_release_ids": release_ids,
