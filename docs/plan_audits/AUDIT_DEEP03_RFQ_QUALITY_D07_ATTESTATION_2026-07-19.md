@@ -206,3 +206,153 @@ caller-trust" property against the adversary the finding named, because the
    irrelevant by construction), and G1 must become a PASS-state gate.
 
 — end of audit —
+
+---
+
+# Re-audit of 77416c0 (repair commit on top of e9308e3)
+
+- **VERDICT: ✅ PASS — with one explicit deployment-gate blocker (anchor
+  provenance wiring, below). Both reopened findings F1 and F2 are genuinely
+  closed at module scope; all four P1s remain closed; no regressions.**
+- Audited HEAD: `77416c04922bd695cf4df83b4adf64c56b35f394` (one commit on
+  top of the previously audited `e9308e3`; parent verified), worktree clean
+  at re-audit start. Diff scope: the tool (+214/-28 lines), its test file
+  (+341 lines, zero removed assertions — verified by diff grep), two real
+  receipt fixtures under `tests/data/`, and this report file.
+- Prior report preservation: the committed copy of this file is byte-identical
+  to the original I wrote (sha256
+  `e3e58cfd952711463a548f1ccde2cc4ae0d2121901fa6516f786c0e9d0eae3a6`,
+  `git show` vs working tree — match).
+
+## Test executions (all at 77416c0, run by this auditor)
+
+| Suite | Result | Claim |
+|---|---|---|
+| `tests/test_deep03_v3_rfq_bounded.py` | 30 passed | 30 ✅ |
+| 14-file `*rfq*` set | 584 passed in 51.69s | 584 ✅ |
+| Full branch tree `tests/` | 1758 passed, 3 skipped, 1 xfailed | 1758 ✅ |
+
+## F1 re-verdict — CLOSED (schema now matches reality, proven on real bytes)
+
+- Committed fixtures are byte-identical to the production receipts:
+  `tests/data/l2_gaps_2026-07-12.json` sha256
+  `b7d9aa3764c903872bc487924e324f18917131d6fb5349d96b0e4af651a9c7cf` and
+  `tests/data/l2_gaps_2026-07-13.json` sha256
+  `a18d01c39ef8bd587cbe2a89045100cc1d697409fc6fcee025e164649404b0d7` — both
+  hashed by me against the scratchpad production copies; exact match, and
+  they match the shas the repair claims.
+- `L2_QUALITY_RECEIPT_FIELDS` now includes `generated_at_utc`
+  (`deep03_v3_rfq_bounded.py:158-164`) with strict format validation
+  (`L2_QUALITY_GENERATED_RE`, exact `%Y-%m-%dT%H:%M:%SZ`, plus a real
+  calendar-validity parse, `:666-678`) — matching the writer's stamp at
+  `tools/l2_gap_check.py:254-255` exactly.
+- Field-set tripwire re-run by me against ALL SIX real receipts
+  (2026-07-12..17), not just the two committed: every one now equals the
+  canonical set exactly (symmetric difference empty).
+- G1 attack re-run on byte-exact real receipts through the full gate
+  (manifest-bound identity + reader attestation + body re-hash):
+  real 2026-07-12 → `state=PASS`, `blockers=[]`, `lines=28381830`;
+  real 2026-07-13 → `state=REFUSED`,
+  `blockers=['seq_gap_events=1', 'seq_missed_total=8']` — a genuine
+  quality refusal on real counters, not a schema error. Exactly as required.
+- No strictness regression: a receipt *missing* `generated_at_utc` (the old
+  synthetic shape) is now refused as missing; extra fields, omitted
+  counters, and five malformed `generated_at_utc` variants (int, space
+  separator, fractional seconds, numeric offset, invalid calendar date) are
+  all refused with `D07_L2_QUALITY_SCHEMA`.
+- The committed drift-tripwire test
+  (`test_l2_quality_gate_accepts_real_production_receipts`) asserts
+  `set(real_receipt) == L2_QUALITY_RECEIPT_FIELDS` on the real bytes, so a
+  future writer schema change breaks the build instead of silently
+  refusing production data.
+
+## F2 re-verdict — CLOSED at module scope (evidence chain now anchored); one named deployment blocker
+
+Attack replays (script preserved at scratchpad `attack_rfq_v2.py`):
+
+| # | Attack | e9308e3 | 77416c0 |
+|---|---|---|---|
+| I1 | Fabricated book row, invented `source_row_sha256` | ACCEPTED | REFUSED `IMPACT_ADAPTER_BOOK: hash does not bind the row's canonical bytes` (`:2489-2500` — row hash must equal SHA-256 of the row's own canonical bytes) ✅ |
+| I1b | Stronger: rebound self-consistent row hash + re-signed partition receipts (adapter-level consistency holds by construction) | n/a | adapter validates, then `_d07_result` → `BLOCKED_UNANCHORED_EVIDENCE` naming the mutated `partition_receipt_set` digest (`:2900-2960`) ✅ |
+| I2 | Self-signed producer receipt, `state=AUDITED_PASS` | ACCEPTED | `BLOCKED_UNANCHORED_EVIDENCE` (`producer_receipt:<sha>` unanchored) ✅ |
+| I3 | Offline-synthesized reader attestation | ACCEPTED | `BLOCKED_UNANCHORED_EVIDENCE` ✅ |
+| I0 | No anchor supplied at all | n/a | `BLOCKED_UNANCHORED_EVIDENCE` with detail "self-consistent ... are not proof" ✅ |
+| I5 | Genuine anchored path sanity | n/a | `EXPLORATORY_OBSERVED`, observed=1, anchor sha + authority recorded in the result ✅ |
+| I6 | Anchor `state` tamper (stale self-digest) | n/a | refused (`D07_ANCHOR_INVALID`; digest check would also catch it) ✅ |
+| **I4b** | **Caller-forged anchor** (`state=INDEPENDENT_AUDIT_PASS`, enumerating MY forged digests) + fully forged chain | n/a | **`EXPLORATORY_OBSERVED` from fabricated books** — see judgment below |
+
+Mechanism verified in code: `source_row_sha256` is now binding
+(recomputed from the row's canonical bytes, `:2489-2500`); per-family
+evidence row-set digests are accumulated during recompute (`:2606-2608`,
+`:2764-2769`) and must equal the `evidence_row_set_sha256` in each
+partition receipt (`:2803-2810`); the partition receipt set digest, the
+reader attestation digest, and the producer receipt digest must all appear
+in the external anchor (`:2900-2960`) or D07 is
+`BLOCKED_UNANCHORED_EVIDENCE`; the anchor requires
+`state=INDEPENDENT_AUDIT_PASS`, a named `audit_authority`, valid unique
+hex digests, and a self-digest (`:2331-2377`). Order-of-checks is safe:
+anchored digests are matched against fields whose content↔digest binding
+is enforced later in `_validate_impact_adapter` via `_verify_self_digest`,
+so an anchored sha cannot be pasted onto different content.
+
+**Judgment on I4b (the anchor itself as attack surface):** the
+`d07_external_anchor` argument is caller-supplied, and no code in the repo
+derives it from anything — I verified there is NO caller of
+`run_bounded_fresh_rfq` anywhere in `tools/` or `deploy/` at this HEAD, so
+no runner entrypoint exists that could wire it correctly or incorrectly.
+The module's stated contract (`:141-147`, `:2331-2338`) is that the
+runtime gate validates a root-installed 0444 independent-audit receipt at
+startup and sources the anchor exclusively from it. A Python callee cannot
+verify the provenance of a dict argument; the anchor correctly moves the
+trust root from "any evidence-payload supplier" (the F2 adversary — now
+fully blocked) to "the run invoker's harness", which is the outermost
+boundary an in-process design can reach without taking a *path* and
+enforcing `os.stat` root/0444 checks in-module. I judge this an
+**acceptable deployment-side dependency per the stated contract**, NOT a
+remaining P0, because (a) the named F2 adversary (adapter/evidence
+producer) can no longer forge anything, (b) integration/deployment of this
+branch is already hard-gated behind separate independent audits in the
+handoff continuation order, and (c) the result permanently records
+`external_anchor_sha256` + `external_anchor_authority` for final
+reconciliation (step 10). **BUT this is only sound if enforced downstream —
+explicit blocker below.**
+
+### MANDATORY BLOCKER for the future W09 runner / integration audit
+
+The (not-yet-written) runner entrypoint MUST derive `d07_external_anchor`
+exclusively by reading and validating the root-installed 0444 runtime
+audit receipt (path-pinned, `os.stat` uid==0 and mode==0444 checked,
+sha-verified), never accept it as configuration or CLI input, and the
+integration audit MUST verify that wiring with its own adversarial test.
+Recommended hardening for that stage: change the module to accept an
+anchor *file path* and perform the stat/provenance checks itself.
+Until that audit passes, my I4b forgery (caller-forged anchor →
+`EXPLORATORY_OBSERVED` from fabricated books) remains reproducible by
+whoever controls the run invocation.
+
+## P1 regression check — all four still closed
+
+The repair diff contains no hunks in `_resource_preflight`
+(dual-filesystem `st_dev` logic), the DuckDB spill pinning/cap section,
+the expansion-factor constants/justification, or the clock-tolerance
+constants and import guard (verified by hunk inspection of
+`git diff e9308e3..77416c0`). Constants re-checked live:
+`MAX_RFQ_CLOCK_ABS_SKEW_US == 5_000_000`, authority string intact; the
+preflight and spill tests are among the 30 passing.
+
+## Other checks
+
+- No weakened assertions: `git diff e9308e3..77416c0 -- tests/` removes
+  zero `assert`/`raises` lines; the one modified test
+  (`stray_book`) now re-binds the row hash so the *unattested-object*
+  check is reached — the invented-hash case is separately covered by the
+  new I1 test. `_minimal_mapping` gained `mapping_input_ticker_count` (a
+  field the full-path conservation check requires), not a weakening.
+- Worktree clean at HEAD before this append; nothing committed by this
+  audit.
+
+**Re-audit verdict: PASS** (F1 closed on real bytes; F2 closed at module
+scope with the anchor-wiring blocker recorded above as a mandatory item
+for the runner/integration audit).
+
+— end of re-audit —
