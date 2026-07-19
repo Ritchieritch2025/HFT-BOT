@@ -61,6 +61,26 @@ MAX_EXPORT_FILE_BYTES = 32 * 1024 * 1024
 MAX_EXPORT_FILES = 256
 MAX_REPORT_DEPTH = 8
 ARM_MAX_AGE_SECONDS = 60
+REMOTE_LIFECYCLE_STATES = {
+    "PREPARED",
+    "ABORTED",
+    "COMMITTED",
+    "START_ARMED",
+    "WORKER_INVOKED",
+    "START_FAILED",
+}
+JOB_STATUS_RANK = {
+    "QUEUED": 1,
+    "PREFLIGHT": 2,
+    "READY": 3,
+    "RUNNING": 4,
+    "COMPLETE": 5,
+    "BLOCKED": 5,
+    "FAILED": 5,
+    "REFUSED": 5,
+}
+TERMINAL_JOB_STATES = {"COMPLETE", "BLOCKED", "FAILED", "REFUSED"}
+STARTED_LIFECYCLE_STATES = {"START_ARMED", "WORKER_INVOKED", "START_FAILED"}
 
 _PRIVATE_KEY_RE = re.compile(
     rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
@@ -243,8 +263,13 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
-    fd = os.open(temporary, flags, 0o640)
+    # ``start`` runs through the root-only sudo boundary while receive/export
+    # run as ubuntu.  State records contain no secret and live in a 0750
+    # directory, so keep the replaced inode readable across that UID handoff;
+    # ubuntu can atomically replace it because it owns the directory.
+    fd = os.open(temporary, flags, 0o644)
     try:
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "wb", closefd=False) as handle:
             handle.write(payload)
             handle.flush()
@@ -272,10 +297,31 @@ def _read_state(paths: Mapping[str, Path], job_id: str) -> dict[str, Any] | None
     if not path.exists() and not path.is_symlink():
         return None
     state = _json(_read_regular(path, label="dispatch state", limit=1024 * 1024), "dispatch state")
-    if state.get("schema_version") != SCHEMA_STATE or state.get("job_id") != job_id:
+    if (
+        state.get("schema_version") != SCHEMA_STATE
+        or state.get("job_id") != job_id
+        or state.get("state") not in REMOTE_LIFECYCLE_STATES
+        or not isinstance(state.get("incoming_prepared"), bool)
+    ):
         raise ResearchInboxControlError("dispatch state does not bind this job")
     if state.get("bundle_sha256") is not None:
         _bundle_sha(state["bundle_sha256"])
+    if state["state"] in {"COMMITTED", *STARTED_LIFECYCLE_STATES}:
+        immutable = state.get("immutable_sha256s")
+        if (
+            not isinstance(immutable, dict)
+            or set(immutable) != {"PLAN.md", "JOB_SPEC.json", "REQUEST.json"}
+            or any(
+                not isinstance(value, str) or SHA256_RE.fullmatch(value) is None
+                for value in immutable.values()
+            )
+            or not isinstance(state.get("initial_status_sha256"), str)
+            or SHA256_RE.fullmatch(state["initial_status_sha256"]) is None
+            or state.get("last_status_state") not in JOB_STATUS_RANK
+            or not isinstance(state.get("last_status_sha256"), str)
+            or SHA256_RE.fullmatch(state["last_status_sha256"]) is None
+        ):
+            raise ResearchInboxControlError("committed dispatch binding is incomplete")
     return state
 
 
@@ -286,7 +332,13 @@ def _write_state(
     state: str,
     *,
     immutable_sha256s: Mapping[str, str] | None = None,
+    initial_status_sha256: str | None = None,
+    last_status_state: str | None = None,
+    last_status_sha256: str | None = None,
+    incoming_prepared: bool = False,
 ) -> None:
+    if state not in REMOTE_LIFECYCLE_STATES:
+        raise ResearchInboxControlError("invalid remote lifecycle state")
     value: dict[str, Any] = {
         "schema_version": SCHEMA_STATE,
         "job_id": job_id,
@@ -294,10 +346,39 @@ def _write_state(
         "state": state,
         "data_files_received": 0,
         "data_access": DATA_PLANE,
+        "incoming_prepared": bool(incoming_prepared),
     }
     if immutable_sha256s is not None:
         value["immutable_sha256s"] = dict(immutable_sha256s)
+    if initial_status_sha256 is not None:
+        value["initial_status_sha256"] = initial_status_sha256
+    if last_status_state is not None:
+        value["last_status_state"] = last_status_state
+    if last_status_sha256 is not None:
+        value["last_status_sha256"] = last_status_sha256
     _atomic_json(_state_path(paths, job_id), value)
+
+
+def _binding_from_controls(controls: Mapping[str, bytes]) -> dict[str, Any]:
+    initial_status_sha = _sha(controls["STATUS.json"])
+    return {
+        "immutable_sha256s": {
+            name: _sha(controls[name])
+            for name in ("PLAN.md", "JOB_SPEC.json", "REQUEST.json")
+        },
+        "initial_status_sha256": initial_status_sha,
+        "last_status_state": "QUEUED",
+        "last_status_sha256": initial_status_sha,
+    }
+
+
+def _state_binding(state: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "immutable_sha256s": state.get("immutable_sha256s"),
+        "initial_status_sha256": state.get("initial_status_sha256"),
+        "last_status_state": state.get("last_status_state"),
+        "last_status_sha256": state.get("last_status_sha256"),
+    }
 
 
 def _clean_incoming(path: Path) -> None:
@@ -314,7 +395,7 @@ def _clean_incoming(path: Path) -> None:
     path.rmdir()
 
 
-def _validate_controls(job_dir: Path, job_id: str) -> tuple[dict[str, bytes], str]:
+def _validate_initial_controls(job_dir: Path, job_id: str) -> tuple[dict[str, bytes], str]:
     if job_dir.is_symlink() or not job_dir.is_dir():
         raise ResearchInboxControlError("job directory is missing or unsafe")
     entries = list(job_dir.iterdir())
@@ -404,31 +485,93 @@ def _validate_controls(job_dir: Path, job_id: str) -> tuple[dict[str, bytes], st
     return controls, _sha(_canonical(manifest))
 
 
+def _validate_runtime_status(
+    job_dir: Path, job_id: str, state: Mapping[str, Any]
+) -> tuple[bytes, dict[str, Any]]:
+    raw = _read_regular(
+        job_dir / "STATUS.json",
+        label="STATUS.json",
+        limit=CONTROL_LIMITS["STATUS.json"],
+    )
+    value = _json(raw, "STATUS.json")
+    current = value.get("state")
+    previous = state.get("last_status_state")
+    if (
+        value.get("schema_version") != "research-job-status-v1"
+        or value.get("job_id") != job_id
+        or current not in JOB_STATUS_RANK
+        or previous not in JOB_STATUS_RANK
+        or raw != _canonical(value)
+    ):
+        raise ResearchInboxControlError("mutable STATUS.json violates its job contract")
+    if JOB_STATUS_RANK[current] < JOB_STATUS_RANK[previous]:
+        raise ResearchInboxControlError("mutable STATUS.json regressed")
+    if previous in TERMINAL_JOB_STATES and current != previous:
+        raise ResearchInboxControlError("mutable STATUS.json replaced a terminal state")
+    if state.get("state") == "COMMITTED" and (
+        current != "QUEUED"
+        or _sha(raw) != state.get("initial_status_sha256")
+        or value.get("research_execution_started") is not False
+    ):
+        raise ResearchInboxControlError("unstarted committed job STATUS.json drifted")
+    return raw, value
+
+
+def _validate_immutable_inputs(
+    job_dir: Path, job_id: str, state: Mapping[str, Any]
+) -> None:
+    if job_dir.is_symlink() or not job_dir.is_dir():
+        raise ResearchInboxControlError("committed job directory is unsafe")
+    immutable = state.get("immutable_sha256s")
+    for name in ("PLAN.md", "JOB_SPEC.json", "REQUEST.json"):
+        raw = _read_regular(job_dir / name, label=name, limit=CONTROL_LIMITS[name])
+        if _sha(raw) != immutable.get(name):
+            raise ResearchInboxControlError(
+                "committed immutable control drifted: %s" % name
+            )
+
+
 def prepare_receive(root: Path, job_id: str, bundle_sha256: str) -> dict[str, Any]:
     job_id = _job_id(job_id)
     bundle_sha256 = _bundle_sha(bundle_sha256)
     paths = _layout(root)
     with _lock(paths, job_id):
         state = _read_state(paths, job_id)
+        if state is not None and state.get("state") in STARTED_LIFECYCLE_STATES:
+            raise ResearchInboxControlError(
+                "started or planned job cannot be prepared for overwrite"
+            )
         if state is not None and state.get("bundle_sha256") not in {None, bundle_sha256}:
             raise ResearchInboxControlError("job id is already bound to another bundle")
         final = paths["jobs"] / job_id
+        binding: dict[str, Any] | None = None
         if final.exists() or final.is_symlink():
-            _, existing_sha = _validate_controls(final, job_id)
+            controls, existing_sha = _validate_initial_controls(final, job_id)
             if existing_sha != bundle_sha256:
                 raise ResearchInboxControlError("committed job differs from requested bundle")
+            binding = _binding_from_controls(controls)
         incoming = paths["incoming"] / job_id
         _clean_incoming(incoming)
         incoming.mkdir(mode=0o700)
-        _write_state(
-            paths,
-            job_id,
-            bundle_sha256,
-            "PREPARED",
-            immutable_sha256s=(
-                state.get("immutable_sha256s") if isinstance(state, dict) else None
-            ),
-        )
+        if binding is None:
+            if state is not None and state.get("state") == "COMMITTED":
+                raise ResearchInboxControlError("committed job directory disappeared")
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                "PREPARED",
+                incoming_prepared=True,
+            )
+        else:
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                "COMMITTED",
+                incoming_prepared=True,
+                **binding,
+            )
     return {"state": "PREPARED", "job_id": job_id, "bundle_sha256": bundle_sha256}
 
 
@@ -438,18 +581,30 @@ def abort_receive(root: Path, job_id: str, bundle_sha256: str) -> dict[str, Any]
     paths = _layout(root)
     with _lock(paths, job_id):
         state = _read_state(paths, job_id)
-        if state is None or state.get("bundle_sha256") != bundle_sha256:
+        if (
+            state is None
+            or state.get("state") not in {"PREPARED", "COMMITTED"}
+            or state.get("bundle_sha256") != bundle_sha256
+            or state.get("incoming_prepared") is not True
+        ):
             raise ResearchInboxControlError("abort does not bind the prepared bundle")
         _clean_incoming(paths["incoming"] / job_id)
         final = paths["jobs"] / job_id
-        next_state = "COMMITTED" if final.is_dir() and not final.is_symlink() else "ABORTED"
-        _write_state(
-            paths,
-            job_id,
-            bundle_sha256,
-            next_state,
-            immutable_sha256s=state.get("immutable_sha256s"),
-        )
+        if final.exists() or final.is_symlink():
+            controls, actual = _validate_initial_controls(final, job_id)
+            if actual != bundle_sha256:
+                raise ResearchInboxControlError("committed job drifted during abort")
+            next_state = "COMMITTED"
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                next_state,
+                **_binding_from_controls(controls),
+            )
+        else:
+            next_state = "ABORTED"
+            _write_state(paths, job_id, bundle_sha256, next_state)
     return {"state": next_state, "job_id": job_id, "bundle_sha256": bundle_sha256}
 
 
@@ -463,16 +618,17 @@ def commit_receive(root: Path, job_id: str, bundle_sha256: str) -> dict[str, Any
             state is None
             or state.get("state") not in {"PREPARED", "COMMITTED"}
             or state.get("bundle_sha256") != bundle_sha256
+            or state.get("incoming_prepared") is not True
         ):
             raise ResearchInboxControlError("bundle was not prepared by this protocol")
         incoming = paths["incoming"] / job_id
-        controls, actual_sha = _validate_controls(incoming, job_id)
+        controls, actual_sha = _validate_initial_controls(incoming, job_id)
         if actual_sha != bundle_sha256:
             raise ResearchInboxControlError("uploaded controls differ from the prepared bundle")
         final = paths["jobs"] / job_id
         idempotent = False
         if final.exists() or final.is_symlink():
-            _, existing_sha = _validate_controls(final, job_id)
+            _, existing_sha = _validate_initial_controls(final, job_id)
             if existing_sha != bundle_sha256:
                 raise ResearchInboxControlError("job id collision with another committed bundle")
             _clean_incoming(incoming)
@@ -492,10 +648,7 @@ def commit_receive(root: Path, job_id: str, bundle_sha256: str) -> dict[str, Any
             job_id,
             bundle_sha256,
             "COMMITTED",
-            immutable_sha256s={
-                name: _sha(controls[name])
-                for name in ("PLAN.md", "JOB_SPEC.json", "REQUEST.json")
-            },
+            **_binding_from_controls(controls),
         )
     return {
         "state": "COMMITTED_NOT_STARTED",
@@ -507,40 +660,24 @@ def commit_receive(root: Path, job_id: str, bundle_sha256: str) -> dict[str, Any
     }
 
 
-def _committed_bundle(root: Path, job_id: str, bundle_sha256: str | None = None) -> str:
+def _committed_snapshot(
+    root: Path, job_id: str, bundle_sha256: str | None = None
+) -> tuple[str, dict[str, Any], bytes, dict[str, Any]]:
     job_id = _job_id(job_id)
     paths = _layout(root)
     state = _read_state(paths, job_id)
-    if state is None or state.get("state") != "COMMITTED":
+    if state is None or state.get("state") not in {
+        "COMMITTED",
+        *STARTED_LIFECYCLE_STATES,
+    }:
         raise ResearchInboxControlError("job is not atomically committed")
     expected = _bundle_sha(state.get("bundle_sha256"))
     if bundle_sha256 is not None and _bundle_sha(bundle_sha256) != expected:
         raise ResearchInboxControlError("committed bundle SHA-256 mismatch")
     job_dir = paths["jobs"] / job_id
-    if job_dir.is_symlink() or not job_dir.is_dir():
-        raise ResearchInboxControlError("committed job directory is unsafe")
-    immutable = state.get("immutable_sha256s")
-    immutable_names = ("PLAN.md", "JOB_SPEC.json", "REQUEST.json")
-    if (
-        not isinstance(immutable, dict)
-        or set(immutable) != set(immutable_names)
-        or any(SHA256_RE.fullmatch(value) is None for value in immutable.values())
-    ):
-        raise ResearchInboxControlError("committed immutable control map is invalid")
-    for name in immutable_names:
-        raw = _read_regular(job_dir / name, label=name, limit=CONTROL_LIMITS[name])
-        if _sha(raw) != immutable[name]:
-            raise ResearchInboxControlError("committed immutable control drifted: %s" % name)
-    status_raw = _read_regular(
-        job_dir / "STATUS.json", label="STATUS.json", limit=CONTROL_LIMITS["STATUS.json"]
-    )
-    status_value = _json(status_raw, "STATUS.json")
-    if (
-        status_value.get("schema_version") != "research-job-status-v1"
-        or status_value.get("job_id") != job_id
-    ):
-        raise ResearchInboxControlError("committed STATUS.json does not bind this job")
-    return expected
+    _validate_immutable_inputs(job_dir, job_id, state)
+    status_raw, status_value = _validate_runtime_status(job_dir, job_id, state)
+    return expected, state, status_raw, status_value
 
 
 def _arm_path(run_root: Path, job_id: str) -> Path:
@@ -560,7 +697,15 @@ def verify_start_arm(root: Path, run_root: Path, job_id: str) -> dict[str, Any]:
         or time.time() > float(arm["expires_at_epoch"])
     ):
         raise ResearchInboxControlError("explicit start arm is invalid or expired")
-    bundle = _committed_bundle(root, job_id, arm.get("bundle_sha256"))
+    bundle, state, status_raw, status_value = _committed_snapshot(
+        root, job_id, arm.get("bundle_sha256")
+    )
+    if (
+        state.get("state") != "START_ARMED"
+        or status_value.get("state") != "QUEUED"
+        or _sha(status_raw) != state.get("initial_status_sha256")
+    ):
+        raise ResearchInboxControlError("explicit start arm does not bind a pristine queued job")
     return {"state": "EXPLICIT_START_ARM_VALID", "job_id": job_id, "bundle_sha256": bundle}
 
 
@@ -579,7 +724,23 @@ def start_committed_job(
         raise ResearchInboxControlError("explicit start must use the installed sudo boundary")
     paths = _layout(root)
     with _lock(paths, job_id):
-        _committed_bundle(root, job_id, bundle_sha256)
+        _expected, state, status_raw, status_value = _committed_snapshot(
+            root, job_id, bundle_sha256
+        )
+        if (
+            state.get("state") != "COMMITTED"
+            or state.get("incoming_prepared") is not False
+            or status_value.get("state") != "QUEUED"
+            or _sha(status_raw) != state.get("initial_status_sha256")
+        ):
+            raise ResearchInboxControlError(
+                "explicit start requires the pristine initial committed job"
+            )
+        _controls, initial_bundle = _validate_initial_controls(
+            paths["jobs"] / job_id, job_id
+        )
+        if initial_bundle != bundle_sha256:
+            raise ResearchInboxControlError("initial committed bundle drifted before start")
         run_root = Path(run_root)
         if run_root.is_symlink():
             raise ResearchInboxControlError("start arm root is a symlink")
@@ -587,19 +748,34 @@ def start_committed_job(
         arm_path = _arm_path(run_root, job_id)
         if arm_path.exists() or arm_path.is_symlink():
             raise ResearchInboxControlError("explicit start arm already exists")
-        _atomic_json(
-            arm_path,
-            {
-                "schema_version": SCHEMA_ARM,
-                "job_id": job_id,
-                "bundle_sha256": bundle_sha256,
-                "worker_unit": WORKER_UNIT_TEMPLATE,
-                "controller_pid": os.getpid(),
-                "expires_at_epoch": time.time() + ARM_MAX_AGE_SECONDS,
-            },
-        )
-        arm_path.chmod(0o400)
+        try:
+            _atomic_json(
+                arm_path,
+                {
+                    "schema_version": SCHEMA_ARM,
+                    "job_id": job_id,
+                    "bundle_sha256": bundle_sha256,
+                    "worker_unit": WORKER_UNIT_TEMPLATE,
+                    "controller_pid": os.getpid(),
+                    "expires_at_epoch": time.time() + ARM_MAX_AGE_SECONDS,
+                },
+            )
+            arm_path.chmod(0o400)
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                "START_ARMED",
+                **_state_binding(state),
+            )
+        except Exception:
+            try:
+                arm_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
         unit = WORKER_UNIT_TEMPLATE.replace("@.", "@%s." % job_id)
+        failure: ResearchInboxControlError | None = None
         try:
             result = runner(
                 [SYSTEMCTL, "start", unit],
@@ -611,22 +787,53 @@ def start_committed_job(
                 timeout=1800,
             )
             if result.returncode != 0:
-                raise ResearchInboxControlError(
+                failure = ResearchInboxControlError(
                     "fixed generic worker returned rc=%s" % result.returncode
                 )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise ResearchInboxControlError("fixed generic worker could not start") from exc
+            failure = ResearchInboxControlError("fixed generic worker could not start")
+            failure.__cause__ = exc
         finally:
             try:
                 arm_path.unlink()
             except FileNotFoundError:
                 pass
+        try:
+            _current_bundle, armed_state, current_raw, current_status = _committed_snapshot(
+                root, job_id, bundle_sha256
+            )
+            if failure is None and current_status.get("state") == "QUEUED":
+                failure = ResearchInboxControlError(
+                    "generic planning worker returned without advancing STATUS.json"
+                )
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                "WORKER_INVOKED" if failure is None else "START_FAILED",
+                immutable_sha256s=armed_state["immutable_sha256s"],
+                initial_status_sha256=armed_state["initial_status_sha256"],
+                last_status_state=current_status["state"],
+                last_status_sha256=_sha(current_raw),
+            )
+        except ResearchInboxControlError:
+            _write_state(
+                paths,
+                job_id,
+                bundle_sha256,
+                "START_FAILED",
+                **_state_binding(state),
+            )
+            raise
+        if failure is not None:
+            raise failure
     return {
         "state": "GENERIC_PLANNING_WORKER_COMPLETED",
         "job_id": job_id,
         "bundle_sha256": bundle_sha256,
         "worker_unit": unit,
         "research_execution_started": False,
+        "planning_status": current_status["state"],
     }
 
 
@@ -643,11 +850,10 @@ def _safe_report_file(report_root: Path, path: Path) -> PurePosixPath:
     return PurePosixPath("REPORT", *relative.parts)
 
 
-def _output_snapshot(job_dir: Path, job_id: str) -> dict[PurePosixPath, bytes]:
-    first = _read_regular(job_dir / "STATUS.json", label="STATUS.json", limit=1024 * 1024)
-    status_value = _json(first, "STATUS.json")
-    if status_value.get("schema_version") != "research-job-status-v1" or status_value.get("job_id") != job_id:
-        raise ResearchInboxControlError("STATUS.json does not bind this job")
+def _output_snapshot(
+    job_dir: Path, job_id: str, state: Mapping[str, Any]
+) -> dict[PurePosixPath, bytes]:
+    first, status_value = _validate_runtime_status(job_dir, job_id, state)
     files: dict[PurePosixPath, bytes] = {PurePosixPath("STATUS.json"): first}
     if status_value.get("state") == "COMPLETE":
         results = _read_regular(
@@ -687,8 +893,21 @@ def export_outputs(root: Path, job_id: str) -> bytes:
     job_id = _job_id(job_id)
     paths = _layout(root)
     with _lock(paths, job_id):
-        _committed_bundle(root, job_id)
-        files = _output_snapshot(paths["jobs"] / job_id, job_id)
+        _bundle, state, _status_raw, _status_value = _committed_snapshot(root, job_id)
+        files = _output_snapshot(paths["jobs"] / job_id, job_id, state)
+        exported_status_raw = files[PurePosixPath("STATUS.json")]
+        exported_status = _json(exported_status_raw, "STATUS.json")
+        _write_state(
+            paths,
+            job_id,
+            state["bundle_sha256"],
+            state["state"],
+            immutable_sha256s=state["immutable_sha256s"],
+            initial_status_sha256=state["initial_status_sha256"],
+            last_status_state=exported_status["state"],
+            last_status_sha256=_sha(exported_status_raw),
+            incoming_prepared=state["incoming_prepared"],
+        )
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w", format=tarfile.PAX_FORMAT) as archive:
         for path, payload in sorted(files.items(), key=lambda item: str(item[0])):
