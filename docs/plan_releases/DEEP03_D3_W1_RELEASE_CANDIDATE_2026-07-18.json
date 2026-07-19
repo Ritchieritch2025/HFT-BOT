@@ -1,7 +1,7 @@
 {
   "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
   "all_inputs_prior_exposed": true,
-  "audit_sha256": "7b9c448096488a34324ab543e4bbeeed36ee5d62f5613c7f85efed1f95115ad2",
+  "audit_sha256": "c0fec224f6bcde264264ab46632699cf2c8386867776c6475e2761119d7ffc29",
   "authorized_input_dates": [
     "2026-07-10",
     "2026-07-11",
@@ -23,17 +23,18 @@
     "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
   ],
   "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+  "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
   "expected_object_bytes": 29473216651,
   "expected_object_count": 2657,
   "holdout_opened": false,
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W1-2026-07-18.02",
+  "release_id": "D3-W1-2026-07-18.08",
   "research_execution_authority": false,
   "rfq_included": false,
-  "runtime_commit": "06443852ce924e8a46f1f0d9e22fa806bce24462",
+  "runtime_commit": "b0d56eb62068d31f3846a1cf20ccb755ff6ca848",
   "schema_version": "deep03-w1-release-v1",
   "state": "RELEASE_CANDIDATE",
   "strict_acceptance_claimed": false,
-  "w0_release_id": "D3-W0-2026-07-18.02",
-  "w0_release_sha256": "ff90bff5fff3c1e6a1226709cf0b45cb55b5454d16f576e6ed64ca61f0c80ba0"
+  "w0_release_id": "D3-W0-2026-07-18.08",
+  "w0_release_sha256": "cba7623e3e44c50de786f15b5b4c654229afa040acff1162da09a23accbef895"
 }

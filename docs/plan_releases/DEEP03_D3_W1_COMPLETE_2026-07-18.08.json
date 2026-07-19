@@ -1,0 +1,176 @@
+{
+  "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
+  "all_inputs_prior_exposed": true,
+  "artifacts_sha256": {
+    "DATA_QUALITY_RECEIPT.json": "fe9382d0f499fa42c41981a37975d8a07de97efd8bb4640672966c70db908643",
+    "INPUT_MANIFEST.json": "1c7ba5d28be9f674e72d19f30ecfae33dcefcd1a5ebe977219c267eead453ca5",
+    "PRIOR_EXPOSURE_LEDGER.jsonl": "7e3e62e2f37dced540eff5d6c536b613737f8e80206fb06ec8c7d7f90e023dae",
+    "SPLIT_MANIFEST_OPEN_DISCOVERY.json": "04c9ecae1eb43ccc184baaf4a6903b38c64aa1465e5059966c2a17e64c025ebc"
+  },
+  "audit_sha256": "c0fec224f6bcde264264ab46632699cf2c8386867776c6475e2761119d7ffc29",
+  "authorized_input_release_ids": [
+    "2026-07-10__v3ref__seal-86c01ed0__pub-45f5b99ff4fdf580",
+    "2026-07-11__v3ref__seal-de2e77c8__pub-e038f638b307da69",
+    "2026-07-12__v3ref__seal-bc37de4c__pub-abd451660aeedf0c",
+    "2026-07-13__v3ref__seal-7f6e5c1b__pub-55f66e41dba1484d",
+    "2026-07-14__v3ref__seal-2d6a4941__pub-748d8d77f665d60a",
+    "2026-07-15__v3ref__seal-22aa1b04__pub-4ae53f539c340052",
+    "2026-07-16__v3ref__seal-60b2674e__pub-fd365b5cd76099a0",
+    "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
+  ],
+  "completed_at_utc": "2026-07-19T00:37:02Z",
+  "embedded_data_quality_receipt": {
+    "all_inputs_prior_exposed": true,
+    "canaries": [
+      {
+        "date": "2026-07-10",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-10.json",
+        "release_id": "2026-07-10__v3ref__seal-86c01ed0__pub-45f5b99ff4fdf580",
+        "rfq": "OFF",
+        "sha256": "853c7a0c66b04a4cf9ee71cee96f841a1c7b4db9e611a6204bef7a7ebba06627",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 2
+      },
+      {
+        "date": "2026-07-11",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-11.json",
+        "release_id": "2026-07-11__v3ref__seal-de2e77c8__pub-e038f638b307da69",
+        "rfq": "OFF",
+        "sha256": "3b5f2a72bbfeee32a8bd3042ee2b76c281ab633472620649f478fd5005eac813",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 2
+      },
+      {
+        "date": "2026-07-12",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-12.json",
+        "release_id": "2026-07-12__v3ref__seal-bc37de4c__pub-abd451660aeedf0c",
+        "rfq": "OFF",
+        "sha256": "90fa34b39790acea12961421f301592532f00c5b0a2f632830ff6b94a7cd4077",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      },
+      {
+        "date": "2026-07-13",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-13.json",
+        "release_id": "2026-07-13__v3ref__seal-7f6e5c1b__pub-55f66e41dba1484d",
+        "rfq": "OFF",
+        "sha256": "8e799d4c2a371e31480c1f8a25dc30dcfe68a171ff55b6367d5a28049146c856",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      },
+      {
+        "date": "2026-07-14",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-14.json",
+        "release_id": "2026-07-14__v3ref__seal-2d6a4941__pub-748d8d77f665d60a",
+        "rfq": "OFF",
+        "sha256": "1679a7d9336939771c9ce4e96684c5e78187bcdd7a513a47c2b91bd5ed073ac0",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      },
+      {
+        "date": "2026-07-15",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-15.json",
+        "release_id": "2026-07-15__v3ref__seal-22aa1b04__pub-4ae53f539c340052",
+        "rfq": "OFF",
+        "sha256": "86e756d20c1f9ef118f4451d544de4ee17bd11ff2b9554a6877c3da3e471f690",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      },
+      {
+        "date": "2026-07-16",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-16.json",
+        "release_id": "2026-07-16__v3ref__seal-60b2674e__pub-fd365b5cd76099a0",
+        "rfq": "OFF",
+        "sha256": "eafd2d999f7b222c6b985915f4fa4a17f3a1d07cfcfb7e651fb2ee7e3a6cd4b5",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      },
+      {
+        "date": "2026-07-17",
+        "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+        "path": "/srv/w09-research/automation/canary-w1-03/canary-2026-07-17.json",
+        "release_id": "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7",
+        "rfq": "OFF",
+        "sha256": "42bc2702626fa38dfa33a08f74a688b0bcaf51b589b9393f6ab0b6719e75d081",
+        "state": "W09_V3_EXPLORATORY_QUERY_CANARY_PASS",
+        "strict_acceptance_claimed": false,
+        "table_count": 3
+      }
+    ],
+    "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+    "evidence_tier_counts": {
+      "SEALED_DEGRADED_EVIDENCE": 8
+    },
+    "exact_version_local_verification": "PASS",
+    "generated_at_utc": "2026-07-19T00:37:02Z",
+    "holdout_opened": false,
+    "limitations": [
+      "EXPLORATORY_ONLY",
+      "PRIOR_EXPOSED",
+      "NO_STRICT_ACCEPTANCE",
+      "NO_CONFIRMATION_OR_CANDIDATE_CLAIM"
+    ],
+    "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
+    "object_bytes": 29473216651,
+    "object_count": 2657,
+    "release_count": 8,
+    "release_dates": [
+      "2026-07-10",
+      "2026-07-11",
+      "2026-07-12",
+      "2026-07-13",
+      "2026-07-14",
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17"
+    ],
+    "release_ids": [
+      "2026-07-10__v3ref__seal-86c01ed0__pub-45f5b99ff4fdf580",
+      "2026-07-11__v3ref__seal-de2e77c8__pub-e038f638b307da69",
+      "2026-07-12__v3ref__seal-bc37de4c__pub-abd451660aeedf0c",
+      "2026-07-13__v3ref__seal-7f6e5c1b__pub-55f66e41dba1484d",
+      "2026-07-14__v3ref__seal-2d6a4941__pub-748d8d77f665d60a",
+      "2026-07-15__v3ref__seal-22aa1b04__pub-4ae53f539c340052",
+      "2026-07-16__v3ref__seal-60b2674e__pub-fd365b5cd76099a0",
+      "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
+    ],
+    "rfq": "OFF_AND_ABSENT",
+    "schema_version": "deep03-w1-data-quality-receipt-v1",
+    "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
+    "strict_acceptance_claimed": false,
+    "strict_canary_expected_state": "REFUSED_UNLESS_SEALED_CONFIRMATION",
+    "version_binding_mode": "CANONICAL_REFERENCE"
+  },
+  "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+  "holdout_opened": false,
+  "input_projection_sha256": "24984ac03fec0621ac9fe2164e13fee43eb1eeb075dba3562dbbb6a0ba0fe857",
+  "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
+  "network_reads_during_preflight": 0,
+  "object_bytes": 29473216651,
+  "object_count": 2657,
+  "release_count": 8,
+  "research_execution_started": false,
+  "rfq": "OFF_AND_ABSENT",
+  "s3_writes": 0,
+  "schema_version": "deep03-w1-exploratory-precheck-completion-v1",
+  "state": "W1_COMPLETE_EXPLORATORY_PRECHECK",
+  "strict_acceptance_claimed": false,
+  "w0_release_id": "D3-W0-2026-07-18.08",
+  "w0_release_sha256": "cba7623e3e44c50de786f15b5b4c654229afa040acff1162da09a23accbef895",
+  "w1_release_id": "D3-W1-2026-07-18.08",
+  "w1_release_sha256": "f8bf610a6402bef3b7acce8c519fd382858eb7f705d3146657ec57daf772927f"
+}
