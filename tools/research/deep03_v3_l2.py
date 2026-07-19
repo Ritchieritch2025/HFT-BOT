@@ -564,11 +564,21 @@ class L2ReplayEngine:
             self.qc["control_candidates"] += 1
         return _row_with_state(base, state), completed
 
-    def finish(self) -> list[dict[str, Any]]:
+    def finish(self, observation_end_ns: int | None = None) -> list[dict[str, Any]]:
+        """Close remaining episodes at a proven full-stream observation end.
+
+        Production supplies the exact date-wide last Sports L2 receive clock.
+        That mirrors the inherited clean-stream semantics: while the sealed
+        subscription stream remains live, absence of a delta for one market is
+        evidence that its displayed depth did not change.  Fixture callers may
+        omit it and receive the more conservative per-market boundary.
+        """
         completed = []
         for key, episode in list(self.open_episodes.items()):
             market, _side = key
             last = self.last_clock.get(market, int(episode["depletion_ns"]))
+            if observation_end_ns is not None:
+                last = max(last, int(observation_end_ns))
             horizon = int(episode["depletion_ns"]) + EPISODE_HORIZON_NS
             reason = (
                 "right_censored_1s_horizon"
@@ -867,6 +877,7 @@ def _replay_one_partition(
     episode_stage: str,
     episode_version: str,
     key: str,
+    observation_end_ns: int | None,
 ) -> tuple[dict[str, Any], dict[str, Any], bool]:
     replay_receipt_path = store._paths(replay_stage, key)[1]
     episode_receipt_path = store._paths(episode_stage, key)[1]
@@ -908,7 +919,10 @@ def _replay_one_partition(
         _insert_dict_rows(con, "l2_replay_build", REPLAY_COLUMNS, replay_batch)
         _insert_dict_rows(con, "l2_episode_build", EPISODE_COLUMNS, episode_batch)
     cursor.close()
-    _insert_dict_rows(con, "l2_episode_build", EPISODE_COLUMNS, engine.finish())
+    _insert_dict_rows(
+        con, "l2_episode_build", EPISODE_COLUMNS,
+        engine.finish(observation_end_ns=observation_end_ns),
+    )
     source_rows = int(engine.qc["source_rows"])
     replay_rows_count = int(con.execute(
         "SELECT count(*) FROM l2_replay_build"
@@ -1316,6 +1330,7 @@ def execute_l2_snbd_bounded(
     physical_keys: list[str] = []
     replay_keys: list[str] = []
     source_counts: dict[str, int] = {}
+    source_observation_ends: dict[str, int | None] = {}
     activity = {
         physical_stage: {"written": 0, "reused": 0},
         replay_stage: {"written": 0, "reused": 0},
@@ -1327,6 +1342,12 @@ def execute_l2_snbd_bounded(
         typed = _normalized_l2_sql(con, objects, date)
         source_count = int(con.execute(f"SELECT count(*) FROM ({typed})").fetchone()[0])
         source_counts[date] = source_count
+        observed_end = con.execute(
+            f"SELECT max(recv_wall_ns) FROM ({typed})"
+        ).fetchone()[0]
+        source_observation_ends[date] = (
+            int(observed_end) if observed_end is not None else None
+        )
         declared_counts = [obj.get("row_count") for obj in objects]
         if all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -1373,6 +1394,7 @@ def execute_l2_snbd_bounded(
     )
 
     for key in sorted(physical_keys):
+        partition_date = key[len("date=") : len("date=") + 10]
         replay_receipt, episode_receipt, reused = _replay_one_partition(
             con,
             store,
@@ -1382,6 +1404,7 @@ def execute_l2_snbd_bounded(
             episode_stage=episode_stage,
             episode_version=episode_version,
             key=key,
+            observation_end_ns=source_observation_ends[partition_date],
         )
         replay_keys.append(key)
         activity[replay_stage]["reused" if reused else "written"] += 1
