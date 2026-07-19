@@ -21,9 +21,10 @@ import os
 import platform
 import shutil
 import socket
+import stat
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from deep03_fullscope_graph import (
     METHOD_ID as GRAPH_METHOD_ID,
@@ -1262,6 +1263,322 @@ def run_fullscope_discovery(
         return run_dir / "RUN_COMPLETE.json"
     finally:
         lock_handle.close()
+
+
+# --------------------------------------------------------------------------
+# Fresh RFQ overlay unit — a SEPARATE cohort, never joined with the base.
+#
+# Cohort separation contract (operator scope decision, handoff
+# DEEP03_FULLSCOPE_L2_FRESH_RFQ_HANDOFF_2026-07-19):
+#   - base cohort: exact V3 releases 2026-07-10..17 (L1/trades/graph/L2),
+#     RFQ forbidden and absent (_require_base_without_rfq refuses any RFQ
+#     object in the historical INPUT_MANIFEST);
+#   - fresh RFQ cohort: post-T0 2026-07-20+ overlay generation only, with
+#     its own source binding, row-conservation ledger and claims;
+#   - the two cohorts are never merged into one manifest, binding or claim.
+#
+# D07 external anchor provenance (MANDATORY blocker I4b in
+# docs/plan_audits/AUDIT_DEEP03_RFQ_QUALITY_D07_ATTESTATION_2026-07-19.md):
+# the anchor may enter this runtime ONLY by reading the pinned
+# root-installed 0444 independent-audit receipt below.  No function in this
+# runner accepts a caller-constructed anchor object.
+# --------------------------------------------------------------------------
+
+FRESH_RFQ_COHORT_SCHEMA = "deep03-fullscope-fresh-rfq-cohort-receipt-v1"
+BASE_COHORT_ID = "HISTORICAL_BASE_L1_TRADES_L2_2026-07-10_2026-07-17"
+FRESH_RFQ_COHORT_ID = "FRESH_RFQ_POST_T0_2026-07-20"
+FRESH_RFQ_GENERATION = "fresh-rfq-20260720-01"
+FRESH_RFQ_STRICT_T0_UTC = "2026-07-20T00:00:00Z"
+D07_EXTERNAL_ANCHOR_INSTALL_PATH = Path(
+    "/etc/w09/deep03/d07-external-anchor.json"
+)
+D07_EXTERNAL_ANCHOR_MAX_BYTES = 1024 * 1024
+
+
+def _rfq_module():
+    """Import the audited RFQ overlay module lazily.
+
+    The base/L2 unit above must stay importable and byte-identical in
+    behavior even where the fresh-RFQ dependencies are not installed.
+    """
+    import deep03_v3_rfq_bounded
+
+    return deep03_v3_rfq_bounded
+
+
+def load_d07_external_anchor(
+    anchor_path: Path | str, *, expected_owner_uid: int = 0
+) -> dict[str, Any]:
+    """Load the D07 external anchor from the pinned root-installed receipt.
+
+    Fail-closed, typed provenance checks (auditor-recommended hardening for
+    blocker I4b): the path must be exactly the pinned /etc/w09/deep03/
+    install path; the file must be a regular non-symlink file
+    (``O_NOFOLLOW``), owned by ``expected_owner_uid`` (root in production),
+    with mode exactly 0444 (not writable by anyone), within the size bound;
+    and its bytes must parse to the audited external-anchor schema
+    (validated by the audited module itself).  This function is the ONLY
+    code path in this runner that can produce an anchor object.
+    """
+    rfq = _rfq_module()
+    anchor_path = Path(anchor_path)
+    if anchor_path != D07_EXTERNAL_ANCHOR_INSTALL_PATH:
+        raise rfq.FreshRfqResearchError(
+            "D07_ANCHOR_PATH",
+            "external anchor must be read from the pinned root-installed "
+            f"path {D07_EXTERNAL_ANCHOR_INSTALL_PATH}, not {anchor_path}",
+        )
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(anchor_path, flags)
+    except FileNotFoundError as exc:
+        raise rfq.FreshRfqResearchError(
+            "D07_ANCHOR_NOT_INSTALLED",
+            f"pinned external anchor receipt is not installed: {anchor_path}",
+        ) from exc
+    except OSError as exc:
+        raise rfq.FreshRfqResearchError(
+            "D07_ANCHOR_PROVENANCE",
+            f"pinned external anchor receipt is unreadable or linked: {exc}",
+        ) from exc
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise rfq.FreshRfqResearchError(
+                "D07_ANCHOR_PROVENANCE",
+                "pinned external anchor receipt is not a regular file",
+            )
+        if metadata.st_uid != expected_owner_uid:
+            raise rfq.FreshRfqResearchError(
+                "D07_ANCHOR_OWNER",
+                "pinned external anchor receipt has owner uid "
+                f"{metadata.st_uid}, required uid {expected_owner_uid}",
+            )
+        if stat.S_IMODE(metadata.st_mode) != 0o444:
+            raise rfq.FreshRfqResearchError(
+                "D07_ANCHOR_MODE",
+                "pinned external anchor receipt mode is "
+                f"0{stat.S_IMODE(metadata.st_mode):o}, required exactly 0444",
+            )
+        if not 0 < metadata.st_size <= D07_EXTERNAL_ANCHOR_MAX_BYTES:
+            raise rfq.FreshRfqResearchError(
+                "D07_ANCHOR_PROVENANCE",
+                "pinned external anchor receipt size is outside the bound",
+            )
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            raw = handle.read(D07_EXTERNAL_ANCHOR_MAX_BYTES + 1)
+        if len(raw) != metadata.st_size:
+            raise rfq.FreshRfqResearchError(
+                "D07_ANCHOR_PROVENANCE",
+                "pinned external anchor receipt changed while being read",
+            )
+    finally:
+        os.close(fd)
+    try:
+        payload = json.loads(raw)
+    except (UnicodeError, ValueError) as exc:
+        raise rfq.FreshRfqResearchError(
+            "D07_ANCHOR_INVALID",
+            f"pinned external anchor receipt is not valid JSON: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise rfq.FreshRfqResearchError(
+            "D07_ANCHOR_INVALID",
+            "pinned external anchor receipt root is not an object",
+        )
+    # The audited module's own schema validator (state, authority, digest
+    # lists, self-digest) is the final and only schema authority.
+    return rfq._validate_d07_external_anchor(payload)
+
+
+def discover_fresh_rfq_overlay_ready_paths(overlay_root: Path | str) -> list[Path]:
+    """Enumerate candidate overlay READY receipts under one local root."""
+    overlay_root = Path(overlay_root)
+    if not overlay_root.is_dir() or overlay_root.is_symlink():
+        return []
+    found: list[Path] = []
+    for child in sorted(overlay_root.iterdir()):
+        ready = child / "READY.json"
+        if (
+            child.is_dir()
+            and not child.is_symlink()
+            and ready.is_file()
+            and not ready.is_symlink()
+        ):
+            found.append(ready)
+    return found
+
+
+def _fresh_rfq_receipt_base() -> dict[str, Any]:
+    return {
+        "schema_version": FRESH_RFQ_COHORT_SCHEMA,
+        "cohort": FRESH_RFQ_COHORT_ID,
+        "base_cohort": BASE_COHORT_ID,
+        "cohort_join": "FORBIDDEN_SEPARATE_SOURCE_BINDINGS_AND_LEDGERS",
+        "historical_input_manifest_rfq_entries": 0,
+        "generation": FRESH_RFQ_GENERATION,
+        "strict_t0_utc": FRESH_RFQ_STRICT_T0_UTC,
+        "old_damaged_rfq": "DATA_INTEGRITY_BLOCKED_NO_REPAIR_NO_ANALYSIS",
+        "candidate_or_profit_claim": False,
+        "created_at_utc": utc_now(),
+    }
+
+
+def run_fresh_rfq_overlay(
+    *,
+    overlay_root: Path,
+    fresh_authority_path: Path,
+    client_factory: Callable[[dict[str, Any]], Any],
+    checkpoint_root: Path,
+    receipt_path: Path,
+    report_path: Path | None = None,
+    anchor_path: Path | str = D07_EXTERNAL_ANCHOR_INSTALL_PATH,
+    anchor_owner_uid: int = 0,
+    hash_buckets: int | None = None,
+    exact_temp_parent: Path | None = None,
+    impact_adapters: Mapping[str, dict[str, Any]] | None = None,
+    base_manifest_bytes_by_date: Mapping[str, bytes] | None = None,
+    l2_quality_receipts_by_date: Mapping[str, dict[str, Any]] | None = None,
+    d07_producer_receipt: dict[str, Any] | None = None,
+    expected_eligible_dates: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run the separate fresh-RFQ cohort, or emit an explicit non-result.
+
+    Until the post-T0 eligibility evidence exists (validated fresh epoch
+    authority for the pinned generation plus at least one overlay READY
+    receipt), this writes an explicit ``WAITING``/``BLOCKED`` receipt and
+    returns — it never fabricates an empty analysis result.  This unit
+    never opens the historical base INPUT_MANIFEST; the base runner
+    independently refuses any RFQ object (``_require_base_without_rfq``).
+
+    There is deliberately NO parameter through which a caller can supply a
+    D07 external anchor object; the anchor is derived exclusively from the
+    pinned root-installed receipt via ``load_d07_external_anchor``.
+    """
+    rfq = _rfq_module()
+    receipt_path = Path(receipt_path)
+    if receipt_path.exists() or receipt_path.is_symlink():
+        raise Deep03InputError(
+            f"fresh RFQ cohort receipt already exists: {receipt_path}"
+        )
+    fresh_authority_path = Path(fresh_authority_path)
+    if not fresh_authority_path.is_file() or fresh_authority_path.is_symlink():
+        raise Deep03InputError(
+            f"fresh RFQ epoch authority is missing or linked: {fresh_authority_path}"
+        )
+    try:
+        authority_doc = json.loads(
+            fresh_authority_path.read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError) as exc:
+        raise Deep03InputError(
+            f"fresh RFQ epoch authority is unreadable: {exc}"
+        ) from exc
+
+    def _blocked(state: str, blocker: str) -> dict[str, Any]:
+        receipt = {
+            **_fresh_rfq_receipt_base(),
+            "state": state,
+            "result_kind": "EXPLICIT_NON_RESULT_STATE",
+            "fabricated_rows": 0,
+            "eligible_overlay_count": 0,
+            "blocker": blocker,
+        }
+        atomic_write_json(receipt_path, receipt, exclusive=True)
+        return receipt
+
+    try:
+        authority = rfq.fresh_receipts.validate_fresh_epoch_authority(
+            authority_doc
+        )
+    except rfq.fresh_receipts.FreshRfqError as exc:
+        return _blocked(
+            "BLOCKED_FRESH_AUTHORITY", f"{exc.code}: {exc.detail}"
+        )
+    if (
+        authority["generation"] != FRESH_RFQ_GENERATION
+        or authority["strict_t0_utc"] != FRESH_RFQ_STRICT_T0_UTC
+    ):
+        return _blocked(
+            "BLOCKED_COHORT_PIN",
+            "fresh authority generation/T0 differ from the pinned cohort: "
+            f"generation={authority['generation']} "
+            f"strict_t0_utc={authority['strict_t0_utc']}",
+        )
+    ready_paths = discover_fresh_rfq_overlay_ready_paths(overlay_root)
+    if not ready_paths:
+        receipt = {
+            **_fresh_rfq_receipt_base(),
+            "state": "WAITING_FRESH_RFQ_ELIGIBILITY",
+            "result_kind": "EXPLICIT_NON_RESULT_STATE",
+            "fabricated_rows": 0,
+            "eligible_overlay_count": 0,
+            "overlay_root": str(Path(overlay_root)),
+            "reason": (
+                "no post-T0 overlay READY evidence exists yet; the first "
+                "complete eligible fresh RFQ date is possible only after "
+                "the frozen 24h+2h evidence delay past "
+                + FRESH_RFQ_STRICT_T0_UTC
+            ),
+        }
+        atomic_write_json(receipt_path, receipt, exclusive=True)
+        return receipt
+
+    anchor: dict[str, Any] | None = None
+    try:
+        anchor = load_d07_external_anchor(
+            anchor_path, expected_owner_uid=anchor_owner_uid
+        )
+        anchor_state = "LOADED_FROM_PINNED_ROOT_RECEIPT"
+    except rfq.FreshRfqResearchError as exc:
+        if exc.code != "D07_ANCHOR_NOT_INSTALLED":
+            raise
+        anchor_state = "NOT_INSTALLED_D07_BLOCKED_UNANCHORED"
+
+    report = rfq.run_bounded_fresh_rfq(
+        overlay_ready_paths=[str(path) for path in ready_paths],
+        fresh_authority=authority_doc,
+        client_factory=client_factory,
+        checkpoint_root=Path(checkpoint_root),
+        hash_buckets=(
+            rfq.DEFAULT_HASH_BUCKETS if hash_buckets is None else hash_buckets
+        ),
+        exact_temp_parent=exact_temp_parent,
+        impact_adapters=impact_adapters,
+        base_manifest_bytes_by_date=base_manifest_bytes_by_date,
+        l2_quality_receipts_by_date=l2_quality_receipts_by_date,
+        d07_producer_receipt=d07_producer_receipt,
+        d07_external_anchor=anchor,
+        report_path=report_path,
+        expected_eligible_dates=expected_eligible_dates,
+    )
+    receipt = {
+        **_fresh_rfq_receipt_base(),
+        "state": "FRESH_RFQ_OVERLAY_COMPLETE",
+        "result_kind": "SEPARATE_COHORT_ANALYSIS_RESULT",
+        "eligible_overlay_count": len(ready_paths),
+        "analysis_dates": list(report["analysis_dates"]),
+        "source_binding_sha256": report["source_binding_sha256"],
+        "conservation": report["conservation"],
+        "d07_external_anchor_state": anchor_state,
+        "d07_external_anchor_sha256": (
+            None if anchor is None else anchor["anchor_sha256"]
+        ),
+        "d07_external_anchor_authority": (
+            None if anchor is None else anchor["audit_authority"]
+        ),
+        "claims": {
+            "cohort_scope": "FRESH_RFQ_ONLY",
+            "base_cohort_claims": "NONE_BASE_COHORT_UNTOUCHED",
+            "candidate_or_profit_claim": False,
+        },
+    }
+    atomic_write_json(receipt_path, receipt, exclusive=True)
+    return receipt
 
 
 def main(argv: Sequence[str] | None = None) -> int:

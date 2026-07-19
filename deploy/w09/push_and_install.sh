@@ -87,10 +87,17 @@ mkdir -p "$tmp/tools/research" "$tmp/config" "$tmp/deploy/w09"
 cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
+for module in fresh_rfq_exact_reader.py fresh_rfq_base_binding.py \
+              fresh_rfq_market_mapping.py fresh_rfq_receipts.py \
+              fresh_rfq_request_provenance.py \
+              fresh_rfq_universe_provenance.py; do
+    cp "$SOURCE_REPO/tools/$module" "$tmp/tools/"
+done
 for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_prepare.py deep03_v3_methods.py \
               deep03_v3_runner.py deep03_fullscope_graph.py \
-              deep03_v3_l2.py deep03_fullscope_runner.py; do
+              deep03_v3_l2.py deep03_fullscope_runner.py \
+              deep03_v3_rfq_bounded.py; do
     cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
 done
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"

@@ -63,6 +63,13 @@ DEEP03_MODULES = {
     "tools/research/deep03_fullscope_graph.py",
     "tools/research/deep03_v3_l2.py",
     "tools/research/deep03_fullscope_runner.py",
+    "tools/research/deep03_v3_rfq_bounded.py",
+    "tools/fresh_rfq_exact_reader.py",
+    "tools/fresh_rfq_base_binding.py",
+    "tools/fresh_rfq_market_mapping.py",
+    "tools/fresh_rfq_receipts.py",
+    "tools/fresh_rfq_request_provenance.py",
+    "tools/fresh_rfq_universe_provenance.py",
 }
 
 

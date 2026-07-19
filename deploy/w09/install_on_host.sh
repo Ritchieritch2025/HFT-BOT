@@ -157,10 +157,18 @@ install -m 0644 "$PAYLOAD_ROOT/tools/research_reference.py" \
     "$INSTALL_ROOT/tools/research_reference.py"
 install -m 0644 "$PAYLOAD_ROOT/tools/warehouse_common.py" \
     "$INSTALL_ROOT/tools/warehouse_common.py"
+for module in fresh_rfq_exact_reader.py fresh_rfq_base_binding.py \
+              fresh_rfq_market_mapping.py fresh_rfq_receipts.py \
+              fresh_rfq_request_provenance.py \
+              fresh_rfq_universe_provenance.py; do
+    install -m 0644 "$PAYLOAD_ROOT/tools/$module" \
+        "$INSTALL_ROOT/tools/$module"
+done
 for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_prepare.py deep03_v3_methods.py \
               deep03_v3_runner.py deep03_fullscope_graph.py \
-              deep03_v3_l2.py deep03_fullscope_runner.py; do
+              deep03_v3_l2.py deep03_fullscope_runner.py \
+              deep03_v3_rfq_bounded.py; do
     install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
         "$INSTALL_ROOT/tools/research/$module"
 done
@@ -299,6 +307,13 @@ sha256sum \
     "$INSTALL_ROOT/tools/research/deep03_fullscope_graph.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_l2.py" \
     "$INSTALL_ROOT/tools/research/deep03_fullscope_runner.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_rfq_bounded.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_exact_reader.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_base_binding.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_market_mapping.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_receipts.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_request_provenance.py" \
+    "$INSTALL_ROOT/tools/fresh_rfq_universe_provenance.py" \
     /usr/local/bin/deep03-v3-fullscope-run \
     /usr/local/bin/w09-run \
     /usr/local/libexec/w09-inhibit-run \
