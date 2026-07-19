@@ -42,6 +42,19 @@ L1_INTERVAL_COLUMNS = (
     "duration_us",
     "phase",
 )
+TRADE_DEDUP_BUCKETS = 32
+TRADE_DEDUP_COLUMNS = (
+    "date",
+    "t_us",
+    "market_ticker",
+    "event_proxy",
+    "sport",
+    "trade_id",
+    "yes_price_e4",
+    "count_e4",
+    "taker_side",
+    "occurrence_us",
+)
 
 
 def _json_value(value: Any) -> Any:
@@ -305,6 +318,146 @@ def _materialize_l1_intervals(con, dates: tuple[str, ...]) -> None:
         )
 
 
+def _trade_duplicate_bucket_select_sql(bucket: int) -> str:
+    """Return one exact trade-id bucket from the narrow duplicate candidates."""
+    if isinstance(bucket, bool) or not isinstance(bucket, int):
+        raise ValueError("trade dedup bucket must be an integer")
+    if bucket < 0 or bucket >= TRADE_DEDUP_BUCKETS:
+        raise ValueError("trade dedup bucket is outside the fixed 32 buckets")
+    return f"""
+        SELECT date,t_us,market_ticker,event_proxy,sport,trade_id,
+               yes_price_e4,count_e4,taker_side,occurrence_us
+        FROM (
+          SELECT c.*,
+                 row_number() OVER (
+                   PARTITION BY c.trade_id
+                   ORDER BY c.t_us,coalesce(c.recv_wall_ns,0),
+                            coalesce(c.recv_mono_ns,0),c.market_ticker
+                 ) AS rn
+          FROM trade_duplicate_candidates c
+          WHERE c.source_bucket={bucket} AND c.qc_bucket={bucket}
+        ) ranked
+        WHERE rn=1
+    """
+
+
+def _materialize_trades_dedup(con) -> None:
+    """Stream unique IDs and bucket only true duplicate trade IDs."""
+    print("D3_W2A_STAGE trades_dedup state=START", flush=True)
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE trades_dedup("
+        "date DATE,t_us BIGINT,market_ticker VARCHAR,event_proxy VARCHAR,"
+        "sport VARCHAR,trade_id VARCHAR,yes_price_e4 BIGINT,count_e4 BIGINT,"
+        "taker_side VARCHAR,occurrence_us BIGINT)"
+    )
+    columns = ",".join(TRADE_DEDUP_COLUMNS)
+
+    print("D3_W2A_STAGE trade_duplicate_ids state=START", flush=True)
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE trade_duplicate_ids AS
+        SELECT trade_id,raw_rows,economic_variants,
+               hash(trade_id)%{TRADE_DEDUP_BUCKETS} AS qc_bucket
+        FROM trade_id_qc
+        WHERE raw_rows>1
+        """
+    )
+    print("D3_W2A_STAGE trade_duplicate_ids state=COMPLETE", flush=True)
+    profile = con.execute(
+        """
+        SELECT count(*) AS non_null_id_count,
+               count(*) FILTER (WHERE raw_rows>1) AS duplicate_id_count,
+               count(*) FILTER (WHERE economic_variants>1)
+                 AS conflicting_id_count,
+               coalesce(sum(raw_rows),0) AS raw_rows,
+               coalesce(sum(raw_rows-1),0) AS excess_repeat_rows
+        FROM trade_id_qc
+        """
+    ).fetchone()
+    print(
+        "D3_W2A_QC_PROFILE "
+        f"non_null_id_count={int(profile[0])} "
+        f"duplicate_id_count={int(profile[1])} "
+        f"conflicting_id_count={int(profile[2])} "
+        f"raw_rows={int(profile[3])} "
+        f"excess_repeat_rows={int(profile[4])}",
+        flush=True,
+    )
+    # Nothing after this point consumes the global QC table.  Release it
+    # before the unique stream and duplicate window allocate their pages.
+    con.execute("DROP TABLE trade_id_qc")
+    print("D3_W2A_STAGE trade_id_qc state=DROPPED", flush=True)
+
+    # Every non-null ID absent from trade_duplicate_ids has exactly one raw
+    # row in the already-completed global QC table and therefore exactly one
+    # economic variant.  It needs no blocking row_number operator.
+    print("D3_W2A_STAGE trades_dedup_unique state=START", flush=True)
+    con.execute(
+        f"""
+        INSERT INTO trades_dedup({columns})
+        SELECT t.date,t.t_us,t.market_ticker,
+               coalesce(t.fact_event_ticker,d.event_ticker,t.market_ticker),
+               t.sport,t.trade_id,t.yes_price_e4,t.count_e4,t.taker_side,
+               d.occurrence_us
+        FROM trades_norm t
+        LEFT JOIN dim_market d
+          ON t.date=d.date AND t.market_ticker=d.market_ticker
+        WHERE t.trade_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM trade_duplicate_ids q
+            WHERE q.trade_id=t.trade_id
+          )
+          AND t.date IS NOT NULL AND t.t_us IS NOT NULL
+          AND t.market_ticker IS NOT NULL
+        """
+    )
+    print("D3_W2A_STAGE trades_dedup_unique state=COMPLETE", flush=True)
+
+    # Only real, globally non-conflicting duplicates reach the window.  Carry
+    # the 10 consumed output columns plus the two original receive-clock
+    # tie-breaks and both independently computed bucket witnesses.
+    print("D3_W2A_STAGE trade_duplicate_candidates state=START", flush=True)
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE trade_duplicate_candidates AS
+        SELECT t.date,t.t_us,t.market_ticker,
+               coalesce(t.fact_event_ticker,d.event_ticker,t.market_ticker)
+                 AS event_proxy,
+               t.sport,t.trade_id,t.yes_price_e4,t.count_e4,t.taker_side,
+               d.occurrence_us,t.recv_wall_ns,t.recv_mono_ns,
+               hash(t.trade_id)%{TRADE_DEDUP_BUCKETS} AS source_bucket,
+               q.qc_bucket
+        FROM trades_norm t JOIN trade_duplicate_ids q
+          ON t.trade_id=q.trade_id
+        LEFT JOIN dim_market d
+          ON t.date=d.date AND t.market_ticker=d.market_ticker
+        WHERE q.economic_variants=1
+          AND hash(t.trade_id)%{TRADE_DEDUP_BUCKETS}=q.qc_bucket
+          AND t.date IS NOT NULL AND t.t_us IS NOT NULL
+          AND t.market_ticker IS NOT NULL
+        """
+    )
+    print("D3_W2A_STAGE trade_duplicate_candidates state=COMPLETE", flush=True)
+
+    for bucket in range(TRADE_DEDUP_BUCKETS):
+        label = f"{bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+        print(
+            f"D3_W2A_STAGE trades_dedup bucket={label} state=START",
+            flush=True,
+        )
+        con.execute(
+            f"INSERT INTO trades_dedup({columns}) "
+            + _trade_duplicate_bucket_select_sql(bucket)
+        )
+        print(
+            f"D3_W2A_STAGE trades_dedup bucket={label} state=COMPLETE",
+            flush=True,
+        )
+    con.execute("DROP TABLE trade_duplicate_candidates")
+    con.execute("DROP TABLE trade_duplicate_ids")
+    print("D3_W2A_STAGE trades_dedup state=COMPLETE", flush=True)
+
+
 def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
     """Create normalized receive-clock views and return explicit capabilities."""
     capabilities: dict[str, Any] = {
@@ -471,26 +624,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             """
         )
         print("D3_W2A_STAGE trade_id_qc state=COMPLETE", flush=True)
-        print("D3_W2A_STAGE trades_dedup state=START", flush=True)
-        con.execute(
-            """
-            CREATE OR REPLACE TEMP TABLE trades_dedup AS
-            SELECT * EXCLUDE(rn) FROM (
-              SELECT t.*,coalesce(t.fact_event_ticker,d.event_ticker,
-                     t.market_ticker) AS event_proxy,d.occurrence_us,
-                     row_number() OVER (
-                       PARTITION BY t.trade_id
-                       ORDER BY t.t_us,coalesce(t.recv_wall_ns,0),
-                                coalesce(t.recv_mono_ns,0),t.market_ticker
-                     ) AS rn
-              FROM trades_norm t JOIN trade_id_qc q USING(trade_id)
-              LEFT JOIN dim_market d USING(date,market_ticker)
-              WHERE q.economic_variants=1 AND t.date IS NOT NULL
-                AND t.t_us IS NOT NULL AND t.market_ticker IS NOT NULL
-            ) WHERE rn=1
-            """
-        )
-        print("D3_W2A_STAGE trades_dedup state=COMPLETE", flush=True)
+        _materialize_trades_dedup(con)
         con.execute(
             """
             CREATE OR REPLACE TEMP VIEW trades_clean AS

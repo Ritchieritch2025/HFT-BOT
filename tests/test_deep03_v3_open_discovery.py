@@ -21,16 +21,24 @@ sys.path.insert(0, str(ROOT / "deploy" / "w09"))
 import deep03_one_shot_arm as one_shot  # noqa: E402
 import research_data as rd  # noqa: E402
 import deep03_authority_gate  # noqa: E402
+import deep03_v3_methods as deep03_methods  # noqa: E402
 from deep03_v3_common import (  # noqa: E402
     Deep03InputError,
     validate_explicit_releases,
 )
 from deep03_v3_methods import (  # noqa: E402
     L1_INTERVAL_COLUMNS,
+    TRADE_DEDUP_BUCKETS,
+    TRADE_DEDUP_COLUMNS,
     _l1_interval_select_sql,
     _manifest_release_dates,
     _materialize_l1_intervals,
+    _materialize_trades_dedup,
+    _trade_duplicate_bucket_select_sql,
     execute_all,
+    run_b01,
+    run_b04,
+    setup_database,
 )
 from deep03_v3_prepare import prepare_run  # noqa: E402
 from deep03_v3_runner import run_discovery  # noqa: E402
@@ -51,6 +59,62 @@ DEEP03_MODULES = {
     "tools/research/deep03_v3_methods.py",
     "tools/research/deep03_v3_runner.py",
 }
+
+
+def _trade_dedup_markers(
+    profile: tuple[int, int, int, int, int] = (1, 0, 0, 1, 0),
+) -> list[str]:
+    non_null, duplicate, conflicting, raw_rows, excess = profile
+    rows = [
+        "D3_W2A_STAGE trades_dedup state=START",
+        "D3_W2A_STAGE trade_duplicate_ids state=START",
+        "D3_W2A_STAGE trade_duplicate_ids state=COMPLETE",
+        (
+            "D3_W2A_QC_PROFILE "
+            f"non_null_id_count={non_null} duplicate_id_count={duplicate} "
+            f"conflicting_id_count={conflicting} raw_rows={raw_rows} "
+            f"excess_repeat_rows={excess}"
+        ),
+        "D3_W2A_STAGE trade_id_qc state=DROPPED",
+        "D3_W2A_STAGE trades_dedup_unique state=START",
+        "D3_W2A_STAGE trades_dedup_unique state=COMPLETE",
+        "D3_W2A_STAGE trade_duplicate_candidates state=START",
+        "D3_W2A_STAGE trade_duplicate_candidates state=COMPLETE",
+    ]
+    for bucket in range(TRADE_DEDUP_BUCKETS):
+        label = f"{bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+        rows.extend(
+            [
+                f"D3_W2A_STAGE trades_dedup bucket={label} state=START",
+                f"D3_W2A_STAGE trades_dedup bucket={label} state=COMPLETE",
+            ]
+        )
+    rows.append("D3_W2A_STAGE trades_dedup state=COMPLETE")
+    return rows
+
+
+def _legacy_trade_dedup_select_sql() -> str:
+    """The eb56 global query, projected to the audited 10 consumer columns."""
+    return """
+        SELECT date,t_us,market_ticker,event_proxy,sport,trade_id,
+               yes_price_e4,count_e4,taker_side,occurrence_us
+        FROM (
+          SELECT t.date,t.t_us,t.market_ticker,
+                 coalesce(t.fact_event_ticker,d.event_ticker,
+                          t.market_ticker) AS event_proxy,
+                 t.sport,t.trade_id,t.yes_price_e4,t.count_e4,t.taker_side,
+                 d.occurrence_us,
+                 row_number() OVER (
+                   PARTITION BY t.trade_id
+                   ORDER BY t.t_us,coalesce(t.recv_wall_ns,0),
+                            coalesce(t.recv_mono_ns,0),t.market_ticker
+                 ) AS rn
+          FROM trades_norm t JOIN trade_id_qc q USING(trade_id)
+          LEFT JOIN dim_market d USING(date,market_ticker)
+          WHERE q.economic_variants=1 AND t.date IS NOT NULL
+            AND t.t_us IS NOT NULL AND t.market_ticker IS NOT NULL
+        ) WHERE rn=1
+    """
 
 
 def _materialize(tmp_path: Path, *, with_rfq: bool = False) -> tuple[Path, str]:
@@ -465,6 +529,71 @@ def _synthetic_method_input(tmp_path: Path) -> dict:
     }
 
 
+def _install_trade_dedup_fixture(con) -> None:
+    con.execute(
+        """CREATE TEMP TABLE trades_norm(
+          date DATE,t_us BIGINT,recv_wall_ns BIGINT,recv_mono_ns BIGINT,
+          market_ticker VARCHAR,fact_event_ticker VARCHAR,
+          series_ticker VARCHAR,sport VARCHAR,league VARCHAR,
+          trade_id VARCHAR,yes_price_e4 BIGINT,no_price_e4 BIGINT,
+          count_e4 BIGINT,taker_side VARCHAR)"""
+    )
+    rows = [
+        # Same economics; retained event proves each receive-clock tie-break.
+        ("2026-07-17", 100, 20, 1, "M1", "E-WALL-LATE", "S", "Tennis", "ATP", "wall-id", 4200, 5800, 100, "yes"),
+        ("2026-07-17", 100, 10, 9, "M1", "E-WALL-WIN", "S", "Tennis", "ATP", "wall-id", 4200, 5800, 100, "yes"),
+        ("2026-07-17", 110, 10, 20, "M1", "E-MONO-LATE", "S", "Tennis", "ATP", "mono-id", 4300, 5700, 200, "no"),
+        ("2026-07-17", 110, 10, 5, "M1", "E-MONO-WIN", "S", "Tennis", "ATP", "mono-id", 4300, 5700, 200, "no"),
+        ("2026-07-17", 120, 1, 1, "M1", "E-NULL-LATE", "S", "Tennis", "ATP", "null-recv-id", 4400, 5600, 300, "yes"),
+        ("2026-07-17", 120, None, None, "M1", "E-NULL-WIN", "S", "Tennis", "ATP", "null-recv-id", 4400, 5600, 300, "yes"),
+        ("2026-07-17", 130, 1, 1, "M1", "E-CASE", "S", "Tennis", "ATP", "case-id", 4500, 5500, 400, "YES"),
+        ("2026-07-17", 130, 2, 2, "M1", "E-CASE", "S", "Tennis", "ATP", "case-id", 4500, 5500, 400, "yes"),
+        # Date participates in the economic identity: both cross-day forms
+        # remain global conflicts and are excluded, never deduped per day.
+        ("2026-07-17", 200, 1, 1, "M1", "E-CROSS", "S", "Tennis", "ATP", "cross-same-id", 4600, 5400, 500, "yes"),
+        ("2026-07-18", 200, 2, 2, "M1", "E-CROSS", "S", "Tennis", "ATP", "cross-same-id", 4600, 5400, 500, "yes"),
+        ("2026-07-17", 210, 1, 1, "M1", "E-CONFLICT", "S", "Tennis", "ATP", "cross-conflict-id", 4700, 5300, 600, "yes"),
+        ("2026-07-18", 210, 2, 2, "M1", "E-CONFLICT", "S", "Tennis", "ATP", "cross-conflict-id", 4800, 5200, 600, "yes"),
+        ("2026-07-17", 220, 1, 1, "M1", "E-CONFLICT", "S", "Tennis", "ATP", "economic-conflict-id", 4900, 5100, 700, "yes"),
+        ("2026-07-17", 220, 2, 2, "M1", "E-CONFLICT", "S", "Tennis", "ATP", "economic-conflict-id", 5000, 5000, 700, "yes"),
+        # These distinct IDs intentionally share hash bucket 9 in DuckDB 1.4.5.
+        ("2026-07-17", 300, 1, 1, "M1", None, "S", "Tennis", "ATP", "collision-0", 5100, 4900, 800, "yes"),
+        ("2026-07-17", 310, 1, 1, "M1", "E-FACT", "S", "Tennis", "ATP", "collision-1", 5200, 4800, 900, "no"),
+        ("2026-07-17", 320, 1, 1, "M1", None, "S", "Tennis", "ATP", "fallback-id", 5300, 4700, 1000, "yes"),
+        ("2026-07-17", 330, 1, 1, "M1", "E-EXACT", "S", "Tennis", "ATP", "fact-id", 5400, 4600, 1100, "no"),
+        ("2026-07-17", 340, 1, 1, "M1", "E-NULL-ID", "S", "Tennis", "ATP", None, 5500, 4500, 1200, "yes"),
+        (None, 350, 1, 1, "M1", "E-BAD", "S", "Tennis", "ATP", "null-date-id", 5600, 4400, 1300, "yes"),
+        ("2026-07-17", None, 1, 1, "M1", "E-BAD", "S", "Tennis", "ATP", "null-time-id", 5700, 4300, 1400, "yes"),
+        ("2026-07-17", 360, 1, 1, None, "E-BAD", "S", "Tennis", "ATP", "null-market-id", 5800, 4200, 1500, "yes"),
+    ]
+    con.executemany(
+        "INSERT INTO trades_norm VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
+    )
+    con.execute(
+        "CREATE TEMP TABLE dim_market("
+        "date DATE,market_ticker VARCHAR,event_ticker VARCHAR,"
+        "occurrence_us BIGINT,close_us BIGINT)"
+    )
+    con.execute(
+        "INSERT INTO dim_market VALUES "
+        "(DATE '2026-07-17','M1','E-DIM-17',90,1000),"
+        "(DATE '2026-07-18','M1','E-DIM-18',190,1000)"
+    )
+    # This is intentionally byte-for-byte the production global QC estimand.
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE trade_id_qc AS
+        SELECT trade_id,count(*) AS raw_rows,
+               count(DISTINCT hash(struct_pack(
+                 date:=date,t_us:=t_us,market_ticker:=market_ticker,
+                 yes_price_e4:=yes_price_e4,no_price_e4:=no_price_e4,
+                 count_e4:=count_e4,taker_side:=lower(taker_side)
+               ))) AS economic_variants
+        FROM trades_norm WHERE trade_id IS NOT NULL GROUP BY trade_id
+        """
+    )
+
+
 def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
     tmp_path, capsys
 ):
@@ -504,9 +633,7 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
         "D3_W2A_STAGE l1_intervals date=2026-07-17 state=COMPLETE",
         "D3_W2A_STAGE trade_id_qc state=START",
         "D3_W2A_STAGE trade_id_qc state=COMPLETE",
-        "D3_W2A_STAGE trades_dedup state=START",
-        "D3_W2A_STAGE trades_dedup state=COMPLETE",
-    ]
+    ] + _trade_dedup_markers()
     status = {method["method_id"]: method["status"] for method in methods}
     assert status == {
         "D3-B01-MARKOUT": "EXECUTED",
@@ -526,6 +653,250 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
     b04 = next(method for method in methods if method["method_id"] == "D3-B04-RHYTHM")
     assert b04["summary"][0]["active_market_minutes"] == 2
     assert b04["summary"][0]["trades_per_active_market_minute"] == 0.5
+
+
+def test_duplicate_only_bucketed_trades_equal_legacy_global_query(capsys):
+    con = duckdb.connect()
+    try:
+        _install_trade_dedup_fixture(con)
+        qc_profile = con.execute(
+            "SELECT count(*),count(*) FILTER (WHERE raw_rows>1),"
+            "count(*) FILTER (WHERE economic_variants>1),"
+            "coalesce(sum(raw_rows),0),coalesce(sum(raw_rows-1),0) "
+            "FROM trade_id_qc"
+        ).fetchone()
+        assert qc_profile == (14, 7, 3, 21, 7)
+        cross_day_qc = con.execute(
+            "SELECT raw_rows,economic_variants FROM trade_id_qc "
+            "WHERE trade_id='cross-same-id'"
+        ).fetchone()
+        used_buckets = {
+            row[0]
+            for row in con.execute(
+                "SELECT DISTINCT hash(trade_id)%32 FROM trade_id_qc "
+                "WHERE economic_variants=1"
+            ).fetchall()
+        }
+        con.execute(
+            "CREATE TEMP TABLE trades_dedup_legacy AS "
+            + _legacy_trade_dedup_select_sql()
+        )
+        _materialize_trades_dedup(con)
+        stage_lines = capsys.readouterr().out.splitlines()
+        assert stage_lines == _trade_dedup_markers(qc_profile)
+
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM trades_dedup_legacy EXCEPT ALL "
+            "SELECT * FROM trades_dedup)"
+        ).fetchone()[0] == 0
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM trades_dedup EXCEPT ALL "
+            "SELECT * FROM trades_dedup_legacy)"
+        ).fetchone()[0] == 0
+        assert tuple(
+            row[0] for row in con.execute("DESCRIBE trades_dedup").fetchall()
+        ) == TRADE_DEDUP_COLUMNS
+        assert [
+            (row[0], row[1])
+            for row in con.execute("DESCRIBE trades_dedup").fetchall()
+        ] == [
+            ("date", "DATE"),
+            ("t_us", "BIGINT"),
+            ("market_ticker", "VARCHAR"),
+            ("event_proxy", "VARCHAR"),
+            ("sport", "VARCHAR"),
+            ("trade_id", "VARCHAR"),
+            ("yes_price_e4", "BIGINT"),
+            ("count_e4", "BIGINT"),
+            ("taker_side", "VARCHAR"),
+            ("occurrence_us", "BIGINT"),
+        ]
+        winners = dict(
+            con.execute(
+                "SELECT trade_id,event_proxy FROM trades_dedup "
+                "WHERE trade_id IN ('wall-id','mono-id','null-recv-id')"
+            ).fetchall()
+        )
+        assert winners == {
+            "wall-id": "E-WALL-WIN",
+            "mono-id": "E-MONO-WIN",
+            "null-recv-id": "E-NULL-WIN",
+        }
+        assert con.execute(
+            "SELECT taker_side FROM trades_dedup WHERE trade_id='case-id'"
+        ).fetchone() == ("YES",)
+        assert con.execute(
+            "SELECT event_proxy,occurrence_us FROM trades_dedup "
+            "WHERE trade_id='fallback-id'"
+        ).fetchone() == ("E-DIM-17", 90)
+        assert con.execute(
+            "SELECT count(*) FROM trades_dedup WHERE trade_id IS NULL OR "
+            "trade_id IN ('cross-same-id','cross-conflict-id',"
+            "'economic-conflict-id','null-date-id','null-time-id',"
+            "'null-market-id')"
+        ).fetchone()[0] == 0
+        assert cross_day_qc == (2, 2)
+        collision_buckets = con.execute(
+            "SELECT hash('collision-0')%32,hash('collision-1')%32"
+        ).fetchone()
+        assert collision_buckets == (9, 9)
+        assert con.execute(
+            "SELECT count(*) FROM trades_dedup "
+            "WHERE trade_id IN ('collision-0','collision-1')"
+        ).fetchone()[0] == 2
+        assert len(used_buckets) < TRADE_DEDUP_BUCKETS
+        empty_bucket = next(
+            bucket
+            for bucket in range(TRADE_DEDUP_BUCKETS)
+            if bucket not in used_buckets
+        )
+        empty_label = f"{empty_bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+        assert (
+            f"D3_W2A_STAGE trades_dedup bucket={empty_label} state=START"
+            in stage_lines
+        )
+        assert (
+            f"D3_W2A_STAGE trades_dedup bucket={empty_label} state=COMPLETE"
+            in stage_lines
+        )
+        assert con.execute(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name='trade_id_qc'"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def test_trade_dedup_query_shape_is_unique_fastpath_then_32_duplicate_buckets(
+    capsys,
+):
+    class RecordingConnection:
+        def __init__(self):
+            self.statements = []
+            self.profile = (10, 2, 1, 12, 2)
+
+        def execute(self, sql):
+            self.statements.append(" ".join(sql.split()))
+            return self
+
+        def fetchone(self):
+            return self.profile
+
+    con = RecordingConnection()
+    _materialize_trades_dedup(con)
+    assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(
+        con.profile
+    )
+    assert len(con.statements) == 40
+    assert con.statements[0].startswith(
+        "CREATE OR REPLACE TEMP TABLE trades_dedup(date DATE,t_us BIGINT"
+    )
+    assert "FROM trade_id_qc WHERE raw_rows>1" in con.statements[1]
+    assert "row_number" not in con.statements[1]
+    assert con.statements[2].startswith(
+        "SELECT count(*) AS non_null_id_count"
+    )
+    assert con.statements[3] == "DROP TABLE trade_id_qc"
+    assert con.statements[4].startswith("INSERT INTO trades_dedup(")
+    assert "NOT EXISTS" in con.statements[4]
+    assert "trade_duplicate_ids" in con.statements[4]
+    assert "row_number" not in con.statements[4]
+    assert "CREATE OR REPLACE TEMP TABLE trade_duplicate_candidates" in (
+        con.statements[5]
+    )
+    assert "q.economic_variants=1" in con.statements[5]
+    assert "t.recv_wall_ns,t.recv_mono_ns" in con.statements[5]
+    assert "hash(t.trade_id)%32 AS source_bucket" in con.statements[5]
+    assert "hash(t.trade_id)%32=q.qc_bucket" in con.statements[5]
+    bucket_inserts = con.statements[6:38]
+    assert len(bucket_inserts) == TRADE_DEDUP_BUCKETS
+    for bucket, statement in enumerate(bucket_inserts):
+        assert statement.startswith(
+            "INSERT INTO trades_dedup(date,t_us,market_ticker,event_proxy,"
+        )
+        assert f"c.source_bucket={bucket}" in statement
+        assert f"c.qc_bucket={bucket}" in statement
+        assert "PARTITION BY c.trade_id" in statement
+        assert (
+            "ORDER BY c.t_us,coalesce(c.recv_wall_ns,0), "
+            "coalesce(c.recv_mono_ns,0),c.market_ticker"
+        ) in statement
+        assert "PARTITION BY c.date" not in statement
+    assert con.statements[38:] == [
+        "DROP TABLE trade_duplicate_candidates",
+        "DROP TABLE trade_duplicate_ids",
+    ]
+    legacy = " ".join(_legacy_trade_dedup_select_sql().split())
+    assert "PARTITION BY t.trade_id" in legacy
+    assert "hash(t.trade_id)%32" not in legacy
+    with pytest.raises(ValueError, match="outside the fixed 32"):
+        _trade_duplicate_bucket_select_sql(TRADE_DEDUP_BUCKETS)
+
+
+def test_trade_dedup_bucket_failure_stops_before_complete_marker(capsys):
+    class FailingConnection:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql):
+            normalized = " ".join(sql.split())
+            self.statements.append(normalized)
+            if normalized.startswith("INSERT INTO trades_dedup(") and (
+                "c.source_bucket=7" in normalized
+            ):
+                raise RuntimeError("synthetic bucket failure")
+            return self
+
+        def fetchone(self):
+            return (1, 0, 0, 1, 0)
+
+    con = FailingConnection()
+    with pytest.raises(RuntimeError, match="synthetic bucket failure"):
+        _materialize_trades_dedup(con)
+    lines = capsys.readouterr().out.splitlines()
+    stop = _trade_dedup_markers().index(
+        "D3_W2A_STAGE trades_dedup bucket=07/32 state=START"
+    )
+    assert lines == _trade_dedup_markers()[: stop + 1]
+    assert "D3_W2A_STAGE trades_dedup state=COMPLETE" not in lines
+    assert "DROP TABLE trade_id_qc" in con.statements
+    assert "DROP TABLE trade_duplicate_candidates" not in con.statements
+    assert "DROP TABLE trade_duplicate_ids" not in con.statements
+
+
+def test_narrow_trade_projection_preserves_b01_and_b04_results(
+    tmp_path, capsys, monkeypatch
+):
+    input_manifest = _synthetic_method_input(tmp_path)
+
+    def run_methods() -> tuple[dict, dict]:
+        con = duckdb.connect()
+        try:
+            capabilities = setup_database(con, input_manifest)
+            return (
+                run_b01(con, input_manifest, capabilities),
+                run_b04(con, input_manifest, capabilities),
+            )
+        finally:
+            con.close()
+
+    bucketed = run_methods()
+    capsys.readouterr()
+
+    def legacy_materialize(con):
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE trades_dedup AS "
+            + _legacy_trade_dedup_select_sql()
+        )
+
+    monkeypatch.setattr(
+        deep03_methods, "_materialize_trades_dedup", legacy_materialize
+    )
+    legacy = run_methods()
+    capsys.readouterr()
+    assert bucketed == legacy
 
 
 def test_chunked_l1_intervals_equal_legacy_single_query_for_ties_gaps_and_censor():
