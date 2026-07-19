@@ -23,7 +23,7 @@ import hashlib
 import json
 import math
 import zlib
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -851,7 +851,7 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
     ):
         raise ValueError("L2 market_buckets must be an integer in [1,256]")
     payload = {
-        "schema_version": "deep03-v3-l2-snbd-stage-abi-v1",
+        "schema_version": "deep03-v3-l2-snbd-stage-abi-v2",
         "module_sha256": _sha256_file(Path(__file__).resolve()),
         "market_partition_algorithm": "duckdb-hash-v1-modulo-plus-null-bucket",
         "market_bucket_count": market_buckets,
@@ -862,9 +862,28 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
         "replay_columns": list(REPLAY_COLUMNS),
         "episode_columns": list(EPISODE_COLUMNS),
         "episode_horizon_ns": EPISODE_HORIZON_NS,
+        "endpoint_rule": "refill_ns<=depletion_ns+episode_horizon_ns",
         "min_touch_qty_e4": MIN_TOUCH_QTY_E4,
         "min_depletion_fraction": MIN_DEPLETION_FRACTION,
         "refill_fraction": REFILL_FRACTION,
+        "top3_retreat_definition": {
+            "baseline": "same_side_displayed_depth_best_three_prices_pre_delta",
+            "min_removed_e4": MIN_TOP3_RETREAT_QTY_E4,
+            "min_fraction": MIN_TOP3_RETREAT_FRACTION,
+        },
+        "quiet_anchor_lookback_ns": QUIET_ANCHOR_LOOKBACK_NS,
+        "matching": {
+            "direction": "past_only",
+            "window_ns": MATCH_WINDOW_NS,
+            "time_bucket_ns": CONTROL_TIME_BUCKET_NS,
+            "max_controls_per_exact_stratum_bucket": MAX_CONTROLS_PER_STRATUM_BUCKET,
+            "max_candidates_per_episode": MAX_MATCH_CANDIDATES_PER_EPISODE,
+        },
+        "refill_survival": {
+            "estimator": "discrete_risk_set_hazard_product_limit_survival",
+            "interval_ns": HAZARD_INTERVAL_NS,
+            "raw_event_fraction_called_hazard": False,
+        },
         "per_market_forward_ws_seq_gap_inference_used": False,
         "universe_scope": "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
     }
@@ -1322,7 +1341,7 @@ def _matches_sql(
                {episode_depth} AS depth_bin,
                {episode_imbalance} AS imbalance_bin,
                (e.depletion_ns+({int(anchor_shift_ns)}))::BIGINT AS anchor_ns,
-               floor((e.depletion_ns+({int(anchor_shift_ns)}))::DOUBLE/
+               ((e.depletion_ns+({int(anchor_shift_ns)})) //
                      {CONTROL_TIME_BUCKET_NS})::BIGINT AS anchor_bucket
         FROM {episode_relation} e
         WHERE e.covariate_timing='PRE_DEPLETION_STATE'
@@ -1332,7 +1351,7 @@ def _matches_sql(
                {control_imbalance} AS imbalance_bin,
                CASE WHEN c.side='yes' THEN c.bid_depth3_e4
                     ELSE c.ask_depth3_e4 END::BIGINT AS control_side_depth3_e4,
-               floor(c.recv_wall_ns::DOUBLE/{CONTROL_TIME_BUCKET_NS})::BIGINT
+               (c.recv_wall_ns // {CONTROL_TIME_BUCKET_NS})::BIGINT
                  AS control_bucket,
                concat(c.market_ticker,'|',cast(c.recv_wall_ns AS VARCHAR),'|',
                       cast(c.ws_sid AS VARCHAR),'|',cast(c.ws_seq AS VARCHAR))
@@ -1340,7 +1359,7 @@ def _matches_sql(
                row_number() OVER (
                  PARTITION BY c.date,c.sport,c.family,c.side,c.topology,
                               {control_spread},{control_depth},{control_imbalance},
-                              floor(c.recv_wall_ns::DOUBLE/{CONTROL_TIME_BUCKET_NS})
+                              (c.recv_wall_ns // {CONTROL_TIME_BUCKET_NS})
                  ORDER BY c.recv_wall_ns DESC,c.market_ticker,c.ws_sid,c.ws_seq
                ) AS stratum_bucket_rank
         FROM {replay_relation} c

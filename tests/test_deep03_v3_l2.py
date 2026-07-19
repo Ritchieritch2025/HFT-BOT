@@ -233,6 +233,23 @@ def test_refill_exactly_at_closed_one_second_endpoint_is_observed():
     assert result["episodes"][0]["duration_us"] == 1_000_000
 
 
+def test_refill_after_one_second_endpoint_is_not_observed():
+    base = 6_275_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, seq=2),
+        row(depletion + l2.EPISODE_HORIZON_NS + 1, "M1", "delta",
+            side="yes", price=4000, delta=8_000, seq=3),
+    ])
+    assert len(result["episodes"]) == 1
+    assert result["episodes"][0]["endpoint_reason"] == \
+        "right_censored_1s_horizon"
+    assert result["episodes"][0]["event_observed"] is False
+
+
 def test_top3_retreat_uses_pre_delta_top3_depth_baseline():
     base = 6_300_000_000_000
     result = l2.replay_rows([
@@ -908,6 +925,11 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     assert metrics["invariants"]["future_rows"] == 0
     assert metrics["negative_controls"]["future_leakage"]["state"] == "PASS"
     assert metrics["negative_controls"]["reset_proximity"]["state"] == "PASS"
+    assert metrics["negative_controls"]["past_shift_placebo"]["state"] == \
+        "DIAGNOSTIC_ONLY_NO_OUTCOME_ESTIMATE"
+    assert metrics["negative_controls"]["past_shift_placebo"][
+        "future_violations"
+    ] == 0
     assert metrics["theoretical_candidates_per_episode_bound"] <= \
         l2.MAX_MATCH_CANDIDATES_PER_EPISODE
     assert "balance" in metrics and "concentration" in metrics
