@@ -168,6 +168,23 @@ def resolve_data(
     start = _date(date_window.get("start", "AUTO"), "date_window.start")
     end = _date(date_window.get("end", "AUTO"), "date_window.end")
 
+    if catalog.get("state") in {"PARTIAL", "REFUSED"}:
+        return _terminal_selection(
+            state="REFUSED",
+            job_spec=job_spec,
+            catalog=catalog,
+            required=required,
+            optional=optional,
+            forbidden=forbidden,
+            selector=str(selector),
+            start=start,
+            end=end,
+            reasons=[{
+                "code": "CATALOG_INTEGRITY_NOT_CLOSED",
+                "rejected_releases": list(catalog.get("rejected_releases") or []),
+            }],
+        )
+
     if job_spec.get("state") != "READY":
         return _terminal_selection(
             state="BLOCKED",

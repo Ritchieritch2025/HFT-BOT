@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+import shutil
 import sys
 
 
@@ -142,3 +143,16 @@ def test_catalog_digest_tampering_is_rejected(tmp_path):
         assert "digest mismatch" in str(exc)
     else:
         raise AssertionError("tampered catalog was accepted")
+
+
+def test_partial_catalog_integrity_never_silently_selects_other_release(tmp_path):
+    cache, release_id = _cache(tmp_path)
+    source = cache / "releases" / release_id
+    broken = cache / "releases" / "2026-07-14__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
+    shutil.copytree(source, broken, symlinks=True)
+    catalog = build_catalog(cache)
+    assert catalog["state"] == "PARTIAL"
+    selection, preflight = resolve_data(_spec(), catalog)
+    assert selection["state"] == "REFUSED"
+    assert selection["reasons"][0]["code"] == "CATALOG_INTEGRITY_NOT_CLOSED"
+    assert preflight["research_execution_started"] is False
