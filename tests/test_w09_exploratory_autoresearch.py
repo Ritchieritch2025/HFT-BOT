@@ -358,11 +358,11 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
     assert "--audit /etc/w09/deep03/audit.md" in service
     assert (
-        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-05.json"
+        "--w0-release /etc/w09/deep03/releases/D3-W0-20260718-06.json"
         in service
     )
     assert (
-        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-05.json"
+        "--w1-release /etc/w09/deep03/releases/D3-W1-20260718-06.json"
         in service
     )
     assert (
@@ -449,7 +449,7 @@ def _authority_files(
     runtime.write_text("1" * 40 + "\n")
     operator_text = (
         "Authorize exact D3-W2A exploratory execution under "
-        "D3-W2A-2026-07-18.05 for the named release set."
+        "D3-W2A-2026-07-18.06 for the named release set."
     )
     release_ids = release_ids or [
         (
@@ -459,8 +459,8 @@ def _authority_files(
         for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
-    w0_release_id = "D3-W0-2026-07-18.05"
-    w1_release_id = "D3-W1-2026-07-18.05"
+    w0_release_id = "D3-W0-2026-07-18.06"
+    w1_release_id = "D3-W1-2026-07-18.06"
     audit_path.write_bytes(b"independent_plan_audit")
     plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
     audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
@@ -580,7 +580,7 @@ def _authority_files(
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-18.05",
+        "release_id": "D3-W2A-2026-07-18.06",
         "issued_at_utc": "2026-07-18T12:00:00Z",
         "expires_at_utc": "2026-07-19T12:00:00Z",
         "operator_text_verbatim": operator_text,
@@ -748,7 +748,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
     assert result["state"] == "AUTHORIZED"
-    assert result["release_id"] == "D3-W2A-2026-07-18.05"
+    assert result["release_id"] == "D3-W2A-2026-07-18.06"
     assert len(result["authorized_input_release_ids"]) == 8
     assert result["authorized_input_release_ids"][0].startswith("2026-07-10__")
     assert result["base_commit"] == "1" * 40
