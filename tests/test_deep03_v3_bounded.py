@@ -19,6 +19,7 @@ from deep03_v3_methods import (  # noqa: E402
     BOUNDED_CHECKPOINT_SCHEMA,
     BOUNDED_STAGE_MANIFEST_SCHEMA,
     BoundedCheckpointStore,
+    _assert_l1_asof_timestamps_unambiguous,
     bounded_source_binding,
 )
 
@@ -217,3 +218,61 @@ def test_stage_manifest_refuses_unexpected_complete_partition(tmp_path):
     finally:
         con.close()
 
+
+def _install_l1_asof_rows(con, rows):
+    con.execute(
+        """
+        CREATE TABLE l1_enriched(
+          date DATE,market_ticker VARCHAR,t_us BIGINT,
+          recv_wall_ns BIGINT,recv_mono_ns BIGINT,ws_sid BIGINT,ws_seq BIGINT,
+          book_state VARCHAR,yes_bid_e4 BIGINT,yes_ask_e4 BIGINT
+        )
+        """
+    )
+    con.executemany("INSERT INTO l1_enriched VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+
+
+def test_l1_asof_qc_accepts_exact_economic_duplicates(capsys):
+    con = duckdb.connect()
+    try:
+        _install_l1_asof_rows(
+            con,
+            [
+                ("2026-07-17", "M1", 100, 1, 5, 1, 1, "TWO_SIDED", 4000, 4200),
+                # Receive ordering differs, but B01-observable economics are exact.
+                ("2026-07-17", "M1", 100, 2, 6, 1, 2, "TWO_SIDED", 4000, 4200),
+                ("2026-07-17", "M1", 200, 3, 7, 1, 3, "ONE_SIDED", 4100, None),
+            ],
+        )
+        assert _assert_l1_asof_timestamps_unambiguous(
+            con, marker="date=2026-07-17_bucket=00"
+        ) == {
+            "ambiguous_keys": 0,
+            "ambiguous_rows": 0,
+            "safe_duplicate_keys": 1,
+            "safe_duplicate_excess_rows": 1,
+        }
+    finally:
+        con.close()
+    assert capsys.readouterr().out.strip() == (
+        "D3_W2A_QC l1_asof_same_timestamp "
+        "partition=date=2026-07-17_bucket=00 ambiguous_keys=0 "
+        "ambiguous_rows=0 safe_duplicate_keys=1 safe_duplicate_excess_rows=1"
+    )
+
+
+def test_l1_asof_qc_fails_closed_on_different_quote_at_same_key(capsys):
+    con = duckdb.connect()
+    try:
+        _install_l1_asof_rows(
+            con,
+            [
+                ("2026-07-17", "M1", 100, 1, 1, 1, 1, "TWO_SIDED", 4000, 4200),
+                ("2026-07-17", "M1", 100, 2, 2, 1, 2, "TWO_SIDED", 4100, 4300),
+            ],
+        )
+        with pytest.raises(RuntimeError, match="same-timestamp L1 ASOF ambiguity"):
+            _assert_l1_asof_timestamps_unambiguous(con)
+    finally:
+        con.close()
+    assert "ambiguous_keys=1 ambiguous_rows=2" in capsys.readouterr().out

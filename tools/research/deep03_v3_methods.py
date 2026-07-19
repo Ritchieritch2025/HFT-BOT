@@ -509,6 +509,73 @@ def _spread_logodds_sql(bid: str, ask: str) -> str:
     return f"({logit(ask)})-({logit(bid)})"
 
 
+def _l1_asof_ambiguity_sql(relation: str = "l1_enriched") -> str:
+    """Return the fail-closed QC for B01's receive-time ASOF key.
+
+    DuckDB ASOF chooses one row when multiple right-hand rows share the same
+    ordering key.  The legacy B01 estimand orders that side only by ``t_us``;
+    receive-wall/mono/sequence fields therefore cannot be used as an
+    undisclosed winner correction.  Exact duplicate economic states are safe,
+    while different usable quotes at one key are ambiguous and must stop the
+    run before any markout is claimed.
+    """
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", relation) is None:
+        raise ValueError("invalid L1 ASOF QC relation")
+    return f"""
+      WITH keyed AS (
+        SELECT date,market_ticker,t_us,count(*) AS raw_rows,
+               count(DISTINCT struct_pack(
+                 book_state:=book_state,
+                 yes_bid_e4:=yes_bid_e4,
+                 yes_ask_e4:=yes_ask_e4
+               )) AS economic_variants
+        FROM {relation}
+        WHERE date IS NOT NULL AND market_ticker IS NOT NULL AND t_us IS NOT NULL
+        GROUP BY date,market_ticker,t_us
+      )
+      SELECT count(*) FILTER (WHERE economic_variants>1) AS ambiguous_keys,
+             coalesce(sum(raw_rows) FILTER (WHERE economic_variants>1),0)
+               AS ambiguous_rows,
+             count(*) FILTER (WHERE raw_rows>1 AND economic_variants=1)
+               AS safe_duplicate_keys,
+             coalesce(sum(raw_rows-1) FILTER (
+               WHERE raw_rows>1 AND economic_variants=1
+             ),0) AS safe_duplicate_excess_rows
+      FROM keyed
+    """
+
+
+def _assert_l1_asof_timestamps_unambiguous(
+    con, relation: str = "l1_enriched", *, marker: str = "global"
+) -> dict[str, int]:
+    """Record and enforce deterministic B01 ASOF economics at equal ``t_us``."""
+    row = con.execute(_l1_asof_ambiguity_sql(relation)).fetchone()
+    profile = {
+        "ambiguous_keys": int(row[0]),
+        "ambiguous_rows": int(row[1]),
+        "safe_duplicate_keys": int(row[2]),
+        "safe_duplicate_excess_rows": int(row[3]),
+    }
+    print(
+        "D3_W2A_QC l1_asof_same_timestamp "
+        f"partition={marker} "
+        f"ambiguous_keys={profile['ambiguous_keys']} "
+        f"ambiguous_rows={profile['ambiguous_rows']} "
+        f"safe_duplicate_keys={profile['safe_duplicate_keys']} "
+        "safe_duplicate_excess_rows="
+        f"{profile['safe_duplicate_excess_rows']}",
+        flush=True,
+    )
+    if profile["ambiguous_keys"]:
+        raise RuntimeError(
+            "B01 same-timestamp L1 ASOF ambiguity: "
+            f"partition={marker} "
+            f"ambiguous_keys={profile['ambiguous_keys']} "
+            f"ambiguous_rows={profile['ambiguous_rows']}"
+        )
+    return profile
+
+
 def _canonical_date(value: Any) -> str:
     if not isinstance(value, str):
         raise ValueError("Deep03 release date must be a canonical ISO string")
@@ -1106,6 +1173,8 @@ def run_b01(con, input_manifest: dict[str, Any], capabilities: dict[str, Any]) -
         result["reason"] = "required receive-clock/price fields absent: " + ",".join(missing)
         result["waterfall"] = [{"step": "schema_gate", "count": 0, "reason": result["reason"]}]
         return result
+
+    result["asof_same_timestamp_qc"] = _assert_l1_asof_timestamps_unambiguous(con)
 
     mid = _mid_logodds_sql("b.yes_bid_e4", "b.yes_ask_e4")
     spread = _spread_logodds_sql("b.yes_bid_e4", "b.yes_ask_e4")

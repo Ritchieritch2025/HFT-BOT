@@ -695,7 +695,11 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
         "D3_W2A_STAGE l1_intervals date=2026-07-17 state=COMPLETE",
         "D3_W2A_STAGE trade_id_qc state=START",
         "D3_W2A_STAGE trade_id_qc state=COMPLETE",
-    ] + _trade_dedup_markers()
+    ] + _trade_dedup_markers() + [
+        "D3_W2A_QC l1_asof_same_timestamp partition=global "
+        "ambiguous_keys=0 ambiguous_rows=0 safe_duplicate_keys=0 "
+        "safe_duplicate_excess_rows=0"
+    ]
     status = {method["method_id"]: method["status"] for method in methods}
     assert status == {
         "D3-B01-MARKOUT": "EXECUTED",
