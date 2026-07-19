@@ -1,0 +1,13 @@
+[Unit]
+Description=Discover and verify new V3 research releases on W09 hourly
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=1h
+AccuracySec=1min
+RandomizedDelaySec=5min
+Persistent=true
+Unit=w09-research-cache-sync.service
+
+[Install]
+WantedBy=timers.target
