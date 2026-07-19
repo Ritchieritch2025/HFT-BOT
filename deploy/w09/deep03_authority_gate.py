@@ -28,9 +28,9 @@ AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 WORK_PACKAGE = "D3-W2A"
-W2A_RELEASE_ID = "D3-W2A-2026-07-19.09"
-W0_RELEASE_ID = "D3-W0-2026-07-19.09"
-W1_RELEASE_ID = "D3-W1-2026-07-19.09"
+W2A_RELEASE_ID = "D3-W2A-2026-07-19.10"
+W0_RELEASE_ID = "D3-W0-2026-07-19.10"
+W1_RELEASE_ID = "D3-W1-2026-07-19.10"
 PHASE = "OPEN_DISCOVERY"
 INSTANCE_ID = "i-0e53d134dceffe166"
 INSTANCE_TYPE = "r8g.2xlarge"
@@ -60,6 +60,8 @@ AUTHORIZED_CREDENTIAL_CLASSES = [
 ]
 REQUIRED_PREREQUISITE_HASHES = {
     "independent_plan_audit",
+    "l2_independent_audit_receipt",
+    "l2_independent_audit_report",
     "prior_exposure_ledger",
     "w09_exact_version_read",
     "w1_data_quality",
@@ -94,6 +96,8 @@ AUTHORIZED_METHOD_SCOPE = {
     "D3-B02-ONESIDE": "PARTIAL_DESCRIPTIVE_ONLY",
     "D3-B03-XMKT": "NOT_ESTIMABLE_PREFLIGHT_ONLY",
     "D3-B04-RHYTHM": "PARTIAL_DESCRIPTIVE_ONLY",
+    "D3-FULL-MARKET-GRAPH-01": "DESCRIPTIVE_ONLY_NO_PNL",
+    "D3-FULL-L2-SNBD-01": "DESCRIPTIVE_ONLY_NO_PNL",
 }
 W0_RELEASE_RE = re.compile(r"^D3-W0-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 W1_RELEASE_RE = re.compile(r"^D3-W1-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -144,6 +148,7 @@ def _secure_bytes(
     label: str,
     max_bytes: int,
     expected_owner_uid: int,
+    exact_mode: int | None = None,
 ) -> bytes:
     flags = os.O_RDONLY
     if hasattr(os, "O_CLOEXEC"):
@@ -160,6 +165,8 @@ def _secure_bytes(
             raise AuthorityError("%s is not a regular file" % label)
         if metadata.st_uid != expected_owner_uid:
             raise AuthorityError("%s has the wrong owner" % label)
+        if exact_mode is not None and stat.S_IMODE(metadata.st_mode) != exact_mode:
+            raise AuthorityError("%s mode is not exactly %04o" % (label, exact_mode))
         if metadata.st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
             raise AuthorityError("%s is writable" % label)
         if metadata.st_size <= 0 or metadata.st_size > max_bytes:
@@ -601,9 +608,9 @@ def validate_authority_bundle(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
     if w0_release_id != W0_RELEASE_ID:
-        raise AuthorityError("W0 release ID differs from the fixed .09 release")
+        raise AuthorityError("W0 release ID differs from the fixed .10 release")
     if w1_release_id != W1_RELEASE_ID:
-        raise AuthorityError("W1 release ID differs from the fixed .09 release")
+        raise AuthorityError("W1 release ID differs from the fixed .10 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
@@ -654,7 +661,7 @@ def validate_authority_bundle(
     if authority.get("session_count") != 1:
         raise AuthorityError("session_count must be exactly 1")
     if authority.get("authorized_method_scope") != AUTHORIZED_METHOD_SCOPE:
-        raise AuthorityError("authorized method scope is not the partial W2A scope")
+        raise AuthorityError("authorized method scope is not the bounded full-scope W2A scope")
     _exact_text_sha(
         authority.get("operator_text_verbatim"),
         authority.get("operator_text_sha256"),
@@ -872,6 +879,41 @@ def validate_authority(
     return result
 
 
+def validate_l2_audit_artifacts(
+    authority_result: dict[str, Any],
+    *,
+    receipt_path: Path,
+    report_path: Path,
+    expected_owner_uid: int = 0,
+) -> dict[str, str]:
+    """Pre-claim check for the exact root-installed L2 audit artifacts."""
+    prerequisite_hashes = authority_result.get("prerequisite_receipt_sha256s")
+    if not isinstance(prerequisite_hashes, dict):
+        raise AuthorityError("authority result lacks prerequisite receipt hashes")
+    receipt_raw = _secure_bytes(
+        Path(receipt_path),
+        label="L2 independent audit receipt",
+        max_bytes=1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+        exact_mode=0o444,
+    )
+    report_raw = _secure_bytes(
+        Path(report_path),
+        label="L2 independent audit report",
+        max_bytes=16 * 1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+        exact_mode=0o444,
+    )
+    actual = {
+        "l2_independent_audit_receipt": hashlib.sha256(receipt_raw).hexdigest(),
+        "l2_independent_audit_report": hashlib.sha256(report_raw).hexdigest(),
+    }
+    for name, digest in actual.items():
+        if prerequisite_hashes.get(name) != digest:
+            raise AuthorityError("%s differs from exact authority" % name)
+    return actual
+
+
 def validate_claimed_authority_bundle(
     *,
     authority_path: Path,
@@ -949,6 +991,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--w0-release", required=True, type=Path)
     parser.add_argument("--w1-release", required=True, type=Path)
     parser.add_argument("--w1-complete", required=True, type=Path)
+    parser.add_argument("--l2-independent-audit-receipt", type=Path)
+    parser.add_argument("--l2-independent-audit-report", type=Path)
     parser.add_argument("--arm-claim-root", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -971,6 +1015,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.arm_claim_root is not None:
             kwargs["arm_claim_root"] = args.arm_claim_root
         result = validator(**kwargs)
+        l2_paths = (
+            args.l2_independent_audit_receipt,
+            args.l2_independent_audit_report,
+        )
+        if (l2_paths[0] is None) != (l2_paths[1] is None):
+            raise AuthorityError(
+                "both L2 independent audit artifact paths are required together"
+            )
+        if l2_paths[0] is not None:
+            validate_l2_audit_artifacts(
+                result,
+                receipt_path=l2_paths[0],
+                report_path=l2_paths[1],
+            )
     except AuthorityError as exc:
         print("D3_W2A_AUTHORITY_REFUSED: %s" % exc, file=sys.stderr)
         return 2

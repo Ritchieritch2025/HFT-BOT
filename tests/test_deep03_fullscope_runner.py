@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -287,13 +289,15 @@ def _report_tables(binding: str) -> dict:
 def _write_audit(
     tmp_path: Path,
     manifest: dict,
-    prepare_sha: str,
     runtime_commit_path: Path,
     *,
     blockers: list[str] | None = None,
 ) -> tuple[Path, Path]:
     report = tmp_path / "l2-independent-audit.md"
+    if report.exists():
+        report.chmod(0o644)
     report.write_text("# Independent L2 audit\n\nFixture PASS.\n", encoding="utf-8")
+    report.chmod(0o444)
     sources = runner.fullscope_source_hashes()
     receipt = {
         "schema_version": runner.L2_AUDIT_SCHEMA,
@@ -306,7 +310,7 @@ def _write_audit(
             f"tools/research/{name}": sources[f"tools/research/{name}"]
             for name in runner.FULLSCOPE_SOURCE_MODULES
         },
-        "input_manifest_sha256": prepare_sha,
+        "source_binding_sha256": runner.bounded_source_binding(manifest),
         "input_release_ids": manifest["release_ids"],
         "l2_quality_objects": runner._expected_l2_quality_objects(manifest),
         "real_quality_receipts_assessed": True,
@@ -317,8 +321,17 @@ def _write_audit(
         "audit_report_sha256": hashlib.sha256(report.read_bytes()).hexdigest(),
     }
     receipt_path = tmp_path / "l2-independent-audit.json"
+    if receipt_path.exists():
+        receipt_path.chmod(0o644)
     receipt_path.write_bytes(runner._canonical_json(receipt))
+    receipt_path.chmod(0o444)
     return receipt_path, report
+
+
+def _rewrite_audit_receipt(path: Path, value: dict) -> None:
+    path.chmod(0o644)
+    path.write_bytes(runner._canonical_json(value))
+    path.chmod(0o444)
 
 
 class _FakeStore:
@@ -339,14 +352,22 @@ def _setup_success(tmp_path: Path, monkeypatch):
     runtime_commit = tmp_path / "runtime-commit.txt"
     runtime_commit.write_text("a" * 40 + "\n", encoding="ascii")
     audit_receipt, audit_report = _write_audit(
-        tmp_path, manifest, prepare_sha, runtime_commit
+        tmp_path, manifest, runtime_commit
     )
     authority = {
         "binding": {
             "authorized_method_scope": {
                 **{method: "PARTIAL_DESCRIPTIVE_ONLY" for method in runner.METHODS},
                 **runner.FULLSCOPE_AUTHORITY_SCOPE,
-            }
+            },
+            "prerequisite_receipt_sha256s": {
+                "l2_independent_audit_receipt": hashlib.sha256(
+                    audit_receipt.read_bytes()
+                ).hexdigest(),
+                "l2_independent_audit_report": hashlib.sha256(
+                    audit_report.read_bytes()
+                ).hexdigest(),
+            },
         },
         "artifact_sha256s": {},
     }
@@ -435,8 +456,112 @@ def _setup_success(tmp_path: Path, monkeypatch):
         "threads": 1,
         "l2_market_buckets": 1,
         "required_checkpoint_parent": tmp_path / "checkpoints",
+        "expected_owner_uid": os.getuid(),
     }
     return manifest, run_dir, common
+
+
+def test_l2_audit_source_binding_is_stable_across_run_authority_and_cache(
+    tmp_path,
+):
+    manifest = _manifest(tmp_path)
+    runtime_commit = tmp_path / "runtime-commit.txt"
+    runtime_commit.write_text("a" * 40 + "\n", encoding="ascii")
+    receipt, report = _write_audit(tmp_path, manifest, runtime_commit)
+
+    rebound = copy.deepcopy(manifest)
+    rebound["run_id"] = "different-run-id"
+    rebound["created_at_utc"] = "2099-01-01T00:00:00Z"
+    rebound["authority_binding"] = {"authority_sha256": "b" * 64}
+    rebound["authority_artifact_sha256s"] = {"AUTHORITY.json": "c" * 64}
+    for obj in rebound["objects"]:
+        obj["local_path"] = str(tmp_path / "moved-cache" / obj["logical_key"])
+
+    assert runner.bounded_source_binding(rebound) == runner.bounded_source_binding(
+        manifest
+    )
+    validated = runner._validate_l2_independent_audit(
+        receipt_path=receipt,
+        report_path=report,
+        runtime_commit_path=runtime_commit,
+        input_manifest=rebound,
+        source_modules_sha256=runner.fullscope_source_hashes(),
+        expected_owner_uid=os.getuid(),
+    )
+    assert validated["receipt"]["source_binding_sha256"] == (
+        runner.bounded_source_binding(manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    "field", ["source_version_id", "sha256", "size", "row_count"]
+)
+def test_l2_audit_source_binding_refuses_exact_object_identity_drift(
+    tmp_path, field
+):
+    manifest = _manifest(tmp_path)
+    runtime_commit = tmp_path / "runtime-commit.txt"
+    runtime_commit.write_text("a" * 40 + "\n", encoding="ascii")
+    receipt, report = _write_audit(tmp_path, manifest, runtime_commit)
+    changed = copy.deepcopy(manifest)
+    target = next(obj for obj in changed["objects"] if obj["kind"] == "facts")
+    target[field] = 2 if field in {"size", "row_count"} else "0" * 64
+    with pytest.raises(Deep03InputError, match="source_binding_sha256"):
+        runner._validate_l2_independent_audit(
+            receipt_path=receipt,
+            report_path=report,
+            runtime_commit_path=runtime_commit,
+            input_manifest=changed,
+            source_modules_sha256=runner.fullscope_source_hashes(),
+            expected_owner_uid=os.getuid(),
+        )
+
+
+def test_l2_audit_source_binding_refuses_release_evidence_drift(tmp_path):
+    manifest = _manifest(tmp_path)
+    runtime_commit = tmp_path / "runtime-commit.txt"
+    runtime_commit.write_text("a" * 40 + "\n", encoding="ascii")
+    receipt, report = _write_audit(tmp_path, manifest, runtime_commit)
+    changed = copy.deepcopy(manifest)
+    changed["releases"][0]["evidence_tier"] = "SEALED_CONFIRMATION"
+    with pytest.raises(Deep03InputError, match="source_binding_sha256"):
+        runner._validate_l2_independent_audit(
+            receipt_path=receipt,
+            report_path=report,
+            runtime_commit_path=runtime_commit,
+            input_manifest=changed,
+            source_modules_sha256=runner.fullscope_source_hashes(),
+            expected_owner_uid=os.getuid(),
+        )
+
+
+def test_l2_audit_report_bytes_and_exact_mode_are_enforced(tmp_path):
+    manifest = _manifest(tmp_path)
+    runtime_commit = tmp_path / "runtime-commit.txt"
+    runtime_commit.write_text("a" * 40 + "\n", encoding="ascii")
+    receipt, report = _write_audit(tmp_path, manifest, runtime_commit)
+
+    report.chmod(0o644)
+    with pytest.raises(Deep03InputError, match="mode is not exactly 0444"):
+        runner._validate_l2_independent_audit(
+            receipt_path=receipt,
+            report_path=report,
+            runtime_commit_path=runtime_commit,
+            input_manifest=manifest,
+            source_modules_sha256=runner.fullscope_source_hashes(),
+            expected_owner_uid=os.getuid(),
+        )
+    report.write_bytes(b"tampered report\n")
+    report.chmod(0o444)
+    with pytest.raises(Deep03InputError, match="audit_report_sha256"):
+        runner._validate_l2_independent_audit(
+            receipt_path=receipt,
+            report_path=report,
+            runtime_commit_path=runtime_commit,
+            input_manifest=manifest,
+            source_modules_sha256=runner.fullscope_source_hashes(),
+            expected_owner_uid=os.getuid(),
+        )
 
 
 def test_disk_gate_includes_conservative_l2_budget(tmp_path, monkeypatch):
@@ -544,7 +669,6 @@ def test_independent_audit_blocker_refuses_before_any_compute(tmp_path, monkeypa
     receipt, report = _write_audit(
         tmp_path,
         manifest,
-        "f" * 64,
         common["runtime_commit_path"],
         blockers=["FUTURE_CONTROL"],
     )
@@ -591,14 +715,14 @@ def test_audit_gate_binds_methods_module_and_new_blocker_classes(
     receipt["audited_modules_sha256"][
         "tools/research/deep03_v3_methods.py"
     ] = "0" * 64
-    receipt_path.write_bytes(runner._canonical_json(receipt))
+    _rewrite_audit_receipt(receipt_path, receipt)
     with pytest.raises(Deep03InputError, match="audited_modules_sha256"):
         runner.run_fullscope_discovery(**common)
 
     # A receipt that omits the methods module binding entirely is refused.
     receipt = json.loads(pristine)
     del receipt["audited_modules_sha256"]["tools/research/deep03_v3_methods.py"]
-    receipt_path.write_bytes(runner._canonical_json(receipt))
+    _rewrite_audit_receipt(receipt_path, receipt)
     with pytest.raises(Deep03InputError, match="audited_modules_sha256"):
         runner.run_fullscope_discovery(**common)
 
@@ -608,7 +732,7 @@ def test_audit_gate_binds_methods_module_and_new_blocker_classes(
         value for value in receipt["blocker_classes_checked"]
         if value != "STALENESS_TTL"
     ]
-    receipt_path.write_bytes(runner._canonical_json(receipt))
+    _rewrite_audit_receipt(receipt_path, receipt)
     with pytest.raises(Deep03InputError, match="blocker_classes_checked"):
         runner.run_fullscope_discovery(**common)
     assert not (run_dir / "RUN_COMPLETE.json").exists()
@@ -619,7 +743,7 @@ def test_audit_quality_hash_drift_refuses_before_compute(tmp_path, monkeypatch):
     receipt_path = common["l2_independent_audit_receipt_path"]
     receipt = json.loads(receipt_path.read_text())
     receipt["l2_quality_objects"][0]["sha256"] = "0" * 64
-    receipt_path.write_bytes(runner._canonical_json(receipt))
+    _rewrite_audit_receipt(receipt_path, receipt)
     called = False
 
     def forbidden(*_args, **_kwargs):
@@ -711,4 +835,5 @@ def test_fullscope_modules_are_sha_pinned_packaged_and_not_auto_started():
         assert name in push
         assert name in install
     assert "/usr/local/bin/deep03-v3-fullscope-run" in install
-    assert "deep03_fullscope_runner.py" not in service
+    assert "deep03_fullscope_runner.py" in service
+    assert "deep03_v3_runner.py" not in service

@@ -225,13 +225,25 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
             run_id = command[command.index("--run-id") + 1]
             (run_root / run_id).mkdir(parents=True)
             output = "prepare pass"
-        elif script == "deep03_v3_runner.py":
+        elif script == "deep03_fullscope_runner.py":
             run_dir = Path(command[command.index("--run-dir") + 1])
             (run_dir / "RUN_COMPLETE.json").write_text(json.dumps({
+                "schema_version": "deep03-fullscope-base-l2-run-complete-v1",
                 "state": "RUN_COMPLETE",
                 "mode": MODE,
                 "strict_acceptance_claimed": False,
                 "rfq_reads": 0,
+                "rfq_scope": "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED",
+                "work_package": "DEEP03-FULL-BASE-L2-01",
+                "candidate_or_profit_claim": False,
+                "declared_methods": automation.FULLSCOPE_METHODS,
+                "completed_methods": automation.FULLSCOPE_METHODS,
+                "fullscope_execution_receipt_sha256": "1" * 64,
+                "market_graph_result_sha256": "2" * 64,
+                "l2_execution_receipt_sha256": "3" * 64,
+                "l2_independent_audit_receipt_sha256": "4" * 64,
+                "l2_independent_audit_report_sha256": "5" * 64,
+                "report_sha256": "6" * 64,
                 "release_ids": [rid],
             }))
             output = "run pass"
@@ -276,17 +288,20 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
         "w0_release_path": tmp_path / "w0.json",
         "w1_release_path": tmp_path / "w1.json",
         "w1_complete_path": tmp_path / "W1_COMPLETE.json",
+        "l2_independent_audit_receipt_path": tmp_path / "l2-audit.json",
+        "l2_independent_audit_report_path": tmp_path / "l2-audit.md",
         "runner": fake_runner,
     }
     first = automation.run_cycle(**kwargs)
     assert first["state"] == "RESEARCH_COMPLETE"
     assert first["idempotent_noop"] is False
-    assert any(Path(row[1]).name == "deep03_v3_runner.py" for row in commands)
+    assert any(Path(row[1]).name == "deep03_fullscope_runner.py" for row in commands)
     runner_command = next(
-        row for row in commands if Path(row[1]).name == "deep03_v3_runner.py"
+        row for row in commands if Path(row[1]).name == "deep03_fullscope_runner.py"
     )
     assert runner_command[runner_command.index("--memory-limit") + 1] == "16GB"
     assert runner_command[runner_command.index("--threads") + 1] == "2"
+    assert runner_command[runner_command.index("--l2-market-buckets") + 1] == "16"
     assert runner_command[runner_command.index("--checkpoint-root") + 1] == (
         "/srv/w09-research/checkpoints"
     )
@@ -297,7 +312,10 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
         row
         for row in commands
         if len(row) > 1
-        and Path(row[1]).name in {"deep03_v3_prepare.py", "deep03_v3_runner.py"}
+        and Path(row[1]).name in {
+            "deep03_v3_prepare.py",
+            "deep03_fullscope_runner.py",
+        }
     ]
     assert deep03_commands
     for command in deep03_commands:
@@ -313,12 +331,18 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
             "--w1-complete",
         ):
             assert flag in command
+    assert runner_command[runner_command.index("--l2-independent-audit-receipt") + 1] == str(
+        kwargs["l2_independent_audit_receipt_path"]
+    )
+    assert runner_command[runner_command.index("--l2-independent-audit-report") + 1] == str(
+        kwargs["l2_independent_audit_report_path"]
+    )
 
     commands.clear()
     second = automation.run_cycle(**kwargs)
     assert second["state"] == "RESEARCH_COMPLETE"
     assert second["idempotent_noop"] is True
-    assert not any(Path(row[1]).name == "deep03_v3_runner.py" for row in commands)
+    assert not any(Path(row[1]).name == "deep03_fullscope_runner.py" for row in commands)
 
     commands.clear()
     unauthorized = dict(kwargs)
@@ -331,7 +355,7 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
         match="differs from exact-release authority",
     ):
         automation.run_cycle(**unauthorized)
-    assert not any(Path(row[1]).name == "deep03_v3_runner.py" for row in commands)
+    assert not any(Path(row[1]).name == "deep03_fullscope_runner.py" for row in commands)
 
 
 def test_deployment_payload_and_timer_are_pinned():
@@ -365,11 +389,11 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
     assert "--audit /etc/w09/deep03/audit.md" in service
     assert (
-        "--w0-release /etc/w09/deep03/releases/D3-W0-20260719-09.json"
+        "--w0-release /etc/w09/deep03/releases/D3-W0-20260719-10.json"
         in service
     )
     assert (
-        "--w1-release /etc/w09/deep03/releases/D3-W1-20260719-09.json"
+        "--w1-release /etc/w09/deep03/releases/D3-W1-20260719-10.json"
         in service
     )
     assert (
@@ -378,6 +402,16 @@ def test_deployment_payload_and_timer_are_pinned():
     )
     assert "--checkpoint-root /srv/w09-research/checkpoints" in service
     assert "--checkpoint-reserve-bytes 8589934592" in service
+    assert (
+        "--l2-independent-audit-receipt "
+        "/etc/w09/deep03/l2/L2_INDEPENDENT_AUDIT_RECEIPT.json"
+        in service
+    )
+    assert (
+        "--l2-independent-audit-report "
+        "/etc/w09/deep03/l2/L2_INDEPENDENT_AUDIT_REPORT.md"
+        in service
+    )
     assert "exploratory_autoresearch.sha256" in service
     assert "OnUnitInactiveSec=30min" in timer
     assert "Persistent=true" in timer
@@ -459,6 +493,8 @@ def test_static_credentials_are_refused_without_printing_values(tmp_path, monkey
             w0_release_path=tmp_path / "w0.json",
             w1_release_path=tmp_path / "w1.json",
             w1_complete_path=tmp_path / "W1_COMPLETE.json",
+            l2_independent_audit_receipt_path=tmp_path / "l2-audit.json",
+            l2_independent_audit_report_path=tmp_path / "l2-audit.md",
         )
     assert "never-print-this-value" not in str(caught.value)
 
@@ -488,7 +524,7 @@ def _authority_files(
     runtime.write_text("1" * 40 + "\n")
     operator_text = (
         "Authorize exact D3-W2A exploratory execution under "
-        "D3-W2A-2026-07-19.09 for the named release set."
+        "D3-W2A-2026-07-19.10 for the named release set."
     )
     release_ids = release_ids or [
         (
@@ -498,8 +534,8 @@ def _authority_files(
         for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
-    w0_release_id = "D3-W0-2026-07-19.09"
-    w1_release_id = "D3-W1-2026-07-19.09"
+    w0_release_id = "D3-W0-2026-07-19.10"
+    w1_release_id = "D3-W1-2026-07-19.10"
     audit_path.write_bytes(b"independent_plan_audit")
     plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
     audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
@@ -609,6 +645,8 @@ def _authority_files(
     }, sort_keys=True) + "\n")
     prerequisite_hashes = {
         "independent_plan_audit": audit_sha,
+        "l2_independent_audit_receipt": hashlib.sha256(b"l2 receipt").hexdigest(),
+        "l2_independent_audit_report": hashlib.sha256(b"l2 report").hexdigest(),
         "prior_exposure_ledger": artifact_hashes["PRIOR_EXPOSURE_LEDGER.jsonl"],
         "w09_exact_version_read": dq_sha,
         "w1_data_quality": dq_sha,
@@ -619,7 +657,7 @@ def _authority_files(
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-19.09",
+        "release_id": "D3-W2A-2026-07-19.10",
         "issued_at_utc": "2026-07-18T12:00:00Z",
         "expires_at_utc": "2026-07-19T12:00:00Z",
         "operator_text_verbatim": operator_text,
@@ -789,7 +827,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
     )
     assert result["state"] == "AUTHORIZED"
-    assert result["release_id"] == "D3-W2A-2026-07-19.09"
+    assert result["release_id"] == "D3-W2A-2026-07-19.10"
     assert len(result["authorized_input_release_ids"]) == 8
     assert result["authorized_input_release_ids"][0].startswith("2026-07-10__")
     assert result["base_commit"] == "1" * 40
@@ -799,6 +837,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     assert result["expected_object_count"] == 2657
     assert result["expected_object_bytes"] == 29473216651
     assert result["authorized_instance_type"] == "r8g.2xlarge"
+    assert result["authorized_method_scope"] == gate.AUTHORIZED_METHOD_SCOPE
     assert set(result["authorized_write_roots"]) == gate.WRITE_ROOTS
     assert result["w09_exact_version_read_evidence"] == {
         "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
@@ -835,6 +874,68 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
         assert upstream["expected_object_count"] == result[
             "expected_object_count"
         ]
+
+
+def test_l2_audit_artifacts_are_exact_authority_bound_before_arm_claim(tmp_path):
+    files = _authority_files(tmp_path)
+    gate = files[0]
+    result = _validate_authority_fixture(files)
+    receipt = tmp_path / "L2_INDEPENDENT_AUDIT_RECEIPT.json"
+    report = tmp_path / "L2_INDEPENDENT_AUDIT_REPORT.md"
+    receipt.write_bytes(b"l2 receipt")
+    report.write_bytes(b"l2 report")
+    receipt.chmod(0o444)
+    report.chmod(0o444)
+
+    assert gate.validate_l2_audit_artifacts(
+        result,
+        receipt_path=receipt,
+        report_path=report,
+        expected_owner_uid=os.getuid(),
+    ) == {
+        "l2_independent_audit_receipt": hashlib.sha256(b"l2 receipt").hexdigest(),
+        "l2_independent_audit_report": hashlib.sha256(b"l2 report").hexdigest(),
+    }
+
+    receipt.chmod(0o644)
+    with pytest.raises(gate.AuthorityError, match="mode is not exactly 0444"):
+        gate.validate_l2_audit_artifacts(
+            result,
+            receipt_path=receipt,
+            report_path=report,
+            expected_owner_uid=os.getuid(),
+        )
+    receipt.write_bytes(b"tampered receipt")
+    receipt.chmod(0o444)
+    with pytest.raises(gate.AuthorityError, match="differs from exact authority"):
+        gate.validate_l2_audit_artifacts(
+            result,
+            receipt_path=receipt,
+            report_path=report,
+            expected_owner_uid=os.getuid(),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda scope: scope.pop("D3-FULL-L2-SNBD-01"),
+        lambda scope: scope.__setitem__(
+            "D3-FULL-MARKET-GRAPH-01", "PARTIAL_DESCRIPTIVE_ONLY"
+        ),
+        lambda scope: scope.__setitem__("D3-FRESH-RFQ", "DESCRIPTIVE_ONLY_NO_PNL"),
+    ],
+)
+def test_authority_scope_refuses_missing_wrong_or_extra_method(tmp_path, mutation):
+    files = _authority_files(tmp_path)
+    gate, authority, arm = files[:3]
+
+    def mutate(document):
+        mutation(document["authorized_method_scope"])
+
+    _rewrite_authority_and_arm(authority, arm, mutate)
+    with pytest.raises(gate.AuthorityError, match="bounded full-scope W2A scope"):
+        _validate_authority_fixture(files)
         assert upstream["expected_object_bytes"] == result[
             "expected_object_bytes"
         ]
@@ -1002,7 +1103,7 @@ def test_authority_gate_refuses_prerequisite_byte_drift(
         ("w0_release_id", "D3-W2A-wrong", "W0 release ID"),
         ("w1_release_sha256", "bad", "W1 release SHA-256"),
         ("session_count", 2, "session_count"),
-        ("authorized_method_scope", {}, "partial W2A scope"),
+        ("authorized_method_scope", {}, "bounded full-scope W2A scope"),
         ("expected_evidence_tier", "SEALED_CONFIRMATION", "field mismatch"),
         ("expected_object_count", 2656, "field mismatch"),
         ("expected_object_bytes", 29473216650, "field mismatch"),

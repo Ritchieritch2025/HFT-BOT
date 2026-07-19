@@ -83,6 +83,7 @@ AUTHORITY_BINDING_FIELDS = (
     "expected_evidence_tier",
     "expected_object_count",
     "expected_object_bytes",
+    "prerequisite_receipt_sha256s",
     "operator_text_sha256",
     "named_supersessions",
     "authorized_source_state",

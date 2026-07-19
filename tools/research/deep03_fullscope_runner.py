@@ -113,7 +113,7 @@ REQUIRED_L2_STAGES = {
     "l2_exact_atlas",
     "l2_matched_controls",
 }
-L2_AUDIT_SCHEMA = "deep03-fullscope-l2-independent-audit-v1"
+L2_AUDIT_SCHEMA = "deep03-fullscope-l2-independent-audit-v2"
 L2_AUDIT_DECISION = "APPROVED_FOR_BASE_L2_INTEGRATION"
 L2_AUDIT_BLOCKER_CLASSES = (
     "FUTURE_CONTROL",
@@ -138,7 +138,7 @@ L2_AUDIT_FIELDS = {
     "auditor_independence_attested",
     "audited_runtime_commit",
     "audited_modules_sha256",
-    "input_manifest_sha256",
+    "source_binding_sha256",
     "input_release_ids",
     "l2_quality_objects",
     "real_quality_receipts_assessed",
@@ -268,8 +268,8 @@ def _validate_l2_independent_audit(
     report_path: Path,
     runtime_commit_path: Path,
     input_manifest: Mapping[str, Any],
-    input_manifest_sha256: str,
     source_modules_sha256: Mapping[str, str],
+    expected_owner_uid: int = 0,
 ) -> dict[str, Any]:
     """Require an external PASS that binds code and the real quality evidence.
 
@@ -280,17 +280,46 @@ def _validate_l2_independent_audit(
     receipt_path = Path(receipt_path)
     report_path = Path(report_path)
     runtime_commit_path = Path(runtime_commit_path)
-    for path, label in (
-        (receipt_path, "L2 independent audit receipt"),
-        (report_path, "L2 independent audit report"),
-        (runtime_commit_path, "runtime commit binding"),
-    ):
-        if not path.is_file() or path.is_symlink():
-            raise Deep03InputError(f"{label} is missing or linked: {path}")
+    def secure_read(path: Path, label: str, max_bytes: int) -> bytes:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(path, flags)
+        except OSError as exc:
+            raise Deep03InputError(f"{label} is missing or unsafe: {path}") from exc
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise Deep03InputError(f"{label} is not a regular file: {path}")
+            if metadata.st_uid != expected_owner_uid:
+                raise Deep03InputError(f"{label} has the wrong owner: {path}")
+            if stat.S_IMODE(metadata.st_mode) != 0o444:
+                raise Deep03InputError(f"{label} mode is not exactly 0444: {path}")
+            if metadata.st_size <= 0 or metadata.st_size > max_bytes:
+                raise Deep03InputError(f"{label} size is outside the accepted bound")
+            with os.fdopen(fd, "rb", closefd=False) as handle:
+                raw = handle.read(max_bytes + 1)
+            if len(raw) != metadata.st_size:
+                raise Deep03InputError(f"{label} changed while being read")
+            return raw
+        finally:
+            os.close(fd)
+
+    if not runtime_commit_path.is_file() or runtime_commit_path.is_symlink():
+        raise Deep03InputError(
+            f"runtime commit binding is missing or linked: {runtime_commit_path}"
+        )
     try:
-        receipt_raw = receipt_path.read_bytes()
+        receipt_raw = secure_read(
+            receipt_path, "L2 independent audit receipt", 1024 * 1024
+        )
         receipt = json.loads(receipt_raw)
-        report_raw = report_path.read_bytes()
+        report_raw = secure_read(
+            report_path, "L2 independent audit report", 16 * 1024 * 1024
+        )
     except (OSError, ValueError) as exc:
         raise Deep03InputError(f"L2 independent audit artifact unreadable: {exc}") from exc
     if not report_raw:
@@ -316,7 +345,7 @@ def _validate_l2_independent_audit(
         "auditor_independence_attested": True,
         "audited_runtime_commit": runtime_commit,
         "audited_modules_sha256": expected_modules,
-        "input_manifest_sha256": input_manifest_sha256,
+        "source_binding_sha256": bounded_source_binding(dict(input_manifest)),
         "input_release_ids": list(input_manifest.get("release_ids") or []),
         "l2_quality_objects": expected_quality,
         "real_quality_receipts_assessed": True,
@@ -993,9 +1022,28 @@ def run_fullscope_discovery(
         report_path=l2_independent_audit_report_path,
         runtime_commit_path=runtime_commit_path,
         input_manifest=input_manifest,
-        input_manifest_sha256=prepare["input_manifest_sha256"],
         source_modules_sha256=initial_sources,
+        expected_owner_uid=expected_owner_uid,
     )
+    prerequisite_hashes = authority_context["binding"].get(
+        "prerequisite_receipt_sha256s"
+    )
+    if not isinstance(prerequisite_hashes, dict):
+        raise Deep03InputError("full-scope authority has no prerequisite SHA map")
+    if (
+        prerequisite_hashes.get("l2_independent_audit_receipt")
+        != l2_audit["receipt_sha256"]
+    ):
+        raise Deep03InputError(
+            "L2 independent audit receipt differs from exact authority"
+        )
+    if (
+        prerequisite_hashes.get("l2_independent_audit_report")
+        != l2_audit["report_sha256"]
+    ):
+        raise Deep03InputError(
+            "L2 independent audit report differs from exact authority"
+        )
     checkpoint_namespace, checkpoint_namespace_id, source_binding = _checkpoint_namespace(
         checkpoint_root=checkpoint_root,
         input_manifest=input_manifest,

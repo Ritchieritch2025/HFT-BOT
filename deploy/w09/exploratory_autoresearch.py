@@ -29,10 +29,26 @@ import deep03_authority_gate
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 DEEP03_MEMORY_LIMIT = "16GB"
 DEEP03_THREADS = 2
+DEEP03_L2_MARKET_BUCKETS = 16
 DEEP03_CHECKPOINT_ROOT = "/srv/w09-research/checkpoints"
 DEEP03_CHECKPOINT_RESERVE_BYTES = 8 * 1024**3
+L2_INDEPENDENT_AUDIT_RECEIPT = (
+    "/etc/w09/deep03/l2/L2_INDEPENDENT_AUDIT_RECEIPT.json"
+)
+L2_INDEPENDENT_AUDIT_REPORT = (
+    "/etc/w09/deep03/l2/L2_INDEPENDENT_AUDIT_REPORT.md"
+)
+RESEARCH_SCOPE = "HISTORICAL_BASE_L1_TRADES_MARKET_GRAPH_L2"
 STATUS_SCHEMA = "w09-exploratory-autoresearch-status-v1"
-COMPLETION_SCHEMA = "w09-exploratory-autoresearch-completion-v1"
+COMPLETION_SCHEMA = "w09-exploratory-autoresearch-completion-v2"
+FULLSCOPE_METHODS = [
+    "D3-B01-MARKOUT",
+    "D3-B02-ONESIDE",
+    "D3-B03-XMKT",
+    "D3-B04-RHYTHM",
+    "D3-FULL-MARKET-GRAPH-01",
+    "D3-FULL-L2-SNBD-01",
+]
 STATIC_CREDENTIAL_NAMES = (
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
@@ -197,6 +213,7 @@ def _completion_is_current(
         and value.get("authority_release_id") == authority_release_id
         and value.get("authority_sha256") == authority_sha256
         and value.get("rfq") == "OFF"
+        and value.get("research_scope") == RESEARCH_SCOPE
     )
 
 
@@ -222,6 +239,8 @@ def run_cycle(
     w0_release_path: Path,
     w1_release_path: Path,
     w1_complete_path: Path,
+    l2_independent_audit_receipt_path: Path,
+    l2_independent_audit_report_path: Path,
     checkpoint_root: Path = Path(DEEP03_CHECKPOINT_ROOT),
     checkpoint_reserve_bytes: int = DEEP03_CHECKPOINT_RESERVE_BYTES,
     max_attempts: int = 1,
@@ -293,6 +312,7 @@ def run_cycle(
                 "mode": MODE,
                 "strict_acceptance_claimed": False,
                 "rfq": "OFF",
+                "research_scope": RESEARCH_SCOPE,
                 "authority_release_id": authority_release_id,
                 "authority_sha256": authority_sha256,
                 "step": current_step,
@@ -520,7 +540,7 @@ def run_cycle(
             _run_command(
                 [
                     python,
-                    str(tools_root / "research" / "deep03_v3_runner.py"),
+                    str(tools_root / "research" / "deep03_fullscope_runner.py"),
                     "--run-dir",
                     str(run_dir),
                     "--authority",
@@ -541,6 +561,10 @@ def run_cycle(
                     str(w1_release_path),
                     "--w1-complete",
                     str(w1_complete_path),
+                    "--l2-independent-audit-receipt",
+                    str(l2_independent_audit_receipt_path),
+                    "--l2-independent-audit-report",
+                    str(l2_independent_audit_report_path),
                     "--checkpoint-root",
                     str(checkpoint_root),
                     "--checkpoint-reserve-bytes",
@@ -549,6 +573,8 @@ def run_cycle(
                     DEEP03_MEMORY_LIMIT,
                     "--threads",
                     str(DEEP03_THREADS),
+                    "--l2-market-buckets",
+                    str(DEEP03_L2_MARKET_BUCKETS),
                 ],
                 step="08-research-run",
                 log_root=log_root,
@@ -558,12 +584,37 @@ def run_cycle(
             complete = _load_json(run_dir / "RUN_COMPLETE.json", "RUN_COMPLETE")
             if (
                 complete.get("state") != "RUN_COMPLETE"
+                or complete.get("schema_version")
+                != "deep03-fullscope-base-l2-run-complete-v1"
                 or complete.get("mode") != MODE
                 or complete.get("strict_acceptance_claimed") is not False
                 or complete.get("rfq_reads") != 0
+                or complete.get("rfq_scope")
+                != "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED"
+                or complete.get("work_package") != "DEEP03-FULL-BASE-L2-01"
+                or complete.get("candidate_or_profit_claim") is not False
+                or complete.get("declared_methods") != FULLSCOPE_METHODS
+                or complete.get("completed_methods") != FULLSCOPE_METHODS
                 or complete.get("release_ids") != release_ids
             ):
                 raise AutoResearchError("Deep03 completion contract mismatch")
+            for digest_field in (
+                "fullscope_execution_receipt_sha256",
+                "market_graph_result_sha256",
+                "l2_execution_receipt_sha256",
+                "l2_independent_audit_receipt_sha256",
+                "l2_independent_audit_report_sha256",
+                "report_sha256",
+            ):
+                digest = complete.get(digest_field)
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(character not in "0123456789abcdef" for character in digest)
+                ):
+                    raise AutoResearchError(
+                        "Deep03 completion digest mismatch: %s" % digest_field
+                    )
 
             hook_ran = False
 
@@ -586,6 +637,7 @@ def run_cycle(
                     "adopted_plan_sha256"
                 ),
                 "rfq": "OFF",
+                "research_scope": RESEARCH_SCOPE,
                 "run_id": run_id,
                 "run_dir": str(run_dir),
                 "run_complete_sha256": hashlib.sha256(
@@ -627,6 +679,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--w0-release", required=True, type=Path)
     parser.add_argument("--w1-release", required=True, type=Path)
     parser.add_argument("--w1-complete", required=True, type=Path)
+    parser.add_argument(
+        "--l2-independent-audit-receipt",
+        default=L2_INDEPENDENT_AUDIT_RECEIPT,
+        type=Path,
+    )
+    parser.add_argument(
+        "--l2-independent-audit-report",
+        default=L2_INDEPENDENT_AUDIT_REPORT,
+        type=Path,
+    )
     parser.add_argument("--checkpoint-root", default=DEEP03_CHECKPOINT_ROOT, type=Path)
     parser.add_argument(
         "--checkpoint-reserve-bytes",
@@ -653,6 +715,8 @@ def main(argv: list[str] | None = None) -> int:
             w0_release_path=args.w0_release,
             w1_release_path=args.w1_release,
             w1_complete_path=args.w1_complete,
+            l2_independent_audit_receipt_path=args.l2_independent_audit_receipt,
+            l2_independent_audit_report_path=args.l2_independent_audit_report,
         )
         result = run_cycle(
             cache=Path(args.cache),
