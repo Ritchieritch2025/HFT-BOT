@@ -142,6 +142,34 @@ def _complete_outputs(job_id: str) -> tuple[bytes, dict[str, bytes]]:
             receipt, sort_keys=True, separators=(",", ":")
         ).encode(),
     }
+    artifacts = [
+        {
+            "path": name,
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        for name, payload in sorted(files.items())
+        if name != "STATUS.json"
+    ]
+    output_receipt = {
+        "schema_version": "research-job-output-receipt-v1",
+        "job_id": job_id,
+        "output_directory": "OUTPUT",
+        "artifact_count": len(artifacts),
+        "artifact_bytes": sum(row["bytes"] for row in artifacts),
+        "artifacts": artifacts,
+        "data_files_exported": 0,
+        "source_contract": "DEDICATED_JOB_OUTPUT_ONLY",
+    }
+    unsigned = (
+        json.dumps(output_receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        + "\n"
+    ).encode()
+    output_receipt["output_sha256"] = hashlib.sha256(unsigned).hexdigest()
+    files["OUTPUT_RECEIPT.json"] = (
+        json.dumps(output_receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        + "\n"
+    ).encode()
     return _tar(files), files
 
 
@@ -275,16 +303,24 @@ def test_pull_installs_one_validated_snapshot_with_status_last(tmp_path):
 
     job_dir = inbox / "jobs" / job["job_id"]
     assert receipt["remote_state"] == "COMPLETE"
-    assert receipt["installed"] == ["RESULTS.json", "REPORT", "STATUS.json"]
+    assert receipt["installed"] == [
+        "RESULTS.json",
+        "REPORT",
+        "W09_OUTPUT_RECEIPT.json",
+        "STATUS.json",
+    ]
     assert (job_dir / "STATUS.json").read_bytes() == files["STATUS.json"]
     assert (job_dir / "RESULTS.json").read_bytes() == files["RESULTS.json"]
     assert (job_dir / "REPORT" / "index.html").read_bytes() == files[
         "REPORT/index.html"
     ]
+    assert (job_dir / "W09_OUTPUT_RECEIPT.json").read_bytes() == files[
+        "OUTPUT_RECEIPT.json"
+    ]
     assert len(recorder.commands) == 1
     command = recorder.commands[0]
     assert command[0] == "ssh" and "export" in command
-    assert "STATUS_RESULTS_REPORT" in command
+    assert "STATUS_RESULTS_REPORT_RECEIPT" in command
     assert not list((inbox / "jobs").glob(".*.pull.*"))
 
 

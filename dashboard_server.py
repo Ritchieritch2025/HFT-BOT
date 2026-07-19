@@ -464,17 +464,11 @@ def make_handler(metrics_path, backfill_default, allow_network=False,
             elif self._research_job_id(path, "/report"):
                 job_id = self._research_job_id(path, "/report")
                 try:
-                    job = research_inbox.get_job(research_inbox_root, job_id)
-                    report = os.path.join(
-                        research_inbox_root, "jobs", job_id, "REPORT", "index.html")
-                    if not job["report_available"]:
-                        self._json(404, {"error": "report not ready", "job_id": job_id})
-                    else:
-                        with open(report, "rb") as handle:
-                            self._send(
-                                200, handle.read(), "text/html; charset=utf-8",
-                                {"Content-Security-Policy":
-                                 "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
+                    report = research_inbox.read_report(research_inbox_root, job_id)
+                    self._send(
+                        200, report, "text/html; charset=utf-8",
+                        {"Content-Security-Policy":
+                         "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
                 except (OSError, research_inbox.InboxError) as exc:
                     self._json(404, {"error": str(exc)})
             elif self._research_job_id(path):
