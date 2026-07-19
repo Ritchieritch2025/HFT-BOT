@@ -20,9 +20,11 @@ touch the production EC2 host, publish to S3, or start Track A.
 - Shutdown: after 1,800 seconds with no SSH and no `w09-run` inhibitor.
 - W09 contains neither the Mac private key nor Kalshi/AWS static credentials.
 
-The dual v2/v3 reader and Deep03 runtime are taken from the same clean exact
-release commit. The packager refuses a separate source worktree unless its
-HEAD is exactly the release HEAD. The
+The dual v2/v3 reader and Deep03 runtime are taken from one clean worktree
+whose HEAD must equal the explicit `W09_RUNTIME_COMMIT`. The release worktree
+may be at a later audit/metadata commit: runtime module manifests are checked
+against the runtime source worktree, while the deployment manifest is checked
+against the release worktree. The
 complete import set (`research_data.py`, `research_reference.py`, and
 `warehouse_common.py`) is pinned by `research_reader_modules.sha256`, checked
 before packaging, checked again on the host, and installed non-executable with
@@ -89,7 +91,10 @@ The result must be exactly `stop`. Then run from the Mac:
 
 ```bash
 cd "/Users/ritcardo/HFT BOT"
-W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop bash deploy/w09/push_and_install.sh
+W09_RUNTIME_COMMIT=c6408a7f22cf88809886687f42350ea946babb9b \
+W09_SOURCE_REPO=/path/to/clean/runtime-worktree-at-c6408a7 \
+W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
+  bash deploy/w09/push_and_install.sh
 ```
 
 The installer validates the instance ID, exact `r8g.2xlarge` type, 8 online
@@ -189,11 +194,13 @@ The full installer installs but deliberately leaves the automatic timer
 disabled. The audit-candidate plan is PLAN-ONLY and supplies no execution
 authority. A future exact-SHA D3-W2A release must first name the authority,
 write root, input, cost and end/stopping rule. Only then may the operator
-upgrade the currently installed W09 from this clean release worktree with:
+upgrade W09 from a clean release worktree plus the exact clean runtime
+worktree bound by that release:
 
 ```bash
-cd /Users/ritcardo/HFT-BOT-tagger-release
-W09_SOURCE_REPO=/Users/ritcardo/HFT-BOT-tagger-release \
+cd /Users/ritcardo/HFT-BOT-deep03-bounded-08
+W09_RUNTIME_COMMIT=c6408a7f22cf88809886687f42350ea946babb9b \
+W09_SOURCE_REPO=/path/to/clean/runtime-worktree-at-c6408a7 \
 W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
   bash deploy/w09/push_and_install.sh
 ```

@@ -242,6 +242,28 @@ class TestReaderPayload(unittest.TestCase):
         self.assertIn("shasum -a 256 -c", push)
         self.assertIn("v3_query_canary.py", push)
         self.assertIn("v3_query_canary.sha256", push)
+        self.assertIn(
+            'cp "$SOURCE_REPO/deploy/w09/v3_query_canary.py"', push,
+        )
+        self.assertIn(
+            'cp "$QUERY_CANARY_MANIFEST" "$tmp/deploy/w09/"', push,
+        )
+        self.assertIn(
+            'printf \'%s\\n\' "$SOURCE_COMMIT" > '
+            '"$tmp/deploy/w09/source-commit.txt"',
+            push,
+        )
+        self.assertIn('RUNTIME_COMMIT="${W09_RUNTIME_COMMIT:-}"', push)
+        self.assertIn('SOURCE_COMMIT" != "$RUNTIME_COMMIT', push)
+        self.assertNotIn('SOURCE_COMMIT" != "$RELEASE_COMMIT', push)
+        self.assertEqual(push.count('if ! (cd "$SOURCE_REPO" && \\'), 3)
+        self.assertEqual(push.count('if ! (cd "$ROOT" && \\'), 1)
+        self.assertIn(
+            'shasum -a 256 -c "$EXPLORATORY_MANIFEST"', push,
+        )
+        self.assertNotIn(
+            'printf \'%s\\n\' "$RELEASE_COMMIT"', push,
+        )
         self.assertIn("v3_query_canary.py", install)
         self.assertIn("v3_query_canary.sha256", install)
         self.assertIn("/etc/w09/v3_query_canary.sha256", install)

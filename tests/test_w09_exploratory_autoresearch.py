@@ -423,7 +423,10 @@ def test_bounded_08_resource_and_packaging_contract_are_fixed():
     assert "EXPECTED_VCPU_COUNT=8" in installer
     assert "MIN_MEMTOTAL_KIB=62914560" in installer
     assert 'SOURCE_REPO="${W09_SOURCE_REPO:-$ROOT}"' in packager
-    assert 'SOURCE_COMMIT" != "$RELEASE_COMMIT' in packager
+    assert 'RUNTIME_COMMIT="${W09_RUNTIME_COMMIT:-}"' in packager
+    assert 'SOURCE_COMMIT" != "$RUNTIME_COMMIT' in packager
+    assert 'SOURCE_COMMIT" != "$RELEASE_COMMIT' not in packager
+    assert 'printf \'%s\\n\' "$SOURCE_COMMIT"' in packager
     assert cost["instance_type"] == "r8g.2xlarge"
     assert cost["effective_running_usd_per_hour_at_730h_month"] == 0.50918
 

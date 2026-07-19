@@ -4,6 +4,7 @@ set -Eeuo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 SOURCE_REPO="${W09_SOURCE_REPO:-$ROOT}"
+RUNTIME_COMMIT="${W09_RUNTIME_COMMIT:-}"
 HOST="${W09_HOST:-ubuntu@18.226.151.192}"
 KEY="${W09_SSH_KEY:-$HOME/.ssh/kalshi-key.pem}"
 REMOTE="/tmp/w09-bringup"
@@ -26,9 +27,17 @@ if [ -n "$(git -C "$SOURCE_REPO" status --porcelain --untracked-files=normal)" ]
 fi
 RELEASE_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 SOURCE_COMMIT="$(git -C "$SOURCE_REPO" rev-parse HEAD)"
-if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
-   [ "$SOURCE_COMMIT" != "$RELEASE_COMMIT" ]; then
-    echo "W09_SOURCE_GATE: payload source must be the exact release commit" >&2
+if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "W09_SOURCE_GATE: release worktree HEAD is not an exact commit" >&2
+    exit 65
+fi
+if ! [[ "$RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "W09_SOURCE_GATE: W09_RUNTIME_COMMIT must name the explicit audited runtime commit" >&2
+    exit 65
+fi
+if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+   [ "$SOURCE_COMMIT" != "$RUNTIME_COMMIT" ]; then
+    echo "W09_SOURCE_GATE: payload source HEAD differs from W09_RUNTIME_COMMIT" >&2
     exit 65
 fi
 if [ ! -f "$READER_MODULE_MANIFEST" ]; then
@@ -44,7 +53,7 @@ if [ ! -f "$QUERY_CANARY_MANIFEST" ]; then
     echo "W09_SOURCE_GATE: query canary manifest missing" >&2
     exit 65
 fi
-if ! (cd "$ROOT" && \
+if ! (cd "$SOURCE_REPO" && \
       shasum -a 256 -c "$QUERY_CANARY_MANIFEST" >/dev/null); then
     echo "W09_SOURCE_GATE: pinned v3 query canary changed" >&2
     exit 65
@@ -87,15 +96,17 @@ cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
-printf '%s\n' "$RELEASE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
+cp "$QUERY_CANARY_MANIFEST" "$tmp/deploy/w09/"
+cp "$SOURCE_REPO/deploy/w09/v3_query_canary.py" "$tmp/deploy/w09/"
+printf '%s\n' "$SOURCE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \
     run_acceptance.sh select_newest_release.py w09-idle-check.service \
     w09-idle-check.timer w09-run w09-inhibit-run \
     w09-inhibit-run.sudoers w09_idle_check.py \
-    w09_idle_confirm_stop.py w09_idle_proof.py v3_query_canary.py \
-    v3_query_canary.sha256 exploratory_v3_query_canary.py \
+    w09_idle_confirm_stop.py w09_idle_proof.py \
+    exploratory_v3_query_canary.py \
     exploratory_release_selector.py exploratory_autoresearch.py \
     deep03_authority_gate.py deep03_one_shot_arm.py \
     w09-exploratory-autoresearch.service \
