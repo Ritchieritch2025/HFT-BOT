@@ -372,8 +372,10 @@ REPLAY_COLUMNS = (
     "ask_qty_e4", "bid_depth3_e4", "ask_depth3_e4", "bid_levels",
     "ask_levels", "mid_e4", "microprice_e4", "spread_e4",
     "mid_logodds", "spread_logodds", "imbalance_depth3", "top_changed",
-    "touch_depletion", "top3_retreat", "pre_side_depth3_e4",
-    "post_side_depth3_e4", "top3_removed_e4", "top3_retreat_fraction",
+    "touch_depletion", "top3_retreat", "pre_topology", "pre_spread_e4",
+    "pre_imbalance_depth3", "pre_side_depth3_e4",
+    "pre_opposite_depth3_e4", "post_side_depth3_e4", "top3_removed_e4",
+    "top3_retreat_fraction",
     "control_candidate", "control_quiet_lookback_ns",
 )
 
@@ -553,16 +555,23 @@ class L2ReplayEngine:
 
         self.qc["deltas_applied"] += 1
         base["classification"] = "DELTA_APPLIED"
-        base["top_changed"] = bool(result["top_changed"])
-        base["touch_depletion"] = bool(result["touch_depletion"])
-        base["top3_retreat"] = bool(result["top3_retreat"])
-        base["pre_side_depth3_e4"] = int(result["pre_side_depth3_e4"])
-        base["post_side_depth3_e4"] = int(result["post_side_depth3_e4"])
-        base["top3_removed_e4"] = int(result["top3_removed_e4"])
-        base["top3_retreat_fraction"] = float(result["top3_retreat_fraction"])
         state = result["after"]
         pre_state = result["before"]
         side = str(side_value).lower()
+        base["top_changed"] = bool(result["top_changed"])
+        base["touch_depletion"] = bool(result["touch_depletion"])
+        base["top3_retreat"] = bool(result["top3_retreat"])
+        base["pre_topology"] = pre_state.get("topology")
+        base["pre_spread_e4"] = pre_state.get("spread_e4")
+        base["pre_imbalance_depth3"] = pre_state.get("imbalance_depth3")
+        base["pre_side_depth3_e4"] = int(result["pre_side_depth3_e4"])
+        base["pre_opposite_depth3_e4"] = (
+            pre_state.get("ask_depth3_e4")
+            if side == "yes" else pre_state.get("bid_depth3_e4")
+        )
+        base["post_side_depth3_e4"] = int(result["post_side_depth3_e4"])
+        base["top3_removed_e4"] = int(result["top3_removed_e4"])
+        base["top3_retreat_fraction"] = float(result["top3_retreat_fraction"])
         key = (market, side)
         existing = self.open_episodes.get(key)
         if existing is not None:
@@ -730,7 +739,11 @@ REPLAY_TYPES = {
     "top_changed": "BOOLEAN",
     "touch_depletion": "BOOLEAN",
     "top3_retreat": "BOOLEAN",
+    "pre_topology": "VARCHAR",
+    "pre_spread_e4": "BIGINT",
+    "pre_imbalance_depth3": "DOUBLE",
     "pre_side_depth3_e4": "BIGINT",
+    "pre_opposite_depth3_e4": "BIGINT",
     "post_side_depth3_e4": "BIGINT",
     "top3_removed_e4": "BIGINT",
     "top3_retreat_fraction": "DOUBLE",
@@ -1093,19 +1106,28 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
     spread_bin = _bin_sql("spread_e4", "spread")
     depth_bin = _bin_sql("bid_depth3_e4+ask_depth3_e4", "depth")
     imbalance_bin = _bin_sql("imbalance_depth3", "imbalance")
-    episode_spread_bin = _bin_sql("spread_e4", "spread")
-    episode_depth_bin = _bin_sql("pre_touch_qty_e4", "depth")
-    episode_imbalance_bin = _bin_sql("imbalance_depth3", "imbalance")
+    retreat_spread_bin = _bin_sql("pre_spread_e4", "spread")
+    retreat_depth_bin = _bin_sql("pre_side_depth3_e4", "depth")
+    retreat_imbalance_bin = _bin_sql("pre_imbalance_depth3", "imbalance")
+    episode_spread_bin = _bin_sql("pre_spread_e4", "spread")
+    episode_depth_bin = _bin_sql("pre_side_depth3_e4", "depth")
+    episode_imbalance_bin = _bin_sql("pre_imbalance_depth3", "imbalance")
+    interval_us = HAZARD_INTERVAL_NS // 1000
+    interval_count = EPISODE_HORIZON_NS // HAZARD_INTERVAL_NS
     return f"""
-      WITH ordered AS (
-        SELECT *,
+      WITH date_bounds AS (
+        SELECT date,max(recv_wall_ns)::BIGINT AS observation_end_ns
+        FROM {replay_relation} GROUP BY date
+      ), ordered AS (
+        SELECT r.*,b.observation_end_ns,
                lead(recv_wall_ns) OVER market_order AS next_clock_ns,
                lead(book_valid) OVER market_order AS next_valid,
                lead(snapshot_epoch) OVER market_order AS next_snapshot_epoch,
+               lead(msg_type) OVER market_order AS next_msg_type,
                lag(topology) OVER market_order AS previous_topology,
                lag(book_valid) OVER market_order AS previous_valid,
                lag(snapshot_epoch) OVER market_order AS previous_snapshot_epoch
-        FROM {replay_relation}
+        FROM {replay_relation} r JOIN date_bounds b USING(date)
         WINDOW market_order AS (
           PARTITION BY date,market_ticker
           ORDER BY recv_wall_ns,recv_mono_ns,ws_sid,ws_seq
@@ -1114,36 +1136,55 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
         SELECT *,{spread_bin} AS spread_bin,
                {depth_bin} AS depth_bin,
                {imbalance_bin} AS imbalance_bin,
-               CASE WHEN next_valid AND next_snapshot_epoch=snapshot_epoch
-                     AND next_clock_ns>=recv_wall_ns
-                    THEN (next_clock_ns-recv_wall_ns)/1000 END AS dwell_us
+               CASE WHEN next_clock_ns IS NOT NULL AND next_clock_ns>=recv_wall_ns
+                    THEN (next_clock_ns-recv_wall_ns)/1000
+                    WHEN observation_end_ns>=recv_wall_ns
+                    THEN (observation_end_ns-recv_wall_ns)/1000 END AS dwell_us,
+               CASE
+                 WHEN next_clock_ns IS NULL THEN 'RIGHT_CENSORED_CAPTURE_END'
+                 WHEN next_valid AND next_snapshot_epoch=snapshot_epoch
+                   THEN 'OBSERVED_NEXT_VALID_STATE'
+                 WHEN next_msg_type='snapshot'
+                   THEN 'RIGHT_CENSORED_SNAPSHOT_RESET'
+                 ELSE 'RIGHT_CENSORED_INVALID_OR_REJECTED'
+               END AS dwell_end_reason
         FROM ordered WHERE book_valid
       ), state_atlas AS (
         SELECT 'STATE' AS record_kind,date,sport,family,
                NULL::VARCHAR AS side,topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
-               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               dwell_end_reason AS endpoint_reason,
+               spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
                count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                cast(coalesce(sum(dwell_us),0) AS DOUBLE) AS total_dwell_us,
                quantile_cont(dwell_us,0.5)::DOUBLE AS median_dwell_us,
                quantile_cont(dwell_us,0.95)::DOUBLE AS p95_dwell_us,
-               NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS observed_event_fraction,
+               NULL::BIGINT AS horizon_start_us,NULL::BIGINT AS horizon_end_us,
+               NULL::BIGINT AS at_risk_n,NULL::BIGINT AS events_n,
+               NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
         FROM state_rows
-        GROUP BY date,sport,family,topology,spread_bin,depth_bin,imbalance_bin
+        GROUP BY date,sport,family,topology,dwell_end_reason,
+                 spread_bin,depth_bin,imbalance_bin
       ), transition_atlas AS (
         SELECT 'TRANSITION' AS record_kind,date,sport,family,
                NULL::VARCHAR AS side,NULL::VARCHAR AS topology,
                previous_topology AS from_topology,topology AS to_topology,
-               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               'OBSERVED_WITHIN_VALID_EPOCH' AS endpoint_reason,
+               spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
                count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
-               NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS p95_dwell_us,
+               NULL::DOUBLE AS observed_event_fraction,
+               NULL::BIGINT AS horizon_start_us,NULL::BIGINT AS horizon_end_us,
+               NULL::BIGINT AS at_risk_n,NULL::BIGINT AS events_n,
+               NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
         FROM state_rows
@@ -1152,21 +1193,29 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
         GROUP BY date,sport,family,previous_topology,topology,
                  spread_bin,depth_bin,imbalance_bin
       ), retreat_atlas AS (
-        SELECT 'RETREAT' AS record_kind,date,sport,family,side,topology,
+        SELECT 'RETREAT_TOP3_BASELINE' AS record_kind,date,sport,family,
+               side,pre_topology AS topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
-               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               'MATERIAL_TOP3_DEPTH_REDUCTION' AS endpoint_reason,
+               {retreat_spread_bin} AS spread_bin,
+               {retreat_depth_bin} AS depth_bin,
+               {retreat_imbalance_bin} AS imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
                count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
-               NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS p95_dwell_us,
+               NULL::DOUBLE AS observed_event_fraction,
+               NULL::BIGINT AS horizon_start_us,NULL::BIGINT AS horizon_end_us,
+               NULL::BIGINT AS at_risk_n,NULL::BIGINT AS events_n,
+               NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
-        FROM state_rows WHERE touch_depletion
-        GROUP BY date,sport,family,side,topology,
-                 spread_bin,depth_bin,imbalance_bin
+        FROM state_rows WHERE top3_retreat
+        GROUP BY ALL
       ), episode_atlas AS (
-        SELECT 'EPISODE' AS record_kind,date,sport,family,side,topology,
+        SELECT 'EPISODE' AS record_kind,date,sport,family,side,
+               pre_topology AS topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
                endpoint_reason,{episode_spread_bin} AS spread_bin,
                {episode_depth_bin} AS depth_bin,
@@ -1176,30 +1225,61 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,
-               avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
+               avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE
+                 AS observed_event_fraction,
+               NULL::BIGINT AS horizon_start_us,NULL::BIGINT AS horizon_end_us,
+               NULL::BIGINT AS at_risk_n,NULL::BIGINT AS events_n,
+               NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                quantile_cont(duration_us,0.5)::DOUBLE AS median_duration_us,
                quantile_cont(duration_us,0.95)::DOUBLE AS p95_duration_us
         FROM {episode_relation}
-        GROUP BY date,sport,family,side,topology,endpoint_reason,
-                 spread_bin,depth_bin,imbalance_bin
-      ), refill_hazard AS (
-        SELECT 'REFILL_HAZARD' AS record_kind,date,sport,family,side,topology,
-               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
-               NULL::VARCHAR AS endpoint_reason,
+        GROUP BY ALL
+      ), hazard_risk_rows AS (
+        SELECT e.*,b.bucket_index::BIGINT AS bucket_index,
+               (b.bucket_index*{interval_us})::BIGINT AS horizon_start_us,
+               ((b.bucket_index+1)*{interval_us})::BIGINT AS horizon_end_us
+        FROM {episode_relation} e
+        CROSS JOIN range(0,{interval_count}) b(bucket_index)
+        WHERE (b.bucket_index=0 AND e.duration_us>=0)
+           OR (b.bucket_index>0 AND e.duration_us>b.bucket_index*{interval_us})
+      ), hazard_counts AS (
+        SELECT date,sport,family,side,pre_topology,
                {episode_spread_bin} AS spread_bin,
                {episode_depth_bin} AS depth_bin,
                {episode_imbalance_bin} AS imbalance_bin,
-               count(*)::BIGINT AS n_rows,
+               horizon_start_us,horizon_end_us,count(*)::BIGINT AS at_risk_n,
+               count(*) FILTER (
+                 WHERE event_observed
+                   AND duration_us<=horizon_end_us
+                   AND (bucket_index=0 OR duration_us>horizon_start_us)
+               )::BIGINT AS events_n,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events
+        FROM hazard_risk_rows
+        GROUP BY ALL
+      ), hazard_rates AS (
+        SELECT *,events_n::DOUBLE/nullif(at_risk_n,0) AS interval_hazard
+        FROM hazard_counts
+      ), refill_hazard AS (
+        SELECT 'REFILL_HAZARD' AS record_kind,date,sport,family,side,
+               pre_topology AS topology,
+               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
+               NULL::VARCHAR AS endpoint_reason,
+               spread_bin,depth_bin,imbalance_bin,at_risk_n AS n_rows,
+               n_markets,n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,
-               avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
-               quantile_cont(duration_us,0.5)::DOUBLE AS median_duration_us,
-               quantile_cont(duration_us,0.95)::DOUBLE AS p95_duration_us
-        FROM {episode_relation}
-        GROUP BY date,sport,family,side,topology,
-                 spread_bin,depth_bin,imbalance_bin
+               NULL::DOUBLE AS observed_event_fraction,
+               horizon_start_us,horizon_end_us,at_risk_n,events_n,
+               interval_hazard,
+               product(1.0-interval_hazard) OVER (
+                 PARTITION BY date,sport,family,side,pre_topology,
+                              spread_bin,depth_bin,imbalance_bin
+                 ORDER BY horizon_start_us ROWS UNBOUNDED PRECEDING
+               )::DOUBLE AS survival_to_end,
+               NULL::DOUBLE AS median_duration_us,
+               NULL::DOUBLE AS p95_duration_us
+        FROM hazard_rates
       )
       SELECT * FROM state_atlas
       UNION ALL BY NAME SELECT * FROM transition_atlas
@@ -1209,70 +1289,124 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
     """
 
 
-def _matches_sql(replay_relation: str, episode_relation: str) -> str:
-    episode_spread = _bin_sql("e.spread_e4", "spread")
-    episode_depth = _bin_sql("e.pre_touch_qty_e4", "depth")
-    episode_imbalance = _bin_sql("e.imbalance_depth3", "imbalance")
+def _matches_sql(
+    replay_relation: str,
+    episode_relation: str,
+    *,
+    anchor_shift_ns: int = 0,
+) -> str:
+    """Return bounded past-only, quiet-anchor matching SQL.
+
+    The join cardinality is bounded before episode/control pairing: within
+    every exact stratum and 60-second clock bucket, at most eight controls are
+    admitted.  A five-minute lookback spans at most six buckets, hence at most
+    48 joined candidates per episode (and the explicit 64-row cap is a second
+    fail-closed ceiling).  No date-wide Cartesian relation is constructed.
+    """
+    episode_spread = _bin_sql("e.pre_spread_e4", "spread")
+    episode_depth = _bin_sql("e.pre_side_depth3_e4", "depth")
+    episode_imbalance = _bin_sql("e.pre_imbalance_depth3", "imbalance")
     control_spread = _bin_sql("c.spread_e4", "spread")
     control_depth = _bin_sql(
-        "CASE WHEN c.side='yes' THEN c.bid_qty_e4 ELSE c.ask_qty_e4 END", "depth"
+        "CASE WHEN c.side='yes' THEN c.bid_depth3_e4 ELSE c.ask_depth3_e4 END",
+        "depth",
     )
     control_imbalance = _bin_sql("c.imbalance_depth3", "imbalance")
+    bucket_span = math.ceil(MATCH_WINDOW_NS / CONTROL_TIME_BUCKET_NS)
     return f"""
       WITH episodes AS (
         SELECT e.*,{episode_spread} AS spread_bin,
                {episode_depth} AS depth_bin,
-               {episode_imbalance} AS imbalance_bin
+               {episode_imbalance} AS imbalance_bin,
+               (e.depletion_ns+({int(anchor_shift_ns)}))::BIGINT AS anchor_ns,
+               floor((e.depletion_ns+({int(anchor_shift_ns)}))::DOUBLE/
+                     {CONTROL_TIME_BUCKET_NS})::BIGINT AS anchor_bucket
         FROM {episode_relation} e
-      ), controls AS (
+        WHERE e.covariate_timing='PRE_DEPLETION_STATE'
+      ), controls_binned AS (
         SELECT c.*,{control_spread} AS spread_bin,
                {control_depth} AS depth_bin,
                {control_imbalance} AS imbalance_bin,
+               CASE WHEN c.side='yes' THEN c.bid_depth3_e4
+                    ELSE c.ask_depth3_e4 END::BIGINT AS control_side_depth3_e4,
+               floor(c.recv_wall_ns::DOUBLE/{CONTROL_TIME_BUCKET_NS})::BIGINT
+                 AS control_bucket,
                concat(c.market_ticker,'|',cast(c.recv_wall_ns AS VARCHAR),'|',
                       cast(c.ws_sid AS VARCHAR),'|',cast(c.ws_seq AS VARCHAR))
-                 AS control_id
+                 AS control_id,
+               row_number() OVER (
+                 PARTITION BY c.date,c.sport,c.family,c.side,c.topology,
+                              {control_spread},{control_depth},{control_imbalance},
+                              floor(c.recv_wall_ns::DOUBLE/{CONTROL_TIME_BUCKET_NS})
+                 ORDER BY c.recv_wall_ns DESC,c.market_ticker,c.ws_sid,c.ws_seq
+               ) AS stratum_bucket_rank
         FROM {replay_relation} c
         WHERE c.control_candidate AND c.book_valid AND c.topology='TWO_SIDED'
-      ), eligible AS (
+          AND c.control_quiet_lookback_ns>={QUIET_ANCHOR_LOOKBACK_NS}
+      ), controls AS (
+        SELECT * FROM controls_binned
+        WHERE stratum_bucket_rank<={MAX_CONTROLS_PER_STRATUM_BUCKET}
+      ), eligible_ranked AS (
         SELECT e.episode_id,e.date,e.market_ticker AS treatment_market,
-               e.event_proxy AS treatment_event,e.depletion_ns,
+               e.event_proxy AS treatment_event,e.depletion_ns,e.anchor_ns,
                c.control_id,c.market_ticker AS control_market,
                c.event_proxy AS control_event,c.recv_wall_ns AS control_ns,
                c.ws_sid AS control_ws_sid,c.ws_seq AS control_ws_seq,
-               e.sport,e.family,e.side,e.topology,
+               c.control_quiet_lookback_ns,c.stratum_bucket_rank,
+               e.sport,e.family,e.side,e.pre_topology AS topology,
                e.spread_bin,e.depth_bin,e.imbalance_bin,
-               abs(c.recv_wall_ns-e.depletion_ns)::BIGINT AS distance_ns,
-               abs(c.imbalance_depth3-e.imbalance_depth3)::DOUBLE
+               (e.anchor_ns-c.recv_wall_ns)::BIGINT AS control_lag_ns,
+               e.pre_imbalance_depth3::DOUBLE AS treatment_imbalance,
+               c.imbalance_depth3::DOUBLE AS control_imbalance,
+               e.pre_spread_e4::BIGINT AS treatment_spread_e4,
+               c.spread_e4::BIGINT AS control_spread_e4,
+               e.pre_side_depth3_e4::BIGINT AS treatment_depth3_e4,
+               c.control_side_depth3_e4::BIGINT AS control_depth3_e4,
+               abs(c.imbalance_depth3-e.pre_imbalance_depth3)::DOUBLE
                  AS imbalance_distance,
-               abs(c.spread_e4-e.spread_e4)::BIGINT AS spread_distance,
+               abs(c.spread_e4-e.pre_spread_e4)::BIGINT AS spread_distance,
+               abs(c.control_side_depth3_e4-e.pre_side_depth3_e4)::BIGINT
+                 AS depth_distance,
                row_number() OVER (
                  PARTITION BY e.episode_id
-                 ORDER BY abs(c.recv_wall_ns-e.depletion_ns),c.market_ticker,
+                 ORDER BY e.anchor_ns-c.recv_wall_ns,c.market_ticker,
                           c.recv_wall_ns,c.ws_sid,c.ws_seq
-               ) AS episode_choice
+               ) AS candidate_rank,
+               count(*) OVER (PARTITION BY e.episode_id)::BIGINT AS candidate_pool_n
         FROM episodes e JOIN controls c
           ON c.date=e.date AND c.sport=e.sport AND c.family=e.family
-         AND c.side=e.side AND c.topology=e.topology
+         AND c.side=e.side AND c.topology=e.pre_topology
          AND c.spread_bin=e.spread_bin AND c.depth_bin=e.depth_bin
          AND c.imbalance_bin=e.imbalance_bin
          AND c.event_proxy<>'' AND e.event_proxy<>''
          AND c.event_proxy<>e.event_proxy
-         AND abs(c.recv_wall_ns-e.depletion_ns)<={MATCH_WINDOW_NS}
+         AND c.control_bucket BETWEEN e.anchor_bucket-{bucket_span}
+                                  AND e.anchor_bucket
+         AND c.recv_wall_ns<e.anchor_ns
+         AND c.recv_wall_ns>=e.anchor_ns-{MATCH_WINDOW_NS}
+      ), eligible AS (
+        SELECT * FROM eligible_ranked
+        WHERE candidate_rank<={MAX_MATCH_CANDIDATES_PER_EPISODE}
       ), first_choice AS (
-        SELECT * EXCLUDE (episode_choice),
+        SELECT * EXCLUDE (candidate_rank),
                row_number() OVER (
                  PARTITION BY control_id
-                 ORDER BY distance_ns,episode_id
+                 ORDER BY control_lag_ns,episode_id
                ) AS control_choice
-        FROM eligible WHERE episode_choice=1
+        FROM eligible WHERE candidate_rank=1
       )
       SELECT concat(episode_id,'|',control_id) AS match_id,
              episode_id,date,treatment_market,treatment_event,depletion_ns,
-             control_id,control_market,control_event,control_ns,
+             anchor_ns,control_id,control_market,control_event,control_ns,
              control_ws_sid,control_ws_seq,sport,family,side,topology,
-             spread_bin,depth_bin,imbalance_bin,distance_ns,
-             imbalance_distance,spread_distance,
-             'NEAREST_FIRST_GLOBAL_ARBITRATION' AS matching_method
+             spread_bin,depth_bin,imbalance_bin,control_lag_ns,
+             control_quiet_lookback_ns,stratum_bucket_rank,candidate_pool_n,
+             treatment_imbalance,control_imbalance,
+             treatment_spread_e4,control_spread_e4,
+             treatment_depth3_e4,control_depth3_e4,
+             imbalance_distance,spread_distance,depth_distance,
+             true AS past_only,true AS quiet_anchor,
+             'PAST_ONLY_QUIET_NEAREST_GLOBAL_ARBITRATION' AS matching_method
       FROM first_choice WHERE control_choice=1
       ORDER BY date,episode_id,control_id
     """
@@ -1289,8 +1423,8 @@ def _write_date_reducers(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, bool]]:
     atlas_stage = "l2_exact_atlas"
     match_stage = "l2_matched_controls"
-    atlas_version = _stage_version(abi, atlas_stage, "exact-date-reducer-v1")
-    match_version = _stage_version(abi, match_stage, "exact-date-matching-v1")
+    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v2")
+    match_version = _stage_version(abi, match_stage, "past-quiet-bounded-v2")
     key = f"date={date}"
     atlas_receipt_path = store._paths(atlas_stage, key)[1]
     match_receipt_path = store._paths(match_stage, key)[1]
@@ -1314,24 +1448,71 @@ def _write_date_reducers(
         f"read_parquet({path_list(episode_paths)},union_by_name=true,"
         "hive_partitioning=false)"
     )
-    atlas_sql = _atlas_sql(replay_relation, episode_relation)
     state_rows = int(con.execute(
         f"SELECT count(*) FROM {replay_relation} WHERE book_valid"
     ).fetchone()[0])
     episode_rows = int(con.execute(
         f"SELECT count(*) FROM {episode_relation}"
     ).fetchone()[0])
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE l2_atlas_build AS "
+        + _atlas_sql(replay_relation, episode_relation)
+    )
+    state_endpoints = {
+        str(reason): int(count)
+        for reason, count in con.execute("""
+          SELECT endpoint_reason,coalesce(sum(n_rows),0)::BIGINT
+          FROM l2_atlas_build WHERE record_kind='STATE'
+          GROUP BY endpoint_reason ORDER BY endpoint_reason
+        """).fetchall()
+    }
+    hazard_violations = int(con.execute("""
+      SELECT count(*) FROM l2_atlas_build
+      WHERE record_kind='REFILL_HAZARD' AND (
+        at_risk_n<=0 OR events_n<0 OR events_n>at_risk_n
+        OR interval_hazard<0 OR interval_hazard>1
+        OR survival_to_end<0 OR survival_to_end>1
+      )
+    """).fetchone()[0])
+    survival_increases = int(con.execute("""
+      SELECT count(*) FROM (
+        SELECT survival_to_end,
+               lag(survival_to_end) OVER (
+                 PARTITION BY date,sport,family,side,topology,
+                              spread_bin,depth_bin,imbalance_bin
+                 ORDER BY horizon_start_us
+               ) AS prior_survival
+        FROM l2_atlas_build WHERE record_kind='REFILL_HAZARD'
+      ) ordered
+      WHERE prior_survival IS NOT NULL
+        AND survival_to_end>prior_survival+1e-12
+    """).fetchone()[0])
+    if hazard_violations or survival_increases:
+        raise L2ResearchError(
+            f"L2 risk-set survival invariant failed: {date}: "
+            f"hazard={hazard_violations} monotonic={survival_increases}"
+        )
     atlas_receipt, atlas_reused = store.write_partition(
         con,
         stage=atlas_stage,
         stage_version=atlas_version,
         partition_key=key,
-        select_sql=atlas_sql,
+        select_sql=(
+            "SELECT * FROM l2_atlas_build ORDER BY record_kind,date,sport,"
+            "family,side,topology,horizon_start_us,endpoint_reason"
+        ),
         metrics={
             "eligible_state_rows": state_rows,
             "episode_rows": episode_rows,
             "quantiles": "duckdb_exact_quantile_cont",
             "cross_market_bucket_reduction": True,
+            "state_dwell_endpoint_counts": state_endpoints,
+            "last_valid_state_extends_to_proven_date_observation_end": True,
+            "invalid_and_snapshot_resets_are_right_censoring": True,
+            "refill_estimator": "100ms_discrete_risk_set_hazard_product_limit_survival",
+            "raw_refill_fraction_labeled_as_hazard": False,
+            "hazard_invariant_violations": hazard_violations,
+            "survival_monotonicity_violations": survival_increases,
         },
     )
     atlas_path = store._paths(atlas_stage, key)[0]
@@ -1351,20 +1532,169 @@ def _write_date_reducers(
         label="l2_episode_atlas", observed=reduced_episode_rows,
         expected=episode_rows, context=date,
     )
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE l2_match_build AS "
+        + _matches_sql(replay_relation, episode_relation)
+    )
+    shift_ns = -2 * MATCH_WINDOW_NS
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE l2_shift_match_build AS "
+        + _matches_sql(
+            replay_relation, episode_relation, anchor_shift_ns=shift_ns
+        )
+    )
+    theoretical_candidate_bound = (
+        math.ceil(MATCH_WINDOW_NS / CONTROL_TIME_BUCKET_NS) + 1
+    ) * MAX_CONTROLS_PER_STRATUM_BUCKET
+    matching_invariants = con.execute(f"""
+      SELECT
+        count(*) FILTER (WHERE control_ns>=anchor_ns),
+        count(*) FILTER (
+          WHERE control_quiet_lookback_ns<{QUIET_ANCHOR_LOOKBACK_NS}
+        ),
+        count(*) FILTER (
+          WHERE stratum_bucket_rank>{MAX_CONTROLS_PER_STRATUM_BUCKET}
+        ),
+        count(*) FILTER (
+          WHERE candidate_pool_n>{theoretical_candidate_bound}
+             OR candidate_pool_n>{MAX_MATCH_CANDIDATES_PER_EPISODE}
+        ),
+        count(*)::BIGINT,count(DISTINCT episode_id)::BIGINT,
+        count(DISTINCT control_id)::BIGINT
+      FROM l2_match_build
+    """).fetchone()
+    invariant_names = (
+        "future_rows", "nonquiet_rows", "control_bucket_cap_rows",
+        "episode_candidate_cap_rows", "rows", "episodes", "controls",
+    )
+    invariant_receipt = {
+        name: int(value) for name, value in zip(invariant_names, matching_invariants)
+    }
+    if any(invariant_receipt[name] for name in invariant_names[:4]):
+        raise L2ResearchError(
+            f"L2 matched-control temporal/bound invariant failed: {date}: "
+            + json.dumps(invariant_receipt, sort_keys=True)
+        )
+    if not (
+        invariant_receipt["rows"] == invariant_receipt["episodes"]
+        == invariant_receipt["controls"]
+    ):
+        raise L2ResearchError(f"L2 matched-control uniqueness failed: {date}")
+
+    def standardized_balance(treatment: str, control: str) -> float | None:
+        values = con.execute(f"""
+          SELECT avg({treatment}),avg({control}),
+                 var_pop({treatment}),var_pop({control})
+          FROM l2_match_build
+          WHERE {treatment} IS NOT NULL AND {control} IS NOT NULL
+        """).fetchone()
+        if values[0] is None or values[1] is None:
+            return None
+        pooled = math.sqrt(max(0.0, (float(values[2] or 0) + float(values[3] or 0)) / 2))
+        if pooled == 0:
+            return 0.0 if float(values[0]) == float(values[1]) else None
+        return (float(values[0]) - float(values[1])) / pooled
+
+    distance_row = con.execute("""
+      SELECT avg(imbalance_distance),quantile_cont(imbalance_distance,0.95),
+             avg(spread_distance),quantile_cont(spread_distance,0.95),
+             avg(depth_distance),quantile_cont(depth_distance,0.95),
+             quantile_cont(control_lag_ns,0.5),
+             quantile_cont(control_lag_ns,0.95)
+      FROM l2_match_build
+    """).fetchone()
+    distance_names = (
+        "mean_abs_imbalance", "p95_abs_imbalance", "mean_abs_spread_e4",
+        "p95_abs_spread_e4", "mean_abs_depth3_e4", "p95_abs_depth3_e4",
+        "median_control_lag_ns", "p95_control_lag_ns",
+    )
+    balance_receipt: dict[str, Any] = {
+        name: (None if value is None else float(value))
+        for name, value in zip(distance_names, distance_row)
+    }
+    balance_receipt["smd_imbalance"] = standardized_balance(
+        "treatment_imbalance", "control_imbalance"
+    )
+    balance_receipt["smd_spread_e4"] = standardized_balance(
+        "treatment_spread_e4", "control_spread_e4"
+    )
+    balance_receipt["smd_depth3_e4"] = standardized_balance(
+        "treatment_depth3_e4", "control_depth3_e4"
+    )
+
+    def concentration(column: str) -> dict[str, Any]:
+        row = con.execute(f"""
+          WITH counts AS (
+            SELECT {column} AS identity,count(*)::DOUBLE AS n
+            FROM l2_match_build GROUP BY {column}
+          ), totals AS (SELECT coalesce(sum(n),0)::DOUBLE AS total FROM counts)
+          SELECT count(*)::BIGINT,
+                 CASE WHEN total>0 THEN max(n)/total END,
+                 CASE WHEN total>0 THEN sum((n/total)*(n/total)) END
+          FROM counts CROSS JOIN totals GROUP BY total
+        """).fetchone()
+        if row is None:
+            return {"unique": 0, "max_share": None, "hhi": None}
+        return {
+            "unique": int(row[0]),
+            "max_share": None if row[1] is None else float(row[1]),
+            "hhi": None if row[2] is None else float(row[2]),
+        }
+
+    shifted = con.execute("""
+      SELECT count(*)::BIGINT,
+             count(*) FILTER (WHERE control_ns>=anchor_ns)::BIGINT,
+             count(*) FILTER (WHERE NOT past_only OR NOT quiet_anchor)::BIGINT
+      FROM l2_shift_match_build
+    """).fetchone()
+    negative_controls = {
+        "future_leakage": {
+            "state": "PASS" if invariant_receipt["future_rows"] == 0 else "FAIL",
+            "violations": invariant_receipt["future_rows"],
+            "rule": "control_ns < treatment_anchor_ns",
+        },
+        "reset_proximity": {
+            "state": "PASS" if invariant_receipt["nonquiet_rows"] == 0 else "FAIL",
+            "violations": invariant_receipt["nonquiet_rows"],
+            "rule": f"quiet_lookback_ns >= {QUIET_ANCHOR_LOOKBACK_NS}",
+        },
+        "past_shift_placebo": {
+            "state": "DIAGNOSTIC_ONLY_NO_OUTCOME_ESTIMATE",
+            "anchor_shift_ns": shift_ns,
+            "matched_rows": int(shifted[0]),
+            "future_violations": int(shifted[1]),
+            "past_or_quiet_flag_violations": int(shifted[2]),
+        },
+    }
     match_receipt, match_reused = store.write_partition(
         con,
         stage=match_stage,
         stage_version=match_version,
         partition_key=key,
-        select_sql=_matches_sql(replay_relation, episode_relation),
+        select_sql="SELECT * FROM l2_match_build ORDER BY date,episode_id,control_id",
         metrics={
-            "matching_method": "NEAREST_FIRST_GLOBAL_ARBITRATION",
+            "matching_method": "PAST_ONLY_QUIET_NEAREST_GLOBAL_ARBITRATION",
             "match_window_ns": MATCH_WINDOW_NS,
+            "quiet_anchor_lookback_ns": QUIET_ANCHOR_LOOKBACK_NS,
+            "control_time_bucket_ns": CONTROL_TIME_BUCKET_NS,
+            "max_controls_per_exact_stratum_bucket": MAX_CONTROLS_PER_STRATUM_BUCKET,
+            "theoretical_candidates_per_episode_bound": theoretical_candidate_bound,
+            "hard_candidates_per_episode_cap": MAX_MATCH_CANDIDATES_PER_EPISODE,
+            "date_wide_cartesian_join_used": False,
             "same_exact_strata": [
                 "date", "sport", "family", "side", "topology",
                 "spread_bin", "depth_bin", "imbalance_bin",
             ],
             "different_event_required": True,
+            "past_only_required": True,
+            "without_control_replacement": True,
+            "invariants": invariant_receipt,
+            "negative_controls": negative_controls,
+            "balance": balance_receipt,
+            "concentration": {
+                "control_market": concentration("control_market"),
+                "control_event": concentration("control_event"),
+            },
             "outcome_or_pnl_columns": False,
         },
     )
@@ -1419,8 +1749,8 @@ def execute_l2_snbd_bounded(
     replay_stage = "l2_replay"
     episode_stage = "l2_episodes"
     physical_version = _stage_version(abi, physical_stage, "exact-source-v1")
-    replay_version = _stage_version(abi, replay_stage, "sequence-replay-v1")
-    episode_version = _stage_version(abi, episode_stage, "lifecycle-v1")
+    replay_version = _stage_version(abi, replay_stage, "sequence-replay-v2")
+    episode_version = _stage_version(abi, episode_stage, "causal-lifecycle-v2")
     bucket_values = range(market_buckets + 1)  # final value is NULL-market bucket
     physical_keys: list[str] = []
     replay_keys: list[str] = []
@@ -1530,8 +1860,8 @@ def execute_l2_snbd_bounded(
 
     atlas_stage = "l2_exact_atlas"
     match_stage = "l2_matched_controls"
-    atlas_version = _stage_version(abi, atlas_stage, "exact-date-reducer-v1")
-    match_version = _stage_version(abi, match_stage, "exact-date-matching-v1")
+    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v2")
+    match_version = _stage_version(abi, match_stage, "past-quiet-bounded-v2")
     reducer_keys: list[str] = []
     activity[atlas_stage] = {"written": 0, "reused": 0}
     activity[match_stage] = {"written": 0, "reused": 0}
