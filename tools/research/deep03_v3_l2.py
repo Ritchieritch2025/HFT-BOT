@@ -413,7 +413,9 @@ class L2ReplayEngine:
             "recv_wall_ns": recv_wall_ns,
             "recv_mono_ns": recv_mono_ns,
             "market_ticker": market,
-            "event_proxy": str(event_proxy or market),
+            # Missing event identity stays missing.  Falling back to market
+            # ticker would fabricate "different event" balance in matching.
+            "event_proxy": str(event_proxy or ""),
             "sport": str(sport or "_UNKNOWN"),
             "family": str(family or "_UNKNOWN"),
             "ws_sid": ws_sid,
@@ -1031,7 +1033,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                cast(coalesce(sum(dwell_us),0) AS DOUBLE) AS total_dwell_us,
                quantile_cont(dwell_us,0.5)::DOUBLE AS median_dwell_us,
                quantile_cont(dwell_us,0.95)::DOUBLE AS p95_dwell_us,
@@ -1047,7 +1049,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
                NULL::DOUBLE AS median_duration_us,
@@ -1063,7 +1065,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
                NULL::DOUBLE AS median_duration_us,
@@ -1079,7 +1081,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                {episode_imbalance_bin} AS imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,
                avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
@@ -1097,7 +1099,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                {episode_imbalance_bin} AS imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
-               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               count(DISTINCT nullif(event_proxy,''))::BIGINT AS n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
                NULL::DOUBLE AS p95_dwell_us,
                avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
@@ -1161,6 +1163,7 @@ def _matches_sql(replay_relation: str, episode_relation: str) -> str:
          AND c.side=e.side AND c.topology=e.topology
          AND c.spread_bin=e.spread_bin AND c.depth_bin=e.depth_bin
          AND c.imbalance_bin=e.imbalance_bin
+         AND c.event_proxy<>'' AND e.event_proxy<>''
          AND c.event_proxy<>e.event_proxy
          AND abs(c.recv_wall_ns-e.depletion_ns)<={MATCH_WINDOW_NS}
       ), first_choice AS (
@@ -1341,6 +1344,10 @@ def execute_l2_snbd_bounded(
         objects = _l2_fact_objects(input_manifest, date)
         typed = _normalized_l2_sql(con, objects, date)
         source_count = int(con.execute(f"SELECT count(*) FROM ({typed})").fetchone()[0])
+        if source_count <= 0:
+            raise L2ResearchError(
+                f"captured L2 date has zero Sports fact rows: {date}"
+            )
         source_counts[date] = source_count
         observed_end = con.execute(
             f"SELECT max(recv_wall_ns) FROM ({typed})"
