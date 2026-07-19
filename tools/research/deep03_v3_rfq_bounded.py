@@ -2165,6 +2165,9 @@ def _d07_result(
         "l2_quality_pass_required": True,
         "pre_event_state_must_be_past_or_event": True,
         "post_event_state_must_be_strictly_future": True,
+        "rfq_event_dedup_clock_policy": (
+            "FULL_ID_CLOCK_VALID_FIRST_THEN_RECV_SOURCE_LOCATOR"
+        ),
         "max_components_per_day": MAX_D07_COMPONENTS_PER_DAY,
         "max_source_rows_per_component": MAX_D07_SOURCE_ROWS_PER_COMPONENT,
         "no_cross_date_borrow": True,
@@ -2339,45 +2342,32 @@ def _build_report(
     life = f"read_parquet({path_list(lifecycle_paths)},union_by_name=true,hive_partitioning=false)"
     mapped = f"read_parquet({path_list(mapping_paths)},union_by_name=true,hive_partitioning=false)"
     events = f"read_parquet({path_list(event_paths)},union_by_name=true,hive_partitioning=false)"
-    event_by_locator = {
-        (str(row[1]), str(row[2]), int(row[3])): {
+    rfq_events = {
+        str(row[0]): {
             "request_id": str(row[0]),
-            "created_ts_us": int(row[4]),
-            "create_recv_wall_ns": int(row[5]),
-            "create_clock_skew_us": int(row[6]),
-            "create_clock_state": str(row[7]),
-            "legs_json": str(row[8]),
-            "leg_count": int(row[9]),
+            "created_ts_us": int(row[1]),
+            "create_recv_wall_ns": int(row[2]),
+            "create_clock_skew_us": int(row[3]),
+            "create_clock_state": str(row[4]),
+            "legs_json": str(row[5]),
+            "leg_count": int(row[6]),
         }
         for row in con.execute(f"""
-          SELECT rfq_id,source_key,source_version_id,source_line,
-                 exchange_ts_us,recv_wall_ns,clock_skew_us,clock_state,
+          SELECT rfq_id,exchange_ts_us,recv_wall_ns,clock_skew_us,clock_state,
                  legs_json,leg_count
           FROM {events} WHERE event_type='CREATE'
+          QUALIFY row_number() OVER (
+            PARTITION BY rfq_id
+            ORDER BY CASE WHEN clock_state='{CLOCK_WITHIN_TOLERANCE}'
+                          THEN 0 ELSE 1 END,
+                     recv_wall_ns,source_key,source_version_id,source_line
+          )=1
         """).fetchall()
     }
-    rfq_events: dict[str, dict[str, Any]] = {}
-    for meta in metas:
-        for occurrence in meta["provenance"]["rfq_created_occurrences"]:
-            if occurrence["occurrence_kind"] != "PRIMARY":
-                continue
-            locator = (
-                occurrence["object_key"], occurrence["version_id"],
-                occurrence["line_number"],
-            )
-            event = event_by_locator.get(locator)
-            if event is None or event["request_id"] != occurrence["request_id"]:
-                _fail(
-                    "CONSERVATION_FAILED",
-                    f"primary RFQ event locator differs for {occurrence['request_id']}",
-                )
-            if occurrence["request_id"] in rfq_events:
-                _fail("CONSERVATION_FAILED", "primary RFQ ID repeats across dates")
-            rfq_events[occurrence["request_id"]] = event
     if len(rfq_events) != sum(
         meta["provenance"]["rfq_created_unique_count"] for meta in metas
     ):
-        _fail("CONSERVATION_FAILED", "primary RFQ event map does not conserve")
+        _fail("CONSERVATION_FAILED", "deduplicated RFQ event map does not conserve")
 
     per_hour = [
         {"utc_hour": str(row[0]), "requests": int(row[1])}
