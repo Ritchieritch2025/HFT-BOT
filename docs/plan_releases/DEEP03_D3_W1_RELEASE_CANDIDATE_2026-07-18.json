@@ -1,7 +1,7 @@
 {
   "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
   "all_inputs_prior_exposed": true,
-  "audit_sha256": "c0fec224f6bcde264264ab46632699cf2c8386867776c6475e2761119d7ffc29",
+  "audit_sha256": "d75128018dcd73453a734e3e57f1a9a0c28ad4fd95610a55456ccf55d0c0ee63",
   "authorized_input_dates": [
     "2026-07-10",
     "2026-07-11",
@@ -22,19 +22,24 @@
     "2026-07-16__v3ref__seal-60b2674e__pub-fd365b5cd76099a0",
     "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
   ],
+  "deployment_state": "FORBIDDEN_UNTIL_INTEGRATED_HEAD_AUDIT_AND_NEW_AUTHORITY_ARM",
   "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
   "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
   "expected_object_bytes": 29473216651,
   "expected_object_count": 2657,
   "holdout_opened": false,
+  "integrated_head_audit_state": "REQUIRED_NOT_YET_PERFORMED",
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W1-2026-07-18.08",
+  "release_id": "D3-W1-2026-07-19.09",
   "research_execution_authority": false,
   "rfq_included": false,
-  "runtime_commit": "b0d56eb62068d31f3846a1cf20ccb755ff6ca848",
+  "rfq_overlay_audit_path": "docs/plan_audits/AUDIT_DEEP03_RFQ_QUALITY_D07_ATTESTATION_2026-07-19.md",
+  "rfq_overlay_audit_sha256": "482bfd6c9cf7d81c85692273f0e808d7e9fac77c7ab73834190dcd25d6c86e43",
+  "rfq_overlay_audited_module_commit": "77416c04922bd695cf4df83b4adf64c56b35f394",
+  "runtime_commit": "d65b53c37b3a36ef5ca220a1c396d0233153a14f",
   "schema_version": "deep03-w1-release-v1",
   "state": "RELEASE_CANDIDATE",
   "strict_acceptance_claimed": false,
-  "w0_release_id": "D3-W0-2026-07-18.08",
-  "w0_release_sha256": "cba7623e3e44c50de786f15b5b4c654229afa040acff1162da09a23accbef895"
+  "w0_release_id": "D3-W0-2026-07-19.09",
+  "w0_release_sha256": "1bbf6f63a651921d6d069d8357b2042b2468bf7acace184bea175ab694bfb92e"
 }
