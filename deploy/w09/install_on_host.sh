@@ -75,6 +75,15 @@ if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
     echo "W09_INSTALL_REFUSED: Research Inbox payload mismatch" >&2
     exit 65
 fi
+if [ ! -f "$PAYLOAD_ROOT/deploy/w09/research_cache_sync_payload.sha256" ]; then
+    echo "W09_INSTALL_REFUSED: research cache sync manifest missing" >&2
+    exit 66
+fi
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/research_cache_sync_payload.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: research cache sync payload mismatch" >&2
+    exit 65
+fi
 if ! grep -Eq '^[0-9a-f]{40}$' \
     "$PAYLOAD_ROOT/deploy/w09/source-commit.txt" 2>/dev/null; then
     echo "W09_INSTALL_REFUSED: missing or invalid exact source commit" >&2
@@ -178,6 +187,8 @@ install -m 0644 "$PAYLOAD_ROOT/config/warehouse.yaml" \
     "$INSTALL_ROOT/config/warehouse.yaml"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_data_instance_profile.py" \
     "$INSTALL_ROOT/tools/research_data_instance_profile.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_cache_sync.py" \
+    "$INSTALL_ROOT/tools/research_cache_sync.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/select_newest_release.py" \
     "$INSTALL_ROOT/tools/select_newest_release.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/v3_query_canary.py" \
@@ -219,6 +230,13 @@ python3 -m venv "$VENV"
     'import duckdb; assert duckdb.__version__ == "1.4.5"; print("duckdb=1.4.5")'
 PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
     'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$INSTALL_ROOT/tools" \
+    "$VENV/bin/python" -c \
+    'import py_compile,sys,tempfile; d=tempfile.TemporaryDirectory(); py_compile.compile(sys.argv[1], cfile=d.name + "/research_cache_sync.pyc", doraise=True)' \
+    "$INSTALL_ROOT/tools/research_cache_sync.py"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$INSTALL_ROOT/tools" \
+    "$VENV/bin/python" -c \
+    'import inspect,research_data as rd; assert str(inspect.signature(rd.cmd_fetch)) == "(store, cache, rid, with_rfq, allow_legacy=False)"; print("research_cache_sync_api=exact")'
 
 install -d -o ubuntu -g ubuntu -m 0750 \
     /srv/w09-research "$CACHE_ROOT" "$INBOX_ROOT" \
@@ -290,6 +308,12 @@ install -m 0644 \
 install -m 0644 \
     "$PAYLOAD_ROOT/deploy/w09/w09-research-inbox-worker@.service" \
     /etc/systemd/system/w09-research-inbox-worker@.service
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-research-cache-sync.service" \
+    /etc/systemd/system/w09-research-cache-sync.service
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-research-cache-sync.timer" \
+    /etc/systemd/system/w09-research-cache-sync.timer
 
 sha256sum \
     "$INSTALL_ROOT/deploy/w09/research_job_worker.py" \
@@ -307,6 +331,18 @@ sha256sum \
     > /etc/w09/research_inbox.sha256
 chmod 0444 /etc/w09/research_inbox.sha256
 sha256sum -c /etc/w09/research_inbox.sha256 >/dev/null
+
+sha256sum \
+    "$INSTALL_ROOT/tools/research_cache_sync.py" \
+    "$INSTALL_ROOT/tools/research_data_instance_profile.py" \
+    "$INSTALL_ROOT/tools/research_data.py" \
+    "$INSTALL_ROOT/tools/research_reference.py" \
+    "$INSTALL_ROOT/tools/warehouse_common.py" \
+    /etc/systemd/system/w09-research-cache-sync.service \
+    /etc/systemd/system/w09-research-cache-sync.timer \
+    > /etc/w09/research_cache_sync.sha256
+chmod 0444 /etc/w09/research_cache_sync.sha256
+sha256sum -c /etc/w09/research_cache_sync.sha256 >/dev/null
 
 sha256sum \
     "$INSTALL_ROOT/tools/v3_query_canary.py" \
@@ -340,6 +376,8 @@ systemctl daemon-reload
 systemctl disable --now w09-idle-check.timer >/dev/null 2>&1 || true
 systemctl disable --now w09-exploratory-autoresearch.timer \
     >/dev/null 2>&1 || true
+systemctl disable --now w09-research-cache-sync.timer \
+    >/dev/null 2>&1 || true
 
 # Prove both fail-safe busy modes before arming the timer.
 systemctl start w09-idle-check.service
@@ -355,9 +393,13 @@ systemctl enable --now w09-idle-check.timer
 # operator applies that separate authority and explicitly enables/starts it.
 systemctl disable --now w09-exploratory-autoresearch.timer \
     >/dev/null 2>&1 || true
+# Cache sync is staged the same way: installation and daemon-reload only.
+# Enable its timer separately after the active Deep03 session is closed.
 systemctl is-active --quiet chrony.service
 systemctl is-active --quiet w09-idle-check.timer
 test "$(systemctl is-enabled w09-exploratory-autoresearch.timer 2>/dev/null || true)" \
+    = disabled
+test "$(systemctl is-enabled w09-research-cache-sync.timer 2>/dev/null || true)" \
     = disabled
 timedatectl show -p Timezone --value | grep -qx UTC
 
