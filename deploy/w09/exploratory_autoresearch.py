@@ -27,7 +27,10 @@ import deep03_authority_gate
 
 
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
-DEEP03_MEMORY_LIMIT = "16GB"
+# D3-W2A .07 runs only on the audited 256 GiB W09 envelope.  Keep two
+# threads so the research/statistical semantics and parallel reduction shape
+# remain unchanged from .06; the repair is memory capacity, not concurrency.
+DEEP03_MEMORY_LIMIT = "128GB"
 DEEP03_THREADS = 2
 STATUS_SCHEMA = "w09-exploratory-autoresearch-status-v1"
 COMPLETION_SCHEMA = "w09-exploratory-autoresearch-completion-v1"

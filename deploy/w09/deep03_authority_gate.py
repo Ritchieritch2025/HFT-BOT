@@ -28,11 +28,12 @@ AUTHORITY_SCHEMA = "deep03-w09-execution-authority-v1"
 ARM_SCHEMA = "deep03-w09-execution-arm-v1"
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 WORK_PACKAGE = "D3-W2A"
-W2A_RELEASE_ID = "D3-W2A-2026-07-18.06"
-W0_RELEASE_ID = "D3-W0-2026-07-18.06"
-W1_RELEASE_ID = "D3-W1-2026-07-18.06"
+W2A_RELEASE_ID = "D3-W2A-2026-07-18.07"
+W0_RELEASE_ID = "D3-W0-2026-07-18.07"
+W1_RELEASE_ID = "D3-W1-2026-07-18.07"
 PHASE = "OPEN_DISCOVERY"
 INSTANCE_ID = "i-0e53d134dceffe166"
+INSTANCE_TYPE = "x8g.4xlarge"
 ROLE = "w09-research-runner"
 PLAN_INSTALL_PATH = "/etc/w09/deep03/adopted-plan.md"
 WRITE_ROOTS = {
@@ -85,7 +86,7 @@ W1_EXACT_RELEASE_COUNT = 8
 EXPECTED_EVIDENCE_TIER = "SEALED_DEGRADED_EVIDENCE"
 EXPECTED_OBJECT_COUNT = 2657
 EXPECTED_OBJECT_BYTES = 29473216651
-W09_EFFECTIVE_RUNNING_USD_PER_HOUR = Decimal("0.50918")
+W09_EFFECTIVE_RUNNING_USD_PER_HOUR = Decimal("1.60108")
 W09_MAX_SPENDING_CAP_USD = Decimal("15")
 AUTHORIZED_METHOD_SCOPE = {
     "D3-B01-MARKOUT": "PARTIAL_DESCRIPTIVE_ONLY",
@@ -529,6 +530,7 @@ def validate_authority_bundle(
         "authorized_phase_id": PHASE,
         "authorized_work_package_id": WORK_PACKAGE,
         "authorized_instance_id": INSTANCE_ID,
+        "authorized_instance_type": INSTANCE_TYPE,
         "authorized_role": ROLE,
         "mode": MODE,
         "execution_class": "EXPLORATORY_ONLY",
@@ -598,9 +600,9 @@ def validate_authority_bundle(
         authority, prefix="w1", pattern=W1_RELEASE_RE
     )
     if w0_release_id != W0_RELEASE_ID:
-        raise AuthorityError("W0 release ID differs from the fixed .06 release")
+        raise AuthorityError("W0 release ID differs from the fixed .07 release")
     if w1_release_id != W1_RELEASE_ID:
-        raise AuthorityError("W1 release ID differs from the fixed .06 release")
+        raise AuthorityError("W1 release ID differs from the fixed .07 release")
     if hashlib.sha256(w0_release_raw).hexdigest() != w0_release_sha:
         raise AuthorityError("D3-W0 release bytes differ from authority")
     if hashlib.sha256(w1_release_raw).hexdigest() != w1_release_sha:
@@ -713,7 +715,7 @@ def validate_authority_bundle(
         raise AuthorityError("spending_cap_usd must be in (0,15]")
     if spending_cap_decimal < required_runtime_cost:
         raise AuthorityError(
-            "spending_cap_usd does not cover max_runtime_seconds at $0.50918/hour"
+            "spending_cap_usd does not cover max_runtime_seconds at $1.60108/hour"
         )
     start_date = authority.get("input_start_date")
     end_date = authority.get("input_end_date")
@@ -752,6 +754,7 @@ def validate_authority_bundle(
         "authority_sha256": authority_sha,
         "base_commit": runtime_commit,
         "authorized_work_package_id": WORK_PACKAGE,
+        "authorized_instance_type": INSTANCE_TYPE,
         "mode": MODE,
     }
     for field, expected in arm_fixed.items():
@@ -778,6 +781,7 @@ def validate_authority_bundle(
         "mode": MODE,
         "authorized_phase_id": PHASE,
         "authorized_work_package_id": WORK_PACKAGE,
+        "authorized_instance_type": INSTANCE_TYPE,
         "input_start_date": start_date,
         "input_end_date": end_date,
         "authorized_input_release_ids": release_ids,

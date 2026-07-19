@@ -1,7 +1,7 @@
 # PIPE-W09 software bring-up
 
 This bundle installs the isolated W09 research reader on the already-created
-`r8g.2xlarge` instance. It does not create or resize AWS resources, change IAM,
+`x8g.4xlarge` instance. It does not create or resize AWS resources, change IAM,
 touch the production EC2 host, publish to S3, or start Track A.
 
 ## Fixed contract
@@ -12,6 +12,8 @@ touch the production EC2 host, publish to S3, or start Track A.
   exact `GetObjectVersion` reads of eligibility-tagged canonical objects.
   There is no write code path.
 - DuckDB: `1.4.5`, matching production.
+- Research envelope: 256 GiB physical RAM, DuckDB `128GB` / 2 threads,
+  systemd `MemoryHigh=192G` and `MemoryMax=224G`.
 - Cache: `/srv/w09-research/cache` on the 300 GB gp3 root volume.
 - Time: UTC with chrony using Amazon Time Sync.
 - Shutdown: after 1,800 seconds with no SSH and no `w09-run` inhibitor.
@@ -252,6 +254,6 @@ sudo systemctl mask --now w09-idle-check.timer
 ```
 
 The current On-Demand cost contract is stored at `/etc/w09/cost-contract.json`:
-compute `$0.4713/hour` while running; with 300 GB gp3 and one public IPv4 the
-730-hour effective running rate is about `$0.50918/hour`. Stopping removes the
+compute `$1.5632/hour` while running; with 300 GB gp3 and one public IPv4 the
+730-hour effective running rate is about `$1.60108/hour`. Stopping removes the
 compute line but storage and the Elastic IP remain billable.

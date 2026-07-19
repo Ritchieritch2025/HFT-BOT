@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 EXPECTED_INSTANCE_ID="i-0e53d134dceffe166"
+EXPECTED_INSTANCE_TYPE="x8g.4xlarge"
 EXPECTED_PROFILE="w09-research-runner"
 EXPECTED_ROLE="w09-research-runner"
 PAYLOAD_ROOT="${1:-/tmp/w09-bringup}"
@@ -103,6 +104,8 @@ INSTANCE_DOCUMENT="$(curl -fsS --max-time 3 \
   http://169.254.169.254/latest/dynamic/instance-identity/document)"
 INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instanceId"])' \
   <<<"$INSTANCE_DOCUMENT")"
+INSTANCE_TYPE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instanceType"])' \
+  <<<"$INSTANCE_DOCUMENT")"
 REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["region"])' \
   <<<"$INSTANCE_DOCUMENT")"
 ROLE="$(curl -fsS --max-time 3 \
@@ -114,10 +117,17 @@ PROFILE_ARN="$(curl -fsS --max-time 3 \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["InstanceProfileArn"])')"
 PROFILE_NAME="${PROFILE_ARN##*/}"
 if [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ] || \
+   [ "$INSTANCE_TYPE" != "$EXPECTED_INSTANCE_TYPE" ] || \
    [ "$REGION" != "us-east-2" ] || \
    [ "$PROFILE_NAME" != "$EXPECTED_PROFILE" ] || \
    [ "$ROLE" != "$EXPECTED_ROLE" ]; then
-    echo "W09_INSTALL_REFUSED: identity mismatch instance=$INSTANCE_ID region=$REGION profile=$PROFILE_NAME role=$ROLE" >&2
+    echo "W09_INSTALL_REFUSED: identity mismatch instance=$INSTANCE_ID type=$INSTANCE_TYPE region=$REGION profile=$PROFILE_NAME role=$ROLE" >&2
+    exit 77
+fi
+MEMTOTAL_KIB="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+if ! [[ "$MEMTOTAL_KIB" =~ ^[0-9]+$ ]] || \
+   [ "$MEMTOTAL_KIB" -lt 251658240 ]; then
+    echo "W09_INSTALL_REFUSED: x8g.4xlarge memory envelope missing MemTotal_kib=$MEMTOTAL_KIB" >&2
     exit 77
 fi
 
@@ -316,6 +326,6 @@ test "$(systemctl is-enabled w09-exploratory-autoresearch.timer 2>/dev/null || t
 timedatectl show -p Timezone --value | grep -qx UTC
 
 trap - ERR
-echo "W09_INSTALL_COMPLETE instance=$INSTANCE_ID profile=$PROFILE_NAME role=$ROLE arch=$(uname -m) duckdb=1.4.5 timezone=UTC idle=1800s"
-echo "W09_COST compute_usd_per_running_hour=0.4713 effective_running_with_300GB_gp3_and_ipv4=0.50918"
+echo "W09_INSTALL_COMPLETE instance=$INSTANCE_ID type=$INSTANCE_TYPE profile=$PROFILE_NAME role=$ROLE arch=$(uname -m) duckdb=1.4.5 timezone=UTC idle=1800s"
+echo "W09_COST compute_usd_per_running_hour=1.5632 effective_running_with_300GB_gp3_and_ipv4=1.60108"
 echo "Disconnect every SSH/ControlMaster session; the real idle proof starts on the next timer observation."
