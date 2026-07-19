@@ -28,7 +28,7 @@ def _load():
 
 def _identity(suffix: str = "a") -> dict[str, str]:
     return {
-        "release_id": "D3-W2A-2026-07-18.04",
+        "release_id": "D3-W2A-2026-07-18.05",
         "authority_sha256": suffix * 64,
         "arm_sha256": chr(ord(suffix) + 1) * 64,
     }
@@ -229,7 +229,7 @@ def test_identity_loader_rejects_mutable_or_cross_bound_arm(tmp_path):
     authority = {
         "schema_version": arm.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
-        "release_id": "D3-W2A-2026-07-18.04",
+        "release_id": "D3-W2A-2026-07-18.05",
     }
     authority_path.write_text(json.dumps(authority) + "\n")
     authority_sha = hashlib.sha256(authority_path.read_bytes()).hexdigest()
