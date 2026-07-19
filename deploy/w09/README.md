@@ -91,8 +91,8 @@ The result must be exactly `stop`. Then run from the Mac:
 
 ```bash
 cd "/Users/ritcardo/HFT BOT"
-W09_RUNTIME_COMMIT="<exact-40-character-audited-runtime-commit>" \
-W09_SOURCE_REPO=/path/to/clean/audited-runtime-worktree \
+W09_RUNTIME_COMMIT="<FINAL_RUNTIME_COMMIT>" \
+W09_SOURCE_REPO=/path/to/clean/final-runtime-worktree \
 W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
   bash deploy/w09/push_and_install.sh
 ```
@@ -199,8 +199,8 @@ worktree bound by that release:
 
 ```bash
 cd /Users/ritcardo/HFT-BOT-deep03-bounded-08
-W09_RUNTIME_COMMIT="<exact-40-character-audited-runtime-commit>" \
-W09_SOURCE_REPO=/path/to/clean/audited-runtime-worktree \
+W09_RUNTIME_COMMIT="<FINAL_RUNTIME_COMMIT>" \
+W09_SOURCE_REPO=/path/to/clean/final-runtime-worktree \
 W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop \
   bash deploy/w09/push_and_install.sh
 ```
