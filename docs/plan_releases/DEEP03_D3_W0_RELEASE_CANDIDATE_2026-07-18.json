@@ -1,9 +1,9 @@
 {
   "adopted_plan_path": "docs/research_reports/DEEP03_GRANULAR_STRATEGY_TEST_PLAN_CANDIDATE_2026-07-17.md",
   "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
-  "audit_path": "docs/plan_audits/AUDIT_DEEP03_FULLSCOPE_L2_TTL_SNAPSHOT_2026-07-19.md",
-  "audit_sha256": "d75128018dcd73453a734e3e57f1a9a0c28ad4fd95610a55456ccf55d0c0ee63",
-  "audit_verdict": "PASS",
+  "audit_path": "docs/plan_audits/AUDIT_DEEP03_FULLSCOPE_10_EXECUTION_WIRING_2026-07-19.md",
+  "audit_sha256": "f754d46dbeb1ce891570e6714d793af2c290811e4eb9b51929c20b2e17b8a6b2",
+  "audit_verdict": "PASS_FOR_RELEASE_DRAFTING",
   "deployment_state": "FORBIDDEN_UNTIL_NEW_AUTHORITY_ARM",
   "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
   "expected_object_bytes": 29473216651,
@@ -18,12 +18,12 @@
   "integrated_head_audit_state": "PASS",
   "integrated_head_commit": "3c643cb18ea995f045965359b785fa2c8a051416",
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W0-2026-07-19.09",
+  "release_id": "D3-W0-2026-07-19.10",
   "research_execution_authority": false,
   "rfq_overlay_audit_path": "docs/plan_audits/AUDIT_DEEP03_RFQ_QUALITY_D07_ATTESTATION_2026-07-19.md",
   "rfq_overlay_audit_sha256": "482bfd6c9cf7d81c85692273f0e808d7e9fac77c7ab73834190dcd25d6c86e43",
   "rfq_overlay_audited_module_commit": "77416c04922bd695cf4df83b4adf64c56b35f394",
-  "runtime_commit": "d65b53c37b3a36ef5ca220a1c396d0233153a14f",
+  "runtime_commit": "61281b425a39c09b7057d128a9603fa10d6871a8",
   "schema_version": "deep03-w0-release-v1",
   "state": "RELEASE_CANDIDATE"
 }
