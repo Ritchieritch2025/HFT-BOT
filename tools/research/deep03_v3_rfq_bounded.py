@@ -1247,7 +1247,690 @@ def _materialize_lifecycle(
     return receipts, totals
 
 
+def _bps(numerator: int, denominator: int) -> int | None:
+    if denominator <= 0:
+        return None
+    return (numerator * 10_000 + denominator // 2) // denominator
+
+
+def _numeric_summary_sql(
+    con: duckdb.DuckDBPyConnection,
+    relation: str,
+    column: str,
+    *, where: str = "true",
+    unit: str,
+) -> dict[str, Any]:
+    row = con.execute(f"""
+      SELECT count({column})::BIGINT,
+             min({column})::BIGINT,
+             quantile_disc({column},0.10)::BIGINT,
+             quantile_disc({column},0.50)::BIGINT,
+             quantile_disc({column},0.90)::BIGINT,
+             quantile_disc({column},0.95)::BIGINT,
+             quantile_disc({column},0.99)::BIGINT,
+             max({column})::BIGINT
+      FROM {relation} WHERE ({where}) AND {column} IS NOT NULL
+    """).fetchone()
+    return {
+        "unit": unit,
+        "quantile_method": "NEAREST_RANK_QUANTILE_DISC",
+        "n": int(row[0]),
+        "min": None if row[1] is None else int(row[1]),
+        "p10": None if row[2] is None else int(row[2]),
+        "p50": None if row[3] is None else int(row[3]),
+        "p90": None if row[4] is None else int(row[4]),
+        "p95": None if row[5] is None else int(row[5]),
+        "p99": None if row[6] is None else int(row[6]),
+        "max": None if row[7] is None else int(row[7]),
+    }
+
+
+def _python_numeric_summary(values: list[int], unit: str) -> dict[str, Any]:
+    ordered = sorted(values)
+
+    def nearest(percent: int) -> int | None:
+        if not ordered:
+            return None
+        rank = max(1, (percent * len(ordered) + 99) // 100)
+        return ordered[min(rank, len(ordered)) - 1]
+
+    return {
+        "unit": unit, "quantile_method": "NEAREST_RANK",
+        "n": len(ordered), "min": ordered[0] if ordered else None,
+        "p10": nearest(10), "p50": nearest(50), "p90": nearest(90),
+        "p95": nearest(95), "p99": nearest(99),
+        "max": ordered[-1] if ordered else None,
+    }
+
+
+def _validate_impact_adapter(
+    value: Any, descriptor: dict[str, Any], mapping: dict[str, Any],
+) -> dict[str, Any]:
+    fields = {
+        "schema", "state", "analysis_date", "mapping_sha256",
+        "source_gate_sha256", "observation_count", "observations",
+        "observations_sha256", "adapter_sha256",
+    }
+    value = _exact_keys(value, fields, "CLOB impact adapter")
+    if (
+        value["schema"] != IMPACT_SCHEMA
+        or value["state"] != "COMPLETE"
+        or value["analysis_date"] != descriptor["date"]
+        or value["mapping_sha256"] != mapping["mapping_sha256"]
+        or value["source_gate_sha256"] != descriptor["source_gate_sha256"]
+    ):
+        _fail("IMPACT_ADAPTER_BINDING", "adapter fixed binding differs")
+    _verify_self_digest(value, "adapter_sha256", "CLOB impact adapter")
+    observations = value["observations"]
+    if not isinstance(observations, list):
+        _fail("IMPACT_ADAPTER_SCHEMA", "observations must be a list")
+    if (
+        value["observation_count"] != len(observations)
+        or value["observations_sha256"] != canonical_sha256(observations)
+    ):
+        _fail("IMPACT_ADAPTER_DIGEST", "observation count/digest differs")
+    expected = {
+        (row["request_id"], row["component_index"]): row
+        for row in mapping["mapping_rows"]
+    }
+    observed: dict[tuple[str, int], dict[str, Any]] = {}
+    for index, raw in enumerate(observations):
+        row = _exact_keys(
+            raw, IMPACT_OBSERVATION_FIELDS, f"observations[{index}]",
+        )
+        key = (row["request_id"], row["component_index"])
+        if key in observed:
+            _fail("IMPACT_ADAPTER_DUPLICATE", f"duplicate observation {key}")
+        expected_row = expected.get(key)
+        if expected_row is None or row["market_ticker"] != expected_row["market_ticker"]:
+            _fail("IMPACT_ADAPTER_MAPPING", f"observation is not exact mapping {key}")
+        status = row["status"]
+        if status not in IMPACT_STATUSES:
+            _fail("IMPACT_ADAPTER_STATUS", f"invalid status for {key}")
+        if expected_row["mapping_state"] != "MAPPED_L1_L2":
+            required_status = "UNMAPPED"
+        elif expected_row["event_window_within_base_date"] is not True:
+            required_status = "CENSORED_BOUNDARY"
+        else:
+            required_status = None
+        if required_status is not None and status != required_status:
+            _fail("IMPACT_ADAPTER_STATUS", f"{key} must be {required_status}")
+        if required_status is None and status not in {
+            "OBSERVED", "CENSORED_GAP", "CENSORED_CLOCK",
+        }:
+            _fail("IMPACT_ADAPTER_STATUS", f"mapped {key} has invalid censor state")
+        numeric_fields = (
+            "pre_mid_e6", "post_mid_e6", "pre_spread_e6", "post_spread_e6",
+            "pre_depth_e2", "post_depth_e2",
+        )
+        count_fields = ("l1_rows", "l2_rows", "gap_rows")
+        for field in numeric_fields:
+            if row[field] is not None and type(row[field]) is not int:
+                _fail("IMPACT_ADAPTER_SCHEMA", f"{key}.{field} must be integer/null")
+        for field in count_fields:
+            if type(row[field]) is not int or row[field] < 0:
+                _fail("IMPACT_ADAPTER_SCHEMA", f"{key}.{field} must be nonnegative")
+        if status == "OBSERVED":
+            if (
+                any(row[field] is None for field in numeric_fields)
+                or row["l1_rows"] <= 0 or row["l2_rows"] <= 0
+                or row["gap_rows"] != 0
+                or not 0 <= row["pre_mid_e6"] <= 1_000_000
+                or not 0 <= row["post_mid_e6"] <= 1_000_000
+                or min(row["pre_spread_e6"], row["post_spread_e6"],
+                       row["pre_depth_e2"], row["post_depth_e2"]) < 0
+            ):
+                _fail("IMPACT_ADAPTER_OBSERVATION", f"invalid observed row {key}")
+        else:
+            if any(row[field] is not None for field in numeric_fields):
+                _fail("IMPACT_ADAPTER_CENSOR", f"censored {key} carries values")
+            if status == "CENSORED_GAP" and row["gap_rows"] <= 0:
+                _fail("IMPACT_ADAPTER_CENSOR", f"gap-censored {key} lacks gap")
+        observed[key] = copy.deepcopy(row)
+    if set(observed) != set(expected):
+        _fail("IMPACT_ADAPTER_COVERAGE", "adapter does not enumerate exact mapping set")
+    return copy.deepcopy(value)
+
+
+def _d07_result(
+    descriptors: list[dict[str, Any]],
+    metas: list[dict[str, Any]],
+    impact_adapters: Mapping[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    contract = {
+        "schema": IMPACT_SCHEMA,
+        "exact_component_key": ["request_id", "component_index", "market_ticker"],
+        "required_states": sorted(IMPACT_STATUSES),
+        "price_scale": "E6_PROBABILITY_DOLLARS",
+        "depth_scale": "E2_CONTRACTS",
+        "all_mapping_components_required": True,
+        "gap_and_clock_censoring_required": True,
+        "no_cross_date_borrow": True,
+    }
+    if impact_adapters is None:
+        return {
+            "id": "D07", "status": "BLOCKED_ADAPTER_NOT_SUPPLIED",
+            "contract": contract,
+            "eligible_mapping_components": sum(
+                row["mapping"]["mapping_input_ticker_count"] for row in metas
+            ),
+            "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    expected_dates = {row["date"] for row in descriptors}
+    if set(impact_adapters) != expected_dates:
+        return {
+            "id": "D07", "status": "BLOCKED_INCOMPLETE_ADAPTER_SET",
+            "contract": contract,
+            "expected_dates": sorted(expected_dates),
+            "supplied_dates": sorted(impact_adapters),
+            "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    statuses: dict[str, int] = {}
+    impacts: list[int] = []
+    spread_changes: list[int] = []
+    depth_changes: list[int] = []
+    adapter_shas = []
+    for descriptor, meta in zip(descriptors, metas):
+        adapter = _validate_impact_adapter(
+            impact_adapters[descriptor["date"]], descriptor, meta["mapping"],
+        )
+        adapter_shas.append(adapter["adapter_sha256"])
+        for row in adapter["observations"]:
+            statuses[row["status"]] = statuses.get(row["status"], 0) + 1
+            if row["status"] == "OBSERVED":
+                impacts.append(row["post_mid_e6"] - row["pre_mid_e6"])
+                spread_changes.append(
+                    row["post_spread_e6"] - row["pre_spread_e6"]
+                )
+                depth_changes.append(
+                    row["post_depth_e2"] - row["pre_depth_e2"]
+                )
+    return {
+        "id": "D07", "status": "EXPLORATORY_OBSERVED"
+        if impacts else "BLOCKED_NO_OBSERVED_COMPONENTS",
+        "contract": contract,
+        "adapter_set_sha256": canonical_sha256(adapter_shas),
+        "component_status_counts": [
+            {"status": key, "count": statuses[key]} for key in sorted(statuses)
+        ],
+        "mid_change_e6": _python_numeric_summary(impacts, "E6_DOLLARS"),
+        "spread_change_e6": _python_numeric_summary(
+            spread_changes, "E6_DOLLARS",
+        ),
+        "depth_change_e2": _python_numeric_summary(
+            depth_changes, "E2_CONTRACTS",
+        ),
+        "causal_claim": False,
+        "fill_or_pnl_claim": False,
+    }
+
+
+def _build_report(
+    con: duckdb.DuckDBPyConnection,
+    store: BoundedCheckpointStore,
+    descriptors: list[dict[str, Any]],
+    metas: list[dict[str, Any]],
+    lifecycle_totals: dict[str, int],
+    buckets: int,
+    impact_adapters: Mapping[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    lifecycle_paths = [
+        _checkpoint_path(store, LIFECYCLE_STAGE, f"h{bucket:02d}")
+        for bucket in range(buckets)
+    ]
+    mapping_paths = [
+        _checkpoint_path(store, MAPPING_STAGE, _partition_key(day["date"], bucket))
+        for day in descriptors for bucket in range(buckets)
+    ]
+    life = f"read_parquet({path_list(lifecycle_paths)},union_by_name=true,hive_partitioning=false)"
+    mapped = f"read_parquet({path_list(mapping_paths)},union_by_name=true,hive_partitioning=false)"
+
+    per_hour = [
+        {"utc_hour": str(row[0]), "requests": int(row[1])}
+        for row in con.execute(f"""
+          SELECT strftime(to_timestamp(created_ts_us/1000000.0),'%Y-%m-%dT%H') hour,
+                 count(*)::BIGINT
+          FROM {life} GROUP BY hour ORDER BY hour
+        """).fetchall()
+    ]
+    source_create = sum(row["observer"]["rfq_created_occurrence_count"] for row in metas)
+    source_delete = sum(row["observer"]["rfq_deleted_occurrence_count"] for row in metas)
+    if source_create != lifecycle_totals["create_occurrences"]:
+        _fail("CONSERVATION_FAILED", "source/lifecycle create occurrences differ")
+    if source_delete != lifecycle_totals["delete_occurrences"]:
+        _fail("CONSERVATION_FAILED", "source/lifecycle delete occurrences differ")
+
+    mapping_counts = [
+        {"mapping_state": str(row[0]), "components": int(row[1])}
+        for row in con.execute(f"""
+          SELECT mapping_state,count(*)::BIGINT FROM {mapped}
+          GROUP BY mapping_state ORDER BY mapping_state
+        """).fetchall()
+    ]
+    boundary_excluded = int(con.execute(f"""
+      SELECT count(*) FROM {mapped}
+      WHERE event_window_within_base_date=false
+    """).fetchone()[0])
+
+    size_modes = [
+        {"mode": str(row[0]), "requests": int(row[1])}
+        for row in con.execute(f"""
+          SELECT CASE
+            WHEN contracts_e2 IS NULL AND target_cost_e6 IS NULL THEN 'MISSING'
+            WHEN contracts_e2 IS NOT NULL AND target_cost_e6 IS NOT NULL THEN 'BOTH_REPORTED'
+            WHEN contracts_e2 IS NOT NULL THEN 'CONTRACTS'
+            ELSE 'TARGET_COST' END mode,
+            count(*)::BIGINT
+          FROM {life} GROUP BY mode ORDER BY mode
+        """).fetchall()
+    ]
+    deleted_count, censored_count = [int(value) for value in con.execute(f"""
+      SELECT count(*) FILTER (WHERE deletion_observed),
+             count(*) FILTER (WHERE NOT deletion_observed)
+      FROM {life}
+    """).fetchone()]
+    survival = []
+    for horizon in SURVIVAL_HORIZONS_MS:
+        row = con.execute(f"""
+          WITH bins AS (
+            SELECT observed_duration_ms t,
+                   count(*) FILTER (WHERE deletion_observed)::DOUBLE deaths,
+                   count(*) FILTER (WHERE NOT deletion_observed)::DOUBLE censored
+            FROM {life} GROUP BY observed_duration_ms
+          ), risks AS (
+            SELECT t,deaths,censored,
+                   (sum(deaths+censored) OVER ()
+                    - coalesce(sum(deaths+censored) OVER (
+                        ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                      ),0))::DOUBLE at_risk
+            FROM bins
+          )
+          SELECT count(*) FILTER (WHERE t<={horizon} AND deaths>0),
+                 coalesce(sum(deaths) FILTER (WHERE t<={horizon}),0),
+                 coalesce(sum(censored) FILTER (WHERE t<={horizon}),0),
+                 CASE WHEN bool_or(t<={horizon} AND deaths>=at_risk AND deaths>0)
+                      THEN 0.0
+                      ELSE exp(coalesce(sum(
+                        CASE WHEN t<={horizon} AND deaths>0
+                             THEN ln(1.0-deaths/at_risk) ELSE 0 END
+                      ),0)) END
+          FROM risks
+        """).fetchone()
+        survival.append({
+            "horizon_ms": horizon,
+            "event_time_count": int(row[0]),
+            "deletions_through_horizon": int(row[1]),
+            "censored_through_horizon": int(row[2]),
+            "kaplan_meier_survival_bps": int(round(float(row[3]) * 10_000)),
+        })
+
+    combo_row = con.execute(f"""
+      SELECT count(*) FILTER (WHERE leg_count>0 OR mve_collection_ticker IS NOT NULL),
+             count(*),sum(leg_count),sum(yes_leg_count),sum(no_leg_count),
+             sum(unknown_side_leg_count)
+      FROM {life}
+    """).fetchone()
+    combo_count, request_count, total_legs, yes_legs, no_legs, unknown_legs = [
+        int(value or 0) for value in combo_row
+    ]
+    requester_row = con.execute(f"""
+      WITH counts AS (
+        SELECT requester_hash,count(*)::BIGINT n FROM {life}
+        WHERE requester_hash IS NOT NULL GROUP BY requester_hash
+      )
+      SELECT (SELECT count(*) FROM {life} WHERE requester_hash IS NOT NULL),
+             count(*),coalesce(max(n),0),
+             coalesce(sum(n*n),0),coalesce(sum(n),0)
+      FROM counts
+    """).fetchone()
+    known_requests, distinct_requesters, top1, hhi_numerator, known_total = [
+        int(value or 0) for value in requester_row
+    ]
+    ranked_requesters = [
+        {"requester_hash": str(row[0]), "requests": int(row[1])}
+        for row in con.execute(f"""
+          SELECT requester_hash,count(*)::BIGINT n FROM {life}
+          WHERE requester_hash IS NOT NULL GROUP BY requester_hash
+          ORDER BY n DESC,requester_hash LIMIT 20
+        """).fetchall()
+    ]
+    top5 = sum(row["requests"] for row in ranked_requesters[:5])
+    direction_requests = int(con.execute(f"""
+      SELECT count(*) FROM {life} WHERE yes_leg_count+no_leg_count>0
+    """).fetchone()[0])
+
+    excluded_frames: dict[str, int] = {}
+    for meta in metas:
+        for row in meta["observer"]["excluded_frame_type_counts"]:
+            excluded_frames[row["frame_type"]] = (
+                excluded_frames.get(row["frame_type"], 0) + row["count"]
+            )
+    mapping_component_total = sum(row["components"] for row in mapping_counts)
+    embedded_mapping_total = sum(
+        meta["mapping"]["mapping_input_ticker_count"] for meta in metas
+    )
+    if mapping_component_total != embedded_mapping_total:
+        _fail("CONSERVATION_FAILED", "mapping manifest/checkpoint totals differ")
+
+    report = {
+        "schema": SCHEMA,
+        "tier": "EXPLORATORY_AUTORESEARCH",
+        "research_lane": "FRESH_RFQ_ONLY",
+        "old_lineage_state": "DATA_INTEGRITY_BLOCKED_NOT_READ",
+        "rfq_scope": "D01_D07",
+        "source_binding_sha256": store.source_binding,
+        "method_module_sha256": _module_sha256(),
+        "analysis_dates": [row["date"] for row in descriptors],
+        "inputs": {
+            "fresh_authority_sha256": descriptors[0]["authority_sha256"],
+            "generation": descriptors[0]["generation"],
+            "overlay_manifest_sha256s": [
+                row["overlay_manifest_sha256"] for row in descriptors
+            ],
+            "exact_object_count": sum(
+                len(row["analysis_rfq_objects"]) for row in descriptors
+            ),
+            "exact_object_bytes": sum(
+                item["size"] for row in descriptors
+                for item in row["analysis_rfq_objects"]
+            ),
+            "exact_reader_attestation_sha256s": [
+                row["exact_reader_attestation"]["attestation_sha256"]
+                for row in metas
+            ],
+            "source_gap_gate": "PASS_24_EXACT_HOURS_PER_DATE",
+            "clock_gate": "PASS_FRESH_HOUR_RECEIPTS_AND_TIME_CONTRACT",
+            "hash_partition": {
+                "algorithm": "SHA256_FULL_RFQ_ID_FIRST_U64_BE_MOD_N",
+                "buckets": buckets,
+            },
+        },
+        "conservation": {
+            "source_create_occurrences": source_create,
+            "source_delete_occurrences": source_delete,
+            "global_unique_create_ids": lifecycle_totals["unique_create_ids"],
+            "conflicting_create_ids_excluded": lifecycle_totals[
+                "conflicting_create_ids"
+            ],
+            "lifecycle_rows": lifecycle_totals["lifecycle_rows"],
+            "identity_equation_pass": lifecycle_totals["unique_create_ids"] == (
+                lifecycle_totals["conflicting_create_ids"]
+                + lifecycle_totals["lifecycle_rows"]
+            ),
+            "orphan_delete_ids_excluded": lifecycle_totals["orphan_delete_ids"],
+            "mapping_components": mapping_component_total,
+            "all_exact_objects_parsed": all(
+                row["provenance"]["all_object_bytes_parsed"] is True
+                and row["provenance"]["all_physical_rows_classified"] is True
+                for row in metas
+            ),
+        },
+        "mapping_quality": {
+            "matching_policy": market_mapping.MATCHING_POLICY,
+            "cross_date_policy": market_mapping.CROSS_DATE_POLICY,
+            "state_counts": mapping_counts,
+            "event_window_excluded_components": boundary_excluded,
+            "unmapped_or_partial_components": sum(
+                row["components"] for row in mapping_counts
+                if row["mapping_state"] != "MAPPED_L1_L2"
+            ),
+        },
+        "d01_flow_census": {
+            "id": "D01", "status": "EXPLORATORY_COMPLETE",
+            "unique_requests": request_count,
+            "create_occurrences_before_exact_dedup": source_create,
+            "delete_occurrences_before_exact_dedup": source_delete,
+            "per_utc_hour": per_hour,
+            "excluded_non_rfq_broadcast_frames": [
+                {"frame_type": key, "count": excluded_frames[key]}
+                for key in sorted(excluded_frames)
+            ],
+        },
+        "d02_size_intent": {
+            "id": "D02", "status": "EXPLORATORY_COMPLETE",
+            "contracts_fp": _numeric_summary_sql(
+                con, life, "contracts_e2", unit="E2_CONTRACTS",
+            ),
+            "target_cost_dollars": _numeric_summary_sql(
+                con, life, "target_cost_e6", unit="E6_DOLLARS",
+            ),
+            "size_mode_counts": size_modes,
+            "intent_observability": (
+                "SINGLE_HAS_NO_SIDE; COMBO_LEG_SIDE_ONLY_WHEN_PRESENT"
+            ),
+            "populations_combined": False,
+        },
+        "d03_lifecycle": {
+            "id": "D03", "status": "EXPLORATORY_COMPLETE_WITH_RIGHT_CENSORING",
+            "deletion_observed": deleted_count,
+            "right_censored": censored_count,
+            "deletion_match_coverage_bps": _bps(deleted_count, request_count),
+            "observed_lifetime_ms": _numeric_summary_sql(
+                con, life, "lifetime_ms", where="deletion_observed",
+                unit="MILLISECONDS",
+            ),
+            "kaplan_meier": survival,
+            "censoring_rule": "UNMATCHED_AT_END_OF_LAST_CONTIGUOUS_UTC_DATE",
+        },
+        "d04_combo_leg_pressure": {
+            "id": "D04", "status": "EXPLORATORY_COMPLETE",
+            "combo_requests": combo_count,
+            "single_requests": request_count - combo_count,
+            "combo_share_bps": _bps(combo_count, request_count),
+            "leg_count": _numeric_summary_sql(
+                con, life, "leg_count", where="leg_count>0", unit="LEGS",
+            ),
+            "total_legs": total_legs,
+            "yes_side_legs": yes_legs,
+            "no_side_legs": no_legs,
+            "unknown_side_legs": unknown_legs,
+            "signed_leg_pressure_proxy": yes_legs - no_legs,
+            "claim": "REQUEST_LEG_COMPOSITION_ONLY_NOT_TRADING_DIRECTION",
+        },
+        "d05_requester_concentration": {
+            "id": "D05", "status": "EXPLORATORY_CONDITIONAL_ON_OBSERVED_ID",
+            "known_requester_requests": known_requests,
+            "known_id_coverage_bps": _bps(known_requests, request_count),
+            "distinct_requester_hashes": distinct_requesters,
+            "known_subset_top1_share_bps": _bps(top1, known_total),
+            "known_subset_top5_share_bps": _bps(top5, known_total),
+            "known_subset_hhi_bps": _bps(
+                hhi_numerator, known_total * known_total,
+            ),
+            "full_cohort_top1_lower_bound_bps": _bps(top1, request_count),
+            "full_cohort_top1_upper_bound_bps": _bps(
+                top1 + (request_count - known_requests), request_count,
+            ),
+            "top_requester_hashes": ranked_requesters,
+            "censoring_warning": (
+                "creator_id is normally learned only from a consistent delete; "
+                "concentration is conditional on that observed subset"
+            ),
+        },
+        "d06_direction_volume_proxy": {
+            "id": "D06",
+            "status": "EXPLORATORY_PARTIALLY_OBSERVABLE"
+            if direction_requests else "BLOCKED_NO_OBSERVABLE_DIRECTION",
+            "requests_with_observed_combo_leg_side": direction_requests,
+            "coverage_bps": _bps(direction_requests, request_count),
+            "yes_leg_count": yes_legs,
+            "no_leg_count": no_legs,
+            "signed_direction_proxy": yes_legs - no_legs,
+            "contracts_volume_proxy_on_observable_subset": _numeric_summary_sql(
+                con, life, "contracts_e2",
+                where="yes_leg_count+no_leg_count>0", unit="E2_CONTRACTS",
+            ),
+            "target_cost_proxy_on_observable_subset": _numeric_summary_sql(
+                con, life, "target_cost_e6",
+                where="yes_leg_count+no_leg_count>0", unit="E6_DOLLARS",
+            ),
+            "single_request_direction_inferred": False,
+            "contracts_and_target_cost_combined": False,
+        },
+        "d07_rfq_to_clob_impact": _d07_result(
+            descriptors, metas, impact_adapters,
+        ),
+        "d08_profitability": {
+            "id": "D08",
+            "status": "BLOCKED_NO_QUOTE_FILL_FEE_INVENTORY_SETTLEMENT_OBSERVABILITY",
+            "pnl_claim": False,
+            "fill_claim": False,
+            "monetizable_strategy_claim": False,
+            "reason": (
+                "passive RFQ create/delete plus L1/L2 impact cannot establish "
+                "quote acceptance, fill probability, fees, inventory, or realized PnL"
+            ),
+        },
+        "research_claims": {
+            "descriptive_only": True,
+            "causal": False,
+            "profitable": False,
+            "production_trading_gate": False,
+        },
+    }
+    report["report_sha256"] = canonical_sha256(report)
+    return report
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    path = Path(path).absolute()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pending = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    payload = canonical_bytes(report) + b"\n"
+    try:
+        descriptor = os.open(
+            pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o640,
+        )
+        try:
+            view = memoryview(payload)
+            while view:
+                count = os.write(descriptor, view)
+                if count <= 0:
+                    _fail("REPORT_WRITE_FAILED", str(path))
+                view = view[count:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(pending, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if pending.exists():
+            pending.unlink()
+
+
+def run_bounded_fresh_rfq(
+    *,
+    overlay_ready_paths: list[str | os.PathLike[str]],
+    fresh_authority: dict[str, Any],
+    client_factory: Callable[[dict[str, Any]], Any],
+    checkpoint_root: str | os.PathLike[str],
+    transport_kind: str = "INJECTED_EXACT_VERSION_CLIENT",
+    hash_buckets: int = DEFAULT_HASH_BUCKETS,
+    exact_temp_parent: str | os.PathLike[str] | None = None,
+    impact_adapters: Mapping[str, dict[str, Any]] | None = None,
+    report_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Run bounded D01--D07 over one or more contiguous fresh-overlay days.
+
+    All overlay and authority inputs are validated before ``client_factory`` is
+    called.  The function performs local checkpoint/report writes only.  It
+    contains no AWS client, publication, tag, or deployment implementation.
+    """
+    if not isinstance(overlay_ready_paths, list) or not overlay_ready_paths:
+        _fail("OVERLAY_SET_INVALID", "at least one overlay READY is required")
+    if type(hash_buckets) is not int or not 1 <= hash_buckets <= 256:
+        _fail("HASH_BUCKETS_INVALID", "hash_buckets must be 1..256")
+    if not callable(client_factory):
+        _fail("EXACT_CLIENT_REQUIRED", "client_factory must be callable")
+    descriptors = [
+        load_overlay_descriptor(path, fresh_authority)
+        for path in overlay_ready_paths
+    ]
+    descriptors.sort(key=lambda row: row["date"])
+    dates = [dt.date.fromisoformat(row["date"]) for row in descriptors]
+    if len(set(dates)) != len(dates):
+        _fail("OVERLAY_SET_INVALID", "overlay dates are duplicated")
+    if dates != [dates[0] + dt.timedelta(days=index) for index in range(len(dates))]:
+        _fail("SOURCE_GAP_GATE", "analysis dates must be contiguous")
+    if len({row["authority_sha256"] for row in descriptors}) != 1:
+        _fail("OVERLAY_SET_INVALID", "overlay set spans multiple authorities")
+    if len({row["generation"] for row in descriptors}) != 1:
+        _fail("OVERLAY_SET_INVALID", "overlay set spans multiple generations")
+
+    source_binding = _source_binding(descriptors, hash_buckets)
+    versions = {
+        SOURCE_EVENT_STAGE: _stage_version("fresh-rfq-source-events-v1"),
+        SOURCE_META_STAGE: _stage_version("fresh-rfq-source-meta-v1"),
+        MAPPING_STAGE: _stage_version("fresh-rfq-mapping-v1"),
+        LIFECYCLE_STAGE: _stage_version("fresh-rfq-lifecycle-v1"),
+    }
+    con = duckdb.connect()
+    try:
+        con.execute("SET threads=2")
+        con.execute("SET memory_limit='16GB'")
+        con.execute("SET preserve_insertion_order=false")
+        with BoundedCheckpointStore(Path(checkpoint_root), source_binding) as store:
+            metas = [
+                _materialize_day(
+                    con, store, descriptor,
+                    client_factory=client_factory,
+                    transport_kind=transport_kind,
+                    buckets=hash_buckets,
+                    versions=versions,
+                    temp_parent=None if exact_temp_parent is None
+                    else Path(exact_temp_parent),
+                )
+                for descriptor in descriptors
+            ]
+            event_keys = [
+                _partition_key(row["date"], bucket)
+                for row in descriptors for bucket in range(hash_buckets)
+            ]
+            meta_keys = [_date_meta_key(row["date"]) for row in descriptors]
+            store.finalize_stage(
+                con, stage=SOURCE_EVENT_STAGE,
+                stage_version=versions[SOURCE_EVENT_STAGE],
+                partition_keys=event_keys,
+            )
+            store.finalize_stage(
+                con, stage=MAPPING_STAGE,
+                stage_version=versions[MAPPING_STAGE],
+                partition_keys=event_keys,
+            )
+            store.finalize_stage(
+                con, stage=SOURCE_META_STAGE,
+                stage_version=versions[SOURCE_META_STAGE],
+                partition_keys=meta_keys,
+            )
+            _receipts, lifecycle_totals = _materialize_lifecycle(
+                con, store, descriptors, hash_buckets,
+                versions[LIFECYCLE_STAGE],
+            )
+            store.finalize_stage(
+                con, stage=LIFECYCLE_STAGE,
+                stage_version=versions[LIFECYCLE_STAGE],
+                partition_keys=[f"h{bucket:02d}" for bucket in range(hash_buckets)],
+            )
+            report = _build_report(
+                con, store, descriptors, metas, lifecycle_totals,
+                hash_buckets, impact_adapters,
+            )
+        if report_path is not None:
+            _write_report(Path(report_path), report)
+        return report
+    finally:
+        con.close()
+
+
 __all__ = [
     "FreshRfqResearchError", "IMPACT_SCHEMA", "SCHEMA",
     "canonical_bytes", "canonical_sha256", "load_overlay_descriptor",
+    "run_bounded_fresh_rfq",
 ]
