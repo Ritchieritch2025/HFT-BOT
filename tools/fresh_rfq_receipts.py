@@ -1941,48 +1941,23 @@ def _normalize_source_evidence(
     return copy.deepcopy(value)
 
 
-def build_overlay_manifest(
-    *, authority: Any, base_manifest_bytes: bytes,
-    base_manifest_exact_identity: dict[str, Any],
-    hour_receipts: list[dict[str, Any]],
-    source_evidence: Any, mapping_provenance_inputs: Any,
+def _assemble_overlay_result(
+    *, authority: dict[str, Any], base: dict[str, Any],
+    analysis: list[dict[str, Any]], watermark: list[dict[str, Any]],
+    analysis_objects: list[dict[str, Any]],
+    watermark_objects: list[dict[str, Any]],
+    source_evidence: dict[str, Any], time_contract: dict[str, Any],
+    request_provenance: dict[str, Any],
+    universe_provenance: dict[str, Any],
+    pre_event_window_ms: int, post_event_window_ms: int,
 ) -> dict[str, Any]:
-    mapping_provenance_inputs = _mapping_provenance_inputs(
-        mapping_provenance_inputs)
-    authority = validate_fresh_epoch_authority(authority)
-    if not isinstance(source_evidence, dict):
-        _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
-    analysis_date = source_evidence.get("analysis_date")
-    _date(analysis_date, "source evidence.analysis_date")
-    base = _build_base_binding(
-        manifest_bytes=base_manifest_bytes,
-        manifest_exact_identity=base_manifest_exact_identity,
-        date=analysis_date,
-    )
-    analysis, watermark, analysis_objects, watermark_objects = \
-        _overlay_components(authority, base, hour_receipts, source_evidence)
-    source_evidence = _normalize_source_evidence(
-        source_evidence, authority, base, analysis, watermark,
-        analysis_objects, watermark_objects)
-    time_contract = _derive_time_contract(base)
-    request_provenance = _build_request_provenance(
-        authority=authority,
-        source_evidence=source_evidence,
-        base=base,
-        analysis_objects=analysis_objects,
-        time_contract=time_contract,
-        exact_analysis_rfq_objects=mapping_provenance_inputs[
-            "exact_analysis_rfq_objects"],
-    )
-    universe_provenance = _build_universe_provenance(
-        base_manifest_bytes=base_manifest_bytes,
-        base_manifest_exact_identity=base_manifest_exact_identity,
-        base=base,
-        orderbooks_l1_objects=mapping_provenance_inputs[
-            "orderbooks_l1_objects"],
-        orderbooks_full_objects=mapping_provenance_inputs[
-            "orderbooks_full_objects"],
-    )
+    mapping_provenance_inputs = {
+        "exact_analysis_rfq_objects": [],
+        "orderbooks_l1_objects": [],
+        "orderbooks_full_objects": [],
+        "pre_event_window_ms": pre_event_window_ms,
+        "post_event_window_ms": post_event_window_ms,
+    }
     market_mapping_inputs = _mapper_inputs_from_provenance(
         request_provenance=request_provenance,
         universe_provenance=universe_provenance,
@@ -2038,6 +2013,144 @@ def build_overlay_manifest(
     }
     result["manifest_sha256"] = canonical_sha256(result)
     return copy.deepcopy(result)
+
+
+def _validate_prebuilt_provenance(
+    *, request_provenance: Any, universe_provenance: Any,
+    analysis_objects: list[dict[str, Any]], base: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        import fresh_rfq_request_provenance as request_module
+        import fresh_rfq_universe_provenance as universe_module
+    except ImportError as exc:
+        _fail("PROVENANCE_UNAVAILABLE", str(exc))
+    if (not isinstance(request_provenance, dict)
+            or set(request_provenance) != request_module.OUTPUT_FIELDS):
+        _fail("REQUEST_PROVENANCE_INVALID", "prebuilt fields differ")
+    request_unsigned = copy.deepcopy(request_provenance)
+    request_sha = request_unsigned.pop("receipt_sha256", None)
+    if (request_sha != request_module.canonical_sha256(request_unsigned)
+            or not _canonical_exact_equal(
+                request_provenance.get("analysis_rfq_objects"),
+                analysis_objects)):
+        _fail("REQUEST_PROVENANCE_INVALID", "prebuilt digest/set differs")
+    if (not isinstance(universe_provenance, dict)
+            or set(universe_provenance) != universe_module.OUTPUT_FIELDS):
+        _fail("UNIVERSE_PROVENANCE_INVALID", "prebuilt fields differ")
+    universe_unsigned = copy.deepcopy(universe_provenance)
+    universe_sha = universe_unsigned.pop("provenance_sha256", None)
+    if universe_sha != universe_module.canonical_sha256(universe_unsigned):
+        _fail("UNIVERSE_PROVENANCE_INVALID", "prebuilt digest differs")
+    try:
+        families = universe_provenance["families"]
+        for family in ("orderbooks_l1", "orderbooks_full"):
+            expected = base["families"][family]
+            observed = families[family]
+            if (observed.get("source_object_count") !=
+                    expected["object_count"]
+                    or observed.get("source_object_set_sha256") !=
+                    expected["set_sha256"]):
+                _fail(
+                    "UNIVERSE_PROVENANCE_INVALID",
+                    f"prebuilt {family} exact set differs",
+                )
+    except (KeyError, TypeError) as exc:
+        _fail("UNIVERSE_PROVENANCE_INVALID", f"prebuilt schema: {exc}")
+    return copy.deepcopy(request_provenance), copy.deepcopy(universe_provenance)
+
+
+def build_overlay_manifest(
+    *, authority: Any, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any],
+    hour_receipts: list[dict[str, Any]],
+    source_evidence: Any, mapping_provenance_inputs: Any,
+) -> dict[str, Any]:
+    mapping_provenance_inputs = _mapping_provenance_inputs(
+        mapping_provenance_inputs)
+    authority = validate_fresh_epoch_authority(authority)
+    if not isinstance(source_evidence, dict):
+        _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
+    analysis_date = source_evidence.get("analysis_date")
+    _date(analysis_date, "source evidence.analysis_date")
+    base = _build_base_binding(
+        manifest_bytes=base_manifest_bytes,
+        manifest_exact_identity=base_manifest_exact_identity,
+        date=analysis_date,
+    )
+    analysis, watermark, analysis_objects, watermark_objects = \
+        _overlay_components(authority, base, hour_receipts, source_evidence)
+    source_evidence = _normalize_source_evidence(
+        source_evidence, authority, base, analysis, watermark,
+        analysis_objects, watermark_objects)
+    time_contract = _derive_time_contract(base)
+    request_provenance = _build_request_provenance(
+        authority=authority,
+        source_evidence=source_evidence,
+        base=base,
+        analysis_objects=analysis_objects,
+        time_contract=time_contract,
+        exact_analysis_rfq_objects=mapping_provenance_inputs[
+            "exact_analysis_rfq_objects"],
+    )
+    universe_provenance = _build_universe_provenance(
+        base_manifest_bytes=base_manifest_bytes,
+        base_manifest_exact_identity=base_manifest_exact_identity,
+        base=base,
+        orderbooks_l1_objects=mapping_provenance_inputs[
+            "orderbooks_l1_objects"],
+        orderbooks_full_objects=mapping_provenance_inputs[
+            "orderbooks_full_objects"],
+    )
+    return _assemble_overlay_result(
+        authority=authority, base=base, analysis=analysis,
+        watermark=watermark, analysis_objects=analysis_objects,
+        watermark_objects=watermark_objects,
+        source_evidence=source_evidence, time_contract=time_contract,
+        request_provenance=request_provenance,
+        universe_provenance=universe_provenance,
+        pre_event_window_ms=mapping_provenance_inputs["pre_event_window_ms"],
+        post_event_window_ms=mapping_provenance_inputs["post_event_window_ms"],
+    )
+
+
+def build_overlay_manifest_from_provenance(
+    *, authority: Any, base_manifest_bytes: bytes,
+    base_manifest_exact_identity: dict[str, Any],
+    hour_receipts: list[dict[str, Any]], source_evidence: Any,
+    request_provenance: Any, universe_provenance: Any,
+    pre_event_window_ms: int, post_event_window_ms: int,
+) -> dict[str, Any]:
+    """Assemble an overlay from body-free, checkpointed provenance receipts."""
+    authority = validate_fresh_epoch_authority(authority)
+    if not isinstance(source_evidence, dict):
+        _fail("SOURCE_EVIDENCE_SCHEMA", "source evidence must be an object")
+    analysis_date = source_evidence.get("analysis_date")
+    _date(analysis_date, "source evidence.analysis_date")
+    base = _build_base_binding(
+        manifest_bytes=base_manifest_bytes,
+        manifest_exact_identity=base_manifest_exact_identity,
+        date=analysis_date,
+    )
+    analysis, watermark, analysis_objects, watermark_objects = \
+        _overlay_components(authority, base, hour_receipts, source_evidence)
+    source_evidence = _normalize_source_evidence(
+        source_evidence, authority, base, analysis, watermark,
+        analysis_objects, watermark_objects)
+    time_contract = _derive_time_contract(base)
+    request_provenance, universe_provenance = _validate_prebuilt_provenance(
+        request_provenance=request_provenance,
+        universe_provenance=universe_provenance,
+        analysis_objects=analysis_objects, base=base)
+    return _assemble_overlay_result(
+        authority=authority, base=base, analysis=analysis,
+        watermark=watermark, analysis_objects=analysis_objects,
+        watermark_objects=watermark_objects,
+        source_evidence=source_evidence, time_contract=time_contract,
+        request_provenance=request_provenance,
+        universe_provenance=universe_provenance,
+        pre_event_window_ms=pre_event_window_ms,
+        post_event_window_ms=post_event_window_ms,
+    )
 
 
 def validate_overlay_manifest(

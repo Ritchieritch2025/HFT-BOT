@@ -1,5 +1,6 @@
 """The production producer builds products; it is not a marker consumer."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -41,6 +42,33 @@ def test_session_ledger_is_streamed_and_not_bound_to_whole_file_limit(
     assert selected == segments
     assert "_read_regular(session_ledger" not in (
         ROOT / "tools" / "fresh_rfq_daily_runner.py").read_text()
+
+
+def test_exact_reader_disk_checkpoint_prevents_repeat_get(tmp_path):
+    body = b'{"fresh":"rfq"}\n'
+    identity = {
+        "bucket": runner.BUCKET,
+        "key": "ec2/raw/date=2026-07-20/rfq_00.ndjson",
+        "version_id": "exact-v1", "size": len(body),
+        "sha256": hashlib.sha256(body).hexdigest(),
+    }
+
+    class Transport:
+        def __init__(self):
+            self.gets = 0
+
+        def get(self, supplied, destination):
+            assert supplied == identity
+            self.gets += 1
+            destination.write_bytes(body)
+
+    transport = Transport()
+    reader = runner.ExactS3Reader(transport, tmp_path / "scratch")
+    with reader.open_exact(identity) as opened:
+        assert opened.path.read_bytes() == body
+    with reader.open_exact(identity) as opened:
+        assert opened.path.read_bytes() == body
+    assert transport.gets == 1
 
 
 def test_producer_unit_is_independent_and_aws_transport_has_no_write_api():

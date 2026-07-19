@@ -203,13 +203,52 @@ class _Opened:
 
 
 class ExactS3Reader:
-    def __init__(self, transport: AwsReadOnly, scratch_root: pathlib.Path):
+    def __init__(self, transport: AwsReadOnly, scratch_root: pathlib.Path,
+                 *, persistent_cache: bool = True):
         self.transport = transport
         self.scratch_root = pathlib.Path(scratch_root).absolute()
+        self.persistent_cache = persistent_cache
+
+    def _cache_path(self, identity: dict[str, Any]) -> pathlib.Path:
+        digest = hashlib.sha256(_canonical({
+            key: identity[key]
+            for key in ("bucket", "key", "version_id", "size", "sha256")
+        })).hexdigest()
+        return self.scratch_root / "exact-object-cache" / digest
+
+    @staticmethod
+    def _verify_cache(path: pathlib.Path, identity: dict[str, Any]) -> None:
+        size, sha = _hash_regular(path)
+        if size != identity["size"] or sha != identity["sha256"]:
+            _fail("EXACT_CACHE_IDENTITY_MISMATCH", identity["key"])
 
     @contextlib.contextmanager
     def open_exact(self, identity: dict[str, Any]) -> Iterator[_Opened]:
         self.scratch_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.persistent_cache:
+            cache = self._cache_path(identity)
+            cache.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if cache.exists():
+                self._verify_cache(cache, identity)
+                yield _Opened(cache)
+                return
+            with tempfile.TemporaryDirectory(
+                    prefix="exact-pending-", dir=cache.parent) as directory:
+                path = pathlib.Path(directory) / "object"
+                self.transport.get(identity, path)
+                self._verify_cache(path, identity)
+                os.chmod(path, 0o600)
+                try:
+                    os.rename(path, cache)
+                except FileExistsError:
+                    self._verify_cache(cache, identity)
+                parent_fd = os.open(cache.parent, os.O_RDONLY)
+                try:
+                    os.fsync(parent_fd)
+                finally:
+                    os.close(parent_fd)
+            yield _Opened(cache)
+            return
         with tempfile.TemporaryDirectory(
                 prefix="exact-", dir=self.scratch_root) as directory:
             path = pathlib.Path(directory) / "object"
