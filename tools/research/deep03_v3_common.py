@@ -76,6 +76,9 @@ AUTHORITY_BINDING_FIELDS = (
     "authorized_input_release_ids",
     "operator_text_sha256",
     "named_supersessions",
+    "authorized_source_state",
+    "authorized_branch",
+    "authorized_worktree",
     "session_count",
     "authorized_method_scope",
 )

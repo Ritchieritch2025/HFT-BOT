@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -60,6 +62,24 @@ REQUIRED_PREREQUISITE_HASHES = {
     "w1_split_seal",
 }
 REQUIRED_NAMED_SUPERSESSION = "SECTION_4_15_1_PRE_READER_FEED_GATE"
+W1_COMPLETION_SCHEMA = "deep03-w1-exploratory-precheck-completion-v1"
+W1_DQ_SCHEMA = "deep03-w1-data-quality-receipt-v1"
+W1_ARTIFACT_KEYS = {
+    "INPUT_MANIFEST.json",
+    "DATA_QUALITY_RECEIPT.json",
+    "PRIOR_EXPOSURE_LEDGER.jsonl",
+    "SPLIT_MANIFEST_OPEN_DISCOVERY.json",
+}
+W1_ARTIFACT_PREREQUISITES = {
+    "INPUT_MANIFEST.json": "w1_input_manifest",
+    "DATA_QUALITY_RECEIPT.json": "w1_data_quality",
+    "PRIOR_EXPOSURE_LEDGER.jsonl": "prior_exposure_ledger",
+    "SPLIT_MANIFEST_OPEN_DISCOVERY.json": "w1_split_seal",
+}
+W1_CANARY_STATE = "W09_V3_EXPLORATORY_QUERY_CANARY_PASS"
+W1_EXACT_RELEASE_COUNT = 8
+W09_EFFECTIVE_RUNNING_USD_PER_HOUR = Decimal("0.50918")
+W09_MAX_SPENDING_CAP_USD = Decimal("15")
 AUTHORIZED_METHOD_SCOPE = {
     "D3-B01-MARKOUT": "PARTIAL_DESCRIPTIVE_ONLY",
     "D3-B02-ONESIDE": "PARTIAL_DESCRIPTIVE_ONLY",
@@ -155,6 +175,22 @@ def _json(raw: bytes, label: str) -> dict[str, Any]:
     return value
 
 
+def _canonical_json_bytes(value: Any, label: str) -> bytes:
+    try:
+        return (
+            json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode("utf-8")
+            + b"\n"
+        )
+    except (TypeError, ValueError) as exc:
+        raise AuthorityError("%s is not canonical-JSON compatible" % label) from exc
+
+
 def _exact_text_sha(text: Any, digest: Any, label: str) -> None:
     if not isinstance(text, str) or not text.strip():
         raise AuthorityError("%s text is missing" % label)
@@ -219,16 +255,10 @@ def _active_prompt(authority: dict[str, Any]) -> None:
         raise AuthorityError("bound active prompt SHA-256 is invalid")
 
 
-def _source_identity(authority: dict[str, Any]) -> None:
+def _source_identity(authority: dict[str, Any]) -> tuple[str, str | None, str]:
+    state = authority.get("authorized_source_state")
     branch = authority.get("authorized_branch")
     worktree = authority.get("authorized_worktree")
-    if (
-        not isinstance(branch, str)
-        or not branch
-        or len(branch) > 255
-        or any(ord(character) < 0x20 for character in branch)
-    ):
-        raise AuthorityError("authorized_branch is invalid")
     if (
         not isinstance(worktree, str)
         or not worktree.startswith("/")
@@ -236,6 +266,144 @@ def _source_identity(authority: dict[str, Any]) -> None:
         or any(ord(character) < 0x20 for character in worktree)
     ):
         raise AuthorityError("authorized_worktree is invalid")
+    if state == "DETACHED_EXACT_COMMIT":
+        if branch is not None:
+            raise AuthorityError(
+                "detached exact-commit source identity must have null authorized_branch"
+            )
+        base_commit = authority.get("base_commit")
+        if not isinstance(base_commit, str) or COMMIT_RE.fullmatch(base_commit) is None:
+            raise AuthorityError("detached source base_commit is invalid")
+        return state, None, worktree
+    if state != "NAMED_BRANCH":
+        raise AuthorityError(
+            "authorized_source_state must be DETACHED_EXACT_COMMIT or NAMED_BRANCH"
+        )
+    if (
+        not isinstance(branch, str)
+        or not branch
+        or len(branch) > 255
+        or any(ord(character) < 0x20 for character in branch)
+    ):
+        raise AuthorityError("authorized_branch is invalid for named-branch source")
+    return state, branch, worktree
+
+
+def _sha_map(value: Any, expected: set[str], label: str) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise AuthorityError("%s has incomplete keys" % label)
+    for name, digest in value.items():
+        if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+            raise AuthorityError("%s has invalid SHA-256: %s" % (label, name))
+    return dict(value)
+
+
+def _validate_w1_dq(
+    value: Any,
+    *,
+    release_ids: list[str],
+) -> None:
+    if not isinstance(value, dict):
+        raise AuthorityError("embedded W1 data-quality receipt is not an object")
+    fixed = {
+        "schema_version": W1_DQ_SCHEMA,
+        "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
+        "mode": MODE,
+        "strict_acceptance_claimed": False,
+        "exact_version_local_verification": "PASS",
+        "holdout_opened": False,
+        "rfq": "OFF_AND_ABSENT",
+    }
+    for field, expected in fixed.items():
+        if value.get(field) != expected:
+            raise AuthorityError("embedded W1 DQ field mismatch: %s" % field)
+    if value.get("release_ids") != release_ids:
+        raise AuthorityError("embedded W1 DQ release IDs differ from authority")
+    if value.get("release_count") != W1_EXACT_RELEASE_COUNT:
+        raise AuthorityError("embedded W1 DQ must bind exactly eight releases")
+    canaries = value.get("canaries")
+    if not isinstance(canaries, list) or len(canaries) != W1_EXACT_RELEASE_COUNT:
+        raise AuthorityError("embedded W1 DQ must contain exactly eight canaries")
+    observed: list[str] = []
+    for canary in canaries:
+        if not isinstance(canary, dict):
+            raise AuthorityError("embedded W1 DQ canary is not an object")
+        release_id = canary.get("release_id")
+        observed.append(release_id)
+        date = release_id.split("__", 1)[0] if isinstance(release_id, str) else None
+        if (
+            canary.get("state") != W1_CANARY_STATE
+            or canary.get("date") != date
+            or canary.get("strict_acceptance_claimed") is not False
+            or canary.get("rfq") != "OFF"
+            or not isinstance(canary.get("sha256"), str)
+            or SHA256_RE.fullmatch(canary["sha256"]) is None
+            or not isinstance(canary.get("table_count"), int)
+            or isinstance(canary.get("table_count"), bool)
+            or canary["table_count"] < 1
+        ):
+            raise AuthorityError("embedded W1 DQ canary contract mismatch")
+    if observed != release_ids:
+        raise AuthorityError("embedded W1 DQ canaries differ from exact release order")
+
+
+def _validate_w1_completion(
+    value: dict[str, Any],
+    *,
+    plan_sha: str,
+    audit_sha: str,
+    w0_release_id: str,
+    w0_release_sha: str,
+    w1_release_id: str,
+    w1_release_sha: str,
+    release_ids: list[str],
+    prerequisite_hashes: dict[str, str],
+) -> dict[str, str]:
+    fixed = {
+        "schema_version": W1_COMPLETION_SCHEMA,
+        "state": "W1_COMPLETE_EXPLORATORY_PRECHECK",
+        "mode": MODE,
+        "adopted_plan_sha256": plan_sha,
+        "audit_sha256": audit_sha,
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": w0_release_sha,
+        "w1_release_id": w1_release_id,
+        "w1_release_sha256": w1_release_sha,
+        "authorized_input_release_ids": release_ids,
+        "release_count": W1_EXACT_RELEASE_COUNT,
+        "all_inputs_prior_exposed": True,
+        "holdout_opened": False,
+        "strict_acceptance_claimed": False,
+        "research_execution_started": False,
+        "rfq": "OFF_AND_ABSENT",
+        "network_reads_during_preflight": 0,
+        "s3_writes": 0,
+    }
+    for field, expected in fixed.items():
+        if value.get(field) != expected:
+            raise AuthorityError("W1_COMPLETE field mismatch: %s" % field)
+    artifacts = _sha_map(
+        value.get("artifacts_sha256"),
+        W1_ARTIFACT_KEYS,
+        "W1_COMPLETE artifacts_sha256",
+    )
+    for artifact_name, prerequisite_name in W1_ARTIFACT_PREREQUISITES.items():
+        if artifacts[artifact_name] != prerequisite_hashes[prerequisite_name]:
+            raise AuthorityError(
+                "W1 artifact differs from prerequisite binding: %s" % artifact_name
+            )
+    dq = value.get("embedded_data_quality_receipt")
+    _validate_w1_dq(dq, release_ids=release_ids)
+    dq_sha = hashlib.sha256(
+        _canonical_json_bytes(dq, "embedded W1 data-quality receipt")
+    ).hexdigest()
+    if dq_sha != artifacts["DATA_QUALITY_RECEIPT.json"]:
+        raise AuthorityError("embedded W1 DQ bytes differ from artifact binding")
+    if prerequisite_hashes["w09_exact_version_read"] != dq_sha:
+        raise AuthorityError(
+            "w09_exact_version_read must bind the composite W1 DQ receipt"
+        )
+    return artifacts
 
 
 def _upstream_release(
@@ -316,7 +484,7 @@ def validate_authority_bundle(
     arm = _json(arm_raw, "execution arm")
     w0_release_document = _json(w0_release_raw, "D3-W0 release")
     w1_release_document = _json(w1_release_raw, "D3-W1 release")
-    _json(w1_complete_raw, "W1_COMPLETE receipt")
+    w1_complete_document = _json(w1_complete_raw, "W1_COMPLETE receipt")
     authority_sha = hashlib.sha256(authority_raw).hexdigest()
 
     fixed = {
@@ -352,7 +520,7 @@ def validate_authority_bundle(
         raise AuthorityError(
             "named_supersessions must include the section 4.15.1 pre-reader feed gate"
         )
-    _source_identity(authority)
+    source_state, source_branch, source_worktree = _source_identity(authority)
     _exact_string_list(
         authority.get("authorized_tool_classes"),
         AUTHORIZED_TOOL_CLASSES,
@@ -398,6 +566,34 @@ def validate_authority_bundle(
         raise AuthorityError("D3-W0 release document ID mismatch")
     if w1_release_document.get("release_id") != w1_release_id:
         raise AuthorityError("D3-W1 release document ID mismatch")
+    w0_fixed = {
+        "schema_version": "deep03-w0-release-v1",
+        "state": "RELEASE_CANDIDATE",
+        "adopted_plan_sha256": authority.get("adopted_plan_sha256"),
+        "audit_sha256": audit_sha,
+        "runtime_commit": authority.get("base_commit"),
+        "research_execution_authority": False,
+    }
+    for field, expected in w0_fixed.items():
+        if w0_release_document.get(field) != expected:
+            raise AuthorityError("D3-W0 release document binding mismatch: %s" % field)
+    w1_fixed = {
+        "schema_version": "deep03-w1-release-v1",
+        "state": "RELEASE_CANDIDATE",
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": w0_release_sha,
+        "adopted_plan_sha256": authority.get("adopted_plan_sha256"),
+        "audit_sha256": audit_sha,
+        "runtime_commit": authority.get("base_commit"),
+        "mode": MODE,
+        "rfq_included": False,
+        "strict_acceptance_claimed": False,
+        "holdout_opened": False,
+        "research_execution_authority": False,
+    }
+    for field, expected in w1_fixed.items():
+        if w1_release_document.get(field) != expected:
+            raise AuthorityError("D3-W1 release document binding mismatch: %s" % field)
     if (
         hashlib.sha256(w1_complete_raw).hexdigest()
         != prerequisite_hashes["w1_completion"]
@@ -442,13 +638,6 @@ def validate_authority_bundle(
         or set(write_roots) != WRITE_ROOTS
     ):
         raise AuthorityError("authority write roots differ from the fixed W09 roots")
-    spending_cap = authority.get("spending_cap_usd")
-    if (
-        not isinstance(spending_cap, (int, float))
-        or isinstance(spending_cap, bool)
-        or spending_cap <= 0
-    ):
-        raise AuthorityError("positive W09 spending_cap_usd was not authorized")
     max_runtime = authority.get("max_runtime_seconds")
     if (
         not isinstance(max_runtime, int)
@@ -457,6 +646,26 @@ def validate_authority_bundle(
         or max_runtime > 86400
     ):
         raise AuthorityError("max_runtime_seconds must be in [1,86400]")
+    spending_cap = authority.get("spending_cap_usd")
+    if (
+        not isinstance(spending_cap, (int, float))
+        or isinstance(spending_cap, bool)
+        or (isinstance(spending_cap, float) and not math.isfinite(spending_cap))
+    ):
+        raise AuthorityError("finite numeric W09 spending_cap_usd was not authorized")
+    try:
+        spending_cap_decimal = Decimal(str(spending_cap))
+    except InvalidOperation as exc:
+        raise AuthorityError("spending_cap_usd is not a decimal amount") from exc
+    required_runtime_cost = (
+        Decimal(max_runtime) * W09_EFFECTIVE_RUNNING_USD_PER_HOUR / Decimal(3600)
+    )
+    if spending_cap_decimal <= 0 or spending_cap_decimal > W09_MAX_SPENDING_CAP_USD:
+        raise AuthorityError("spending_cap_usd must be in (0,15]")
+    if spending_cap_decimal < required_runtime_cost:
+        raise AuthorityError(
+            "spending_cap_usd does not cover max_runtime_seconds at $0.50918/hour"
+        )
     start_date = authority.get("input_start_date")
     end_date = authority.get("input_end_date")
     try:
@@ -467,6 +676,25 @@ def validate_authority_bundle(
         )
     except ValueError as exc:
         raise AuthorityError("authority input dates are invalid") from exc
+    if len(release_ids) != W1_EXACT_RELEASE_COUNT:
+        raise AuthorityError("Deep03 W1/W2A authority must bind exactly eight releases")
+    if w1_release_document.get("authorized_input_release_ids") != release_ids:
+        raise AuthorityError("D3-W1 release input IDs differ from authority")
+    if w1_release_document.get("authorized_input_dates") != [
+        release_id.split("__", 1)[0] for release_id in release_ids
+    ]:
+        raise AuthorityError("D3-W1 release input dates differ from authority")
+    w1_artifact_hashes = _validate_w1_completion(
+        w1_complete_document,
+        plan_sha=plan_sha,
+        audit_sha=audit_sha,
+        w0_release_id=w0_release_id,
+        w0_release_sha=w0_release_sha,
+        w1_release_id=w1_release_id,
+        w1_release_sha=w1_release_sha,
+        release_ids=release_ids,
+        prerequisite_hashes=prerequisite_hashes,
+    )
 
     arm_fixed = {
         "schema_version": ARM_SCHEMA,
@@ -505,6 +733,10 @@ def validate_authority_bundle(
         "input_end_date": end_date,
         "authorized_input_release_ids": release_ids,
         "spending_cap_usd": spending_cap,
+        "w09_effective_running_usd_per_hour": float(
+            W09_EFFECTIVE_RUNNING_USD_PER_HOUR
+        ),
+        "required_max_runtime_cost_usd": float(required_runtime_cost),
         "max_runtime_seconds": max_runtime,
         "effective_runtime_seconds": min(max_runtime, active_window_seconds),
         "expires_at_utc": authority["expires_at_utc"],
@@ -514,12 +746,21 @@ def validate_authority_bundle(
         "active_prompt_sha256": authority["active_prompt_sha256"],
         "operator_text_sha256": authority["operator_text_sha256"],
         "named_supersessions": list(named_supersessions),
-        "authorized_branch": authority["authorized_branch"],
-        "authorized_worktree": authority["authorized_worktree"],
+        "authorized_source_state": source_state,
+        "authorized_branch": source_branch,
+        "authorized_worktree": source_worktree,
         "authorized_tool_classes": list(AUTHORIZED_TOOL_CLASSES),
         "authorized_api_classes": list(AUTHORIZED_API_CLASSES),
         "authorized_credential_classes": list(AUTHORIZED_CREDENTIAL_CLASSES),
         "prerequisite_receipt_sha256s": prerequisite_hashes,
+        "w1_artifacts_sha256": w1_artifact_hashes,
+        "w09_exact_version_read_evidence": {
+            "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
+            "sha256": prerequisite_hashes["w09_exact_version_read"],
+            "exact_version_local_verification": "PASS",
+            "canary_state": W1_CANARY_STATE,
+            "canary_count": W1_EXACT_RELEASE_COUNT,
+        },
         "audit_sha256": audit_sha,
         "independent_audit_verdict": audit_verdict,
         "w0_release_id": w0_release_id,

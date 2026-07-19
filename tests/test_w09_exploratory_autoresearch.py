@@ -411,27 +411,115 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "D3-W2A-2026-07-18.01 for the named release set."
     )
     release_ids = release_ids or [
-        "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
+        (
+            f"2026-07-{day:02d}__v3ref__seal-{day:08x}"
+            f"__pub-{day:016x}"
+        )
+        for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
     w0_release_id = "D3-W0-2026-07-18.01"
     w1_release_id = "D3-W1-2026-07-18.01"
     audit_path.write_bytes(b"independent_plan_audit")
-    w0_release_path.write_text(json.dumps({"release_id": w0_release_id}) + "\n")
-    w1_release_path.write_text(json.dumps({"release_id": w1_release_id}) + "\n")
-    w1_complete_path.write_text(
-        json.dumps({"state": "W1_COMPLETE", "release_id": w1_release_id}) + "\n"
-    )
-    prerequisite_hashes = {
-        key: hashlib.sha256(key.encode("ascii")).hexdigest()
-        for key in gate.REQUIRED_PREREQUISITE_HASHES
+    plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
+    audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
+    w0_release_path.write_text(json.dumps({
+        "schema_version": "deep03-w0-release-v1",
+        "state": "RELEASE_CANDIDATE",
+        "release_id": w0_release_id,
+        "adopted_plan_sha256": plan_sha,
+        "audit_sha256": audit_sha,
+        "runtime_commit": "1" * 40,
+        "research_execution_authority": False,
+    }, sort_keys=True) + "\n")
+    w0_sha = hashlib.sha256(w0_release_path.read_bytes()).hexdigest()
+    w1_release_path.write_text(json.dumps({
+        "schema_version": "deep03-w1-release-v1",
+        "state": "RELEASE_CANDIDATE",
+        "release_id": w1_release_id,
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": w0_sha,
+        "adopted_plan_sha256": plan_sha,
+        "audit_sha256": audit_sha,
+        "runtime_commit": "1" * 40,
+        "mode": gate.MODE,
+        "authorized_input_release_ids": release_ids,
+        "authorized_input_dates": release_dates,
+        "rfq_included": False,
+        "strict_acceptance_claimed": False,
+        "holdout_opened": False,
+        "research_execution_authority": False,
+    }, sort_keys=True) + "\n")
+    w1_sha = hashlib.sha256(w1_release_path.read_bytes()).hexdigest()
+    dq = {
+        "schema_version": gate.W1_DQ_SCHEMA,
+        "state": "W1_DQ_PASS_FOR_EXPLORATORY_ONLY",
+        "mode": gate.MODE,
+        "strict_acceptance_claimed": False,
+        "exact_version_local_verification": "PASS",
+        "holdout_opened": False,
+        "rfq": "OFF_AND_ABSENT",
+        "release_ids": release_ids,
+        "release_count": len(release_ids),
+        "canaries": [
+            {
+                "release_id": release_id,
+                "date": release_id.split("__", 1)[0],
+                "state": gate.W1_CANARY_STATE,
+                "sha256": hashlib.sha256(release_id.encode("ascii")).hexdigest(),
+                "table_count": 3,
+                "strict_acceptance_claimed": False,
+                "rfq": "OFF",
+            }
+            for release_id in release_ids
+        ],
     }
-    prerequisite_hashes["independent_plan_audit"] = hashlib.sha256(
-        audit_path.read_bytes()
+    dq_sha = hashlib.sha256(
+        json.dumps(
+            dq,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
     ).hexdigest()
-    prerequisite_hashes["w1_completion"] = hashlib.sha256(
-        w1_complete_path.read_bytes()
-    ).hexdigest()
+    artifact_hashes = {
+        "INPUT_MANIFEST.json": hashlib.sha256(b"input manifest").hexdigest(),
+        "DATA_QUALITY_RECEIPT.json": dq_sha,
+        "PRIOR_EXPOSURE_LEDGER.jsonl": hashlib.sha256(b"prior ledger").hexdigest(),
+        "SPLIT_MANIFEST_OPEN_DISCOVERY.json": hashlib.sha256(b"split seal").hexdigest(),
+    }
+    w1_complete_path.write_text(json.dumps({
+        "schema_version": gate.W1_COMPLETION_SCHEMA,
+        "state": "W1_COMPLETE_EXPLORATORY_PRECHECK",
+        "mode": gate.MODE,
+        "w0_release_id": w0_release_id,
+        "w0_release_sha256": w0_sha,
+        "w1_release_id": w1_release_id,
+        "w1_release_sha256": w1_sha,
+        "adopted_plan_sha256": plan_sha,
+        "audit_sha256": audit_sha,
+        "authorized_input_release_ids": release_ids,
+        "artifacts_sha256": artifact_hashes,
+        "embedded_data_quality_receipt": dq,
+        "release_count": len(release_ids),
+        "all_inputs_prior_exposed": True,
+        "holdout_opened": False,
+        "strict_acceptance_claimed": False,
+        "research_execution_started": False,
+        "rfq": "OFF_AND_ABSENT",
+        "network_reads_during_preflight": 0,
+        "s3_writes": 0,
+    }, sort_keys=True) + "\n")
+    prerequisite_hashes = {
+        "independent_plan_audit": audit_sha,
+        "prior_exposure_ledger": artifact_hashes["PRIOR_EXPOSURE_LEDGER.jsonl"],
+        "w09_exact_version_read": dq_sha,
+        "w1_data_quality": dq_sha,
+        "w1_completion": hashlib.sha256(w1_complete_path.read_bytes()).hexdigest(),
+        "w1_input_manifest": artifact_hashes["INPUT_MANIFEST.json"],
+        "w1_split_seal": artifact_hashes["SPLIT_MANIFEST_OPEN_DISCOVERY.json"],
+    }
     authority = {
         "schema_version": gate.AUTHORITY_SCHEMA,
         "state": "ACTIVE",
@@ -443,7 +531,7 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
             operator_text.encode("utf-8")
         ).hexdigest(),
         "adopted_plan_path": gate.PLAN_INSTALL_PATH,
-        "adopted_plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "adopted_plan_sha256": plan_sha,
         "base_commit": "1" * 40,
         "authorized_phase_id": gate.PHASE,
         "authorized_work_package_id": gate.WORK_PACKAGE,
@@ -457,24 +545,25 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
         "active_prompt_path": None,
         "active_prompt_sha256": None,
         "named_supersessions": [gate.REQUIRED_NAMED_SUPERSESSION],
-        "authorized_branch": "w-deep03-gate-hardening",
-        "authorized_worktree": "/Users/ritcardo/HFT-BOT-deep03-gate-hardening",
+        "authorized_source_state": "DETACHED_EXACT_COMMIT",
+        "authorized_branch": None,
+        "authorized_worktree": "/Users/ritcardo/HFT-BOT-deep03-runtime-release",
         "authorized_tool_classes": gate.AUTHORIZED_TOOL_CLASSES,
         "authorized_api_classes": gate.AUTHORIZED_API_CLASSES,
         "authorized_credential_classes": gate.AUTHORIZED_CREDENTIAL_CLASSES,
         "prerequisite_receipt_sha256s": prerequisite_hashes,
-        "audit_sha256": hashlib.sha256(audit_path.read_bytes()).hexdigest(),
+        "audit_sha256": audit_sha,
         "independent_audit_verdict": "PASS_WITH_EXPLICIT_BLOCKERS",
         "w0_release_id": w0_release_id,
-        "w0_release_sha256": hashlib.sha256(w0_release_path.read_bytes()).hexdigest(),
+        "w0_release_sha256": w0_sha,
         "w1_release_id": w1_release_id,
-        "w1_release_sha256": hashlib.sha256(w1_release_path.read_bytes()).hexdigest(),
+        "w1_release_sha256": w1_sha,
         "session_count": 1,
         "authorized_method_scope": gate.AUTHORIZED_METHOD_SCOPE,
         "authorized_input_release_ids": release_ids,
         "input_start_date": release_dates[0],
         "input_end_date": release_dates[-1],
-        "spending_cap_usd": 25.0,
+        "spending_cap_usd": 15.0,
         "max_runtime_seconds": 3600,
         **{field: False for field in gate.FALSE_AUTHORITY_FIELDS},
     }
@@ -516,6 +605,35 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
     )
 
 
+def _rewrite_authority_and_arm(authority_path: Path, arm_path: Path, mutate) -> None:
+    authority = json.loads(authority_path.read_text())
+    mutate(authority)
+    authority_path.chmod(0o644)
+    authority_path.write_text(json.dumps(authority, sort_keys=True) + "\n")
+    authority_path.chmod(0o444)
+    arm = json.loads(arm_path.read_text())
+    arm["authority_sha256"] = hashlib.sha256(authority_path.read_bytes()).hexdigest()
+    arm_path.chmod(0o644)
+    arm_path.write_text(json.dumps(arm, sort_keys=True) + "\n")
+    arm_path.chmod(0o444)
+
+
+def _validate_authority_fixture(files):
+    gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = files
+    return gate.validate_authority(
+        authority_path=authority,
+        arm_path=arm,
+        plan_path=plan,
+        runtime_commit_path=runtime,
+        audit_path=audit,
+        w0_release_path=w0,
+        w1_release_path=w1,
+        w1_complete_path=w1_complete,
+        expected_owner_uid=os.getuid(),
+        now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
+    )
+
+
 def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = _authority_files(tmp_path)
     result, artifacts = gate.validate_authority_bundle(
@@ -532,10 +650,22 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     )
     assert result["state"] == "AUTHORIZED"
     assert result["release_id"] == "D3-W2A-2026-07-18.01"
-    assert result["authorized_input_release_ids"] == [
-        "2026-07-13__v3ref__seal-aaaaaaaa__pub-bbbbbbbbbbbbbbbb"
-    ]
+    assert len(result["authorized_input_release_ids"]) == 8
+    assert result["authorized_input_release_ids"][0].startswith("2026-07-10__")
     assert result["base_commit"] == "1" * 40
+    assert result["authorized_source_state"] == "DETACHED_EXACT_COMMIT"
+    assert result["authorized_branch"] is None
+    assert result["w09_exact_version_read_evidence"] == {
+        "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
+        "sha256": result["prerequisite_receipt_sha256s"][
+            "w09_exact_version_read"
+        ],
+        "exact_version_local_verification": "PASS",
+        "canary_state": gate.W1_CANARY_STATE,
+        "canary_count": 8,
+    }
+    assert result["spending_cap_usd"] == 15.0
+    assert result["required_max_runtime_cost_usd"] == 0.50918
     assert set(artifacts) == {
         "ADOPTED_PLAN.md",
         "AUDIT.md",
@@ -629,6 +759,7 @@ def test_authority_gate_refuses_prerequisite_byte_drift(
     [
         ("active_prompt_state", None, "active_prompt_state"),
         ("named_supersessions", [], "section 4.15.1"),
+        ("authorized_source_state", "UNKNOWN", "authorized_source_state"),
         ("authorized_branch", "", "authorized_branch"),
         ("authorized_tool_classes", [], "authorized_tool_classes"),
         ("authorized_api_classes", [], "authorized_api_classes"),
@@ -668,3 +799,191 @@ def test_authority_gate_refuses_missing_or_broadened_narrow_scope(
             expected_owner_uid=os.getuid(),
             now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
         )
+
+
+@pytest.mark.parametrize(
+    ("cap", "runtime", "message"),
+    [
+        (15.01, 3600, "must be in \\(0,15]"),
+        (0.50, 3600, "does not cover max_runtime_seconds"),
+        (12.22031, 86400, "does not cover max_runtime_seconds"),
+    ],
+)
+def test_authority_gate_enforces_hard_cap_and_runtime_cost(
+    tmp_path, cap, runtime, message
+):
+    files = _authority_files(tmp_path)
+    _gate, authority, arm, *_rest = files
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda value: value.update(
+            {"spending_cap_usd": cap, "max_runtime_seconds": runtime}
+        ),
+    )
+    with pytest.raises(files[0].AuthorityError, match=message):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_accepts_full_day_when_cap_covers_fixed_rate(tmp_path):
+    files = _authority_files(tmp_path)
+    _gate, authority, arm, *_rest = files
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda value: value.update(
+            {"spending_cap_usd": 15.0, "max_runtime_seconds": 86400}
+        ),
+    )
+    result = _validate_authority_fixture(files)
+    assert result["required_max_runtime_cost_usd"] == 12.22032
+
+
+def test_authority_gate_accepts_named_or_detached_exact_source_identity(tmp_path):
+    files = _authority_files(tmp_path)
+    result = _validate_authority_fixture(files)
+    assert result["authorized_source_state"] == "DETACHED_EXACT_COMMIT"
+    assert result["authorized_branch"] is None
+
+    _gate, authority, arm, *_rest = files
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda value: value.update({
+            "authorized_source_state": "NAMED_BRANCH",
+            "authorized_branch": "w-deep03-release-01",
+        }),
+    )
+    result = _validate_authority_fixture(files)
+    assert result["authorized_source_state"] == "NAMED_BRANCH"
+    assert result["authorized_branch"] == "w-deep03-release-01"
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("adopted_plan_sha256", "0" * 64),
+        ("audit_sha256", "0" * 64),
+        ("w0_release_id", "D3-W0-wrong"),
+        ("w0_release_sha256", "1" * 64),
+        ("w1_release_id", "D3-W1-wrong"),
+        ("w1_release_sha256", "2" * 64),
+        ("authorized_input_release_ids", []),
+    ],
+)
+def test_authority_gate_cross_binds_w1_completion_identity_fields(
+    tmp_path, field, replacement
+):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    value[field] = replacement
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda document: document["prerequisite_receipt_sha256s"].update({
+            "w1_completion": hashlib.sha256(complete.read_bytes()).hexdigest()
+        }),
+    )
+    with pytest.raises(gate.AuthorityError, match="W1_COMPLETE field mismatch"):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_cross_binds_w1_completion_and_prerequisite_map(tmp_path):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    value["artifacts_sha256"]["INPUT_MANIFEST.json"] = "f" * 64
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+
+    def update_authority(document):
+        document["prerequisite_receipt_sha256s"]["w1_completion"] = (
+            hashlib.sha256(complete.read_bytes()).hexdigest()
+        )
+
+    _rewrite_authority_and_arm(authority, arm, update_authority)
+    with pytest.raises(gate.AuthorityError, match="INPUT_MANIFEST.json"):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_parses_composite_dq_exact_pass_and_eight_canaries(tmp_path):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    dq = value["embedded_data_quality_receipt"]
+    dq["exact_version_local_verification"] = "UNKNOWN"
+    dq_sha = hashlib.sha256(
+        json.dumps(
+            dq,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
+    ).hexdigest()
+    value["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] = dq_sha
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+
+    def update_authority(document):
+        hashes = document["prerequisite_receipt_sha256s"]
+        hashes["w1_completion"] = hashlib.sha256(complete.read_bytes()).hexdigest()
+        hashes["w1_data_quality"] = dq_sha
+        hashes["w09_exact_version_read"] = dq_sha
+
+    _rewrite_authority_and_arm(authority, arm, update_authority)
+    with pytest.raises(gate.AuthorityError, match="exact_version_local_verification"):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_refuses_composite_dq_without_all_eight_canaries(tmp_path):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, _plan, _runtime, _audit, _w0, _w1, complete = files
+    value = json.loads(complete.read_text())
+    dq = value["embedded_data_quality_receipt"]
+    dq["canaries"].pop()
+    dq_sha = hashlib.sha256(
+        json.dumps(
+            dq,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8") + b"\n"
+    ).hexdigest()
+    value["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] = dq_sha
+    complete.chmod(0o644)
+    complete.write_text(json.dumps(value, sort_keys=True) + "\n")
+    complete.chmod(0o444)
+
+    def update_authority(document):
+        hashes = document["prerequisite_receipt_sha256s"]
+        hashes["w1_completion"] = hashlib.sha256(complete.read_bytes()).hexdigest()
+        hashes["w1_data_quality"] = dq_sha
+        hashes["w09_exact_version_read"] = dq_sha
+
+    _rewrite_authority_and_arm(authority, arm, update_authority)
+    with pytest.raises(gate.AuthorityError, match="exactly eight canaries"):
+        _validate_authority_fixture(files)
+
+
+def test_authority_gate_requires_exact_read_prerequisite_to_equal_composite_dq(
+    tmp_path,
+):
+    files = _authority_files(tmp_path)
+    gate, authority, arm, *_rest = files
+    _rewrite_authority_and_arm(
+        authority,
+        arm,
+        lambda value: value["prerequisite_receipt_sha256s"].update(
+            {"w09_exact_version_read": "e" * 64}
+        ),
+    )
+    with pytest.raises(gate.AuthorityError, match="composite W1 DQ"):
+        _validate_authority_fixture(files)

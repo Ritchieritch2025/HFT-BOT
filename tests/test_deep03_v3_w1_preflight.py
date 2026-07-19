@@ -123,6 +123,10 @@ def test_w1_preflight_binds_exact_inputs_and_closes_no_holdout(tmp_path):
     assert completion["strict_acceptance_claimed"] is False
     assert completion["rfq"] == "OFF_AND_ABSENT"
     assert dq["state"] == "W1_DQ_PASS_FOR_EXPLORATORY_ONLY"
+    assert completion["embedded_data_quality_receipt"] == dq
+    assert completion["artifacts_sha256"]["DATA_QUALITY_RECEIPT.json"] == _sha(
+        root / "DATA_QUALITY_RECEIPT.json"
+    )
     assert split["validation_release_ids"] == []
     assert split["confirmation_release_ids"] == []
     assert all(row["exposure_class"] == "PRIOR_EXPOSED" for row in prior)

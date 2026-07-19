@@ -314,6 +314,11 @@ def build_preflight(
             "authorized_input_release_ids": release_ids,
             "input_projection_sha256": _w1_input_projection_sha256(input_manifest),
             "artifacts_sha256": artifacts,
+            # The gate must be able to inspect the exact-version/canary claims
+            # without trusting an unbound sibling path.  Embedding this small
+            # receipt lets it re-create the canonical DATA_QUALITY_RECEIPT.json
+            # bytes and prove that their SHA is the artifact/prerequisite SHA.
+            "embedded_data_quality_receipt": dq,
             "release_count": len(releases),
             "object_count": input_manifest["object_count"],
             "object_bytes": input_manifest["object_bytes"],

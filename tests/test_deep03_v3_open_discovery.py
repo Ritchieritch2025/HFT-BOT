@@ -16,8 +16,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "research"))
+sys.path.insert(0, str(ROOT / "deploy" / "w09"))
 
 import research_data as rd  # noqa: E402
+import deep03_authority_gate  # noqa: E402
 from deep03_v3_common import (  # noqa: E402
     Deep03InputError,
     validate_explicit_releases,
@@ -85,7 +87,13 @@ def test_input_gate_rejects_rfq_and_marker_manifest_drift(tmp_path):
         validate_explicit_releases(cache, [rid])
 
 
-def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
+def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
+    tmp_path, monkeypatch
+):
+    # This runner unit intentionally uses one tiny synthetic release.  The
+    # production gate's separate contract tests retain the exact eight-release
+    # W1/W2A requirement.
+    monkeypatch.setattr(deep03_authority_gate, "W1_EXACT_RELEASE_COUNT", 1)
     cache, rid = _materialize(tmp_path)
     (
         _gate,
@@ -182,7 +190,10 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
         )
 
 
-def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(tmp_path):
+def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(deep03_authority_gate, "W1_EXACT_RELEASE_COUNT", 1)
     cache, rid = _materialize(tmp_path)
     (
         _gate,
