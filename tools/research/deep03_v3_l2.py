@@ -493,6 +493,7 @@ class L2ReplayEngine:
             "control_candidate": False,
             "control_quiet_lookback_ns": None,
         }
+        previous_clock = self.last_clock.get(market) if market else None
         if (
             not market
             or t_us is None
@@ -507,24 +508,35 @@ class L2ReplayEngine:
             book = self.books.get(market) if market else None
             if book is not None:
                 book.invalidate()
-                boundary = (
-                    int(recv_wall_ns)
-                    if recv_wall_ns is not None
-                    else self.last_clock.get(market, 0)
-                )
+                boundary = previous_clock if previous_clock is not None else 0
                 completed.extend(self._close_market_episodes(
                     market, boundary, "right_censored_missing_replay_key"
                 ))
             return _row_with_state(base, book.state() if book else {}), completed
         clock_ns = int(recv_wall_ns)
-        completed = self._expire(market, clock_ns)
-        self.last_clock[market] = max(clock_ns, self.last_clock.get(market, clock_ns))
+        completed: list[dict[str, Any]] = []
         book = self.books.setdefault(market, L2Book())
         msg_type = base["msg_type"]
         if msg_type == "snapshot":
+            # A snapshot starts a new state epoch.  It cannot prove anything
+            # about the unobserved interval after the prior market row, so an
+            # open episode is censored at that prior valid market clock before
+            # any horizon expiry is considered.
             completed.extend(self._close_market_episodes(
-                market, clock_ns, "right_censored_snapshot_boundary"
+                market,
+                previous_clock if previous_clock is not None else clock_ns,
+                "right_censored_snapshot_boundary",
             ))
+            if (
+                book.ws_sid is not None
+                and int(ws_sid) == book.ws_sid
+                and book.last_ws_seq is not None
+                and int(ws_seq) <= book.last_ws_seq
+            ):
+                book.invalidate()
+                base["classification"] = "REJECTED_SEQUENCE_REGRESSION"
+                self.qc["rejected_sequence_regression"] += 1
+                return _row_with_state(base, book.state()), completed
             try:
                 book.snapshot(
                     yes_levels, no_levels, ws_sid=int(ws_sid), ws_seq=int(ws_seq)
@@ -534,6 +546,7 @@ class L2ReplayEngine:
                 base["classification"] = "REJECTED_INVALID_SNAPSHOT"
                 self.qc["rejected_invalid_snapshot"] += 1
                 return _row_with_state(base, book.state()), completed
+            self.last_clock[market] = clock_ns
             base["classification"] = "SNAPSHOT_APPLIED"
             base["top_changed"] = True
             self.last_top3_change_ns[market] = clock_ns
@@ -544,7 +557,9 @@ class L2ReplayEngine:
             base["classification"] = "REJECTED_INVALID_MESSAGE_TYPE"
             self.qc["rejected_invalid_message_type"] += 1
             completed.extend(self._close_market_episodes(
-                market, clock_ns, "right_censored_invalid_epoch"
+                market,
+                previous_clock if previous_clock is not None else clock_ns,
+                "right_censored_invalid_epoch",
             ))
             return _row_with_state(base, book.state()), completed
         try:
@@ -568,10 +583,17 @@ class L2ReplayEngine:
             self.qc["rejected_" + reason] += 1
             if result.get("invalidated"):
                 completed.extend(self._close_market_episodes(
-                    market, clock_ns, "right_censored_invalid_epoch"
+                    market,
+                    previous_clock if previous_clock is not None else clock_ns,
+                    "right_censored_invalid_epoch",
                 ))
             return _row_with_state(base, book.state()), completed
 
+        # Only an accepted row in the same valid snapshot epoch proves the
+        # book remained observed through this clock.  Horizon expiry must run
+        # after that fact is established, never on a reset/reconnect row.
+        completed.extend(self._expire(market, clock_ns))
+        self.last_clock[market] = clock_ns
         self.qc["deltas_applied"] += 1
         base["classification"] = "DELTA_APPLIED"
         state = result["after"]
@@ -673,26 +695,22 @@ class L2ReplayEngine:
             self.last_top3_change_ns[market] = clock_ns
         return _row_with_state(base, state), completed
 
-    def finish(self, observation_end_ns: int | None = None) -> list[dict[str, Any]]:
-        """Close remaining episodes at a proven full-stream observation end.
+    def finish(self) -> list[dict[str, Any]]:
+        """Close remaining episodes at the last valid same-market clock.
 
-        Production supplies the exact date-wide last Sports L2 receive clock.
-        That mirrors the inherited clean-stream semantics: while the sealed
-        subscription stream remains live, absence of a delta for one market is
-        evidence that its displayed depth did not change.  Fixture callers may
-        omit it and receive the more conservative per-market boundary.
+        A later row for another market is not lifecycle/subscription evidence
+        for this market.  Without such authority the terminal interval is
+        right-censored rather than extended to a date-wide capture clock.
         """
         completed = []
         for key, episode in list(self.open_episodes.items()):
             market, _side = key
             last = self.last_clock.get(market, int(episode["depletion_ns"]))
-            if observation_end_ns is not None:
-                last = max(last, int(observation_end_ns))
             horizon = int(episode["depletion_ns"]) + EPISODE_HORIZON_NS
             reason = (
                 "right_censored_1s_horizon"
                 if last >= horizon
-                else "right_censored_date_end"
+                else "right_censored_last_market_observation"
             )
             completed.append(self._finalize(
                 episode, min(last, horizon), reason
@@ -1029,7 +1047,6 @@ def _replay_one_partition(
     episode_stage: str,
     episode_version: str,
     key: str,
-    observation_end_ns: int | None,
 ) -> tuple[dict[str, Any], dict[str, Any], bool]:
     replay_receipt_path = store._paths(replay_stage, key)[1]
     episode_receipt_path = store._paths(episode_stage, key)[1]
@@ -1073,7 +1090,7 @@ def _replay_one_partition(
     cursor.close()
     _insert_dict_rows(
         con, "l2_episode_build", EPISODE_COLUMNS,
-        engine.finish(observation_end_ns=observation_end_ns),
+        engine.finish(),
     )
     source_rows = int(engine.qc["source_rows"])
     replay_rows_count = int(con.execute(
@@ -1160,11 +1177,8 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
     interval_us = HAZARD_INTERVAL_NS // 1000
     interval_count = EPISODE_HORIZON_NS // HAZARD_INTERVAL_NS
     return f"""
-      WITH date_bounds AS (
-        SELECT date,max(recv_wall_ns)::BIGINT AS observation_end_ns
-        FROM {replay_relation} GROUP BY date
-      ), ordered AS (
-        SELECT r.*,b.observation_end_ns,
+      WITH ordered AS (
+        SELECT r.*,
                lead(recv_wall_ns) OVER market_order AS next_clock_ns,
                lead(book_valid) OVER market_order AS next_valid,
                lead(snapshot_epoch) OVER market_order AS next_snapshot_epoch,
@@ -1172,7 +1186,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                lag(topology) OVER market_order AS previous_topology,
                lag(book_valid) OVER market_order AS previous_valid,
                lag(snapshot_epoch) OVER market_order AS previous_snapshot_epoch
-        FROM {replay_relation} r JOIN date_bounds b USING(date)
+        FROM {replay_relation} r
         WINDOW market_order AS (
           PARTITION BY date,market_ticker
           ORDER BY recv_wall_ns,recv_mono_ns,ws_sid,ws_seq
@@ -1181,12 +1195,15 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
         SELECT *,{spread_bin} AS spread_bin,
                {depth_bin} AS depth_bin,
                {imbalance_bin} AS imbalance_bin,
-               CASE WHEN next_clock_ns IS NOT NULL AND next_clock_ns>=recv_wall_ns
+               CASE WHEN next_clock_ns IS NOT NULL
+                              AND next_clock_ns>=recv_wall_ns
+                              AND next_valid
+                              AND next_snapshot_epoch=snapshot_epoch
                     THEN (next_clock_ns-recv_wall_ns)/1000
-                    WHEN observation_end_ns>=recv_wall_ns
-                    THEN (observation_end_ns-recv_wall_ns)/1000 END AS dwell_us,
+                    ELSE 0 END AS dwell_us,
                CASE
-                 WHEN next_clock_ns IS NULL THEN 'RIGHT_CENSORED_CAPTURE_END'
+                 WHEN next_clock_ns IS NULL
+                   THEN 'RIGHT_CENSORED_LAST_MARKET_OBSERVATION'
                  WHEN next_valid AND next_snapshot_epoch=snapshot_epoch
                    THEN 'OBSERVED_NEXT_VALID_STATE'
                  WHEN next_msg_type='snapshot'
@@ -1468,7 +1485,7 @@ def _write_date_reducers(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, bool]]:
     atlas_stage = "l2_exact_atlas"
     match_stage = "l2_matched_controls"
-    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v2")
+    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v3")
     match_version = _stage_version(abi, match_stage, "past-quiet-bounded-v2")
     key = f"date={date}"
     atlas_receipt_path = store._paths(atlas_stage, key)[1]
@@ -1552,7 +1569,8 @@ def _write_date_reducers(
             "quantiles": "duckdb_exact_quantile_cont",
             "cross_market_bucket_reduction": True,
             "state_dwell_endpoint_counts": state_endpoints,
-            "last_valid_state_extends_to_proven_date_observation_end": True,
+            "last_valid_state_extends_to_date_observation_end": False,
+            "terminal_boundary": "LAST_VALID_SAME_MARKET_OBSERVATION",
             "invalid_and_snapshot_resets_are_right_censoring": True,
             "refill_estimator": "100ms_discrete_risk_set_hazard_product_limit_survival",
             "raw_refill_fraction_labeled_as_hazard": False,
@@ -1851,13 +1869,12 @@ def execute_l2_snbd_bounded(
     physical_version = _stage_version(
         abi, physical_stage, "all-captured-coverage-v2"
     )
-    replay_version = _stage_version(abi, replay_stage, "sequence-replay-v2")
-    episode_version = _stage_version(abi, episode_stage, "causal-lifecycle-v2")
+    replay_version = _stage_version(abi, replay_stage, "sequence-replay-v3")
+    episode_version = _stage_version(abi, episode_stage, "causal-lifecycle-v3")
     bucket_values = range(market_buckets + 1)  # final value is NULL-market bucket
     physical_keys: list[str] = []
     replay_keys: list[str] = []
     source_counts: dict[str, int] = {}
-    source_observation_ends: dict[str, int | None] = {}
     activity = {
         physical_stage: {"written": 0, "reused": 0},
         replay_stage: {"written": 0, "reused": 0},
@@ -1878,12 +1895,6 @@ def execute_l2_snbd_bounded(
         source_counts[date] = source_count
         quality[date]["source_objects"] = len(objects)
         quality[date]["source_rows"] = source_count
-        observed_end = con.execute(
-            f"SELECT max(recv_wall_ns) FROM ({typed})"
-        ).fetchone()[0]
-        source_observation_ends[date] = (
-            int(observed_end) if observed_end is not None else None
-        )
         declared_counts = [obj.get("row_count") for obj in objects]
         if not all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -1945,7 +1956,6 @@ def execute_l2_snbd_bounded(
             episode_stage=episode_stage,
             episode_version=episode_version,
             key=key,
-            observation_end_ns=source_observation_ends[partition_date],
         )
         replay_keys.append(key)
         activity[replay_stage]["reused" if reused else "written"] += 1
@@ -2012,7 +2022,7 @@ def execute_l2_snbd_bounded(
 
     atlas_stage = "l2_exact_atlas"
     match_stage = "l2_matched_controls"
-    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v2")
+    atlas_version = _stage_version(abi, atlas_stage, "risk-set-survival-v3")
     match_version = _stage_version(abi, match_stage, "past-quiet-bounded-v2")
     reducer_keys: list[str] = []
     activity[atlas_stage] = {"written": 0, "reused": 0}

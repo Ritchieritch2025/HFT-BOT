@@ -429,6 +429,27 @@ def test_l2_bucket_bound_is_checked_before_execution(value):
         runner._validate_l2_market_buckets(value)
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda manifest: manifest.__setitem__(
+            "fact_objects_without_row_count", 1
+        ), "fact_objects_without_row_count"),
+        (lambda manifest: next(
+            obj for obj in manifest["objects"] if obj["kind"] == "facts"
+        ).__setitem__("row_count", None), "requires an exact nonnegative row_count"),
+        (lambda manifest: manifest.__setitem__(
+            "sealed_fact_rows", manifest["sealed_fact_rows"] + 1
+        ), "sealed_fact_rows"),
+    ],
+)
+def test_fullscope_refuses_incomplete_fact_row_authority(tmp_path, mutation, message):
+    manifest = _manifest(tmp_path)
+    mutation(manifest)
+    with pytest.raises(Deep03InputError, match=message):
+        runner._require_base_without_rfq(manifest)
+
+
 def test_old_b01_b04_authority_cannot_start_fullscope(tmp_path, monkeypatch):
     manifest = _manifest(tmp_path)
     run_dir = tmp_path / "run"

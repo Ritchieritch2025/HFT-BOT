@@ -1934,6 +1934,14 @@ def _stage_bounded_trade_sources(
         ).fetchone()
         source_rows = int(source_rows)
         null_trade_id_rows = int(null_trade_id_rows)
+        manifest_count = _manifest_object_row_count(objects)
+        if manifest_count is not None:
+            _require_row_conservation(
+                label="trades_source_vs_bound_object_row_count",
+                context=f"date={date}",
+                observed=source_rows,
+                expected=manifest_count,
+            )
         dim = ctx.data_path("dim_market_date", f"date={date}")
         ctx.con.execute(
             "CREATE OR REPLACE TEMP VIEW bounded_trades_enriched AS "

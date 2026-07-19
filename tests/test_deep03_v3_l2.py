@@ -150,6 +150,25 @@ def test_sequence_regression_invalidates_until_snapshot_reset():
     assert result["replay_rows"][2]["classification"] == "SNAPSHOT_APPLIED"
 
 
+def test_snapshot_sequence_regression_is_rejected_and_new_sid_can_recover():
+    base = 3_250_000_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=10),
+        row(base + 1_000_000, "M1", "snapshot", yes=[[4100, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=9),
+        row(base + 2_000_000, "M1", "snapshot", yes=[[4200, 20_000]],
+            no=[[5000, 20_000]], sid=8, seq=1),
+    ])
+    assert [item["classification"] for item in result["replay_rows"]] == [
+        "SNAPSHOT_APPLIED",
+        "REJECTED_SEQUENCE_REGRESSION",
+        "SNAPSHOT_APPLIED",
+    ]
+    assert result["replay_rows"][1]["book_valid"] is False
+    assert result["replay_rows"][2]["book_valid"] is True
+
+
 def test_missing_sequence_key_invalidates_prior_state_until_snapshot():
     base = 3_500_000_000_000
     missing = list(row(
@@ -204,6 +223,25 @@ def test_snapshot_reset_censors_and_never_counts_as_refill():
     assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
     assert episode["event_observed"] is False
     assert episode["refill_ns"] is None
+
+
+def test_delayed_reconnect_snapshot_censors_at_last_valid_market_clock():
+    base = 5_250_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=2),
+        row(depletion + 2 * l2.EPISODE_HORIZON_NS, "M1", "snapshot",
+            yes=[[4000, 20_000]], no=[[5000, 20_000]], sid=8, seq=1),
+    ])
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
+    assert episode["observation_end_ns"] == depletion
+    assert episode["duration_us"] == 0
+    assert episode["event_observed"] is False
 
 
 def test_unknown_message_type_invalidates_epoch_and_censors_episode():
@@ -325,7 +363,7 @@ def test_control_anchor_requires_prior_quiet_top3_state(monkeypatch):
         l2.QUIET_ANCHOR_LOOKBACK_NS
 
 
-def test_clean_full_stream_end_observes_no_refill_through_fixed_horizon():
+def test_terminal_episode_is_censored_at_last_same_market_observation():
     base = 6_500_000_000_000
     engine = l2.L2ReplayEngine()
     engine.process(row(
@@ -336,12 +374,11 @@ def test_clean_full_stream_end_observes_no_refill_through_fixed_horizon():
         base + 1_000_000, "M1", "delta", side="yes", price=4000,
         delta=-10_000, seq=2,
     ))
-    episodes = engine.finish(
-        observation_end_ns=base + 2 * l2.EPISODE_HORIZON_NS
-    )
+    episodes = engine.finish()
     assert len(episodes) == 1
-    assert episodes[0]["endpoint_reason"] == "right_censored_1s_horizon"
-    assert episodes[0]["duration_us"] == 1_000_000
+    assert episodes[0]["endpoint_reason"] == \
+        "right_censored_last_market_observation"
+    assert episodes[0]["duration_us"] == 0
     assert episodes[0]["event_observed"] is False
 
 
@@ -405,7 +442,10 @@ def _atlas_episode(
         "depletion_ns": 1_000_000_000,
         "observation_end_ns": 1_000_000_000 + duration_us * 1000,
         "duration_us": duration_us,
-        "endpoint_reason": "refill_observed" if observed else "right_censored_date_end",
+        "endpoint_reason": (
+            "refill_observed" if observed
+            else "right_censored_last_market_observation"
+        ),
         "event_observed": observed,
         "refill_ns": 1_000_000_000 + duration_us * 1000 if observed else None,
         "refill_fraction": 0.8 if observed else None,
@@ -426,7 +466,7 @@ def _atlas_episode(
     return value
 
 
-def test_atlas_extends_final_valid_states_and_labels_reset_invalid_censoring():
+def test_atlas_zeroes_unproven_reset_invalid_and_terminal_dwell():
     con = duckdb.connect()
     l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
     replay = [
@@ -448,15 +488,13 @@ def test_atlas_extends_final_valid_states_and_labels_reset_invalid_censoring():
     """).fetchall())
     assert endpoint_rows["RIGHT_CENSORED_SNAPSHOT_RESET"] == 1
     assert endpoint_rows["RIGHT_CENSORED_INVALID_OR_REJECTED"] == 1
-    assert endpoint_rows["RIGHT_CENSORED_CAPTURE_END"] == 2
-    capture_dwell = con.execute("""
+    assert endpoint_rows["RIGHT_CENSORED_LAST_MARKET_OBSERVATION"] == 2
+    unproven_dwell = con.execute("""
       SELECT sum(total_dwell_us) FROM atlas
       WHERE record_kind='STATE'
-        AND endpoint_reason='RIGHT_CENSORED_CAPTURE_END'
+        AND endpoint_reason LIKE 'RIGHT_CENSORED_%'
     """).fetchone()[0]
-    # M-RESET's final epoch extends from 200 to the proven stream end at 300;
-    # M-END itself contributes a zero-length terminal state.
-    assert capture_dwell == pytest.approx(0.1)
+    assert unproven_dwell == pytest.approx(0.0)
     con.close()
 
 

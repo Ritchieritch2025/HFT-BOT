@@ -188,6 +188,39 @@ def _require_base_without_rfq(input_manifest: Mapping[str, Any]) -> None:
         raise Deep03InputError(
             "RFQ object reached the base/L2 runner: " + ",".join(contaminated[:8])
         )
+    missing_counts = []
+    declared_fact_rows = 0
+    for obj in input_manifest.get("objects") or []:
+        if str(obj.get("kind") or "").lower() != "facts":
+            continue
+        value = obj.get("row_count")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            missing_counts.append(str(obj.get("logical_key") or "<unnamed>"))
+        else:
+            declared_fact_rows += value
+    if missing_counts:
+        raise Deep03InputError(
+            "every full-scope fact object requires an exact nonnegative row_count: "
+            + ",".join(missing_counts[:8])
+        )
+    missing_total = input_manifest.get("fact_objects_without_row_count")
+    if (
+        isinstance(missing_total, bool)
+        or not isinstance(missing_total, int)
+        or missing_total != 0
+    ):
+        raise Deep03InputError(
+            "full-scope manifest fact_objects_without_row_count must equal zero"
+        )
+    sealed_fact_rows = input_manifest.get("sealed_fact_rows")
+    if (
+        isinstance(sealed_fact_rows, bool)
+        or not isinstance(sealed_fact_rows, int)
+        or sealed_fact_rows != declared_fact_rows
+    ):
+        raise Deep03InputError(
+            "full-scope sealed_fact_rows does not equal the exact fact-object row sum"
+        )
 
 
 def _expected_l2_quality_objects(input_manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
