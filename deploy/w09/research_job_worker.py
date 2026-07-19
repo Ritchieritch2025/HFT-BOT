@@ -402,19 +402,20 @@ def _validate_execution_provenance(
     return bindings
 
 
-def publish_job_output(
+def _publish_validated_job_output(
     *,
     inbox_root: Path = DEFAULT_INBOX_ROOT,
     job_id: str,
     source_root: Path,
     execution_provenance: dict[str, Any],
 ) -> dict[str, Any]:
-    """Atomically publish already-authorized results under this job's ``OUTPUT``.
+    """Atomically publish adapter-validated results under this job's ``OUTPUT``.
 
-    This is intentionally not exposed by the planning-worker CLI.  A separate
-    authority/arm-bound research runner must first advance the job to RUNNING
-    and produce the generic result/report source.  This helper only validates,
-    bounds and seals those output bytes; it cannot start research.
+    This private primitive is intentionally not exposed by the planning-worker
+    CLI.  The Deep03 finalizer must first validate the actual authority, arm,
+    adopted plan, planning hashes and RUN_COMPLETE bytes.  The primitive then
+    revalidates the resulting provenance against PLANNING before sealing; it
+    cannot start research or independently mint authority.
     """
     inputs = _job_inputs(Path(inbox_root), job_id)
     with _job_lock(inputs["job_dir"]):
@@ -616,6 +617,8 @@ def _deep03_adapter_inputs(
         or deep_results.get("release_ids") != releases
         or deep_results.get("strict_acceptance_claimed") is not False
         or deep_results.get("candidate_or_profit_claim") is not False
+        or input_manifest.get("schema_version")
+        != "deep03-d3-w2a-v3-input-manifest-v1"
         or input_manifest.get("run_id") != run_id
         or input_manifest.get("release_ids") != releases
         or input_manifest.get("authority_binding") != authority_binding
@@ -672,6 +675,12 @@ def _deep03_adapter_inputs(
     if (
         authority.get("schema_version") != bindings["authority_schema"]
         or arm.get("schema_version") != bindings["arm_schema"]
+        or authority.get("adopted_plan_sha256") != inputs["plan_sha256"]
+        or authority.get("authorized_input_release_ids") != releases
+        or authority.get("authorized_phase_id") != payload["phase"]
+        or authority.get("authorized_work_package_id") != payload["work_package"]
+        or arm.get("release_id") != authority.get("release_id")
+        or arm.get("base_commit") != authority.get("base_commit")
         or authority_binding.get("authority_sha256") != authority_sha
         or authority_binding.get("arm_sha256") != arm_sha
         or arm.get("authority_sha256") != authority_sha
@@ -754,12 +763,29 @@ def finalize_deep03_job_output(
     inputs = _job_inputs(Path(inbox_root), job_id)
     status = inputs["job"]["status"]
     if status.get("state") == "COMPLETE":
+        provenance, _source, _bindings = _deep03_adapter_inputs(inputs, Path(run_dir))
         receipt = _validate_published_output(inputs["job_dir"], job_id)
+        existing_results = _json(
+            _read_regular(
+                inputs["job_dir"] / "OUTPUT" / "RESULTS.json",
+                label="published RESULTS.json",
+                max_bytes=MAX_OUTPUT_FILE_BYTES,
+            ),
+            "published RESULTS.json",
+        )
+        if existing_results.get("execution_provenance") != provenance:
+            raise ResearchJobWorkerError(
+                "completed output provenance differs from requested Deep03 run"
+            )
         return {
             "schema_version": DEEP03_ADAPTER_SCHEMA,
             "state": "COMPLETE",
             "job_id": job_id,
             "output_sha256": receipt["output_sha256"],
+            "provenance_sha256": provenance["provenance_sha256"],
+            "source_run_complete_sha256": provenance[
+                "source_run_complete_sha256"
+            ],
             "idempotent_replay": True,
         }
     if status.get("state") != "RUNNING" or status.get("research_execution_started") is not True:
@@ -811,7 +837,7 @@ def finalize_deep03_job_output(
         )
         for name in (*DEEP03_RECEIPTS, "RUN_COMPLETE.json", "ARTIFACT_SHA256SUMS.txt"):
             _write_file(stage / "REPORT" / "source_receipts" / name, source[name])
-        published = publish_job_output(
+        published = _publish_validated_job_output(
             inbox_root=Path(inbox_root),
             job_id=job_id,
             source_root=stage,
