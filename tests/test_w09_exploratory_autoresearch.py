@@ -287,6 +287,12 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
     )
     assert runner_command[runner_command.index("--memory-limit") + 1] == "16GB"
     assert runner_command[runner_command.index("--threads") + 1] == "2"
+    assert runner_command[runner_command.index("--checkpoint-root") + 1] == (
+        "/srv/w09-research/checkpoints"
+    )
+    assert int(
+        runner_command[runner_command.index("--checkpoint-reserve-bytes") + 1]
+    ) == 8 * 1024**3
     deep03_commands = [
         row
         for row in commands

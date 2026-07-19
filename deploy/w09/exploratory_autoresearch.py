@@ -29,6 +29,8 @@ import deep03_authority_gate
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
 DEEP03_MEMORY_LIMIT = "16GB"
 DEEP03_THREADS = 2
+DEEP03_CHECKPOINT_ROOT = "/srv/w09-research/checkpoints"
+DEEP03_CHECKPOINT_RESERVE_BYTES = 8 * 1024**3
 STATUS_SCHEMA = "w09-exploratory-autoresearch-status-v1"
 COMPLETION_SCHEMA = "w09-exploratory-autoresearch-completion-v1"
 STATIC_CREDENTIAL_NAMES = (
@@ -220,6 +222,8 @@ def run_cycle(
     w0_release_path: Path,
     w1_release_path: Path,
     w1_complete_path: Path,
+    checkpoint_root: Path = Path(DEEP03_CHECKPOINT_ROOT),
+    checkpoint_reserve_bytes: int = DEEP03_CHECKPOINT_RESERVE_BYTES,
     max_attempts: int = 1,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
@@ -265,6 +269,7 @@ def run_cycle(
     cache = Path(cache).resolve()
     state_root = Path(state_root).resolve()
     run_root = Path(run_root).resolve()
+    checkpoint_root = Path(checkpoint_root).resolve()
     for path in (cache, state_root, run_root):
         path.mkdir(parents=True, exist_ok=True, mode=0o750)
     lock_path = state_root / "cycle.lock"
@@ -536,6 +541,10 @@ def run_cycle(
                     str(w1_release_path),
                     "--w1-complete",
                     str(w1_complete_path),
+                    "--checkpoint-root",
+                    str(checkpoint_root),
+                    "--checkpoint-reserve-bytes",
+                    str(checkpoint_reserve_bytes),
                     "--memory-limit",
                     DEEP03_MEMORY_LIMIT,
                     "--threads",
@@ -618,6 +627,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--w0-release", required=True, type=Path)
     parser.add_argument("--w1-release", required=True, type=Path)
     parser.add_argument("--w1-complete", required=True, type=Path)
+    parser.add_argument("--checkpoint-root", default=DEEP03_CHECKPOINT_ROOT, type=Path)
+    parser.add_argument(
+        "--checkpoint-reserve-bytes",
+        default=DEEP03_CHECKPOINT_RESERVE_BYTES,
+        type=int,
+    )
     parser.add_argument("--python", default="/opt/w09/venv/bin/python")
     parser.add_argument("--tools-root", default="/opt/w09/research/tools")
     parser.add_argument("--w09-tools-root", default="/opt/w09/research/tools")
@@ -660,6 +675,8 @@ def main(argv: list[str] | None = None) -> int:
             w0_release_path=args.w0_release,
             w1_release_path=args.w1_release,
             w1_complete_path=args.w1_complete,
+            checkpoint_root=args.checkpoint_root,
+            checkpoint_reserve_bytes=args.checkpoint_reserve_bytes,
             max_attempts=args.max_attempts,
         )
     except (

@@ -31,12 +31,233 @@ from deep03_v3_common import (
     source_hashes,
     utc_now,
 )
-from deep03_v3_methods import METHODS, execute_all
+from deep03_v3_methods import (
+    BOUNDED_CHECKPOINT_SCHEMA,
+    BOUNDED_EXECUTION_RECEIPT_SCHEMA,
+    METHODS,
+    bounded_source_binding,
+    execute_all_bounded,
+)
 
 
 SCHEMA_RESULTS = "deep03-d3-w2a-v3-results-v1"
 SCHEMA_COMPLETE = "deep03-d3-w2a-v3-run-complete-v1"
 SIZE_RE = re.compile(r"^[1-9][0-9]*(?:KB|MB|GB|TB)$", re.IGNORECASE)
+CANONICAL_CHECKPOINT_ROOT = Path("/srv/w09-research/checkpoints")
+DEFAULT_CHECKPOINT_RESERVE_BYTES = 8 * 1024**3
+CHECKPOINT_EXPANSION_FACTOR = 4
+MARKET_BUCKETS = 32
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _checkpoint_namespace(
+    *,
+    checkpoint_root: Path,
+    input_manifest: dict[str, Any],
+    run_dir: Path,
+    required_parent: Path,
+) -> tuple[Path, str, str]:
+    """Return the shared, exact-dataset namespace used across fresh ARMs.
+
+    The namespace identity deliberately contains neither ``run_id`` nor any
+    authority/ARM digest.  A terminal attempt therefore remains immutable,
+    while a separately authorized fresh attempt over the exact same source
+    objects can verify and reuse completed partitions.
+    """
+    supplied_root = Path(checkpoint_root)
+    if supplied_root.is_symlink():
+        raise Deep03InputError("shared checkpoint root may not be a symlink")
+    root = supplied_root.resolve()
+    required = Path(required_parent).resolve()
+    run_dir = Path(run_dir).resolve()
+    if not root.is_absolute() or not _is_relative_to(root, required):
+        raise Deep03InputError(
+            f"checkpoint root must be under {required}: {root}"
+        )
+    if _is_relative_to(root, run_dir) or _is_relative_to(run_dir, root):
+        raise Deep03InputError(
+            "shared checkpoint root and immutable run directory must be separate"
+        )
+    source_binding = bounded_source_binding(input_manifest)
+    namespace_id = f"source-{source_binding}"
+    namespace_link = root / namespace_id
+    if namespace_link.is_symlink():
+        raise Deep03InputError("checkpoint namespace may not be a symlink")
+    namespace = namespace_link.resolve()
+    if namespace.parent != root:
+        raise Deep03InputError("checkpoint namespace escaped its shared root")
+    return namespace, namespace_id, source_binding
+
+
+def _canonical_receipt_bytes(value: dict[str, Any]) -> bytes:
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("ascii")
+
+
+def _verified_checkpoint_payload_bytes(
+    namespace: Path, source_binding: str
+) -> int:
+    """Count only byte- and binding-verified COMPLETE checkpoint payloads.
+
+    The count is used solely to avoid demanding space for partitions that are
+    already durable.  Full stage-version/schema validation remains owned by
+    ``BoundedCheckpointStore`` before reuse.
+    """
+    if not namespace.exists():
+        return 0
+    if not namespace.is_dir() or namespace.is_symlink():
+        raise Deep03InputError("checkpoint namespace is not a real directory")
+    total = 0
+    seen: set[Path] = set()
+    for receipt_path in sorted(namespace.glob("*/receipts/*.json")):
+        if receipt_path.is_symlink() or not receipt_path.is_file():
+            raise Deep03InputError(
+                f"checkpoint receipt is not a regular file: {receipt_path}"
+            )
+        try:
+            raw = receipt_path.read_bytes()
+            receipt = json.loads(raw)
+        except (OSError, ValueError) as exc:
+            raise Deep03InputError(
+                f"checkpoint receipt is unreadable: {receipt_path}: {exc}"
+            ) from exc
+        if not isinstance(receipt, dict) or raw != _canonical_receipt_bytes(receipt):
+            raise Deep03InputError(
+                f"checkpoint receipt is not canonical: {receipt_path}"
+            )
+        if (
+            receipt.get("schema_version") != BOUNDED_CHECKPOINT_SCHEMA
+            or receipt.get("state") != "COMPLETE"
+            or receipt.get("source_binding") != source_binding
+        ):
+            raise Deep03InputError(
+                f"checkpoint receipt binding/state mismatch: {receipt_path}"
+            )
+        data = receipt.get("data")
+        if not isinstance(data, dict) or not isinstance(data.get("path"), str):
+            raise Deep03InputError(
+                f"checkpoint receipt has no payload binding: {receipt_path}"
+            )
+        payload_link = namespace / data["path"]
+        if payload_link.is_symlink():
+            raise Deep03InputError(
+                f"checkpoint payload path is invalid: {receipt_path}"
+            )
+        payload = payload_link.resolve()
+        if (
+            not _is_relative_to(payload, namespace)
+            or payload in seen
+            or not payload.is_file()
+        ):
+            raise Deep03InputError(
+                f"checkpoint payload path is invalid: {receipt_path}"
+            )
+        size = payload.stat().st_size
+        if (
+            isinstance(data.get("size_bytes"), bool)
+            or data.get("size_bytes") != size
+            or data.get("sha256") != sha256_file(payload)
+        ):
+            raise Deep03InputError(
+                f"checkpoint payload size/hash mismatch: {receipt_path}"
+            )
+        seen.add(payload)
+        total += size
+    return total
+
+
+def _disk_headroom_preflight(
+    *,
+    input_manifest: dict[str, Any],
+    namespace: Path,
+    source_binding: str,
+    reserve_bytes: int,
+) -> dict[str, Any]:
+    """Fail closed unless the exact L1+trade-derived storage bound fits."""
+    if (
+        isinstance(reserve_bytes, bool)
+        or not isinstance(reserve_bytes, int)
+        or reserve_bytes < 0
+    ):
+        raise Deep03InputError("checkpoint reserve bytes must be a non-negative integer")
+    by_channel = {
+        "orderbooks_l1": {"objects": 0, "bytes": 0},
+        "trades": {"objects": 0, "bytes": 0},
+    }
+    for obj in input_manifest.get("objects") or []:
+        channel = obj.get("channel")
+        if (
+            obj.get("kind") != "facts"
+            or channel not in by_channel
+            or "/category=Sports/" not in str(obj.get("logical_key") or "")
+        ):
+            continue
+        size = obj.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise Deep03InputError(
+                f"invalid exact source size for {obj.get('logical_key')}"
+            )
+        by_channel[channel]["objects"] += 1
+        by_channel[channel]["bytes"] += size
+    source_bytes = sum(row["bytes"] for row in by_channel.values())
+    if not all(row["objects"] > 0 for row in by_channel.values()):
+        raise Deep03InputError(
+            "exact bounded run requires both Sports L1 and trade source objects"
+        )
+    namespace.mkdir(parents=True, exist_ok=True, mode=0o750)
+    verified_bytes = _verified_checkpoint_payload_bytes(namespace, source_binding)
+    # The bounded plan can have physical L1/trade shards, interval/dedup
+    # outputs, and narrow reducer observations live at the same time.  The
+    # audited initial envelope therefore reserves four times the exact source
+    # L1+trade bytes.  Existing payloads remain informational here: until the
+    # core validates their exact stage ABI and complete-set manifests, giving
+    # them disk credit could under-budget a required rebuild.
+    predicted_checkpoint_bytes = source_bytes * CHECKPOINT_EXPANSION_FACTOR
+    additional_bytes = predicted_checkpoint_bytes
+    required_bytes = predicted_checkpoint_bytes + reserve_bytes
+    available_bytes = shutil.disk_usage(namespace).free
+    receipt = {
+        "schema_version": "deep03-bounded-disk-headroom-v1",
+        "state": "PASS" if available_bytes >= required_bytes else "REFUSED",
+        "source_binding": source_binding,
+        "source_channels": by_channel,
+        "exact_l1_trade_source_bytes": source_bytes,
+        "verified_checkpoint_payload_bytes": verified_bytes,
+        "verified_checkpoint_bytes_credited": 0,
+        "checkpoint_expansion_factor": CHECKPOINT_EXPANSION_FACTOR,
+        "checkpoint_budget_formula": (
+            "exact_l1_trade_source_bytes*checkpoint_expansion_factor+reserve_bytes"
+        ),
+        "predicted_checkpoint_bytes": predicted_checkpoint_bytes,
+        "additional_checkpoint_budget_bytes": additional_bytes,
+        "reserve_bytes": reserve_bytes,
+        "required_free_bytes": required_bytes,
+        "available_free_bytes": available_bytes,
+    }
+    if available_bytes < required_bytes:
+        raise Deep03InputError(
+            "bounded checkpoint disk gate failed: "
+            f"required={required_bytes} available={available_bytes} "
+            f"exact_l1_trade_source={source_bytes} "
+            f"verified_checkpoint_payload={verified_bytes} "
+            f"reserve={reserve_bytes}"
+        )
+    return receipt
 
 
 def _configure_duckdb(con, scratch: Path, memory_limit: str, threads: int) -> None:
@@ -429,12 +650,15 @@ def run_discovery(
     w0_release_path: Path,
     w1_release_path: Path,
     w1_complete_path: Path,
+    checkpoint_root: Path,
+    checkpoint_reserve_bytes: int = DEFAULT_CHECKPOINT_RESERVE_BYTES,
     memory_limit: str = "8GB",
     threads: int = 4,
     expected_owner_uid: int = 0,
     authority_now: dt.datetime | None = None,
     claim_invocation_id: str | None = None,
     claim_proc_cgroup_path: Path | None = None,
+    required_checkpoint_parent: Path = CANONICAL_CHECKPOINT_ROOT,
 ) -> Path:
     refuse_credential_environment()
     authority_context = load_authority_context(
@@ -482,6 +706,20 @@ def run_discovery(
     input_manifest, prepare = ensure_run_inputs_current(
         run_dir, authority_context
     )
+    checkpoint_namespace, checkpoint_namespace_id, source_binding = (
+        _checkpoint_namespace(
+            checkpoint_root=checkpoint_root,
+            input_manifest=input_manifest,
+            run_dir=run_dir,
+            required_parent=required_checkpoint_parent,
+        )
+    )
+    disk_preflight = _disk_headroom_preflight(
+        input_manifest=input_manifest,
+        namespace=checkpoint_namespace,
+        source_binding=source_binding,
+        reserve_bytes=checkpoint_reserve_bytes,
+    )
     lock_handle = (run_dir / "PREPARE_RECEIPT.json").open("rb")
     try:
         try:
@@ -495,9 +733,31 @@ def run_discovery(
         con = duckdb.connect()
         try:
             _configure_duckdb(con, scratch, memory_limit, threads)
-            capabilities, methods = execute_all(con, input_manifest)
+            capabilities, methods, bounded_receipt = execute_all_bounded(
+                con,
+                input_manifest,
+                checkpoint_namespace,
+                market_buckets=MARKET_BUCKETS,
+            )
         finally:
             con.close()
+        if (
+            not isinstance(bounded_receipt, dict)
+            or bounded_receipt.get("schema_version")
+            != BOUNDED_EXECUTION_RECEIPT_SCHEMA
+            or bounded_receipt.get("state") != "COMPLETE"
+            or bounded_receipt.get("source_binding") != source_binding
+        ):
+            raise Deep03InputError("bounded checkpoint execution receipt mismatch")
+        checkpoint_receipt = {
+            "schema_version": "deep03-d3-w2a-checkpoint-reuse-receipt-v1",
+            "state": "COMPLETE",
+            "run_id": input_manifest["run_id"],
+            "source_binding": source_binding,
+            "checkpoint_namespace_id": checkpoint_namespace_id,
+            "disk_headroom_preflight": disk_preflight,
+            "bounded_execution": bounded_receipt,
+        }
         quality = _quality_receipt(input_manifest)
         estimability = _estimability_receipt(input_manifest, capabilities, methods)
         exclusions = _exclusion_receipt(input_manifest, methods)
@@ -519,6 +779,11 @@ def run_discovery(
         atomic_write_json(run_dir / "ESTIMABILITY_PREFLIGHT.json", estimability, exclusive=True)
         atomic_write_json(run_dir / "EXCLUSION_WATERFALL.json", exclusions, exclusive=True)
         atomic_write_json(run_dir / "METHOD_EXECUTION_RECEIPT.json", method_receipt, exclusive=True)
+        atomic_write_json(
+            run_dir / "CHECKPOINT_REUSE_RECEIPT.json",
+            checkpoint_receipt,
+            exclusive=True,
+        )
         atomic_write_json(run_dir / "RESULTS.json", results, exclusive=True)
         report = _render_report(input_manifest, quality, methods).encode("utf-8")
         atomic_write_bytes(run_dir / "REPORT" / "index.html", report, exclusive=True)
@@ -535,6 +800,8 @@ def run_discovery(
             ),
             "run_command_shape": (
                 "w09-run deep03-v3-run --run-dir RUN_DIR "
+                "--checkpoint-root /srv/w09-research/checkpoints "
+                "--checkpoint-reserve-bytes RESERVE_BYTES "
                 "--authority AUTHORITY --arm-file ARM --plan PLAN "
                 "--arm-claim-root CLAIM_ROOT "
                 "--runtime-commit COMMIT --audit AUDIT --w0-release W0 "
@@ -544,6 +811,13 @@ def run_discovery(
             "duckdb_version": duckdb.__version__,
             "memory_limit": memory_limit,
             "threads": threads,
+            "checkpoint_namespace_id": checkpoint_namespace_id,
+            "checkpoint_source_binding": source_binding,
+            "checkpoint_reserve_bytes": checkpoint_reserve_bytes,
+            "checkpoint_reuse_receipt_sha256": sha256_file(
+                run_dir / "CHECKPOINT_REUSE_RECEIPT.json"
+            ),
+            "disk_headroom_preflight": disk_preflight,
             "network_reads": 0,
             "rfq_reads": 0,
             "order_actions": 0,
@@ -578,6 +852,11 @@ def run_discovery(
                 run_dir / "METHOD_EXECUTION_RECEIPT.json"
             ),
             "report_sha256": sha256_file(run_dir / "REPORT" / "index.html"),
+            "checkpoint_reuse_receipt_sha256": sha256_file(
+                run_dir / "CHECKPOINT_REUSE_RECEIPT.json"
+            ),
+            "checkpoint_namespace_id": checkpoint_namespace_id,
+            "checkpoint_source_binding": source_binding,
             "artifact_sha256sums_sha256": sums_sha,
             "artifacts": artifacts,
             "source_modules_sha256": source_hashes(),
@@ -615,6 +894,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--w0-release", required=True, type=Path)
     parser.add_argument("--w1-release", required=True, type=Path)
     parser.add_argument("--w1-complete", required=True, type=Path)
+    parser.add_argument("--checkpoint-root", required=True, type=Path)
+    parser.add_argument(
+        "--checkpoint-reserve-bytes",
+        default=DEFAULT_CHECKPOINT_RESERVE_BYTES,
+        type=int,
+    )
     parser.add_argument("--memory-limit", default="8GB")
     parser.add_argument("--threads", default=4, type=int)
     args = parser.parse_args(argv)
@@ -630,6 +915,8 @@ def main(argv: list[str] | None = None) -> int:
             w0_release_path=args.w0_release,
             w1_release_path=args.w1_release,
             w1_complete_path=args.w1_complete,
+            checkpoint_root=args.checkpoint_root,
+            checkpoint_reserve_bytes=args.checkpoint_reserve_bytes,
             memory_limit=args.memory_limit,
             threads=args.threads,
         )
