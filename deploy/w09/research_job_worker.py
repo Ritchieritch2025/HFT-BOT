@@ -52,6 +52,10 @@ PLANNING_SCHEMA = "research-job-planning-receipt-v1"
 OUTPUT_SCHEMA = "research-job-output-receipt-v1"
 RESULTS_SCHEMA = "research-results-v1"
 REPORT_RECEIPT_SCHEMA = "research-report-receipt-v1"
+DEEP03_RESULTS_SCHEMA = "deep03-d3-w2a-v3-results-v1"
+DEEP03_COMPLETE_SCHEMA = "deep03-d3-w2a-v3-run-complete-v1"
+DEEP03_ADAPTER_SCHEMA = "deep03-generic-job-output-adapter-v1"
+PROVENANCE_SCHEMA = "research-authorized-output-provenance-v1"
 MAX_PLAN_BYTES = 2 * 1024 * 1024
 MAX_CONTROL_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
@@ -60,6 +64,25 @@ MAX_OUTPUT_FILES = 256
 MAX_REPORT_DEPTH = 8
 TERMINAL_PLANNING_STATES = {"READY", "BLOCKED", "REFUSED"}
 REPORT_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+DEEP03_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+DEEP03_RECEIPTS = (
+    "PREPARE_RECEIPT.json",
+    "DATA_QUALITY_RECEIPT.json",
+    "ESTIMABILITY_PREFLIGHT.json",
+    "EXCLUSION_WATERFALL.json",
+    "METHOD_EXECUTION_RECEIPT.json",
+    "REPRODUCTION_RECEIPT.json",
+)
+DEEP03_AUTHORITY_ARTIFACTS = (
+    "ADOPTED_PLAN.md",
+    "AUDIT.md",
+    "AUTHORITY.json",
+    "BASE_COMMIT.txt",
+    "D3_W0_RELEASE.json",
+    "D3_W1_RELEASE.json",
+    "EXECUTION_ARM.json",
+    "W1_COMPLETE.json",
+)
 
 _PRIVATE_KEY_RE = re.compile(
     rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
@@ -285,8 +308,106 @@ def _validate_published_output(job_dir: Path, job_id: str) -> dict[str, Any]:
     return receipt
 
 
+def _planning_provenance_bindings(inputs: dict[str, Any]) -> dict[str, Any]:
+    validated = _validate_existing_bundle(inputs)
+    if validated.get("state") != "READY":
+        raise ResearchJobWorkerError("output requires a READY immutable planning bundle")
+    planning = inputs["job_dir"] / "PLANNING"
+    receipt_raw = _read_regular(
+        planning / "PLANNING_RECEIPT.json",
+        label="PLANNING_RECEIPT.json",
+        max_bytes=MAX_CONTROL_BYTES,
+    )
+    execution_raw = _read_regular(
+        planning / "EXECUTION_REQUEST.json",
+        label="EXECUTION_REQUEST.json",
+        max_bytes=MAX_CONTROL_BYTES,
+    )
+    receipt = _json(receipt_raw, "PLANNING_RECEIPT.json")
+    execution = _json(execution_raw, "EXECUTION_REQUEST.json")
+    return {
+        "job_id": inputs["job"]["job_id"],
+        "plugin_id": inputs["spec"]["plugin_id"],
+        "plan_sha256": inputs["plan_sha256"],
+        "job_spec_sha256": inputs["job_spec_sha256"],
+        "catalog_sha256": execution["catalog_sha256"],
+        "selection_sha256": execution["selection_sha256"],
+        "preflight_sha256": execution["preflight_sha256"],
+        "plugin_source_sha256": execution["plugin_source_sha256"],
+        "planning_receipt_sha256": _sha(receipt_raw),
+        "execution_request_artifact_sha256": _sha(execution_raw),
+        "execution_request_digest": execution["execution_request_sha256"],
+        "release_ids": execution["plugin_payload"]["input_binding"]["release_ids"],
+        "authority_schema": execution["plugin_payload"]["downstream_gate_contract"][
+            "authority_schema"
+        ],
+        "arm_schema": execution["plugin_payload"]["downstream_gate_contract"][
+            "arm_schema"
+        ],
+        "planning_receipt": receipt,
+        "execution_request": execution,
+    }
+
+
+def _validate_execution_provenance(
+    inputs: dict[str, Any], provenance: dict[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(provenance, dict):
+        raise ResearchJobWorkerError("authorized output provenance is missing")
+    bindings = _planning_provenance_bindings(inputs)
+    expected = {
+        key: bindings[key]
+        for key in (
+            "job_id",
+            "plugin_id",
+            "plan_sha256",
+            "job_spec_sha256",
+            "catalog_sha256",
+            "selection_sha256",
+            "preflight_sha256",
+            "plugin_source_sha256",
+            "planning_receipt_sha256",
+            "execution_request_artifact_sha256",
+            "execution_request_digest",
+            "authority_schema",
+            "arm_schema",
+        )
+    }
+    expected["schema_version"] = PROVENANCE_SCHEMA
+    for field, value in expected.items():
+        if provenance.get(field) != value:
+            raise ResearchJobWorkerError(
+                "authorized output provenance differs on %s" % field
+            )
+    for field in (
+        "authority_sha256",
+        "arm_sha256",
+        "adopted_plan_sha256",
+        "source_run_complete_sha256",
+        "source_results_sha256",
+        "source_report_sha256",
+    ):
+        value = provenance.get(field)
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ResearchJobWorkerError("authorized output provenance lacks %s" % field)
+    if provenance["adopted_plan_sha256"] != inputs["plan_sha256"]:
+        raise ResearchJobWorkerError("authorized adopted plan differs from exact job plan")
+    run_id = provenance.get("source_run_id")
+    if not isinstance(run_id, str) or DEEP03_RUN_ID_RE.fullmatch(run_id) is None:
+        raise ResearchJobWorkerError("authorized output provenance run ID is invalid")
+    digest = provenance.get("provenance_sha256")
+    unsigned = {key: value for key, value in provenance.items() if key != "provenance_sha256"}
+    if not isinstance(digest, str) or digest != _sha(_artifact_bytes(unsigned)):
+        raise ResearchJobWorkerError("authorized output provenance digest mismatch")
+    return bindings
+
+
 def publish_job_output(
-    *, inbox_root: Path = DEFAULT_INBOX_ROOT, job_id: str, source_root: Path
+    *,
+    inbox_root: Path = DEFAULT_INBOX_ROOT,
+    job_id: str,
+    source_root: Path,
+    execution_provenance: dict[str, Any],
 ) -> dict[str, Any]:
     """Atomically publish already-authorized results under this job's ``OUTPUT``.
 
@@ -306,7 +427,13 @@ def publish_job_output(
             raise ResearchJobWorkerError(
                 "output publication requires an authority-started RUNNING job"
             )
+        _validate_execution_provenance(inputs, execution_provenance)
         artifacts = _collect_output_artifacts(Path(source_root), job_id, published=False)
+        generic_results = _json(artifacts[PurePosixPath("RESULTS.json")], "RESULTS.json")
+        if generic_results.get("execution_provenance") != execution_provenance:
+            raise ResearchJobWorkerError(
+                "RESULTS.json does not contain the validated execution provenance"
+            )
         receipt = _output_receipt(job_id, artifacts)
         final = inputs["job_dir"] / "OUTPUT"
         if final.exists() or final.is_symlink():
@@ -378,6 +505,350 @@ def publish_job_output(
             "research_started_by_publisher": False,
             "idempotent_replay": False,
         }
+
+
+def _deep03_artifact_map(complete: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = complete.get("artifacts")
+    if not isinstance(rows, list) or not rows:
+        raise ResearchJobWorkerError("Deep03 RUN_COMPLETE artifact map is missing")
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"path", "sha256", "size"}:
+            raise ResearchJobWorkerError("Deep03 artifact map entry is invalid")
+        path = row.get("path")
+        digest = row.get("sha256")
+        size = row.get("size")
+        if (
+            not isinstance(path, str)
+            or not path
+            or "\\" in path
+            or PurePosixPath(path).is_absolute()
+            or any(part in {"", ".", ".."} for part in PurePosixPath(path).parts)
+            or path in result
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size <= 0
+        ):
+            raise ResearchJobWorkerError("Deep03 artifact map entry is unsafe")
+        result[path] = row
+    return result
+
+
+def _deep03_file(
+    run_dir: Path,
+    relative: str,
+    artifact_map: dict[str, dict[str, Any]],
+    *,
+    limit: int = MAX_OUTPUT_FILE_BYTES,
+) -> bytes:
+    row = artifact_map.get(relative)
+    if row is None:
+        raise ResearchJobWorkerError("Deep03 artifact map lacks %s" % relative)
+    raw = _read_regular(run_dir / relative, label="Deep03 %s" % relative, max_bytes=limit)
+    if len(raw) != row["size"] or _sha(raw) != row["sha256"]:
+        raise ResearchJobWorkerError("Deep03 artifact differs from RUN_COMPLETE: %s" % relative)
+    return raw
+
+
+def _deep03_adapter_inputs(
+    inputs: dict[str, Any], run_dir: Path
+) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
+    bindings = _planning_provenance_bindings(inputs)
+    execution = bindings["execution_request"]
+    payload = execution.get("plugin_payload")
+    if (
+        inputs["spec"].get("plugin_id") != "deep03"
+        or not isinstance(payload, dict)
+        or payload.get("schema_version") != "deep03-structured-execution-request-v1"
+        or payload.get("state") != "AWAITING_EXISTING_AUTHORITY_AND_ONESHOT_GATE"
+        or payload.get("mode") != "MODE 1 / EXPLORATORY_AUTORESEARCH"
+        or payload.get("phase") != "OPEN_DISCOVERY"
+        or payload.get("work_package") != "D3-W2A"
+    ):
+        raise ResearchJobWorkerError("job is not a bound Deep03 execution request")
+
+    run_dir = Path(run_dir)
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        raise ResearchJobWorkerError("Deep03 run directory is missing or unsafe")
+    complete_raw = _read_regular(
+        run_dir / "RUN_COMPLETE.json",
+        label="Deep03 RUN_COMPLETE.json",
+        max_bytes=MAX_CONTROL_BYTES,
+    )
+    complete = _json(complete_raw, "Deep03 RUN_COMPLETE.json")
+    run_id = complete.get("run_id")
+    releases = payload["input_binding"].get("release_ids")
+    if (
+        complete.get("schema_version") != DEEP03_COMPLETE_SCHEMA
+        or complete.get("state") != "RUN_COMPLETE"
+        or complete.get("exit_status") != 0
+        or not isinstance(run_id, str)
+        or DEEP03_RUN_ID_RE.fullmatch(run_id) is None
+        or run_dir.name != run_id
+        or complete.get("mode") != payload["mode"]
+        or complete.get("research_stage") != payload["phase"]
+        or complete.get("work_package") != payload["work_package"]
+        or complete.get("release_ids") != releases
+        or complete.get("strict_acceptance_claimed") is not False
+        or complete.get("candidate_or_profit_claim") is not False
+        or any(complete.get(field) != 0 for field in ("rfq_reads", "network_reads", "production_mutations", "order_actions"))
+    ):
+        raise ResearchJobWorkerError("Deep03 RUN_COMPLETE differs from the planned safe run")
+    if complete_raw != _artifact_bytes(complete):
+        raise ResearchJobWorkerError("Deep03 RUN_COMPLETE is not canonical JSON")
+
+    artifact_map = _deep03_artifact_map(complete)
+    deep_results_raw = _deep03_file(run_dir, "RESULTS.json", artifact_map)
+    report_raw = _deep03_file(run_dir, "REPORT/index.html", artifact_map)
+    input_raw = _deep03_file(run_dir, "INPUT_MANIFEST.json", artifact_map)
+    deep_results = _json(deep_results_raw, "Deep03 RESULTS.json")
+    input_manifest = _json(input_raw, "Deep03 INPUT_MANIFEST.json")
+    authority_binding = complete.get("authority_binding")
+    authority_hashes = complete.get("authority_artifact_sha256s")
+    if (
+        deep_results.get("schema_version") != DEEP03_RESULTS_SCHEMA
+        or deep_results.get("run_id") != run_id
+        or deep_results.get("mode") != payload["mode"]
+        or deep_results.get("research_stage") != payload["phase"]
+        or deep_results.get("work_package") != payload["work_package"]
+        or deep_results.get("release_ids") != releases
+        or deep_results.get("strict_acceptance_claimed") is not False
+        or deep_results.get("candidate_or_profit_claim") is not False
+        or input_manifest.get("run_id") != run_id
+        or input_manifest.get("release_ids") != releases
+        or input_manifest.get("authority_binding") != authority_binding
+        or input_manifest.get("authority_artifact_sha256s") != authority_hashes
+        or complete.get("results_sha256") != _sha(deep_results_raw)
+        or complete.get("report_sha256") != _sha(report_raw)
+        or complete.get("input_manifest_sha256") != _sha(input_raw)
+    ):
+        raise ResearchJobWorkerError("Deep03 result/input/report provenance mismatch")
+    if not isinstance(authority_binding, dict) or not isinstance(authority_hashes, dict):
+        raise ResearchJobWorkerError("Deep03 authority provenance is missing")
+    if (
+        authority_binding.get("authorized_input_release_ids") != releases
+        or authority_binding.get("authorized_phase_id") != payload["phase"]
+        or authority_binding.get("authorized_work_package_id") != payload["work_package"]
+        or authority_binding.get("adopted_plan_sha256") != inputs["plan_sha256"]
+        or set(authority_hashes) != set(DEEP03_AUTHORITY_ARTIFACTS)
+    ):
+        raise ResearchJobWorkerError("Deep03 authority does not bind this exact job")
+    for name in DEEP03_AUTHORITY_ARTIFACTS:
+        raw = _read_regular(
+            run_dir / name,
+            label="Deep03 authority artifact %s" % name,
+            max_bytes=MAX_CONTROL_BYTES,
+        )
+        if _sha(raw) != authority_hashes.get(name):
+            raise ResearchJobWorkerError("Deep03 authority artifact hash mismatch: %s" % name)
+    authority_binding_raw = _deep03_file(run_dir, "AUTHORITY_BINDING.json", artifact_map)
+    authority_binding_file = _json(authority_binding_raw, "Deep03 AUTHORITY_BINDING.json")
+    if authority_binding_file != {
+        "schema_version": "deep03-d3-w2a-authority-binding-v1",
+        "binding": authority_binding,
+        "artifact_sha256s": authority_hashes,
+    }:
+        raise ResearchJobWorkerError("Deep03 AUTHORITY_BINDING differs from RUN_COMPLETE")
+    authority = _json(
+        _read_regular(
+            run_dir / "AUTHORITY.json",
+            label="Deep03 AUTHORITY.json",
+            max_bytes=MAX_CONTROL_BYTES,
+        ),
+        "Deep03 AUTHORITY.json",
+    )
+    arm = _json(
+        _read_regular(
+            run_dir / "EXECUTION_ARM.json",
+            label="Deep03 EXECUTION_ARM.json",
+            max_bytes=MAX_CONTROL_BYTES,
+        ),
+        "Deep03 EXECUTION_ARM.json",
+    )
+    authority_sha = authority_hashes["AUTHORITY.json"]
+    arm_sha = authority_hashes["EXECUTION_ARM.json"]
+    if (
+        authority.get("schema_version") != bindings["authority_schema"]
+        or arm.get("schema_version") != bindings["arm_schema"]
+        or authority_binding.get("authority_sha256") != authority_sha
+        or authority_binding.get("arm_sha256") != arm_sha
+        or arm.get("authority_sha256") != authority_sha
+        or _sha(
+            _read_regular(
+                run_dir / "ADOPTED_PLAN.md",
+                label="Deep03 ADOPTED_PLAN.md",
+                max_bytes=MAX_PLAN_BYTES,
+            )
+        )
+        != inputs["plan_sha256"]
+    ):
+        raise ResearchJobWorkerError("Deep03 authority/arm/adopted-plan binding mismatch")
+
+    sums_raw = _read_regular(
+        run_dir / "ARTIFACT_SHA256SUMS",
+        label="Deep03 ARTIFACT_SHA256SUMS",
+        max_bytes=MAX_OUTPUT_FILE_BYTES,
+    )
+    if complete.get("artifact_sha256sums_sha256") != _sha(sums_raw):
+        raise ResearchJobWorkerError("Deep03 artifact checksum ledger hash mismatch")
+    try:
+        sum_lines = sums_raw.decode("ascii").splitlines()
+    except UnicodeError as exc:
+        raise ResearchJobWorkerError("Deep03 artifact checksum ledger is not ASCII") from exc
+    sums: dict[str, str] = {}
+    for line in sum_lines:
+        parts = line.split("  ", 1)
+        if len(parts) != 2 or re.fullmatch(r"[0-9a-f]{64}", parts[0]) is None:
+            raise ResearchJobWorkerError("Deep03 artifact checksum ledger is invalid")
+        if parts[1] in sums:
+            raise ResearchJobWorkerError("Deep03 artifact checksum ledger has duplicates")
+        sums[parts[1]] = parts[0]
+    for name in ("RESULTS.json", "REPORT/index.html", "INPUT_MANIFEST.json", *DEEP03_RECEIPTS):
+        if sums.get(name) != artifact_map.get(name, {}).get("sha256"):
+            raise ResearchJobWorkerError("Deep03 checksum ledger differs on %s" % name)
+
+    preserved: dict[str, bytes] = {}
+    for name in DEEP03_RECEIPTS:
+        preserved[name] = _deep03_file(run_dir, name, artifact_map)
+    preserved["RUN_COMPLETE.json"] = complete_raw
+    preserved["ARTIFACT_SHA256SUMS.txt"] = sums_raw
+    provenance: dict[str, Any] = {
+        "schema_version": PROVENANCE_SCHEMA,
+        "job_id": inputs["job"]["job_id"],
+        "plugin_id": "deep03",
+        "plan_sha256": inputs["plan_sha256"],
+        "job_spec_sha256": inputs["job_spec_sha256"],
+        "catalog_sha256": bindings["catalog_sha256"],
+        "selection_sha256": bindings["selection_sha256"],
+        "preflight_sha256": bindings["preflight_sha256"],
+        "plugin_source_sha256": bindings["plugin_source_sha256"],
+        "planning_receipt_sha256": bindings["planning_receipt_sha256"],
+        "execution_request_artifact_sha256": bindings[
+            "execution_request_artifact_sha256"
+        ],
+        "execution_request_digest": bindings["execution_request_digest"],
+        "authority_schema": bindings["authority_schema"],
+        "arm_schema": bindings["arm_schema"],
+        "authority_sha256": authority_sha,
+        "arm_sha256": arm_sha,
+        "adopted_plan_sha256": inputs["plan_sha256"],
+        "source_run_id": run_id,
+        "source_run_complete_sha256": _sha(complete_raw),
+        "source_results_sha256": _sha(deep_results_raw),
+        "source_report_sha256": _sha(report_raw),
+    }
+    provenance["provenance_sha256"] = _sha(_artifact_bytes(provenance))
+    return provenance, {
+        "deep_results": deep_results_raw,
+        "report": report_raw,
+        **preserved,
+    }, bindings
+
+
+def finalize_deep03_job_output(
+    *, inbox_root: Path = DEFAULT_INBOX_ROOT, job_id: str, run_dir: Path
+) -> dict[str, Any]:
+    """Adapt one authority-complete Deep03 run, publish it, then mark COMPLETE."""
+    inputs = _job_inputs(Path(inbox_root), job_id)
+    status = inputs["job"]["status"]
+    if status.get("state") == "COMPLETE":
+        receipt = _validate_published_output(inputs["job_dir"], job_id)
+        return {
+            "schema_version": DEEP03_ADAPTER_SCHEMA,
+            "state": "COMPLETE",
+            "job_id": job_id,
+            "output_sha256": receipt["output_sha256"],
+            "idempotent_replay": True,
+        }
+    if status.get("state") != "RUNNING" or status.get("research_execution_started") is not True:
+        raise ResearchJobWorkerError("Deep03 finalizer requires a gate-started RUNNING job")
+    provenance, source, _bindings = _deep03_adapter_inputs(inputs, Path(run_dir))
+    deep_results = _json(source["deep_results"], "Deep03 RESULTS.json")
+    generic_results = {
+        "schema_version": RESULTS_SCHEMA,
+        "job_id": job_id,
+        "title": inputs["spec"].get("title") or "Deep03 research result",
+        "state": "COMPLETE",
+        "execution_class": "READONLY_EXPLORATORY",
+        "summary": [
+            "Authority-bound Deep03 OPEN_DISCOVERY run completed.",
+            "The original Deep03 result object and report are preserved below.",
+        ],
+        "metrics": [],
+        "tables": [],
+        "limitations": [
+            "Exploratory only; not strict acceptance and no trading authority.",
+        ],
+        "receipts": {
+            "provenance_sha256": provenance["provenance_sha256"],
+            "deep03_run_complete_sha256": provenance["source_run_complete_sha256"],
+            "deep03_results_sha256": provenance["source_results_sha256"],
+            "deep03_report_sha256": provenance["source_report_sha256"],
+        },
+        "execution_provenance": provenance,
+        "source_schema_version": DEEP03_RESULTS_SCHEMA,
+        "source_results": deep_results,
+    }
+    results_raw = _artifact_bytes(generic_results)
+    report_receipt = {
+        "schema_version": REPORT_RECEIPT_SCHEMA,
+        "job_id": job_id,
+        "results_sha256": _sha(results_raw),
+        "report_sha256": _sha(source["report"]),
+    }
+    stage = inputs["job_dir"] / (
+        ".DEEP03-ADAPTER.preparing.%d.%d" % (os.getpid(), threading.get_ident())
+    )
+    try:
+        stage.mkdir(mode=0o750)
+        (stage / "REPORT" / "source_receipts").mkdir(parents=True, mode=0o750)
+        _write_file(stage / "RESULTS.json", results_raw)
+        _write_file(stage / "REPORT" / "index.html", source["report"])
+        _write_file(
+            stage / "REPORT" / "REPORT_RECEIPT.json", _artifact_bytes(report_receipt)
+        )
+        for name in (*DEEP03_RECEIPTS, "RUN_COMPLETE.json", "ARTIFACT_SHA256SUMS.txt"):
+            _write_file(stage / "REPORT" / "source_receipts" / name, source[name])
+        published = publish_job_output(
+            inbox_root=Path(inbox_root),
+            job_id=job_id,
+            source_root=stage,
+            execution_provenance=provenance,
+        )
+    finally:
+        if stage.exists() and not stage.is_symlink():
+            shutil.rmtree(stage)
+    with _job_lock(inputs["job_dir"]):
+        _validate_published_output(inputs["job_dir"], job_id)
+        current = get_job(Path(inbox_root), job_id)["status"]["state"]
+        if current == "RUNNING":
+            update_status(
+                Path(inbox_root),
+                job_id,
+                state="COMPLETE",
+                message="Authority-bound Deep03 output was sealed and returned.",
+                details={
+                    "output_sha256": published["output_sha256"],
+                    "provenance_sha256": provenance["provenance_sha256"],
+                    "source_run_complete_sha256": provenance[
+                        "source_run_complete_sha256"
+                    ],
+                },
+            )
+        elif current != "COMPLETE":
+            raise ResearchJobWorkerError("job status changed during Deep03 finalization")
+    return {
+        "schema_version": DEEP03_ADAPTER_SCHEMA,
+        "state": "COMPLETE",
+        "job_id": job_id,
+        "output_sha256": published["output_sha256"],
+        "provenance_sha256": provenance["provenance_sha256"],
+        "source_run_complete_sha256": provenance["source_run_complete_sha256"],
+        "idempotent_replay": published["idempotent_replay"],
+        "research_started_by_finalizer": False,
+    }
 
 
 def _job_inputs(inbox_root: Path, job_id: str) -> dict[str, Any]:

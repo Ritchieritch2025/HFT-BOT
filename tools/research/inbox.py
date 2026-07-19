@@ -30,6 +30,8 @@ MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_FILE_BYTES = 32 * 1024 * 1024
 MAX_OUTPUT_FILES = 256
 MAX_REPORT_DEPTH = 8
+_OUTPUT_VALIDATION_CACHE: dict[str, tuple[Any, ...]] = {}
+_OUTPUT_CACHE_LOCK = threading.Lock()
 TERMINAL_STATES = {"COMPLETE", "BLOCKED", "FAILED", "REFUSED"}
 TRANSITIONS = {
     "NEEDS_METHOD": {"QUEUED", "BLOCKED", "REFUSED"},
@@ -189,19 +191,13 @@ def _expected_output_receipt(
     return value
 
 
-def _validated_local_output(
-    job_dir: Path, job_id: str, status_value: dict[str, Any]
+def _validated_output_tree(
+    artifact_root: Path, receipt_path: Path, job_id: str
 ) -> dict[PurePosixPath, bytes] | None:
-    if (
-        status_value.get("state") != "COMPLETE"
-        or status_value.get("research_execution_started") is not True
-        or status_value.get("report_ready") is not True
-    ):
-        return None
     try:
         receipt_raw = _stable_bytes(
-            job_dir / LOCAL_OUTPUT_RECEIPT,
-            LOCAL_OUTPUT_RECEIPT,
+            receipt_path,
+            receipt_path.name,
             1024 * 1024,
         )
         receipt = _json_bytes(receipt_raw, LOCAL_OUTPUT_RECEIPT)
@@ -232,7 +228,7 @@ def _validated_local_output(
             ):
                 raise InboxError("local output receipt artifact bounds are invalid")
             raw = _stable_bytes(
-                job_dir.joinpath(*relative.parts),
+                artifact_root.joinpath(*relative.parts),
                 "local output artifact",
                 MAX_OUTPUT_FILE_BYTES,
             )
@@ -242,7 +238,7 @@ def _validated_local_output(
         if sum(len(raw) for raw in artifacts.values()) > MAX_OUTPUT_BYTES:
             raise InboxError("local output artifacts exceed 64 MiB")
 
-        report_root = job_dir / "REPORT"
+        report_root = artifact_root / "REPORT"
         if report_root.is_symlink() or not report_root.is_dir():
             raise InboxError("local REPORT is missing or unsafe")
         actual_report_paths: set[PurePosixPath] = set()
@@ -286,6 +282,115 @@ def _validated_local_output(
         return artifacts
     except (InboxError, OSError):
         return None
+
+
+def _output_metadata_signature(
+    artifact_root: Path, receipt_path: Path
+) -> tuple[Any, ...] | None:
+    """Return a cheap mutation-sensitive signature without rehashing artifacts."""
+    try:
+        receipt_raw = _stable_bytes(receipt_path, receipt_path.name, 1024 * 1024)
+        receipt = _json_bytes(receipt_raw, receipt_path.name)
+        rows = receipt.get("artifacts")
+        if not isinstance(rows, list) or not rows or len(rows) + 2 > MAX_OUTPUT_FILES:
+            raise InboxError("output receipt artifact list is invalid")
+        values: list[tuple[Any, ...]] = [
+            ("receipt", hashlib.sha256(receipt_raw).hexdigest())
+        ]
+        expected_report: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise InboxError("output receipt row is invalid")
+            relative = _safe_output_path(row.get("path"))
+            path = artifact_root.joinpath(*relative.parts)
+            metadata = os.stat(path, follow_symlinks=False)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise InboxError("output artifact is not regular")
+            values.append(
+                (
+                    str(relative),
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    metadata.st_mode,
+                    metadata.st_size,
+                    metadata.st_mtime_ns,
+                    metadata.st_ctime_ns,
+                )
+            )
+            if relative.parts[0] == "REPORT":
+                expected_report.add(str(relative))
+        report_root = artifact_root / "REPORT"
+        if report_root.is_symlink() or not report_root.is_dir():
+            raise InboxError("REPORT is unsafe")
+        actual_report: set[str] = set()
+        for path in report_root.rglob("*"):
+            if path.is_symlink():
+                raise InboxError("REPORT contains a symlink")
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise InboxError("REPORT contains a special file")
+            relative = PurePosixPath("REPORT", *path.relative_to(report_root).parts)
+            actual_report.add(str(_safe_output_path(str(relative))))
+        if actual_report != expected_report:
+            raise InboxError("REPORT tree differs from receipt")
+        return tuple(sorted(values, key=lambda value: str(value[0])))
+    except (InboxError, OSError, TypeError, ValueError):
+        return None
+
+
+def _validated_local_output(
+    job_dir: Path,
+    job_id: str,
+    status_value: dict[str, Any],
+    *,
+    use_cache: bool = True,
+) -> dict[PurePosixPath, bytes] | None:
+    if (
+        status_value.get("state") != "COMPLETE"
+        or status_value.get("research_execution_started") is not True
+        or status_value.get("report_ready") is not True
+    ):
+        return None
+    receipt_path = job_dir / LOCAL_OUTPUT_RECEIPT
+    signature = _output_metadata_signature(job_dir, receipt_path)
+    cache_key = str(job_dir)
+    if signature is None:
+        with _OUTPUT_CACHE_LOCK:
+            _OUTPUT_VALIDATION_CACHE.pop(cache_key, None)
+        return None
+    if use_cache:
+        with _OUTPUT_CACHE_LOCK:
+            if _OUTPUT_VALIDATION_CACHE.get(cache_key) == signature:
+                # A non-None marker is sufficient for list/get availability.
+                return {PurePosixPath("REPORT/index.html"): b""}
+    artifacts = _validated_output_tree(job_dir, receipt_path, job_id)
+    if artifacts is None:
+        with _OUTPUT_CACHE_LOCK:
+            _OUTPUT_VALIDATION_CACHE.pop(cache_key, None)
+        return None
+    with _OUTPUT_CACHE_LOCK:
+        _OUTPUT_VALIDATION_CACHE[cache_key] = signature
+    return artifacts
+
+
+def _validated_remote_output(job_dir: Path, job_id: str) -> bool:
+    output = job_dir / "OUTPUT"
+    try:
+        if output.is_symlink() or not output.is_dir():
+            return False
+        if {path.name for path in output.iterdir()} != {
+            "RESULTS.json",
+            "REPORT",
+            "OUTPUT_RECEIPT.json",
+        }:
+            return False
+    except OSError:
+        return False
+    return (
+        _validated_output_tree(output, output / "OUTPUT_RECEIPT.json", job_id)
+        is not None
+    )
 
 
 def _root(path: Path) -> Path:
@@ -442,7 +547,7 @@ def read_report(inbox_root: Path, job_id: str) -> bytes:
     if path.is_symlink() or not path.is_dir():
         raise InboxError("job not found")
     status = _read_json(path / "STATUS.json", "job status")
-    artifacts = _validated_local_output(path, job_id, status)
+    artifacts = _validated_local_output(path, job_id, status, use_cache=False)
     if artifacts is None:
         raise InboxError("report not ready or output receipt is invalid")
     return artifacts[PurePosixPath("REPORT/index.html")]
@@ -479,6 +584,12 @@ def update_status(
     current = job["status"].get("state")
     if state not in TRANSITIONS.get(current, set()):
         raise InboxError("invalid job transition: %s -> %s" % (current, state))
+    if state == "COMPLETE":
+        job_dir = root / "jobs" / job_id
+        if not _validated_remote_output(job_dir, job_id):
+            raise InboxError(
+                "COMPLETE requires a sealed, hash-validated dedicated OUTPUT bundle"
+            )
     _, updated_at = _utc(now)
     status = dict(job["status"])
     status.update(
