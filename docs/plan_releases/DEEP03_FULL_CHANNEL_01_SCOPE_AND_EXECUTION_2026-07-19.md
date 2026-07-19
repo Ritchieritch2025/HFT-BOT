@@ -23,14 +23,36 @@ already run.
 - dates: `2026-07-10` through `2026-07-17`;
 - exact base releases: the eight already bound V3 reference releases;
 - L1, trades, dated dimensions and catalog/market metadata: all eight dates;
-- targeted full-depth L2: only dates and markets actually present and
-  sequence-valid; current evidence shows L2 on `2026-07-12` through
-  `2026-07-17`, and no L2 table on `2026-07-10` or `2026-07-11`;
+- targeted full-depth L2 physical coverage: every exact fact row on
+  `2026-07-12` through `2026-07-17`; estimand coverage is narrower and admits
+  only a date/epoch whose sealed quality authority proves sequence validity;
+  no L2 table exists on `2026-07-10` or `2026-07-11`;
 - evidence tier: `SEALED_DEGRADED_EVIDENCE`, exploratory only.
 
-The absence of L2 on a date or market is an explicit `ABSENT/BLOCKED_DATA`
-coverage row. It is never filled, inferred, or silently removed from a
-denominator.
+The absence or exclusion of L2 on a date or market is an explicit
+`ABSENT/BLOCKED_DATA/EXCLUDED_DATA_QUALITY` coverage row. Every physical row
+remains in the conservation ledger, but an invalid row/epoch/date cannot enter
+an L2 mechanism estimand. It is never filled, inferred, or silently removed
+from a denominator.
+
+The production-side sealed full-stream receipts observed on 2026-07-19 imply
+this initial L2 quality split (the W09 reader must independently verify the
+exact release versions and hashes again):
+
+| Date | Initial L2 disposition | Evidence summary |
+|---|---|---|
+| 2026-07-12 | `ESTIMAND_ELIGIBLE` | zero parse/sequence/loss findings |
+| 2026-07-13 | `EXCLUDED_DATA_QUALITY` | one full-stream sequence gap; eight frames missed |
+| 2026-07-14 | `EXCLUDED_DATA_QUALITY` | parse errors, loss marker, lost frames, sequence gaps/regressions |
+| 2026-07-15 | `ESTIMAND_ELIGIBLE` | zero parse/sequence/loss findings |
+| 2026-07-16 | `EXCLUDED_DATA_QUALITY` | recorder gap and epoch-change markers |
+| 2026-07-17 | `ESTIMAND_ELIGIBLE` | zero parse/sequence/loss findings |
+
+The aggregate quality receipts do not localize every global gap to a safe
+market/time interval. Therefore the excluded dates cannot be salvaged by
+guessing from per-market projections. Reopening one requires a separately
+bound exact gap-localization authority and a new audit; it is not a repair of
+the current run.
 
 ### 2.2 Fresh RFQ cohort
 
