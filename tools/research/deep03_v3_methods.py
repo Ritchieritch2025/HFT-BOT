@@ -684,7 +684,14 @@ def _object_provenance(
                 "row_count": obj.get("row_count"),
             }
         )
-    return rows
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row["release_id"]),
+            str(row["logical_key"]),
+            str(row["source_version_id"]),
+        ),
+    )
 
 
 def _phase_sql(alias: str) -> str:
@@ -1548,6 +1555,44 @@ def _bounded_relation(paths: Iterable[Path]) -> str:
     )
 
 
+def _require_row_conservation(
+    *, label: str, observed: int, expected: int, context: str
+) -> dict[str, Any]:
+    """Fail closed unless two exact stage row counts are identical."""
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (observed, expected)
+    ):
+        raise RuntimeError(
+            f"bounded row conservation received invalid count: {label}: {context}"
+        )
+    if observed != expected:
+        raise RuntimeError(
+            "bounded row conservation failed: "
+            f"{label}: {context}: observed={observed} expected={expected}"
+        )
+    return {
+        "state": "PASS",
+        "label": label,
+        "context": context,
+        "observed_rows": observed,
+        "expected_rows": expected,
+    }
+
+
+def _manifest_object_row_count(
+    objects: Iterable[dict[str, Any]],
+) -> int | None:
+    """Return the exact sum only when every bound object supplies a count."""
+    counts: list[int] = []
+    for obj in objects:
+        value = obj.get("row_count")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        counts.append(value)
+    return sum(counts) if counts else None
+
+
 def _objects_for_date(
     input_manifest: dict[str, Any], *, date: str, channel: str | None = None,
     kind: str | None = None,
@@ -1677,7 +1722,12 @@ def _stage_bounded_l1(
 ) -> tuple[list[str], set[str]]:
     stage = "l1_physical"
     semantic = "v1-date-market-hash-enriched"
+    conservation_stage = "l1_physical_conservation"
+    conservation_semantic = "v1-exact-sports-source-rows"
     keys: list[str] = []
+    conservation_keys: list[str] = []
+    total_expected = 0
+    total_observed = 0
     all_columns: set[str] = set()
     for date in ctx.dates:
         objects = [
@@ -1692,6 +1742,15 @@ def _stage_bounded_l1(
             "CREATE OR REPLACE TEMP VIEW bounded_l1_source AS "
             + _relation_sql(paths)
         )
+        manifest_count = _manifest_object_row_count(objects)
+        if manifest_count is None:
+            expected_rows = int(
+                scalar(ctx.con, "SELECT count(*) FROM bounded_l1_source")
+            )
+            source_basis = "DIRECT_COUNTED_EXACT_SPORTS_SOURCE"
+        else:
+            expected_rows = manifest_count
+            source_basis = "BOUND_OBJECT_ROW_COUNT_SUM"
         columns = _columns(ctx.con, "bounded_l1_source")
         all_columns.update(columns)
         projections = (
@@ -1736,7 +1795,7 @@ def _stage_bounded_l1(
             f"CASE WHEN market_ticker IS NULL THEN {ctx.market_buckets} "
             f"ELSE cast(hash(market_ticker)%{ctx.market_buckets} AS INTEGER) END"
         )
-        ctx.scatter(
+        scatter = ctx.scatter(
             stage=stage,
             semantic_version=semantic,
             partition_column="market_bucket",
@@ -1747,9 +1806,63 @@ def _stage_bounded_l1(
                 + " AS market_bucket FROM bounded_l1_enriched"
             ),
         )
+        observed_rows = sum(
+            int(receipt["data"]["row_count"])
+            for receipt, _reused in scatter.values()
+        )
+        conservation = _require_row_conservation(
+            label="l1_physical_vs_exact_sports_source",
+            context=f"date={date}",
+            observed=observed_rows,
+            expected=expected_rows,
+        )
+        conservation["source_basis"] = source_basis
+        conservation_key = f"date={date}"
+        conservation_keys.append(conservation_key)
+        ctx.write(
+            stage=conservation_stage,
+            semantic_version=conservation_semantic,
+            key=conservation_key,
+            sql=(
+                f"SELECT DATE {quote(date)} AS date,{expected_rows}::BIGINT "
+                f"AS expected_rows,{observed_rows}::BIGINT AS observed_rows,"
+                f"{quote(source_basis)} AS source_basis,'PASS' AS state"
+            ),
+            metrics=conservation,
+        )
+        total_expected += expected_rows
+        total_observed += observed_rows
         for name in ("bounded_l1_enriched", "bounded_l1_norm", "bounded_l1_source"):
             ctx.con.execute(f"DROP VIEW IF EXISTS {name}")
-    ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
+    l1_manifest = ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
+    _require_row_conservation(
+        label="l1_physical_manifest_total_vs_exact_sports_source",
+        context="all_exact_dates",
+        observed=int(l1_manifest["row_count"]),
+        expected=total_expected,
+    )
+    total_conservation = _require_row_conservation(
+        label="l1_physical_total_vs_exact_sports_source",
+        context="all_exact_dates",
+        observed=total_observed,
+        expected=total_expected,
+    )
+    conservation_keys.append("TOTAL")
+    ctx.write(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        key="TOTAL",
+        sql=(
+            f"SELECT {total_expected}::BIGINT AS expected_rows,"
+            f"{total_observed}::BIGINT AS observed_rows,'PASS' AS state"
+        ),
+        metrics=total_conservation,
+    )
+    ctx.finalize(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        keys=conservation_keys,
+    )
     return keys, all_columns
 
 
@@ -1760,8 +1873,14 @@ def _stage_bounded_trade_sources(
     semantic = "v1-date-full-trade-id-hash"
     count_stage = "trade_source_counts"
     count_semantic = "v1-date-source-and-null-id"
+    conservation_stage = "trades_by_id_conservation"
+    conservation_semantic = "v1-source-minus-null-id"
     keys: list[str] = []
     count_keys: list[str] = []
+    conservation_keys: list[str] = []
+    total_source_rows = 0
+    total_null_trade_id_rows = 0
+    total_observed_rows = 0
     all_columns: set[str] = set()
     for date in ctx.dates:
         objects = [
@@ -1808,6 +1927,13 @@ def _stage_bounded_trade_sources(
                 "FROM bounded_trades_norm"
             ),
         )
+        source_rows, null_trade_id_rows = ctx.con.execute(
+            "SELECT source_rows,null_trade_id_rows FROM "
+            f"read_parquet({quote(ctx.data_path(count_stage, count_key))},"
+            "hive_partitioning=false)"
+        ).fetchone()
+        source_rows = int(source_rows)
+        null_trade_id_rows = int(null_trade_id_rows)
         dim = ctx.data_path("dim_market_date", f"date={date}")
         ctx.con.execute(
             "CREATE OR REPLACE TEMP VIEW bounded_trades_enriched AS "
@@ -1822,7 +1948,7 @@ def _stage_bounded_trade_sources(
             for bucket in range(TRADE_DEDUP_BUCKETS)
         }
         keys.extend(mapping.values())
-        ctx.scatter(
+        scatter = ctx.scatter(
             stage=stage,
             semantic_version=semantic,
             partition_column="trade_id_bucket",
@@ -1833,6 +1959,34 @@ def _stage_bounded_trade_sources(
                 "FROM bounded_trades_enriched WHERE trade_id IS NOT NULL"
             ),
         )
+        observed_rows = sum(
+            int(receipt["data"]["row_count"])
+            for receipt, _reused in scatter.values()
+        )
+        expected_rows = source_rows - null_trade_id_rows
+        conservation = _require_row_conservation(
+            label="trades_by_id_vs_source_minus_null_trade_id",
+            context=f"date={date}",
+            observed=observed_rows,
+            expected=expected_rows,
+        )
+        conservation_key = f"date={date}"
+        conservation_keys.append(conservation_key)
+        ctx.write(
+            stage=conservation_stage,
+            semantic_version=conservation_semantic,
+            key=conservation_key,
+            sql=(
+                f"SELECT DATE {quote(date)} AS date,{source_rows}::BIGINT "
+                f"AS source_rows,{null_trade_id_rows}::BIGINT AS null_trade_id_rows,"
+                f"{expected_rows}::BIGINT AS expected_rows,"
+                f"{observed_rows}::BIGINT AS observed_rows,'PASS' AS state"
+            ),
+            metrics=conservation,
+        )
+        total_source_rows += source_rows
+        total_null_trade_id_rows += null_trade_id_rows
+        total_observed_rows += observed_rows
         for name in (
             "bounded_trades_enriched",
             "bounded_trades_norm",
@@ -1840,7 +1994,38 @@ def _stage_bounded_trade_sources(
         ):
             ctx.con.execute(f"DROP VIEW IF EXISTS {name}")
     ctx.finalize(stage=count_stage, semantic_version=count_semantic, keys=count_keys)
-    ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
+    trade_manifest = ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
+    total_expected_rows = total_source_rows - total_null_trade_id_rows
+    _require_row_conservation(
+        label="trades_by_id_manifest_vs_source_minus_null_trade_id",
+        context="all_exact_dates",
+        observed=int(trade_manifest["row_count"]),
+        expected=total_expected_rows,
+    )
+    total_conservation = _require_row_conservation(
+        label="trades_by_id_partition_total_vs_source_minus_null_trade_id",
+        context="all_exact_dates",
+        observed=total_observed_rows,
+        expected=total_expected_rows,
+    )
+    conservation_keys.append("TOTAL")
+    ctx.write(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        key="TOTAL",
+        sql=(
+            f"SELECT {total_source_rows}::BIGINT AS source_rows,"
+            f"{total_null_trade_id_rows}::BIGINT AS null_trade_id_rows,"
+            f"{total_expected_rows}::BIGINT AS expected_rows,"
+            f"{total_observed_rows}::BIGINT AS observed_rows,'PASS' AS state"
+        ),
+        metrics=total_conservation,
+    )
+    ctx.finalize(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        keys=conservation_keys,
+    )
     return keys, count_keys, all_columns
 
 
@@ -1980,6 +2165,8 @@ def _stage_bounded_trades_by_market(
     """Shuffle globally deduplicated rows once into complete market shards."""
     stage = "trades_market"
     semantic = "v1-date-market-hash-after-global-id"
+    conservation_stage = "trades_market_conservation"
+    conservation_semantic = "v1-vs-global-dedup"
     paths = [ctx.data_path("trades_dedup_id", key) for key in dedup_keys]
     relation = _bounded_relation(paths)
     allowed_dates = ",".join(f"DATE {quote(date)}" for date in ctx.dates)
@@ -2001,7 +2188,7 @@ def _stage_bounded_trades_by_market(
     for index, date in enumerate(ctx.dates):
         for bucket in range(ctx.market_buckets):
             mapping[index * ctx.market_buckets + bucket] = _bounded_key(date, bucket)
-    ctx.scatter(
+    scatter = ctx.scatter(
         stage=stage,
         semantic_version=semantic,
         partition_column="market_partition_code",
@@ -2015,7 +2202,42 @@ def _stage_bounded_trades_by_market(
         ),
     )
     keys = list(mapping.values())
-    ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
+    partition_rows = sum(
+        int(receipt["data"]["row_count"])
+        for receipt, _reused in scatter.values()
+    )
+    dedup_rows = int(_bounded_manifest(ctx, "trades_dedup_id")["row_count"])
+    _require_row_conservation(
+        label="trades_market_partitions_vs_trades_dedup_id",
+        context="all_exact_dates",
+        observed=partition_rows,
+        expected=dedup_rows,
+    )
+    market_manifest = ctx.finalize(
+        stage=stage, semantic_version=semantic, keys=keys
+    )
+    conservation = _require_row_conservation(
+        label="trades_market_manifest_vs_trades_dedup_id_manifest",
+        context="all_exact_dates",
+        observed=int(market_manifest["row_count"]),
+        expected=dedup_rows,
+    )
+    ctx.write(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        key="TOTAL",
+        sql=(
+            f"SELECT {dedup_rows}::BIGINT AS dedup_rows,"
+            f"{int(market_manifest['row_count'])}::BIGINT AS market_rows,"
+            "'PASS' AS state"
+        ),
+        metrics=conservation,
+    )
+    ctx.finalize(
+        stage=conservation_stage,
+        semantic_version=conservation_semantic,
+        keys=["TOTAL"],
+    )
     return keys
 
 
@@ -2298,8 +2520,24 @@ def _stage_bounded_b01_observations(ctx: _BoundedContext) -> list[str]:
                     ctx.con.execute(f"DROP TABLE {name}")
                 for name in ("trades_clean", "trades_dedup", "l1_enriched"):
                     ctx.con.execute(f"DROP VIEW {name}")
-            if not isinstance((receipt.get("metrics") or {}).get("horizon_rows"), dict):
+            horizon_rows = (receipt.get("metrics") or {}).get("horizon_rows")
+            if (
+                not isinstance(horizon_rows, dict)
+                or set(horizon_rows) != {str(horizon) for horizon in HORIZONS_US}
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value < 0
+                    for value in horizon_rows.values()
+                )
+            ):
                 raise RuntimeError(f"bounded B01 metrics missing: {key}")
+            _require_row_conservation(
+                label="b01_partition_payload_vs_horizon_metrics",
+                context=key,
+                observed=int(receipt["data"]["row_count"]),
+                expected=sum(horizon_rows.values()),
+            )
     ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
     return keys
 
@@ -2472,8 +2710,21 @@ def _stage_bounded_b04_observations(ctx: _BoundedContext) -> list[str]:
                     ctx.con.execute(f"DROP TABLE {name}")
                 for name in ("trades_dedup", "l1_intervals"):
                     ctx.con.execute(f"DROP VIEW {name}")
-            if "active_market_minutes" not in (receipt.get("metrics") or {}):
+            active_market_minutes = (receipt.get("metrics") or {}).get(
+                "active_market_minutes"
+            )
+            if (
+                isinstance(active_market_minutes, bool)
+                or not isinstance(active_market_minutes, int)
+                or active_market_minutes < 0
+            ):
                 raise RuntimeError(f"bounded B04 metrics missing: {key}")
+            _require_row_conservation(
+                label="b04_partition_payload_vs_active_market_minutes",
+                context=key,
+                observed=int(receipt["data"]["row_count"]),
+                expected=active_market_minutes,
+            )
     ctx.finalize(stage=stage, semantic_version=semantic, keys=keys)
     return keys
 

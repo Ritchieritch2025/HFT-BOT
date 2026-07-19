@@ -21,6 +21,7 @@ from deep03_v3_methods import (  # noqa: E402
     BoundedCheckpointStore,
     _assert_l1_interval_order_unambiguous,
     _assert_l1_asof_timestamps_unambiguous,
+    _require_row_conservation,
     bounded_stage_abi,
     bounded_source_binding,
 )
@@ -397,3 +398,23 @@ def test_checkpoint_root_enforces_one_writer_fence_and_stage_abi(tmp_path):
             )
     finally:
         con.close()
+
+
+def test_exact_row_conservation_gate_fails_closed():
+    assert _require_row_conservation(
+        label="fixture",
+        context="date=2026-07-17",
+        observed=7,
+        expected=7,
+    )["state"] == "PASS"
+    with pytest.raises(RuntimeError, match="row conservation failed.*observed=6 expected=7"):
+        _require_row_conservation(
+            label="fixture",
+            context="date=2026-07-17",
+            observed=6,
+            expected=7,
+        )
+    with pytest.raises(RuntimeError, match="invalid count"):
+        _require_row_conservation(
+            label="fixture", context="negative", observed=-1, expected=0
+        )

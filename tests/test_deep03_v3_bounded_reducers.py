@@ -10,6 +10,7 @@ their narrow observations, never from per-shard summary rows.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import sys
 from pathlib import Path
@@ -666,3 +667,107 @@ def test_execute_all_bounded_resume_is_result_identical_and_reuses_every_partiti
         stage["reused_partitions"] == stage["partition_count"]
         for stage in second_receipt["stages"]
     )
+    stage_names = {stage["stage"] for stage in second_receipt["stages"]}
+    assert {
+        "l1_physical_conservation",
+        "trades_by_id_conservation",
+        "trades_market_conservation",
+    } <= stage_names
+    for stage in (
+        "l1_physical_conservation",
+        "trades_by_id_conservation",
+        "trades_market_conservation",
+    ):
+        for path in (checkpoint_root / stage / "receipts").glob("*.json"):
+            metrics = json.loads(path.read_text())["metrics"]
+            assert metrics["state"] == "PASS"
+            assert metrics["observed_rows"] == metrics["expected_rows"]
+
+
+def test_l1_physical_conservation_uses_manifest_counts_or_direct_count(tmp_path: Path):
+    bad = _end_to_end_manifest(tmp_path / "bad-input")
+    l1_objects = [row for row in bad["objects"] if row.get("channel") == "orderbooks_l1"]
+    l1_objects[0]["row_count"] += 1
+    con = duckdb.connect()
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="l1_physical_vs_exact_sports_source.*observed=.*expected=",
+        ):
+            execute_all_bounded(con, bad, tmp_path / "bad-checkpoints", market_buckets=2)
+    finally:
+        con.close()
+
+    direct = _end_to_end_manifest(tmp_path / "direct-input")
+    direct_l1 = [
+        row for row in direct["objects"] if row.get("channel") == "orderbooks_l1"
+    ]
+    direct_l1[0]["row_count"] = None
+    con = duckdb.connect()
+    try:
+        execute_all_bounded(
+            con, direct, tmp_path / "direct-checkpoints", market_buckets=2
+        )
+    finally:
+        con.close()
+    receipts = sorted(
+        (tmp_path / "direct-checkpoints/l1_physical_conservation/receipts").glob(
+            "date=*.json"
+        )
+    )
+    assert receipts
+    assert any(
+        json.loads(path.read_text())["metrics"].get("source_basis")
+        == "DIRECT_COUNTED_EXACT_SPORTS_SOURCE"
+        for path in receipts
+    )
+
+
+def _rewrite_canonical_receipt(path: Path, mutate) -> None:
+    receipt = json.loads(path.read_text())
+    mutate(receipt)
+    path.write_text(
+        json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="ascii",
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "label", "mutate"),
+    [
+        (
+            "b01_observations",
+            "b01_partition_payload_vs_horizon_metrics",
+            lambda receipt: receipt["metrics"]["horizon_rows"].__setitem__(
+                next(iter(receipt["metrics"]["horizon_rows"])),
+                next(iter(receipt["metrics"]["horizon_rows"].values())) + 1,
+            ),
+        ),
+        (
+            "b04_observations",
+            "b04_partition_payload_vs_active_market_minutes",
+            lambda receipt: receipt["metrics"].__setitem__(
+                "active_market_minutes",
+                receipt["metrics"]["active_market_minutes"] + 1,
+            ),
+        ),
+    ],
+)
+def test_observation_receipt_metric_drift_fails_conservation_before_reuse(
+    tmp_path: Path, stage: str, label: str, mutate
+) -> None:
+    manifest = _end_to_end_manifest(tmp_path / "input")
+    checkpoint_root = tmp_path / "checkpoints"
+    con = duckdb.connect()
+    try:
+        execute_all_bounded(con, manifest, checkpoint_root, market_buckets=2)
+    finally:
+        con.close()
+    receipt_path = next((checkpoint_root / stage / "receipts").glob("*.json"))
+    _rewrite_canonical_receipt(receipt_path, mutate)
+    con = duckdb.connect()
+    try:
+        with pytest.raises(RuntimeError, match=label):
+            execute_all_bounded(con, manifest, checkpoint_root, market_buckets=2)
+    finally:
+        con.close()
