@@ -638,3 +638,31 @@ def test_execute_all_bounded_matches_global_results_and_waterfalls_across_bounda
     assert {row["trades"] for row in tennis_rows} == {1, 2}
     # If cross-date-id were deduplicated independently per date, the two
     # trade counts above would each be one larger.
+
+
+def test_execute_all_bounded_resume_is_result_identical_and_reuses_every_partition(
+    tmp_path: Path,
+) -> None:
+    manifest = _end_to_end_manifest(tmp_path / "input")
+    checkpoint_root = tmp_path / "checkpoints"
+    first_con = duckdb.connect()
+    second_con = duckdb.connect()
+    try:
+        first_capabilities, first_methods, first_receipt = execute_all_bounded(
+            first_con, manifest, checkpoint_root, market_buckets=2
+        )
+        second_capabilities, second_methods, second_receipt = execute_all_bounded(
+            second_con, manifest, checkpoint_root, market_buckets=2
+        )
+    finally:
+        first_con.close()
+        second_con.close()
+
+    assert second_capabilities == first_capabilities
+    assert second_methods == first_methods
+    assert sum(stage["written_partitions"] for stage in first_receipt["stages"]) > 0
+    assert sum(stage["written_partitions"] for stage in second_receipt["stages"]) == 0
+    assert all(
+        stage["reused_partitions"] == stage["partition_count"]
+        for stage in second_receipt["stages"]
+    )
