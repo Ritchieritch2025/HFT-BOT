@@ -6,6 +6,33 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-19 15:47 UTC — 全量 L2 + Fresh RFQ 转入明确交接，三个 WIP 线均冻结
+
+- operator scope: 最终研究要求全量合法 L1、trades、盘口图谱、L2 与
+  eligible fresh RFQ；旧 284-object 受损 RFQ 继续
+  `DATA_INTEGRITY_BLOCKED/NO_REPAIR`。完整交接与下一位 agent 的可复制指令
+  写入
+  `docs/plan_releases/DEEP03_FULLSCOPE_L2_FRESH_RFQ_HANDOFF_2026-07-19.md`。
+- integrated base/L2: branch `w-deep03-fullscope-09` clean runtime commit
+  `e3302c8d9c947c748e8608d9c39d3ae896378c40`；Deep03 tests、compile、SHA
+  manifests PASS，但独立 audit 仍 FAIL，剩余 P0 是 1s TTL/250ms-1s-5s
+  sensitivity、合法 same-sid snapshot 与 reconnect 区分、audit SHA/blocker
+  binding。该 HEAD 明确 WIP，不得部署。
+- fresh research overlay: clean HEAD
+  `6d2a2c16498162d51759315f16c54ee4fd04d94a`；作者测试 PASS，但独立 audit
+  FAIL：L2 quality receipt 可由最小 caller JSON 绕过，D07 数值尚未证明由
+  exact L1/L2 producer 计算。不得集成/发布。
+- daily RFQ pipeline: clean HEAD
+  `81d9e3bd40a2f32678e704d481e8f5ee11511561`；最后两项 date-scoped exact
+  cache/prebuilt provenance 加固已测试并提交。IAM 仍
+  `DRAFT_NOT_APPLIED`，publisher credential adapter 与独立审计/部署均未完成。
+- live read-only state: W09 无研究进程、autoresearch inactive、193G free；
+  production fresh capture `kalshi-rfq-capture.service` active，generation
+  `fresh-rfq-20260720-01`、strict T0 `2026-07-20T00:00:00Z`，检查时
+  gap/reconnect/error/drop=0。下一只 offset-aware pre-T0 canary 在 16:00Z
+  后核验；最早 eligible 完整 fresh 日约 7/21 02:00Z。
+- stop boundary: 本会话未启动研究、未部署、未改 IAM、未做 AWS 写入。
+
 ## 2026-07-18 22:04 UTC — 7/10–7/17 零拷贝 v3 全量发布，生产每日自动流水线闭环
 
 - production result: runtime 先以 `b391bf9` 完成历史发布，再以
