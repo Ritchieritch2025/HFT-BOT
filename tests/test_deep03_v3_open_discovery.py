@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -267,6 +268,9 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(
         "expected_owner_uid": os.getuid(),
         "claim_invocation_id": invocation_id,
         "claim_proc_cgroup_path": proc_cgroup,
+        "authority_now": dt.datetime(
+            2026, 7, 18, 13, tzinfo=dt.timezone.utc
+        ),
     }
     run_dir = prepare_run(
         cache_root=cache,
@@ -397,6 +401,9 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(
         "expected_owner_uid": os.getuid(),
         "claim_invocation_id": invocation_id,
         "claim_proc_cgroup_path": proc_cgroup,
+        "authority_now": dt.datetime(
+            2026, 7, 18, 13, tzinfo=dt.timezone.utc
+        ),
     }
     empty_claim_root = tmp_path / "unclaimed"
     empty_claim_root.mkdir(mode=0o750)
