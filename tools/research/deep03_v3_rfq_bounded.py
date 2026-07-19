@@ -81,6 +81,8 @@ MAX_RFQ_CLOCK_ABS_SKEW_US = 5_000_000
 CLOCK_WITHIN_TOLERANCE = "CLOCK_WITHIN_TOLERANCE"
 FUTURE_EXCHANGE_CLOCK = "FUTURE_EXCHANGE_CLOCK"
 STALE_EXCHANGE_CLOCK = "STALE_EXCHANGE_CLOCK"
+RFQ_CHECKPOINT_EXPANSION_FACTOR = 4
+RFQ_CHECKPOINT_RESERVE_BYTES = 2 << 30
 EXACT_SOURCE_IDENTITY_FIELDS = {
     "logical_key", "bucket", "key", "version_id", "size", "sha256",
 }
@@ -1053,6 +1055,81 @@ def _source_binding(descriptors: list[dict[str, Any]], buckets: int) -> str:
             ),
         } for row in descriptors],
     })
+
+
+def _resource_preflight(
+    descriptors: list[dict[str, Any]], checkpoint_root: Path,
+) -> dict[str, Any]:
+    """Enforce hard event bounds and a conservative local-disk envelope."""
+    for descriptor in descriptors:
+        provenance = descriptor["manifest"].get("request_provenance")
+        if not isinstance(provenance, dict):
+            _fail("RESOURCE_PREFLIGHT", "embedded request provenance is absent")
+        occurrences = provenance.get("rfq_created_occurrence_count")
+        unique_ids = provenance.get("rfq_created_unique_count")
+        if (
+            type(occurrences) is not int
+            or occurrences < 0
+            or occurrences
+            > request_provenance.MAX_ACCUMULATED_RFQ_OCCURRENCES
+            or type(unique_ids) is not int
+            or unique_ids < 0
+            or unique_ids > request_provenance.MAX_ACCUMULATED_UNIQUE_RFQ_IDS
+            or unique_ids > occurrences
+        ):
+            _fail(
+                "RESOURCE_PREFLIGHT",
+                f"{descriptor['date']} RFQ event counts exceed hard bounds",
+            )
+    total_bytes = sum(
+        identity["size"]
+        for descriptor in descriptors
+        for identity in descriptor["analysis_rfq_objects"]
+    )
+    peak_object_bytes = max(
+        identity["size"]
+        for descriptor in descriptors
+        for identity in descriptor["analysis_rfq_objects"]
+    )
+    required_bytes = (
+        total_bytes * RFQ_CHECKPOINT_EXPANSION_FACTOR
+        + peak_object_bytes
+        + RFQ_CHECKPOINT_RESERVE_BYTES
+    )
+    ancestor = Path(checkpoint_root).absolute()
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    try:
+        free_bytes = shutil.disk_usage(ancestor).free
+    except OSError as exc:
+        _fail("RESOURCE_PREFLIGHT", f"cannot inspect checkpoint disk: {exc}")
+    if free_bytes < required_bytes:
+        _fail(
+            "RESOURCE_PREFLIGHT",
+            f"checkpoint disk needs {required_bytes} bytes; {free_bytes} free",
+        )
+    return {
+        "state": "PASS",
+        "max_accumulated_rfq_occurrences_per_date": (
+            request_provenance.MAX_ACCUMULATED_RFQ_OCCURRENCES
+        ),
+        "max_accumulated_unique_rfq_ids_per_date": (
+            request_provenance.MAX_ACCUMULATED_UNIQUE_RFQ_IDS
+        ),
+        "max_accumulator_estimated_memory_bytes": (
+            request_provenance.MAX_ACCUMULATOR_ESTIMATED_BYTES
+        ),
+        "minimum_accumulator_memory_headroom_bytes": (
+            request_provenance.MIN_ACCUMULATOR_HEADROOM_BYTES
+        ),
+        "checkpoint_input_bytes": total_bytes,
+        "checkpoint_peak_exact_object_bytes": peak_object_bytes,
+        "checkpoint_expansion_factor": RFQ_CHECKPOINT_EXPANSION_FACTOR,
+        "checkpoint_reserve_bytes": RFQ_CHECKPOINT_RESERVE_BYTES,
+        "checkpoint_required_free_bytes": required_bytes,
+        "resume_granularity": "COMPLETE_EXACT_DATE_STAGE_ONLY",
+        "partial_date_reuse": False,
+    }
 
 
 def _empty_select(columns: tuple[tuple[str, str], ...]) -> str:
@@ -2228,6 +2305,7 @@ def _build_report(
     impact_adapters: Mapping[str, dict[str, Any]] | None,
     exact_bases: Mapping[str, dict[str, Any]] | None,
     l2_quality_gates: Mapping[str, dict[str, Any]] | None,
+    resource_preflight: dict[str, Any],
 ) -> dict[str, Any]:
     lifecycle_paths = [
         _checkpoint_path(store, LIFECYCLE_STAGE, f"h{bucket:02d}")
@@ -2425,6 +2503,7 @@ def _build_report(
                 "algorithm": "SHA256_FULL_RFQ_ID_FIRST_U64_BE_MOD_N",
                 "buckets": buckets,
             },
+            "resource_contract": copy.deepcopy(resource_preflight),
         },
         "conservation": {
             "source_create_occurrences": source_create,
@@ -2750,6 +2829,9 @@ def run_bounded_fresh_rfq(
         _fail("OVERLAY_SET_INVALID", "overlay set spans multiple authorities")
     if len({row["generation"] for row in descriptors}) != 1:
         _fail("OVERLAY_SET_INVALID", "overlay set spans multiple generations")
+    resource_preflight = _resource_preflight(
+        descriptors, Path(checkpoint_root),
+    )
 
     date_set = set(observed_date_texts)
     exact_bases: dict[str, dict[str, Any]] | None = None
@@ -2849,6 +2931,7 @@ def run_bounded_fresh_rfq(
             report = _build_report(
                 con, store, descriptors, metas, lifecycle_totals,
                 hash_buckets, impact_adapters, exact_bases, l2_quality_gates,
+                resource_preflight,
             )
         if report_path is not None:
             _write_report(Path(report_path), report)

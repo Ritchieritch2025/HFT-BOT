@@ -1101,3 +1101,32 @@ def test_incremental_canonical_list_digest_matches_materialized_list() -> None:
         digest.add(row)
     assert digest.count == len(rows)
     assert digest.hexdigest() == provenance.canonical_sha256(rows)
+
+
+def test_accumulator_event_and_memory_bounds_fail_before_ledger_growth(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(provenance, "MAX_ACCUMULATED_RFQ_OCCURRENCES", 1)
+    _assert_code("ACCUMULATOR_EVENT_LIMIT", _build)
+
+    monkeypatch.setattr(provenance, "MAX_ACCUMULATED_RFQ_OCCURRENCES", 1_000_000)
+    monkeypatch.setattr(provenance, "MAX_ACCUMULATOR_ESTIMATED_BYTES", 1)
+    monkeypatch.setattr(provenance, "_available_memory_bytes", lambda: None)
+    _assert_code("ACCUMULATOR_MEMORY_BOUND", _build)
+
+
+def test_accumulator_preserves_fixed_observed_memory_headroom(monkeypatch) -> None:
+    available = (
+        provenance.MIN_ACCUMULATOR_HEADROOM_BYTES
+        + provenance.MIN_EFFECTIVE_ACCUMULATOR_BUDGET_BYTES
+        - 1
+    )
+    monkeypatch.setattr(
+        provenance, "_available_memory_bytes", lambda: available,
+    )
+    _assert_code("ACCUMULATOR_HEADROOM_INSUFFICIENT", _build)
+
+
+def test_analysis_object_count_has_fixed_hard_bound(monkeypatch) -> None:
+    monkeypatch.setattr(provenance, "MAX_ANALYSIS_RFQ_OBJECTS", 23)
+    _assert_code("OBJECT_LIST", _build)

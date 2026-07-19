@@ -169,6 +169,8 @@ def test_end_to_end_fresh_only_exact_dedup_lifecycle_and_resume(
     assert report["old_lineage_state"] == "DATA_INTEGRITY_BLOCKED_NOT_READ"
     assert report["inputs"]["exact_object_count"] == 24
     assert report["inputs"]["source_gap_gate"].startswith("PASS")
+    assert report["inputs"]["resource_contract"]["state"] == "PASS"
+    assert report["inputs"]["resource_contract"]["partial_date_reuse"] is False
     assert report["conservation"] == {
         **report["conservation"],
         "source_create_occurrences": 3,
@@ -732,6 +734,37 @@ def test_l2_quality_gate_is_exact_body_bound_and_gap_refuses():
     )
     assert refused["state"] == "REFUSED"
     assert refused["blockers"] == ["seq_gap_events=1"]
+
+
+def test_resource_preflight_has_hard_event_and_disk_bounds(tmp_path, monkeypatch):
+    descriptor = {
+        "date": "2026-07-19",
+        "analysis_rfq_objects": [
+            {"key": "k", "version_id": "v", "size": 10, "sha256": _sha("x")},
+        ],
+        "manifest": {
+            "request_provenance": {
+                "rfq_created_occurrence_count": 1,
+                "rfq_created_unique_count": 1,
+            },
+        },
+    }
+    receipt = bounded._resource_preflight([descriptor], tmp_path)
+    assert receipt["resume_granularity"] == "COMPLETE_EXACT_DATE_STAGE_ONLY"
+
+    monkeypatch.setattr(
+        bounded.shutil, "disk_usage",
+        lambda _path: type("Usage", (), {"free": 0})(),
+    )
+    with pytest.raises(bounded.FreshRfqResearchError, match="checkpoint disk"):
+        bounded._resource_preflight([descriptor], tmp_path)
+
+    too_many = copy.deepcopy(descriptor)
+    too_many["manifest"]["request_provenance"][
+        "rfq_created_occurrence_count"
+    ] = bounded.request_provenance.MAX_ACCUMULATED_RFQ_OCCURRENCES + 1
+    with pytest.raises(bounded.FreshRfqResearchError, match="event counts"):
+        bounded._resource_preflight([too_many], tmp_path)
 
 
 def test_overlay_terminal_and_embedded_base_identity_must_match(
