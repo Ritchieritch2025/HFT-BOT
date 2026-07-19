@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-SOURCE_REPO="${W09_SOURCE_REPO:-/Users/ritcardo/HFT-BOT-pipeline-recovery}"
+SOURCE_REPO="${W09_SOURCE_REPO:-$ROOT}"
 HOST="${W09_HOST:-ubuntu@18.226.151.192}"
 KEY="${W09_SSH_KEY:-$HOME/.ssh/kalshi-key.pem}"
 REMOTE="/tmp/w09-bringup"
@@ -15,6 +15,21 @@ EXPLORATORY_MANIFEST="$HERE/exploratory_autoresearch_payload.sha256"
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
     exit 77
+fi
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
+    echo "W09_SOURCE_GATE: release worktree must be clean" >&2
+    exit 65
+fi
+if [ -n "$(git -C "$SOURCE_REPO" status --porcelain --untracked-files=normal)" ]; then
+    echo "W09_SOURCE_GATE: payload source worktree must be clean" >&2
+    exit 65
+fi
+RELEASE_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
+SOURCE_COMMIT="$(git -C "$SOURCE_REPO" rev-parse HEAD)"
+if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+   [ "$SOURCE_COMMIT" != "$RELEASE_COMMIT" ]; then
+    echo "W09_SOURCE_GATE: payload source must be the exact release commit" >&2
+    exit 65
 fi
 if [ ! -f "$READER_MODULE_MANIFEST" ]; then
     echo "W09_SOURCE_GATE: reader module manifest missing" >&2
@@ -56,16 +71,6 @@ if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
 fi
-if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
-    echo "W09_SOURCE_GATE: release worktree must be clean" >&2
-    exit 65
-fi
-SOURCE_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
-if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "W09_SOURCE_GATE: exact source commit is invalid" >&2
-    exit 65
-fi
-
 tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
@@ -82,7 +87,7 @@ cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
-printf '%s\n' "$SOURCE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
+printf '%s\n' "$RELEASE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
     install_on_host.sh README.md research_data_instance_profile.py \

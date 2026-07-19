@@ -393,6 +393,30 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "/srv/w09-research/cache" in gate_source
 
 
+def test_bounded_08_resource_and_packaging_contract_are_fixed():
+    service = (W09 / "w09-exploratory-autoresearch.service").read_text()
+    installer = (W09 / "install_on_host.sh").read_text()
+    packager = (W09 / "push_and_install.sh").read_text()
+    cost = json.loads((W09 / "cost-contract.json").read_text())
+    autoresearch = _load(
+        "w09_exploratory_bounded_08_contract_test",
+        W09 / "exploratory_autoresearch.py",
+    )
+
+    assert autoresearch.DEEP03_MEMORY_LIMIT == "16GB"
+    assert autoresearch.DEEP03_THREADS == 2
+    assert "TimeoutStartSec=24h" in service
+    assert "MemoryHigh=40G" in service
+    assert "MemoryMax=52G" in service
+    assert 'EXPECTED_INSTANCE_TYPE="r8g.2xlarge"' in installer
+    assert "EXPECTED_VCPU_COUNT=8" in installer
+    assert "MIN_MEMTOTAL_KIB=62914560" in installer
+    assert 'SOURCE_REPO="${W09_SOURCE_REPO:-$ROOT}"' in packager
+    assert 'SOURCE_COMMIT" != "$RELEASE_COMMIT' in packager
+    assert cost["instance_type"] == "r8g.2xlarge"
+    assert cost["effective_running_usd_per_hour_at_730h_month"] == 0.50918
+
+
 def test_static_credentials_are_refused_without_printing_values(tmp_path, monkeypatch):
     automation = _load(
         "w09_exploratory_credential_refusal_test",
@@ -967,6 +991,7 @@ def test_authority_gate_refuses_prerequisite_byte_drift(
         ("expected_evidence_tier", "SEALED_CONFIRMATION", "field mismatch"),
         ("expected_object_count", 2656, "field mismatch"),
         ("expected_object_bytes", 29473216650, "field mismatch"),
+        ("authorized_instance_type", "x8g.4xlarge", "field mismatch"),
         ("s3_write_permission", True, "explicit false"),
     ],
 )

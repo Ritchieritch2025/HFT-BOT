@@ -12,12 +12,17 @@ touch the production EC2 host, publish to S3, or start Track A.
   exact `GetObjectVersion` reads of eligibility-tagged canonical objects.
   There is no write code path.
 - DuckDB: `1.4.5`, matching production.
+- Bounded `.08` envelope: 8 vCPUs / 64 GiB physical RAM, DuckDB `16GB`
+  with 2 threads, systemd `MemoryHigh=40G` and `MemoryMax=52G`, and one
+  24-hour service deadline.
 - Cache: `/srv/w09-research/cache` on the 300 GB gp3 root volume.
 - Time: UTC with chrony using Amazon Time Sync.
 - Shutdown: after 1,800 seconds with no SSH and no `w09-run` inhibitor.
 - W09 contains neither the Mac private key nor Kalshi/AWS static credentials.
 
-The dual v2/v3 reader is taken only from the clean recovery repository.  The
+The dual v2/v3 reader and Deep03 runtime are taken from the same clean exact
+release commit. The packager refuses a separate source worktree unless its
+HEAD is exactly the release HEAD. The
 complete import set (`research_data.py`, `research_reference.py`, and
 `warehouse_common.py`) is pinned by `research_reader_modules.sha256`, checked
 before packaging, checked again on the host, and installed non-executable with
@@ -87,8 +92,9 @@ cd "/Users/ritcardo/HFT BOT"
 W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop bash deploy/w09/push_and_install.sh
 ```
 
-The installer validates the instance ID, region, architecture and exact role
-before writing anything. It proves that the idle guard sees both the
+The installer validates the instance ID, exact `r8g.2xlarge` type, 8 online
+vCPUs, at least 60 GiB visible RAM, region, architecture and exact role before
+writing anything. It proves that the idle guard sees both the
 provisioning marker and the live SSH connection before it arms the timer.
 
 ## 2. Prove the real 30-minute shutdown
