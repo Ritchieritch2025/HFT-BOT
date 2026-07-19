@@ -31,7 +31,6 @@ from pathlib import Path
 import re
 import shutil
 import sys
-import tempfile
 from typing import Any, Callable, Iterator, Mapping
 import uuid
 
@@ -65,6 +64,7 @@ SOURCE_META_STAGE = "rfq_source_meta"
 MAPPING_STAGE = "rfq_mapping"
 LIFECYCLE_STAGE = "rfq_lifecycle"
 DEFAULT_HASH_BUCKETS = 32
+MAX_ANALYSIS_DAYS = 31
 MAX_OVERLAY_BYTES = 64 << 20
 MAX_JSON_LINE_BYTES = request_provenance.MAX_JSON_LINE_BYTES
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -371,6 +371,41 @@ def load_overlay_descriptor(
         != manifest.get("universe_provenance_sha256")
     ):
         _fail("OVERLAY_PROVENANCE", "embedded provenance digest aliases differ")
+    _verify_self_digest(embedded_request, "receipt_sha256", "request provenance")
+    _verify_self_digest(embedded_mapping, "mapping_sha256", "market mapping")
+    _verify_self_digest(
+        embedded_universe, "provenance_sha256", "universe provenance",
+    )
+    try:
+        families = embedded_universe["families"]
+        for family_name in ("orderbooks_l1", "orderbooks_full"):
+            family = families[family_name]
+            if family["market_universe_sha256"] != canonical_sha256(
+                family["market_universe"]
+            ):
+                _fail(
+                    "OVERLAY_PROVENANCE",
+                    f"{family_name} market-universe digest differs",
+                )
+    except (KeyError, TypeError) as exc:
+        _fail("OVERLAY_PROVENANCE", f"universe family binding absent: {exc}")
+    request_bindings = {
+        "analysis_date": date_text,
+        "authority_sha256": authority["authority_sha256"],
+        "source_evidence_sha256": source_evidence["evidence_sha256"],
+        "time_contract_sha256": manifest["time_contract_sha256"],
+        "analysis_rfq_object_set_sha256": object_sha,
+    }
+    if any(embedded_request.get(key) != expected for key, expected in request_bindings.items()):
+        _fail("OVERLAY_PROVENANCE", "request provenance input binding differs")
+    mapping_bindings = {
+        "analysis_date": date_text,
+        "base_binding_sha256": manifest["base_binding_sha256"],
+        "analysis_rfq_object_set_sha256": object_sha,
+        "time_contract_sha256": manifest["time_contract_sha256"],
+    }
+    if any(embedded_mapping.get(key) != expected for key, expected in mapping_bindings.items()):
+        _fail("OVERLAY_PROVENANCE", "market mapping input binding differs")
 
     return {
         "date": date_text,
@@ -486,7 +521,13 @@ def _parse_event(
             _fail("EVENT_SCHEMA_INVALID", f"{exc.code}: {exc.detail}")
         raw_legs = msg.get("mve_selected_legs") or []
         for index, raw_leg in enumerate(raw_legs):
-            ticker = projected["mve_selected_legs"][index]["market_ticker"]
+            try:
+                ticker = request_provenance._identifier(
+                    raw_leg.get("market_ticker"),
+                    f"mve_selected_legs[{index}].market_ticker",
+                )
+            except request_provenance.FreshRfqRequestProvenanceError as exc:
+                _fail("EVENT_SCHEMA_INVALID", f"{exc.code}: {exc.detail}")
             side = raw_leg.get("side")
             if side is not None and not isinstance(side, str):
                 _fail("EVENT_SCHEMA_INVALID", f"combo leg {index} side is not text")
@@ -503,6 +544,10 @@ def _parse_event(
                 ),
             })
         collection = projected["mve_collection_ticker"]
+        if sorted(row["market_ticker"] for row in legs) != sorted(
+            row["market_ticker"] for row in projected["mve_selected_legs"]
+        ):
+            _fail("EVENT_SCHEMA_INVALID", "combo leg projection differs")
     elif collection is not None:
         _fail("EVENT_SCHEMA_INVALID", "rfq_deleted unexpectedly carries combo collection")
 
@@ -1490,9 +1535,9 @@ def _build_report(
     per_hour = [
         {"utc_hour": str(row[0]), "requests": int(row[1])}
         for row in con.execute(f"""
-          SELECT strftime(to_timestamp(created_ts_us/1000000.0),'%Y-%m-%dT%H') hour,
+          SELECT strftime(to_timestamp(created_ts_us/1000000.0),'%Y-%m-%dT%H') utc_hour,
                  count(*)::BIGINT
-          FROM {life} GROUP BY hour ORDER BY hour
+          FROM {life} GROUP BY utc_hour ORDER BY utc_hour
         """).fetchall()
     ]
     source_create = sum(row["observer"]["rfq_created_occurrence_count"] for row in metas)
@@ -1521,9 +1566,9 @@ def _build_report(
             WHEN contracts_e2 IS NULL AND target_cost_e6 IS NULL THEN 'MISSING'
             WHEN contracts_e2 IS NOT NULL AND target_cost_e6 IS NOT NULL THEN 'BOTH_REPORTED'
             WHEN contracts_e2 IS NOT NULL THEN 'CONTRACTS'
-            ELSE 'TARGET_COST' END mode,
+            ELSE 'TARGET_COST' END size_mode,
             count(*)::BIGINT
-          FROM {life} GROUP BY mode ORDER BY mode
+          FROM {life} GROUP BY size_mode ORDER BY size_mode
         """).fetchall()
     ]
     deleted_count, censored_count = [int(value) for value in con.execute(f"""
@@ -1845,6 +1890,11 @@ def run_bounded_fresh_rfq(
     """
     if not isinstance(overlay_ready_paths, list) or not overlay_ready_paths:
         _fail("OVERLAY_SET_INVALID", "at least one overlay READY is required")
+    if len(overlay_ready_paths) > MAX_ANALYSIS_DAYS:
+        _fail(
+            "OVERLAY_SET_INVALID",
+            f"one bounded run supports at most {MAX_ANALYSIS_DAYS} days",
+        )
     if type(hash_buckets) is not int or not 1 <= hash_buckets <= 256:
         _fail("HASH_BUCKETS_INVALID", "hash_buckets must be 1..256")
     if not callable(client_factory):
