@@ -10,6 +10,7 @@ Group=ubuntu
 UMask=0077
 WorkingDirectory=/srv/w09-research
 Environment=PYTHONDONTWRITEBYTECODE=1
+ExecCondition=/usr/bin/sha256sum -c /etc/w09/research_cache_sync.sha256
 ExecStart=/opt/w09/venv/bin/python /opt/w09/research/tools/research_cache_sync.py --root s3://kalshi-vault-ritcardo/research --cache-root /srv/w09-research/cache --lookback-days 35
 TimeoutStartSec=12h
 Nice=10

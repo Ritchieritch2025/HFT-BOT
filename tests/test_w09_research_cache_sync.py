@@ -6,8 +6,11 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import importlib.util
+import inspect
 import json
 from pathlib import Path
+import py_compile
+import subprocess
 import sys
 
 import pytest
@@ -536,10 +539,25 @@ def test_offline_real_canonical_fixture_uses_exact_versions_and_skips_rfq(tmp_pa
     assert marker_value["rfq_status"] == "NOT_FETCHED_OPT_IN"
 
 
+def test_production_script_py_compiles_and_canonical_fetch_signature_is_exact(tmp_path):
+    py_compile.compile(
+        str(W09 / "research_cache_sync.py"),
+        cfile=str(tmp_path / "research_cache_sync.pyc"),
+        doraise=True,
+    )
+    assert str(inspect.signature(sync.rd.cmd_fetch)) == (
+        "(store, cache, rid, with_rfq, allow_legacy=False)"
+    )
+
+
 def test_systemd_unit_is_hourly_persistent_read_only_and_payload_is_pinned():
     service = (W09 / "w09-research-cache-sync.service").read_text()
     timer = (W09 / "w09-research-cache-sync.timer").read_text()
     assert "research_cache_sync.py" in service
+    assert (
+        "ExecCondition=/usr/bin/sha256sum -c "
+        "/etc/w09/research_cache_sync.sha256"
+    ) in service
     assert "--lookback-days 35" in service
     assert "--with-rfq" not in service
     assert "AWS_ACCESS_KEY_ID" not in service
@@ -560,3 +578,39 @@ def test_systemd_unit_is_hourly_persistent_read_only_and_payload_is_pinned():
     assert set(rows) == expected
     for relative, digest in rows.items():
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
+
+
+def test_install_wiring_verifies_and_installs_but_does_not_enable_sync():
+    install = (W09 / "install_on_host.sh").read_text()
+    push = (W09 / "push_and_install.sh").read_text()
+
+    for script in (W09 / "install_on_host.sh", W09 / "push_and_install.sh"):
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
+    assert "research_cache_sync_payload.sha256" in install
+    assert "research cache sync payload mismatch" in install
+    assert (
+        'install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_cache_sync.py"'
+        in install
+    )
+    assert "/etc/systemd/system/w09-research-cache-sync.service" in install
+    assert "/etc/systemd/system/w09-research-cache-sync.timer" in install
+    assert "> /etc/w09/research_cache_sync.sha256" in install
+    assert "sha256sum -c /etc/w09/research_cache_sync.sha256" in install
+    assert "python" in install and "py_compile.compile" in install
+    assert "inspect.signature(rd.cmd_fetch)" in install
+    assert "systemctl daemon-reload" in install
+    assert "systemctl disable --now w09-research-cache-sync.timer" in install
+    assert "systemctl enable --now w09-research-cache-sync.timer" not in install
+    assert "systemctl start w09-research-cache-sync" not in install
+    assert (
+        "systemctl is-enabled w09-research-cache-sync.timer" in install
+    )
+
+    assert 'CACHE_SYNC_MANIFEST="$HERE/research_cache_sync_payload.sha256"' in push
+    assert 'cp "$CACHE_SYNC_MANIFEST" "$tmp/deploy/w09/"' in push
+    assert "research_cache_sync.py" in push
+    assert "w09-research-cache-sync.service" in push
+    assert "w09-research-cache-sync.timer" in push
+    assert "py_compile.compile" in push
+    assert "inspect.signature(rd.cmd_fetch)" in push
