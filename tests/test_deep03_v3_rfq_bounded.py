@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tools"), str(ROOT / "tools" / "research"), str(ROOT / "tests")]
 
 import deep03_v3_rfq_bounded as bounded  # noqa: E402
+import deep03_v3_methods as methods  # noqa: E402
+import fresh_rfq_exact_reader as exact_reader  # noqa: E402
 import fresh_rfq_receipts as fresh  # noqa: E402
+import test_fresh_rfq_base_binding as base_fixture  # noqa: E402
 import test_fresh_rfq_receipts as overlay_fixture  # noqa: E402
 import test_fresh_rfq_request_provenance as request_fixture  # noqa: E402
 
@@ -474,6 +477,96 @@ def _minimal_mapping():
     }
 
 
+def _reader_attestation(identities):
+    """Full-shape exact-reader core attestation over an exact object set."""
+    objects = sorted(
+        (
+            {
+                key: row[key]
+                for key in ("bucket", "key", "version_id", "size", "sha256")
+            }
+            for row in identities
+        ),
+        key=lambda row: (row["key"], row["version_id"]),
+    )
+    ledger = [
+        {"key": row["key"], "version_id": row["version_id"]}
+        for row in objects
+    ]
+    total = sum(row["size"] for row in objects)
+    value = {
+        "schema": exact_reader.ATTESTATION_SCHEMA,
+        "state": "ALL_EXPECTED_CALLER_IDENTITIES_BODY_VERIFIED",
+        "verification_state":
+            "INJECTED_CLIENT_RESPONSE_AND_FULL_BODY_SHA256_VERIFIED",
+        "source_bucket": exact_reader.SOURCE_BUCKET,
+        "caller_declared_transport_kind": "INJECTED_EXACT_VERSION_CLIENT",
+        "transport_attestation_state": "CALLER_ADAPTER_UNVERIFIED",
+        "objects": objects,
+        "read_ledger": ledger,
+        "read_ledger_sha256": bounded.canonical_sha256(ledger),
+        "expected_object_count": len(objects),
+        "verified_object_count": len(objects),
+        "expected_total_bytes": total,
+        "verified_total_bytes": total,
+        "expected_object_set_sha256": bounded.canonical_sha256(objects),
+        "verified_object_set_sha256": bounded.canonical_sha256(objects),
+        "all_expected_objects_verified": True,
+        "unexpected_object_count": 0,
+        "duplicate_read_count": 0,
+        "module_read_api_methods_invoked": ["head", "get_exact"],
+        "module_head_call_count": len(objects),
+        "module_get_exact_call_count": len(objects),
+        "version_id_argument_supplied_on_all_calls": True,
+        "module_list_api_call_count": 0,
+        "module_write_api_call_count": 0,
+        "exact_body_identity_verified": True,
+        "source_objects_exact_get_verified": False,
+        "aws_transport_verified": False,
+        "aws_no_write_verified": False,
+        "requires_external_iam_and_operation_audit": True,
+        "max_active_object_count": 1,
+        "ephemeral_temp_directory_mode": "0700",
+        "ephemeral_temp_file_mode": "0600",
+        "ephemeral_files_created": len(objects),
+        "ephemeral_bytes_staged": total,
+        "ephemeral_temp_deleted_before_return": True,
+        "input_bodies_omitted": True,
+        "module_durable_data_copy_count": 0,
+    }
+    value["attestation_sha256"] = bounded.canonical_sha256(value)
+    return value
+
+
+def _producer_receipt():
+    value = {
+        "schema": bounded.D07_PRODUCER_SCHEMA,
+        "state": "AUDITED_PASS",
+        "algorithm_id": "d07-clob-impact-v1",
+        "producer_module_sha256": _sha("d07-producer-module"),
+        "audit_receipt_sha256": _sha("d07-producer-audit"),
+    }
+    value["receipt_sha256"] = bounded.canonical_sha256(value)
+    return value
+
+
+def _partition_receipts(sources, observation_count):
+    receipts = []
+    for family in bounded.IMPACT_SOURCE_FAMILIES:
+        value = {
+            "schema": bounded.D07_PARTITION_RECEIPT_SCHEMA,
+            "analysis_date": "2026-07-19",
+            "family": family,
+            "source_object_count": sources[family]["exact_object_count"],
+            "source_row_count": sources[family]["source_row_count"],
+            "component_row_count": observation_count,
+            "content_sha256": _sha(f"partition-{family}"),
+        }
+        value["receipt_sha256"] = bounded.canonical_sha256(value)
+        receipts.append(value)
+    return receipts
+
+
 def _d07_context(mapping):
     identities = {}
     families = {}
@@ -519,7 +612,10 @@ def _d07_context(mapping):
             "universe_provenance": {"families": provenance_families},
         },
     }
-    quality = {"state": "PASS", "gate_sha256": _sha("quality"), "blockers": []}
+    quality = {
+        "state": "PASS", "gate_sha256": _sha("quality"), "blockers": [],
+        "base_release_id": exact_base["release_id"],
+    }
     event_us = bounded._parse_utc_us(
         mapping["mapping_rows"][0]["created_ts"], "event",
     )
@@ -532,11 +628,24 @@ def _d07_context(mapping):
     return descriptor, exact_base, quality, events
 
 
+def _book(ts_us, bid_e6, ask_e6, bid_depth_e2, ask_depth_e2, logical_key):
+    return {
+        "ts_us": ts_us, "bid_e6": bid_e6, "ask_e6": ask_e6,
+        "bid_depth_e2": bid_depth_e2, "ask_depth_e2": ask_depth_e2,
+        "source_family": "orderbooks_l1",
+        "source_logical_key": logical_key,
+        "source_row_sha256": _sha(f"book-{ts_us}"),
+    }
+
+
 def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
     observed = status == "OBSERVED"
     event_us = bounded._parse_utc_us(
         mapping["mapping_rows"][0]["created_ts"], "event",
     )
+    l1_logical = exact_base["families"]["orderbooks_l1"]["objects"][0][
+        "logical_key"
+    ]
     rows = [{
         "request_id": "r1", "component_index": 0,
         "market_ticker": "KX-A", "status": status,
@@ -562,11 +671,18 @@ def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
         "censor_reason": None if observed else {
             "CENSORED_GAP": "L2_SEQUENCE_GAP",
         }.get(status),
+        "pre_book": _book(
+            event_us - 500_000, 390_000, 410_000, 500, 500, l1_logical,
+        ) if observed else None,
+        "post_book": _book(
+            event_us + 500_000, 405_000, 415_000, 600, 600, l1_logical,
+        ) if observed else None,
     }]
     sources = {
         family: bounded._base_source_attestation(descriptor, family)
         for family in ("orderbooks_l1", "orderbooks_full")
     }
+    partitions = _partition_receipts(sources, len(rows))
     value = {
         "schema": bounded.IMPACT_SCHEMA, "state": "COMPLETE",
         "analysis_date": "2026-07-19",
@@ -578,6 +694,14 @@ def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
         "base_exact_object_set_sha256": exact_base["base_exact_set_sha256"],
         "source_attestations": sources,
         "source_attestation_set_sha256": bounded.canonical_sha256(sources),
+        "producer_receipt": _producer_receipt(),
+        "source_reader_attestation": _reader_attestation([
+            row
+            for family in bounded.IMPACT_SOURCE_FAMILIES
+            for row in exact_base["families"][family]["objects"]
+        ]),
+        "partition_receipts": partitions,
+        "partition_receipt_set_sha256": bounded.canonical_sha256(partitions),
         "l2_quality_gate_sha256": quality["gate_sha256"],
         "window_contract": {
             "pre_event_window_ms": 1_000, "post_event_window_ms": 1_000,
@@ -587,6 +711,9 @@ def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
             "receive_clock": "RFQ_ENVELOPE_RECV_WALL_NS",
             "max_abs_exchange_receive_skew_us": (
                 bounded.MAX_RFQ_CLOCK_ABS_SKEW_US
+            ),
+            "clock_tolerance_authority": (
+                bounded.RFQ_CLOCK_TOLERANCE_AUTHORITY
             ),
             "cross_date_borrow": False,
         },
@@ -613,7 +740,7 @@ def test_d07_adapter_requires_exact_mapping_and_censor_semantics():
     value = _impact(mapping, descriptor, exact_base, quality)
     kwargs = {
         "exact_base": exact_base, "l2_quality_gate": quality,
-        "rfq_events": events,
+        "rfq_events": events, "producer_receipt": _producer_receipt(),
     }
     assert bounded._validate_impact_adapter(
         value, descriptor, mapping, **kwargs,
@@ -622,6 +749,12 @@ def test_d07_adapter_requires_exact_mapping_and_censor_semantics():
     missing["observations"] = []
     missing["observation_count"] = 0
     missing["observations_sha256"] = bounded.canonical_sha256([])
+    missing["partition_receipts"] = _partition_receipts(
+        missing["source_attestations"], 0,
+    )
+    missing["partition_receipt_set_sha256"] = bounded.canonical_sha256(
+        missing["partition_receipts"]
+    )
     missing["adapter_sha256"] = bounded.canonical_sha256({
         key: item for key, item in missing.items() if key != "adapter_sha256"
     })
@@ -641,7 +774,7 @@ def test_d07_rejects_future_pre_state_and_forged_exact_source():
     descriptor, exact_base, quality, events = _d07_context(mapping)
     kwargs = {
         "exact_base": exact_base, "l2_quality_gate": quality,
-        "rfq_events": events,
+        "rfq_events": events, "producer_receipt": _producer_receipt(),
     }
     future_pre = _impact(mapping, descriptor, exact_base, quality)
     future_pre["observations"][0]["pre_observation_ts_us"] = (
@@ -681,12 +814,13 @@ def test_d07_future_exchange_clock_must_be_exclusively_clock_censored():
         bounded._validate_impact_adapter(
             value, descriptor, mapping, exact_base=exact_base,
             l2_quality_gate=quality, rfq_events=events,
+            producer_receipt=_producer_receipt(),
         )
 
     for field in (
         "pre_observation_ts_us", "post_observation_ts_us", "pre_mid_e6",
         "post_mid_e6", "pre_spread_e6", "post_spread_e6",
-        "pre_depth_e2", "post_depth_e2",
+        "pre_depth_e2", "post_depth_e2", "pre_book", "post_book",
     ):
         row[field] = None
     for field in (
@@ -700,45 +834,181 @@ def test_d07_future_exchange_clock_must_be_exclusively_clock_censored():
     assert bounded._validate_impact_adapter(
         value, descriptor, mapping, exact_base=exact_base,
         l2_quality_gate=quality, rfq_events=events,
+        producer_receipt=_producer_receipt(),
     ) == value
 
 
-def test_l2_quality_gate_is_exact_body_bound_and_gap_refuses():
-    receipt = {"date": "2026-07-19", "lines": 7, "parse_errors": 0}
-    body = json.dumps(receipt, sort_keys=True).encode()
-    identity = {
-        "bucket": "kalshi-vault-ritcardo", "key": "quality/l2.json",
-        "version_id": "quality-version", "size": len(body),
-        "sha256": hashlib.sha256(body).hexdigest(),
+def _canonical_l2_receipt(date, **overrides):
+    receipt = {
+        "schema_version": "l2-gap-receipt-v1",
+        "date": date,
+        "raw_root": "/srv/kalshi/raw",
+        "files": ["l2_23.ndjson"],
+        "file_inventory": [
+            {"file": f"date={date}/l2_23.ndjson", "bytes": 19},
+        ],
+        "no_l2_files": False,
+        "lines": 4,
+        "parse_errors": 0,
+        "sids_total": 1,
+        "sids_with_seq_gaps": 0,
+        "seq_gap_events": 0,
+        "seq_missed_total": 0,
+        "seq_regressions": 0,
+        "stream_restarts": 0,
+        "recorder_markers": {},
+        "markers_lost_frames": 0,
+        "snapshot_re_anchors_total": 0,
+        "per_market": {"KX-A": {"msgs": 4, "snapshots": 1, "re_anchors": 0}},
     }
-    gate = bounded.build_l2_quality_gate(
-        analysis_date="2026-07-19", exact_identity=identity, body=body,
-    )
-    assert gate["state"] == "PASS"
-    with pytest.raises(bounded.FreshRfqResearchError, match="SHA-256 differs"):
-        bounded.build_l2_quality_gate(
-            analysis_date="2026-07-19", exact_identity=identity,
-            body=body[:-1] + b"x",
-        )
+    receipt.update(overrides)
+    return receipt
 
-    refused_receipt = {
-        "date": "2026-07-19", "lines": 7, "seq_gap_events": 1,
+
+def _quality_fixture(receipt=None):
+    """Exact base manifest + attested canonical quality receipt chain."""
+    if receipt is None:
+        receipt = _canonical_l2_receipt(base_fixture.DATE)
+    body = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
+    sha = hashlib.sha256(body).hexdigest()
+    manifest = base_fixture._complete_manifest()
+    row = next(
+        item for item in manifest["objects"]
+        if item["kind"] == "l2_quality_receipt"
+    )
+    row["sha256"] = sha
+    row["size"] = len(body)
+    row["source_key"] = (
+        "ec2/control/quality/v1/date=%s/l2_gaps/sha256=%s/l2_gaps.json"
+        % (base_fixture.DATE, sha)
+    )
+    base_fixture._retarget_manifest(manifest)
+    raw, _manifest_identity = base_fixture._raw_and_identity(manifest)
+    identity = {
+        "bucket": row["source_bucket"], "key": row["source_key"],
+        "version_id": row["source_version_id"], "size": len(body),
+        "sha256": sha,
     }
-    refused_body = json.dumps(refused_receipt).encode()
-    refused_identity = {
-        **identity, "size": len(refused_body),
-        "sha256": hashlib.sha256(refused_body).hexdigest(),
-    }
-    refused = bounded.build_l2_quality_gate(
-        analysis_date="2026-07-19", exact_identity=refused_identity,
-        body=refused_body,
+    client = LocalExactClient({
+        (identity["key"], identity["version_id"]): body,
+    })
+    session = exact_reader.ExactReadSession(
+        [identity], client, transport_kind="INJECTED_EXACT_VERSION_CLIENT",
+    )
+    with session:
+        with session.open_exact(identity):
+            pass
+    return raw, identity, body, session.attestation, manifest
+
+
+def _build_quality_gate(raw, identity, body, attestation):
+    return bounded.build_l2_quality_gate(
+        analysis_date=base_fixture.DATE, exact_identity=identity,
+        body=body, reader_attestation=attestation,
+        base_manifest_bytes=raw,
+    )
+
+
+def test_l2_quality_gate_requires_canonical_attested_base_bound_receipt():
+    raw, identity, body, attestation, manifest = _quality_fixture()
+    gate = _build_quality_gate(raw, identity, body, attestation)
+    assert gate["state"] == "PASS"
+    assert gate["schema"] == "fresh-rfq-d07-l2-quality-gate-v2"
+    assert gate["receipt_schema_version"] == "l2-gap-receipt-v1"
+    assert gate["base_release_id"] == manifest["release_id"]
+    assert gate["logical_key"] == (
+        f"control/quality/v1/date={base_fixture.DATE}/l2_gaps.json"
+    )
+    assert gate["reader_attestation_sha256"] == (
+        attestation["attestation_sha256"]
+    )
+    assert gate["salvage_allowed"] is False
+
+    with pytest.raises(bounded.FreshRfqResearchError, match="SHA-256 differs"):
+        _build_quality_gate(raw, identity, body[:-2] + b"x\n", attestation)
+
+    refused_raw, refused_identity, refused_body, refused_att, _m = (
+        _quality_fixture(_canonical_l2_receipt(
+            base_fixture.DATE, seq_gap_events=1, seq_missed_total=3,
+            sids_with_seq_gaps=1,
+        ))
+    )
+    refused = _build_quality_gate(
+        refused_raw, refused_identity, refused_body, refused_att,
     )
     assert refused["state"] == "REFUSED"
-    assert refused["blockers"] == ["seq_gap_events=1"]
+    assert refused["blockers"] == [
+        "seq_gap_events=1", "seq_missed_total=3",
+    ]
 
 
-def test_resource_preflight_has_hard_event_and_disk_bounds(tmp_path, monkeypatch):
-    descriptor = {
+def test_l2_quality_gate_fails_closed_on_missing_extra_or_mistyped_fields():
+    missing = _canonical_l2_receipt(base_fixture.DATE)
+    missing.pop("seq_missed_total")
+    raw, identity, body, attestation, _m = _quality_fixture(missing)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_L2_QUALITY_SCHEMA",
+    ):
+        _build_quality_gate(raw, identity, body, attestation)
+
+    for bad in (
+        _canonical_l2_receipt(base_fixture.DATE, seq_regressions="0"),
+        _canonical_l2_receipt(base_fixture.DATE, parse_errors=False),
+        _canonical_l2_receipt(base_fixture.DATE, forgiven=True),
+        _canonical_l2_receipt(
+            base_fixture.DATE, recorder_markers={"loss": "many"},
+        ),
+        _canonical_l2_receipt(base_fixture.DATE, no_l2_files=True),
+    ):
+        raw, identity, body, attestation, _m = _quality_fixture(bad)
+        with pytest.raises(
+            bounded.FreshRfqResearchError, match="D07_L2_QUALITY_SCHEMA",
+        ):
+            _build_quality_gate(raw, identity, body, attestation)
+
+    marker_loss = _canonical_l2_receipt(
+        base_fixture.DATE, recorder_markers={"loss": 2},
+        markers_lost_frames=2,
+    )
+    raw, identity, body, attestation, _m = _quality_fixture(marker_loss)
+    refused = _build_quality_gate(raw, identity, body, attestation)
+    assert refused["state"] == "REFUSED"
+    assert refused["blockers"] == [
+        "markers_lost_frames=2", "recorder_marker:loss=2",
+    ]
+
+
+def test_l2_quality_gate_rejects_substituted_object_and_forged_attestation():
+    raw, identity, body, attestation, _m = _quality_fixture()
+    substituted = {**identity, "version_id": "forged-other-version"}
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_L2_QUALITY_BASE_BINDING",
+    ):
+        _build_quality_gate(raw, substituted, body, attestation)
+
+    unsigned_tamper = copy.deepcopy(attestation)
+    unsigned_tamper["module_write_api_call_count"] = 1
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="DIGEST_MISMATCH",
+    ):
+        _build_quality_gate(raw, identity, body, unsigned_tamper)
+
+    resigned_tamper = copy.deepcopy(attestation)
+    resigned_tamper["objects"] = [
+        {**resigned_tamper["objects"][0], "version_id": "forged-latest"},
+    ]
+    resigned_tamper["attestation_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in resigned_tamper.items()
+        if key != "attestation_sha256"
+    })
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_L2_QUALITY_ATTESTATION",
+    ):
+        _build_quality_gate(raw, identity, body, resigned_tamper)
+
+
+def _preflight_descriptor():
+    return {
         "date": "2026-07-19",
         "analysis_rfq_objects": [
             {"key": "k", "version_id": "v", "size": 10, "sha256": _sha("x")},
@@ -750,14 +1020,34 @@ def test_resource_preflight_has_hard_event_and_disk_bounds(tmp_path, monkeypatch
             },
         },
     }
-    receipt = bounded._resource_preflight([descriptor], tmp_path)
+
+
+def test_resource_preflight_has_hard_event_and_disk_bounds(tmp_path, monkeypatch):
+    descriptor = _preflight_descriptor()
+    receipt = bounded._resource_preflight(
+        [descriptor], tmp_path, tmp_path / "exact-temp",
+    )
     assert receipt["resume_granularity"] == "COMPLETE_EXACT_DATE_STAGE_ONLY"
+    assert receipt["checkpoint_required_free_bytes"] == (
+        10 * bounded.RFQ_CHECKPOINT_EXPANSION_FACTOR
+        + bounded.RFQ_DUCKDB_SPILL_CAP_BYTES
+        + bounded.RFQ_CHECKPOINT_RESERVE_BYTES
+    )
+    assert receipt["exact_temp_required_free_bytes"] == (
+        10 + bounded.RFQ_EXACT_TEMP_RESERVE_BYTES
+    )
+    assert receipt["duckdb_spill_cap_bytes"] == (
+        bounded.RFQ_DUCKDB_SPILL_CAP_BYTES
+    )
+    assert receipt["checkpoint_expansion_factor"] == 8
+    assert "8x" in receipt["checkpoint_expansion_justification"]
+    assert receipt["exact_temp_max_active_objects"] == 1
 
     monkeypatch.setattr(
         bounded.shutil, "disk_usage",
         lambda _path: type("Usage", (), {"free": 0})(),
     )
-    with pytest.raises(bounded.FreshRfqResearchError, match="checkpoint disk"):
+    with pytest.raises(bounded.FreshRfqResearchError, match="filesystem needs"):
         bounded._resource_preflight([descriptor], tmp_path)
 
     too_many = copy.deepcopy(descriptor)
@@ -766,6 +1056,40 @@ def test_resource_preflight_has_hard_event_and_disk_bounds(tmp_path, monkeypatch
     ] = bounded.request_provenance.MAX_ACCUMULATED_RFQ_OCCURRENCES + 1
     with pytest.raises(bounded.FreshRfqResearchError, match="event counts"):
         bounded._resource_preflight([too_many], tmp_path)
+
+
+def test_resource_preflight_covers_exact_temp_demand_on_shared_filesystem(
+    tmp_path, monkeypatch,
+):
+    descriptor = _preflight_descriptor()
+    baseline = bounded._resource_preflight(
+        [descriptor], tmp_path, tmp_path / "exact-temp",
+    )
+    assert baseline["checkpoint_and_temp_share_filesystem"] is True
+    combined = (
+        baseline["checkpoint_required_free_bytes"]
+        + baseline["exact_temp_required_free_bytes"]
+    )
+
+    monkeypatch.setattr(
+        bounded.shutil, "disk_usage",
+        lambda _path: type("Usage", (), {"free": combined - 1})(),
+    )
+    # One byte below the combined checkpoint+exact-temp demand must fail:
+    # the exact-temp staging demand is part of the same filesystem budget.
+    with pytest.raises(bounded.FreshRfqResearchError, match="filesystem needs"):
+        bounded._resource_preflight(
+            [descriptor], tmp_path, tmp_path / "exact-temp",
+        )
+
+    monkeypatch.setattr(
+        bounded.shutil, "disk_usage",
+        lambda _path: type("Usage", (), {"free": combined})(),
+    )
+    receipt = bounded._resource_preflight(
+        [descriptor], tmp_path, tmp_path / "exact-temp",
+    )
+    assert receipt["state"] == "PASS"
 
 
 def test_overlay_terminal_and_embedded_base_identity_must_match(
@@ -824,3 +1148,195 @@ def test_source_hour_gap_gate_rejects_non_exact_receipt(tmp_path, monkeypatch):
     broken["analysis_hours"][7]["resolution_state"] = "UNRESOLVED"
     with pytest.raises(Exception, match="SOURCE_RESOLUTION_REQUIRED|FRESH_HOUR_INVALID"):
         bounded._validate_overlay_hours(broken, authority, manifest["eligible_date"])
+
+
+def test_d07_recomputes_pre_post_values_from_attested_book_evidence():
+    mapping = _minimal_mapping()
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    kwargs = {
+        "exact_base": exact_base, "l2_quality_gate": quality,
+        "rfq_events": events, "producer_receipt": _producer_receipt(),
+    }
+    value = _impact(mapping, descriptor, exact_base, quality)
+    assert bounded._validate_impact_adapter(
+        value, descriptor, mapping, **kwargs,
+    ) == value
+
+    forged_mid = _impact(mapping, descriptor, exact_base, quality)
+    forged_mid["observations"][0]["pre_mid_e6"] = 401_000
+    _resign_impact(forged_mid)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_RECOMPUTE",
+    ):
+        bounded._validate_impact_adapter(
+            forged_mid, descriptor, mapping, **kwargs,
+        )
+
+    forged_depth = _impact(mapping, descriptor, exact_base, quality)
+    forged_depth["observations"][0]["post_depth_e2"] = 1_300
+    _resign_impact(forged_depth)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_RECOMPUTE",
+    ):
+        bounded._validate_impact_adapter(
+            forged_depth, descriptor, mapping, **kwargs,
+        )
+
+    stray_book = _impact(mapping, descriptor, exact_base, quality)
+    stray_book["observations"][0]["post_book"]["source_logical_key"] = (
+        "warehouse/facts/orderbooks_l1/date=2026-07-18/part.parquet"
+    )
+    _resign_impact(stray_book)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_BOOK",
+    ):
+        bounded._validate_impact_adapter(
+            stray_book, descriptor, mapping, **kwargs,
+        )
+
+    censored_with_books = _impact(
+        mapping, descriptor, exact_base, quality, status="UNMAPPED",
+    )
+    row = censored_with_books["observations"][0]
+    mapping_unmapped = copy.deepcopy(mapping)
+    mapping_unmapped["mapping_rows"][0]["mapping_state"] = "MAPPED_L1_ONLY"
+    row["censor_reason"] = "MAPPED_L1_ONLY"
+    row["pre_book"] = _book(
+        row["event_ts_us"] - 500_000, 390_000, 410_000, 500, 500,
+        exact_base["families"]["orderbooks_l1"]["objects"][0]["logical_key"],
+    )
+    _resign_impact(censored_with_books)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="carries values",
+    ):
+        bounded._validate_impact_adapter(
+            censored_with_books, descriptor, mapping_unmapped, **kwargs,
+        )
+
+
+def test_d07_requires_audited_producer_reader_attestation_and_partitions():
+    mapping = _minimal_mapping()
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    kwargs = {
+        "exact_base": exact_base, "l2_quality_gate": quality,
+        "rfq_events": events, "producer_receipt": _producer_receipt(),
+    }
+
+    wrong_producer = _impact(mapping, descriptor, exact_base, quality)
+    other = {
+        "schema": bounded.D07_PRODUCER_SCHEMA, "state": "AUDITED_PASS",
+        "algorithm_id": "d07-clob-impact-v2",
+        "producer_module_sha256": _sha("other-module"),
+        "audit_receipt_sha256": _sha("other-audit"),
+    }
+    other["receipt_sha256"] = bounded.canonical_sha256(other)
+    wrong_producer["producer_receipt"] = other
+    _resign_impact(wrong_producer)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_PRODUCER",
+    ):
+        bounded._validate_impact_adapter(
+            wrong_producer, descriptor, mapping, **kwargs,
+        )
+
+    forged_attestation = _impact(mapping, descriptor, exact_base, quality)
+    attestation = forged_attestation["source_reader_attestation"]
+    attestation["objects"] = [
+        {**attestation["objects"][0], "version_id": "forged-latest"},
+        *attestation["objects"][1:],
+    ]
+    attestation["attestation_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in attestation.items()
+        if key != "attestation_sha256"
+    })
+    _resign_impact(forged_attestation)
+    with pytest.raises(
+        bounded.FreshRfqResearchError,
+        match="IMPACT_ADAPTER_SOURCE_ATTESTATION",
+    ):
+        bounded._validate_impact_adapter(
+            forged_attestation, descriptor, mapping, **kwargs,
+        )
+
+    forged_partition = _impact(mapping, descriptor, exact_base, quality)
+    receipt = forged_partition["partition_receipts"][0]
+    receipt["component_row_count"] = 2
+    receipt["receipt_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in receipt.items()
+        if key != "receipt_sha256"
+    })
+    forged_partition["partition_receipt_set_sha256"] = (
+        bounded.canonical_sha256(forged_partition["partition_receipts"])
+    )
+    _resign_impact(forged_partition)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_PARTITION",
+    ):
+        bounded._validate_impact_adapter(
+            forged_partition, descriptor, mapping, **kwargs,
+        )
+
+    no_authority = _impact(mapping, descriptor, exact_base, quality)
+    del no_authority["window_contract"]["clock_tolerance_authority"]
+    _resign_impact(no_authority)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_BINDING",
+    ):
+        bounded._validate_impact_adapter(
+            no_authority, descriptor, mapping, **kwargs,
+        )
+
+
+def test_d07_blocks_without_producer_and_hard_fails_on_release_mismatch():
+    descriptors = [{"date": "2026-07-19"}]
+    quality = {
+        "state": "PASS", "gate_sha256": _sha("quality"), "blockers": [],
+        "base_release_id": "release-2026-07-19",
+    }
+    blocked = bounded._d07_result(
+        descriptors, [], {"2026-07-19": {}},
+        exact_bases={"2026-07-19": {"release_id": "release-2026-07-19"}},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events={}, producer_receipt=None,
+    )
+    assert blocked["status"] == "BLOCKED_PRODUCER_AUDIT_NOT_SUPPLIED"
+    assert blocked["claim"] == "NO_RFQ_TO_CLOB_IMPACT_RESULT"
+    assert blocked["contract"]["audited_producer_receipt_required"] is True
+    assert blocked["contract"]["pre_post_values_recomputed_from_book_evidence"] is True
+
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_L2_QUALITY_RELEASE",
+    ):
+        bounded._d07_result(
+            descriptors, [], {"2026-07-19": {}},
+            exact_bases={"2026-07-19": {"release_id": "release-other"}},
+            l2_quality_gates={"2026-07-19": quality},
+            rfq_events={}, producer_receipt=_producer_receipt(),
+        )
+
+
+def test_run_rejects_l2_quality_without_exact_base_bytes(tmp_path, monkeypatch):
+    ready, authority, _manifest, bodies = _overlay_cache(tmp_path, monkeypatch)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_L2_QUALITY_BASE_REQUIRED",
+    ):
+        bounded.run_bounded_fresh_rfq(
+            overlay_ready_paths=[ready], fresh_authority=authority,
+            client_factory=lambda _descriptor: LocalExactClient(bodies),
+            checkpoint_root=tmp_path / "cp", hash_buckets=1,
+            l2_quality_receipts_by_date={
+                "2026-07-17": {
+                    "exact_identity": {}, "body": b"",
+                    "reader_attestation": {},
+                },
+            },
+        )
+
+
+def test_rfq_clock_tolerance_is_bound_to_method_registry_authority():
+    assert bounded.MAX_RFQ_CLOCK_ABS_SKEW_US == methods.MAX_BOOK_AGE_US
+    assert bounded.MAX_RFQ_CLOCK_ABS_SKEW_US == 5_000_000
+    assert (
+        "deep03_v3_methods.MAX_BOOK_AGE_US"
+        in bounded.RFQ_CLOCK_TOLERANCE_AUTHORITY
+    )

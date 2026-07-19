@@ -31,6 +31,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import tempfile
 from typing import Any, Callable, Iterator, Mapping
 import uuid
 
@@ -47,8 +48,10 @@ import fresh_rfq_base_binding as base_binding  # noqa: E402
 import fresh_rfq_market_mapping as market_mapping  # noqa: E402
 import fresh_rfq_receipts as fresh_receipts  # noqa: E402
 import fresh_rfq_request_provenance as request_provenance  # noqa: E402
+import research_reference as reference  # noqa: E402
 
 from deep03_v3_methods import (  # noqa: E402
+    MAX_BOOK_AGE_US,
     BoundedCheckpointStore,
     path_list,
     quote,
@@ -74,18 +77,47 @@ UTC_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 )
 SAFE_STAGE_RE = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
-IMPACT_SCHEMA = "fresh-rfq-clob-impact-adapter-v2"
+IMPACT_SCHEMA = "fresh-rfq-clob-impact-adapter-v3"
 MAX_D07_COMPONENTS_PER_DAY = 2_000_000
 MAX_D07_SOURCE_ROWS_PER_COMPONENT = 10_000_000
-MAX_RFQ_CLOCK_ABS_SKEW_US = 5_000_000
+# The five-second RFQ exchange<->receive clock tolerance is NOT module-local
+# policy.  It is bound to the adopted deep03 v3 method registry
+# (tools/research/deep03_v3_methods.py, MAX_BOOK_AGE_US): the same "no book
+# state older than five seconds may serve as an observation" staleness bound
+# the audited L1/L2 methods (D3-B01..B04) already run under.  A registry
+# drift fails closed at import below instead of silently retuning RFQ
+# clock censoring.
+RFQ_CLOCK_TOLERANCE_AUTHORITY = (
+    "deep03_v3_methods.MAX_BOOK_AGE_US"
+    "@D3-B01-MARKOUT..D3-B04-RHYTHM registry, 5,000,000 us"
+)
+MAX_RFQ_CLOCK_ABS_SKEW_US = MAX_BOOK_AGE_US
 CLOCK_WITHIN_TOLERANCE = "CLOCK_WITHIN_TOLERANCE"
 FUTURE_EXCHANGE_CLOCK = "FUTURE_EXCHANGE_CLOCK"
 STALE_EXCHANGE_CLOCK = "STALE_EXCHANGE_CLOCK"
-RFQ_CHECKPOINT_EXPANSION_FACTOR = 4
+# Checkpoint expansion bound justification (audited, conservative ceilings
+# over the decoded exact NDJSON input volume B):
+#   durable parquet stages, cumulative over all dates:
+#     rfq_source_events <= 2.0*B (every event row re-carries provenance,
+#     digests and canonical-JSON legs), rfq_mapping <= 1.0*B,
+#     rfq_lifecycle <= 0.5*B, rfq_source_meta <= 0.5*B  => <= 4.0*B;
+#   transient per-date scratch under <root>/.partial while one date
+#   materializes (observer bucket NDJSON <= 2.0*B_date + mapping NDJSON
+#   <= 1.0*B_date), removed before the next date  => <= 3.0*B;
+#   ceiling(4.0 + 3.0) with slack for parquet metadata/footers => 8.
+# DuckDB spill and the exact-reader staging file are budgeted separately
+# (RFQ_DUCKDB_SPILL_CAP_BYTES / peak object + RFQ_EXACT_TEMP_RESERVE_BYTES).
+RFQ_CHECKPOINT_EXPANSION_FACTOR = 8
 RFQ_CHECKPOINT_RESERVE_BYTES = 2 << 30
+RFQ_EXACT_TEMP_RESERVE_BYTES = 1 << 30
+RFQ_DUCKDB_SPILL_CAP_BYTES = 16 << 30
+RFQ_DUCKDB_SPILL_DIRNAME = ".duckdb-spill"
+RFQ_DUCKDB_MEMORY_LIMIT = "16GB"
+RFQ_DUCKDB_THREADS = 2
 EXACT_SOURCE_IDENTITY_FIELDS = {
     "logical_key", "bucket", "key", "version_id", "size", "sha256",
 }
+IMPACT_SOURCE_FAMILIES = ("orderbooks_l1", "orderbooks_full")
 IMPACT_OBSERVATION_FIELDS = {
     "request_id", "component_index", "market_ticker", "status",
     "event_ts_us", "rfq_recv_wall_ns", "rfq_clock_skew_us",
@@ -95,10 +127,59 @@ IMPACT_OBSERVATION_FIELDS = {
     "pre_mid_e6", "post_mid_e6", "pre_spread_e6", "post_spread_e6",
     "pre_depth_e2", "post_depth_e2", "l1_pre_rows", "l1_post_rows",
     "l2_pre_rows", "l2_post_rows", "gap_rows", "censor_reason",
+    "pre_book", "post_book",
+}
+IMPACT_BOOK_FIELDS = {
+    "ts_us", "bid_e6", "ask_e6", "bid_depth_e2", "ask_depth_e2",
+    "source_family", "source_logical_key", "source_row_sha256",
 }
 IMPACT_STATUSES = {
     "OBSERVED", "UNMAPPED", "CENSORED_BOUNDARY", "CENSORED_GAP",
     "CENSORED_CLOCK",
+}
+D07_PRODUCER_SCHEMA = "fresh-rfq-d07-producer-audit-v1"
+D07_PARTITION_RECEIPT_SCHEMA = "fresh-rfq-d07-partition-receipt-v1"
+L2_QUALITY_GATE_SCHEMA = "fresh-rfq-d07-l2-quality-gate-v2"
+L2_QUALITY_RECEIPT_SCHEMA_VERSION = "l2-gap-receipt-v1"
+# Canonical sealed L2 quality receipt: the exact field set that
+# tools/l2_gap_check.py scan_date() writes.  Missing, extra or mistyped
+# fields are typed fail-closed errors -- an omitted loss counter is never
+# read as zero.
+L2_QUALITY_RECEIPT_FIELDS = {
+    "schema_version", "date", "raw_root", "files", "file_inventory",
+    "no_l2_files", "lines", "parse_errors", "sids_total",
+    "sids_with_seq_gaps", "seq_gap_events", "seq_missed_total",
+    "seq_regressions", "stream_restarts", "recorder_markers",
+    "markers_lost_frames", "snapshot_re_anchors_total", "per_market",
+}
+L2_QUALITY_COUNTER_FIELDS = (
+    "lines", "parse_errors", "sids_total", "sids_with_seq_gaps",
+    "seq_gap_events", "seq_missed_total", "seq_regressions",
+    "stream_restarts", "markers_lost_frames", "snapshot_re_anchors_total",
+)
+L2_QUALITY_BLOCKING_COUNTERS = (
+    "parse_errors", "seq_gap_events", "seq_missed_total",
+    "seq_regressions", "markers_lost_frames",
+)
+READER_ATTESTATION_FIELDS = {
+    "schema", "state", "verification_state", "source_bucket",
+    "caller_declared_transport_kind", "transport_attestation_state",
+    "objects", "read_ledger", "read_ledger_sha256",
+    "expected_object_count", "verified_object_count",
+    "expected_total_bytes", "verified_total_bytes",
+    "expected_object_set_sha256", "verified_object_set_sha256",
+    "all_expected_objects_verified", "unexpected_object_count",
+    "duplicate_read_count", "module_read_api_methods_invoked",
+    "module_head_call_count", "module_get_exact_call_count",
+    "version_id_argument_supplied_on_all_calls",
+    "module_list_api_call_count", "module_write_api_call_count",
+    "exact_body_identity_verified", "source_objects_exact_get_verified",
+    "aws_transport_verified", "aws_no_write_verified",
+    "requires_external_iam_and_operation_audit", "max_active_object_count",
+    "ephemeral_temp_directory_mode", "ephemeral_temp_file_mode",
+    "ephemeral_files_created", "ephemeral_bytes_staged",
+    "ephemeral_temp_deleted_before_return", "input_bodies_omitted",
+    "module_durable_data_copy_count", "attestation_sha256",
 }
 SURVIVAL_HORIZONS_MS = (1_000, 5_000, 30_000, 60_000, 300_000)
 
@@ -114,6 +195,15 @@ class FreshRfqResearchError(RuntimeError):
 
 def _fail(code: str, detail: str) -> None:
     raise FreshRfqResearchError(code, detail)
+
+
+if MAX_RFQ_CLOCK_ABS_SKEW_US != 5_000_000:
+    raise FreshRfqResearchError(
+        "CLOCK_TOLERANCE_AUTHORITY_DRIFT",
+        "deep03_v3_methods.MAX_BOOK_AGE_US no longer states the adopted "
+        "five-second bound; the RFQ tolerance must be re-adjudicated, "
+        "not silently inherited",
+    )
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -373,15 +463,132 @@ def _base_source_attestation(
     return result
 
 
-def build_l2_quality_gate(
-    *, analysis_date: str, exact_identity: dict[str, Any], body: bytes,
-) -> dict[str, Any]:
-    """Build a D07 L2 quality gate from exact, caller-read receipt bytes.
+def _typed_count(value: Any, label: str, code: str) -> int:
+    if type(value) is not int or value < 0:
+        _fail(code, f"{label} must be a non-negative integer")
+    return value
 
-    The body is verified against a non-null VersionId identity inside this
-    function and is never retained in the result.  Any sequence loss, parser
-    error, recorder gap/loss/epoch marker, absent file, or empty stream blocks
-    the entire date rather than silently salvaging impact observations.
+
+def _validate_reader_attestation(
+    value: Any,
+    expected_identities: list[dict[str, Any]],
+    *,
+    label: str,
+    code: str,
+) -> dict[str, Any]:
+    """Verify one exact-reader core attestation over an exact object set."""
+    attestation = _exact_keys(value, READER_ATTESTATION_FIELDS, label)
+    _verify_self_digest(attestation, "attestation_sha256", label)
+    expected = sorted(
+        (
+            {
+                "bucket": row["bucket"], "key": row["key"],
+                "version_id": row["version_id"], "size": row["size"],
+                "sha256": row["sha256"],
+            }
+            for row in expected_identities
+        ),
+        key=lambda row: (row["key"], row["version_id"]),
+    )
+    if len({
+        (row["bucket"], row["key"], row["version_id"]) for row in expected
+    }) != len(expected):
+        _fail(code, f"{label} expected object set is duplicated")
+    expected_sha = canonical_sha256(expected)
+    total_bytes = sum(row["size"] for row in expected)
+    if (
+        attestation["schema"] != exact_reader.ATTESTATION_SCHEMA
+        or attestation["state"]
+        != "ALL_EXPECTED_CALLER_IDENTITIES_BODY_VERIFIED"
+        or attestation["source_bucket"] != exact_reader.SOURCE_BUCKET
+        or canonical_bytes(attestation["objects"]) != canonical_bytes(expected)
+        or attestation["expected_object_set_sha256"] != expected_sha
+        or attestation["verified_object_set_sha256"] != expected_sha
+        or attestation["expected_object_count"] != len(expected)
+        or attestation["verified_object_count"] != len(expected)
+        or attestation["expected_total_bytes"] != total_bytes
+        or attestation["verified_total_bytes"] != total_bytes
+        or attestation["all_expected_objects_verified"] is not True
+        or attestation["exact_body_identity_verified"] is not True
+        or attestation["version_id_argument_supplied_on_all_calls"] is not True
+        or attestation["unexpected_object_count"] != 0
+        or attestation["module_list_api_call_count"] != 0
+        or attestation["module_write_api_call_count"] != 0
+        or attestation["module_durable_data_copy_count"] != 0
+        or attestation["read_ledger_sha256"]
+        != canonical_sha256(attestation["read_ledger"])
+    ):
+        _fail(code, f"{label} does not attest the exact expected object set")
+    return copy.deepcopy(attestation)
+
+
+def _manifest_l2_quality_identity(
+    base_manifest_bytes: bytes, date_text: str,
+) -> dict[str, Any]:
+    """Extract the exact L2 quality receipt identity from the base release.
+
+    The bytes must be the exact V3 manifest already byte-verified against
+    ``base_manifest_exact_identity`` (``_rebuild_exact_base``); this helper
+    re-runs the full v3 validation and returns the release's own declared
+    quality object so a caller-substituted quality file cannot pass.
+    """
+    if type(base_manifest_bytes) is not bytes:
+        _fail(
+            "D07_L2_QUALITY_BASE_BYTES",
+            "exact base manifest bytes are required for the quality binding",
+        )
+    try:
+        manifest = json.loads(base_manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        _fail("D07_L2_QUALITY_BASE_BYTES", str(exc))
+    try:
+        descriptor = reference.validate_manifest(manifest)
+    except reference.ReferenceManifestError as exc:
+        _fail("D07_L2_QUALITY_BASE_BYTES", str(exc))
+    logical_key = f"control/quality/v1/date={date_text}/l2_gaps.json"
+    rows = [
+        row for row in descriptor["objects"]
+        if row["kind"] == "l2_quality_receipt" and row["date"] == date_text
+    ]
+    if len(rows) != 1 or rows[0]["logical_key"] != logical_key:
+        _fail(
+            "D07_L2_QUALITY_BASE_BINDING",
+            f"base release must declare exactly one canonical "
+            f"{logical_key}",
+        )
+    row = rows[0]
+    return {
+        "release_id": descriptor["release_id"],
+        "logical_key": logical_key,
+        "identity": {
+            "bucket": row["source_bucket"],
+            "key": row["source_key"],
+            "version_id": row["source_version_id"],
+            "size": row["size"],
+            "sha256": row["sha256"],
+        },
+    }
+
+
+def build_l2_quality_gate(
+    *,
+    analysis_date: str,
+    exact_identity: dict[str, Any],
+    body: bytes,
+    reader_attestation: dict[str, Any],
+    base_manifest_bytes: bytes,
+) -> dict[str, Any]:
+    """Build a D07 L2 quality gate from exact, attested receipt bytes.
+
+    Fail-closed contract (P0): the receipt must be the canonical sealed
+    ``l2-gap-receipt-v1`` object that the exact base release itself declares
+    (canonical key, exact VersionId, bytes and SHA-256), it must have been
+    read through the exact reader (attestation over exactly this identity),
+    and every required counter must be present and typed -- an omitted or
+    mistyped sequence/loss field is an error, never zero.  Any sequence
+    loss, parser error, recorder gap/loss/epoch marker, absent file, or
+    empty stream refuses the entire date rather than salvaging impact
+    observations.
     """
     date_text = _date(analysis_date, "L2 quality date")
     identity_fields = {"bucket", "key", "version_id", "size", "sha256"}
@@ -401,6 +608,18 @@ def build_l2_quality_gate(
     ):
         _fail("D07_L2_QUALITY_IDENTITY", "quality exact identity is invalid")
     _sha(identity["sha256"], "L2 quality identity.sha256")
+    declared = _manifest_l2_quality_identity(base_manifest_bytes, date_text)
+    if identity != declared["identity"]:
+        _fail(
+            "D07_L2_QUALITY_BASE_BINDING",
+            "quality identity differs from the exact base release's own "
+            "declared l2_quality_receipt object",
+        )
+    attestation = _validate_reader_attestation(
+        reader_attestation, [identity],
+        label="L2 quality reader attestation",
+        code="D07_L2_QUALITY_ATTESTATION",
+    )
     if type(body) is not bytes:
         _fail("D07_L2_QUALITY_BYTES", "quality receipt body must be bytes")
     if len(body) != identity["size"]:
@@ -411,48 +630,107 @@ def build_l2_quality_gate(
         receipt = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         _fail("D07_L2_QUALITY_JSON", str(exc))
-    if not isinstance(receipt, dict) or receipt.get("date") != date_text:
+    if not isinstance(receipt, dict):
+        _fail("D07_L2_QUALITY_SCHEMA", "quality receipt is not an object")
+    if set(receipt) != L2_QUALITY_RECEIPT_FIELDS:
+        missing = sorted(L2_QUALITY_RECEIPT_FIELDS - set(receipt))
+        extra = sorted(set(receipt) - L2_QUALITY_RECEIPT_FIELDS)
+        _fail(
+            "D07_L2_QUALITY_SCHEMA",
+            f"quality receipt fields differ from the canonical sealed "
+            f"schema (missing={missing} extra={extra})",
+        )
+    if receipt["schema_version"] != L2_QUALITY_RECEIPT_SCHEMA_VERSION:
+        _fail(
+            "D07_L2_QUALITY_SCHEMA",
+            "quality receipt schema_version is not the canonical "
+            f"{L2_QUALITY_RECEIPT_SCHEMA_VERSION}",
+        )
+    if receipt["date"] != date_text:
         _fail("D07_L2_QUALITY_DATE", "quality receipt date differs")
-    blockers: list[str] = []
-    for key in (
-        "parse_errors", "seq_gap_events", "seq_missed_total",
-        "seq_regressions", "markers_lost_frames",
+    if not isinstance(receipt["raw_root"], str) or not receipt["raw_root"]:
+        _fail("D07_L2_QUALITY_SCHEMA", "raw_root must be non-empty text")
+    files = receipt["files"]
+    if not isinstance(files, list) or any(
+        not isinstance(name, str) or not name for name in files
     ):
-        value = receipt.get(key, 0)
-        try:
-            count = int(value or 0)
-        except (TypeError, ValueError):
-            blockers.append(f"{key}=INVALID")
-        else:
-            if count:
-                blockers.append(f"{key}={count}")
-    markers = receipt.get("recorder_markers") or {}
-    if not isinstance(markers, Mapping):
-        blockers.append("recorder_markers=INVALID")
-        markers = {}
-    for key, value in sorted(markers.items(), key=lambda row: str(row[0])):
-        if str(key).lower() in {"gap", "loss", "epoch_change"}:
-            try:
-                count = int(value or 0)
-            except (TypeError, ValueError):
-                count = 1
-            if count:
-                blockers.append(f"recorder_marker:{key}={count}")
-    if receipt.get("no_l2_files") is True:
+        _fail("D07_L2_QUALITY_SCHEMA", "files must be a list of file names")
+    inventory = receipt["file_inventory"]
+    if not isinstance(inventory, list) or len(inventory) != len(files):
+        _fail(
+            "D07_L2_QUALITY_SCHEMA",
+            "file_inventory must enumerate exactly the scanned files",
+        )
+    for index, row in enumerate(inventory):
+        entry = _exact_keys(
+            row, {"file", "bytes"}, f"file_inventory[{index}]",
+        )
+        if not isinstance(entry["file"], str) or not entry["file"]:
+            _fail(
+                "D07_L2_QUALITY_SCHEMA",
+                f"file_inventory[{index}].file must be text",
+            )
+        _typed_count(
+            entry["bytes"], f"file_inventory[{index}].bytes",
+            "D07_L2_QUALITY_SCHEMA",
+        )
+    if type(receipt["no_l2_files"]) is not bool:
+        _fail("D07_L2_QUALITY_SCHEMA", "no_l2_files must be a boolean")
+    if receipt["no_l2_files"] is not (not files):
+        _fail(
+            "D07_L2_QUALITY_SCHEMA",
+            "no_l2_files contradicts the scanned file list",
+        )
+    counters = {
+        key: _typed_count(receipt[key], key, "D07_L2_QUALITY_SCHEMA")
+        for key in L2_QUALITY_COUNTER_FIELDS
+    }
+    markers = receipt["recorder_markers"]
+    if not isinstance(markers, dict):
+        _fail("D07_L2_QUALITY_SCHEMA", "recorder_markers must be an object")
+    for key, value in markers.items():
+        if not isinstance(key, str) or not key:
+            _fail("D07_L2_QUALITY_SCHEMA", "recorder marker key must be text")
+        _typed_count(
+            value, f"recorder_markers[{key}]", "D07_L2_QUALITY_SCHEMA",
+        )
+    per_market = receipt["per_market"]
+    if not isinstance(per_market, dict):
+        _fail("D07_L2_QUALITY_SCHEMA", "per_market must be an object")
+    for ticker, row in per_market.items():
+        if not isinstance(ticker, str) or not ticker:
+            _fail("D07_L2_QUALITY_SCHEMA", "per_market key must be text")
+        entry = _exact_keys(
+            row, {"msgs", "snapshots", "re_anchors"},
+            f"per_market[{ticker}]",
+        )
+        for key in ("msgs", "snapshots", "re_anchors"):
+            _typed_count(
+                entry[key], f"per_market[{ticker}].{key}",
+                "D07_L2_QUALITY_SCHEMA",
+            )
+    blockers: list[str] = []
+    for key in L2_QUALITY_BLOCKING_COUNTERS:
+        if counters[key]:
+            blockers.append(f"{key}={counters[key]}")
+    for key in sorted(markers):
+        if key.lower() in {"gap", "loss", "epoch_change"} and markers[key]:
+            blockers.append(f"recorder_marker:{key}={markers[key]}")
+    if receipt["no_l2_files"] is True:
         blockers.append("no_l2_files=true")
-    try:
-        lines = int(receipt.get("lines") or 0)
-    except (TypeError, ValueError):
-        lines = 0
-    if lines <= 0:
+    if counters["lines"] <= 0:
         blockers.append("lines<=0")
     result = {
-        "schema": "fresh-rfq-d07-l2-quality-gate-v1",
+        "schema": L2_QUALITY_GATE_SCHEMA,
         "analysis_date": date_text,
         "state": "PASS" if not blockers else "REFUSED",
+        "receipt_schema_version": L2_QUALITY_RECEIPT_SCHEMA_VERSION,
+        "base_release_id": declared["release_id"],
+        "logical_key": declared["logical_key"],
         "exact_identity": copy.deepcopy(identity),
         "exact_body_verified": True,
-        "lines": lines,
+        "reader_attestation_sha256": attestation["attestation_sha256"],
+        "lines": counters["lines"],
         "blockers": blockers,
         "salvage_allowed": False,
     }
@@ -1058,9 +1336,16 @@ def _source_binding(descriptors: list[dict[str, Any]], buckets: int) -> str:
 
 
 def _resource_preflight(
-    descriptors: list[dict[str, Any]], checkpoint_root: Path,
+    descriptors: list[dict[str, Any]],
+    checkpoint_root: Path,
+    exact_temp_parent: Path | None = None,
 ) -> dict[str, Any]:
-    """Enforce hard event bounds and a conservative local-disk envelope."""
+    """Enforce hard event bounds and a conservative local-disk envelope.
+
+    Both filesystems that this run can write are covered: the checkpoint
+    filesystem (durable parquet + scratch + the bounded DuckDB spill) and
+    the exact-temp filesystem the exact reader stages objects on.
+    """
     for descriptor in descriptors:
         provenance = descriptor["manifest"].get("request_provenance")
         if not isinstance(provenance, dict):
@@ -1091,23 +1376,54 @@ def _resource_preflight(
         for descriptor in descriptors
         for identity in descriptor["analysis_rfq_objects"]
     )
-    required_bytes = (
+    # Checkpoint filesystem carries the durable+scratch checkpoint envelope
+    # (RFQ_CHECKPOINT_EXPANSION_FACTOR, justified at the constant) plus the
+    # bounded DuckDB spill directory which is pinned under the checkpoint
+    # root.  The exact-temp filesystem stages at most one exact object at a
+    # time (exact reader max_active_object_count == 1).
+    checkpoint_required = (
         total_bytes * RFQ_CHECKPOINT_EXPANSION_FACTOR
-        + peak_object_bytes
+        + RFQ_DUCKDB_SPILL_CAP_BYTES
         + RFQ_CHECKPOINT_RESERVE_BYTES
     )
-    ancestor = Path(checkpoint_root).absolute()
-    while not ancestor.exists() and ancestor != ancestor.parent:
-        ancestor = ancestor.parent
+    temp_required = peak_object_bytes + RFQ_EXACT_TEMP_RESERVE_BYTES
+
+    def _existing_ancestor(path: Path) -> Path:
+        ancestor = Path(path).absolute()
+        while not ancestor.exists() and ancestor != ancestor.parent:
+            ancestor = ancestor.parent
+        return ancestor
+
+    checkpoint_probe = _existing_ancestor(Path(checkpoint_root))
+    temp_probe = _existing_ancestor(
+        Path(tempfile.gettempdir()) if exact_temp_parent is None
+        else Path(exact_temp_parent)
+    )
     try:
-        free_bytes = shutil.disk_usage(ancestor).free
+        checkpoint_device = os.stat(checkpoint_probe).st_dev
+        temp_device = os.stat(temp_probe).st_dev
     except OSError as exc:
-        _fail("RESOURCE_PREFLIGHT", f"cannot inspect checkpoint disk: {exc}")
-    if free_bytes < required_bytes:
-        _fail(
-            "RESOURCE_PREFLIGHT",
-            f"checkpoint disk needs {required_bytes} bytes; {free_bytes} free",
-        )
+        _fail("RESOURCE_PREFLIGHT", f"cannot inspect filesystems: {exc}")
+    shared_filesystem = checkpoint_device == temp_device
+    demands = (
+        [(checkpoint_probe, "checkpoint+exact-temp filesystem",
+          checkpoint_required + temp_required)]
+        if shared_filesystem
+        else [
+            (checkpoint_probe, "checkpoint filesystem", checkpoint_required),
+            (temp_probe, "exact-temp filesystem", temp_required),
+        ]
+    )
+    for probe, label, required in demands:
+        try:
+            free_bytes = shutil.disk_usage(probe).free
+        except OSError as exc:
+            _fail("RESOURCE_PREFLIGHT", f"cannot inspect {label}: {exc}")
+        if free_bytes < required:
+            _fail(
+                "RESOURCE_PREFLIGHT",
+                f"{label} needs {required} bytes; {free_bytes} free",
+            )
     return {
         "state": "PASS",
         "max_accumulated_rfq_occurrences_per_date": (
@@ -1125,8 +1441,26 @@ def _resource_preflight(
         "checkpoint_input_bytes": total_bytes,
         "checkpoint_peak_exact_object_bytes": peak_object_bytes,
         "checkpoint_expansion_factor": RFQ_CHECKPOINT_EXPANSION_FACTOR,
+        "checkpoint_expansion_justification": (
+            "durable parquet stages <=4.0x decoded input (events<=2.0x with "
+            "per-row provenance, mapping<=1.0x, lifecycle<=0.5x, "
+            "meta<=0.5x) plus transient per-date .partial scratch <=3.0x, "
+            "removed before the next date; ceiling with parquet metadata "
+            "slack = 8x; DuckDB spill and exact-object staging budgeted "
+            "separately"
+        ),
         "checkpoint_reserve_bytes": RFQ_CHECKPOINT_RESERVE_BYTES,
-        "checkpoint_required_free_bytes": required_bytes,
+        "checkpoint_required_free_bytes": checkpoint_required,
+        "duckdb_memory_limit": RFQ_DUCKDB_MEMORY_LIMIT,
+        "duckdb_threads": RFQ_DUCKDB_THREADS,
+        "duckdb_spill_directory": (
+            f"<checkpoint_root>/{RFQ_DUCKDB_SPILL_DIRNAME}"
+        ),
+        "duckdb_spill_cap_bytes": RFQ_DUCKDB_SPILL_CAP_BYTES,
+        "exact_temp_reserve_bytes": RFQ_EXACT_TEMP_RESERVE_BYTES,
+        "exact_temp_required_free_bytes": temp_required,
+        "exact_temp_max_active_objects": 1,
+        "checkpoint_and_temp_share_filesystem": shared_filesystem,
         "resume_granularity": "COMPLETE_EXACT_DATE_STAGE_ONLY",
         "partial_date_reuse": False,
     }
@@ -1932,6 +2266,161 @@ def _python_numeric_summary(values: list[int], unit: str) -> dict[str, Any]:
     }
 
 
+def _validate_d07_producer_receipt(value: Any) -> dict[str, Any]:
+    """Validate the audited D07 producer/algorithm receipt.
+
+    The receipt names the exact producer algorithm and module SHA that an
+    independent audit passed; the adapter must embed it verbatim so caller
+    booleans cannot stand in for an audited producer.
+    """
+    receipt = _exact_keys(
+        value,
+        {
+            "schema", "state", "algorithm_id", "producer_module_sha256",
+            "audit_receipt_sha256", "receipt_sha256",
+        },
+        "D07 producer receipt",
+    )
+    if receipt["schema"] != D07_PRODUCER_SCHEMA:
+        _fail("D07_PRODUCER_INVALID", "producer receipt schema differs")
+    if receipt["state"] != "AUDITED_PASS":
+        _fail(
+            "D07_PRODUCER_INVALID",
+            "producer receipt state must be AUDITED_PASS",
+        )
+    algorithm = receipt["algorithm_id"]
+    if (
+        not isinstance(algorithm, str)
+        or SAFE_STAGE_RE.fullmatch(algorithm) is None
+    ):
+        _fail("D07_PRODUCER_INVALID", "producer algorithm_id is invalid")
+    _sha(receipt["producer_module_sha256"], "producer_module_sha256")
+    _sha(receipt["audit_receipt_sha256"], "audit_receipt_sha256")
+    _verify_self_digest(receipt, "receipt_sha256", "D07 producer receipt")
+    return copy.deepcopy(receipt)
+
+
+def _validate_partition_receipts(
+    value: Any,
+    expected_sources: Mapping[str, dict[str, Any]],
+    *,
+    analysis_date: str,
+    observation_count: int,
+) -> list[dict[str, Any]]:
+    """Validate the D07 producer's per-family partition/checkpoint receipts."""
+    if not isinstance(value, list) or len(value) != len(
+        IMPACT_SOURCE_FAMILIES
+    ):
+        _fail(
+            "IMPACT_ADAPTER_PARTITION",
+            "exactly one partition receipt per source family is required",
+        )
+    seen: list[str] = []
+    validated: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        receipt = _exact_keys(
+            raw,
+            {
+                "schema", "analysis_date", "family", "source_object_count",
+                "source_row_count", "component_row_count", "content_sha256",
+                "receipt_sha256",
+            },
+            f"partition receipt {index}",
+        )
+        if receipt["schema"] != D07_PARTITION_RECEIPT_SCHEMA:
+            _fail(
+                "IMPACT_ADAPTER_PARTITION",
+                f"partition receipt {index} schema differs",
+            )
+        if receipt["analysis_date"] != analysis_date:
+            _fail(
+                "IMPACT_ADAPTER_PARTITION",
+                f"partition receipt {index} date differs",
+            )
+        family = receipt["family"]
+        expected = expected_sources.get(family)
+        if expected is None:
+            _fail(
+                "IMPACT_ADAPTER_PARTITION",
+                f"partition receipt {index} names an unknown family",
+            )
+        seen.append(family)
+        _sha(receipt["content_sha256"], f"partition receipt {index} content")
+        _verify_self_digest(
+            receipt, "receipt_sha256", f"partition receipt {index}",
+        )
+        if (
+            receipt["source_object_count"] != expected["exact_object_count"]
+            or receipt["source_row_count"] != expected["source_row_count"]
+            or receipt["component_row_count"] != observation_count
+        ):
+            _fail(
+                "IMPACT_ADAPTER_PARTITION",
+                f"partition receipt {index} counts differ from the exact "
+                "attested source",
+            )
+        validated.append(receipt)
+    if seen != sorted(IMPACT_SOURCE_FAMILIES) and seen != list(
+        IMPACT_SOURCE_FAMILIES
+    ):
+        _fail(
+            "IMPACT_ADAPTER_PARTITION",
+            "partition receipts must cover each source family exactly once "
+            "in deterministic family order",
+        )
+    return validated
+
+
+def _recompute_book_side(
+    row: Mapping[str, Any],
+    side: str,
+    key: tuple[str, int],
+    allowed_logical: Mapping[str, set[str]],
+) -> tuple[int, int, int, int]:
+    """Recompute (ts_us, mid_e6, spread_e6, depth_e2) from raw book evidence."""
+    book = _exact_keys(
+        row[f"{side}_book"], IMPACT_BOOK_FIELDS, f"{key}.{side}_book",
+    )
+    for field in ("ts_us", "bid_e6", "ask_e6", "bid_depth_e2", "ask_depth_e2"):
+        if type(book[field]) is not int:
+            _fail(
+                "IMPACT_ADAPTER_BOOK",
+                f"{key}.{side}_book.{field} must be an integer",
+            )
+    family = book["source_family"]
+    if family not in allowed_logical:
+        _fail(
+            "IMPACT_ADAPTER_BOOK",
+            f"{key}.{side}_book source family is not an attested family",
+        )
+    if book["source_logical_key"] not in allowed_logical[family]:
+        _fail(
+            "IMPACT_ADAPTER_BOOK",
+            f"{key}.{side}_book source object is outside the exact attested "
+            f"{family} set",
+        )
+    _sha(book["source_row_sha256"], f"{key}.{side}_book.source_row_sha256")
+    bid, ask = book["bid_e6"], book["ask_e6"]
+    if not 0 <= bid <= ask <= 1_000_000:
+        _fail(
+            "IMPACT_ADAPTER_BOOK",
+            f"{key}.{side}_book bid/ask is outside the probability range",
+        )
+    if min(book["bid_depth_e2"], book["ask_depth_e2"]) < 0:
+        _fail("IMPACT_ADAPTER_BOOK", f"{key}.{side}_book depth is negative")
+    if (bid + ask) % 2:
+        _fail(
+            "IMPACT_ADAPTER_BOOK",
+            f"{key}.{side}_book mid is not exactly representable at E6",
+        )
+    return (
+        book["ts_us"],
+        (bid + ask) // 2,
+        ask - bid,
+        book["bid_depth_e2"] + book["ask_depth_e2"],
+    )
+
+
 def _validate_impact_adapter(
     value: Any,
     descriptor: dict[str, Any],
@@ -1940,12 +2429,15 @@ def _validate_impact_adapter(
     exact_base: dict[str, Any],
     l2_quality_gate: dict[str, Any],
     rfq_events: Mapping[str, dict[str, Any]],
+    producer_receipt: dict[str, Any],
 ) -> dict[str, Any]:
     fields = {
         "schema", "state", "analysis_date", "mapping_sha256",
         "source_gate_sha256", "base_binding_sha256", "base_release_id",
         "base_manifest_exact_identity", "base_exact_object_set_sha256",
         "source_attestations", "source_attestation_set_sha256",
+        "producer_receipt", "source_reader_attestation",
+        "partition_receipts", "partition_receipt_set_sha256",
         "l2_quality_gate_sha256", "window_contract",
         "observation_count", "observations", "observations_sha256",
         "adapter_sha256",
@@ -1963,6 +2455,7 @@ def _validate_impact_adapter(
         "event_clock": "RFQ_EXCHANGE_CREATED_TS_US",
         "receive_clock": "RFQ_ENVELOPE_RECV_WALL_NS",
         "max_abs_exchange_receive_skew_us": MAX_RFQ_CLOCK_ABS_SKEW_US,
+        "clock_tolerance_authority": RFQ_CLOCK_TOLERANCE_AUTHORITY,
         "cross_date_borrow": False,
     }
     if (
@@ -1988,6 +2481,43 @@ def _validate_impact_adapter(
     ):
         _fail("IMPACT_ADAPTER_BINDING", "adapter fixed binding differs")
     _verify_self_digest(value, "adapter_sha256", "CLOB impact adapter")
+    if canonical_bytes(value["producer_receipt"]) != canonical_bytes(
+        producer_receipt
+    ):
+        _fail(
+            "IMPACT_ADAPTER_PRODUCER",
+            "adapter producer differs from the audited D07 producer receipt",
+        )
+    source_identities = [
+        row
+        for family in IMPACT_SOURCE_FAMILIES
+        for row in exact_base["families"][family]["objects"]
+    ]
+    _validate_reader_attestation(
+        value["source_reader_attestation"], source_identities,
+        label="D07 L1/L2 source reader attestation",
+        code="IMPACT_ADAPTER_SOURCE_ATTESTATION",
+    )
+    _validate_partition_receipts(
+        value["partition_receipts"], expected_sources,
+        analysis_date=descriptor["date"],
+        observation_count=value["observation_count"]
+        if type(value["observation_count"]) is int else -1,
+    )
+    if value["partition_receipt_set_sha256"] != canonical_sha256(
+        value["partition_receipts"]
+    ):
+        _fail(
+            "IMPACT_ADAPTER_PARTITION",
+            "partition receipt set digest differs",
+        )
+    allowed_logical = {
+        family: {
+            row["logical_key"]
+            for row in exact_base["families"][family]["objects"]
+        }
+        for family in IMPACT_SOURCE_FAMILIES
+    }
     observations = value["observations"]
     if not isinstance(observations, list):
         _fail("IMPACT_ADAPTER_SCHEMA", "observations must be a list")
@@ -2124,10 +2654,34 @@ def _validate_impact_adapter(
                        row["pre_depth_e2"], row["post_depth_e2"]) < 0
             ):
                 _fail("IMPACT_ADAPTER_OBSERVATION", f"invalid observed row {key}")
+            # Independent recomputation (P0): declared pre/post mid, spread
+            # and depth are never trusted -- they must equal the values this
+            # module recomputes from the raw attested book evidence rows.
+            for side in ("pre", "post"):
+                ts_us, mid_e6, spread_e6, depth_e2 = _recompute_book_side(
+                    row, side, key, allowed_logical,
+                )
+                if ts_us != row[f"{side}_observation_ts_us"]:
+                    _fail(
+                        "IMPACT_ADAPTER_RECOMPUTE",
+                        f"{key} {side} book clock differs from the declared "
+                        "observation clock",
+                    )
+                if (
+                    mid_e6 != row[f"{side}_mid_e6"]
+                    or spread_e6 != row[f"{side}_spread_e6"]
+                    or depth_e2 != row[f"{side}_depth_e2"]
+                ):
+                    _fail(
+                        "IMPACT_ADAPTER_RECOMPUTE",
+                        f"{key} declared {side} values differ from the "
+                        "independently recomputed book evidence",
+                    )
         else:
             if any(
                 row[field] is not None
                 for field in numeric_fields + observation_clock_fields
+                + ("pre_book", "post_book")
             ):
                 _fail("IMPACT_ADAPTER_CENSOR", f"censored {key} carries values")
             if status == "CENSORED_GAP" and row["gap_rows"] <= 0:
@@ -2151,6 +2705,7 @@ def _d07_result(
     exact_bases: Mapping[str, dict[str, Any]] | None,
     l2_quality_gates: Mapping[str, dict[str, Any]] | None,
     rfq_events: Mapping[str, dict[str, Any]],
+    producer_receipt: dict[str, Any] | None,
 ) -> dict[str, Any]:
     contract = {
         "schema": IMPACT_SCHEMA,
@@ -2163,6 +2718,11 @@ def _d07_result(
         "exact_base_manifest_rebuild_required": True,
         "exact_l1_l2_source_attestation_required": True,
         "l2_quality_pass_required": True,
+        "audited_producer_receipt_required": True,
+        "source_reader_attestation_required": True,
+        "partition_receipts_required": True,
+        "pre_post_values_recomputed_from_book_evidence": True,
+        "clock_tolerance_authority": RFQ_CLOCK_TOLERANCE_AUTHORITY,
         "pre_event_state_must_be_past_or_event": True,
         "post_event_state_must_be_strictly_future": True,
         "rfq_event_dedup_clock_policy": (
@@ -2204,6 +2764,22 @@ def _d07_result(
             "contract": contract, "observed_components": 0,
             "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
         }
+    if producer_receipt is None:
+        return {
+            "id": "D07", "status": "BLOCKED_PRODUCER_AUDIT_NOT_SUPPLIED",
+            "contract": contract, "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    for date_text in sorted(expected_dates):
+        gate = l2_quality_gates[date_text]
+        if gate.get("base_release_id") != exact_bases[date_text][
+            "release_id"
+        ]:
+            _fail(
+                "D07_L2_QUALITY_RELEASE",
+                f"{date_text} quality gate is not bound to the same exact "
+                "base release",
+            )
     refused_quality = {
         date: gate.get("blockers")
         for date, gate in l2_quality_gates.items()
@@ -2233,6 +2809,7 @@ def _d07_result(
             exact_base=exact_bases[descriptor["date"]],
             l2_quality_gate=l2_quality_gates[descriptor["date"]],
             rfq_events=rfq_events,
+            producer_receipt=producer_receipt,
         )
         adapter_shas.append(adapter["adapter_sha256"])
         for row in adapter["observations"]:
@@ -2272,6 +2849,7 @@ def _d07_result(
         if impacts else "BLOCKED_NO_OBSERVED_COMPONENTS",
         "contract": contract,
         "adapter_set_sha256": canonical_sha256(adapter_shas),
+        "producer_receipt_sha256": producer_receipt["receipt_sha256"],
         "exact_base_binding_sha256s": [
             exact_bases[date]["binding_sha256"] for date in sorted(expected_dates)
         ],
@@ -2324,6 +2902,7 @@ def _build_report(
     exact_bases: Mapping[str, dict[str, Any]] | None,
     l2_quality_gates: Mapping[str, dict[str, Any]] | None,
     resource_preflight: dict[str, Any],
+    producer_receipt: dict[str, Any] | None,
 ) -> dict[str, Any]:
     lifecycle_paths = [
         _checkpoint_path(store, LIFECYCLE_STAGE, f"h{bucket:02d}")
@@ -2718,6 +3297,7 @@ def _build_report(
             exact_bases=exact_bases,
             l2_quality_gates=l2_quality_gates,
             rfq_events=rfq_events,
+            producer_receipt=producer_receipt,
         ),
         "d08_profitability": {
             "id": "D08",
@@ -2784,6 +3364,7 @@ def run_bounded_fresh_rfq(
     impact_adapters: Mapping[str, dict[str, Any]] | None = None,
     base_manifest_bytes_by_date: Mapping[str, bytes] | None = None,
     l2_quality_receipts_by_date: Mapping[str, dict[str, Any]] | None = None,
+    d07_producer_receipt: dict[str, Any] | None = None,
     report_path: str | os.PathLike[str] | None = None,
     expected_eligible_dates: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -2836,7 +3417,11 @@ def run_bounded_fresh_rfq(
         _fail("OVERLAY_SET_INVALID", "overlay set spans multiple generations")
     resource_preflight = _resource_preflight(
         descriptors, Path(checkpoint_root),
+        None if exact_temp_parent is None else Path(exact_temp_parent),
     )
+    producer_receipt: dict[str, Any] | None = None
+    if d07_producer_receipt is not None:
+        producer_receipt = _validate_d07_producer_receipt(d07_producer_receipt)
 
     date_set = set(observed_date_texts)
     exact_bases: dict[str, dict[str, Any]] | None = None
@@ -2866,17 +3451,26 @@ def run_bounded_fresh_rfq(
                 "D07_L2_QUALITY_SET",
                 "exact L2 quality receipt set must equal overlay dates",
             )
+        if exact_bases is None:
+            _fail(
+                "D07_L2_QUALITY_BASE_REQUIRED",
+                "L2 quality receipts require the exact base manifest bytes "
+                "for the same dates; a quality object cannot prove base "
+                "membership without them",
+            )
         l2_quality_gates = {}
         for date_text in observed_date_texts:
             entry = _exact_keys(
                 l2_quality_receipts_by_date[date_text],
-                {"exact_identity", "body"},
+                {"exact_identity", "body", "reader_attestation"},
                 f"L2 quality receipt {date_text}",
             )
             l2_quality_gates[date_text] = build_l2_quality_gate(
                 analysis_date=date_text,
                 exact_identity=entry["exact_identity"],
                 body=entry["body"],
+                reader_attestation=entry["reader_attestation"],
+                base_manifest_bytes=base_manifest_bytes_by_date[date_text],
             )
 
     source_binding = _source_binding(descriptors, hash_buckets)
@@ -2888,9 +3482,21 @@ def run_bounded_fresh_rfq(
     }
     con = duckdb.connect()
     try:
-        con.execute("SET threads=2")
-        con.execute("SET memory_limit='16GB'")
+        con.execute(f"SET threads={RFQ_DUCKDB_THREADS}")
+        con.execute(f"SET memory_limit='{RFQ_DUCKDB_MEMORY_LIMIT}'")
         con.execute("SET preserve_insertion_order=false")
+        # Bind and cap DuckDB spill: out-of-memory operators may only spill
+        # into the preflighted checkpoint filesystem, never an unbounded
+        # system temp, and never beyond the preflight spill budget.
+        spill_root = (
+            Path(checkpoint_root).absolute() / RFQ_DUCKDB_SPILL_DIRNAME
+        )
+        spill_root.mkdir(parents=True, exist_ok=True)
+        con.execute(f"SET temp_directory={quote(spill_root)}")
+        con.execute(
+            "SET max_temp_directory_size="
+            f"'{RFQ_DUCKDB_SPILL_CAP_BYTES // (1 << 20)}MiB'"
+        )
         with BoundedCheckpointStore(Path(checkpoint_root), source_binding) as store:
             metas = [
                 _materialize_day(
@@ -2936,7 +3542,7 @@ def run_bounded_fresh_rfq(
             report = _build_report(
                 con, store, descriptors, metas, lifecycle_totals,
                 hash_buckets, impact_adapters, exact_bases, l2_quality_gates,
-                resource_preflight,
+                resource_preflight, producer_receipt,
             )
         if report_path is not None:
             _write_report(Path(report_path), report)
