@@ -1610,6 +1610,31 @@ def _write_date_reducers(
         == invariant_receipt["controls"]
     ):
         raise L2ResearchError(f"L2 matched-control uniqueness failed: {date}")
+    episode_coverage_row = con.execute(f"""
+      SELECT count(*)::BIGINT,
+             count(*) FILTER (
+               WHERE covariate_timing='PRE_DEPLETION_STATE'
+                 AND nullif(event_proxy,'') IS NOT NULL
+                 AND pre_topology='TWO_SIDED'
+                 AND pre_spread_e4 IS NOT NULL
+                 AND pre_imbalance_depth3 IS NOT NULL
+                 AND pre_side_depth3_e4 IS NOT NULL
+             )::BIGINT
+      FROM {episode_relation}
+    """).fetchone()
+    eligible_episode_rows = int(episode_coverage_row[1])
+    matched_episode_rows = invariant_receipt["episodes"]
+    episode_coverage = {
+        "all_episode_rows": int(episode_coverage_row[0]),
+        "eligible_pre_treatment_two_sided_rows": eligible_episode_rows,
+        "matched_rows": matched_episode_rows,
+        "unmatched_eligible_rows": max(0, eligible_episode_rows - matched_episode_rows),
+        "match_rate": (
+            matched_episode_rows / eligible_episode_rows
+            if eligible_episode_rows else None
+        ),
+        "collision_losers_rematched_to_second_choice": False,
+    }
 
     def standardized_balance(treatment: str, control: str) -> float | None:
         values = con.execute(f"""
@@ -1719,6 +1744,7 @@ def _write_date_reducers(
             "past_only_required": True,
             "without_control_replacement": True,
             "invariants": invariant_receipt,
+            "episode_coverage": episode_coverage,
             "negative_controls": negative_controls,
             "balance": balance_receipt,
             "concentration": {

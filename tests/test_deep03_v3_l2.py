@@ -983,6 +983,11 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     assert metrics["theoretical_candidates_per_episode_bound"] <= \
         l2.MAX_MATCH_CANDIDATES_PER_EPISODE
     assert "balance" in metrics and "concentration" in metrics
+    assert metrics["episode_coverage"]["eligible_pre_treatment_two_sided_rows"] == 1
+    assert metrics["episode_coverage"]["matched_rows"] == 1
+    assert metrics["episode_coverage"][
+        "collision_losers_rematched_to_second_choice"
+    ] is False
     columns = {
         row[0] for row in con.execute(
             f"DESCRIBE SELECT * FROM read_parquet('{match_path}')"
