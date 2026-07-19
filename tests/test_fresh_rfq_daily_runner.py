@@ -87,11 +87,16 @@ def test_producer_unit_is_independent_and_aws_transport_has_no_write_api():
     assert "put-object-tagging" not in source
     assert "Requires=kalshi-research-v3" not in service
     assert "Requires=kalshi-rfq-capture" not in service
-    assert "fresh_rfq_daily_runner.py" in service
+    assert "fresh_rfq_daily_pipeline.py" in service
+    assert "--scan-days 90" not in service
+    assert "WorkingDirectory=/opt/kalshi-fresh-rfq-daily" in service
     assert "OnCalendar=" in timer
     assert "systemctl enable" in installer
     assert "systemctl start" not in installer
     assert "AUTHORITY_FILE_SHA=2fa1caf" in installer
+    assert "RUNTIME=/opt/kalshi-fresh-rfq-daily" in installer
+    assert "status --porcelain=v1 --untracked-files=all" in installer
+    assert "/opt/kalshi-research-v3" in installer
 
 
 def test_fixed_authority_and_minimal_iam_delta_are_bound_and_not_applied():

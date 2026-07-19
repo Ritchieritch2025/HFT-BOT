@@ -681,25 +681,10 @@ def produce(date: str, *, transport: AwsReadOnly,
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--date")
-    parser.add_argument("--scan-days", type=int, default=14)
+    parser.add_argument("--date", required=True)
     parser.add_argument("--aws-cli", type=pathlib.Path, default=AWS_CLI)
     args = parser.parse_args(argv)
-    if args.scan_days < 1 or args.scan_days > 90:
-        print("FRESH_RFQ_DAILY_PRODUCTS_BLOCKED scan-days outside 1..90",
-              file=sys.stderr)
-        return 2
-    if args.date:
-        dates = [args.date]
-    else:
-        yesterday = dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=1)
-        first = dt.date.fromisoformat(gate.PRODUCTION_STRICT_T0_UTC[:10])
-        dates = [
-            (yesterday - dt.timedelta(days=offset)).isoformat()
-            for offset in range(args.scan_days)
-            if yesterday - dt.timedelta(days=offset) >= first
-        ]
-        dates.sort()
+    dates = [args.date]
     ready = []
     blocked = []
     transport = AwsReadOnly(args.aws_cli)

@@ -1,5 +1,5 @@
 [Unit]
-Description=Kalshi read-only fresh RFQ daily evidence producer
+Description=Kalshi durable read-only fresh RFQ daily pipeline
 Wants=network-online.target
 After=network-online.target kalshi-s3-sync-hourly.service
 # Intentionally no Requires= relationship with capture, base research, or W09.
@@ -9,9 +9,9 @@ After=network-online.target kalshi-s3-sync-hourly.service
 Type=oneshot
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/opt/kalshi-research-v3
+WorkingDirectory=/opt/kalshi-fresh-rfq-daily
 UMask=0077
-Environment=PATH=/opt/kalshi-research-v3/.venv/bin:/snap/aws-cli/current/bin:/usr/bin:/bin
+Environment=PATH=/opt/kalshi-fresh-rfq-daily/.venv/bin:/snap/aws-cli/current/bin:/usr/bin:/bin
 Environment=HOME=/home/ubuntu
 Environment=AWS_PAGER=
 ExecStartPre=/usr/bin/test -r /var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260720-01/authority-envelope.json
@@ -19,7 +19,7 @@ ExecStartPre=/usr/bin/test -r /home/ubuntu/hft-bot/work/live/rfq_segments.ndjson
 ExecStartPre=/usr/bin/test -r /home/ubuntu/.kalshi/env.sh
 # Reuse the existing sync credential without printing it.  The runner exposes
 # only HEAD/GET/LIST and rejects every other AWS CLI operation before exec.
-ExecStart=/usr/bin/bash -lc 'source "$HOME/.kalshi/env.sh" || exit 78; exec /opt/kalshi-research-v3/.venv/bin/python /opt/kalshi-research-v3/tools/fresh_rfq_daily_runner.py --scan-days 90 --aws-cli /snap/aws-cli/current/bin/aws'
+ExecStart=/usr/bin/bash -lc 'source "$HOME/.kalshi/env.sh" || exit 78; exec /opt/kalshi-fresh-rfq-daily/.venv/bin/python /opt/kalshi-fresh-rfq-daily/tools/fresh_rfq_daily_pipeline.py --aws-cli /snap/aws-cli/current/bin/aws'
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=8h
@@ -48,5 +48,5 @@ RestrictRealtime=true
 LockPersonality=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/opt/kalshi-research-v3 /var/lib/kalshi-rfq-fresh/control /home/ubuntu/hft-bot/work/raw /home/ubuntu/hft-bot/work/warehouse /home/ubuntu/hft-bot/work/live/rfq_segments.ndjson -/home/ubuntu/hft-bot/work/live/rfq_alert.json /home/ubuntu/.kalshi
-ReadWritePaths=/home/ubuntu/hft-bot/work/live/fresh_rfq_research /home/ubuntu/hft-bot/work/live/fresh_rfq_producer
+ReadOnlyPaths=/opt/kalshi-fresh-rfq-daily /var/lib/kalshi-rfq-fresh/control /home/ubuntu/hft-bot/work/raw /home/ubuntu/hft-bot/work/warehouse /home/ubuntu/hft-bot/work/live/rfq_segments.ndjson -/home/ubuntu/hft-bot/work/live/rfq_alert.json -/home/ubuntu/hft-bot/work/live/research_v3_daily /home/ubuntu/.kalshi
+ReadWritePaths=/home/ubuntu/hft-bot/work/live/fresh_rfq_research /home/ubuntu/hft-bot/work/live/fresh_rfq_producer /home/ubuntu/hft-bot/work/live/fresh_rfq_overlays /home/ubuntu/hft-bot/work/live/fresh_rfq_pipeline
