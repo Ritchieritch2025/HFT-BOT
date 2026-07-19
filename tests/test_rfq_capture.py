@@ -998,6 +998,104 @@ def test_final_parse_rejects_unsafe_segment_start_cursor(tmp_path, unsafe):
         assert "invalid pre-capture byte cursor" in findings[0]
 
 
+@pytest.mark.parametrize("unsafe", [True, "0", 1.0, None])
+def test_final_parse_requires_exact_integer_segment_cursor(tmp_path, unsafe):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    base.write_bytes(_capture_row(when, marker="hour_open").encode())
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): unsafe}, "2026-07-12T04")
+
+    assert objects == []
+    assert evidence["recorder_rows"] == 0
+    assert len(findings) == 1
+    assert "cursor is not an integer" in findings[0]
+
+
+def test_final_parse_accepts_aligned_eof_without_replaying_prefix(tmp_path):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    prefix = _capture_row(when, marker="transport_close").encode()
+    base.write_bytes(prefix)
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): len(prefix)}, "2026-07-12T04")
+
+    assert findings == [] and evidence["findings"] == []
+    assert evidence["recorder_rows"] == 0
+    assert evidence["markers"] == {}
+    assert evidence["end_offsets"] == {str(base): len(prefix)}
+    assert objects[0]["parsed_bytes_at_close"] == len(prefix)
+    assert objects[0]["sha256"] == hashlib.sha256(prefix).hexdigest()
+
+
+def test_final_parse_reports_torn_new_suffix_at_exact_complete_line_eof(
+        tmp_path):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    prefix = _capture_row(when, marker="transport_close").encode()
+    complete_suffix = _capture_row(
+        when, frame={"type": "rfq_created"}).encode()
+    torn_suffix = b'{"recv_wall_ns":1783828860000000000'
+    payload = prefix + complete_suffix + torn_suffix
+    base.write_bytes(payload)
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): len(prefix)}, "2026-07-12T04")
+
+    complete_eof = len(prefix) + len(complete_suffix)
+    assert findings == []
+    assert evidence["rfq_created"] == 1
+    assert evidence["markers"].get("transport_close", 0) == 0
+    assert evidence["end_offsets"] == {str(base): complete_eof}
+    assert any("non-newline-terminated final row" in finding
+               for finding in evidence["findings"])
+    assert objects[0]["parsed_bytes_at_close"] == complete_eof
+    assert objects[0]["size"] == len(payload)
+    assert objects[0]["sha256"] == hashlib.sha256(payload).hexdigest()
+
+
+def test_final_parse_segment_cursor_may_cross_hash_read_boundary(
+        tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    prefix = _capture_row(when, marker="transport_close").encode()
+    suffix = _capture_row(
+        when, frame={"type": "rfq_created"}).encode()
+    payload = prefix + suffix
+    base.write_bytes(payload)
+    # Force the parser start into the middle of a hash read sequence instead
+    # of relying on production's much larger chunk size.
+    monkeypatch.setattr(rfq, "HASH_CHUNK_BYTES", 17)
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): len(prefix)}, "2026-07-12T04")
+
+    assert findings == [] and evidence["findings"] == []
+    assert evidence["recorder_rows"] == 1
+    assert evidence["rfq_created"] == 1
+    assert evidence["markers"].get("transport_close", 0) == 0
+    assert objects[0]["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert objects[0]["parsed_bytes_at_close"] == len(payload)
+
+
 def test_equal_length_rewrite_cannot_pair_stale_ack_with_new_hash(tmp_path):
     raw = tmp_path / "raw"
     day = raw / "date=2026-07-12"
