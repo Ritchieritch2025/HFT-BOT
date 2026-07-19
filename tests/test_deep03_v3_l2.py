@@ -485,6 +485,12 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     assert con.execute(
         f"SELECT sum(n_rows) FROM read_parquet('{atlas_path}') WHERE record_kind='STATE'"
     ).fetchone()[0] == 2
+    kinds = {
+        row[0] for row in con.execute(
+            f"SELECT DISTINCT record_kind FROM read_parquet('{atlas_path}')"
+        ).fetchall()
+    }
+    assert {"STATE", "RETREAT", "EPISODE", "REFILL_HAZARD"} <= kinds
     match_path = store.root / matches["data"]["path"]
     match = con.execute(
         f"SELECT episode_id,treatment_market,control_market,matching_method "
