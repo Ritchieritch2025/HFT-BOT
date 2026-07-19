@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import threading
 from typing import Any
 
 
@@ -43,7 +44,9 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 def _atomic_write(path: Path, payload: bytes, *, exclusive: bool = False) -> None:
     path = Path(path)
-    tmp = path.parent / (".%s.tmp.%d" % (path.name, os.getpid()))
+    tmp = path.parent / (
+        ".%s.tmp.%d.%d" % (path.name, os.getpid(), threading.get_ident())
+    )
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     fd = os.open(tmp, flags, 0o640)
     try:
@@ -75,9 +78,10 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
 
 
 def _root(path: Path) -> Path:
-    path = Path(path).resolve()
-    if path.exists() and path.is_symlink():
+    path = Path(path).expanduser()
+    if path.is_symlink():
         raise InboxError("inbox root cannot be a symlink")
+    path = path.resolve()
     path.mkdir(parents=True, exist_ok=True, mode=0o750)
     jobs = path / "jobs"
     jobs.mkdir(exist_ok=True, mode=0o750)
@@ -202,7 +206,10 @@ def get_job(inbox_root: Path, job_id: str) -> dict[str, Any]:
         "request": request,
         "status": status,
         "spec": spec,
-        "report_available": (path / "REPORT" / "index.html").is_file(),
+        "report_available": (
+            (path / "REPORT" / "index.html").is_file()
+            and not (path / "REPORT" / "index.html").is_symlink()
+        ),
     }
 
 

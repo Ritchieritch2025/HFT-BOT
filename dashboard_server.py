@@ -470,7 +470,10 @@ def make_handler(metrics_path, backfill_default, allow_network=False,
                         self._json(404, {"error": "report not ready", "job_id": job_id})
                     else:
                         with open(report, "rb") as handle:
-                            self._send(200, handle.read(), "text/html; charset=utf-8")
+                            self._send(
+                                200, handle.read(), "text/html; charset=utf-8",
+                                {"Content-Security-Policy":
+                                 "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
                 except (OSError, research_inbox.InboxError) as exc:
                     self._json(404, {"error": str(exc)})
             elif self._research_job_id(path):

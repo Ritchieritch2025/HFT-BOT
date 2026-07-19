@@ -105,3 +105,26 @@ def test_corrupt_or_linked_jobs_are_not_listed(tmp_path):
     linked = tmp_path / "jobs" / "RJOB-20260718T235902123456Z-bbbbbbbbbbbb"
     linked.symlink_to(external, target_is_directory=True)
     assert list_jobs(tmp_path) == []
+
+
+def test_linked_root_or_report_is_never_followed(tmp_path):
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(actual, target_is_directory=True)
+    with pytest.raises(InboxError, match="root cannot be a symlink"):
+        list_jobs(linked_root)
+
+    text = "# Safe report boundary\n"
+    job = create_job(
+        actual,
+        filename="plan.md",
+        plan_text=text,
+        job_spec=_spec(text),
+    )
+    report = actual / "jobs" / job["job_id"] / "REPORT"
+    report.mkdir()
+    outside = tmp_path / "outside.html"
+    outside.write_text("not a job report")
+    (report / "index.html").symlink_to(outside)
+    assert get_job(actual, job["job_id"])["report_available"] is False
