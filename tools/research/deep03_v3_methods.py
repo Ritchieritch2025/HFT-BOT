@@ -14,6 +14,7 @@ No method computes strategy PnL or emits a candidate verdict.
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import math
@@ -125,12 +126,27 @@ def bounded_source_binding(input_manifest: dict[str, Any]) -> str:
                 "logical_key": obj.get("logical_key"),
                 "source_version_id": obj.get("source_version_id"),
                 "sha256": obj.get("sha256"),
+                "size": obj.get("size", obj.get("size_bytes")),
                 "row_count": obj.get("row_count"),
             }
         )
     payload = {
         "release_ids": list(input_manifest.get("release_ids") or []),
         "release_dates": list(input_manifest.get("release_dates") or []),
+        "evidence_tier": input_manifest.get("evidence_tier"),
+        "release_evidence": sorted(
+            [
+                {
+                    "release_id": release.get("release_id"),
+                    "date": release.get("date"),
+                    "evidence_tier": release.get("evidence_tier"),
+                    "evidence_basis": release.get("evidence_basis"),
+                }
+                for release in (input_manifest.get("releases") or [])
+                if isinstance(release, dict)
+            ],
+            key=lambda row: (str(row["release_id"]), str(row["date"])),
+        ),
         "objects": sorted(
             objects,
             key=lambda row: (
@@ -160,6 +176,36 @@ class BoundedCheckpointStore:
         self.source_binding = source_binding
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / ".partial").mkdir(exist_ok=True)
+        self._lock_handle = (self.root / ".CHECKPOINT_WRITER.lock").open("a+b")
+        try:
+            fcntl.flock(
+                self._lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+            )
+        except BlockingIOError as exc:
+            self._lock_handle.close()
+            raise RuntimeError(
+                f"bounded checkpoint root already has a writer: {self.root}"
+            ) from exc
+        self._closed = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        fcntl.flock(self._lock_handle.fileno(), fcntl.LOCK_UN)
+        self._lock_handle.close()
+        self._closed = True
+
+    def __enter__(self) -> "BoundedCheckpointStore":
+        if self._closed:
+            raise RuntimeError("bounded checkpoint store is closed")
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        self.close()
+
+    def _require_lock(self) -> None:
+        if self._closed:
+            raise RuntimeError("bounded checkpoint store is closed")
 
     @staticmethod
     def _key(value: str, label: str) -> str:
@@ -198,6 +244,7 @@ class BoundedCheckpointStore:
         stage_version: str,
         partition_key: str,
     ) -> dict[str, Any]:
+        self._require_lock()
         data_path, receipt_path = self._paths(stage, partition_key)
         if not receipt_path.is_file():
             raise FileNotFoundError(receipt_path)
@@ -248,6 +295,7 @@ class BoundedCheckpointStore:
         metrics: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Write or verify one partition; return ``(receipt, reused)``."""
+        self._require_lock()
         if not isinstance(stage_version, str) or not stage_version:
             raise ValueError("bounded checkpoint stage version is empty")
         data_path, receipt_path = self._paths(stage, partition_key)
@@ -359,6 +407,7 @@ class BoundedCheckpointStore:
         scatter in one query.  The partition column is encoded by the
         directory and intentionally excluded from each Parquet payload.
         """
+        self._require_lock()
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", partition_column) is None:
             raise ValueError("invalid bounded partition column")
         if not partition_keys or any(
@@ -446,6 +495,7 @@ class BoundedCheckpointStore:
         partition_keys: Iterable[str],
     ) -> Path:
         """Publish a canonical complete-set manifest for exactly these keys."""
+        self._require_lock()
         stage = self._key(stage, "stage")
         keys = sorted(self._key(value, "partition key") for value in partition_keys)
         if not keys or len(keys) != len(set(keys)):
@@ -699,6 +749,25 @@ def _assert_l1_asof_timestamps_unambiguous(
             f"ambiguous_rows={profile['ambiguous_rows']}"
         )
     return profile
+
+
+def bounded_stage_abi(con, market_buckets: int) -> dict[str, Any]:
+    """Return the physical-shard ABI that every stage version must bind."""
+    if isinstance(market_buckets, bool) or not isinstance(market_buckets, int):
+        raise ValueError("market_buckets must be an integer")
+    if market_buckets < 1 or market_buckets > 256:
+        raise ValueError("market_buckets must be in [1,256]")
+    duckdb_version = str(con.execute("SELECT version()").fetchone()[0])
+    payload = {
+        "schema_version": "deep03-bounded-stage-abi-v1",
+        "duckdb_version": duckdb_version,
+        "market_bucket_algorithm": "duckdb-hash-v1-modulo",
+        "market_bucket_count": market_buckets,
+        "trade_id_bucket_algorithm": "duckdb-hash-v1-modulo",
+        "trade_id_bucket_count": TRADE_DEDUP_BUCKETS,
+    }
+    payload["abi_sha256"] = _sha256_bytes(_canonical_json_bytes(payload))
+    return payload
 
 
 def _canonical_date(value: Any) -> str:

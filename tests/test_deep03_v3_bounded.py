@@ -20,6 +20,7 @@ from deep03_v3_methods import (  # noqa: E402
     BOUNDED_STAGE_MANIFEST_SCHEMA,
     BoundedCheckpointStore,
     _assert_l1_asof_timestamps_unambiguous,
+    bounded_stage_abi,
     bounded_source_binding,
 )
 
@@ -134,6 +135,7 @@ def test_checkpoint_rejects_corruption_binding_drift_and_extra_receipts(tmp_path
                 partition_key="p00",
             )
 
+        store.close()
         other = BoundedCheckpointStore(root, bounded_source_binding(_manifest(source_sha="b" * 64)))
         with pytest.raises(RuntimeError, match="source_binding"):
             other.validate_partition(
@@ -142,6 +144,7 @@ def test_checkpoint_rejects_corruption_binding_drift_and_extra_receipts(tmp_path
                 stage_version="obs-v1",
                 partition_key="p00",
             )
+        other.close()
     finally:
         con.close()
 
@@ -159,6 +162,7 @@ def test_unpublished_crash_file_is_recomputed_and_completed_partitions_resume(tm
             partition_key="p00",
             select_sql="SELECT 10 AS value",
         )
+        first_store.close()
         # Simulate a process dying after data promotion and before its receipt.
         orphan = root / "physical_shards/data/p01.parquet"
         con.execute(f"COPY (SELECT 999 AS value) TO '{orphan}' (FORMAT PARQUET)")
@@ -321,5 +325,31 @@ def test_one_pass_physical_scatter_writes_empty_and_nonempty_shards(tmp_path):
             stage_version="l1-physical-v1",
             partition_keys=results,
         )
+    finally:
+        con.close()
+
+
+def test_checkpoint_root_enforces_one_writer_fence_and_stage_abi(tmp_path):
+    con = duckdb.connect()
+    try:
+        root = tmp_path / "checkpoints"
+        binding = bounded_source_binding(_manifest())
+        first = BoundedCheckpointStore(root, binding)
+        with pytest.raises(RuntimeError, match="already has a writer"):
+            BoundedCheckpointStore(root, binding)
+        abi = bounded_stage_abi(con, 32)
+        assert abi["market_bucket_count"] == 32
+        assert abi["trade_id_bucket_count"] == 32
+        assert len(abi["abi_sha256"]) == 64
+        first.close()
+        with BoundedCheckpointStore(root, binding) as resumed:
+            assert resumed.root == root.resolve()
+        with pytest.raises(RuntimeError, match="closed"):
+            resumed.finalize_stage(
+                con,
+                stage="closed",
+                stage_version="v1",
+                partition_keys=["p00"],
+            )
     finally:
         con.close()
