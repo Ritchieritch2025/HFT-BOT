@@ -292,7 +292,15 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             f"""
             CREATE OR REPLACE TEMP TABLE l1_intervals AS
             WITH ordered AS (
-              SELECT l.*,
+              -- Keep the exact causal ordering keys in the window, but do not
+              -- carry the full L1 row through its blocking sort.  In
+              -- particular, prices, quantities, series/league labels and the
+              -- four tie-break columns are not consumed by B02/B04 after
+              -- next_t_us has been derived.  Projecting them here caused the
+              -- eight-day W09 run to exhaust DuckDB's 32 GB budget while
+              -- building this table.
+              SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+                     occurrence_us,close_us,
                      lead(t_us) OVER (
                        PARTITION BY date,market_ticker
                        ORDER BY t_us,coalesce(recv_wall_ns,0),
@@ -303,7 +311,8 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
               WHERE date IS NOT NULL AND market_ticker IS NOT NULL
                     AND t_us IS NOT NULL
             ), bounded AS (
-              SELECT *,next_t_us IS NULL AS right_censored,
+              SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+                     occurrence_us,next_t_us IS NULL AS right_censored,
                      CASE WHEN next_t_us IS NULL THEN t_us ELSE
                        least(next_t_us,t_us+{BOOK_TTL_US},
                          CASE WHEN close_us>t_us THEN close_us
@@ -311,7 +320,8 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
                      END AS base_end_us
               FROM ordered
             ), gap_bound AS (
-              SELECT b.*,
+              SELECT b.date,b.t_us,b.market_ticker,b.event_proxy,b.sport,
+                     b.book_state,b.occurrence_us,b.right_censored,b.base_end_us,
                      (SELECT min(g.start_us) FROM capture_gaps g
                       WHERE g.date=b.date AND g.start_us>b.t_us
                         AND g.start_us<b.base_end_us) AS next_gap_start_us,
@@ -320,8 +330,10 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
                               AND g.end_us>b.t_us) AS starts_in_gap
               FROM bounded b
             )
-            SELECT *,least(base_end_us,coalesce(next_gap_start_us,base_end_us))
-                       AS interval_end_us,
+            SELECT date,t_us,market_ticker,event_proxy,sport,book_state,
+                   right_censored,starts_in_gap,
+                   least(base_end_us,coalesce(next_gap_start_us,base_end_us))
+                     AS interval_end_us,
                    CASE WHEN right_censored OR starts_in_gap THEN 0
                         ELSE greatest(0,least(base_end_us,
                              coalesce(next_gap_start_us,base_end_us))-t_us)

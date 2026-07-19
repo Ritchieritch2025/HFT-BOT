@@ -27,6 +27,8 @@ import deep03_authority_gate
 
 
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
+DEEP03_MEMORY_LIMIT = "16GB"
+DEEP03_THREADS = 2
 STATUS_SCHEMA = "w09-exploratory-autoresearch-status-v1"
 COMPLETION_SCHEMA = "w09-exploratory-autoresearch-completion-v1"
 STATIC_CREDENTIAL_NAMES = (
@@ -535,9 +537,9 @@ def run_cycle(
                     "--w1-complete",
                     str(w1_complete_path),
                     "--memory-limit",
-                    "32GB",
+                    DEEP03_MEMORY_LIMIT,
                     "--threads",
-                    "8",
+                    str(DEEP03_THREADS),
                 ],
                 step="08-research-run",
                 log_root=log_root,

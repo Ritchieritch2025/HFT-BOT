@@ -467,6 +467,21 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(tmp_path
         assert con.execute(
             "SELECT count(*) FROM l1_intervals WHERE right_censored AND duration_us<>0"
         ).fetchone()[0] == 0
+        assert {
+            row[0] for row in con.execute("DESCRIBE l1_intervals").fetchall()
+        } == {
+            "date",
+            "t_us",
+            "market_ticker",
+            "event_proxy",
+            "sport",
+            "book_state",
+            "right_censored",
+            "starts_in_gap",
+            "interval_end_us",
+            "duration_us",
+            "phase",
+        }
     finally:
         con.close()
     status = {method["method_id"]: method["status"] for method in methods}

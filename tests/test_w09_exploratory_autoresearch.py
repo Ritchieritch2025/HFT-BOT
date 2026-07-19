@@ -282,6 +282,11 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
     assert first["state"] == "RESEARCH_COMPLETE"
     assert first["idempotent_noop"] is False
     assert any(Path(row[1]).name == "deep03_v3_runner.py" for row in commands)
+    runner_command = next(
+        row for row in commands if Path(row[1]).name == "deep03_v3_runner.py"
+    )
+    assert runner_command[runner_command.index("--memory-limit") + 1] == "16GB"
+    assert runner_command[runner_command.index("--threads") + 1] == "2"
     deep03_commands = [
         row
         for row in commands
