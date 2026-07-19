@@ -211,6 +211,64 @@ def test_refill_is_causal_positive_depth_recovery_and_features_are_exact():
     assert episode["endpoint_reason"] == "refill_observed"
     assert episode["refill_fraction"] == pytest.approx(0.8)
     assert episode["duration_us"] == 50_000
+    assert episode["covariate_timing"] == "PRE_DEPLETION_STATE"
+    assert episode["pre_side_depth3_e4"] == 30_000
+    assert episode["pre_opposite_depth3_e4"] == 40_000
+    assert episode["pre_imbalance_depth3"] == pytest.approx(-1 / 7)
+
+
+def test_refill_exactly_at_closed_one_second_endpoint_is_observed():
+    base = 6_250_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, seq=2),
+        row(depletion + l2.EPISODE_HORIZON_NS, "M1", "delta",
+            side="yes", price=4000, delta=8_000, seq=3),
+    ])
+    assert len(result["episodes"]) == 1
+    assert result["episodes"][0]["endpoint_reason"] == "refill_observed"
+    assert result["episodes"][0]["duration_us"] == 1_000_000
+
+
+def test_top3_retreat_uses_pre_delta_top3_depth_baseline():
+    base = 6_300_000_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot",
+            yes=[[3800, 5_000], [3900, 5_000], [4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        row(base + 1_000_000, "M1", "delta", side="yes", price=4000,
+            delta=-20_000, seq=2),
+    ])
+    depletion = result["replay_rows"][1]
+    assert depletion["pre_side_depth3_e4"] == 30_000
+    assert depletion["post_side_depth3_e4"] == 10_000
+    assert depletion["top3_removed_e4"] == 20_000
+    assert depletion["top3_retreat_fraction"] == pytest.approx(2 / 3)
+    assert depletion["top3_retreat"] is True
+    assert result["episodes"][0]["top3_retreat"] is True
+
+
+def test_control_anchor_requires_prior_quiet_top3_state(monkeypatch):
+    monkeypatch.setattr(l2, "_stable_control_sample", lambda *_args: True)
+    base = 6_400_000_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot",
+            yes=[[3700, 1_000], [3800, 2_000], [3900, 3_000], [4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        # Fourth-level depth does not alter the top-three baseline.  It is too
+        # early to serve as a quiet anchor.
+        row(base + l2.QUIET_ANCHOR_LOOKBACK_NS - 1, "M1", "delta",
+            side="yes", price=3700, delta=1_000, seq=2),
+        row(base + l2.QUIET_ANCHOR_LOOKBACK_NS, "M1", "delta",
+            side="yes", price=3700, delta=1_000, seq=3),
+    ])
+    assert result["replay_rows"][1]["control_candidate"] is False
+    assert result["replay_rows"][2]["control_candidate"] is True
+    assert result["replay_rows"][2]["control_quiet_lookback_ns"] == \
+        l2.QUIET_ANCHOR_LOOKBACK_NS
 
 
 def test_clean_full_stream_end_observes_no_refill_through_fixed_horizon():

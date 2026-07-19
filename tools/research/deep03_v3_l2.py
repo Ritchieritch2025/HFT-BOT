@@ -41,16 +41,29 @@ from deep03_v3_methods import (
 )
 
 
-SCHEMA_VERSION = "deep03-v3-l2-snbd-v1"
+SCHEMA_VERSION = "deep03-v3-l2-snbd-v2"
 L2_SCOPE_DATES = tuple(f"2026-07-{day:02d}" for day in range(10, 18))
 L2_CAPTURE_DATES = tuple(f"2026-07-{day:02d}" for day in range(12, 18))
 L2_ABSENT_DATES = ("2026-07-10", "2026-07-11")
+L2_ANALYSIS_DATES = ("2026-07-12", "2026-07-15", "2026-07-17")
+L2_KNOWN_EXCLUDED_DATES = {
+    "2026-07-13": "FULL_STREAM_SEQUENCE_GAP",
+    "2026-07-14": "SEVERE_PARSE_AND_FRAME_LOSS",
+    "2026-07-16": "GAP_AND_EPOCH_MARKERS",
+}
 MIN_TOUCH_QTY_E4 = 10_000
 MIN_DEPLETION_FRACTION = 0.50
 REFILL_FRACTION = 0.80
 EPISODE_HORIZON_NS = 1_000_000_000
+QUIET_ANCHOR_LOOKBACK_NS = 1_000_000_000
+MIN_TOP3_RETREAT_QTY_E4 = 10_000
+MIN_TOP3_RETREAT_FRACTION = 0.50
 CONTROL_SAMPLE_MODULUS = 16
 MATCH_WINDOW_NS = 300_000_000_000
+CONTROL_TIME_BUCKET_NS = 60_000_000_000
+MAX_CONTROLS_PER_STRATUM_BUCKET = 8
+MAX_MATCH_CANDIDATES_PER_EPISODE = 64
+HAZARD_INTERVAL_NS = 100_000_000
 REPLAY_FETCH_ROWS = 50_000
 
 
@@ -138,6 +151,9 @@ class L2Book:
             for price, quantity in self.side_book(side).items()
             if price >= raw_price
         )
+
+    def depth_top3(self, side: str) -> int:
+        return self._top_k_depth(self.side_book(side))
 
     @staticmethod
     def _top_k_depth(levels: Mapping[int, int], k: int = 3) -> int:
@@ -235,6 +251,7 @@ class L2Book:
                 "invalidated": True,
             }
         before = self.state()
+        pre_side_depth3 = self.depth_top3(side)
         pre_touch_price, pre_touch_quantity = self.best_raw(side)
         levels = self.side_book(side)
         price = int(price_e4)
@@ -252,6 +269,16 @@ class L2Book:
         else:
             levels.pop(price, None)
         after = self.state()
+        post_side_depth3 = self.depth_top3(side)
+        top3_removed = max(0, pre_side_depth3 - post_side_depth3)
+        top3_retreat_fraction = (
+            top3_removed / pre_side_depth3 if pre_side_depth3 else 0.0
+        )
+        top3_keys = (
+            "topology", "bid_e4", "ask_e4", "bid_qty_e4", "ask_qty_e4",
+            "bid_depth3_e4", "ask_depth3_e4", "spread_e4",
+            "imbalance_depth3", "microprice_e4",
+        )
         remaining = levels.get(pre_touch_price, 0) if pre_touch_price else 0
         removed = max(0, pre_touch_quantity - remaining)
         touch_depletion = bool(
@@ -274,6 +301,18 @@ class L2Book:
             ),
             "touch_depletion": touch_depletion,
             "top_changed": before != after,
+            "top3_changed": any(
+                before.get(key) != after.get(key) for key in top3_keys
+            ),
+            "pre_side_depth3_e4": pre_side_depth3,
+            "post_side_depth3_e4": post_side_depth3,
+            "top3_removed_e4": top3_removed,
+            "top3_retreat_fraction": top3_retreat_fraction,
+            "top3_retreat": bool(
+                int(delta_e4) < 0
+                and top3_removed >= MIN_TOP3_RETREAT_QTY_E4
+                and top3_retreat_fraction >= MIN_TOP3_RETREAT_FRACTION
+            ),
         }
 
 
@@ -333,7 +372,9 @@ REPLAY_COLUMNS = (
     "ask_qty_e4", "bid_depth3_e4", "ask_depth3_e4", "bid_levels",
     "ask_levels", "mid_e4", "microprice_e4", "spread_e4",
     "mid_logodds", "spread_logodds", "imbalance_depth3", "top_changed",
-    "touch_depletion", "control_candidate",
+    "touch_depletion", "top3_retreat", "pre_side_depth3_e4",
+    "post_side_depth3_e4", "top3_removed_e4", "top3_retreat_fraction",
+    "control_candidate", "control_quiet_lookback_ns",
 )
 
 EPISODE_COLUMNS = (
@@ -342,7 +383,10 @@ EPISODE_COLUMNS = (
     "endpoint_reason", "event_observed", "refill_ns", "refill_fraction",
     "original_touch_price_e4", "pre_touch_qty_e4", "removed_e4",
     "depletion_fraction", "post_depletion_depth_e4", "snapshot_epoch",
-    "topology", "spread_e4", "imbalance_depth3",
+    "covariate_timing", "covariate_clock_ns", "pre_topology",
+    "pre_spread_e4", "pre_imbalance_depth3", "pre_side_depth3_e4",
+    "pre_opposite_depth3_e4", "top3_removed_e4",
+    "top3_retreat_fraction", "top3_retreat",
 )
 
 
@@ -357,7 +401,7 @@ class L2ReplayEngine:
     def __init__(self) -> None:
         self.books: dict[str, L2Book] = {}
         self.open_episodes: dict[tuple[str, str], dict[str, Any]] = {}
-        self.activity: dict[str, deque[int]] = defaultdict(deque)
+        self.last_top3_change_ns: dict[str, int] = {}
         self.last_clock: dict[str, int] = {}
         self.qc: dict[str, int] = defaultdict(int)
 
@@ -391,7 +435,9 @@ class L2ReplayEngine:
             if episode is None:
                 continue
             boundary = int(episode["depletion_ns"]) + EPISODE_HORIZON_NS
-            if clock_ns >= boundary:
+            # Closed endpoint: a refill stamped exactly at one second is an
+            # observed event.  Only a later row proves the endpoint passed.
+            if clock_ns > boundary:
                 completed.append(self._finalize(
                     self.open_episodes.pop(key), boundary,
                     "right_censored_1s_horizon",
@@ -426,7 +472,9 @@ class L2ReplayEngine:
             "delta_e4": delta_e4,
             "top_changed": False,
             "touch_depletion": False,
+            "top3_retreat": False,
             "control_candidate": False,
+            "control_quiet_lookback_ns": None,
         }
         if (
             not market
@@ -454,10 +502,6 @@ class L2ReplayEngine:
         clock_ns = int(recv_wall_ns)
         completed = self._expire(market, clock_ns)
         self.last_clock[market] = max(clock_ns, self.last_clock.get(market, clock_ns))
-        updates = self.activity[market]
-        updates.append(clock_ns)
-        while updates and updates[0] < clock_ns - EPISODE_HORIZON_NS:
-            updates.popleft()
         book = self.books.setdefault(market, L2Book())
         msg_type = base["msg_type"]
         if msg_type == "snapshot":
@@ -475,6 +519,7 @@ class L2ReplayEngine:
                 return _row_with_state(base, book.state()), completed
             base["classification"] = "SNAPSHOT_APPLIED"
             base["top_changed"] = True
+            self.last_top3_change_ns[market] = clock_ns
             self.qc["snapshots_applied"] += 1
             return _row_with_state(base, book.state()), completed
         if msg_type != "delta":
@@ -510,7 +555,13 @@ class L2ReplayEngine:
         base["classification"] = "DELTA_APPLIED"
         base["top_changed"] = bool(result["top_changed"])
         base["touch_depletion"] = bool(result["touch_depletion"])
+        base["top3_retreat"] = bool(result["top3_retreat"])
+        base["pre_side_depth3_e4"] = int(result["pre_side_depth3_e4"])
+        base["post_side_depth3_e4"] = int(result["post_side_depth3_e4"])
+        base["top3_removed_e4"] = int(result["top3_removed_e4"])
+        base["top3_retreat_fraction"] = float(result["top3_retreat_fraction"])
         state = result["after"]
+        pre_state = result["before"]
         side = str(side_value).lower()
         key = (market, side)
         existing = self.open_episodes.get(key)
@@ -556,14 +607,42 @@ class L2ReplayEngine:
                     side, int(result["pre_touch_price_e4"])
                 ),
                 "snapshot_epoch": book.snapshot_epoch,
-                "topology": state.get("topology"),
-                "spread_e4": state.get("spread_e4"),
-                "imbalance_depth3": state.get("imbalance_depth3"),
+                "covariate_timing": "PRE_DEPLETION_STATE",
+                "covariate_clock_ns": clock_ns,
+                "pre_topology": pre_state.get("topology"),
+                "pre_spread_e4": pre_state.get("spread_e4"),
+                "pre_imbalance_depth3": pre_state.get("imbalance_depth3"),
+                "pre_side_depth3_e4": (
+                    pre_state.get("bid_depth3_e4")
+                    if side == "yes" else pre_state.get("ask_depth3_e4")
+                ),
+                "pre_opposite_depth3_e4": (
+                    pre_state.get("ask_depth3_e4")
+                    if side == "yes" else pre_state.get("bid_depth3_e4")
+                ),
+                "top3_removed_e4": int(result["top3_removed_e4"]),
+                "top3_retreat_fraction": float(result["top3_retreat_fraction"]),
+                "top3_retreat": bool(result["top3_retreat"]),
             }
             self.qc["touch_depletions"] += 1
-        elif result["top_changed"] and _stable_control_sample(market, clock_ns):
-            base["control_candidate"] = True
-            self.qc["control_candidates"] += 1
+        else:
+            last_change = self.last_top3_change_ns.get(market)
+            quiet_lookback = (
+                clock_ns - last_change if last_change is not None else None
+            )
+            if (
+                not result["top3_changed"]
+                and state.get("topology") == "TWO_SIDED"
+                and key not in self.open_episodes
+                and quiet_lookback is not None
+                and quiet_lookback >= QUIET_ANCHOR_LOOKBACK_NS
+                and _stable_control_sample(market, clock_ns)
+            ):
+                base["control_candidate"] = True
+                base["control_quiet_lookback_ns"] = quiet_lookback
+                self.qc["quiet_control_candidates"] += 1
+        if result["top3_changed"]:
+            self.last_top3_change_ns[market] = clock_ns
         return _row_with_state(base, state), completed
 
     def finish(self, observation_end_ns: int | None = None) -> list[dict[str, Any]]:
@@ -650,7 +729,13 @@ REPLAY_TYPES = {
     "imbalance_depth3": "DOUBLE",
     "top_changed": "BOOLEAN",
     "touch_depletion": "BOOLEAN",
+    "top3_retreat": "BOOLEAN",
+    "pre_side_depth3_e4": "BIGINT",
+    "post_side_depth3_e4": "BIGINT",
+    "top3_removed_e4": "BIGINT",
+    "top3_retreat_fraction": "DOUBLE",
     "control_candidate": "BOOLEAN",
+    "control_quiet_lookback_ns": "BIGINT",
 }
 
 EPISODE_TYPES = {
@@ -674,9 +759,16 @@ EPISODE_TYPES = {
     "depletion_fraction": "DOUBLE",
     "post_depletion_depth_e4": "BIGINT",
     "snapshot_epoch": "BIGINT",
-    "topology": "VARCHAR",
-    "spread_e4": "BIGINT",
-    "imbalance_depth3": "DOUBLE",
+    "covariate_timing": "VARCHAR",
+    "covariate_clock_ns": "BIGINT",
+    "pre_topology": "VARCHAR",
+    "pre_spread_e4": "BIGINT",
+    "pre_imbalance_depth3": "DOUBLE",
+    "pre_side_depth3_e4": "BIGINT",
+    "pre_opposite_depth3_e4": "BIGINT",
+    "top3_removed_e4": "BIGINT",
+    "top3_retreat_fraction": "DOUBLE",
+    "top3_retreat": "BOOLEAN",
 }
 
 
