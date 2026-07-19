@@ -485,6 +485,36 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
             l2._insert_dict_rows(
                 con, "episode_fixture", l2.EPISODE_COLUMNS, [episode]
             )
+        else:
+            # Missing event identity must not be replaced with market ticker
+            # and then presented as a balanced different-event match.
+            no_root = {column: None for column in l2.EPISODE_COLUMNS}
+            no_root.update({
+                "episode_id": "DEP-MISSING-EVENT",
+                "date": "2026-07-12",
+                "market_ticker": "M-NO-ROOT",
+                "event_proxy": "",
+                "sport": "Baseball",
+                "family": "SERIES-SHARED",
+                "side": "yes",
+                "depletion_ns": base,
+                "observation_end_ns": base + 1_000_000,
+                "duration_us": 1000,
+                "endpoint_reason": "right_censored_date_end",
+                "event_observed": False,
+                "original_touch_price_e4": 4000,
+                "pre_touch_qty_e4": 20_000,
+                "removed_e4": 10_000,
+                "depletion_fraction": 0.5,
+                "post_depletion_depth_e4": 10_000,
+                "snapshot_epoch": 1,
+                "topology": "TWO_SIDED",
+                "spread_e4": 1000,
+                "imbalance_depth3": 0.0,
+            })
+            l2._insert_dict_rows(
+                con, "episode_fixture", l2.EPISODE_COLUMNS, [no_root]
+            )
         episode_path = tmp_path / f"episode-{bucket}.parquet"
         con.execute(
             f"COPY episode_fixture TO '{episode_path}' (FORMAT PARQUET)"
@@ -512,6 +542,9 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     }
     assert {"STATE", "RETREAT", "EPISODE", "REFILL_HAZARD"} <= kinds
     match_path = store.root / matches["data"]["path"]
+    assert con.execute(
+        f"SELECT count(*) FROM read_parquet('{match_path}')"
+    ).fetchone()[0] == 1
     match = con.execute(
         f"SELECT episode_id,treatment_market,control_market,matching_method "
         f"FROM read_parquet('{match_path}')"
