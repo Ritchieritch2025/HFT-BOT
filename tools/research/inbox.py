@@ -201,11 +201,22 @@ def get_job(inbox_root: Path, job_id: str) -> dict[str, Any]:
     request = _read_json(path / "REQUEST.json", "job request")
     status = _read_json(path / "STATUS.json", "job status")
     spec = _read_json(path / "JOB_SPEC.json", "job spec")
+    coordination = None
+    coordination_path = path / "W09_COORDINATOR_STATUS.json"
+    if coordination_path.exists() or coordination_path.is_symlink():
+        try:
+            coordination = _read_json(coordination_path, "W09 coordinator status")
+        except InboxError:
+            coordination = {
+                "state": "UNREADABLE",
+                "message": "W09 coordinator status is unsafe or unreadable.",
+            }
     return {
         "job_id": job_id,
         "request": request,
         "status": status,
         "spec": spec,
+        "coordination": coordination,
         "report_available": (
             (path / "REPORT" / "index.html").is_file()
             and not (path / "REPORT" / "index.html").is_symlink()

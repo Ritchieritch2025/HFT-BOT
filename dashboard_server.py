@@ -25,6 +25,7 @@ import run_tests  # noqa: E402
 import warehouse_status  # noqa: E402  (Phase 5 warehouse panel; read-only, no conversion)
 import feed_readiness  # noqa: E402  (read-only local market-feed readiness)
 from research import inbox as research_inbox  # noqa: E402
+from research.coordinator import ResearchW09Coordinator  # noqa: E402
 from research.plan_contract import PlanContractError, compile_plan  # noqa: E402
 
 LIFECYCLE_STATUS = os.path.join(run_tests.WORK, "lifecycle_status.json")
@@ -380,7 +381,7 @@ def pipeline_control(root, action):
 
 
 def make_handler(metrics_path, backfill_default, allow_network=False,
-                 research_inbox_root=None):
+                 research_inbox_root=None, research_coordinator=None):
     research_inbox_root = os.path.abspath(
         research_inbox_root or os.path.join(run_tests.WORK, "research_inbox"))
 
@@ -504,6 +505,8 @@ def make_handler(metrics_path, backfill_default, allow_network=False,
                         job_spec=spec,
                         automatic_execution_requested=body.get("auto_run", True) is True,
                     )
+                    if research_coordinator is not None and job["status"]["state"] == "QUEUED":
+                        research_coordinator.submit(job["job_id"])
                 except (UnicodeError, ValueError, PlanContractError,
                         research_inbox.InboxError) as exc:
                     self._json(400, {"error": str(exc)})
@@ -986,8 +989,9 @@ input[type=range]{accent-color:var(--blue)}
           <span id="research-filename" class="muted">PLAN.md</span>
           <span id="research-submit-status" class="muted"></span>
         </div>
-        <div class="notice">Normal read-only exploratory jobs auto-queue. Unknown methods stop at
-          <code>NEEDS_METHOD</code>; plan text is never executed as Python or SQL.</div>
+        <div class="notice">Registered read-only methods auto-queue on W09. A method with an
+          explicit cost/execution gate pauses at <code>READY</code> for one approval. Unknown
+          methods stop at <code>NEEDS_METHOD</code>; plan text is never executed as Python or SQL.</div>
       </div>
     </section>
     <section>
@@ -1682,14 +1686,15 @@ function renderResearchJobs(jobs){
     return;
   }
   $('research-jobs').innerHTML=jobs.map(j=>{
-    const s=j.status||{}, spec=j.spec||{}, req=j.request||{};
+    const s=j.status||{}, spec=j.spec||{}, req=j.request||{}, coord=j.coordination||{};
     const report=j.report_available
       ? '<a class="tabbtn" target="_blank" rel="noopener" href="/api/research/jobs/'+esc(j.job_id)+'/report">Open report</a>' : '';
     const plugin=spec.plugin_id ? badge(spec.plugin_id,'blue') : badge('method needed','yellow');
     return '<div class="research-job">'
       +'<div class="meta"><b>'+esc(spec.title||req.source_filename||j.job_id)+'</b>'
       +researchBadge(s.state)+plugin+report+'</div>'
-      +'<div class="why">'+esc(s.message||'')+'</div>'
+      +'<div class="why">'+esc(s.message||'')
+      +(coord.message ? '<br>'+esc(coord.message) : '')+'</div>'
       +'<div class="muted" style="font-size:10px;margin-top:5px">'+esc(j.job_id)
       +' · '+esc(req.data_access||'')+'</div></div>';
   }).join('');
@@ -1808,17 +1813,29 @@ def main():
                     help="test-results NDJSON (default work/test_results.ndjson)")
     ap.add_argument("--research-inbox", default="work/research_inbox",
                     help="local Research Inbox spool (default work/research_inbox)")
+    ap.add_argument("--research-w09", action="store_true",
+                    help="automatically dispatch READY registered-method plans to fixed W09")
+    ap.add_argument("--research-ssh-key", default="~/.ssh/kalshi-key.pem",
+                    help="SSH key for the fixed W09 Research Inbox transport")
     ap.add_argument("--allow-network", action="store_true",
                     help="permit network_read tools to run from the console "
                          "(live_order is ALWAYS refused regardless)")
     args = ap.parse_args()
 
     metrics_path = os.path.abspath(args.metrics)
+    research_coordinator = None
+    if args.research_w09:
+        research_coordinator = ResearchW09Coordinator(
+            os.path.abspath(args.research_inbox),
+            ssh_key=os.path.expanduser(args.research_ssh_key),
+        )
     handler = make_handler(
         metrics_path, args.backfill, args.allow_network,
-        os.path.abspath(args.research_inbox))
+        os.path.abspath(args.research_inbox), research_coordinator)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
     httpd.daemon_threads = True
+    if research_coordinator is not None:
+        research_coordinator.start()
 
     print("Kalshi PoC ops console")
     print("  metrics : %s%s" % (metrics_path,
@@ -1828,11 +1845,15 @@ def main():
     print("  network : %s" % ("ALLOWED (network_read runnable)" if args.allow_network
                               else "blocked (network_read tools disabled)"))
     print("  research: %s" % os.path.abspath(args.research_inbox))
+    print("  W09 auto : %s" % ("enabled" if args.research_w09 else "disabled"))
     print("Research intake writes only its local spool; trading is unaffected. Ctrl-C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped.")
+    finally:
+        if research_coordinator is not None:
+            research_coordinator.stop()
         httpd.server_close()
 
 
