@@ -55,6 +55,13 @@ MIN_TOUCH_QTY_E4 = 10_000
 MIN_DEPLETION_FRACTION = 0.50
 REFILL_FRACTION = 0.80
 EPISODE_HORIZON_NS = 1_000_000_000
+# Finite staleness-TTL registry for state dwell.  A valid interval is observed
+# only up to its TTL; a next update that is hours later must never convert the
+# silent gap into uptime.  The 1s member is the primary descriptive TTL and
+# the other members are mandatory sensitivity strata.
+STALE_TTL_REGISTRY_NS = (250_000_000, 1_000_000_000, 5_000_000_000)
+PRIMARY_STALE_TTL_NS = 1_000_000_000
+DWELL_SEMANTICS = "TTL_CAPPED_UPDATE_TO_UPDATE_DWELL_NOT_MARKET_UPTIME"
 QUIET_ANCHOR_LOOKBACK_NS = 1_000_000_000
 MIN_TOP3_RETREAT_QTY_E4 = 10_000
 MIN_TOP3_RETREAT_FRACTION = 0.50
@@ -518,34 +525,58 @@ class L2ReplayEngine:
         book = self.books.setdefault(market, L2Book())
         msg_type = base["msg_type"]
         if msg_type == "snapshot":
-            # A snapshot starts a new state epoch.  It cannot prove anything
-            # about the unobserved interval after the prior market row, so an
-            # open episode is censored at that prior valid market clock before
-            # any horizon expiry is considered.
-            completed.extend(self._close_market_episodes(
-                market,
-                previous_clock if previous_clock is not None else clock_ns,
-                "right_censored_snapshot_boundary",
-            ))
-            if (
-                book.ws_sid is not None
-                and int(ws_sid) == book.ws_sid
-                and book.last_ws_seq is not None
-                and int(ws_seq) <= book.last_ws_seq
-            ):
-                book.invalidate()
-                base["classification"] = "REJECTED_SEQUENCE_REGRESSION"
-                self.qc["rejected_sequence_regression"] += 1
-                return _row_with_state(base, book.state()), completed
+            # Snapshots are not one class.  A same-sid, strictly-increasing
+            # sequence snapshot over a valid prior epoch is the continuous
+            # next relevant update, so the market stays observed through the
+            # snapshot clock.  Every other snapshot (new sid/reconnect,
+            # malformed, duplicate, or regressed) proves nothing after the
+            # last valid market row and censors there.  A snapshot is never
+            # refill evidence.
             try:
-                book.snapshot(
-                    yes_levels, no_levels, ws_sid=int(ws_sid), ws_seq=int(ws_seq)
-                )
+                parse_levels(yes_levels)
+                parse_levels(no_levels)
             except (TypeError, ValueError, json.JSONDecodeError):
+                completed.extend(self._close_market_episodes(
+                    market,
+                    previous_clock if previous_clock is not None else clock_ns,
+                    "right_censored_invalid_epoch",
+                ))
                 book.invalidate()
                 base["classification"] = "REJECTED_INVALID_SNAPSHOT"
                 self.qc["rejected_invalid_snapshot"] += 1
                 return _row_with_state(base, book.state()), completed
+            same_sid = book.ws_sid is not None and int(ws_sid) == book.ws_sid
+            if (
+                same_sid
+                and book.last_ws_seq is not None
+                and int(ws_seq) <= book.last_ws_seq
+            ):
+                completed.extend(self._close_market_episodes(
+                    market,
+                    previous_clock if previous_clock is not None else clock_ns,
+                    "right_censored_snapshot_regression",
+                ))
+                book.invalidate()
+                base["classification"] = "REJECTED_SEQUENCE_REGRESSION"
+                self.qc["rejected_sequence_regression"] += 1
+                return _row_with_state(base, book.state()), completed
+            if same_sid and book.valid:
+                # Continuous observation: horizons that provably passed expire
+                # first, then the remaining open episodes are censored exactly
+                # at the snapshot clock (never labeled a refill).
+                completed.extend(self._expire(market, clock_ns))
+                completed.extend(self._close_market_episodes(
+                    market, clock_ns, "right_censored_snapshot_boundary",
+                ))
+            else:
+                completed.extend(self._close_market_episodes(
+                    market,
+                    previous_clock if previous_clock is not None else clock_ns,
+                    "right_censored_reconnect_snapshot",
+                ))
+            book.snapshot(
+                yes_levels, no_levels, ws_sid=int(ws_sid), ws_seq=int(ws_seq)
+            )
             self.last_clock[market] = clock_ns
             base["classification"] = "SNAPSHOT_APPLIED"
             base["top_changed"] = True
@@ -887,8 +918,12 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
         or market_buckets > 256
     ):
         raise ValueError("L2 market_buckets must be an integer in [1,256]")
+    if PRIMARY_STALE_TTL_NS not in STALE_TTL_REGISTRY_NS:
+        raise ValueError(
+            "primary staleness TTL must be a member of the finite registry"
+        )
     payload = {
-        "schema_version": "deep03-v3-l2-snbd-stage-abi-v2",
+        "schema_version": "deep03-v3-l2-snbd-stage-abi-v3",
         "module_sha256": _sha256_file(Path(__file__).resolve()),
         "market_partition_algorithm": "duckdb-hash-v1-modulo-plus-null-bucket",
         "market_bucket_count": market_buckets,
@@ -907,6 +942,29 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
             "baseline": "same_side_displayed_depth_best_three_prices_pre_delta",
             "min_removed_e4": MIN_TOP3_RETREAT_QTY_E4,
             "min_fraction": MIN_TOP3_RETREAT_FRACTION,
+        },
+        "state_dwell": {
+            "semantics": DWELL_SEMANTICS,
+            "staleness_ttl_registry_ns": list(STALE_TTL_REGISTRY_NS),
+            "primary_staleness_ttl_ns": PRIMARY_STALE_TTL_NS,
+            "stale_endpoint": "RIGHT_CENSORED_STALE_TTL",
+            "unbounded_uptime_from_late_next_update": False,
+            "pause_close_terminal_lifecycle_boundaries_proven": False,
+        },
+        "snapshot_semantics": {
+            "same_sid_increasing_seq_valid_epoch": (
+                "CONTINUOUS_OBSERVED_TO_SNAPSHOT_CLOCK_THEN_RIGHT_CENSORED"
+            ),
+            "new_sid_or_invalid_prior_epoch": (
+                "RIGHT_CENSORED_AT_LAST_VALID_MARKET_CLOCK"
+            ),
+            "duplicate_or_regressed_snapshot": (
+                "REJECTED_AND_RIGHT_CENSORED_AT_LAST_VALID_MARKET_CLOCK"
+            ),
+            "malformed_snapshot": (
+                "REJECTED_AND_RIGHT_CENSORED_AT_LAST_VALID_MARKET_CLOCK"
+            ),
+            "snapshot_counts_as_refill": False,
         },
         "quiet_anchor": {
             "lookback_ns": QUIET_ANCHOR_LOOKBACK_NS,
@@ -1176,6 +1234,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
     episode_imbalance_bin = _bin_sql("pre_imbalance_depth3", "imbalance")
     interval_us = HAZARD_INTERVAL_NS // 1000
     interval_count = EPISODE_HORIZON_NS // HAZARD_INTERVAL_NS
+    ttl_values = ",".join(f"({int(ttl)})" for ttl in STALE_TTL_REGISTRY_NS)
     return f"""
       WITH ordered AS (
         SELECT r.*,
@@ -1183,6 +1242,9 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                lead(book_valid) OVER market_order AS next_valid,
                lead(snapshot_epoch) OVER market_order AS next_snapshot_epoch,
                lead(msg_type) OVER market_order AS next_msg_type,
+               lead(classification) OVER market_order AS next_classification,
+               lead(ws_sid) OVER market_order AS next_ws_sid,
+               lead(ws_seq) OVER market_order AS next_ws_seq,
                lag(topology) OVER market_order AS previous_topology,
                lag(book_valid) OVER market_order AS previous_valid,
                lag(snapshot_epoch) OVER market_order AS previous_snapshot_epoch
@@ -1191,31 +1253,54 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
           PARTITION BY date,market_ticker
           ORDER BY recv_wall_ns,recv_mono_ns,ws_sid,ws_seq
         )
-      ), state_rows AS (
+      ), state_base AS (
         SELECT *,{spread_bin} AS spread_bin,
                {depth_bin} AS depth_bin,
                {imbalance_bin} AS imbalance_bin,
-               CASE WHEN next_clock_ns IS NOT NULL
-                              AND next_clock_ns>=recv_wall_ns
-                              AND next_valid
-                              AND next_snapshot_epoch=snapshot_epoch
-                    THEN (next_clock_ns-recv_wall_ns)/1000
+               CASE
+                 WHEN next_clock_ns IS NULL THEN 'TERMINAL'
+                 WHEN next_clock_ns>=recv_wall_ns AND next_valid
+                      AND next_snapshot_epoch=snapshot_epoch
+                   THEN 'OBSERVED_SAME_EPOCH'
+                 WHEN next_clock_ns>=recv_wall_ns
+                      AND next_msg_type='snapshot'
+                      AND next_classification='SNAPSHOT_APPLIED'
+                      AND next_ws_sid=ws_sid AND next_ws_seq>ws_seq
+                   THEN 'CONTINUOUS_SNAPSHOT'
+                 WHEN next_msg_type='snapshot' THEN 'SNAPSHOT_RESET'
+                 ELSE 'INVALID_OR_REJECTED'
+               END AS interval_kind
+        FROM ordered WHERE book_valid
+      ), state_rows AS (
+        SELECT b.*,t.staleness_ttl_ns,
+               CASE WHEN b.interval_kind IN
+                         ('OBSERVED_SAME_EPOCH','CONTINUOUS_SNAPSHOT')
+                    THEN least(b.next_clock_ns-b.recv_wall_ns,
+                               t.staleness_ttl_ns)/1000
                     ELSE 0 END AS dwell_us,
                CASE
-                 WHEN next_clock_ns IS NULL
+                 WHEN b.interval_kind='TERMINAL'
                    THEN 'RIGHT_CENSORED_LAST_MARKET_OBSERVATION'
-                 WHEN next_valid AND next_snapshot_epoch=snapshot_epoch
+                 WHEN b.interval_kind IN
+                      ('OBSERVED_SAME_EPOCH','CONTINUOUS_SNAPSHOT')
+                      AND b.next_clock_ns-b.recv_wall_ns>t.staleness_ttl_ns
+                   THEN 'RIGHT_CENSORED_STALE_TTL'
+                 WHEN b.interval_kind='OBSERVED_SAME_EPOCH'
                    THEN 'OBSERVED_NEXT_VALID_STATE'
-                 WHEN next_msg_type='snapshot'
+                 WHEN b.interval_kind='CONTINUOUS_SNAPSHOT'
+                   THEN 'RIGHT_CENSORED_SNAPSHOT_BOUNDARY'
+                 WHEN b.interval_kind='SNAPSHOT_RESET'
                    THEN 'RIGHT_CENSORED_SNAPSHOT_RESET'
                  ELSE 'RIGHT_CENSORED_INVALID_OR_REJECTED'
                END AS dwell_end_reason
-        FROM ordered WHERE book_valid
+        FROM state_base b
+        CROSS JOIN (VALUES {ttl_values}) t(staleness_ttl_ns)
       ), state_atlas AS (
         SELECT 'STATE' AS record_kind,date,sport,family,
                NULL::VARCHAR AS side,topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
                dwell_end_reason AS endpoint_reason,
+               staleness_ttl_ns::BIGINT AS staleness_ttl_ns,
                spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
@@ -1230,13 +1315,14 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
         FROM state_rows
-        GROUP BY date,sport,family,topology,dwell_end_reason,
+        GROUP BY date,sport,family,topology,dwell_end_reason,staleness_ttl_ns,
                  spread_bin,depth_bin,imbalance_bin
       ), transition_atlas AS (
         SELECT 'TRANSITION' AS record_kind,date,sport,family,
                NULL::VARCHAR AS side,NULL::VARCHAR AS topology,
                previous_topology AS from_topology,topology AS to_topology,
                'OBSERVED_WITHIN_VALID_EPOCH' AS endpoint_reason,
+               NULL::BIGINT AS staleness_ttl_ns,
                spread_bin,depth_bin,imbalance_bin,
                count(*)::BIGINT AS n_rows,
                count(DISTINCT market_ticker)::BIGINT AS n_markets,
@@ -1249,7 +1335,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
-        FROM state_rows
+        FROM state_base
         WHERE previous_valid AND previous_snapshot_epoch=snapshot_epoch
           AND previous_topology IS NOT NULL
         GROUP BY date,sport,family,previous_topology,topology,
@@ -1259,6 +1345,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                side,pre_topology AS topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
                'MATERIAL_TOP3_DEPTH_REDUCTION' AS endpoint_reason,
+               NULL::BIGINT AS staleness_ttl_ns,
                {retreat_spread_bin} AS spread_bin,
                {retreat_depth_bin} AS depth_bin,
                {retreat_imbalance_bin} AS imbalance_bin,
@@ -1273,13 +1360,15 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                NULL::DOUBLE AS interval_hazard,NULL::DOUBLE AS survival_to_end,
                NULL::DOUBLE AS median_duration_us,
                NULL::DOUBLE AS p95_duration_us
-        FROM state_rows WHERE top3_retreat
+        FROM state_base WHERE top3_retreat
         GROUP BY ALL
       ), episode_atlas AS (
         SELECT 'EPISODE' AS record_kind,date,sport,family,side,
                pre_topology AS topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
-               endpoint_reason,{episode_spread_bin} AS spread_bin,
+               endpoint_reason,
+               NULL::BIGINT AS staleness_ttl_ns,
+               {episode_spread_bin} AS spread_bin,
                {episode_depth_bin} AS depth_bin,
                {episode_imbalance_bin} AS imbalance_bin,
                count(*)::BIGINT AS n_rows,
@@ -1327,6 +1416,7 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
                pre_topology AS topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
                NULL::VARCHAR AS endpoint_reason,
+               NULL::BIGINT AS staleness_ttl_ns,
                spread_bin,depth_bin,imbalance_bin,at_risk_n AS n_rows,
                n_markets,n_events,
                NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
@@ -1521,13 +1611,26 @@ def _write_date_reducers(
         + _atlas_sql(replay_relation, episode_relation)
     )
     state_endpoints = {
-        str(reason): int(count)
-        for reason, count in con.execute("""
-          SELECT endpoint_reason,coalesce(sum(n_rows),0)::BIGINT
+        f"ttl_ns={int(ttl)}:{reason}": int(count)
+        for ttl, reason, count in con.execute("""
+          SELECT staleness_ttl_ns,endpoint_reason,coalesce(sum(n_rows),0)::BIGINT
           FROM l2_atlas_build WHERE record_kind='STATE'
-          GROUP BY endpoint_reason ORDER BY endpoint_reason
+          GROUP BY staleness_ttl_ns,endpoint_reason
+          ORDER BY staleness_ttl_ns,endpoint_reason
         """).fetchall()
     }
+    ttl_dwell_violations = int(con.execute("""
+      SELECT count(*) FROM l2_atlas_build
+      WHERE record_kind='STATE'
+        AND (staleness_ttl_ns IS NULL
+             OR p95_dwell_us>staleness_ttl_ns/1000.0
+             OR total_dwell_us>n_rows*(staleness_ttl_ns/1000.0))
+    """).fetchone()[0])
+    if ttl_dwell_violations:
+        raise L2ResearchError(
+            f"L2 state dwell exceeded its staleness TTL cap: {date}: "
+            f"{ttl_dwell_violations}"
+        )
     hazard_violations = int(con.execute("""
       SELECT count(*) FROM l2_atlas_build
       WHERE record_kind='REFILL_HAZARD' AND (
@@ -1561,7 +1664,9 @@ def _write_date_reducers(
         partition_key=key,
         select_sql=(
             "SELECT * FROM l2_atlas_build ORDER BY record_kind,date,sport,"
-            "family,side,topology,horizon_start_us,endpoint_reason"
+            "family,side,topology,from_topology,to_topology,staleness_ttl_ns,"
+            "spread_bin,depth_bin,imbalance_bin,horizon_start_us,"
+            "endpoint_reason"
         ),
         metrics={
             "eligible_state_rows": state_rows,
@@ -1569,6 +1674,12 @@ def _write_date_reducers(
             "quantiles": "duckdb_exact_quantile_cont",
             "cross_market_bucket_reduction": True,
             "state_dwell_endpoint_counts": state_endpoints,
+            "staleness_ttl_registry_ns": list(STALE_TTL_REGISTRY_NS),
+            "primary_staleness_ttl_ns": PRIMARY_STALE_TTL_NS,
+            "dwell_semantics": DWELL_SEMANTICS,
+            "market_uptime_claim": False,
+            "stale_intervals_ttl_capped_and_right_censored": True,
+            "ttl_dwell_cap_violations": ttl_dwell_violations,
             "last_valid_state_extends_to_date_observation_end": False,
             "terminal_boundary": "LAST_VALID_SAME_MARKET_OBSERVATION",
             "invalid_and_snapshot_resets_are_right_censoring": True,
@@ -1579,18 +1690,22 @@ def _write_date_reducers(
         },
     )
     atlas_path = store._paths(atlas_stage, key)[0]
-    reduced_state_rows = int(con.execute(
-        f"SELECT coalesce(sum(n_rows),0) FROM read_parquet({quote(atlas_path)}) "
-        "WHERE record_kind='STATE'"
-    ).fetchone()[0])
+    # Every TTL stratum is a complete copy of the eligible state rows; each
+    # must conserve independently so no stratum can hide dropped intervals.
+    for ttl in STALE_TTL_REGISTRY_NS:
+        reduced_state_rows = int(con.execute(
+            f"SELECT coalesce(sum(n_rows),0) "
+            f"FROM read_parquet({quote(atlas_path)}) "
+            "WHERE record_kind='STATE' AND staleness_ttl_ns=?", [int(ttl)]
+        ).fetchone()[0])
+        _require_row_conservation(
+            label="l2_state_atlas", observed=reduced_state_rows,
+            expected=state_rows, context=f"{date}:ttl_ns={int(ttl)}",
+        )
     reduced_episode_rows = int(con.execute(
         f"SELECT coalesce(sum(n_rows),0) FROM read_parquet({quote(atlas_path)}) "
         "WHERE record_kind='EPISODE'"
     ).fetchone()[0])
-    _require_row_conservation(
-        label="l2_state_atlas", observed=reduced_state_rows,
-        expected=state_rows, context=date,
-    )
     _require_row_conservation(
         label="l2_episode_atlas", observed=reduced_episode_rows,
         expected=episode_rows, context=date,
@@ -2149,6 +2264,7 @@ def execute_l2_snbd_bounded(
         "schema_version": "deep03-v3-l2-snbd-execution-v2",
         "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
         "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
+        "dwell_semantics": DWELL_SEMANTICS,
         "source_binding": store.source_binding,
         "stage_abi": abi,
         "quality": quality,
@@ -2203,6 +2319,9 @@ def execute_l2_snbd_bounded(
         },
         "limitations": [
             "Per-market forward ws_seq jumps are not packet-loss evidence.",
+            "State dwell is TTL-capped update-to-update dwell (finite registry {250ms, 1s, 5s}; primary 1s), never full market uptime; a next update that is hours later contributes at most one TTL and is RIGHT_CENSORED_STALE_TTL.",
+            "Pause/close/terminal market lifecycle is not a proven L2 boundary in these inputs; no lifecycle-based uptime claim is made.",
+            "A snapshot is never refill evidence; only a same-sid strictly-increasing-sequence snapshot over a valid epoch extends observation to the snapshot clock.",
             "L2 is absent, not zero, on 2026-07-10 and 2026-07-11.",
             "2026-07-13, 2026-07-14, and 2026-07-16 are coverage-only and excluded from every estimand because of full-stream data quality.",
             "The captured L2 universe is a targeted watchlist, not every market on the exchange.",

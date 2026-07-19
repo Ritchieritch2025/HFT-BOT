@@ -221,6 +221,10 @@ def test_snapshot_reset_censors_and_never_counts_as_refill():
     assert len(result["episodes"]) == 1
     episode = result["episodes"][0]
     assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
+    # Same sid + strictly increasing seq + valid prior epoch: continuous
+    # observation censored exactly at the snapshot clock, never a refill.
+    assert episode["observation_end_ns"] == base + 2_000_000
+    assert episode["duration_us"] == 1_000
     assert episode["event_observed"] is False
     assert episode["refill_ns"] is None
 
@@ -238,10 +242,116 @@ def test_delayed_reconnect_snapshot_censors_at_last_valid_market_clock():
     ])
     assert len(result["episodes"]) == 1
     episode = result["episodes"][0]
-    assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
+    assert episode["endpoint_reason"] == "right_censored_reconnect_snapshot"
     assert episode["observation_end_ns"] == depletion
     assert episode["duration_us"] == 0
     assert episode["event_observed"] is False
+
+
+def test_legal_same_sid_snapshot_observes_to_snapshot_clock_never_refill():
+    base = 5_300_000_000_000
+    depletion = base + 1_000_000
+    snapshot_clock = depletion + 500_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=2),
+        # The snapshot shows fully restored depth; it must still never be
+        # labeled a refill.
+        row(snapshot_clock, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=3),
+    ])
+    assert result["replay_rows"][2]["classification"] == "SNAPSHOT_APPLIED"
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
+    assert episode["observation_end_ns"] == snapshot_clock
+    assert episode["duration_us"] == 500_000
+    assert episode["event_observed"] is False
+    assert episode["refill_ns"] is None
+
+
+def test_continuation_snapshot_at_exact_one_second_boundary_censors_there():
+    base = 5_310_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=2),
+        row(depletion + l2.EPISODE_HORIZON_NS, "M1", "snapshot",
+            yes=[[4000, 20_000]], no=[[5000, 20_000]], sid=7, seq=3),
+    ])
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_snapshot_boundary"
+    assert episode["observation_end_ns"] == depletion + l2.EPISODE_HORIZON_NS
+    assert episode["duration_us"] == 1_000_000
+    assert episode["event_observed"] is False
+
+
+def test_continuation_snapshot_after_horizon_expires_at_horizon_first():
+    base = 5_320_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=2),
+        row(depletion + l2.EPISODE_HORIZON_NS + 1, "M1", "snapshot",
+            yes=[[4000, 20_000]], no=[[5000, 20_000]], sid=7, seq=3),
+    ])
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_1s_horizon"
+    assert episode["observation_end_ns"] == depletion + l2.EPISODE_HORIZON_NS
+    assert episode["duration_us"] == 1_000_000
+    assert episode["event_observed"] is False
+
+
+def test_duplicate_snapshot_rejects_and_censors_at_last_valid_clock():
+    base = 5_330_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=5),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=6),
+        # Same sid and a non-increasing sequence: duplicate snapshot.
+        row(depletion + 500_000_000, "M1", "snapshot",
+            yes=[[4000, 20_000]], no=[[5000, 20_000]], sid=7, seq=6),
+    ])
+    assert result["replay_rows"][2]["classification"] == \
+        "REJECTED_SEQUENCE_REGRESSION"
+    assert result["replay_rows"][2]["book_valid"] is False
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_snapshot_regression"
+    assert episode["observation_end_ns"] == depletion
+    assert episode["duration_us"] == 0
+    assert episode["event_observed"] is False
+
+
+def test_malformed_snapshot_rejects_and_censors_at_last_valid_clock():
+    base = 5_340_000_000_000
+    depletion = base + 1_000_000
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], sid=7, seq=1),
+        row(depletion, "M1", "delta", side="yes", price=4000,
+            delta=-10_000, sid=7, seq=2),
+        row(depletion + 500_000_000, "M1", "snapshot",
+            yes=[[4000]], no=[[5000, 20_000]], sid=7, seq=3),
+    ])
+    assert result["replay_rows"][2]["classification"] == \
+        "REJECTED_INVALID_SNAPSHOT"
+    assert result["replay_rows"][2]["book_valid"] is False
+    assert len(result["episodes"]) == 1
+    episode = result["episodes"][0]
+    assert episode["endpoint_reason"] == "right_censored_invalid_epoch"
+    assert episode["observation_end_ns"] == depletion
+    assert episode["duration_us"] == 0
 
 
 def test_unknown_message_type_invalidates_epoch_and_censors_episode():
@@ -389,6 +499,7 @@ def _atlas_replay_row(
     epoch: int = 1,
     valid: bool = True,
     msg_type: str = "delta",
+    sid: int = 7,
 ) -> dict[str, object]:
     value = {column: None for column in l2.REPLAY_COLUMNS}
     value.update({
@@ -400,11 +511,13 @@ def _atlas_replay_row(
         "event_proxy": f"E-{market}",
         "sport": "Baseball",
         "family": "SERIES-A",
-        "ws_sid": 7,
+        "ws_sid": sid,
         "ws_seq": clock_ns,
         "msg_type": msg_type,
         "classification": (
-            "DELTA_APPLIED" if valid else "REJECTED_NEGATIVE_RESULT"
+            "SNAPSHOT_APPLIED" if msg_type == "snapshot" and valid
+            else "DELTA_APPLIED" if valid
+            else "REJECTED_NEGATIVE_RESULT"
         ),
         "snapshot_epoch": epoch,
         "book_valid": valid,
@@ -471,7 +584,8 @@ def test_atlas_zeroes_unproven_reset_invalid_and_terminal_dwell():
     l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
     replay = [
         _atlas_replay_row(100, "M-RESET", epoch=1, msg_type="snapshot"),
-        _atlas_replay_row(200, "M-RESET", epoch=2, msg_type="snapshot"),
+        # New sid: a reconnect snapshot proves nothing about the interval.
+        _atlas_replay_row(200, "M-RESET", epoch=2, msg_type="snapshot", sid=8),
         _atlas_replay_row(110, "M-INVALID", epoch=1, msg_type="snapshot"),
         _atlas_replay_row(250, "M-INVALID", epoch=1, valid=False),
         _atlas_replay_row(300, "M-END", epoch=1, msg_type="snapshot"),
@@ -482,9 +596,11 @@ def test_atlas_zeroes_unproven_reset_invalid_and_terminal_dwell():
         "CREATE TEMP TABLE atlas AS "
         + l2._atlas_sql("replay_fixture", "episode_fixture")
     )
-    endpoint_rows = dict(con.execute("""
+    endpoint_rows = dict(con.execute(f"""
       SELECT endpoint_reason,sum(n_rows)::BIGINT
-      FROM atlas WHERE record_kind='STATE' GROUP BY endpoint_reason
+      FROM atlas WHERE record_kind='STATE'
+        AND staleness_ttl_ns={l2.PRIMARY_STALE_TTL_NS}
+      GROUP BY endpoint_reason
     """).fetchall())
     assert endpoint_rows["RIGHT_CENSORED_SNAPSHOT_RESET"] == 1
     assert endpoint_rows["RIGHT_CENSORED_INVALID_OR_REJECTED"] == 1
@@ -492,9 +608,159 @@ def test_atlas_zeroes_unproven_reset_invalid_and_terminal_dwell():
     unproven_dwell = con.execute("""
       SELECT sum(total_dwell_us) FROM atlas
       WHERE record_kind='STATE'
-        AND endpoint_reason LIKE 'RIGHT_CENSORED_%'
+        AND endpoint_reason IN (
+          'RIGHT_CENSORED_SNAPSHOT_RESET',
+          'RIGHT_CENSORED_INVALID_OR_REJECTED',
+          'RIGHT_CENSORED_LAST_MARKET_OBSERVATION'
+        )
     """).fetchone()[0]
     assert unproven_dwell == pytest.approx(0.0)
+    # Every TTL stratum carries the complete eligible state-row population.
+    per_ttl = dict(con.execute("""
+      SELECT staleness_ttl_ns,sum(n_rows)::BIGINT
+      FROM atlas WHERE record_kind='STATE' GROUP BY staleness_ttl_ns
+    """).fetchall())
+    assert per_ttl == {ttl: 4 for ttl in l2.STALE_TTL_REGISTRY_NS}
+    con.close()
+
+
+def test_state_dwell_is_ttl_capped_across_the_finite_registry():
+    con = duckdb.connect()
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    base = 10_000_000_000
+    four_hours_ns = 4 * 3_600 * 1_000_000_000
+    replay = [
+        # Next same-epoch update is four hours later: never four hours of
+        # uptime, at most one TTL, RIGHT_CENSORED_STALE_TTL.
+        _atlas_replay_row(base, "M-SLOW", epoch=1),
+        _atlas_replay_row(base + four_hours_ns, "M-SLOW", epoch=1),
+        # Next update 500ms later: observed under 1s/5s, capped under 250ms.
+        _atlas_replay_row(base, "M-MID", epoch=1),
+        _atlas_replay_row(base + 500_000_000, "M-MID", epoch=1),
+    ]
+    l2._insert_dict_rows(con, "replay_fixture", l2.REPLAY_COLUMNS, replay)
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    con.execute(
+        "CREATE TEMP TABLE atlas AS "
+        + l2._atlas_sql("replay_fixture", "episode_fixture")
+    )
+    rows = dict(
+        ((int(ttl), reason), float(total))
+        for ttl, reason, total in con.execute("""
+          SELECT staleness_ttl_ns,endpoint_reason,sum(total_dwell_us)
+          FROM atlas WHERE record_kind='STATE'
+          GROUP BY staleness_ttl_ns,endpoint_reason
+        """).fetchall()
+    )
+    assert rows[(250_000_000, "RIGHT_CENSORED_STALE_TTL")] == \
+        pytest.approx(500_000.0)  # both intervals capped at 250ms
+    assert rows[(1_000_000_000, "RIGHT_CENSORED_STALE_TTL")] == \
+        pytest.approx(1_000_000.0)  # slow interval capped at 1s
+    assert rows[(1_000_000_000, "OBSERVED_NEXT_VALID_STATE")] == \
+        pytest.approx(500_000.0)
+    assert rows[(5_000_000_000, "RIGHT_CENSORED_STALE_TTL")] == \
+        pytest.approx(5_000_000.0)  # slow interval capped at 5s
+    assert rows[(5_000_000_000, "OBSERVED_NEXT_VALID_STATE")] == \
+        pytest.approx(500_000.0)
+    # No interval may exceed its TTL in any stratum.
+    excess = con.execute("""
+      SELECT count(*) FROM atlas
+      WHERE record_kind='STATE'
+        AND total_dwell_us>n_rows*(staleness_ttl_ns/1000.0)
+    """).fetchone()[0]
+    assert excess == 0
+    con.close()
+
+
+def test_state_dwell_exact_ttl_boundary_is_observed_and_one_past_is_censored():
+    con = duckdb.connect()
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    base = 20_000_000_000
+    replay = [
+        _atlas_replay_row(base, "M-EXACT", epoch=1),
+        _atlas_replay_row(base + l2.PRIMARY_STALE_TTL_NS, "M-EXACT", epoch=1),
+        _atlas_replay_row(base, "M-PAST", epoch=1),
+        _atlas_replay_row(
+            base + l2.PRIMARY_STALE_TTL_NS + 1, "M-PAST", epoch=1
+        ),
+    ]
+    l2._insert_dict_rows(con, "replay_fixture", l2.REPLAY_COLUMNS, replay)
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    con.execute(
+        "CREATE TEMP TABLE atlas AS "
+        + l2._atlas_sql("replay_fixture", "episode_fixture")
+    )
+    primary = dict(con.execute(f"""
+      SELECT endpoint_reason,sum(n_rows)::BIGINT
+      FROM atlas WHERE record_kind='STATE'
+        AND staleness_ttl_ns={l2.PRIMARY_STALE_TTL_NS}
+        AND endpoint_reason IN
+            ('OBSERVED_NEXT_VALID_STATE','RIGHT_CENSORED_STALE_TTL')
+      GROUP BY endpoint_reason
+    """).fetchall())
+    assert primary == {
+        "OBSERVED_NEXT_VALID_STATE": 1,
+        "RIGHT_CENSORED_STALE_TTL": 1,
+    }
+    stale_dwell = con.execute(f"""
+      SELECT sum(total_dwell_us) FROM atlas
+      WHERE record_kind='STATE'
+        AND staleness_ttl_ns={l2.PRIMARY_STALE_TTL_NS}
+        AND endpoint_reason='RIGHT_CENSORED_STALE_TTL'
+    """).fetchone()[0]
+    assert stale_dwell == pytest.approx(l2.PRIMARY_STALE_TTL_NS / 1000)
+    # Under the 5s member both intervals are observed.
+    widest = con.execute("""
+      SELECT sum(n_rows)::BIGINT FROM atlas
+      WHERE record_kind='STATE' AND staleness_ttl_ns=5000000000
+        AND endpoint_reason='OBSERVED_NEXT_VALID_STATE'
+    """).fetchone()[0]
+    assert widest == 2
+    con.close()
+
+
+def test_atlas_continuous_snapshot_dwell_observed_to_snapshot_clock_only():
+    con = duckdb.connect()
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    base = 30_000_000_000
+    replay = [
+        # Same-sid applied snapshot 300ms later: continuous observation to
+        # the snapshot clock, then censored there.
+        _atlas_replay_row(base, "M-CONT", epoch=1),
+        _atlas_replay_row(
+            base + 300_000_000, "M-CONT", epoch=2, msg_type="snapshot"
+        ),
+        # New-sid snapshot: reset, zero proven dwell.
+        _atlas_replay_row(base, "M-RECON", epoch=1),
+        _atlas_replay_row(
+            base + 300_000_000, "M-RECON", epoch=2, msg_type="snapshot", sid=9
+        ),
+    ]
+    l2._insert_dict_rows(con, "replay_fixture", l2.REPLAY_COLUMNS, replay)
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    con.execute(
+        "CREATE TEMP TABLE atlas AS "
+        + l2._atlas_sql("replay_fixture", "episode_fixture")
+    )
+    primary = {
+        reason: (int(n_rows), float(total))
+        for reason, n_rows, total in con.execute(f"""
+          SELECT endpoint_reason,sum(n_rows)::BIGINT,sum(total_dwell_us)
+          FROM atlas WHERE record_kind='STATE'
+            AND staleness_ttl_ns={l2.PRIMARY_STALE_TTL_NS}
+          GROUP BY endpoint_reason
+        """).fetchall()
+    }
+    assert primary["RIGHT_CENSORED_SNAPSHOT_BOUNDARY"] == \
+        (1, pytest.approx(300_000.0))
+    assert primary["RIGHT_CENSORED_SNAPSHOT_RESET"] == (1, pytest.approx(0.0))
+    # The continuation-snapshot interval is still TTL-capped.
+    capped = con.execute("""
+      SELECT sum(total_dwell_us) FROM atlas
+      WHERE record_kind='STATE' AND staleness_ttl_ns=250000000
+        AND endpoint_reason='RIGHT_CENSORED_STALE_TTL'
+    """).fetchone()[0]
+    assert capped == pytest.approx(250_000.0)
     con.close()
 
 
@@ -1012,9 +1278,11 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     )
     assert reuse == {"atlas_reused": False, "match_reused": False}
     atlas_path = store.root / atlas["data"]["path"]
-    assert con.execute(
-        f"SELECT sum(n_rows) FROM read_parquet('{atlas_path}') WHERE record_kind='STATE'"
-    ).fetchone()[0] == 2
+    per_ttl = dict(con.execute(
+        f"SELECT staleness_ttl_ns,sum(n_rows) FROM read_parquet('{atlas_path}') "
+        "WHERE record_kind='STATE' GROUP BY staleness_ttl_ns"
+    ).fetchall())
+    assert per_ttl == {ttl: 2 for ttl in l2.STALE_TTL_REGISTRY_NS}
     kinds = {
         row[0] for row in con.execute(
             f"SELECT DISTINCT record_kind FROM read_parquet('{atlas_path}')"
@@ -1064,5 +1332,56 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
         ).fetchall()
     }
     assert not {"pnl", "fees", "fill_probability"} & columns
+    store.close()
+    con.close()
+
+
+def test_report_tables_surface_hazard_dwell_balance_coverage_concentration(
+    tmp_path: Path,
+):
+    import deep03_fullscope_runner as runner
+
+    manifest = _write_exact_fixture(tmp_path)
+    binding = l2.bounded_source_binding(manifest)
+    con = duckdb.connect()
+    store = l2.BoundedCheckpointStore(tmp_path / "checkpoints", binding)
+    result = l2.execute_l2_snbd_bounded(con, manifest, store, market_buckets=1)
+    graph_stub = {
+        "channel_by_date": [
+            {"date": date, "l2_rows": 0 if date in l2.L2_ABSENT_DATES else 3}
+            for date in l2.L2_SCOPE_DATES
+        ],
+        "mapping_status": [],
+    }
+    tables = runner._l2_report_tables(con, store, result, graph_stub)
+    assert tables["schema_version"] == "deep03-fullscope-l2-report-tables-v2"
+    assert tables["dwell_semantics"] == l2.DWELL_SEMANTICS
+    hazard = tables["refill_hazard"]
+    assert hazard, "actual hazard rows must be present, not only strata counts"
+    for row_value in hazard:
+        assert row_value["at_risk_n"] >= 1
+        assert 0 <= row_value["pooled_interval_hazard"] <= 1
+        assert 0 <= row_value["min_stratum_survival"] <= 1
+    assert {row["staleness_ttl_ns"] for row in tables["state_dwell"]} == \
+        set(l2.STALE_TTL_REGISTRY_NS)
+    assert [row["date"] for row in tables["match_coverage"]] == \
+        list(l2.L2_ANALYSIS_DATES)
+    for row_value in tables["match_coverage"]:
+        assert "matched_rows" in row_value and "match_rate" in row_value
+    assert [row["date"] for row in tables["match_balance"]] == \
+        list(l2.L2_ANALYSIS_DATES)
+    assert all("smd_imbalance" in row for row in tables["match_balance"])
+    identities = {
+        (row["date"], row["identity"]) for row in tables["match_concentration"]
+    }
+    assert identities == {
+        (date, identity)
+        for date in l2.L2_ANALYSIS_DATES
+        for identity in ("control_market", "control_event")
+    }
+    assert all(
+        {"unique", "max_share", "hhi"} <= set(row)
+        for row in tables["match_concentration"]
+    )
     store.close()
     con.close()

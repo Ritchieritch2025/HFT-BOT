@@ -164,6 +164,16 @@ def test_graph_fails_closed_on_declared_fact_row_drift(tmp_path):
         module.build_market_graph(duckdb.connect(), manifest)
 
 
+@pytest.mark.parametrize("declared", [None, True, -1, "2", 2.0])
+def test_standalone_graph_requires_exact_fact_row_count(tmp_path, declared):
+    module = _load()
+    manifest = _fixture(tmp_path)
+    fact = next(row for row in manifest["objects"] if row["kind"] == "facts")
+    fact["row_count"] = declared
+    with pytest.raises(module.MarketGraphError, match="row_count is mandatory"):
+        module.build_market_graph(duckdb.connect(), manifest)
+
+
 def test_graph_keeps_dimension_conflict_visible(tmp_path):
     module = _load()
     manifest = _fixture(tmp_path)

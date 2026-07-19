@@ -146,6 +146,7 @@ def _l2_result(binding: str) -> dict:
         "schema_version": runner.L2_EXECUTION_SCHEMA,
         "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
         "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
+        "dwell_semantics": runner.DWELL_SEMANTICS,
         "source_binding": binding,
         "quality": {
             date: {
@@ -199,10 +200,58 @@ def _l2_result(binding: str) -> dict:
 
 def _report_tables(binding: str) -> dict:
     return {
-        "schema_version": "deep03-fullscope-l2-report-tables-v1",
+        "schema_version": "deep03-fullscope-l2-report-tables-v2",
         "state": "COMPLETE",
         "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
         "source_binding": binding,
+        "dwell_semantics": runner.DWELL_SEMANTICS,
+        "staleness_ttl_registry_ns": list(runner.STALE_TTL_REGISTRY_NS),
+        "primary_staleness_ttl_ns": runner.PRIMARY_STALE_TTL_NS,
+        "refill_hazard": [
+            {
+                "date": "2026-07-12",
+                "horizon_start_us": 0,
+                "horizon_end_us": 100_000,
+                "at_risk_n": 1,
+                "events_n": 1,
+                "pooled_interval_hazard": 1.0,
+                "min_stratum_survival": 0.0,
+                "max_stratum_survival": 0.0,
+                "strata": 1,
+            }
+        ],
+        "state_dwell": [
+            {
+                "date": "2026-07-12",
+                "staleness_ttl_ns": ttl,
+                "endpoint_reason": "OBSERVED_NEXT_VALID_STATE",
+                "n_rows": 1,
+                "total_dwell_us": 100.0,
+            }
+            for ttl in runner.STALE_TTL_REGISTRY_NS
+        ],
+        "match_coverage": [
+            {
+                "date": "2026-07-12",
+                "all_episode_rows": 1,
+                "eligible_pre_treatment_two_sided_rows": 1,
+                "matched_rows": 1,
+                "unmatched_eligible_rows": 0,
+                "match_rate": 1.0,
+            }
+        ],
+        "match_balance": [
+            {"date": "2026-07-12", "smd_imbalance": 0.0, "smd_spread_e4": 0.0}
+        ],
+        "match_concentration": [
+            {
+                "date": "2026-07-12",
+                "identity": "control_market",
+                "unique": 1,
+                "max_share": 1.0,
+                "hhi": 1.0,
+            }
+        ],
         "coverage_by_date": [
             {
                 "date": date,
@@ -516,6 +565,55 @@ def test_independent_audit_blocker_refuses_before_any_compute(tmp_path, monkeypa
     assert not (run_dir / "RUN_COMPLETE.json").exists()
 
 
+def test_audit_gate_binds_methods_module_and_new_blocker_classes(
+    tmp_path, monkeypatch
+):
+    assert "deep03_v3_methods.py" in runner.FULLSCOPE_SOURCE_MODULES
+    for blocker_class in (
+        "STALENESS_TTL",
+        "SNAPSHOT_REGRESSION",
+        "RESET_BEFORE_EXPIRY",
+        "MANIFEST_ROW_AUTHORITY",
+    ):
+        assert blocker_class in runner.L2_AUDIT_BLOCKER_CLASSES
+
+    _manifest_value, run_dir, common = _setup_success(tmp_path, monkeypatch)
+    receipt_path = common["l2_independent_audit_receipt_path"]
+    pristine = receipt_path.read_bytes()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("compute must not start")
+
+    monkeypatch.setattr(runner, "execute_all_bounded", forbidden)
+
+    # A receipt whose audited deep03_v3_methods.py SHA drifts is refused.
+    receipt = json.loads(pristine)
+    receipt["audited_modules_sha256"][
+        "tools/research/deep03_v3_methods.py"
+    ] = "0" * 64
+    receipt_path.write_bytes(runner._canonical_json(receipt))
+    with pytest.raises(Deep03InputError, match="audited_modules_sha256"):
+        runner.run_fullscope_discovery(**common)
+
+    # A receipt that omits the methods module binding entirely is refused.
+    receipt = json.loads(pristine)
+    del receipt["audited_modules_sha256"]["tools/research/deep03_v3_methods.py"]
+    receipt_path.write_bytes(runner._canonical_json(receipt))
+    with pytest.raises(Deep03InputError, match="audited_modules_sha256"):
+        runner.run_fullscope_discovery(**common)
+
+    # An audit that did not check the new blocker classes is refused.
+    receipt = json.loads(pristine)
+    receipt["blocker_classes_checked"] = [
+        value for value in receipt["blocker_classes_checked"]
+        if value != "STALENESS_TTL"
+    ]
+    receipt_path.write_bytes(runner._canonical_json(receipt))
+    with pytest.raises(Deep03InputError, match="blocker_classes_checked"):
+        runner.run_fullscope_discovery(**common)
+    assert not (run_dir / "RUN_COMPLETE.json").exists()
+
+
 def test_audit_quality_hash_drift_refuses_before_compute(tmp_path, monkeypatch):
     manifest, run_dir, common = _setup_success(tmp_path, monkeypatch)
     receipt_path = common["l2_independent_audit_receipt_path"]
@@ -575,6 +673,13 @@ def test_fullscope_success_emits_coverage_l2_receipts_and_final_complete(
     assert "Full-scope channel coverage" in report
     assert "L2 / SNBD sequence-valid analysis" in report
     assert "RFQ NOT INCLUDED IN THIS EXECUTION UNIT" in report
+    assert "Refill hazard by 100ms horizon interval" in report
+    assert "TTL-capped state dwell" in report
+    assert "TTL-capped update-to-update dwell" in report
+    assert "Matched-control coverage" in report
+    assert "Matched-control covariate balance" in report
+    assert "Matched-control concentration" in report
+    assert "pooled_interval_hazard" in report
     assert not (run_dir / ".scratch").exists()
 
 

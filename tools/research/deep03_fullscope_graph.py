@@ -255,7 +255,6 @@ def _scan_fact_support(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
     _create_support_table(con)
     source_rows: dict[str, int] = defaultdict(int)
     source_objects: dict[str, int] = defaultdict(int)
-    missing_declared_counts: dict[str, int] = defaultdict(int)
     for obj in _sports_fact_objects(input_manifest):
         channel = str(obj["channel"])
         path = Path(str(obj.get("local_path") or ""))
@@ -274,9 +273,15 @@ def _scan_fact_support(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             raise MarketGraphError(f"fact market identity missing: {path}")
         actual = int(con.execute("SELECT count(*) FROM fullscope_fact_source").fetchone()[0])
         declared = obj.get("row_count")
-        if declared is None:
-            missing_declared_counts[channel] += 1
-        elif type(declared) is not int or declared < 0 or declared != actual:
+        # The manifest is the row authority for every fact object, in the
+        # standalone graph exactly as in the integrated runner: a missing or
+        # non-exact declared count is a refusal, never a silent scan.
+        if type(declared) is not int or declared < 0:
+            raise MarketGraphError(
+                "fact row_count is mandatory and must be an exact nonnegative"
+                f" integer: {obj.get('logical_key')}: declared={declared!r}"
+            )
+        if declared != actual:
             raise MarketGraphError(
                 f"fact row conservation failed: {obj.get('logical_key')}:"
                 f" declared={declared} actual={actual}"
@@ -309,9 +314,7 @@ def _scan_fact_support(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_rows": dict(sorted(source_rows.items())),
         "source_objects": dict(sorted(source_objects.items())),
-        "objects_without_declared_row_count": dict(
-            sorted(missing_declared_counts.items())
-        ),
+        "declared_row_count_authority": "REQUIRED_EXACT_MATCH_EVERY_FACT_OBJECT",
     }
 
 

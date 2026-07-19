@@ -44,11 +44,14 @@ from deep03_v3_common import (
     utc_now,
 )
 from deep03_v3_l2 import (
+    DWELL_SEMANTICS,
     L2_ABSENT_DATES,
     L2_ANALYSIS_DATES,
     L2_CAPTURE_DATES,
     L2_KNOWN_EXCLUDED_DATES,
     L2_SCOPE_DATES,
+    PRIMARY_STALE_TTL_NS,
+    STALE_TTL_REGISTRY_NS,
     execute_l2_snbd_bounded,
 )
 from deep03_v3_methods import (
@@ -89,6 +92,10 @@ FULLSCOPE_METHODS = (*METHODS, GRAPH_METHOD_ID, L2_METHOD_ID)
 L2_CHECKPOINT_EXPANSION_FACTOR = 8
 DEFAULT_L2_MARKET_BUCKETS = 16
 FULLSCOPE_SOURCE_MODULES = (
+    # deep03_v3_methods.py carries the checkpoint store, row-conservation and
+    # bounded execution logic the L2 unit depends on; the independent audit
+    # receipt must bind its exact SHA, not only the L2-specific modules.
+    "deep03_v3_methods.py",
     "deep03_fullscope_graph.py",
     "deep03_v3_l2.py",
     "deep03_fullscope_runner.py",
@@ -112,6 +119,10 @@ L2_AUDIT_BLOCKER_CLASSES = (
     "POST_TREATMENT_COVARIATE",
     "ONE_SECOND_BOUNDARY",
     "DWELL_ACCOUNTING",
+    "STALENESS_TTL",
+    "SNAPSHOT_REGRESSION",
+    "RESET_BEFORE_EXPIRY",
+    "MANIFEST_ROW_AUTHORITY",
     "QUIET_CONTROL",
     "NEGATIVE_CONTROL",
     "HAZARD_SEMANTICS",
@@ -452,6 +463,7 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
         "schema_version": L2_EXECUTION_SCHEMA,
         "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
         "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
+        "dwell_semantics": DWELL_SEMANTICS,
         "source_binding": source_binding,
     }
     for field, value in expected.items():
@@ -545,12 +557,12 @@ def _canonical_json(value: Any) -> bytes:
     ).encode("ascii")
 
 
-def _validated_stage_paths(
+def _validated_stage_partitions(
     con,
     store: BoundedCheckpointStore,
     l2_result: Mapping[str, Any],
     stage: str,
-) -> list[Path]:
+) -> list[dict[str, Any]]:
     stage_rows = [row for row in l2_result["stages"] if row.get("stage") == stage]
     if len(stage_rows) != 1:
         raise Deep03InputError(f"L2 stage receipt is not unique: {stage}")
@@ -583,7 +595,7 @@ def _validated_stage_paths(
     partitions = manifest.get("partitions")
     if not isinstance(partitions, list) or len(partitions) != manifest["partition_count"]:
         raise Deep03InputError(f"L2 stage partition ledger mismatch: {stage}")
-    paths: list[Path] = []
+    validated: list[dict[str, Any]] = []
     for row in partitions:
         if not isinstance(row, dict) or not isinstance(row.get("partition_key"), str):
             raise Deep03InputError(f"L2 stage partition row is invalid: {stage}")
@@ -604,10 +616,26 @@ def _validated_stage_paths(
         payload = (store.root / receipt["data"]["path"]).resolve()
         if not _is_relative_to(payload, store.root) or payload.is_symlink():
             raise Deep03InputError(f"L2 stage payload escaped checkpoint root: {stage}")
-        paths.append(payload)
-    if not paths:
+        validated.append({
+            "partition_key": row["partition_key"],
+            "path": payload,
+            "receipt": receipt,
+        })
+    if not validated:
         raise Deep03InputError(f"L2 stage has no durable payloads: {stage}")
-    return paths
+    return validated
+
+
+def _validated_stage_paths(
+    con,
+    store: BoundedCheckpointStore,
+    l2_result: Mapping[str, Any],
+    stage: str,
+) -> list[Path]:
+    return [
+        row["path"]
+        for row in _validated_stage_partitions(con, store, l2_result, stage)
+    ]
 
 
 def _l2_report_tables(
@@ -620,6 +648,9 @@ def _l2_report_tables(
         con, store, l2_result, "l2_availability"
     )
     atlas_paths = _validated_stage_paths(con, store, l2_result, "l2_exact_atlas")
+    match_partitions = _validated_stage_partitions(
+        con, store, l2_result, "l2_matched_controls"
+    )
     availability = rows_as_dicts(
         con,
         f"SELECT * FROM read_parquet({path_list(availability_paths)},"
@@ -650,6 +681,71 @@ def _l2_report_tables(
     )
     if not atlas:
         raise Deep03InputError("L2 atlas summary is empty")
+    atlas_relation = (
+        f"read_parquet({path_list(atlas_paths)},hive_partitioning=false)"
+    )
+    refill_hazard = rows_as_dicts(
+        con,
+        "SELECT date,horizon_start_us,horizon_end_us,"
+        "sum(at_risk_n)::BIGINT AS at_risk_n,"
+        "sum(events_n)::BIGINT AS events_n,"
+        "(sum(events_n)::DOUBLE/nullif(sum(at_risk_n),0)) AS pooled_interval_hazard,"
+        "min(survival_to_end)::DOUBLE AS min_stratum_survival,"
+        "max(survival_to_end)::DOUBLE AS max_stratum_survival,"
+        "count(*)::BIGINT AS strata "
+        f"FROM {atlas_relation} WHERE record_kind='REFILL_HAZARD' "
+        "GROUP BY date,horizon_start_us,horizon_end_us "
+        "ORDER BY date,horizon_start_us",
+    )
+    state_dwell = rows_as_dicts(
+        con,
+        "SELECT date,staleness_ttl_ns,endpoint_reason,"
+        "sum(n_rows)::BIGINT AS n_rows,"
+        "coalesce(sum(total_dwell_us),0)::DOUBLE AS total_dwell_us "
+        f"FROM {atlas_relation} WHERE record_kind='STATE' "
+        "GROUP BY date,staleness_ttl_ns,endpoint_reason "
+        "ORDER BY date,staleness_ttl_ns,endpoint_reason",
+    )
+    observed_ttls = {row.get("staleness_ttl_ns") for row in state_dwell}
+    if state_dwell and observed_ttls != set(STALE_TTL_REGISTRY_NS):
+        raise Deep03InputError(
+            "L2 state dwell table does not cover the finite staleness TTL registry"
+        )
+    match_coverage: list[dict[str, Any]] = []
+    match_balance: list[dict[str, Any]] = []
+    match_concentration: list[dict[str, Any]] = []
+    for partition in sorted(
+        match_partitions, key=lambda row: str(row["partition_key"])
+    ):
+        key = str(partition["partition_key"])
+        if not key.startswith("date="):
+            raise Deep03InputError(f"L2 match partition key is not dated: {key}")
+        date = key[len("date="):]
+        metrics = partition["receipt"].get("metrics")
+        if not isinstance(metrics, dict):
+            raise Deep03InputError(f"L2 match receipt metrics missing: {key}")
+        coverage = metrics.get("episode_coverage")
+        balance = metrics.get("balance")
+        concentration = metrics.get("concentration")
+        if (
+            not isinstance(coverage, dict)
+            or not isinstance(balance, dict)
+            or not isinstance(concentration, dict)
+        ):
+            raise Deep03InputError(
+                f"L2 match receipt lacks coverage/balance/concentration: {key}"
+            )
+        match_coverage.append({"date": date, **coverage})
+        match_balance.append({"date": date, **balance})
+        for identity in ("control_market", "control_event"):
+            identity_row = concentration.get(identity)
+            if not isinstance(identity_row, dict):
+                raise Deep03InputError(
+                    f"L2 match concentration identity missing: {key}: {identity}"
+                )
+            match_concentration.append(
+                {"date": date, "identity": identity, **identity_row}
+            )
     stage_rows = [
         {
             "stage": row["stage"],
@@ -680,15 +776,23 @@ def _l2_report_tables(
         projected["l2_analysis_state"] = expected_states.get(date, "OUTSIDE_SCOPE")
         coverage_by_date.append(projected)
     return {
-        "schema_version": "deep03-fullscope-l2-report-tables-v1",
+        "schema_version": "deep03-fullscope-l2-report-tables-v2",
         "state": "COMPLETE",
         "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
         "source_binding": store.source_binding,
+        "dwell_semantics": DWELL_SEMANTICS,
+        "staleness_ttl_registry_ns": list(STALE_TTL_REGISTRY_NS),
+        "primary_staleness_ttl_ns": PRIMARY_STALE_TTL_NS,
         "coverage_by_date": coverage_by_date,
         "mapping_status": list(graph_result.get("mapping_status") or []),
         "availability": availability,
         "quality": quality_rows,
         "atlas_summary": atlas,
+        "refill_hazard": refill_hazard,
+        "state_dwell": state_dwell,
+        "match_coverage": match_coverage,
+        "match_balance": match_balance,
+        "match_concentration": match_concentration,
         "stage_summary": stage_rows,
         "limitations": list(l2_result.get("limitations") or []),
     }
@@ -714,6 +818,26 @@ def _render_fullscope_report(
     limitation_rows = [
         {"limitation": value} for value in l2_tables.get("limitations") or []
     ]
+    hazard_rows = l2_tables["refill_hazard"]
+    hazard_chart_rows = [
+        {
+            "bucket": (
+                f"{row.get('date')} {row.get('horizon_start_us')}-"
+                f"{row.get('horizon_end_us')}us"
+            ),
+            "pooled_interval_hazard": row.get("pooled_interval_hazard"),
+        }
+        for row in hazard_rows
+    ]
+    hazard_chart = _bar_chart(
+        hazard_chart_rows, "bucket", "pooled_interval_hazard"
+    )
+    ttl_registry_label = ", ".join(
+        f"{ttl / 1_000_000:g}ms" for ttl in l2_tables["staleness_ttl_registry_ns"]
+    )
+    primary_ttl_label = (
+        f"{l2_tables['primary_staleness_ttl_ns'] / 1_000_000:g}ms"
+    )
     extension = f"""
     <section class="meta" id="FULLSCOPE-COVERAGE"><h2>Full-scope channel coverage</h2>
     <p><strong>Base cohort only:</strong> every admitted L1/trade row plus every
@@ -728,6 +852,17 @@ def _render_fullscope_report(
     <h3>Availability</h3>{_table(l2_tables['availability'], source)}
     <h3>Full-stream sequence-quality evidence</h3>{_table(l2_tables['quality'], source)}
     <h3>Topology / retreat / episode / refill-hazard atlas</h3>{_table(l2_tables['atlas_summary'], source)}
+    <h3>Refill hazard by 100ms horizon interval (discrete risk set, pooled across strata)</h3>
+    {_table(hazard_rows, source)}{hazard_chart}
+    <h3>TTL-capped state dwell (registry {html.escape(ttl_registry_label)}; primary {html.escape(primary_ttl_label)})</h3>
+    <p>Dwell is <strong>TTL-capped update-to-update dwell</strong>, never full
+    market uptime: pause/close/terminal lifecycle is not a proven L2 boundary
+    in these inputs, and an interval whose next update exceeds its TTL is
+    RIGHT_CENSORED_STALE_TTL.</p>
+    {_table(l2_tables['state_dwell'], source)}
+    <h3>Matched-control coverage</h3>{_table(l2_tables['match_coverage'], source)}
+    <h3>Matched-control covariate balance</h3>{_table(l2_tables['match_balance'], source)}
+    <h3>Matched-control concentration</h3>{_table(l2_tables['match_concentration'], source)}
     <h3>Durable exact-input stages</h3>{_table(l2_tables['stage_summary'], source)}
     <h3>Limits</h3>{_table(limitation_rows, source)}
     <p>No queue position, fill probability, fee-after PnL, causal effect,
