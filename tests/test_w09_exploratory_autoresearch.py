@@ -376,6 +376,8 @@ def test_deployment_payload_and_timer_are_pinned():
         "--w1-complete /etc/w09/deep03/prerequisites/W1_COMPLETE.json"
         in service
     )
+    assert "--checkpoint-root /srv/w09-research/checkpoints" in service
+    assert "--checkpoint-reserve-bytes 8589934592" in service
     assert "exploratory_autoresearch.sha256" in service
     assert "OnUnitInactiveSec=30min" in timer
     assert "Persistent=true" in timer
@@ -397,6 +399,9 @@ def test_deployment_payload_and_timer_are_pinned():
     assert 'default="/srv/w09-research/cache"' in autoresearch
     assert "cache-v3-exploratory" not in autoresearch
     assert "/srv/w09-research/cache" in gate_source
+    assert '"/srv/w09-research/checkpoints"' in gate_source
+    assert 'CHECKPOINT_ROOT="/srv/w09-research/checkpoints"' in installer
+    assert '"$CHECKPOINT_ROOT"' in installer
 
 
 def test_bounded_08_resource_and_packaging_contract_are_fixed():
@@ -791,6 +796,7 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     assert result["expected_object_count"] == 2657
     assert result["expected_object_bytes"] == 29473216651
     assert result["authorized_instance_type"] == "r8g.2xlarge"
+    assert set(result["authorized_write_roots"]) == gate.WRITE_ROOTS
     assert result["w09_exact_version_read_evidence"] == {
         "binding_kind": "COMPOSITE_W1_DATA_QUALITY_RECEIPT_SHA256",
         "sha256": result["prerequisite_receipt_sha256s"][
@@ -998,6 +1004,15 @@ def test_authority_gate_refuses_prerequisite_byte_drift(
         ("expected_object_count", 2656, "field mismatch"),
         ("expected_object_bytes", 29473216650, "field mismatch"),
         ("authorized_instance_type", "x8g.4xlarge", "field mismatch"),
+        (
+            "authorized_write_roots",
+            [
+                "/srv/w09-research/automation",
+                "/srv/w09-research/cache",
+                "/srv/w09-research/runs",
+            ],
+            "write roots",
+        ),
         ("s3_write_permission", True, "explicit false"),
     ],
 )

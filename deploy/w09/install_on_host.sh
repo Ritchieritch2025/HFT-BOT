@@ -11,6 +11,7 @@ PAYLOAD_ROOT="${1:-/tmp/w09-bringup}"
 INSTALL_ROOT="/opt/w09/research"
 VENV="/opt/w09/venv"
 CACHE_ROOT="/srv/w09-research/cache"
+CHECKPOINT_ROOT="/srv/w09-research/checkpoints"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "W09_INSTALL_REFUSED: run as root" >&2
@@ -212,7 +213,8 @@ python3 -m venv "$VENV"
 PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
     'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
 
-install -d -o ubuntu -g ubuntu -m 0750 /srv/w09-research "$CACHE_ROOT"
+install -d -o ubuntu -g ubuntu -m 0750 \
+  /srv/w09-research "$CACHE_ROOT" "$CHECKPOINT_ROOT"
 install -d -o root -g ubuntu -m 0750 /var/lib/w09-deep03 \
     /var/lib/w09-deep03/one-shot
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/cost-contract.json" \

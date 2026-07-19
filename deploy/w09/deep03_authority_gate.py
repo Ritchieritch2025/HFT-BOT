@@ -40,6 +40,7 @@ WRITE_ROOTS = {
     "/srv/w09-research/cache",
     "/srv/w09-research/automation",
     "/srv/w09-research/runs",
+    "/srv/w09-research/checkpoints",
 }
 NETWORK_OPERATIONS = ["S3_READONLY_MANIFEST_AND_EXACT_VERSION"]
 AUTHORIZED_TOOL_CLASSES = [
@@ -782,6 +783,7 @@ def validate_authority_bundle(
         "authorized_phase_id": PHASE,
         "authorized_work_package_id": WORK_PACKAGE,
         "authorized_instance_type": INSTANCE_TYPE,
+        "authorized_write_roots": sorted(WRITE_ROOTS),
         "input_start_date": start_date,
         "input_end_date": end_date,
         "authorized_input_release_ids": release_ids,

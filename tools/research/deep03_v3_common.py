@@ -78,6 +78,7 @@ AUTHORITY_BINDING_FIELDS = (
     "w1_release_sha256",
     "authorized_phase_id",
     "authorized_work_package_id",
+    "authorized_write_roots",
     "authorized_input_release_ids",
     "expected_evidence_tier",
     "expected_object_count",
