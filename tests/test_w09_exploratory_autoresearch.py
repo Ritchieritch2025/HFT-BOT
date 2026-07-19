@@ -170,7 +170,7 @@ def test_selector_is_contiguous_rfq_free_and_evidence_bounded(tmp_path):
         )
 
 
-def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
+def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monkeypatch):
     automation = _load(
         "w09_exploratory_automation_test",
         W09 / "exploratory_autoresearch.py",
@@ -200,6 +200,8 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
         ).encode("ascii")
     ).hexdigest()
     commands: list[list[str]] = []
+    invocation_id = "1" * 32
+    monkeypatch.setenv("INVOCATION_ID", invocation_id)
 
     def fake_runner(command, **_kwargs):
         command = list(command)
@@ -253,6 +255,10 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
             "release_id": "D3-W2A-test-release",
             "authority_sha256": "a" * 64,
             "arm_sha256": "b" * 64,
+            "arm_claim_state": "ACTIVE",
+            "arm_claim_sha256": "d" * 64,
+            "arm_claim_invocation_id": invocation_id,
+            "arm_claim_service_unit": "w09-exploratory-autoresearch.service",
             "adopted_plan_sha256": "c" * 64,
             "max_runtime_seconds": 3600,
             "effective_runtime_seconds": 3600,
@@ -260,6 +266,7 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
         "required_release_ids": [rid],
         "authority_path": tmp_path / "authority.json",
         "arm_path": tmp_path / "arm.json",
+        "arm_claim_root": tmp_path / "claims",
         "plan_path": tmp_path / "plan.md",
         "runtime_commit_path": tmp_path / "commit.txt",
         "audit_path": tmp_path / "audit.md",
@@ -283,6 +290,7 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path):
         for flag in (
             "--authority",
             "--arm-file",
+            "--arm-claim-root",
             "--plan",
             "--runtime-commit",
             "--audit",
@@ -321,15 +329,23 @@ def test_deployment_payload_and_timer_are_pinned():
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
     assert set(rows) == {
         "deploy/w09/deep03_authority_gate.py",
+        "deploy/w09/deep03_one_shot_arm.py",
         "deploy/w09/exploratory_v3_query_canary.py",
         "deploy/w09/exploratory_release_selector.py",
         "deploy/w09/exploratory_autoresearch.py",
         "deploy/w09/w09-exploratory-autoresearch.service",
         "deploy/w09/w09-exploratory-autoresearch.timer",
+        "deploy/w09/w09-inhibit-run",
+        "deploy/w09/w09-run",
     }
     service = (W09 / "w09-exploratory-autoresearch.service").read_text()
     timer = (W09 / "w09-exploratory-autoresearch.timer").read_text()
     assert "deep03_authority_gate.py" in service
+    assert "deep03_one_shot_arm.py claim" in service
+    assert "deep03_one_shot_arm.py consume" in service
+    assert "ExecStartPre=+" in service
+    assert "ExecStopPost=+" in service
+    assert "--arm-claim-root /var/lib/w09-deep03/one-shot" in service
     assert "--authority /etc/w09/deep03/AUTHORITY.json" in service
     assert "--runtime-commit /opt/w09/research/release-commit.txt" in service
     assert "--audit /etc/w09/deep03/audit.md" in service
@@ -355,6 +371,12 @@ def test_deployment_payload_and_timer_are_pinned():
     assert "AUTHORITY.json" not in installer
     assert "d3-w2a-execution-arm.json" not in installer
     assert "release-commit.txt" in installer
+    wrapper = (W09 / "w09-run").read_text()
+    inhibitor = (W09 / "w09-inhibit-run").read_text()
+    assert '--systemd-invocation-id "$INVOCATION_ID"' in wrapper
+    assert '/usr/bin/env INVOCATION_ID="$invocation_id"' in inhibitor
+    assert "/usr/local/bin/w09-run" in installer
+    assert "/usr/local/libexec/w09-inhibit-run" in installer
     autoresearch = (W09 / "exploratory_autoresearch.py").read_text()
     gate_source = (W09 / "deep03_authority_gate.py").read_text()
     assert 'default="/srv/w09-research/cache"' in autoresearch
@@ -383,6 +405,7 @@ def test_static_credentials_are_refused_without_printing_values(tmp_path, monkey
             required_release_ids=["unused"],
             authority_path=tmp_path / "authority.json",
             arm_path=tmp_path / "arm.json",
+            arm_claim_root=tmp_path / "claims",
             plan_path=tmp_path / "plan.md",
             runtime_commit_path=tmp_path / "commit.txt",
             audit_path=tmp_path / "audit.md",
@@ -516,6 +539,29 @@ def _authority_files(tmp_path: Path, release_ids: list[str] | None = None):
     )
 
 
+def _claimed_authority_files(tmp_path: Path, release_ids: list[str] | None = None):
+    files = _authority_files(tmp_path, release_ids)
+    gate, authority, arm_path, *_rest = files
+    one_shot = _load(
+        "w09_deep03_one_shot_fixture", W09 / "deep03_one_shot_arm.py"
+    )
+    claim_root = tmp_path / "one-shot"
+    claim_root.mkdir(mode=0o750)
+    invocation_id = "1" * 32
+    identity = one_shot.load_arm_identity(
+        authority_path=authority,
+        arm_path=arm_path,
+        expected_owner_uid=os.getuid(),
+    )
+    one_shot.claim_one_shot(
+        claim_root=claim_root,
+        identity=identity,
+        invocation_id=invocation_id,
+        expected_owner_uid=os.getuid(),
+    )
+    return (*files, claim_root, invocation_id)
+
+
 def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     gate, authority, arm, plan, runtime, audit, w0, w1, w1_complete = _authority_files(tmp_path)
     result, artifacts = gate.validate_authority_bundle(
@@ -549,6 +595,56 @@ def test_exact_release_authority_and_arm_bind_plan_runtime_and_input(tmp_path):
     assert hashlib.sha256(artifacts["AUDIT.md"]).hexdigest() == result[
         "audit_sha256"
     ]
+
+
+def test_claimed_authority_requires_current_systemd_one_shot(tmp_path):
+    (
+        gate,
+        authority,
+        arm,
+        plan,
+        runtime,
+        audit,
+        w0,
+        w1,
+        w1_complete,
+        claim_root,
+        invocation_id,
+    ) = _claimed_authority_files(tmp_path)
+    result, artifacts = gate.validate_claimed_authority_bundle(
+        authority_path=authority,
+        arm_path=arm,
+        arm_claim_root=claim_root,
+        plan_path=plan,
+        runtime_commit_path=runtime,
+        audit_path=audit,
+        w0_release_path=w0,
+        w1_release_path=w1,
+        w1_complete_path=w1_complete,
+        expected_owner_uid=os.getuid(),
+        invocation_id=invocation_id,
+        now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
+    )
+    assert result["arm_claim_state"] == "ACTIVE"
+    assert result["arm_claim_invocation_id"] == invocation_id
+    assert hashlib.sha256(artifacts["ARM_CLAIM.json"]).hexdigest() == result[
+        "arm_claim_sha256"
+    ]
+    with pytest.raises(gate.AuthorityError, match="invocation_id"):
+        gate.validate_claimed_authority(
+            authority_path=authority,
+            arm_path=arm,
+            arm_claim_root=claim_root,
+            plan_path=plan,
+            runtime_commit_path=runtime,
+            audit_path=audit,
+            w0_release_path=w0,
+            w1_release_path=w1,
+            w1_complete_path=w1_complete,
+            expected_owner_uid=os.getuid(),
+            invocation_id="2" * 32,
+            now=dt.datetime(2026, 7, 18, 13, tzinfo=dt.timezone.utc),
+        )
 
 
 def test_authority_gate_refuses_missing_mutable_or_unbound_arm(tmp_path):

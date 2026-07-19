@@ -52,6 +52,7 @@ SOURCE_FILES = (
 )
 AUTHORITY_ARTIFACT_NAMES = (
     "ADOPTED_PLAN.md",
+    "ARM_CLAIM.json",
     "AUDIT.md",
     "AUTHORITY.json",
     "BASE_COMMIT.txt",
@@ -64,6 +65,10 @@ AUTHORITY_BINDING_FIELDS = (
     "release_id",
     "authority_sha256",
     "arm_sha256",
+    "arm_claim_state",
+    "arm_claim_sha256",
+    "arm_claim_invocation_id",
+    "arm_claim_service_unit",
     "adopted_plan_sha256",
     "audit_sha256",
     "base_commit",
@@ -210,6 +215,7 @@ def load_authority_context(
     *,
     authority_path: Path,
     arm_path: Path,
+    arm_claim_root: Path,
     plan_path: Path,
     runtime_commit_path: Path,
     audit_path: Path,
@@ -218,12 +224,14 @@ def load_authority_context(
     w1_complete_path: Path,
     expected_owner_uid: int = 0,
     now: dt.datetime | None = None,
+    claim_invocation_id: str | None = None,
 ) -> dict[str, Any]:
     gate = _authority_gate_module()
     try:
-        binding, artifacts = gate.validate_authority_bundle(
+        binding, artifacts = gate.validate_claimed_authority_bundle(
             authority_path=Path(authority_path),
             arm_path=Path(arm_path),
+            arm_claim_root=Path(arm_claim_root),
             plan_path=Path(plan_path),
             runtime_commit_path=Path(runtime_commit_path),
             audit_path=Path(audit_path),
@@ -232,6 +240,7 @@ def load_authority_context(
             w1_complete_path=Path(w1_complete_path),
             expected_owner_uid=expected_owner_uid,
             now=now,
+            invocation_id=claim_invocation_id,
         )
     except gate.AuthorityError as exc:
         raise Deep03InputError("exact authority refused: %s" % exc) from exc

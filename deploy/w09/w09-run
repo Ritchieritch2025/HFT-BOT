@@ -7,6 +7,20 @@ if [ "$#" -eq 0 ]; then
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
+    if [ -n "${INVOCATION_ID:-}" ]; then
+        case "$INVOCATION_ID" in
+            *[!0-9a-f]*)
+                echo "W09_RUN_REFUSED: invalid systemd INVOCATION_ID" >&2
+                exit 77
+                ;;
+        esac
+        if [ "${#INVOCATION_ID}" -ne 32 ]; then
+            echo "W09_RUN_REFUSED: invalid systemd INVOCATION_ID" >&2
+            exit 77
+        fi
+        exec /usr/bin/sudo -n /usr/local/libexec/w09-inhibit-run \
+            --systemd-invocation-id "$INVOCATION_ID" -- "$@"
+    fi
     exec /usr/bin/sudo -n /usr/local/libexec/w09-inhibit-run "$@"
 fi
 

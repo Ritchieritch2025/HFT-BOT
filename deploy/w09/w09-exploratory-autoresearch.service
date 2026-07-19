@@ -11,7 +11,9 @@ UMask=0077
 WorkingDirectory=/srv/w09-research
 ExecCondition=/usr/bin/sha256sum -c /etc/w09/exploratory_autoresearch.sha256
 ExecCondition=/opt/w09/venv/bin/python /opt/w09/research/tools/deep03_authority_gate.py --authority /etc/w09/deep03/AUTHORITY.json --arm-file /etc/w09/deep03/approvals/d3-w2a-execution-arm.json --plan /etc/w09/deep03/adopted-plan.md --runtime-commit /opt/w09/research/release-commit.txt --audit /etc/w09/deep03/audit.md --w0-release /etc/w09/deep03/releases/D3-W0-20260718-01.json --w1-release /etc/w09/deep03/releases/D3-W1-20260718-01.json --w1-complete /etc/w09/deep03/prerequisites/W1_COMPLETE.json
-ExecStart=/usr/local/bin/w09-run /opt/w09/venv/bin/python /opt/w09/research/tools/exploratory_autoresearch.py --authority /etc/w09/deep03/AUTHORITY.json --arm-file /etc/w09/deep03/approvals/d3-w2a-execution-arm.json --plan /etc/w09/deep03/adopted-plan.md --runtime-commit /opt/w09/research/release-commit.txt --audit /etc/w09/deep03/audit.md --w0-release /etc/w09/deep03/releases/D3-W0-20260718-01.json --w1-release /etc/w09/deep03/releases/D3-W1-20260718-01.json --w1-complete /etc/w09/deep03/prerequisites/W1_COMPLETE.json
+ExecStartPre=+/opt/w09/venv/bin/python /opt/w09/research/tools/deep03_one_shot_arm.py claim --authority /etc/w09/deep03/AUTHORITY.json --arm-file /etc/w09/deep03/approvals/d3-w2a-execution-arm.json --claim-root /var/lib/w09-deep03/one-shot --service-unit w09-exploratory-autoresearch.service
+ExecStart=/usr/local/bin/w09-run /opt/w09/venv/bin/python /opt/w09/research/tools/exploratory_autoresearch.py --authority /etc/w09/deep03/AUTHORITY.json --arm-file /etc/w09/deep03/approvals/d3-w2a-execution-arm.json --arm-claim-root /var/lib/w09-deep03/one-shot --plan /etc/w09/deep03/adopted-plan.md --runtime-commit /opt/w09/research/release-commit.txt --audit /etc/w09/deep03/audit.md --w0-release /etc/w09/deep03/releases/D3-W0-20260718-01.json --w1-release /etc/w09/deep03/releases/D3-W1-20260718-01.json --w1-complete /etc/w09/deep03/prerequisites/W1_COMPLETE.json
+ExecStopPost=+/opt/w09/venv/bin/python /opt/w09/research/tools/deep03_one_shot_arm.py consume --authority /etc/w09/deep03/AUTHORITY.json --arm-file /etc/w09/deep03/approvals/d3-w2a-execution-arm.json --claim-root /var/lib/w09-deep03/one-shot --service-unit w09-exploratory-autoresearch.service
 TimeoutStartSec=24h
 Nice=10
 IOSchedulingClass=idle
@@ -24,7 +26,7 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/w09-research
+ReadWritePaths=/srv/w09-research /var/lib/w09-deep03/one-shot
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -36,5 +38,5 @@ RestrictRealtime=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
-# No Restart=.  The persistent timer is the bounded retry path, and the
-# application-level receipt prevents duplicate research for one selection.
+# No Restart=.  This exact ARM is claimed once and consumed by ExecStopPost;
+# neither a timer retry nor a direct prepare/runner can reuse it.

@@ -10,6 +10,40 @@ if [ "${SUDO_USER:-}" != "ubuntu" ] || [ "$#" -eq 0 ]; then
     exit 77
 fi
 
+invocation_id=""
+if [ "${1:-}" = "--systemd-invocation-id" ]; then
+    if [ "$#" -lt 4 ] || [ "${3:-}" != "--" ]; then
+        echo "W09_INHIBIT_REFUSED: malformed systemd invocation binding" >&2
+        exit 77
+    fi
+    invocation_id="$2"
+    case "$invocation_id" in
+        *[!0-9a-f]*)
+            echo "W09_INHIBIT_REFUSED: invalid systemd invocation binding" >&2
+            exit 77
+            ;;
+    esac
+    if [ "${#invocation_id}" -ne 32 ]; then
+        echo "W09_INHIBIT_REFUSED: invalid systemd invocation binding" >&2
+        exit 77
+    fi
+    shift 3
+fi
+
+if [ -n "$invocation_id" ]; then
+    exec /usr/bin/systemd-inhibit \
+        --what=shutdown \
+        --mode=block \
+        --who=w09-workload \
+        --why="PIPE-W09 research workload" \
+        -- /usr/bin/setpriv \
+           --reuid=ubuntu \
+           --regid=ubuntu \
+           --init-groups \
+           --reset-env \
+           -- /usr/bin/env INVOCATION_ID="$invocation_id" "$@"
+fi
+
 exec /usr/bin/systemd-inhibit \
     --what=shutdown \
     --mode=block \

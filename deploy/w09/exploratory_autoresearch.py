@@ -211,6 +211,7 @@ def run_cycle(
     required_release_ids: list[str],
     authority_path: Path,
     arm_path: Path,
+    arm_claim_root: Path,
     plan_path: Path,
     runtime_commit_path: Path,
     audit_path: Path,
@@ -231,6 +232,11 @@ def run_cycle(
     if (
         authority_binding.get("state") != "AUTHORIZED"
         or authority_binding.get("mode") != MODE
+        or authority_binding.get("arm_claim_state") != "ACTIVE"
+        or authority_binding.get("arm_claim_service_unit")
+        != "w09-exploratory-autoresearch.service"
+        or authority_binding.get("arm_claim_invocation_id")
+        != os.environ.get("INVOCATION_ID")
         or not isinstance(authority_release_id, str)
         or not isinstance(authority_sha256, str)
         or len(authority_sha256) != 64
@@ -470,6 +476,8 @@ def run_cycle(
                 str(authority_path),
                 "--arm-file",
                 str(arm_path),
+                "--arm-claim-root",
+                str(arm_claim_root),
                 "--plan",
                 str(plan_path),
                 "--runtime-commit",
@@ -510,6 +518,8 @@ def run_cycle(
                     str(authority_path),
                     "--arm-file",
                     str(arm_path),
+                    "--arm-claim-root",
+                    str(arm_claim_root),
                     "--plan",
                     str(plan_path),
                     "--runtime-commit",
@@ -555,6 +565,10 @@ def run_cycle(
                 "authority_release_id": authority_release_id,
                 "authority_sha256": authority_sha256,
                 "arm_sha256": authority_binding.get("arm_sha256"),
+                "arm_claim_sha256": authority_binding.get("arm_claim_sha256"),
+                "arm_claim_invocation_id": authority_binding.get(
+                    "arm_claim_invocation_id"
+                ),
                 "adopted_plan_sha256": authority_binding.get(
                     "adopted_plan_sha256"
                 ),
@@ -593,6 +607,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-root", default="/srv/w09-research/runs")
     parser.add_argument("--authority", required=True, type=Path)
     parser.add_argument("--arm-file", required=True, type=Path)
+    parser.add_argument("--arm-claim-root", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--runtime-commit", required=True, type=Path)
     parser.add_argument("--audit", required=True, type=Path)
@@ -609,9 +624,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-attempts", type=int, default=1)
     args = parser.parse_args(argv)
     try:
-        authority = deep03_authority_gate.validate_authority(
+        authority = deep03_authority_gate.validate_claimed_authority(
             authority_path=args.authority,
             arm_path=args.arm_file,
+            arm_claim_root=args.arm_claim_root,
             plan_path=args.plan,
             runtime_commit_path=args.runtime_commit,
             audit_path=args.audit,
@@ -633,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
             required_release_ids=authority["authorized_input_release_ids"],
             authority_path=args.authority,
             arm_path=args.arm_file,
+            arm_claim_root=args.arm_claim_root,
             plan_path=args.plan,
             runtime_commit_path=args.runtime_commit,
             audit_path=args.audit,

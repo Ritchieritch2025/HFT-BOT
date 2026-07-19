@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -248,6 +249,25 @@ def _upstream_release(
     if not isinstance(release_sha, str) or SHA256_RE.fullmatch(release_sha) is None:
         raise AuthorityError("%s release SHA-256 is invalid" % prefix.upper())
     return release_id, release_sha
+
+
+def _one_shot_arm_module():
+    try:
+        import deep03_one_shot_arm
+
+        return deep03_one_shot_arm
+    except ModuleNotFoundError:
+        source = Path(__file__).resolve().with_name("deep03_one_shot_arm.py")
+        if not source.is_file():
+            raise AuthorityError("pinned one-shot ARM module is unavailable")
+        spec = importlib.util.spec_from_file_location(
+            "deep03_one_shot_arm_gate_fallback", source
+        )
+        if spec is None or spec.loader is None:
+            raise AuthorityError("pinned one-shot ARM module cannot be loaded")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
 
 def validate_authority_bundle(
@@ -570,6 +590,66 @@ def validate_authority(
     return result
 
 
+def validate_claimed_authority_bundle(
+    *,
+    authority_path: Path,
+    arm_path: Path,
+    arm_claim_root: Path,
+    plan_path: Path,
+    runtime_commit_path: Path,
+    audit_path: Path,
+    w0_release_path: Path,
+    w1_release_path: Path,
+    w1_complete_path: Path,
+    expected_owner_uid: int = 0,
+    now: dt.datetime | None = None,
+    invocation_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Validate the static release and its current systemd one-shot claim."""
+    result, artifacts = validate_authority_bundle(
+        authority_path=authority_path,
+        arm_path=arm_path,
+        plan_path=plan_path,
+        runtime_commit_path=runtime_commit_path,
+        audit_path=audit_path,
+        w0_release_path=w0_release_path,
+        w1_release_path=w1_release_path,
+        w1_complete_path=w1_complete_path,
+        expected_owner_uid=expected_owner_uid,
+        now=now,
+    )
+    one_shot = _one_shot_arm_module()
+    exact_invocation = invocation_id or os.environ.get("INVOCATION_ID", "")
+    identity = {
+        "release_id": result["release_id"],
+        "authority_sha256": result["authority_sha256"],
+        "arm_sha256": result["arm_sha256"],
+    }
+    try:
+        claim, claim_raw = one_shot.validate_active_claim(
+            claim_root=Path(arm_claim_root),
+            identity=identity,
+            invocation_id=exact_invocation,
+            service_unit=one_shot.SERVICE_UNIT,
+            expected_owner_uid=expected_owner_uid,
+        )
+    except one_shot.OneShotArmError as exc:
+        raise AuthorityError("one-shot execution claim refused: %s" % exc) from exc
+    claimed = {
+        **result,
+        "arm_claim_state": "ACTIVE",
+        "arm_claim_sha256": hashlib.sha256(claim_raw).hexdigest(),
+        "arm_claim_invocation_id": claim["invocation_id"],
+        "arm_claim_service_unit": claim["service_unit"],
+    }
+    return claimed, {**artifacts, "ARM_CLAIM.json": claim_raw}
+
+
+def validate_claimed_authority(**kwargs: Any) -> dict[str, Any]:
+    result, _artifacts = validate_claimed_authority_bundle(**kwargs)
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authority", required=True, type=Path)
@@ -580,19 +660,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--w0-release", required=True, type=Path)
     parser.add_argument("--w1-release", required=True, type=Path)
     parser.add_argument("--w1-complete", required=True, type=Path)
+    parser.add_argument("--arm-claim-root", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
-        result = validate_authority(
-            authority_path=args.authority,
-            arm_path=args.arm_file,
-            plan_path=args.plan,
-            runtime_commit_path=args.runtime_commit,
-            audit_path=args.audit,
-            w0_release_path=args.w0_release,
-            w1_release_path=args.w1_release,
-            w1_complete_path=args.w1_complete,
+        validator = (
+            validate_claimed_authority
+            if args.arm_claim_root is not None
+            else validate_authority
         )
+        kwargs = {
+            "authority_path": args.authority,
+            "arm_path": args.arm_file,
+            "plan_path": args.plan,
+            "runtime_commit_path": args.runtime_commit,
+            "audit_path": args.audit,
+            "w0_release_path": args.w0_release,
+            "w1_release_path": args.w1_release,
+            "w1_complete_path": args.w1_complete,
+        }
+        if args.arm_claim_root is not None:
+            kwargs["arm_claim_root"] = args.arm_claim_root
+        result = validator(**kwargs)
     except AuthorityError as exc:
         print("D3_W2A_AUTHORITY_REFUSED: %s" % exc, file=sys.stderr)
         return 2

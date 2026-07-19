@@ -16,7 +16,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "research"))
+sys.path.insert(0, str(ROOT / "deploy" / "w09"))
 
+import deep03_one_shot_arm as one_shot  # noqa: E402
 import research_data as rd  # noqa: E402
 from deep03_v3_common import (  # noqa: E402
     Deep03InputError,
@@ -29,7 +31,9 @@ from test_research_reference_consumer import (  # noqa: E402
     _store_for,
     build_release,
 )
-from test_w09_exploratory_autoresearch import _authority_files  # noqa: E402
+from test_w09_exploratory_autoresearch import (  # noqa: E402
+    _claimed_authority_files,
+)
 
 
 DEEP03_MODULES = {
@@ -97,10 +101,13 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
         w0,
         w1,
         w1_complete,
-    ) = _authority_files(tmp_path / "authority", [rid])
+        claim_root,
+        invocation_id,
+    ) = _claimed_authority_files(tmp_path / "authority", [rid])
     authority_kwargs = {
         "authority_path": authority,
         "arm_path": arm,
+        "arm_claim_root": claim_root,
         "plan_path": plan,
         "runtime_commit_path": runtime,
         "audit_path": audit,
@@ -108,6 +115,7 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
         "w1_release_path": w1,
         "w1_complete_path": w1_complete,
         "expected_owner_uid": os.getuid(),
+        "claim_invocation_id": invocation_id,
     }
     run_dir = prepare_run(
         cache_root=cache,
@@ -135,6 +143,7 @@ def test_tiny_exact_v3_end_to_end_writes_self_contained_atomic_report(tmp_path):
     ]
     for name in (
         "ADOPTED_PLAN.md",
+        "ARM_CLAIM.json",
         "AUDIT.md",
         "AUTHORITY.json",
         "BASE_COMMIT.txt",
@@ -194,10 +203,13 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(tmp_path):
         w0,
         w1,
         w1_complete,
-    ) = _authority_files(tmp_path / "authority", [rid])
+        claim_root,
+        invocation_id,
+    ) = _claimed_authority_files(tmp_path / "authority", [rid])
     authority_kwargs = {
         "authority_path": authority,
         "arm_path": arm,
+        "arm_claim_root": claim_root,
         "plan_path": plan,
         "runtime_commit_path": runtime,
         "audit_path": audit,
@@ -205,7 +217,18 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(tmp_path):
         "w1_release_path": w1,
         "w1_complete_path": w1_complete,
         "expected_owner_uid": os.getuid(),
+        "claim_invocation_id": invocation_id,
     }
+    empty_claim_root = tmp_path / "unclaimed"
+    empty_claim_root.mkdir(mode=0o750)
+    with pytest.raises(Deep03InputError, match="one-shot.*never claimed"):
+        prepare_run(
+            cache_root=cache,
+            run_root=tmp_path / "unclaimed-runs",
+            run_id="direct-prepare-without-claim-refused",
+            release_ids=[rid],
+            **{**authority_kwargs, "arm_claim_root": empty_claim_root},
+        )
     authority.chmod(0o644)
     with pytest.raises(Deep03InputError, match="exact authority refused.*writable"):
         prepare_run(
@@ -232,6 +255,43 @@ def test_prepare_and_runner_cannot_bypass_or_drift_exact_authority(tmp_path):
             run_dir=run_dir,
             memory_limit="1GB",
             threads=1,
+            **authority_kwargs,
+        )
+
+    consumed_run = prepare_run(
+        cache_root=cache,
+        run_root=tmp_path / "consumed-runs",
+        run_id="runner-consumed-claim-refused",
+        release_ids=[rid],
+        **authority_kwargs,
+    )
+    identity = one_shot.load_arm_identity(
+        authority_path=authority,
+        arm_path=arm,
+        expected_owner_uid=os.getuid(),
+    )
+    one_shot.consume_one_shot(
+        claim_root=claim_root,
+        identity=identity,
+        invocation_id=invocation_id,
+        service_result="failure",
+        exit_code="exited",
+        exit_status="2",
+        expected_owner_uid=os.getuid(),
+    )
+    with pytest.raises(Deep03InputError, match="one-shot.*field mismatch: state"):
+        run_discovery(
+            run_dir=consumed_run,
+            memory_limit="1GB",
+            threads=1,
+            **authority_kwargs,
+        )
+    with pytest.raises(Deep03InputError, match="one-shot.*field mismatch: state"):
+        prepare_run(
+            cache_root=cache,
+            run_root=tmp_path / "replay-runs",
+            run_id="same-arm-second-prepare-refused",
+            release_ids=[rid],
             **authority_kwargs,
         )
 

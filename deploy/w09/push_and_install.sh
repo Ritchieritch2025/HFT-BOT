@@ -92,7 +92,7 @@ for file in \
     w09_idle_confirm_stop.py w09_idle_proof.py v3_query_canary.py \
     v3_query_canary.sha256 exploratory_v3_query_canary.py \
     exploratory_release_selector.py exploratory_autoresearch.py \
-    deep03_authority_gate.py \
+    deep03_authority_gate.py deep03_one_shot_arm.py \
     w09-exploratory-autoresearch.service \
     w09-exploratory-autoresearch.timer; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"

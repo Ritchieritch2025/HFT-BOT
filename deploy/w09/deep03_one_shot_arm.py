@@ -303,8 +303,8 @@ def claim_one_shot(
         written = 0
         while written < len(raw):
             written += os.write(temp_fd, raw[written:])
-        os.fsync(temp_fd)
         os.fchmod(temp_fd, 0o444)
+        os.fsync(temp_fd)
         os.close(temp_fd)
         temp_fd = None
         try:
@@ -435,8 +435,8 @@ def consume_one_shot(
         written = 0
         while written < len(raw):
             written += os.write(temp_fd, raw[written:])
-        os.fsync(temp_fd)
         os.fchmod(temp_fd, 0o444)
+        os.fsync(temp_fd)
         os.close(temp_fd)
         temp_fd = None
         os.replace(temporary, name, src_dir_fd=root_fd, dst_dir_fd=root_fd)

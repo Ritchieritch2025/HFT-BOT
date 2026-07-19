@@ -422,6 +422,7 @@ def run_discovery(
     run_dir: Path,
     authority_path: Path,
     arm_path: Path,
+    arm_claim_root: Path,
     plan_path: Path,
     runtime_commit_path: Path,
     audit_path: Path,
@@ -432,11 +433,13 @@ def run_discovery(
     threads: int = 4,
     expected_owner_uid: int = 0,
     authority_now: dt.datetime | None = None,
+    claim_invocation_id: str | None = None,
 ) -> Path:
     refuse_credential_environment()
     authority_context = load_authority_context(
         authority_path=authority_path,
         arm_path=arm_path,
+        arm_claim_root=arm_claim_root,
         plan_path=plan_path,
         runtime_commit_path=runtime_commit_path,
         audit_path=audit_path,
@@ -445,6 +448,7 @@ def run_discovery(
         w1_complete_path=w1_complete_path,
         expected_owner_uid=expected_owner_uid,
         now=authority_now,
+        claim_invocation_id=claim_invocation_id,
     )
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
@@ -453,6 +457,7 @@ def run_discovery(
         raise Deep03InputError("RUN_COMPLETE is immutable; use a new run_id")
     allowed = {
         "ADOPTED_PLAN.md",
+        "ARM_CLAIM.json",
         "AUDIT.md",
         "AUTHORITY.json",
         "AUTHORITY_BINDING.json",
@@ -521,6 +526,7 @@ def run_discovery(
             "prepare_command_shape": (
                 "deep03-v3-prepare --cache CACHE --run-root RUN_ROOT "
                 "--run-id RUN_ID --authority AUTHORITY --arm-file ARM "
+                "--arm-claim-root CLAIM_ROOT "
                 "--plan PLAN --runtime-commit COMMIT --audit AUDIT "
                 "--w0-release W0 --w1-release W1 --w1-complete W1_COMPLETE "
                 "--release EXPLICIT_RELEASE_ID [...]"
@@ -528,6 +534,7 @@ def run_discovery(
             "run_command_shape": (
                 "w09-run deep03-v3-run --run-dir RUN_DIR "
                 "--authority AUTHORITY --arm-file ARM --plan PLAN "
+                "--arm-claim-root CLAIM_ROOT "
                 "--runtime-commit COMMIT --audit AUDIT --w0-release W0 "
                 "--w1-release W1 --w1-complete W1_COMPLETE"
             ),
@@ -599,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-dir", required=True, type=Path)
     parser.add_argument("--authority", required=True, type=Path)
     parser.add_argument("--arm-file", required=True, type=Path)
+    parser.add_argument("--arm-claim-root", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--runtime-commit", required=True, type=Path)
     parser.add_argument("--audit", required=True, type=Path)
@@ -613,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
             run_dir=args.run_dir,
             authority_path=args.authority,
             arm_path=args.arm_file,
+            arm_claim_root=args.arm_claim_root,
             plan_path=args.plan,
             runtime_commit_path=args.runtime_commit,
             audit_path=args.audit,

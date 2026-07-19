@@ -168,6 +168,8 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/exploratory_autoresearch.py" \
     "$INSTALL_ROOT/tools/exploratory_autoresearch.py"
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/deep03_authority_gate.py" \
     "$INSTALL_ROOT/tools/deep03_authority_gate.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/deep03_one_shot_arm.py" \
+    "$INSTALL_ROOT/tools/deep03_one_shot_arm.py"
 install -m 0444 "$PAYLOAD_ROOT/deploy/w09/source-commit.txt" \
     "$INSTALL_ROOT/release-commit.txt"
 QUERY_CANARY_SHA="$(awk \
@@ -197,6 +199,8 @@ PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
     'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
 
 install -d -o ubuntu -g ubuntu -m 0750 /srv/w09-research "$CACHE_ROOT"
+install -d -o root -g ubuntu -m 0750 /var/lib/w09-deep03 \
+    /var/lib/w09-deep03/one-shot
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/cost-contract.json" \
     /etc/w09/cost-contract.json
 cat > /usr/local/bin/research_data <<'EOF'
@@ -261,11 +265,14 @@ sha256sum \
     "$INSTALL_ROOT/tools/exploratory_release_selector.py" \
     "$INSTALL_ROOT/tools/exploratory_autoresearch.py" \
     "$INSTALL_ROOT/tools/deep03_authority_gate.py" \
+    "$INSTALL_ROOT/tools/deep03_one_shot_arm.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_common.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_w1_preflight.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_prepare.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_methods.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_runner.py" \
+    /usr/local/bin/w09-run \
+    /usr/local/libexec/w09-inhibit-run \
     > /etc/w09/exploratory_autoresearch.sha256
 chmod 0444 /etc/w09/exploratory_autoresearch.sha256
 sha256sum -c /etc/w09/exploratory_autoresearch.sha256 >/dev/null
