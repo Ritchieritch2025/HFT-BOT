@@ -75,3 +75,25 @@ hour remains diagnostic/ineligible.
 No prior failed hour is relabelled or repaired. The earliest possible full
 research-eligible RFQ analysis date is `2026-07-20`, and only if all 24
 analysis-hour receipts plus the D+1 00/01 watermark gates pass.
+
+## Canary validation — 2026-07-19T16:00Z hour close (read-only)
+
+Observed over SSH read-only at `2026-07-19T16:02:54Z` from
+`work/live/rfq_segments.ndjson` (last line, receipt-line SHA-256
+`9ec4757319be2c4cfcaa53f455dc741b8c7bb39a4485ebc95b85f084e9d5d5b5`):
+
+- segment hour `2026-07-19T15`: **status `PASS`** — the first fully clean
+  closed hour under generation `fresh-rfq-20260720-01`;
+- `start_lag_ms = 0` (the hourly late-start defect is mechanically fixed);
+- `findings = []`, `end_reason = boundary`, `subscription_proven = true`,
+  `subscription_invalidations = 0`, `max_stream_epoch = 1`,
+  markers `hour_open = 1`, `close_stability_ms = 2027`;
+- volume: 16 shards, shard-set SHA
+  `010cd1293eedcf7b9095eb76b8129bcd26c4006909340f3977277ec5b8078567`,
+  recorder rows `4,274,959` (`rfq_created 2,225,153` / `rfq_deleted
+  2,049,805`), recorder dropped `0`, write failures `0`.
+
+Scope of this entry: capture/parser mechanics proof ONLY. The hour is
+pre-T0 (`fresh_lane_state = BOUND_PRE_T0_DIAGNOSTIC`) and remains
+research-ineligible. No prior hour is relabelled. Eligibility still requires
+the full `2026-07-20` 24/24 analysis hours plus D+1 00/01 watermark gates.
