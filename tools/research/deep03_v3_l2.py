@@ -1043,6 +1043,20 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
           AND previous_topology IS NOT NULL
         GROUP BY date,sport,family,previous_topology,topology,
                  spread_bin,depth_bin,imbalance_bin
+      ), retreat_atlas AS (
+        SELECT 'RETREAT' AS record_kind,date,sport,family,side,topology,
+               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
+               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               count(*)::BIGINT AS n_rows,
+               count(DISTINCT market_ticker)::BIGINT AS n_markets,
+               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
+               NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS median_duration_us,
+               NULL::DOUBLE AS p95_duration_us
+        FROM state_rows WHERE touch_depletion
+        GROUP BY date,sport,family,side,topology,
+                 spread_bin,depth_bin,imbalance_bin
       ), episode_atlas AS (
         SELECT 'EPISODE' AS record_kind,date,sport,family,side,topology,
                NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
@@ -1060,10 +1074,30 @@ def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
         FROM {episode_relation}
         GROUP BY date,sport,family,side,topology,endpoint_reason,
                  spread_bin,depth_bin,imbalance_bin
+      ), refill_hazard AS (
+        SELECT 'REFILL_HAZARD' AS record_kind,date,sport,family,side,topology,
+               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
+               NULL::VARCHAR AS endpoint_reason,
+               {episode_spread_bin} AS spread_bin,
+               {episode_depth_bin} AS depth_bin,
+               {episode_imbalance_bin} AS imbalance_bin,
+               count(*)::BIGINT AS n_rows,
+               count(DISTINCT market_ticker)::BIGINT AS n_markets,
+               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
+               NULL::DOUBLE AS p95_dwell_us,
+               avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
+               quantile_cont(duration_us,0.5)::DOUBLE AS median_duration_us,
+               quantile_cont(duration_us,0.95)::DOUBLE AS p95_duration_us
+        FROM {episode_relation}
+        GROUP BY date,sport,family,side,topology,
+                 spread_bin,depth_bin,imbalance_bin
       )
       SELECT * FROM state_atlas
       UNION ALL BY NAME SELECT * FROM transition_atlas
+      UNION ALL BY NAME SELECT * FROM retreat_atlas
       UNION ALL BY NAME SELECT * FROM episode_atlas
+      UNION ALL BY NAME SELECT * FROM refill_hazard
     """
 
 
