@@ -944,6 +944,289 @@ def _replay_one_partition(
     return replay_receipt, episode_receipt, replay_reused and episode_reused
 
 
+def _bin_sql(column: str, kind: str) -> str:
+    if kind == "spread":
+        return (
+            f"CASE WHEN {column} IS NULL THEN 'INVALID' "
+            f"WHEN {column}<=100 THEN 'SPREAD_000_100' "
+            f"WHEN {column}<=500 THEN 'SPREAD_101_500' "
+            "ELSE 'SPREAD_501_PLUS' END"
+        )
+    if kind == "depth":
+        return (
+            f"CASE WHEN {column} IS NULL THEN 'DEPTH_UNKNOWN' "
+            f"WHEN {column}<=20000 THEN 'DEPTH_000_020K' "
+            f"WHEN {column}<=100000 THEN 'DEPTH_020K_100K' "
+            "ELSE 'DEPTH_100K_PLUS' END"
+        )
+    if kind == "imbalance":
+        return (
+            f"CASE WHEN {column} IS NULL THEN 'IMBALANCE_UNKNOWN' "
+            f"WHEN abs({column})<0.20 THEN 'IMBALANCE_BALANCED' "
+            f"WHEN {column}<0 THEN 'IMBALANCE_ASK_HEAVY' "
+            "ELSE 'IMBALANCE_BID_HEAVY' END"
+        )
+    raise ValueError(f"unknown L2 bin kind: {kind}")
+
+
+def _atlas_sql(replay_relation: str, episode_relation: str) -> str:
+    spread_bin = _bin_sql("spread_e4", "spread")
+    depth_bin = _bin_sql("bid_depth3_e4+ask_depth3_e4", "depth")
+    imbalance_bin = _bin_sql("imbalance_depth3", "imbalance")
+    episode_spread_bin = _bin_sql("spread_e4", "spread")
+    episode_depth_bin = _bin_sql("pre_touch_qty_e4", "depth")
+    episode_imbalance_bin = _bin_sql("imbalance_depth3", "imbalance")
+    return f"""
+      WITH ordered AS (
+        SELECT *,
+               lead(recv_wall_ns) OVER market_order AS next_clock_ns,
+               lead(book_valid) OVER market_order AS next_valid,
+               lead(snapshot_epoch) OVER market_order AS next_snapshot_epoch,
+               lag(topology) OVER market_order AS previous_topology,
+               lag(book_valid) OVER market_order AS previous_valid,
+               lag(snapshot_epoch) OVER market_order AS previous_snapshot_epoch
+        FROM {replay_relation}
+        WINDOW market_order AS (
+          PARTITION BY date,market_ticker
+          ORDER BY recv_wall_ns,recv_mono_ns,ws_sid,ws_seq
+        )
+      ), state_rows AS (
+        SELECT *,{spread_bin} AS spread_bin,
+               {depth_bin} AS depth_bin,
+               {imbalance_bin} AS imbalance_bin,
+               CASE WHEN next_valid AND next_snapshot_epoch=snapshot_epoch
+                     AND next_clock_ns>=recv_wall_ns
+                    THEN (next_clock_ns-recv_wall_ns)/1000 END AS dwell_us
+        FROM ordered WHERE book_valid
+      ), state_atlas AS (
+        SELECT 'STATE' AS record_kind,date,sport,family,
+               NULL::VARCHAR AS side,topology,
+               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
+               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               count(*)::BIGINT AS n_rows,
+               count(DISTINCT market_ticker)::BIGINT AS n_markets,
+               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               cast(coalesce(sum(dwell_us),0) AS DOUBLE) AS total_dwell_us,
+               quantile_cont(dwell_us,0.5)::DOUBLE AS median_dwell_us,
+               quantile_cont(dwell_us,0.95)::DOUBLE AS p95_dwell_us,
+               NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS median_duration_us,
+               NULL::DOUBLE AS p95_duration_us
+        FROM state_rows
+        GROUP BY date,sport,family,topology,spread_bin,depth_bin,imbalance_bin
+      ), transition_atlas AS (
+        SELECT 'TRANSITION' AS record_kind,date,sport,family,
+               NULL::VARCHAR AS side,NULL::VARCHAR AS topology,
+               previous_topology AS from_topology,topology AS to_topology,
+               NULL::VARCHAR AS endpoint_reason,spread_bin,depth_bin,imbalance_bin,
+               count(*)::BIGINT AS n_rows,
+               count(DISTINCT market_ticker)::BIGINT AS n_markets,
+               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
+               NULL::DOUBLE AS p95_dwell_us,NULL::DOUBLE AS refill_rate,
+               NULL::DOUBLE AS median_duration_us,
+               NULL::DOUBLE AS p95_duration_us
+        FROM state_rows
+        WHERE previous_valid AND previous_snapshot_epoch=snapshot_epoch
+          AND previous_topology IS NOT NULL
+        GROUP BY date,sport,family,previous_topology,topology,
+                 spread_bin,depth_bin,imbalance_bin
+      ), episode_atlas AS (
+        SELECT 'EPISODE' AS record_kind,date,sport,family,side,topology,
+               NULL::VARCHAR AS from_topology,NULL::VARCHAR AS to_topology,
+               endpoint_reason,{episode_spread_bin} AS spread_bin,
+               {episode_depth_bin} AS depth_bin,
+               {episode_imbalance_bin} AS imbalance_bin,
+               count(*)::BIGINT AS n_rows,
+               count(DISTINCT market_ticker)::BIGINT AS n_markets,
+               count(DISTINCT event_proxy)::BIGINT AS n_events,
+               NULL::DOUBLE AS total_dwell_us,NULL::DOUBLE AS median_dwell_us,
+               NULL::DOUBLE AS p95_dwell_us,
+               avg(CASE WHEN event_observed THEN 1.0 ELSE 0.0 END)::DOUBLE AS refill_rate,
+               quantile_cont(duration_us,0.5)::DOUBLE AS median_duration_us,
+               quantile_cont(duration_us,0.95)::DOUBLE AS p95_duration_us
+        FROM {episode_relation}
+        GROUP BY date,sport,family,side,topology,endpoint_reason,
+                 spread_bin,depth_bin,imbalance_bin
+      )
+      SELECT * FROM state_atlas
+      UNION ALL BY NAME SELECT * FROM transition_atlas
+      UNION ALL BY NAME SELECT * FROM episode_atlas
+    """
+
+
+def _matches_sql(replay_relation: str, episode_relation: str) -> str:
+    episode_spread = _bin_sql("e.spread_e4", "spread")
+    episode_depth = _bin_sql("e.pre_touch_qty_e4", "depth")
+    episode_imbalance = _bin_sql("e.imbalance_depth3", "imbalance")
+    control_spread = _bin_sql("c.spread_e4", "spread")
+    control_depth = _bin_sql(
+        "CASE WHEN c.side='yes' THEN c.bid_qty_e4 ELSE c.ask_qty_e4 END", "depth"
+    )
+    control_imbalance = _bin_sql("c.imbalance_depth3", "imbalance")
+    return f"""
+      WITH episodes AS (
+        SELECT e.*,{episode_spread} AS spread_bin,
+               {episode_depth} AS depth_bin,
+               {episode_imbalance} AS imbalance_bin
+        FROM {episode_relation} e
+      ), controls AS (
+        SELECT c.*,{control_spread} AS spread_bin,
+               {control_depth} AS depth_bin,
+               {control_imbalance} AS imbalance_bin,
+               concat(c.market_ticker,'|',cast(c.recv_wall_ns AS VARCHAR),'|',
+                      cast(c.ws_sid AS VARCHAR),'|',cast(c.ws_seq AS VARCHAR))
+                 AS control_id
+        FROM {replay_relation} c
+        WHERE c.control_candidate AND c.book_valid AND c.topology='TWO_SIDED'
+      ), eligible AS (
+        SELECT e.episode_id,e.date,e.market_ticker AS treatment_market,
+               e.event_proxy AS treatment_event,e.depletion_ns,
+               c.control_id,c.market_ticker AS control_market,
+               c.event_proxy AS control_event,c.recv_wall_ns AS control_ns,
+               c.ws_sid AS control_ws_sid,c.ws_seq AS control_ws_seq,
+               e.sport,e.family,e.side,e.topology,
+               e.spread_bin,e.depth_bin,e.imbalance_bin,
+               abs(c.recv_wall_ns-e.depletion_ns)::BIGINT AS distance_ns,
+               abs(c.imbalance_depth3-e.imbalance_depth3)::DOUBLE
+                 AS imbalance_distance,
+               abs(c.spread_e4-e.spread_e4)::BIGINT AS spread_distance,
+               row_number() OVER (
+                 PARTITION BY e.episode_id
+                 ORDER BY abs(c.recv_wall_ns-e.depletion_ns),c.market_ticker,
+                          c.recv_wall_ns,c.ws_sid,c.ws_seq
+               ) AS episode_choice
+        FROM episodes e JOIN controls c
+          ON c.date=e.date AND c.sport=e.sport AND c.family=e.family
+         AND c.side=e.side AND c.topology=e.topology
+         AND c.spread_bin=e.spread_bin AND c.depth_bin=e.depth_bin
+         AND c.imbalance_bin=e.imbalance_bin
+         AND c.event_proxy<>e.event_proxy
+         AND abs(c.recv_wall_ns-e.depletion_ns)<={MATCH_WINDOW_NS}
+      ), first_choice AS (
+        SELECT * EXCLUDE (episode_choice),
+               row_number() OVER (
+                 PARTITION BY control_id
+                 ORDER BY distance_ns,episode_id
+               ) AS control_choice
+        FROM eligible WHERE episode_choice=1
+      )
+      SELECT concat(episode_id,'|',control_id) AS match_id,
+             episode_id,date,treatment_market,treatment_event,depletion_ns,
+             control_id,control_market,control_event,control_ns,
+             control_ws_sid,control_ws_seq,sport,family,side,topology,
+             spread_bin,depth_bin,imbalance_bin,distance_ns,
+             imbalance_distance,spread_distance,
+             'NEAREST_FIRST_GLOBAL_ARBITRATION' AS matching_method
+      FROM first_choice WHERE control_choice=1
+      ORDER BY date,episode_id,control_id
+    """
+
+
+def _write_date_reducers(
+    con,
+    store: BoundedCheckpointStore,
+    *,
+    abi: Mapping[str, Any],
+    date: str,
+    replay_paths: Sequence[Path],
+    episode_paths: Sequence[Path],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, bool]]:
+    atlas_stage = "l2_exact_atlas"
+    match_stage = "l2_matched_controls"
+    atlas_version = _stage_version(abi, atlas_stage, "exact-date-reducer-v1")
+    match_version = _stage_version(abi, match_stage, "exact-date-matching-v1")
+    key = f"date={date}"
+    atlas_receipt_path = store._paths(atlas_stage, key)[1]
+    match_receipt_path = store._paths(match_stage, key)[1]
+    if atlas_receipt_path.exists() and match_receipt_path.exists():
+        return (
+            store.validate_partition(
+                con, stage=atlas_stage, stage_version=atlas_version,
+                partition_key=key,
+            ),
+            store.validate_partition(
+                con, stage=match_stage, stage_version=match_version,
+                partition_key=key,
+            ),
+            {"atlas_reused": True, "match_reused": True},
+        )
+    replay_relation = (
+        f"read_parquet({path_list(replay_paths)},union_by_name=true,"
+        "hive_partitioning=false)"
+    )
+    episode_relation = (
+        f"read_parquet({path_list(episode_paths)},union_by_name=true,"
+        "hive_partitioning=false)"
+    )
+    atlas_sql = _atlas_sql(replay_relation, episode_relation)
+    state_rows = int(con.execute(
+        f"SELECT count(*) FROM {replay_relation} WHERE book_valid"
+    ).fetchone()[0])
+    episode_rows = int(con.execute(
+        f"SELECT count(*) FROM {episode_relation}"
+    ).fetchone()[0])
+    atlas_receipt, atlas_reused = store.write_partition(
+        con,
+        stage=atlas_stage,
+        stage_version=atlas_version,
+        partition_key=key,
+        select_sql=atlas_sql,
+        metrics={
+            "eligible_state_rows": state_rows,
+            "episode_rows": episode_rows,
+            "quantiles": "duckdb_exact_quantile_cont",
+            "cross_market_bucket_reduction": True,
+        },
+    )
+    atlas_path = store._paths(atlas_stage, key)[0]
+    reduced_state_rows = int(con.execute(
+        f"SELECT coalesce(sum(n_rows),0) FROM read_parquet({quote(atlas_path)}) "
+        "WHERE record_kind='STATE'"
+    ).fetchone()[0])
+    reduced_episode_rows = int(con.execute(
+        f"SELECT coalesce(sum(n_rows),0) FROM read_parquet({quote(atlas_path)}) "
+        "WHERE record_kind='EPISODE'"
+    ).fetchone()[0])
+    _require_row_conservation(
+        label="l2_state_atlas", observed=reduced_state_rows,
+        expected=state_rows, context=date,
+    )
+    _require_row_conservation(
+        label="l2_episode_atlas", observed=reduced_episode_rows,
+        expected=episode_rows, context=date,
+    )
+    match_receipt, match_reused = store.write_partition(
+        con,
+        stage=match_stage,
+        stage_version=match_version,
+        partition_key=key,
+        select_sql=_matches_sql(replay_relation, episode_relation),
+        metrics={
+            "matching_method": "NEAREST_FIRST_GLOBAL_ARBITRATION",
+            "match_window_ns": MATCH_WINDOW_NS,
+            "same_exact_strata": [
+                "date", "sport", "family", "side", "topology",
+                "spread_bin", "depth_bin", "imbalance_bin",
+            ],
+            "different_event_required": True,
+            "outcome_or_pnl_columns": False,
+        },
+    )
+    match_path = store._paths(match_stage, key)[0]
+    uniqueness = con.execute(f"""
+      SELECT count(*) AS rows,count(DISTINCT episode_id) AS episodes,
+             count(DISTINCT control_id) AS controls
+      FROM read_parquet({quote(match_path)})
+    """).fetchone()
+    if int(uniqueness[0]) != int(uniqueness[1]) or int(uniqueness[0]) != int(uniqueness[2]):
+        raise L2ResearchError(f"L2 matched-control uniqueness failed: {date}")
+    return atlas_receipt, match_receipt, {
+        "atlas_reused": atlas_reused,
+        "match_reused": match_reused,
+    }
+
+
 def execute_l2_snbd_bounded(
     con,
     input_manifest: dict[str, Any],
@@ -1077,6 +1360,46 @@ def execute_l2_snbd_bounded(
         context="all_captured_dates",
     )
 
+    atlas_stage = "l2_exact_atlas"
+    match_stage = "l2_matched_controls"
+    atlas_version = _stage_version(abi, atlas_stage, "exact-date-reducer-v1")
+    match_version = _stage_version(abi, match_stage, "exact-date-matching-v1")
+    reducer_keys: list[str] = []
+    activity[atlas_stage] = {"written": 0, "reused": 0}
+    activity[match_stage] = {"written": 0, "reused": 0}
+    for date in L2_CAPTURE_DATES:
+        date_keys = sorted(
+            key for key in replay_keys if key.startswith(f"date={date}_")
+        )
+        atlas_receipt, match_receipt, reuse = _write_date_reducers(
+            con,
+            store,
+            abi=abi,
+            date=date,
+            replay_paths=[store._paths(replay_stage, key)[0] for key in date_keys],
+            episode_paths=[store._paths(episode_stage, key)[0] for key in date_keys],
+        )
+        reducer_key = f"date={date}"
+        reducer_keys.append(reducer_key)
+        activity[atlas_stage][
+            "reused" if reuse["atlas_reused"] else "written"
+        ] += 1
+        activity[match_stage][
+            "reused" if reuse["match_reused"] else "written"
+        ] += 1
+        if atlas_receipt["data"]["row_count"] < 0 or match_receipt["data"]["row_count"] < 0:
+            raise L2ResearchError(f"negative L2 reducer row count: {date}")
+    atlas_manifest_path = store.finalize_stage(
+        con, stage=atlas_stage, stage_version=atlas_version,
+        partition_keys=reducer_keys,
+    )
+    match_manifest_path = store.finalize_stage(
+        con, stage=match_stage, stage_version=match_version,
+        partition_keys=reducer_keys,
+    )
+    atlas_manifest = json.loads(atlas_manifest_path.read_text(encoding="ascii"))
+    match_manifest = json.loads(match_manifest_path.read_text(encoding="ascii"))
+
     availability_stage = "l2_availability"
     availability_version = _stage_version(
         abi, availability_stage, "captured-vs-explicit-absent-v1"
@@ -1125,6 +1448,8 @@ def execute_l2_snbd_bounded(
         (physical_stage, physical_version, physical_manifest_path),
         (replay_stage, replay_version, replay_manifest_path),
         (episode_stage, episode_version, episode_manifest_path),
+        (atlas_stage, atlas_version, atlas_manifest_path),
+        (match_stage, match_version, match_manifest_path),
     ):
         manifest = json.loads(path.read_text(encoding="ascii"))
         manifests.append({
@@ -1149,6 +1474,8 @@ def execute_l2_snbd_bounded(
         },
         "row_conservation": replay_conservation,
         "episode_rows": int(episode_manifest["row_count"]),
+        "atlas_rows": int(atlas_manifest["row_count"]),
+        "matched_control_rows": int(match_manifest["row_count"]),
         "activity": activity,
         "stages": manifests,
         "limitations": [

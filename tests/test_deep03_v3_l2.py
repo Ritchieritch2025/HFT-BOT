@@ -357,3 +357,127 @@ def test_bounded_execution_refuses_gap_receipt_and_absent_day_fact(tmp_path: Pat
     with pytest.raises(l2.L2ResearchError, match="declared ABSENT"):
         l2._validate_scope(manifest)
     con.close()
+
+
+def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
+    tmp_path: Path,
+):
+    con = duckdb.connect()
+    base = 1_900_000_000_000_000_000
+    replay_paths = []
+    episode_paths = []
+    for bucket in range(2):
+        l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+        replay_row = {column: None for column in l2.REPLAY_COLUMNS}
+        replay_row.update({
+            "date": "2026-07-12",
+            "t_us": (base + bucket * 1_000_000) // 1000,
+            "recv_wall_ns": base + bucket * 1_000_000,
+            "recv_mono_ns": 100 + bucket,
+            "market_ticker": "M-TREAT" if bucket == 0 else "M-CONTROL",
+            "event_proxy": "EVENT-TREAT" if bucket == 0 else "EVENT-CONTROL",
+            "sport": "Baseball",
+            "family": "SERIES-SHARED",
+            "ws_sid": 7 + bucket,
+            "ws_seq": 1,
+            "msg_type": "snapshot" if bucket == 0 else "delta",
+            "side": None if bucket == 0 else "yes",
+            "classification": "SNAPSHOT_APPLIED" if bucket == 0 else "DELTA_APPLIED",
+            "snapshot_epoch": 1,
+            "book_valid": True,
+            "topology": "TWO_SIDED",
+            "bid_e4": 4000,
+            "bid_qty_e4": 20_000,
+            "ask_e4": 5000,
+            "ask_qty_e4": 20_000,
+            "bid_depth3_e4": 20_000,
+            "ask_depth3_e4": 20_000,
+            "bid_levels": 1,
+            "ask_levels": 1,
+            "mid_e4": 4500.0,
+            "microprice_e4": 4500.0,
+            "spread_e4": 1000,
+            "mid_logodds": 0.0,
+            "spread_logodds": 0.4,
+            "imbalance_depth3": 0.0,
+            "top_changed": True,
+            "touch_depletion": bucket == 0,
+            "control_candidate": bucket == 1,
+        })
+        l2._insert_dict_rows(
+            con, "replay_fixture", l2.REPLAY_COLUMNS, [replay_row]
+        )
+        replay_path = tmp_path / f"replay-{bucket}.parquet"
+        con.execute(
+            f"COPY replay_fixture TO '{replay_path}' (FORMAT PARQUET)"
+        )
+        replay_paths.append(replay_path)
+
+        l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+        if bucket == 0:
+            episode = {column: None for column in l2.EPISODE_COLUMNS}
+            episode.update({
+                "episode_id": "DEP-CROSS-BUCKET",
+                "date": "2026-07-12",
+                "market_ticker": "M-TREAT",
+                "event_proxy": "EVENT-TREAT",
+                "sport": "Baseball",
+                "family": "SERIES-SHARED",
+                "side": "yes",
+                "depletion_ns": base,
+                "observation_end_ns": base + 1_000_000,
+                "duration_us": 1000,
+                "endpoint_reason": "refill_observed",
+                "event_observed": True,
+                "refill_ns": base + 1_000_000,
+                "refill_fraction": 0.8,
+                "original_touch_price_e4": 4000,
+                "pre_touch_qty_e4": 20_000,
+                "removed_e4": 10_000,
+                "depletion_fraction": 0.5,
+                "post_depletion_depth_e4": 10_000,
+                "snapshot_epoch": 1,
+                "topology": "TWO_SIDED",
+                "spread_e4": 1000,
+                "imbalance_depth3": 0.0,
+            })
+            l2._insert_dict_rows(
+                con, "episode_fixture", l2.EPISODE_COLUMNS, [episode]
+            )
+        episode_path = tmp_path / f"episode-{bucket}.parquet"
+        con.execute(
+            f"COPY episode_fixture TO '{episode_path}' (FORMAT PARQUET)"
+        )
+        episode_paths.append(episode_path)
+
+    store = l2.BoundedCheckpointStore(tmp_path / "reducers", "a" * 64)
+    atlas, matches, reuse = l2._write_date_reducers(
+        con,
+        store,
+        abi=l2._l2_abi(2),
+        date="2026-07-12",
+        replay_paths=replay_paths,
+        episode_paths=episode_paths,
+    )
+    assert reuse == {"atlas_reused": False, "match_reused": False}
+    atlas_path = store.root / atlas["data"]["path"]
+    assert con.execute(
+        f"SELECT sum(n_rows) FROM read_parquet('{atlas_path}') WHERE record_kind='STATE'"
+    ).fetchone()[0] == 2
+    match_path = store.root / matches["data"]["path"]
+    match = con.execute(
+        f"SELECT episode_id,treatment_market,control_market,matching_method "
+        f"FROM read_parquet('{match_path}')"
+    ).fetchone()
+    assert match == (
+        "DEP-CROSS-BUCKET", "M-TREAT", "M-CONTROL",
+        "NEAREST_FIRST_GLOBAL_ARBITRATION",
+    )
+    columns = {
+        row[0] for row in con.execute(
+            f"DESCRIBE SELECT * FROM read_parquet('{match_path}')"
+        ).fetchall()
+    }
+    assert not {"pnl", "fees", "fill_probability"} & columns
+    store.close()
+    con.close()
