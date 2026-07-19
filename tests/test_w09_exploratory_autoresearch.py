@@ -459,8 +459,8 @@ def _authority_files(
         for day in range(10, 18)
     ]
     release_dates = [release_id.split("__", 1)[0] for release_id in release_ids]
-    w0_release_id = "D3-W0-20260718-05"
-    w1_release_id = "D3-W1-20260718-05"
+    w0_release_id = "D3-W0-2026-07-18.05"
+    w1_release_id = "D3-W1-2026-07-18.05"
     audit_path.write_bytes(b"independent_plan_audit")
     plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
     audit_sha = hashlib.sha256(audit_path.read_bytes()).hexdigest()
