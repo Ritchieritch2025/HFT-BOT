@@ -4,11 +4,11 @@ Status: implemented and tested locally; not deployed; zero AWS writes.
 
 ## Fixed production epoch
 
-- strict T0: `2026-07-19T00:00:00Z`
-- generation: `fresh-rfq-20260719-01`
-- authority SHA: `6540583799317c7f19a57f7d67c639afbd8832186fe55fd735e4f3cbb2cb9160`
-- envelope logical SHA: `523543a651870b1611c8320957aa5ed0912da21b64a26ca0ee7bba1a8e47840b`
-- envelope file SHA: `8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b`
+- strict T0: `2026-07-20T00:00:00Z`
+- generation: `fresh-rfq-20260720-01`
+- authority SHA: `11faaf27e1f7b49689e77e6b58034d83ff23b94ed4d507291cfcff4deee37912`
+- envelope logical SHA: `0ef4e0d52911cfdd0b10ffd09ee770e56e5e19f0370d5068951627d6a3eb561e`
+- envelope file SHA: `2fa1caf792d540e0b7ce4641bb82161f09ce3926a81652a2006468a9649ceaf2`
 
 ## Independent pipelines
 

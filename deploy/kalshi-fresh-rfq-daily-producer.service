@@ -14,7 +14,7 @@ UMask=0077
 Environment=PATH=/opt/kalshi-research-v3/.venv/bin:/snap/aws-cli/current/bin:/usr/bin:/bin
 Environment=HOME=/home/ubuntu
 Environment=AWS_PAGER=
-ExecStartPre=/usr/bin/test -r /var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260719-01/authority-envelope.json
+ExecStartPre=/usr/bin/test -r /var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260720-01/authority-envelope.json
 ExecStartPre=/usr/bin/test -r /home/ubuntu/hft-bot/work/live/rfq_segments.ndjson
 ExecStartPre=/usr/bin/test -r /home/ubuntu/.kalshi/env.sh
 # Reuse the existing sync credential without printing it.  The runner exposes

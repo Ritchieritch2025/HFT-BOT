@@ -7,8 +7,8 @@ export PATH
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 RUNTIME=/opt/kalshi-research-v3
-AUTHORITY=/var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260719-01/authority-envelope.json
-AUTHORITY_FILE_SHA=8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b
+AUTHORITY=/var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260720-01/authority-envelope.json
+AUTHORITY_FILE_SHA=2fa1caf792d540e0b7ce4641bb82161f09ce3926a81652a2006468a9649ceaf2
 AWS_CLI=/snap/aws-cli/current/bin/aws
 SERVICE=kalshi-fresh-rfq-daily-producer.service
 TIMER=kalshi-fresh-rfq-daily-producer.timer

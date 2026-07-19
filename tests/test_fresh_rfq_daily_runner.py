@@ -44,20 +44,20 @@ def test_producer_unit_is_independent_and_aws_transport_has_no_write_api():
     assert "OnCalendar=" in timer
     assert "systemctl enable" in installer
     assert "systemctl start" not in installer
-    assert "AUTHORITY_FILE_SHA=8de2bef" in installer
+    assert "AUTHORITY_FILE_SHA=2fa1caf" in installer
 
 
 def test_fixed_authority_and_minimal_iam_delta_are_bound_and_not_applied():
     import fresh_rfq_daily_eligibility as gate
 
-    assert gate.PRODUCTION_STRICT_T0_UTC == "2026-07-19T00:00:00Z"
-    assert gate.PRODUCTION_GENERATION == "fresh-rfq-20260719-01"
+    assert gate.PRODUCTION_STRICT_T0_UTC == "2026-07-20T00:00:00Z"
+    assert gate.PRODUCTION_GENERATION == "fresh-rfq-20260720-01"
     assert gate.PRODUCTION_AUTHORITY_SHA256 == \
-        "6540583799317c7f19a57f7d67c639afbd8832186fe55fd735e4f3cbb2cb9160"
+        "11faaf27e1f7b49689e77e6b58034d83ff23b94ed4d507291cfcff4deee37912"
     assert gate.PRODUCTION_ENVELOPE_SHA256 == \
-        "523543a651870b1611c8320957aa5ed0912da21b64a26ca0ee7bba1a8e47840b"
+        "0ef4e0d52911cfdd0b10ffd09ee770e56e5e19f0370d5068951627d6a3eb561e"
     assert gate.PRODUCTION_ENVELOPE_FILE_SHA256 == \
-        "8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b"
+        "2fa1caf792d540e0b7ce4641bb82161f09ce3926a81652a2006468a9649ceaf2"
 
     path = (ROOT / "docs" / "plan_releases" / "pipeline" /
             "W-RFQ-FRESH-01_MINIMAL_IAM_DELTA_DRAFT_2026-07-18.json")

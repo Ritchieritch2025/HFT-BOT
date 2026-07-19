@@ -36,7 +36,7 @@ import fresh_rfq_source_evidence as source  # noqa: E402
 
 BUCKET = "kalshi-vault-ritcardo"
 AUTHORITY = pathlib.Path(
-    "/var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260719-01/"
+    "/var/lib/kalshi-rfq-fresh/control/fresh-rfq-20260720-01/"
     "authority-envelope.json")
 RAW_ROOT = pathlib.Path("/home/ubuntu/hft-bot/work/raw")
 SEAL_ROOT = pathlib.Path("/home/ubuntu/hft-bot/work/warehouse/seals")

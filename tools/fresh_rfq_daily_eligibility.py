@@ -60,14 +60,14 @@ INPUT_NAMES = (
 # These are not configuration knobs.  They bind the only production fresh
 # epoch authorized by the operator.  Tests may replace the complete binding as
 # one unit; production callers cannot select another generation or T0.
-PRODUCTION_STRICT_T0_UTC = "2026-07-19T00:00:00Z"
-PRODUCTION_GENERATION = "fresh-rfq-20260719-01"
+PRODUCTION_STRICT_T0_UTC = "2026-07-20T00:00:00Z"
+PRODUCTION_GENERATION = "fresh-rfq-20260720-01"
 PRODUCTION_AUTHORITY_SHA256 = (
-    "6540583799317c7f19a57f7d67c639afbd8832186fe55fd735e4f3cbb2cb9160")
+    "11faaf27e1f7b49689e77e6b58034d83ff23b94ed4d507291cfcff4deee37912")
 PRODUCTION_ENVELOPE_SHA256 = (
-    "523543a651870b1611c8320957aa5ed0912da21b64a26ca0ee7bba1a8e47840b")
+    "0ef4e0d52911cfdd0b10ffd09ee770e56e5e19f0370d5068951627d6a3eb561e")
 PRODUCTION_ENVELOPE_FILE_SHA256 = (
-    "8de2bef22158879e706f7af3bdd8b0cea13ae7cda9cfd4a98a09ee709c830b9b")
+    "2fa1caf792d540e0b7ce4641bb82161f09ce3926a81652a2006468a9649ceaf2")
 HEALTH_SCHEMA = "fresh-rfq-capture-health-receipt-v1"
 HEALTH_STATE = "CAPTURE_HEALTHY_NO_ALERT"
 CLOSE_ATTESTATION_SCHEMA = "fresh-rfq-close-inventory-transport-v1"
