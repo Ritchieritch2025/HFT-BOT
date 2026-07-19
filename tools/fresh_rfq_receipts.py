@@ -2034,6 +2034,12 @@ def _validate_prebuilt_provenance(
                 request_provenance.get("analysis_rfq_objects"),
                 analysis_objects)):
         _fail("REQUEST_PROVENANCE_INVALID", "prebuilt digest/set differs")
+    for field in (
+            "all_input_objects_matched", "all_object_bytes_parsed",
+            "all_physical_rows_classified", "all_unique_created_projected",
+            "input_bodies_omitted"):
+        if request_provenance.get(field) is not True:
+            _fail("REQUEST_PROVENANCE_INVALID", f"prebuilt lacks {field}")
     if (not isinstance(universe_provenance, dict)
             or set(universe_provenance) != universe_module.OUTPUT_FIELDS):
         _fail("UNIVERSE_PROVENANCE_INVALID", "prebuilt fields differ")
@@ -2041,6 +2047,12 @@ def _validate_prebuilt_provenance(
     universe_sha = universe_unsigned.pop("provenance_sha256", None)
     if universe_sha != universe_module.canonical_sha256(universe_unsigned):
         _fail("UNIVERSE_PROVENANCE_INVALID", "prebuilt digest differs")
+    if (universe_provenance.get("all_base_family_objects_present") is not True
+            or universe_provenance.get(
+                "all_input_bodies_omitted_from_output") is not True
+            or universe_provenance.get(
+                "ephemeral_temp_deleted_before_return") is not True):
+        _fail("UNIVERSE_PROVENANCE_INVALID", "prebuilt is incomplete")
     try:
         families = universe_provenance["families"]
         for family in ("orderbooks_l1", "orderbooks_full"):

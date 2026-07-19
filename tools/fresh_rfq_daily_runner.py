@@ -644,7 +644,8 @@ def produce(date: str, *, transport: AwsReadOnly,
     }
     close_receipt["attestation_sha256"] = gate.canonical_sha256(close_receipt)
 
-    reader = ExactS3Reader(transport, scratch_root)
+    reader = ExactS3Reader(
+        transport, pathlib.Path(scratch_root) / f"date={date}")
     evidence = source.build_source_evidence_from_reader(
         seal_object=seal_identity, capture_objects=captures,
         receipt_container_objects=containers,
