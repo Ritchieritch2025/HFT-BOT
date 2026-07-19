@@ -12,6 +12,7 @@ QUERY_CANARY_MANIFEST="$HERE/v3_query_canary.sha256"
 DEEP03_MODULE_MANIFEST="$HERE/deep03_open_discovery_modules.sha256"
 EXPLORATORY_MANIFEST="$HERE/exploratory_autoresearch_payload.sha256"
 INBOX_MANIFEST="$HERE/research_inbox_payload.sha256"
+CACHE_SYNC_MANIFEST="$HERE/research_cache_sync_payload.sha256"
 
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
@@ -62,6 +63,20 @@ if ! (cd "$SOURCE_REPO" && \
     echo "W09_SOURCE_GATE: pinned Research Inbox payload changed" >&2
     exit 65
 fi
+if [ ! -f "$CACHE_SYNC_MANIFEST" ]; then
+    echo "W09_SOURCE_GATE: research cache sync manifest missing" >&2
+    exit 65
+fi
+if ! (cd "$ROOT" && \
+      shasum -a 256 -c "$CACHE_SYNC_MANIFEST" >/dev/null); then
+    echo "W09_SOURCE_GATE: pinned research cache sync payload changed" >&2
+    exit 65
+fi
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SOURCE_REPO/tools" python3 -c \
+    'import py_compile,sys,tempfile; d=tempfile.TemporaryDirectory(); py_compile.compile(sys.argv[1], cfile=d.name + "/research_cache_sync.pyc", doraise=True)' \
+    "$HERE/research_cache_sync.py"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SOURCE_REPO/tools" python3 -c \
+    'import inspect,research_data as rd; assert str(inspect.signature(rd.cmd_fetch)) == "(store, cache, rid, with_rfq, allow_legacy=False)"'
 if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
@@ -101,6 +116,7 @@ cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
 cp "$INBOX_MANIFEST" "$tmp/deploy/w09/"
+cp "$CACHE_SYNC_MANIFEST" "$tmp/deploy/w09/"
 printf '%s\n' "$SOURCE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
@@ -113,8 +129,11 @@ for file in \
     exploratory_release_selector.py exploratory_autoresearch.py \
     deep03_authority_gate.py \
     research_job_worker.py research_inbox_control.py \
+    research_cache_sync.py \
     w09-research-inbox-control w09-research-inbox-control.sudoers \
     w09-research-inbox-worker@.service \
+    w09-research-cache-sync.service \
+    w09-research-cache-sync.timer \
     w09-exploratory-autoresearch.service \
     w09-exploratory-autoresearch.timer; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"
