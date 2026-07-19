@@ -211,6 +211,12 @@ def compile_plan(plan_text: str, filename: str = "PLAN.md") -> dict[str, Any]:
     plan_sha = hashlib.sha256(raw).hexdigest()
     plugin_id, requested_plugin = _plugin(metadata, plan_sha)
     requirements = _data_requirements(metadata, plugin_id)
+    date_window = _date_window(metadata)
+    # This adopted Deep03 release was audited for exactly 2026-07-10..17.
+    # Its Markdown predates Research Inbox front matter; treating the absent
+    # field as AUTO would silently broaden the one-shot input on a later day.
+    if plan_sha == DEEP03_PLAN_SHA256 and "date_window" not in metadata:
+        date_window = {"start": "2026-07-10", "end": "2026-07-17"}
     state = "READY" if plugin_id else "NEEDS_METHOD"
     return {
         "schema_version": SCHEMA,
@@ -225,7 +231,7 @@ def compile_plan(plan_text: str, filename: str = "PLAN.md") -> dict[str, Any]:
         "plugin_registry_version": "research-method-registry-v1",
         "execution_class": "READONLY_EXPLORATORY",
         "data_requirements": requirements,
-        "date_window": _date_window(metadata),
+        "date_window": date_window,
         "budget": _budget(metadata),
         "report_requirements": metadata.get(
             "report", ["SUMMARY", "METHOD", "RESULTS", "LIMITATIONS", "RECEIPTS"]

@@ -13,7 +13,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from research.plan_contract import PlanContractError, compile_plan  # noqa: E402
+from research.plan_contract import (  # noqa: E402
+    DEEP03_PLAN_SHA256,
+    PlanContractError,
+    compile_plan,
+)
 
 
 def test_plain_markdown_is_accepted_without_being_executed():
@@ -49,6 +53,15 @@ Run descriptive diagnostics.
     assert spec["plugin_id"] == "deep03"
     assert spec["data_requirements"]["zero_copy"] is True
     assert spec["data_requirements"]["forbidden"] == ["RFQ"]
+    assert spec["date_window"] == {"start": "2026-07-10", "end": "2026-07-17"}
+
+
+def test_adopted_deep03_plan_without_frontmatter_keeps_audited_window():
+    plan = ROOT / "docs/research_reports/DEEP03_GRANULAR_STRATEGY_TEST_PLAN_CANDIDATE_2026-07-17.md"
+    text = plan.read_text(encoding="utf-8")
+    assert hashlib.sha256(text.encode("utf-8")).hexdigest() == DEEP03_PLAN_SHA256
+    spec = compile_plan(text, plan.name)
+    assert spec["plugin_id"] == "deep03"
     assert spec["date_window"] == {"start": "2026-07-10", "end": "2026-07-17"}
 
 
