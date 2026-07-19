@@ -65,7 +65,7 @@ def _delete(request_id, market, deleted_ts, *, creator="public-one", **extra):
     )
 
 
-def _overlay_cache(tmp_path, monkeypatch):
+def _overlay_cache(tmp_path, monkeypatch, *, return_base=False):
     rows = request_fixture._happy_rows()
     rows[1].append(request_fixture._frame_line(
         1,
@@ -139,7 +139,8 @@ def _overlay_cache(tmp_path, monkeypatch):
         (row["key"], row["version_id"]): row["body"]
         for row in inputs["exact_analysis_rfq_objects"]
     }
-    return ready_path, authority, manifest, bodies
+    result = (ready_path, authority, manifest, bodies)
+    return result + (base_raw,) if return_base else result
 
 
 def test_end_to_end_fresh_only_exact_dedup_lifecycle_and_resume(
@@ -781,6 +782,19 @@ def test_overlay_terminal_and_embedded_base_identity_must_match(
         bounded.FreshRfqResearchError, match="BASE_TERMINAL_MISMATCH",
     ):
         bounded.load_overlay_descriptor(ready, authority)
+
+
+def test_exact_base_manifest_bytes_rebuild_embedded_binding(
+    tmp_path, monkeypatch,
+):
+    ready, authority, _manifest, _bodies, base_raw = _overlay_cache(
+        tmp_path, monkeypatch, return_base=True,
+    )
+    descriptor = bounded.load_overlay_descriptor(ready, authority)
+    rebuilt = bounded._rebuild_exact_base(descriptor, base_raw)
+    assert rebuilt == descriptor["base_binding"]
+    with pytest.raises(bounded.FreshRfqResearchError, match="EXACT_REBUILD"):
+        bounded._rebuild_exact_base(descriptor, base_raw + b" ")
 
 
 def test_combo_side_stays_attached_to_its_original_ticker():

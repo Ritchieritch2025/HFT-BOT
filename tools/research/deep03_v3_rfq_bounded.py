@@ -2269,6 +2269,18 @@ def _d07_result(
         if impacts else "BLOCKED_NO_OBSERVED_COMPONENTS",
         "contract": contract,
         "adapter_set_sha256": canonical_sha256(adapter_shas),
+        "exact_base_binding_sha256s": [
+            exact_bases[date]["binding_sha256"] for date in sorted(expected_dates)
+        ],
+        "l2_quality_gate_sha256s": [
+            l2_quality_gates[date]["gate_sha256"]
+            for date in sorted(expected_dates)
+        ],
+        "mapping_components": sum(statuses.values()),
+        "observed_components": len(impacts),
+        "component_status_conservation_pass": sum(statuses.values()) == sum(
+            row["mapping"]["mapping_input_ticker_count"] for row in metas
+        ),
         "component_status_counts": [
             {"status": key, "count": statuses[key]} for key in sorted(statuses)
         ],
@@ -2288,6 +2300,9 @@ def _d07_result(
                 direction_aligned_changes, "E6_DOLLARS",
             ),
             "coverage_counts": direction_statuses,
+            "coverage_conservation_pass": len(impacts) == sum(
+                direction_statuses.values()
+            ),
             "single_direction_inferred": False,
         },
         "causal_claim": False,
