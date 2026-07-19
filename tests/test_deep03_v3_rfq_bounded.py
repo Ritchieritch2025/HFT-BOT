@@ -161,6 +161,7 @@ def test_end_to_end_fresh_only_exact_dedup_lifecycle_and_resume(
         checkpoint_root=tmp_path / "checkpoints",
         hash_buckets=1,
         report_path=report_path,
+        expected_eligible_dates=["2026-07-17"],
     )
     assert len(clients) == 1
     assert clients[0].head_calls == 24
@@ -207,6 +208,7 @@ def test_end_to_end_fresh_only_exact_dedup_lifecycle_and_resume(
         client_factory=must_not_read,
         checkpoint_root=tmp_path / "checkpoints",
         hash_buckets=1,
+        expected_eligible_dates=["2026-07-17"],
     )
     assert resumed == report
 
@@ -225,6 +227,27 @@ def test_invalid_authority_is_rejected_before_exact_client(tmp_path, monkeypatch
     with pytest.raises(bounded.FreshRfqResearchError, match="FRESH_AUTHORITY_INVALID"):
         bounded.run_bounded_fresh_rfq(
             overlay_ready_paths=[ready], fresh_authority=bad,
+            client_factory=factory, checkpoint_root=tmp_path / "cp",
+            hash_buckets=1,
+        )
+    assert called is False
+
+
+def test_exact_eligible_date_pin_rejects_wrong_overlay_before_client(
+    tmp_path, monkeypatch,
+):
+    ready, authority, _manifest, _bodies = _overlay_cache(tmp_path, monkeypatch)
+    called = False
+
+    def factory(_descriptor):
+        nonlocal called
+        called = True
+        raise AssertionError
+
+    with pytest.raises(bounded.FreshRfqResearchError, match="ELIGIBLE_DATE_MISMATCH"):
+        bounded.run_bounded_fresh_rfq(
+            overlay_ready_paths=[ready], fresh_authority=authority,
+            expected_eligible_dates=["2026-07-20"],
             client_factory=factory, checkpoint_root=tmp_path / "cp",
             hash_buckets=1,
         )

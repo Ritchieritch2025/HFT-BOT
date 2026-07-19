@@ -1881,6 +1881,7 @@ def run_bounded_fresh_rfq(
     exact_temp_parent: str | os.PathLike[str] | None = None,
     impact_adapters: Mapping[str, dict[str, Any]] | None = None,
     report_path: str | os.PathLike[str] | None = None,
+    expected_eligible_dates: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run bounded D01--D07 over one or more contiguous fresh-overlay days.
 
@@ -1904,6 +1905,22 @@ def run_bounded_fresh_rfq(
         for path in overlay_ready_paths
     ]
     descriptors.sort(key=lambda row: row["date"])
+    observed_date_texts = [row["date"] for row in descriptors]
+    if expected_eligible_dates is not None:
+        if not isinstance(expected_eligible_dates, list) or not expected_eligible_dates:
+            _fail(
+                "ELIGIBLE_DATE_MISMATCH",
+                "expected_eligible_dates must be a non-empty exact date list",
+            )
+        expected_date_texts = [
+            _date(value, f"expected_eligible_dates[{index}]")
+            for index, value in enumerate(expected_eligible_dates)
+        ]
+        if expected_date_texts != observed_date_texts:
+            _fail(
+                "ELIGIBLE_DATE_MISMATCH",
+                f"expected={expected_date_texts} observed={observed_date_texts}",
+            )
     dates = [dt.date.fromisoformat(row["date"]) for row in descriptors]
     if len(set(dates)) != len(dates):
         _fail("OVERLAY_SET_INVALID", "overlay dates are duplicated")
