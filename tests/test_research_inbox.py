@@ -93,6 +93,18 @@ def test_refuses_spec_drift_bad_ids_and_state_replay(tmp_path):
         update_status(tmp_path, job["job_id"], state="COMPLETE", message="skip")
 
 
+def test_running_job_cannot_claim_complete_without_sealed_output(tmp_path):
+    text = "# Completion guard\n"
+    job = create_job(
+        tmp_path, filename="plan.md", plan_text=text, job_spec=_spec(text)
+    )
+    for state in ("PREFLIGHT", "READY", "RUNNING"):
+        update_status(tmp_path, job["job_id"], state=state, message=state)
+    with pytest.raises(InboxError, match="sealed, hash-validated"):
+        update_status(tmp_path, job["job_id"], state="COMPLETE", message="false pass")
+    assert get_job(tmp_path, job["job_id"])["status"]["state"] == "RUNNING"
+
+
 def test_corrupt_or_linked_jobs_are_not_listed(tmp_path):
     (tmp_path / "jobs").mkdir(parents=True)
     bad = tmp_path / "jobs" / "RJOB-20260718T235901123456Z-aaaaaaaaaaaa"

@@ -7,11 +7,14 @@ import hashlib
 import importlib.util
 import io
 import json
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tarfile
+import threading
+import urllib.request
 
 import pytest
 
@@ -20,13 +23,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from research.data_catalog import canonical_sha256  # noqa: E402
-from research.inbox import create_job, get_job, update_status  # noqa: E402
+import research.inbox as inbox_module  # noqa: E402
+from research.inbox import create_job, get_job, read_report, update_status  # noqa: E402
 from research.plan_contract import compile_plan  # noqa: E402
 from research.w09_dispatch import (  # noqa: E402
     dispatch_job,
     pull_job_outputs,
     start_job,
 )
+import dashboard_server  # noqa: E402
 
 
 def _control_module():
@@ -340,7 +345,7 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
     (source / "REPORT" / "REPORT_RECEIPT.json").write_text(
         json.dumps(receipt, sort_keys=True, separators=(",", ":"))
     )
-    published = worker.publish_job_output(
+    published = worker._publish_validated_job_output(
         inbox_root=remote,
         job_id=job_id,
         source_root=source,
@@ -365,6 +370,233 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
     assert (final / "PLAN.md").is_file()
     assert not (final / "RESULTS.json").exists()
     assert (final / "OUTPUT" / "RESULTS.json").read_bytes() == results_raw
+
+
+def test_deep03_adapter_finalize_export_pull_report_e2e(tmp_path):
+    """A completed authority-bound run becomes one generic dashboard report."""
+    control = _control_module()
+    worker = _worker_module()
+    local, remote, job_id, bundle_sha, _receipt = _prepare_upload_commit(
+        control, tmp_path
+    )
+
+    def planning_runner(command, **kwargs):
+        control.verify_start_arm(remote, tmp_path / "run-arm", job_id)
+        worker.build_catalog = lambda _cache: _catalog()
+        assert worker.plan_job(
+            inbox_root=remote, cache_root=tmp_path / "cache", job_id=job_id
+        )["state"] == "READY"
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    control.start_committed_job(
+        remote,
+        tmp_path / "run-arm",
+        job_id,
+        bundle_sha,
+        runner=planning_runner,
+        require_root=False,
+    )
+    update_status(remote, job_id, state="RUNNING", message="authority gate started")
+    inputs = worker._job_inputs(remote, job_id)
+    bindings = worker._planning_provenance_bindings(inputs)
+    releases = bindings["release_ids"]
+    run_id = "deep03-offline-e2e"
+    run_dir = tmp_path / run_id
+    run_dir.mkdir()
+
+    authority = {
+        "schema_version": bindings["authority_schema"],
+        "release_id": "D3-W2A-offline-e2e",
+        "base_commit": "1" * 40,
+        "adopted_plan_sha256": inputs["plan_sha256"],
+        "authorized_input_release_ids": releases,
+        "authorized_phase_id": "OPEN_DISCOVERY",
+        "authorized_work_package_id": "D3-W2A",
+    }
+    authority_raw = worker._artifact_bytes(authority)
+    arm = {
+        "schema_version": bindings["arm_schema"],
+        "release_id": authority["release_id"],
+        "base_commit": authority["base_commit"],
+        "authority_sha256": hashlib.sha256(authority_raw).hexdigest(),
+    }
+    authority_files = {
+        "ADOPTED_PLAN.md": (remote / "jobs" / job_id / "PLAN.md").read_bytes(),
+        "AUDIT.md": b"offline independent audit fixture\n",
+        "AUTHORITY.json": authority_raw,
+        "BASE_COMMIT.txt": (authority["base_commit"] + "\n").encode(),
+        "D3_W0_RELEASE.json": b'{"release_id":"D3-W0-offline"}\n',
+        "D3_W1_RELEASE.json": b'{"release_id":"D3-W1-offline"}\n',
+        "EXECUTION_ARM.json": worker._artifact_bytes(arm),
+        "W1_COMPLETE.json": b'{"state":"COMPLETE"}\n',
+    }
+    for name, raw in authority_files.items():
+        (run_dir / name).write_bytes(raw)
+    authority_hashes = {
+        name: hashlib.sha256(raw).hexdigest()
+        for name, raw in authority_files.items()
+    }
+    authority_binding = {
+        "authority_sha256": authority_hashes["AUTHORITY.json"],
+        "arm_sha256": authority_hashes["EXECUTION_ARM.json"],
+        "adopted_plan_sha256": inputs["plan_sha256"],
+        "authorized_input_release_ids": releases,
+        "authorized_phase_id": "OPEN_DISCOVERY",
+        "authorized_work_package_id": "D3-W2A",
+    }
+    (run_dir / "AUTHORITY_BINDING.json").write_bytes(
+        worker._artifact_bytes(
+            {
+                "schema_version": "deep03-d3-w2a-authority-binding-v1",
+                "binding": authority_binding,
+                "artifact_sha256s": authority_hashes,
+            }
+        )
+    )
+    input_manifest = {
+        "schema_version": "deep03-d3-w2a-v3-input-manifest-v1",
+        "run_id": run_id,
+        "release_ids": releases,
+        "authority_binding": authority_binding,
+        "authority_artifact_sha256s": authority_hashes,
+    }
+    (run_dir / "INPUT_MANIFEST.json").write_bytes(worker._artifact_bytes(input_manifest))
+    deep_results = {
+        "schema_version": worker.DEEP03_RESULTS_SCHEMA,
+        "run_id": run_id,
+        "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
+        "research_stage": "OPEN_DISCOVERY",
+        "work_package": "D3-W2A",
+        "release_ids": releases,
+        "strict_acceptance_claimed": False,
+        "candidate_or_profit_claim": False,
+        "methods": [],
+    }
+    (run_dir / "RESULTS.json").write_bytes(worker._artifact_bytes(deep_results))
+    (run_dir / "REPORT").mkdir()
+    original_report = b"<!doctype html><title>Deep03 offline E2E</title>"
+    (run_dir / "REPORT" / "index.html").write_bytes(original_report)
+    for name in worker.DEEP03_RECEIPTS:
+        (run_dir / name).write_bytes(
+            worker._artifact_bytes({"schema_version": name.lower(), "run_id": run_id})
+        )
+    artifact_rows = []
+    for path in sorted(run_dir.rglob("*")):
+        if path.is_file():
+            raw = path.read_bytes()
+            artifact_rows.append(
+                {
+                    "path": path.relative_to(run_dir).as_posix(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "size": len(raw),
+                }
+            )
+    sums_raw = "".join(
+        "%s  %s\n" % (row["sha256"], row["path"]) for row in artifact_rows
+    ).encode()
+    (run_dir / "ARTIFACT_SHA256SUMS").write_bytes(sums_raw)
+    complete = {
+        "schema_version": worker.DEEP03_COMPLETE_SCHEMA,
+        "state": "RUN_COMPLETE",
+        "exit_status": 0,
+        "run_id": run_id,
+        "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
+        "research_stage": "OPEN_DISCOVERY",
+        "work_package": "D3-W2A",
+        "release_ids": releases,
+        "strict_acceptance_claimed": False,
+        "candidate_or_profit_claim": False,
+        "rfq_reads": 0,
+        "network_reads": 0,
+        "production_mutations": 0,
+        "order_actions": 0,
+        "input_manifest_sha256": hashlib.sha256(
+            (run_dir / "INPUT_MANIFEST.json").read_bytes()
+        ).hexdigest(),
+        "results_sha256": hashlib.sha256(
+            (run_dir / "RESULTS.json").read_bytes()
+        ).hexdigest(),
+        "report_sha256": hashlib.sha256(original_report).hexdigest(),
+        "artifact_sha256sums_sha256": hashlib.sha256(sums_raw).hexdigest(),
+        "artifacts": artifact_rows,
+        "authority_binding": authority_binding,
+        "authority_artifact_sha256s": authority_hashes,
+    }
+    (run_dir / "RUN_COMPLETE.json").write_bytes(worker._artifact_bytes(complete))
+
+    adopted_path = run_dir / "ADOPTED_PLAN.md"
+    adopted_raw = adopted_path.read_bytes()
+    adopted_path.write_bytes(adopted_raw + b"tampered")
+    with pytest.raises(worker.ResearchJobWorkerError, match="authority artifact hash"):
+        worker.finalize_deep03_job_output(
+            inbox_root=remote, job_id=job_id, run_dir=run_dir
+        )
+    adopted_path.write_bytes(adopted_raw)
+    assert get_job(remote, job_id)["status"]["state"] == "RUNNING"
+
+    finalized = worker.finalize_deep03_job_output(
+        inbox_root=remote, job_id=job_id, run_dir=run_dir
+    )
+    assert finalized["state"] == "COMPLETE"
+    assert finalized["research_started_by_finalizer"] is False
+    assert get_job(remote, job_id)["status"]["state"] == "COMPLETE"
+    remote_results = json.loads(
+        (remote / "jobs" / job_id / "OUTPUT" / "RESULTS.json").read_text()
+    )
+    assert remote_results["job_id"] == job_id
+    assert remote_results["source_results"] == deep_results
+    assert remote_results["execution_provenance"]["source_run_complete_sha256"] == (
+        hashlib.sha256((run_dir / "RUN_COMPLETE.json").read_bytes()).hexdigest()
+    )
+
+    archive = control.export_outputs(remote, job_id)
+    key = _key(tmp_path)
+
+    def export_runner(command, **kwargs):
+        assert "export" in command and kwargs["shell"] is False
+        return subprocess.CompletedProcess(command, 0, archive, b"")
+
+    pulled = pull_job_outputs(local, job_id, ssh_key=key, runner=export_runner)
+    assert pulled["remote_state"] == "COMPLETE"
+    assert get_job(local, job_id)["report_available"] is True
+    original_validator = inbox_module._validated_output_tree
+    inbox_module._validated_output_tree = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("history bytes were rehashed")
+    )
+    try:
+        assert get_job(local, job_id)["report_available"] is True
+    finally:
+        inbox_module._validated_output_tree = original_validator
+    assert read_report(local, job_id) == original_report
+    handler = dashboard_server.make_handler(
+        str(tmp_path / "metrics.prom"),
+        False,
+        research_inbox_root=local,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = "http://127.0.0.1:%d" % server.server_port
+        with urllib.request.urlopen(base + "/api/research/jobs", timeout=5) as response:
+            listed = json.loads(response.read())
+        assert listed["jobs"][0]["job_id"] == job_id
+        assert listed["jobs"][0]["report_available"] is True
+        with urllib.request.urlopen(
+            base + "/api/research/jobs/%s/report" % job_id, timeout=5
+        ) as response:
+            assert response.read() == original_report
+            assert response.headers["Content-Security-Policy"].startswith("sandbox;")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    # A changed report invalidates the cached dashboard affordance.
+    report_path = local / "jobs" / job_id / "REPORT" / "index.html"
+    report_path.write_bytes(report_path.read_bytes() + b"tampered")
+    assert get_job(local, job_id)["report_available"] is False
 
 
 def test_real_dispatch_start_worker_ready_export_pull_flow(tmp_path):
