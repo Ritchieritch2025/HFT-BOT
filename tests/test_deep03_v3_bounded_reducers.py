@@ -472,12 +472,12 @@ def _end_to_end_manifest(tmp_path: Path) -> dict[str, Any]:
         releases.append({"release_id": release_id, "date": day})
         l1_path = (
             tmp_path
-            / "facts/orderbooks_l1/category=Sports/subcategory=All"
+            / "facts/orderbooks_l1/category=Sports"
             / f"date={day}/part.parquet"
         )
         trade_path = (
             tmp_path
-            / "facts/trades/category=Sports/subcategory=All"
+            / "facts/trades/category=Sports"
             / f"date={day}/part.parquet"
         )
         dim_path = tmp_path / f"dim/snapshots/date={day}/markets.csv"
@@ -509,7 +509,7 @@ def _end_to_end_manifest(tmp_path: Path) -> dict[str, Any]:
                     "date": day,
                     "logical_key": (
                         f"warehouse/facts/{channel}/category=Sports/"
-                        f"subcategory=All/date={day}/part.parquet"
+                        f"date={day}/part.parquet"
                     ),
                     "local_path": str(path),
                     "release_id": release_id,
