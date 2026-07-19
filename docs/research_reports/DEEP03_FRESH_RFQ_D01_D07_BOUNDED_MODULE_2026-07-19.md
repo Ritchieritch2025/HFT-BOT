@@ -16,6 +16,15 @@ transport client.
 The module never discovers an S3 key, resolves `latest`, reads `raw_rfq/*`,
 repairs old RFQ bytes, publishes data, changes tags, or implements AWS writes.
 
+The production capture generation at handoff is
+`fresh-rfq-20260720-01`, with strict T0 `2026-07-20T00:00:00Z`.
+Consequently 2026-07-19 is permanently ineligible and the earliest possible
+analysis overlay is 2026-07-20 after its full 24 hours plus D+1 watermark are
+complete. No date or generation is hard-coded in the implementation: the
+validated authority and overlay provide them. The caller can additionally pin
+the exact ordered date list with `expected_eligible_dates`; any mismatch stops
+before the exact client is created.
+
 ## Bounded execution
 
 - Each pinned RFQ object is opened through `ExactReadSession` by bucket, key,
