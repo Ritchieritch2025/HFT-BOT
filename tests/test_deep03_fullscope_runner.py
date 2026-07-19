@@ -144,31 +144,40 @@ def _l2_result(binding: str) -> dict:
     ]
     return {
         "schema_version": runner.L2_EXECUTION_SCHEMA,
-        "state": "COMPLETE",
-        "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
+        "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
+        "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
         "source_binding": binding,
         "quality": {
             date: {
                 "state": "PASS",
+                "receipt_state": "PASS",
+                "analysis_disposition": (
+                    "INCLUDED_CLEAN_DATE"
+                    if date in runner.L2_ANALYSIS_DATES
+                    else "EXCLUDED_DATA_QUALITY"
+                ),
+                "usable_for_estimands": date in runner.L2_ANALYSIS_DATES,
                 "logical_key": f"quality/{date}",
                 "source_version_id": f"quality-version-{date}",
                 "sha256": "a" * 64,
-                "blockers": [],
+                "blockers": (
+                    [] if date in runner.L2_ANALYSIS_DATES
+                    else ["independent_quality_audit:fixture exclusion"]
+                ),
             }
             for date in runner.L2_CAPTURE_DATES
         },
         "availability": {
             "captured_dates": list(runner.L2_CAPTURE_DATES),
             "explicit_absent_dates": list(runner.L2_ABSENT_DATES),
-            "eligible_dates": list(runner.L2_CAPTURE_DATES),
-            "quality_excluded_dates": [],
+            "included_clean_dates": list(runner.L2_ANALYSIS_DATES),
+            "excluded_data_quality_dates": sorted(runner.L2_KNOWN_EXCLUDED_DATES),
         },
         "row_conservation": {
-            "state": "PASS",
-            "observed_rows": 6,
-            "expected_rows": 6,
-            "eligible_dates": list(runner.L2_CAPTURE_DATES),
-            "excluded_dates": [],
+            "all_captured_physical_coverage": True,
+            "included_clean_replay": True,
+            "replay_classification": True,
+            "included_plus_excluded_coverage": True,
         },
         "episode_rows": 1,
         "atlas_rows": 1,
@@ -496,19 +505,12 @@ def test_audit_quality_hash_drift_refuses_before_compute(tmp_path, monkeypatch):
     assert not (run_dir / "RUN_COMPLETE.json").exists()
 
 
-def test_l2_validation_accepts_explicit_bad_date_exclusion_only():
+def test_l2_validation_accepts_only_the_audited_clean_and_excluded_partition():
     binding = "b" * 64
     result = _l2_result(binding)
-    excluded = "2026-07-13"
-    result["quality"][excluded]["state"] = "EXCLUDED_QUALITY_BLOCKED"
-    result["quality"][excluded]["blockers"] = ["SEQ_GAP_EVENTS_NONZERO"]
-    eligible = [date for date in runner.L2_CAPTURE_DATES if date != excluded]
-    result["availability"]["eligible_dates"] = eligible
-    result["availability"]["quality_excluded_dates"] = [excluded]
-    result["row_conservation"]["eligible_dates"] = eligible
-    result["row_conservation"]["excluded_dates"] = [excluded]
     runner._validate_l2_result(result, binding)
 
+    excluded = "2026-07-13"
     result["quality"][excluded]["blockers"] = []
     with pytest.raises(Deep03InputError, match="neither clean nor excluded"):
         runner._validate_l2_result(result, binding)

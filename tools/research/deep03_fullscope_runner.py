@@ -45,7 +45,9 @@ from deep03_v3_common import (
 )
 from deep03_v3_l2 import (
     L2_ABSENT_DATES,
+    L2_ANALYSIS_DATES,
     L2_CAPTURE_DATES,
+    L2_KNOWN_EXCLUDED_DATES,
     L2_SCOPE_DATES,
     execute_l2_snbd_bounded,
 )
@@ -81,7 +83,7 @@ from deep03_v3_runner import (
 SCHEMA_RESULTS = "deep03-fullscope-base-l2-results-v1"
 SCHEMA_EXECUTION = "deep03-fullscope-base-l2-execution-receipt-v1"
 SCHEMA_COMPLETE = "deep03-fullscope-base-l2-run-complete-v1"
-L2_EXECUTION_SCHEMA = "deep03-v3-l2-snbd-execution-v1"
+L2_EXECUTION_SCHEMA = "deep03-v3-l2-snbd-execution-v2"
 L2_METHOD_ID = "D3-FULL-L2-SNBD-01"
 FULLSCOPE_METHODS = (*METHODS, GRAPH_METHOD_ID, L2_METHOD_ID)
 L2_CHECKPOINT_EXPANSION_FACTOR = 8
@@ -415,8 +417,8 @@ def _validate_graph_result(
 def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
     expected = {
         "schema_version": L2_EXECUTION_SCHEMA,
-        "state": "COMPLETE",
-        "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
+        "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
+        "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
         "source_binding": source_binding,
     }
     for field, value in expected.items():
@@ -429,8 +431,8 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
         raise Deep03InputError("L2 captured-date coverage mismatch")
     if availability.get("explicit_absent_dates") != list(L2_ABSENT_DATES):
         raise Deep03InputError("L2 absent-date coverage mismatch")
-    eligible_dates = availability.get("eligible_dates")
-    excluded_dates = availability.get("quality_excluded_dates")
+    eligible_dates = availability.get("included_clean_dates")
+    excluded_dates = availability.get("excluded_data_quality_dates")
     if not isinstance(eligible_dates, list) or not isinstance(excluded_dates, list):
         raise Deep03InputError(
             "L2 repaired receipt must declare eligible_dates and quality_excluded_dates"
@@ -438,19 +440,25 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
     if (
         eligible_dates != sorted(set(eligible_dates))
         or excluded_dates != sorted(set(excluded_dates))
-        or not eligible_dates
+        or eligible_dates != list(L2_ANALYSIS_DATES)
+        or excluded_dates != sorted(L2_KNOWN_EXCLUDED_DATES)
         or set(eligible_dates) & set(excluded_dates)
         or set(eligible_dates) | set(excluded_dates) != set(L2_CAPTURE_DATES)
     ):
         raise Deep03InputError("L2 eligible/excluded date partition is invalid")
     conservation = result.get("row_conservation")
+    conservation_fields = {
+        "all_captured_physical_coverage",
+        "included_clean_replay",
+        "replay_classification",
+        "included_plus_excluded_coverage",
+    }
     if (
         not isinstance(conservation, dict)
-        or conservation.get("state") != "PASS"
-        or conservation.get("eligible_dates") != eligible_dates
-        or conservation.get("excluded_dates") != excluded_dates
+        or set(conservation) != conservation_fields
+        or any(conservation[field] is not True for field in conservation_fields)
     ):
-        raise Deep03InputError("L2 eligible-date row conservation is not PASS")
+        raise Deep03InputError("L2 row-conservation equations are not all PASS")
     stages = result.get("stages")
     if not isinstance(stages, list) or {
         str(row.get("stage")) for row in stages if isinstance(row, dict)
@@ -465,10 +473,16 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
         if not isinstance(row, dict):
             raise Deep03InputError(f"L2 quality row is invalid: {date}")
         blockers = row.get("blockers")
-        if row.get("state") == "PASS" and blockers in (None, []):
+        if (
+            row.get("receipt_state") == "PASS"
+            and row.get("analysis_disposition") == "INCLUDED_CLEAN_DATE"
+            and row.get("usable_for_estimands") is True
+            and blockers == []
+        ):
             pass_dates.append(date)
         elif (
-            row.get("state") == "EXCLUDED_QUALITY_BLOCKED"
+            row.get("analysis_disposition") == "EXCLUDED_DATA_QUALITY"
+            and row.get("usable_for_estimands") is False
             and isinstance(blockers, list)
             and blockers
         ):
@@ -574,15 +588,15 @@ def _l2_report_tables(
     )
     if [row.get("date") for row in availability] != list(L2_SCOPE_DATES):
         raise Deep03InputError("L2 availability table does not cover the exact scope")
-    eligible = set(l2_result["availability"]["eligible_dates"])
-    excluded = set(l2_result["availability"]["quality_excluded_dates"])
+    eligible = set(l2_result["availability"]["included_clean_dates"])
+    excluded = set(l2_result["availability"]["excluded_data_quality_dates"])
     expected_states = {
         date: (
             "ABSENT_NOT_CAPTURED"
             if date in L2_ABSENT_DATES
-            else "CAPTURED_SEQUENCE_RECEIPT_PASS"
+            else "CAPTURED_CLEAN_INCLUDED"
             if date in eligible
-            else "EXCLUDED_QUALITY_BLOCKED"
+            else "EXCLUDED_DATA_QUALITY"
         )
         for date in L2_SCOPE_DATES
     }
@@ -609,10 +623,13 @@ def _l2_report_tables(
     quality_rows = [
         {
             "date": date,
-            "state": row.get("state"),
+            "receipt_state": row.get("receipt_state"),
+            "analysis_disposition": row.get("analysis_disposition"),
+            "usable_for_estimands": row.get("usable_for_estimands"),
             "logical_key": row.get("logical_key"),
             "source_version_id": row.get("source_version_id"),
             "sha256": row.get("sha256"),
+            "source_rows": row.get("source_rows"),
             "blockers": "; ".join(row.get("blockers") or []) or "none",
         }
         for date, row in sorted(l2_result["quality"].items())
@@ -626,7 +643,7 @@ def _l2_report_tables(
     return {
         "schema_version": "deep03-fullscope-l2-report-tables-v1",
         "state": "COMPLETE",
-        "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
+        "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
         "source_binding": store.source_binding,
         "coverage_by_date": coverage_by_date,
         "mapping_status": list(graph_result.get("mapping_status") or []),
@@ -652,8 +669,8 @@ def _render_fullscope_report(
         "FULLSCOPE_L2_EXECUTION_RECEIPT.json"
     )
     coverage = l2_tables["coverage_by_date"]
-    eligible_dates = l2_result["availability"]["eligible_dates"]
-    excluded_dates = l2_result["availability"]["quality_excluded_dates"]
+    eligible_dates = l2_result["availability"]["included_clean_dates"]
+    excluded_dates = l2_result["availability"]["excluded_data_quality_dates"]
     graph_chart = _bar_chart(coverage, "date", "l2_rows")
     limitation_rows = [
         {"limitation": value} for value in l2_tables.get("limitations") or []
