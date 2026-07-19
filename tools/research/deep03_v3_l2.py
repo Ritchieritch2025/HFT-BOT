@@ -35,6 +35,7 @@ from deep03_v3_methods import (
     _expr,
     _relation_sql,
     _require_row_conservation,
+    bounded_source_binding,
     path_list,
     quote,
 )
@@ -589,3 +590,571 @@ def replay_rows(rows: Iterable[Sequence[object]]) -> dict[str, Any]:
     )
     return {"replay_rows": replay, "episodes": episodes, "qc": dict(engine.qc)}
 
+
+REPLAY_TYPES = {
+    "date": "VARCHAR",
+    "t_us": "BIGINT",
+    "recv_wall_ns": "BIGINT",
+    "recv_mono_ns": "BIGINT",
+    "market_ticker": "VARCHAR",
+    "event_proxy": "VARCHAR",
+    "sport": "VARCHAR",
+    "family": "VARCHAR",
+    "ws_sid": "BIGINT",
+    "ws_seq": "BIGINT",
+    "msg_type": "VARCHAR",
+    "side": "VARCHAR",
+    "price_e4": "BIGINT",
+    "delta_e4": "BIGINT",
+    "classification": "VARCHAR",
+    "snapshot_epoch": "BIGINT",
+    "book_valid": "BOOLEAN",
+    "topology": "VARCHAR",
+    "bid_e4": "BIGINT",
+    "bid_qty_e4": "BIGINT",
+    "ask_e4": "BIGINT",
+    "ask_qty_e4": "BIGINT",
+    "bid_depth3_e4": "BIGINT",
+    "ask_depth3_e4": "BIGINT",
+    "bid_levels": "BIGINT",
+    "ask_levels": "BIGINT",
+    "mid_e4": "DOUBLE",
+    "microprice_e4": "DOUBLE",
+    "spread_e4": "BIGINT",
+    "mid_logodds": "DOUBLE",
+    "spread_logodds": "DOUBLE",
+    "imbalance_depth3": "DOUBLE",
+    "top_changed": "BOOLEAN",
+    "touch_depletion": "BOOLEAN",
+    "control_candidate": "BOOLEAN",
+}
+
+EPISODE_TYPES = {
+    "episode_id": "VARCHAR",
+    "date": "VARCHAR",
+    "market_ticker": "VARCHAR",
+    "event_proxy": "VARCHAR",
+    "sport": "VARCHAR",
+    "family": "VARCHAR",
+    "side": "VARCHAR",
+    "depletion_ns": "BIGINT",
+    "observation_end_ns": "BIGINT",
+    "duration_us": "BIGINT",
+    "endpoint_reason": "VARCHAR",
+    "event_observed": "BOOLEAN",
+    "refill_ns": "BIGINT",
+    "refill_fraction": "DOUBLE",
+    "original_touch_price_e4": "BIGINT",
+    "pre_touch_qty_e4": "BIGINT",
+    "removed_e4": "BIGINT",
+    "depletion_fraction": "DOUBLE",
+    "post_depletion_depth_e4": "BIGINT",
+    "snapshot_epoch": "BIGINT",
+    "topology": "VARCHAR",
+    "spread_e4": "BIGINT",
+    "imbalance_depth3": "DOUBLE",
+}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _l2_fact_objects(input_manifest: Mapping[str, Any], date: str) -> list[dict[str, Any]]:
+    rows = []
+    for obj in input_manifest.get("objects") or []:
+        if obj.get("kind") != "facts" or obj.get("date") != date:
+            continue
+        if obj.get("channel") not in {"orderbooks_full", "orderbooks_l2"}:
+            continue
+        if "/category=Sports/" not in str(obj.get("logical_key") or ""):
+            continue
+        rows.append(dict(obj))
+    return sorted(rows, key=lambda row: str(row.get("logical_key")))
+
+
+def _quality_objects(input_manifest: Mapping[str, Any], date: str) -> list[dict[str, Any]]:
+    return [
+        dict(obj)
+        for obj in input_manifest.get("objects") or []
+        if obj.get("kind") == "l2_quality_receipt" and obj.get("date") == date
+    ]
+
+
+def _load_quality_assessment(
+    input_manifest: Mapping[str, Any], date: str
+) -> dict[str, Any]:
+    objects = _quality_objects(input_manifest, date)
+    if len(objects) != 1:
+        raise L2ResearchError(
+            f"exactly one L2 quality receipt is required for {date}; found {len(objects)}"
+        )
+    obj = objects[0]
+    path = Path(str(obj.get("local_path") or ""))
+    if not path.is_file():
+        raise L2ResearchError(f"L2 quality receipt is missing: {date}")
+    expected_sha = obj.get("sha256")
+    if expected_sha and _sha256_file(path) != expected_sha:
+        raise L2ResearchError(f"L2 quality receipt hash mismatch: {date}")
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise L2ResearchError(f"L2 quality receipt unreadable: {date}: {exc}") from exc
+    if not isinstance(receipt, dict) or receipt.get("date") != date:
+        raise L2ResearchError(f"L2 quality receipt date binding mismatch: {date}")
+    assessment = assess_l2_quality_receipt(receipt)
+    assessment["logical_key"] = obj.get("logical_key")
+    assessment["source_version_id"] = obj.get("source_version_id")
+    assessment["sha256"] = expected_sha or _sha256_file(path)
+    return assessment
+
+
+def _l2_abi(market_buckets: int) -> dict[str, Any]:
+    if (
+        isinstance(market_buckets, bool)
+        or not isinstance(market_buckets, int)
+        or market_buckets < 1
+        or market_buckets > 256
+    ):
+        raise ValueError("L2 market_buckets must be an integer in [1,256]")
+    payload = {
+        "schema_version": "deep03-v3-l2-snbd-stage-abi-v1",
+        "module_sha256": _sha256_file(Path(__file__).resolve()),
+        "market_partition_algorithm": "duckdb-hash-v1-modulo-plus-null-bucket",
+        "market_bucket_count": market_buckets,
+        "capture_dates": list(L2_CAPTURE_DATES),
+        "explicit_absent_dates": list(L2_ABSENT_DATES),
+        "replay_columns": list(REPLAY_COLUMNS),
+        "episode_columns": list(EPISODE_COLUMNS),
+        "episode_horizon_ns": EPISODE_HORIZON_NS,
+        "min_touch_qty_e4": MIN_TOUCH_QTY_E4,
+        "min_depletion_fraction": MIN_DEPLETION_FRACTION,
+        "refill_fraction": REFILL_FRACTION,
+        "per_market_forward_ws_seq_gap_inference_used": False,
+    }
+    payload["abi_sha256"] = hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
+    return payload
+
+
+def _stage_version(abi: Mapping[str, Any], stage: str, semantic: str) -> str:
+    return f"{stage}-{semantic}-abi-{str(abi['abi_sha256'])[:16]}"
+
+
+def _partition_key(date: str, bucket: int) -> str:
+    return f"date={date}_bucket={bucket:03d}"
+
+
+def _create_build_table(con, name: str, types: Mapping[str, str]) -> None:
+    con.execute(f"DROP TABLE IF EXISTS {name}")
+    con.execute(
+        f"CREATE TEMP TABLE {name}("
+        + ",".join(f'"{column}" {sql_type}' for column, sql_type in types.items())
+        + ")"
+    )
+
+
+def _insert_dict_rows(
+    con, table: str, columns: Sequence[str], rows: Sequence[Mapping[str, Any]]
+) -> None:
+    if not rows:
+        return
+    placeholders = ",".join("?" for _ in columns)
+    names = ",".join(f'"{column}"' for column in columns)
+    con.executemany(
+        f"INSERT INTO {table}({names}) VALUES ({placeholders})",
+        [[row.get(column) for column in columns] for row in rows],
+    )
+
+
+def _validate_scope(input_manifest: Mapping[str, Any]) -> None:
+    dates = input_manifest.get("release_dates")
+    if list(dates or []) != list(L2_SCOPE_DATES):
+        raise L2ResearchError(
+            "L2 full-scope input must bind exactly 2026-07-10 through 2026-07-17"
+        )
+    for date in L2_ABSENT_DATES:
+        if _l2_fact_objects(input_manifest, date):
+            raise L2ResearchError(
+                f"date declared ABSENT contains L2 fact objects: {date}"
+            )
+    for date in L2_CAPTURE_DATES:
+        if not _l2_fact_objects(input_manifest, date):
+            raise L2ResearchError(f"captured L2 date has no exact fact object: {date}")
+
+
+def _normalized_l2_sql(con, objects: Sequence[Mapping[str, Any]], date: str) -> str:
+    paths = [Path(str(obj["local_path"])) for obj in objects]
+    if any(not path.is_file() for path in paths):
+        raise L2ResearchError(f"exact L2 source object is unavailable: {date}")
+    relation = _relation_sql(paths)
+    columns = _columns(con, f"({relation})")
+    projections = (
+        _expr(columns, ("date",), "date", "DATE"),
+        _expr(columns, ("local_recv_ts_us",), "t_us", "BIGINT"),
+        _expr(columns, ("recv_wall_ns",), "recv_wall_ns", "BIGINT"),
+        _expr(columns, ("recv_mono_ns",), "recv_mono_ns", "BIGINT"),
+        _expr(columns, ("market_ticker", "ticker"), "market_ticker", "VARCHAR"),
+        _expr(columns, ("event_ticker",), "event_proxy", "VARCHAR"),
+        _expr(columns, ("subcategory", "sport"), "sport", "VARCHAR"),
+        _expr(columns, ("series_ticker",), "family", "VARCHAR"),
+        _expr(columns, ("msg_type",), "msg_type", "VARCHAR"),
+        _expr(columns, ("side",), "side", "VARCHAR"),
+        _expr(columns, ("price_e4",), "price_e4", "BIGINT"),
+        _expr(columns, ("delta_e4",), "delta_e4", "BIGINT"),
+        _expr(columns, ("yes_levels",), "yes_levels", "VARCHAR"),
+        _expr(columns, ("no_levels",), "no_levels", "VARCHAR"),
+        _expr(columns, ("ws_sid",), "ws_sid", "BIGINT"),
+        _expr(columns, ("ws_seq",), "ws_seq", "BIGINT"),
+    )
+    typed = "SELECT " + ",".join(projections) + f" FROM ({relation}) source"
+    wrong_date = int(con.execute(
+        f"SELECT count(*) FROM ({typed}) WHERE date IS NULL OR date<>?::DATE", [date]
+    ).fetchone()[0])
+    if wrong_date:
+        raise L2ResearchError(
+            f"L2 source date partition mismatch: {date}: rows={wrong_date}"
+        )
+    return typed
+
+
+def _assert_partition_order_unambiguous(con, relation: str, marker: str) -> None:
+    row = con.execute(f"""
+      WITH keyed AS (
+        SELECT market_ticker,recv_wall_ns,recv_mono_ns,ws_sid,ws_seq,
+               count(*) AS raw_rows,
+               count(DISTINCT hash(struct_pack(
+                 msg_type:=msg_type,side:=side,price_e4:=price_e4,
+                 delta_e4:=delta_e4,yes_levels:=yes_levels,no_levels:=no_levels
+               ))) AS variants
+        FROM {relation}
+        WHERE market_ticker IS NOT NULL AND recv_wall_ns IS NOT NULL
+          AND recv_mono_ns IS NOT NULL AND ws_sid IS NOT NULL AND ws_seq IS NOT NULL
+        GROUP BY market_ticker,recv_wall_ns,recv_mono_ns,ws_sid,ws_seq
+      )
+      SELECT count(*) FILTER (WHERE raw_rows>1),
+             count(*) FILTER (WHERE variants>1) FROM keyed
+    """).fetchone()
+    if int(row[0]) or int(row[1]):
+        raise L2ResearchError(
+            "L2 receive-order key is duplicated or ambiguous: "
+            f"{marker}: duplicate_keys={int(row[0])} ambiguous_keys={int(row[1])}"
+        )
+
+
+def _replay_one_partition(
+    con,
+    store: BoundedCheckpointStore,
+    *,
+    source_path: Path,
+    replay_stage: str,
+    replay_version: str,
+    episode_stage: str,
+    episode_version: str,
+    key: str,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    replay_receipt_path = store._paths(replay_stage, key)[1]
+    episode_receipt_path = store._paths(episode_stage, key)[1]
+    if replay_receipt_path.exists() and episode_receipt_path.exists():
+        replay_receipt = store.validate_partition(
+            con, stage=replay_stage, stage_version=replay_version,
+            partition_key=key,
+        )
+        episode_receipt = store.validate_partition(
+            con, stage=episode_stage, stage_version=episode_version,
+            partition_key=key,
+        )
+        return replay_receipt, episode_receipt, True
+
+    relation = f"read_parquet({quote(source_path)},hive_partitioning=false)"
+    _assert_partition_order_unambiguous(con, relation, key)
+    _create_build_table(con, "l2_replay_build", REPLAY_TYPES)
+    _create_build_table(con, "l2_episode_build", EPISODE_TYPES)
+    cursor = con.cursor()
+    cursor.execute(f"""
+      SELECT date,t_us,recv_wall_ns,recv_mono_ns,market_ticker,
+             event_proxy,sport,family,msg_type,side,price_e4,delta_e4,
+             yes_levels,no_levels,ws_sid,ws_seq
+      FROM {relation}
+      ORDER BY market_ticker,recv_wall_ns,recv_mono_ns,ws_sid,ws_seq,
+               msg_type,side,price_e4,delta_e4
+    """)
+    engine = L2ReplayEngine()
+    while True:
+        batch = cursor.fetchmany(REPLAY_FETCH_ROWS)
+        if not batch:
+            break
+        replay_batch: list[dict[str, Any]] = []
+        episode_batch: list[dict[str, Any]] = []
+        for raw in batch:
+            replay_row, episodes = engine.process(raw)
+            replay_batch.append(replay_row)
+            episode_batch.extend(episodes)
+        _insert_dict_rows(con, "l2_replay_build", REPLAY_COLUMNS, replay_batch)
+        _insert_dict_rows(con, "l2_episode_build", EPISODE_COLUMNS, episode_batch)
+    cursor.close()
+    _insert_dict_rows(con, "l2_episode_build", EPISODE_COLUMNS, engine.finish())
+    source_rows = int(engine.qc["source_rows"])
+    replay_rows_count = int(con.execute(
+        "SELECT count(*) FROM l2_replay_build"
+    ).fetchone()[0])
+    conservation = _require_row_conservation(
+        label="l2_source_to_replay", observed=replay_rows_count,
+        expected=source_rows, context=key,
+    )
+    null_classifications = int(con.execute(
+        "SELECT count(*) FROM l2_replay_build WHERE classification IS NULL"
+    ).fetchone()[0])
+    if null_classifications:
+        raise L2ResearchError(
+            f"L2 replay left rows unclassified: {key}: {null_classifications}"
+        )
+    replay_receipt, replay_reused = store.write_partition(
+        con,
+        stage=replay_stage,
+        stage_version=replay_version,
+        partition_key=key,
+        select_sql=(
+            "SELECT * FROM l2_replay_build ORDER BY market_ticker,recv_wall_ns,"
+            "recv_mono_ns,ws_sid,ws_seq"
+        ),
+        metrics={
+            "source_rows": source_rows,
+            "row_conservation": conservation,
+            "qc": dict(engine.qc),
+        },
+    )
+    episode_rows = int(con.execute(
+        "SELECT count(*) FROM l2_episode_build"
+    ).fetchone()[0])
+    episode_receipt, episode_reused = store.write_partition(
+        con,
+        stage=episode_stage,
+        stage_version=episode_version,
+        partition_key=key,
+        select_sql=(
+            "SELECT * FROM l2_episode_build ORDER BY date,market_ticker,"
+            "depletion_ns,episode_id"
+        ),
+        metrics={"episode_rows": episode_rows},
+    )
+    return replay_receipt, episode_receipt, replay_reused and episode_reused
+
+
+def execute_l2_snbd_bounded(
+    con,
+    input_manifest: dict[str, Any],
+    store: BoundedCheckpointStore,
+    *,
+    market_buckets: int = 16,
+) -> dict[str, Any]:
+    """Execute exact-input L2 replay and publish durable partition receipts.
+
+    The caller owns the checkpoint-store writer lock.  All captured days are
+    physically partitioned by exact date and market hash; both absent days are
+    represented in the availability ledger and never silently treated as zero.
+    """
+    _validate_scope(input_manifest)
+    expected_binding = bounded_source_binding(input_manifest)
+    if store.source_binding != expected_binding:
+        raise L2ResearchError("L2 checkpoint store source binding mismatch")
+    abi = _l2_abi(market_buckets)
+    quality = {
+        date: _load_quality_assessment(input_manifest, date)
+        for date in L2_CAPTURE_DATES
+    }
+    blocked = {
+        date: row["blockers"]
+        for date, row in quality.items()
+        if row["state"] != "PASS"
+    }
+    if blocked:
+        raise L2ResearchError(
+            "L2 full-stream sequence receipt refused captured date(s): "
+            + json.dumps(blocked, sort_keys=True)
+        )
+
+    physical_stage = "l2_physical"
+    replay_stage = "l2_replay"
+    episode_stage = "l2_episodes"
+    physical_version = _stage_version(abi, physical_stage, "exact-source-v1")
+    replay_version = _stage_version(abi, replay_stage, "sequence-replay-v1")
+    episode_version = _stage_version(abi, episode_stage, "lifecycle-v1")
+    bucket_values = range(market_buckets + 1)  # final value is NULL-market bucket
+    physical_keys: list[str] = []
+    replay_keys: list[str] = []
+    source_counts: dict[str, int] = {}
+    activity = {
+        physical_stage: {"written": 0, "reused": 0},
+        replay_stage: {"written": 0, "reused": 0},
+        episode_stage: {"written": 0, "reused": 0},
+    }
+
+    for date in L2_CAPTURE_DATES:
+        objects = _l2_fact_objects(input_manifest, date)
+        typed = _normalized_l2_sql(con, objects, date)
+        source_count = int(con.execute(f"SELECT count(*) FROM ({typed})").fetchone()[0])
+        source_counts[date] = source_count
+        declared_counts = [obj.get("row_count") for obj in objects]
+        if all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in declared_counts
+        ):
+            _require_row_conservation(
+                label="l2_manifest_to_source",
+                observed=source_count,
+                expected=sum(int(value) for value in declared_counts),
+                context=date,
+            )
+        partition_keys = {
+            bucket: _partition_key(date, bucket) for bucket in bucket_values
+        }
+        scatter_sql = f"""
+          SELECT CASE WHEN market_ticker IS NULL THEN {market_buckets}
+                      ELSE cast(mod(hash(market_ticker),{market_buckets}) AS INTEGER)
+                 END AS partition_value,
+                 *
+          FROM ({typed})
+        """
+        scatter = store.write_partitioned_query(
+            con,
+            stage=physical_stage,
+            stage_version=physical_version,
+            partition_column="partition_value",
+            partition_keys=partition_keys,
+            select_sql=scatter_sql,
+        )
+        for key, (_receipt, reused) in scatter.items():
+            physical_keys.append(key)
+            activity[physical_stage]["reused" if reused else "written"] += 1
+
+    physical_manifest_path = store.finalize_stage(
+        con, stage=physical_stage, stage_version=physical_version,
+        partition_keys=physical_keys,
+    )
+    physical_manifest = json.loads(physical_manifest_path.read_text(encoding="ascii"))
+    _require_row_conservation(
+        label="l2_source_to_physical",
+        observed=int(physical_manifest["row_count"]),
+        expected=sum(source_counts.values()),
+        context="all_captured_dates",
+    )
+
+    for key in sorted(physical_keys):
+        replay_receipt, episode_receipt, reused = _replay_one_partition(
+            con,
+            store,
+            source_path=store._paths(physical_stage, key)[0],
+            replay_stage=replay_stage,
+            replay_version=replay_version,
+            episode_stage=episode_stage,
+            episode_version=episode_version,
+            key=key,
+        )
+        replay_keys.append(key)
+        activity[replay_stage]["reused" if reused else "written"] += 1
+        activity[episode_stage]["reused" if reused else "written"] += 1
+        if replay_receipt["data"]["row_count"] < 0 or episode_receipt["data"]["row_count"] < 0:
+            raise L2ResearchError(f"negative durable row count: {key}")
+
+    replay_manifest_path = store.finalize_stage(
+        con, stage=replay_stage, stage_version=replay_version,
+        partition_keys=replay_keys,
+    )
+    episode_manifest_path = store.finalize_stage(
+        con, stage=episode_stage, stage_version=episode_version,
+        partition_keys=replay_keys,
+    )
+    replay_manifest = json.loads(replay_manifest_path.read_text(encoding="ascii"))
+    episode_manifest = json.loads(episode_manifest_path.read_text(encoding="ascii"))
+    replay_conservation = _require_row_conservation(
+        label="l2_physical_to_replay",
+        observed=int(replay_manifest["row_count"]),
+        expected=int(physical_manifest["row_count"]),
+        context="all_captured_dates",
+    )
+
+    availability_stage = "l2_availability"
+    availability_version = _stage_version(
+        abi, availability_stage, "captured-vs-explicit-absent-v1"
+    )
+    con.execute("""
+      CREATE OR REPLACE TEMP TABLE l2_availability_build(
+        date VARCHAR,state VARCHAR,source_objects BIGINT,source_rows BIGINT,
+        quality_state VARCHAR,quality_sha256 VARCHAR,absence_reason VARCHAR
+      )
+    """)
+    availability_rows = []
+    for date in L2_SCOPE_DATES:
+        if date in L2_ABSENT_DATES:
+            availability_rows.append((
+                date, "ABSENT_NOT_CAPTURED", 0, 0, "NOT_APPLICABLE", None,
+                "L2 capture was not legitimately available for this exact date",
+            ))
+        else:
+            availability_rows.append((
+                date, "CAPTURED_SEQUENCE_RECEIPT_PASS",
+                len(_l2_fact_objects(input_manifest, date)), source_counts[date],
+                quality[date]["state"], quality[date]["sha256"], None,
+            ))
+    con.executemany(
+        "INSERT INTO l2_availability_build VALUES (?,?,?,?,?,?,?)",
+        availability_rows,
+    )
+    availability_receipt, availability_reused = store.write_partition(
+        con,
+        stage=availability_stage,
+        stage_version=availability_version,
+        partition_key="scope",
+        select_sql="SELECT * FROM l2_availability_build ORDER BY date",
+        metrics={
+            "captured_dates": list(L2_CAPTURE_DATES),
+            "explicit_absent_dates": list(L2_ABSENT_DATES),
+        },
+    )
+    availability_manifest_path = store.finalize_stage(
+        con, stage=availability_stage, stage_version=availability_version,
+        partition_keys=["scope"],
+    )
+    manifests = []
+    for stage, version, path in (
+        (availability_stage, availability_version, availability_manifest_path),
+        (physical_stage, physical_version, physical_manifest_path),
+        (replay_stage, replay_version, replay_manifest_path),
+        (episode_stage, episode_version, episode_manifest_path),
+    ):
+        manifest = json.loads(path.read_text(encoding="ascii"))
+        manifests.append({
+            "stage": stage,
+            "stage_version": version,
+            "manifest_sha256": _sha256_file(path),
+            "partition_count": manifest["partition_count"],
+            "row_count": manifest["row_count"],
+        })
+    return {
+        "schema_version": "deep03-v3-l2-snbd-execution-v1",
+        "state": "COMPLETE",
+        "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
+        "source_binding": store.source_binding,
+        "stage_abi": abi,
+        "quality": quality,
+        "availability": {
+            "captured_dates": list(L2_CAPTURE_DATES),
+            "explicit_absent_dates": list(L2_ABSENT_DATES),
+            "receipt": availability_receipt,
+            "reused": availability_reused,
+        },
+        "row_conservation": replay_conservation,
+        "episode_rows": int(episode_manifest["row_count"]),
+        "activity": activity,
+        "stages": manifests,
+        "limitations": [
+            "Per-market forward ws_seq jumps are not packet-loss evidence.",
+            "L2 is absent, not zero, on 2026-07-10 and 2026-07-11.",
+            "Displayed depth/refill is not own-order queue position or fill probability.",
+            "No fee, latency, fill, or PnL claim is made.",
+        ],
+    }
