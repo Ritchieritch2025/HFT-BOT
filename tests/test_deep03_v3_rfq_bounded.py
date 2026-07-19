@@ -338,28 +338,128 @@ def _minimal_mapping():
         "mapping_state": "MAPPED_L1_L2",
         "event_window_within_base_date": True,
     }]
-    return {"mapping_sha256": _sha("mapping"), "mapping_rows": rows}
+    return {
+        "mapping_sha256": _sha("mapping"), "mapping_rows": rows,
+        "pre_event_window_ms": 1_000, "post_event_window_ms": 1_000,
+    }
 
 
-def _impact(mapping, *, status="OBSERVED"):
+def _d07_context(mapping):
+    identities = {}
+    families = {}
+    for family in ("orderbooks_l1", "orderbooks_full"):
+        identity = {
+            "logical_key": f"warehouse/facts/{family}/date=2026-07-19/part.parquet",
+            "bucket": "kalshi-vault-ritcardo",
+            "key": f"ec2/warehouse/facts/{family}/date=2026-07-19/part.parquet",
+            "version_id": f"version-{family}", "size": 100,
+            "sha256": _sha(family),
+        }
+        identities[family] = [identity]
+        families[family] = {
+            "object_count": 1,
+            "set_sha256": bounded.canonical_sha256([identity]),
+            "objects": [identity],
+        }
+    exact_base = {
+        "binding_sha256": _sha("base"), "release_id": "release-2026-07-19",
+        "manifest_exact_identity": {
+            "bucket": "kalshi-vault-ritcardo",
+            "key": "research/releases/release-2026-07-19/MANIFEST.json",
+            "version_id": "manifest-version", "size": 1000,
+            "sha256": _sha("manifest"),
+        },
+        "base_exact_set_sha256": _sha("base-set"), "families": families,
+    }
+    provenance_families = {}
+    for family in ("orderbooks_l1", "orderbooks_full"):
+        receipt = {
+            **identities[family][0], "row_count": 10,
+            "min_ts_utc": 1, "max_ts_utc": 2,
+            "body_size_verified": True, "body_sha256_verified": True,
+        }
+        provenance_families[family] = {
+            "body_verified_object_count": 1, "object_receipts": [receipt],
+        }
+    descriptor = {
+        "date": "2026-07-19", "source_gate_sha256": _sha("gate"),
+        "base_binding_sha256": exact_base["binding_sha256"],
+        "base_binding": exact_base,
+        "manifest": {
+            "universe_provenance": {"families": provenance_families},
+        },
+    }
+    quality = {"state": "PASS", "gate_sha256": _sha("quality"), "blockers": []}
+    event_us = bounded._parse_utc_us(
+        mapping["mapping_rows"][0]["created_ts"], "event",
+    )
+    events = {
+        "r1": {
+            "create_recv_wall_ns": event_us * 1_000,
+            "legs_json": "[]", "leg_count": 0,
+        },
+    }
+    return descriptor, exact_base, quality, events
+
+
+def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
     observed = status == "OBSERVED"
+    event_us = bounded._parse_utc_us(
+        mapping["mapping_rows"][0]["created_ts"], "event",
+    )
     rows = [{
         "request_id": "r1", "component_index": 0,
         "market_ticker": "KX-A", "status": status,
+        "event_ts_us": event_us, "rfq_recv_wall_ns": event_us * 1_000,
+        "rfq_clock_skew_us": 0,
+        "pre_window_start_us": event_us - 1_000_000,
+        "pre_window_end_us": event_us,
+        "post_window_start_us": event_us,
+        "post_window_end_us": event_us + 1_000_000,
+        "pre_observation_ts_us": event_us - 500_000 if observed else None,
+        "post_observation_ts_us": event_us + 500_000 if observed else None,
         "pre_mid_e6": 400_000 if observed else None,
         "post_mid_e6": 410_000 if observed else None,
         "pre_spread_e6": 20_000 if observed else None,
         "post_spread_e6": 10_000 if observed else None,
         "pre_depth_e2": 1_000 if observed else None,
         "post_depth_e2": 1_200 if observed else None,
-        "l1_rows": 2 if observed else 0, "l2_rows": 2 if observed else 0,
+        "l1_pre_rows": 1 if observed else 0,
+        "l1_post_rows": 1 if observed else 0,
+        "l2_pre_rows": 1 if observed else 0,
+        "l2_post_rows": 1 if observed else 0,
         "gap_rows": 0,
+        "censor_reason": None if observed else {
+            "CENSORED_GAP": "L2_SEQUENCE_GAP",
+        }.get(status),
     }]
+    sources = {
+        family: bounded._base_source_attestation(descriptor, family)
+        for family in ("orderbooks_l1", "orderbooks_full")
+    }
     value = {
         "schema": bounded.IMPACT_SCHEMA, "state": "COMPLETE",
         "analysis_date": "2026-07-19",
         "mapping_sha256": mapping["mapping_sha256"],
         "source_gate_sha256": _sha("gate"),
+        "base_binding_sha256": exact_base["binding_sha256"],
+        "base_release_id": exact_base["release_id"],
+        "base_manifest_exact_identity": exact_base["manifest_exact_identity"],
+        "base_exact_object_set_sha256": exact_base["base_exact_set_sha256"],
+        "source_attestations": sources,
+        "source_attestation_set_sha256": bounded.canonical_sha256(sources),
+        "l2_quality_gate_sha256": quality["gate_sha256"],
+        "window_contract": {
+            "pre_event_window_ms": 1_000, "post_event_window_ms": 1_000,
+            "pre_interval": "[EVENT_MINUS_PRE,EVENT]",
+            "post_interval": "(EVENT,EVENT_PLUS_POST]",
+            "event_clock": "RFQ_EXCHANGE_CREATED_TS_US",
+            "receive_clock": "RFQ_ENVELOPE_RECV_WALL_NS",
+            "max_abs_exchange_receive_skew_us": (
+                bounded.MAX_RFQ_CLOCK_ABS_SKEW_US
+            ),
+            "cross_date_borrow": False,
+        },
         "observation_count": 1, "observations": rows,
         "observations_sha256": bounded.canonical_sha256(rows),
     }
@@ -367,11 +467,27 @@ def _impact(mapping, *, status="OBSERVED"):
     return value
 
 
+def _resign_impact(value):
+    value["observations_sha256"] = bounded.canonical_sha256(
+        value["observations"]
+    )
+    value["adapter_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in value.items() if key != "adapter_sha256"
+    })
+    return value
+
+
 def test_d07_adapter_requires_exact_mapping_and_censor_semantics():
     mapping = _minimal_mapping()
-    descriptor = {"date": "2026-07-19", "source_gate_sha256": _sha("gate")}
-    value = _impact(mapping)
-    assert bounded._validate_impact_adapter(value, descriptor, mapping) == value
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    value = _impact(mapping, descriptor, exact_base, quality)
+    kwargs = {
+        "exact_base": exact_base, "l2_quality_gate": quality,
+        "rfq_events": events,
+    }
+    assert bounded._validate_impact_adapter(
+        value, descriptor, mapping, **kwargs,
+    ) == value
     missing = copy.deepcopy(value)
     missing["observations"] = []
     missing["observation_count"] = 0
@@ -380,10 +496,131 @@ def test_d07_adapter_requires_exact_mapping_and_censor_semantics():
         key: item for key, item in missing.items() if key != "adapter_sha256"
     })
     with pytest.raises(bounded.FreshRfqResearchError, match="COVERAGE"):
-        bounded._validate_impact_adapter(missing, descriptor, mapping)
-    bad_censor = _impact(mapping, status="CENSORED_GAP")
+        bounded._validate_impact_adapter(missing, descriptor, mapping, **kwargs)
+    bad_censor = _impact(
+        mapping, descriptor, exact_base, quality, status="CENSORED_GAP",
+    )
     with pytest.raises(bounded.FreshRfqResearchError, match="lacks gap"):
-        bounded._validate_impact_adapter(bad_censor, descriptor, mapping)
+        bounded._validate_impact_adapter(
+            bad_censor, descriptor, mapping, **kwargs,
+        )
+
+
+def test_d07_rejects_future_pre_state_and_forged_exact_source():
+    mapping = _minimal_mapping()
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    kwargs = {
+        "exact_base": exact_base, "l2_quality_gate": quality,
+        "rfq_events": events,
+    }
+    future_pre = _impact(mapping, descriptor, exact_base, quality)
+    future_pre["observations"][0]["pre_observation_ts_us"] = (
+        future_pre["observations"][0]["event_ts_us"] + 1
+    )
+    _resign_impact(future_pre)
+    with pytest.raises(bounded.FreshRfqResearchError, match="invalid observed"):
+        bounded._validate_impact_adapter(
+            future_pre, descriptor, mapping, **kwargs,
+        )
+
+    forged = _impact(mapping, descriptor, exact_base, quality)
+    forged["source_attestations"]["orderbooks_l1"]["exact_objects"][0][
+        "version_id"
+    ] = "forged-latest"
+    forged["source_attestation_set_sha256"] = bounded.canonical_sha256(
+        forged["source_attestations"]
+    )
+    _resign_impact(forged)
+    with pytest.raises(bounded.FreshRfqResearchError, match="BINDING"):
+        bounded._validate_impact_adapter(
+            forged, descriptor, mapping, **kwargs,
+        )
+
+
+def test_d07_future_exchange_clock_must_be_exclusively_clock_censored():
+    mapping = _minimal_mapping()
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    value = _impact(mapping, descriptor, exact_base, quality)
+    row = value["observations"][0]
+    recv_ns = (row["event_ts_us"] - bounded.MAX_RFQ_CLOCK_ABS_SKEW_US - 1) * 1_000
+    events["r1"]["create_recv_wall_ns"] = recv_ns
+    row["rfq_recv_wall_ns"] = recv_ns
+    row["rfq_clock_skew_us"] = recv_ns // 1_000 - row["event_ts_us"]
+    _resign_impact(value)
+    with pytest.raises(bounded.FreshRfqResearchError, match="must be CENSORED_CLOCK"):
+        bounded._validate_impact_adapter(
+            value, descriptor, mapping, exact_base=exact_base,
+            l2_quality_gate=quality, rfq_events=events,
+        )
+
+    for field in (
+        "pre_observation_ts_us", "post_observation_ts_us", "pre_mid_e6",
+        "post_mid_e6", "pre_spread_e6", "post_spread_e6",
+        "pre_depth_e2", "post_depth_e2",
+    ):
+        row[field] = None
+    for field in (
+        "l1_pre_rows", "l1_post_rows", "l2_pre_rows", "l2_post_rows",
+        "gap_rows",
+    ):
+        row[field] = 0
+    row["status"] = "CENSORED_CLOCK"
+    row["censor_reason"] = "FUTURE_EXCHANGE_CLOCK"
+    _resign_impact(value)
+    assert bounded._validate_impact_adapter(
+        value, descriptor, mapping, exact_base=exact_base,
+        l2_quality_gate=quality, rfq_events=events,
+    ) == value
+
+
+def test_l2_quality_gate_is_exact_body_bound_and_gap_refuses():
+    receipt = {"date": "2026-07-19", "lines": 7, "parse_errors": 0}
+    body = json.dumps(receipt, sort_keys=True).encode()
+    identity = {
+        "bucket": "kalshi-vault-ritcardo", "key": "quality/l2.json",
+        "version_id": "quality-version", "size": len(body),
+        "sha256": hashlib.sha256(body).hexdigest(),
+    }
+    gate = bounded.build_l2_quality_gate(
+        analysis_date="2026-07-19", exact_identity=identity, body=body,
+    )
+    assert gate["state"] == "PASS"
+    with pytest.raises(bounded.FreshRfqResearchError, match="SHA-256 differs"):
+        bounded.build_l2_quality_gate(
+            analysis_date="2026-07-19", exact_identity=identity,
+            body=body[:-1] + b"x",
+        )
+
+    refused_receipt = {
+        "date": "2026-07-19", "lines": 7, "seq_gap_events": 1,
+    }
+    refused_body = json.dumps(refused_receipt).encode()
+    refused_identity = {
+        **identity, "size": len(refused_body),
+        "sha256": hashlib.sha256(refused_body).hexdigest(),
+    }
+    refused = bounded.build_l2_quality_gate(
+        analysis_date="2026-07-19", exact_identity=refused_identity,
+        body=refused_body,
+    )
+    assert refused["state"] == "REFUSED"
+    assert refused["blockers"] == ["seq_gap_events=1"]
+
+
+def test_overlay_terminal_and_embedded_base_identity_must_match(
+    tmp_path, monkeypatch,
+):
+    ready, authority, _manifest, _bodies = _overlay_cache(tmp_path, monkeypatch)
+    value = json.loads(ready.read_text())
+    value["base_terminal_file_sha256"] = _sha("other-terminal")
+    value["ready_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in value.items() if key != "ready_sha256"
+    })
+    _write(ready, value)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="BASE_TERMINAL_MISMATCH",
+    ):
+        bounded.load_overlay_descriptor(ready, authority)
 
 
 def test_combo_side_stays_attached_to_its_original_ticker():

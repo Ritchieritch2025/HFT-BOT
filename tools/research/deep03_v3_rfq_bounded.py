@@ -43,6 +43,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import fresh_rfq_exact_reader as exact_reader  # noqa: E402
+import fresh_rfq_base_binding as base_binding  # noqa: E402
 import fresh_rfq_market_mapping as market_mapping  # noqa: E402
 import fresh_rfq_receipts as fresh_receipts  # noqa: E402
 import fresh_rfq_request_provenance as request_provenance  # noqa: E402
@@ -73,11 +74,22 @@ UTC_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 )
 SAFE_STAGE_RE = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
-IMPACT_SCHEMA = "fresh-rfq-clob-impact-adapter-v1"
+IMPACT_SCHEMA = "fresh-rfq-clob-impact-adapter-v2"
+MAX_D07_COMPONENTS_PER_DAY = 2_000_000
+MAX_D07_SOURCE_ROWS_PER_COMPONENT = 10_000_000
+MAX_RFQ_CLOCK_ABS_SKEW_US = 5_000_000
+EXACT_SOURCE_IDENTITY_FIELDS = {
+    "logical_key", "bucket", "key", "version_id", "size", "sha256",
+}
 IMPACT_OBSERVATION_FIELDS = {
     "request_id", "component_index", "market_ticker", "status",
+    "event_ts_us", "rfq_recv_wall_ns", "rfq_clock_skew_us",
+    "pre_window_start_us", "pre_window_end_us",
+    "post_window_start_us", "post_window_end_us",
+    "pre_observation_ts_us", "post_observation_ts_us",
     "pre_mid_e6", "post_mid_e6", "pre_spread_e6", "post_spread_e6",
-    "pre_depth_e2", "post_depth_e2", "l1_rows", "l2_rows", "gap_rows",
+    "pre_depth_e2", "post_depth_e2", "l1_pre_rows", "l1_post_rows",
+    "l2_pre_rows", "l2_post_rows", "gap_rows", "censor_reason",
 }
 IMPACT_STATUSES = {
     "OBSERVED", "UNMAPPED", "CENSORED_BOUNDARY", "CENSORED_GAP",
@@ -186,6 +198,261 @@ def _verify_self_digest(value: dict[str, Any], field: str, label: str) -> None:
     unsigned.pop(field, None)
     if supplied != canonical_sha256(unsigned):
         _fail("DIGEST_MISMATCH", f"{label}.{field} mismatch")
+
+
+def _validate_embedded_base(
+    *,
+    ready_doc: dict[str, Any],
+    receipt: dict[str, Any],
+    manifest: dict[str, Any],
+    date_text: str,
+) -> dict[str, Any]:
+    """Bind every local overlay alias to the embedded exact-base receipt.
+
+    This does not claim that the consumer has re-read the exact manifest
+    bytes.  It makes the local READY/receipt/manifest chain internally exact;
+    :func:`_rebuild_exact_base` is the separate byte-level gate required
+    before D07 may emit an observed result.
+    """
+    if ready_doc["base_terminal_file_sha256"] != receipt[
+        "base_terminal_file_sha256"
+    ]:
+        _fail(
+            "OVERLAY_BASE_TERMINAL_MISMATCH",
+            "READY and overlay receipt bind different base terminal files",
+        )
+    base = manifest.get("base_binding")
+    if not isinstance(base, dict):
+        _fail("OVERLAY_BASE_BINDING", "embedded base binding is absent")
+    _verify_self_digest(base, "binding_sha256", "embedded base binding")
+    fixed = {
+        "date": date_text,
+        "binding_sha256": manifest.get("base_binding_sha256"),
+        "manifest_exact_identity": receipt.get("base_manifest_exact_identity"),
+        "rfq_objects_in_base": 0,
+        "data_objects_copied": 0,
+        "aws_write_authorized": False,
+    }
+    for field, expected in fixed.items():
+        if base.get(field) != expected:
+            _fail(
+                "OVERLAY_BASE_BINDING",
+                f"embedded base binding differs at {field}",
+            )
+    if receipt.get("base_binding_sha256") != base["binding_sha256"]:
+        _fail("OVERLAY_BASE_BINDING", "receipt/base binding digest differs")
+
+    universe = manifest.get("universe_provenance")
+    if not isinstance(universe, dict) or universe.get(
+        "base_binding_sha256"
+    ) != base["binding_sha256"]:
+        _fail(
+            "OVERLAY_BASE_BINDING",
+            "universe provenance does not bind the exact base",
+        )
+    try:
+        provenance_families = universe["families"]
+        base_families = base["families"]
+        for family_name in ("orderbooks_l1", "orderbooks_full"):
+            family = provenance_families[family_name]
+            expected_family = base_families[family_name]
+            identities = expected_family["objects"]
+            if (
+                expected_family["object_count"] != len(identities)
+                or expected_family["set_sha256"] != canonical_sha256(identities)
+                or family["source_object_count"] != len(identities)
+                or family["source_object_set_sha256"]
+                != expected_family["set_sha256"]
+                or family["base_family_set_sha256"]
+                != expected_family["set_sha256"]
+                or family["body_verified_object_count"] != len(identities)
+            ):
+                _fail(
+                    "OVERLAY_BASE_BINDING",
+                    f"{family_name} provenance/base family differs",
+                )
+            receipts = family["object_receipts"]
+            if not isinstance(receipts, list) or len(receipts) != len(identities):
+                _fail(
+                    "OVERLAY_BASE_BINDING",
+                    f"{family_name} exact object receipts are incomplete",
+                )
+            projected = []
+            for index, row in enumerate(receipts):
+                if not isinstance(row, dict):
+                    _fail(
+                        "OVERLAY_BASE_BINDING",
+                        f"{family_name} object receipt {index} is invalid",
+                    )
+                identity = {
+                    field: row.get(field) for field in EXACT_SOURCE_IDENTITY_FIELDS
+                }
+                if set(identity) != EXACT_SOURCE_IDENTITY_FIELDS or (
+                    row.get("body_size_verified") is not True
+                    or row.get("body_sha256_verified") is not True
+                ):
+                    _fail(
+                        "OVERLAY_BASE_BINDING",
+                        f"{family_name} object receipt {index} lacks byte proof",
+                    )
+                projected.append(identity)
+            projected.sort(key=lambda row: row["logical_key"])
+            if canonical_bytes(projected) != canonical_bytes(identities):
+                _fail(
+                    "OVERLAY_BASE_BINDING",
+                    f"{family_name} receipt identities differ from exact base",
+                )
+    except (KeyError, TypeError) as exc:
+        _fail("OVERLAY_BASE_BINDING", f"base family evidence absent: {exc}")
+    return copy.deepcopy(base)
+
+
+def _rebuild_exact_base(
+    descriptor: dict[str, Any], manifest_bytes: bytes,
+) -> dict[str, Any]:
+    """Rebuild the embedded base binding from the exact V3 manifest bytes."""
+    if type(manifest_bytes) is not bytes:
+        _fail(
+            "D07_BASE_EXACT_BYTES_REQUIRED",
+            f"{descriptor['date']} base manifest must be exact bytes",
+        )
+    try:
+        rebuilt = base_binding.build_base_binding(
+            manifest_bytes=manifest_bytes,
+            manifest_exact_identity=descriptor["base_manifest_exact_identity"],
+            date=descriptor["date"],
+        )
+    except base_binding.FreshRfqBaseBindingError as exc:
+        _fail("D07_BASE_EXACT_REBUILD", str(exc))
+    if canonical_bytes(rebuilt) != canonical_bytes(descriptor["base_binding"]):
+        _fail(
+            "D07_BASE_EXACT_REBUILD",
+            f"{descriptor['date']} exact manifest rebuild differs from overlay",
+        )
+    return rebuilt
+
+
+def _base_source_attestation(
+    descriptor: dict[str, Any], family_name: str,
+) -> dict[str, Any]:
+    """Project the exact, body-verified L1/L2 source proof into D07."""
+    base_family = descriptor["base_binding"]["families"][family_name]
+    provenance_family = descriptor["manifest"]["universe_provenance"][
+        "families"
+    ][family_name]
+    receipts = provenance_family["object_receipts"]
+    result = {
+        "schema": "fresh-rfq-d07-exact-source-attestation-v1",
+        "analysis_date": descriptor["date"],
+        "family": family_name,
+        "base_binding_sha256": descriptor["base_binding_sha256"],
+        "exact_objects": copy.deepcopy(base_family["objects"]),
+        "exact_object_count": base_family["object_count"],
+        "exact_object_set_sha256": base_family["set_sha256"],
+        "body_verified_object_count": provenance_family[
+            "body_verified_object_count"
+        ],
+        "source_row_count": sum(int(row["row_count"]) for row in receipts),
+        "min_ts_us": min(int(row["min_ts_utc"]) for row in receipts),
+        "max_ts_us": max(int(row["max_ts_utc"]) for row in receipts),
+        "body_size_and_sha_verified": all(
+            row.get("body_size_verified") is True
+            and row.get("body_sha256_verified") is True
+            for row in receipts
+        ),
+        "universe_family_receipt_sha256": canonical_sha256(
+            provenance_family
+        ),
+    }
+    result["attestation_sha256"] = canonical_sha256(result)
+    return result
+
+
+def build_l2_quality_gate(
+    *, analysis_date: str, exact_identity: dict[str, Any], body: bytes,
+) -> dict[str, Any]:
+    """Build a D07 L2 quality gate from exact, caller-read receipt bytes.
+
+    The body is verified against a non-null VersionId identity inside this
+    function and is never retained in the result.  Any sequence loss, parser
+    error, recorder gap/loss/epoch marker, absent file, or empty stream blocks
+    the entire date rather than silently salvaging impact observations.
+    """
+    date_text = _date(analysis_date, "L2 quality date")
+    identity_fields = {"bucket", "key", "version_id", "size", "sha256"}
+    identity = _exact_keys(
+        exact_identity, identity_fields, "L2 quality exact identity",
+    )
+    if (
+        not isinstance(identity["bucket"], str)
+        or not identity["bucket"]
+        or not isinstance(identity["key"], str)
+        or not identity["key"]
+        or not isinstance(identity["version_id"], str)
+        or not identity["version_id"]
+        or identity["version_id"].lower() == "null"
+        or type(identity["size"]) is not int
+        or identity["size"] <= 0
+    ):
+        _fail("D07_L2_QUALITY_IDENTITY", "quality exact identity is invalid")
+    _sha(identity["sha256"], "L2 quality identity.sha256")
+    if type(body) is not bytes:
+        _fail("D07_L2_QUALITY_BYTES", "quality receipt body must be bytes")
+    if len(body) != identity["size"]:
+        _fail("D07_L2_QUALITY_BYTES", "quality receipt size differs")
+    if hashlib.sha256(body).hexdigest() != identity["sha256"]:
+        _fail("D07_L2_QUALITY_BYTES", "quality receipt SHA-256 differs")
+    try:
+        receipt = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        _fail("D07_L2_QUALITY_JSON", str(exc))
+    if not isinstance(receipt, dict) or receipt.get("date") != date_text:
+        _fail("D07_L2_QUALITY_DATE", "quality receipt date differs")
+    blockers: list[str] = []
+    for key in (
+        "parse_errors", "seq_gap_events", "seq_missed_total",
+        "seq_regressions", "markers_lost_frames",
+    ):
+        value = receipt.get(key, 0)
+        try:
+            count = int(value or 0)
+        except (TypeError, ValueError):
+            blockers.append(f"{key}=INVALID")
+        else:
+            if count:
+                blockers.append(f"{key}={count}")
+    markers = receipt.get("recorder_markers") or {}
+    if not isinstance(markers, Mapping):
+        blockers.append("recorder_markers=INVALID")
+        markers = {}
+    for key, value in sorted(markers.items(), key=lambda row: str(row[0])):
+        if str(key).lower() in {"gap", "loss", "epoch_change"}:
+            try:
+                count = int(value or 0)
+            except (TypeError, ValueError):
+                count = 1
+            if count:
+                blockers.append(f"recorder_marker:{key}={count}")
+    if receipt.get("no_l2_files") is True:
+        blockers.append("no_l2_files=true")
+    try:
+        lines = int(receipt.get("lines") or 0)
+    except (TypeError, ValueError):
+        lines = 0
+    if lines <= 0:
+        blockers.append("lines<=0")
+    result = {
+        "schema": "fresh-rfq-d07-l2-quality-gate-v1",
+        "analysis_date": date_text,
+        "state": "PASS" if not blockers else "REFUSED",
+        "exact_identity": copy.deepcopy(identity),
+        "exact_body_verified": True,
+        "lines": lines,
+        "blockers": blockers,
+        "salvage_allowed": False,
+    }
+    result["gate_sha256"] = canonical_sha256(result)
+    return result
 
 
 def _validate_overlay_hours(
@@ -376,6 +643,12 @@ def load_overlay_descriptor(
     _verify_self_digest(
         embedded_universe, "provenance_sha256", "universe provenance",
     )
+    embedded_base = _validate_embedded_base(
+        ready_doc=ready_doc,
+        receipt=receipt,
+        manifest=manifest,
+        date_text=date_text,
+    )
     try:
         families = embedded_universe["families"]
         for family_name in ("orderbooks_l1", "orderbooks_full"):
@@ -418,6 +691,11 @@ def load_overlay_descriptor(
         "source_evidence_sha256": source_evidence["evidence_sha256"],
         "time_contract_sha256": manifest["time_contract_sha256"],
         "base_binding_sha256": manifest["base_binding_sha256"],
+        "base_terminal_file_sha256": receipt["base_terminal_file_sha256"],
+        "base_manifest_exact_identity": copy.deepcopy(
+            receipt["base_manifest_exact_identity"]
+        ),
+        "base_binding": embedded_base,
         "source_gate_sha256": canonical_sha256({
             "analysis_hour_receipt_set_sha256": manifest[
                 "analysis_hour_receipt_set_sha256"
@@ -1349,20 +1627,58 @@ def _python_numeric_summary(values: list[int], unit: str) -> dict[str, Any]:
 
 
 def _validate_impact_adapter(
-    value: Any, descriptor: dict[str, Any], mapping: dict[str, Any],
+    value: Any,
+    descriptor: dict[str, Any],
+    mapping: dict[str, Any],
+    *,
+    exact_base: dict[str, Any],
+    l2_quality_gate: dict[str, Any],
+    rfq_events: Mapping[str, dict[str, Any]],
 ) -> dict[str, Any]:
     fields = {
         "schema", "state", "analysis_date", "mapping_sha256",
-        "source_gate_sha256", "observation_count", "observations",
-        "observations_sha256", "adapter_sha256",
+        "source_gate_sha256", "base_binding_sha256", "base_release_id",
+        "base_manifest_exact_identity", "base_exact_object_set_sha256",
+        "source_attestations", "source_attestation_set_sha256",
+        "l2_quality_gate_sha256", "window_contract",
+        "observation_count", "observations", "observations_sha256",
+        "adapter_sha256",
     }
     value = _exact_keys(value, fields, "CLOB impact adapter")
+    expected_sources = {
+        family: _base_source_attestation(descriptor, family)
+        for family in ("orderbooks_l1", "orderbooks_full")
+    }
+    expected_window = {
+        "pre_event_window_ms": mapping["pre_event_window_ms"],
+        "post_event_window_ms": mapping["post_event_window_ms"],
+        "pre_interval": "[EVENT_MINUS_PRE,EVENT]",
+        "post_interval": "(EVENT,EVENT_PLUS_POST]",
+        "event_clock": "RFQ_EXCHANGE_CREATED_TS_US",
+        "receive_clock": "RFQ_ENVELOPE_RECV_WALL_NS",
+        "max_abs_exchange_receive_skew_us": MAX_RFQ_CLOCK_ABS_SKEW_US,
+        "cross_date_borrow": False,
+    }
     if (
         value["schema"] != IMPACT_SCHEMA
         or value["state"] != "COMPLETE"
         or value["analysis_date"] != descriptor["date"]
         or value["mapping_sha256"] != mapping["mapping_sha256"]
         or value["source_gate_sha256"] != descriptor["source_gate_sha256"]
+        or value["base_binding_sha256"] != exact_base["binding_sha256"]
+        or value["base_release_id"] != exact_base["release_id"]
+        or value["base_manifest_exact_identity"]
+        != exact_base["manifest_exact_identity"]
+        or value["base_exact_object_set_sha256"]
+        != exact_base["base_exact_set_sha256"]
+        or canonical_bytes(value["source_attestations"])
+        != canonical_bytes(expected_sources)
+        or value["source_attestation_set_sha256"]
+        != canonical_sha256(expected_sources)
+        or value["l2_quality_gate_sha256"]
+        != l2_quality_gate["gate_sha256"]
+        or canonical_bytes(value["window_contract"])
+        != canonical_bytes(expected_window)
     ):
         _fail("IMPACT_ADAPTER_BINDING", "adapter fixed binding differs")
     _verify_self_digest(value, "adapter_sha256", "CLOB impact adapter")
@@ -1374,10 +1690,16 @@ def _validate_impact_adapter(
         or value["observations_sha256"] != canonical_sha256(observations)
     ):
         _fail("IMPACT_ADAPTER_DIGEST", "observation count/digest differs")
+    if len(observations) > MAX_D07_COMPONENTS_PER_DAY:
+        _fail("IMPACT_ADAPTER_RESOURCE", "D07 component count exceeds hard bound")
     expected = {
         (row["request_id"], row["component_index"]): row
         for row in mapping["mapping_rows"]
     }
+    if len(expected) != len(mapping["mapping_rows"]):
+        _fail("IMPACT_ADAPTER_MAPPING", "mapping component keys are duplicated")
+    l1_source_rows = expected_sources["orderbooks_l1"]["source_row_count"]
+    l2_source_rows = expected_sources["orderbooks_full"]["source_row_count"]
     observed: dict[tuple[str, int], dict[str, Any]] = {}
     for index, raw in enumerate(observations):
         row = _exact_keys(
@@ -1392,34 +1714,104 @@ def _validate_impact_adapter(
         status = row["status"]
         if status not in IMPACT_STATUSES:
             _fail("IMPACT_ADAPTER_STATUS", f"invalid status for {key}")
+        rfq_event = rfq_events.get(row["request_id"])
+        if rfq_event is None:
+            _fail("IMPACT_ADAPTER_RFQ_EVENT", f"missing exact RFQ event for {key}")
+        expected_event_us = _parse_utc_us(
+            expected_row["created_ts"], f"mapping event {key}",
+        )
+        expected_recv_ns = rfq_event["create_recv_wall_ns"]
+        expected_clock_skew_us = expected_recv_ns // 1_000 - expected_event_us
+        pre_us = mapping["pre_event_window_ms"] * 1_000
+        post_us = mapping["post_event_window_ms"] * 1_000
+        expected_clock_fields = {
+            "event_ts_us": expected_event_us,
+            "rfq_recv_wall_ns": expected_recv_ns,
+            "rfq_clock_skew_us": expected_clock_skew_us,
+            "pre_window_start_us": expected_event_us - pre_us,
+            "pre_window_end_us": expected_event_us,
+            "post_window_start_us": expected_event_us,
+            "post_window_end_us": expected_event_us + post_us,
+        }
+        if any(row[field] != expected for field, expected in expected_clock_fields.items()):
+            _fail("IMPACT_ADAPTER_CLOCK", f"event/window clock differs for {key}")
         if expected_row["mapping_state"] != "MAPPED_L1_L2":
             required_status = "UNMAPPED"
+            required_reason = expected_row["mapping_state"]
         elif expected_row["event_window_within_base_date"] is not True:
             required_status = "CENSORED_BOUNDARY"
+            required_reason = "EVENT_WINDOW_OUTSIDE_BASE_DATE"
+        elif abs(expected_clock_skew_us) > MAX_RFQ_CLOCK_ABS_SKEW_US:
+            required_status = "CENSORED_CLOCK"
+            required_reason = (
+                "FUTURE_EXCHANGE_CLOCK"
+                if expected_clock_skew_us < 0
+                else "STALE_EXCHANGE_CLOCK"
+            )
         else:
             required_status = None
+            required_reason = None
         if required_status is not None and status != required_status:
             _fail("IMPACT_ADAPTER_STATUS", f"{key} must be {required_status}")
         if required_status is None and status not in {
             "OBSERVED", "CENSORED_GAP", "CENSORED_CLOCK",
         }:
             _fail("IMPACT_ADAPTER_STATUS", f"mapped {key} has invalid censor state")
+        if status == "CENSORED_CLOCK" and required_status is None:
+            _fail(
+                "IMPACT_ADAPTER_CLOCK",
+                f"{key} cannot self-declare clock censoring inside tolerance",
+            )
+        expected_reason = {
+            "OBSERVED": None,
+            "CENSORED_GAP": "L2_SEQUENCE_GAP",
+        }.get(status, required_reason)
+        if row["censor_reason"] != expected_reason:
+            _fail("IMPACT_ADAPTER_CENSOR", f"censor reason differs for {key}")
         numeric_fields = (
             "pre_mid_e6", "post_mid_e6", "pre_spread_e6", "post_spread_e6",
             "pre_depth_e2", "post_depth_e2",
         )
-        count_fields = ("l1_rows", "l2_rows", "gap_rows")
+        observation_clock_fields = (
+            "pre_observation_ts_us", "post_observation_ts_us",
+        )
+        count_fields = (
+            "l1_pre_rows", "l1_post_rows", "l2_pre_rows", "l2_post_rows",
+            "gap_rows",
+        )
         for field in numeric_fields:
             if row[field] is not None and type(row[field]) is not int:
                 _fail("IMPACT_ADAPTER_SCHEMA", f"{key}.{field} must be integer/null")
+        for field in observation_clock_fields:
+            if row[field] is not None and type(row[field]) is not int:
+                _fail("IMPACT_ADAPTER_SCHEMA", f"{key}.{field} must be integer/null")
         for field in count_fields:
-            if type(row[field]) is not int or row[field] < 0:
+            if (
+                type(row[field]) is not int
+                or row[field] < 0
+                or row[field] > MAX_D07_SOURCE_ROWS_PER_COMPONENT
+            ):
                 _fail("IMPACT_ADAPTER_SCHEMA", f"{key}.{field} must be nonnegative")
+        if (
+            row["l1_pre_rows"] + row["l1_post_rows"] > l1_source_rows
+            or row["l2_pre_rows"] + row["l2_post_rows"] > l2_source_rows
+        ):
+            _fail("IMPACT_ADAPTER_RESOURCE", f"{key} row counts exceed exact source")
         if status == "OBSERVED":
             if (
                 any(row[field] is None for field in numeric_fields)
-                or row["l1_rows"] <= 0 or row["l2_rows"] <= 0
+                or any(row[field] is None for field in observation_clock_fields)
+                or min(
+                    row["l1_pre_rows"], row["l1_post_rows"],
+                    row["l2_pre_rows"], row["l2_post_rows"],
+                ) <= 0
                 or row["gap_rows"] != 0
+                or not row["pre_window_start_us"]
+                <= row["pre_observation_ts_us"]
+                <= row["event_ts_us"]
+                or not row["event_ts_us"]
+                < row["post_observation_ts_us"]
+                <= row["post_window_end_us"]
                 or not 0 <= row["pre_mid_e6"] <= 1_000_000
                 or not 0 <= row["post_mid_e6"] <= 1_000_000
                 or min(row["pre_spread_e6"], row["post_spread_e6"],
@@ -1427,10 +1819,18 @@ def _validate_impact_adapter(
             ):
                 _fail("IMPACT_ADAPTER_OBSERVATION", f"invalid observed row {key}")
         else:
-            if any(row[field] is not None for field in numeric_fields):
+            if any(
+                row[field] is not None
+                for field in numeric_fields + observation_clock_fields
+            ):
                 _fail("IMPACT_ADAPTER_CENSOR", f"censored {key} carries values")
             if status == "CENSORED_GAP" and row["gap_rows"] <= 0:
                 _fail("IMPACT_ADAPTER_CENSOR", f"gap-censored {key} lacks gap")
+            if status != "CENSORED_GAP" and any(row[field] for field in count_fields):
+                _fail(
+                    "IMPACT_ADAPTER_CENSOR",
+                    f"non-gap censored {key} carries source row counts",
+                )
         observed[key] = copy.deepcopy(row)
     if set(observed) != set(expected):
         _fail("IMPACT_ADAPTER_COVERAGE", "adapter does not enumerate exact mapping set")
@@ -1441,6 +1841,10 @@ def _d07_result(
     descriptors: list[dict[str, Any]],
     metas: list[dict[str, Any]],
     impact_adapters: Mapping[str, dict[str, Any]] | None,
+    *,
+    exact_bases: Mapping[str, dict[str, Any]] | None,
+    l2_quality_gates: Mapping[str, dict[str, Any]] | None,
+    rfq_events: Mapping[str, dict[str, Any]],
 ) -> dict[str, Any]:
     contract = {
         "schema": IMPACT_SCHEMA,
@@ -1450,6 +1854,13 @@ def _d07_result(
         "depth_scale": "E2_CONTRACTS",
         "all_mapping_components_required": True,
         "gap_and_clock_censoring_required": True,
+        "exact_base_manifest_rebuild_required": True,
+        "exact_l1_l2_source_attestation_required": True,
+        "l2_quality_pass_required": True,
+        "pre_event_state_must_be_past_or_event": True,
+        "post_event_state_must_be_strictly_future": True,
+        "max_components_per_day": MAX_D07_COMPONENTS_PER_DAY,
+        "max_source_rows_per_component": MAX_D07_SOURCE_ROWS_PER_COMPONENT,
         "no_cross_date_borrow": True,
     }
     if impact_adapters is None:
@@ -1472,14 +1883,47 @@ def _d07_result(
             "observed_components": 0,
             "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
         }
+    if exact_bases is None or set(exact_bases) != expected_dates:
+        return {
+            "id": "D07", "status": "BLOCKED_EXACT_BASE_REBUILD_NOT_SUPPLIED",
+            "contract": contract, "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    if l2_quality_gates is None or set(l2_quality_gates) != expected_dates:
+        return {
+            "id": "D07", "status": "BLOCKED_EXACT_L2_QUALITY_NOT_SUPPLIED",
+            "contract": contract, "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    refused_quality = {
+        date: gate.get("blockers")
+        for date, gate in l2_quality_gates.items()
+        if gate.get("state") != "PASS"
+    }
+    if refused_quality:
+        return {
+            "id": "D07", "status": "BLOCKED_L2_QUALITY_REFUSED",
+            "contract": contract, "quality_blockers": refused_quality,
+            "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
     statuses: dict[str, int] = {}
     impacts: list[int] = []
     spread_changes: list[int] = []
     depth_changes: list[int] = []
+    direction_aligned_changes: list[int] = []
+    direction_statuses = {
+        "combo_leg_side_observed": 0,
+        "combo_leg_side_unknown": 0,
+        "single_direction_not_inferred": 0,
+    }
     adapter_shas = []
     for descriptor, meta in zip(descriptors, metas):
         adapter = _validate_impact_adapter(
             impact_adapters[descriptor["date"]], descriptor, meta["mapping"],
+            exact_base=exact_bases[descriptor["date"]],
+            l2_quality_gate=l2_quality_gates[descriptor["date"]],
+            rfq_events=rfq_events,
         )
         adapter_shas.append(adapter["adapter_sha256"])
         for row in adapter["observations"]:
@@ -1492,6 +1936,28 @@ def _d07_result(
                 depth_changes.append(
                     row["post_depth_e2"] - row["pre_depth_e2"]
                 )
+                rfq_event = rfq_events[row["request_id"]]
+                legs = json.loads(rfq_event["legs_json"])
+                if not legs:
+                    direction_statuses["single_direction_not_inferred"] += 1
+                else:
+                    component = row["component_index"]
+                    if component >= len(legs) or (
+                        legs[component]["market_ticker"] != row["market_ticker"]
+                    ):
+                        _fail(
+                            "IMPACT_ADAPTER_DIRECTION",
+                            f"combo leg ordering differs for {row['request_id']}",
+                        )
+                    side = legs[component].get("side")
+                    if side in {"yes", "no"}:
+                        direction_statuses["combo_leg_side_observed"] += 1
+                        change = row["post_mid_e6"] - row["pre_mid_e6"]
+                        direction_aligned_changes.append(
+                            change if side == "yes" else -change
+                        )
+                    else:
+                        direction_statuses["combo_leg_side_unknown"] += 1
     return {
         "id": "D07", "status": "EXPLORATORY_OBSERVED"
         if impacts else "BLOCKED_NO_OBSERVED_COMPONENTS",
@@ -1500,13 +1966,24 @@ def _d07_result(
         "component_status_counts": [
             {"status": key, "count": statuses[key]} for key in sorted(statuses)
         ],
-        "mid_change_e6": _python_numeric_summary(impacts, "E6_DOLLARS"),
-        "spread_change_e6": _python_numeric_summary(
-            spread_changes, "E6_DOLLARS",
-        ),
-        "depth_change_e2": _python_numeric_summary(
-            depth_changes, "E2_CONTRACTS",
-        ),
+        "unaligned_market_response": {
+            "population": "ALL_OBSERVED_MAPPED_COMPONENTS_NO_DIRECTION_INFERENCE",
+            "mid_change_e6": _python_numeric_summary(impacts, "E6_DOLLARS"),
+            "spread_change_e6": _python_numeric_summary(
+                spread_changes, "E6_DOLLARS",
+            ),
+            "depth_change_e2": _python_numeric_summary(
+                depth_changes, "E2_CONTRACTS",
+            ),
+        },
+        "direction_aligned_combo_leg_response": {
+            "population": "OBSERVED_COMBO_COMPONENTS_WITH_EXPLICIT_YES_OR_NO_SIDE",
+            "yes_positive_mid_change_e6": _python_numeric_summary(
+                direction_aligned_changes, "E6_DOLLARS",
+            ),
+            "coverage_counts": direction_statuses,
+            "single_direction_inferred": False,
+        },
         "causal_claim": False,
         "fill_or_pnl_claim": False,
     }
@@ -1520,6 +1997,8 @@ def _build_report(
     lifecycle_totals: dict[str, int],
     buckets: int,
     impact_adapters: Mapping[str, dict[str, Any]] | None,
+    exact_bases: Mapping[str, dict[str, Any]] | None,
+    l2_quality_gates: Mapping[str, dict[str, Any]] | None,
 ) -> dict[str, Any]:
     lifecycle_paths = [
         _checkpoint_path(store, LIFECYCLE_STAGE, f"h{bucket:02d}")
@@ -1531,6 +2010,20 @@ def _build_report(
     ]
     life = f"read_parquet({path_list(lifecycle_paths)},union_by_name=true,hive_partitioning=false)"
     mapped = f"read_parquet({path_list(mapping_paths)},union_by_name=true,hive_partitioning=false)"
+    rfq_events = {
+        str(row[0]): {
+            "created_ts_us": int(row[1]),
+            "create_recv_wall_ns": int(row[2]),
+            "create_clock_skew_ms": int(row[3]),
+            "legs_json": str(row[4]),
+            "leg_count": int(row[5]),
+        }
+        for row in con.execute(f"""
+          SELECT rfq_id,created_ts_us,create_recv_wall_ns,create_clock_skew_ms,
+                 legs_json,leg_count
+          FROM {life}
+        """).fetchall()
+    }
 
     per_hour = [
         {"utc_hour": str(row[0]), "requests": int(row[1])}
@@ -1816,6 +2309,9 @@ def _build_report(
         },
         "d07_rfq_to_clob_impact": _d07_result(
             descriptors, metas, impact_adapters,
+            exact_bases=exact_bases,
+            l2_quality_gates=l2_quality_gates,
+            rfq_events=rfq_events,
         ),
         "d08_profitability": {
             "id": "D08",
@@ -1880,6 +2376,8 @@ def run_bounded_fresh_rfq(
     hash_buckets: int = DEFAULT_HASH_BUCKETS,
     exact_temp_parent: str | os.PathLike[str] | None = None,
     impact_adapters: Mapping[str, dict[str, Any]] | None = None,
+    base_manifest_bytes_by_date: Mapping[str, bytes] | None = None,
+    l2_quality_receipts_by_date: Mapping[str, dict[str, Any]] | None = None,
     report_path: str | os.PathLike[str] | None = None,
     expected_eligible_dates: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -1930,6 +2428,47 @@ def run_bounded_fresh_rfq(
         _fail("OVERLAY_SET_INVALID", "overlay set spans multiple authorities")
     if len({row["generation"] for row in descriptors}) != 1:
         _fail("OVERLAY_SET_INVALID", "overlay set spans multiple generations")
+
+    date_set = set(observed_date_texts)
+    exact_bases: dict[str, dict[str, Any]] | None = None
+    if base_manifest_bytes_by_date is not None:
+        if (
+            not isinstance(base_manifest_bytes_by_date, Mapping)
+            or set(base_manifest_bytes_by_date) != date_set
+        ):
+            _fail(
+                "D07_BASE_EXACT_SET",
+                "exact base manifest byte set must equal overlay dates",
+            )
+        exact_bases = {
+            descriptor["date"]: _rebuild_exact_base(
+                descriptor, base_manifest_bytes_by_date[descriptor["date"]],
+            )
+            for descriptor in descriptors
+        }
+
+    l2_quality_gates: dict[str, dict[str, Any]] | None = None
+    if l2_quality_receipts_by_date is not None:
+        if (
+            not isinstance(l2_quality_receipts_by_date, Mapping)
+            or set(l2_quality_receipts_by_date) != date_set
+        ):
+            _fail(
+                "D07_L2_QUALITY_SET",
+                "exact L2 quality receipt set must equal overlay dates",
+            )
+        l2_quality_gates = {}
+        for date_text in observed_date_texts:
+            entry = _exact_keys(
+                l2_quality_receipts_by_date[date_text],
+                {"exact_identity", "body"},
+                f"L2 quality receipt {date_text}",
+            )
+            l2_quality_gates[date_text] = build_l2_quality_gate(
+                analysis_date=date_text,
+                exact_identity=entry["exact_identity"],
+                body=entry["body"],
+            )
 
     source_binding = _source_binding(descriptors, hash_buckets)
     versions = {
@@ -1987,7 +2526,7 @@ def run_bounded_fresh_rfq(
             )
             report = _build_report(
                 con, store, descriptors, metas, lifecycle_totals,
-                hash_buckets, impact_adapters,
+                hash_buckets, impact_adapters, exact_bases, l2_quality_gates,
             )
         if report_path is not None:
             _write_report(Path(report_path), report)
@@ -1998,6 +2537,7 @@ def run_bounded_fresh_rfq(
 
 __all__ = [
     "FreshRfqResearchError", "IMPACT_SCHEMA", "SCHEMA",
-    "canonical_bytes", "canonical_sha256", "load_overlay_descriptor",
+    "build_l2_quality_gate", "canonical_bytes", "canonical_sha256",
+    "load_overlay_descriptor",
     "run_bounded_fresh_rfq",
 ]
