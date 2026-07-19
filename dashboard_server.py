@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Localhost-only operational console for the Kalshi PoC.
+"""Localhost-only operational and research console for the Kalshi PoC.
 
 Read-only: it tails an append-only NDJSON file the trading system writes from
 its cold telemetry thread and streams new lines to the browser over SSE. It
@@ -24,6 +24,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "too
 import run_tests  # noqa: E402
 import warehouse_status  # noqa: E402  (Phase 5 warehouse panel; read-only, no conversion)
 import feed_readiness  # noqa: E402  (read-only local market-feed readiness)
+from research import inbox as research_inbox  # noqa: E402
+from research.coordinator import ResearchW09Coordinator  # noqa: E402
+from research.plan_contract import PlanContractError, compile_plan  # noqa: E402
 
 LIFECYCLE_STATUS = os.path.join(run_tests.WORK, "lifecycle_status.json")
 LIFECYCLE_EVENTS = os.path.join(run_tests.WORK, "lifecycle_events.ndjson")
@@ -377,7 +380,11 @@ def pipeline_control(root, action):
     return {"ok": True, "action": action, "status": pipeline_status(root)}
 
 
-def make_handler(metrics_path, backfill_default, allow_network=False):
+def make_handler(metrics_path, backfill_default, allow_network=False,
+                 research_inbox_root=None, research_coordinator=None):
+    research_inbox_root = os.path.abspath(
+        research_inbox_root or os.path.join(run_tests.WORK, "research_inbox"))
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -399,6 +406,17 @@ def make_handler(metrics_path, backfill_default, allow_network=False):
 
         def _json(self, code, obj):
             self._send(code, json.dumps(obj), "application/json")
+
+        def _research_job_id(self, path, suffix=""):
+            prefix = "/api/research/jobs/"
+            if not path.startswith(prefix):
+                return None
+            tail = path[len(prefix):]
+            if suffix:
+                if not tail.endswith(suffix):
+                    return None
+                tail = tail[:-len(suffix)]
+            return tail if research_inbox.JOB_ID_RE.fullmatch(tail or "") else None
 
         def do_GET(self):
             path = self.path.split("?", 1)[0]
@@ -438,11 +456,63 @@ def make_handler(metrics_path, backfill_default, allow_network=False):
                 self._json(200, feed_readiness.collect_status(run_tests.ROOT, metrics_path))
             elif path == "/api/pipeline":
                 self._json(200, pipeline_status(run_tests.ROOT))
+            elif path == "/api/research/jobs":
+                self._json(200, {
+                    "schema_version": "research-inbox-list-v1",
+                    "jobs": research_inbox.list_jobs(research_inbox_root),
+                })
+            elif self._research_job_id(path, "/report"):
+                job_id = self._research_job_id(path, "/report")
+                try:
+                    job = research_inbox.get_job(research_inbox_root, job_id)
+                    report = os.path.join(
+                        research_inbox_root, "jobs", job_id, "REPORT", "index.html")
+                    if not job["report_available"]:
+                        self._json(404, {"error": "report not ready", "job_id": job_id})
+                    else:
+                        with open(report, "rb") as handle:
+                            self._send(
+                                200, handle.read(), "text/html; charset=utf-8",
+                                {"Content-Security-Policy":
+                                 "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
+                except (OSError, research_inbox.InboxError) as exc:
+                    self._json(404, {"error": str(exc)})
+            elif self._research_job_id(path):
+                job_id = self._research_job_id(path)
+                try:
+                    self._json(200, research_inbox.get_job(research_inbox_root, job_id))
+                except research_inbox.InboxError as exc:
+                    self._json(404, {"error": str(exc)})
             else:
                 self._send(404, "not found")
 
         def do_POST(self):
             path = self.path.split("?", 1)[0]
+            if path == "/api/research/jobs":
+                try:
+                    n = int(self.headers.get("Content-Length", 0))
+                    if n <= 0 or n > research_inbox.MAX_PLAN_BYTES + 65536:
+                        self._json(413, {"error": "research plan request is too large"})
+                        return
+                    body = json.loads(self.rfile.read(n).decode("utf-8"))
+                    plan_text = body.get("plan_text")
+                    filename = body.get("filename") or "PLAN.md"
+                    spec = compile_plan(plan_text, filename=filename)
+                    job = research_inbox.create_job(
+                        research_inbox_root,
+                        filename=filename,
+                        plan_text=plan_text,
+                        job_spec=spec,
+                        automatic_execution_requested=body.get("auto_run", True) is True,
+                    )
+                    if research_coordinator is not None and job["status"]["state"] == "QUEUED":
+                        research_coordinator.submit(job["job_id"])
+                except (UnicodeError, ValueError, PlanContractError,
+                        research_inbox.InboxError) as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                self._json(201, job)
+                return
             if path == "/api/init":
                 self._json(200, run_lifecycle_check(metrics_path, allow_network, False))
                 return
@@ -653,6 +723,16 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
 .logline td{border-bottom:1px solid #20262d}
 .age-old{color:var(--yellow)}.age-stale{color:var(--red)}
 .notice{padding:9px 11px;color:var(--dim)}
+.research-grid{display:grid;grid-template-columns:minmax(280px,1fr) minmax(360px,1.4fr);gap:12px}
+.research-drop{border:2px dashed var(--border);border-radius:8px;padding:18px;text-align:center;
+  background:#111820;cursor:pointer;transition:border-color .15s,background .15s}
+.research-drop.drag{border-color:var(--blue);background:#0d2a4a}
+.research-plan{width:100%;min-height:250px;margin-top:10px;resize:vertical;font:inherit;
+  color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:9px}
+.research-job{border:1px solid var(--border);border-radius:7px;padding:9px;background:#111820;margin-bottom:8px}
+.research-job .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.research-job .why{color:var(--dim);margin-top:5px;white-space:normal}
+@media (max-width:900px){.research-grid{grid-template-columns:1fr}}
 .truth{border-color:#493f13;background:#15130b}
 .truth .body{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .truth-msg{color:var(--dim)}
@@ -694,6 +774,7 @@ input[type=range]{accent-color:var(--blue)}
 
 <nav id="tabnav" style="display:flex;gap:6px;align-items:center;padding:6px 12px;border-bottom:1px solid #2a2a3a">
   <button data-tab="live" class="tabbtn active">Live</button>
+  <button data-tab="research" class="tabbtn">Research</button>
   <button data-tab="tests" class="tabbtn">Tests</button>
   <button data-tab="tools" class="tabbtn">Tools</button>
   <span id="tab-note" style="margin-left:auto;color:#888;font-size:12px"></span>
@@ -890,6 +971,36 @@ input[type=range]{accent-color:var(--blue)}
     <div id="wh-body" class="kv">loading…</div>
   </div>
   <div id="tools-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px"></div>
+</section>
+
+<section id="tab-research" class="tabview" hidden style="padding:12px">
+  <div class="research-grid">
+    <section>
+      <h2>New Research Job <span class="sub">Markdown → W09 → report</span></h2>
+      <div class="body">
+        <div id="research-drop" class="research-drop" tabindex="0">
+          <b>Drop a Markdown research plan here</b><br>
+          <span class="muted">or click to choose a .md/.txt file · max 2 MiB</span>
+        </div>
+        <input id="research-file" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
+        <textarea id="research-plan" class="research-plan" placeholder="# Research title\n\nDescribe the hypothesis, required data, experiment, and desired report.\nOptional YAML frontmatter can select a registered method plugin."></textarea>
+        <div class="stack" style="margin-top:9px">
+          <button id="research-submit" class="tabbtn">Run research</button>
+          <span id="research-filename" class="muted">PLAN.md</span>
+          <span id="research-submit-status" class="muted"></span>
+        </div>
+        <div class="notice">Registered read-only methods auto-queue on W09. A method with an
+          explicit cost/execution gate pauses at <code>READY</code> for one approval. Unknown
+          methods stop at <code>NEEDS_METHOD</code>; plan text is never executed as Python or SQL.</div>
+      </div>
+    </section>
+    <section>
+      <h2>Research Jobs <span class="sub" id="research-count">loading…</span></h2>
+      <div class="body scroll tall" id="research-jobs">
+        <div class="muted">No research jobs yet.</div>
+      </div>
+    </section>
+  </div>
 </section>
 
 <script>
@@ -1313,6 +1424,7 @@ function showTab(name){
   document.querySelectorAll('.tabbtn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
   if(name==='tests') loadTests();
   if(name==='tools'){ loadTools(); loadWarehouse(); }
+  if(name==='research') loadResearchJobs();
 }
 async function loadWarehouse(){
   const el = document.getElementById('wh-body');
@@ -1560,6 +1672,82 @@ async function runOne(btn,name){
   btn.disabled=false;
 }
 
+// ---- Research Inbox ----
+let researchFilename = 'PLAN.md';
+function researchBadge(state){
+  const colors={COMPLETE:'green',RUNNING:'blue',READY:'blue',PREFLIGHT:'yellow',
+    QUEUED:'yellow',NEEDS_METHOD:'yellow',BLOCKED:'red',FAILED:'red',REFUSED:'red'};
+  return badge((state||'UNKNOWN').replaceAll('_',' '), colors[state]||'gray');
+}
+function renderResearchJobs(jobs){
+  $('research-count').textContent=(jobs||[]).length+' job'+((jobs||[]).length===1?'':'s');
+  if(!jobs || !jobs.length){
+    $('research-jobs').innerHTML='<div class="muted">No research jobs yet.</div>';
+    return;
+  }
+  $('research-jobs').innerHTML=jobs.map(j=>{
+    const s=j.status||{}, spec=j.spec||{}, req=j.request||{}, coord=j.coordination||{};
+    const report=j.report_available
+      ? '<a class="tabbtn" target="_blank" rel="noopener" href="/api/research/jobs/'+esc(j.job_id)+'/report">Open report</a>' : '';
+    const plugin=spec.plugin_id ? badge(spec.plugin_id,'blue') : badge('method needed','yellow');
+    return '<div class="research-job">'
+      +'<div class="meta"><b>'+esc(spec.title||req.source_filename||j.job_id)+'</b>'
+      +researchBadge(s.state)+plugin+report+'</div>'
+      +'<div class="why">'+esc(s.message||'')
+      +(coord.message ? '<br>'+esc(coord.message) : '')+'</div>'
+      +'<div class="muted" style="font-size:10px;margin-top:5px">'+esc(j.job_id)
+      +' · '+esc(req.data_access||'')+'</div></div>';
+  }).join('');
+}
+async function loadResearchJobs(){
+  try{
+    const data=await apiJson('/api/research/jobs');
+    renderResearchJobs(data.jobs||[]);
+  }catch(e){
+    $('research-jobs').innerHTML=errorBox('Research Inbox unavailable: '+e.message);
+    $('research-count').textContent='API error';
+  }
+}
+async function acceptResearchFile(file){
+  if(!file) return;
+  if(file.size>2*1024*1024){
+    $('research-submit-status').textContent='file exceeds 2 MiB'; return;
+  }
+  researchFilename=file.name||'PLAN.md';
+  $('research-filename').textContent=researchFilename;
+  $('research-plan').value=await file.text();
+  $('research-submit-status').textContent='plan loaded';
+}
+async function submitResearchPlan(){
+  const text=$('research-plan').value;
+  if(!text.trim()){$('research-submit-status').textContent='add a research plan first';return;}
+  $('research-submit').disabled=true;
+  $('research-submit-status').textContent='compiling and queueing…';
+  try{
+    const job=await postJson('/api/research/jobs',{
+      filename:researchFilename,plan_text:text,auto_run:true
+    });
+    $('research-submit-status').textContent='queued '+job.job_id;
+    $('research-plan').value=''; researchFilename='PLAN.md';
+    $('research-filename').textContent=researchFilename;
+    await loadResearchJobs();
+  }catch(e){ $('research-submit-status').textContent=e.message; }
+  finally{ $('research-submit').disabled=false; }
+}
+const researchDrop=$('research-drop'), researchFile=$('research-file');
+researchDrop.onclick=()=>researchFile.click();
+researchDrop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();researchFile.click();}};
+researchFile.onchange=()=>acceptResearchFile(researchFile.files[0]);
+for(const name of ['dragenter','dragover']) researchDrop.addEventListener(name,e=>{
+  e.preventDefault();researchDrop.classList.add('drag');
+});
+for(const name of ['dragleave','drop']) researchDrop.addEventListener(name,e=>{
+  e.preventDefault();researchDrop.classList.remove('drag');
+});
+researchDrop.addEventListener('drop',e=>acceptResearchFile(e.dataTransfer.files[0]));
+$('research-submit').onclick=submitResearchPlan;
+setInterval(()=>{if(!$('tab-research').hidden)loadResearchJobs();},5000);
+
 ['md-max-age','md-max-spread','md-min-size','md-row-limit','md-hot-only','md-find'].forEach(id=>{
   const el=$(id); if(el) el.addEventListener('input', ()=>{ dirty.market=1; });
 });
@@ -1623,15 +1811,31 @@ def main():
                     help="history lines sent on connect (default 1000)")
     ap.add_argument("--results", default="work/test_results.ndjson",
                     help="test-results NDJSON (default work/test_results.ndjson)")
+    ap.add_argument("--research-inbox", default="work/research_inbox",
+                    help="local Research Inbox spool (default work/research_inbox)")
+    ap.add_argument("--research-w09", action="store_true",
+                    help="automatically dispatch READY registered-method plans to fixed W09")
+    ap.add_argument("--research-ssh-key", default="~/.ssh/kalshi-key.pem",
+                    help="SSH key for the fixed W09 Research Inbox transport")
     ap.add_argument("--allow-network", action="store_true",
                     help="permit network_read tools to run from the console "
                          "(live_order is ALWAYS refused regardless)")
     args = ap.parse_args()
 
     metrics_path = os.path.abspath(args.metrics)
-    handler = make_handler(metrics_path, args.backfill, args.allow_network)
+    research_coordinator = None
+    if args.research_w09:
+        research_coordinator = ResearchW09Coordinator(
+            os.path.abspath(args.research_inbox),
+            ssh_key=os.path.expanduser(args.research_ssh_key),
+        )
+    handler = make_handler(
+        metrics_path, args.backfill, args.allow_network,
+        os.path.abspath(args.research_inbox), research_coordinator)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
     httpd.daemon_threads = True
+    if research_coordinator is not None:
+        research_coordinator.start()
 
     print("Kalshi PoC ops console")
     print("  metrics : %s%s" % (metrics_path,
@@ -1640,11 +1844,16 @@ def main():
     print("  bind    : %s (localhost only)" % args.host)
     print("  network : %s" % ("ALLOWED (network_read runnable)" if args.allow_network
                               else "blocked (network_read tools disabled)"))
-    print("Read-only console. Ctrl-C to stop; trading is unaffected.")
+    print("  research: %s" % os.path.abspath(args.research_inbox))
+    print("  W09 auto : %s" % ("enabled" if args.research_w09 else "disabled"))
+    print("Research intake writes only its local spool; trading is unaffected. Ctrl-C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped.")
+    finally:
+        if research_coordinator is not None:
+            research_coordinator.stop()
         httpd.server_close()
 
 

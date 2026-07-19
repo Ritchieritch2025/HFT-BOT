@@ -1,0 +1,3 @@
+25ad0b1abd439e4ccc733a9f779e897b8e35d281dc7f6ab7fbf9a8b25651b9e6  deploy/w09/research_cache_sync.py
+940c1ccc6bc4887bf409d6a8ccdec37410ad8f5c5dffff09f2a366a8f0c8d255  deploy/w09/w09-research-cache-sync.service
+9848730802bb59261f24d1df380d914a084b9d2a9d47e105f2582914bb8634ac  deploy/w09/w09-research-cache-sync.timer

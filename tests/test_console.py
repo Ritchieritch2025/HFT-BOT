@@ -9,6 +9,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import urllib.request
@@ -117,11 +118,13 @@ class TestDashboardServerPolicy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.port = _free_port()
+        cls.research_tmp = tempfile.TemporaryDirectory()
         # Start WITHOUT --allow-network so network_read is also refused.
         cls.proc = subprocess.Popen(
             [sys.executable, os.path.join(ROOT, "dashboard_server.py"),
              "--port", str(cls.port), "--host", "127.0.0.1",
-             "--results", os.path.join(ROOT, "work", "test_results.ndjson")],
+             "--results", os.path.join(ROOT, "work", "test_results.ndjson"),
+             "--research-inbox", cls.research_tmp.name],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=ROOT)
         base = "http://127.0.0.1:%d" % cls.port
         cls.base = base
@@ -139,6 +142,7 @@ class TestDashboardServerPolicy(unittest.TestCase):
             cls.proc.wait(timeout=3)
         except Exception:
             cls.proc.kill()
+        cls.research_tmp.cleanup()
 
     def test_live_order_post_returns_403(self):
         code, body = _req("POST", self.base + "/api/run", {"name": "fill_test"})
@@ -192,6 +196,33 @@ class TestDashboardServerPolicy(unittest.TestCase):
         self.assertIn("checks", body)
         self.assertIn("api_key_id_present", body.get("env", {}))
         self.assertNotIn(os.environ.get("KALSHI_API_KEY_ID", "unlikely-secret"), json.dumps(body))
+
+    def test_research_inbox_ui_is_drop_and_go_but_not_arbitrary_code(self):
+        code, html = _get_text(self.base + "/")
+        self.assertEqual(code, 200)
+        for marker in (
+            'data-tab="research"',
+            'id="research-drop"',
+            'id="research-plan"',
+            'id="research-submit"',
+            "/api/research/jobs",
+            "plan text is never executed as Python or SQL",
+        ):
+            self.assertIn(marker, html)
+
+    def test_research_plan_submit_persists_and_lists_unknown_method_safely(self):
+        plan = "# A new microstructure experiment\n\nCompare queue decay by spread.\n"
+        code, job = _req("POST", self.base + "/api/research/jobs", {
+            "filename": "idea.md", "plan_text": plan, "auto_run": True,
+        })
+        self.assertEqual(code, 201)
+        self.assertEqual(job["status"]["state"], "NEEDS_METHOD")
+        self.assertFalse(job["status"]["research_execution_started"])
+        self.assertFalse(job["request"]["arbitrary_plan_code_execution"])
+
+        code, body = _req("GET", self.base + "/api/research/jobs")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["jobs"][0]["job_id"], job["job_id"])
 
     def test_pure_tool_runs_and_passes(self):
         code, body = _req("POST", self.base + "/api/run", {"name": "test_fixedpoint"})
