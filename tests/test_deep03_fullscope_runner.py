@@ -160,8 +160,16 @@ def _l2_result(binding: str) -> dict:
         "availability": {
             "captured_dates": list(runner.L2_CAPTURE_DATES),
             "explicit_absent_dates": list(runner.L2_ABSENT_DATES),
+            "eligible_dates": list(runner.L2_CAPTURE_DATES),
+            "quality_excluded_dates": [],
         },
-        "row_conservation": {"state": "PASS", "observed_rows": 6, "expected_rows": 6},
+        "row_conservation": {
+            "state": "PASS",
+            "observed_rows": 6,
+            "expected_rows": 6,
+            "eligible_dates": list(runner.L2_CAPTURE_DATES),
+            "excluded_dates": [],
+        },
         "episode_rows": 1,
         "atlas_rows": 1,
         "matched_control_rows": 0,
@@ -397,6 +405,12 @@ def test_disk_gate_includes_conservative_l2_budget(tmp_path, monkeypatch):
         )
 
 
+@pytest.mark.parametrize("value", [False, 0, 257, 1.5])
+def test_l2_bucket_bound_is_checked_before_execution(value):
+    with pytest.raises(Deep03InputError, match="bucket count"):
+        runner._validate_l2_market_buckets(value)
+
+
 def test_old_b01_b04_authority_cannot_start_fullscope(tmp_path, monkeypatch):
     manifest = _manifest(tmp_path)
     run_dir = tmp_path / "run"
@@ -482,6 +496,24 @@ def test_audit_quality_hash_drift_refuses_before_compute(tmp_path, monkeypatch):
     assert not (run_dir / "RUN_COMPLETE.json").exists()
 
 
+def test_l2_validation_accepts_explicit_bad_date_exclusion_only():
+    binding = "b" * 64
+    result = _l2_result(binding)
+    excluded = "2026-07-13"
+    result["quality"][excluded]["state"] = "EXCLUDED_QUALITY_BLOCKED"
+    result["quality"][excluded]["blockers"] = ["SEQ_GAP_EVENTS_NONZERO"]
+    eligible = [date for date in runner.L2_CAPTURE_DATES if date != excluded]
+    result["availability"]["eligible_dates"] = eligible
+    result["availability"]["quality_excluded_dates"] = [excluded]
+    result["row_conservation"]["eligible_dates"] = eligible
+    result["row_conservation"]["excluded_dates"] = [excluded]
+    runner._validate_l2_result(result, binding)
+
+    result["quality"][excluded]["blockers"] = []
+    with pytest.raises(Deep03InputError, match="neither clean nor excluded"):
+        runner._validate_l2_result(result, binding)
+
+
 def test_fullscope_success_emits_coverage_l2_receipts_and_final_complete(
     tmp_path, monkeypatch
 ):
@@ -524,3 +556,22 @@ def test_atomic_graph_publish_never_overwrites(tmp_path):
         runner._atomic_publish_file(source, target)
     assert source.read_bytes() == b"first"
     assert target.read_bytes() == b"existing"
+
+
+def test_fullscope_modules_are_sha_pinned_packaged_and_not_auto_started():
+    manifest_path = ROOT / "deploy" / "w09" / "deep03_open_discovery_modules.sha256"
+    rows = {}
+    for line in manifest_path.read_text(encoding="ascii").splitlines():
+        digest, relative = line.split("  ", 1)
+        rows[relative] = digest
+    for name in runner.FULLSCOPE_SOURCE_MODULES:
+        relative = f"tools/research/{name}"
+        assert rows[relative] == hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+    push = (ROOT / "deploy" / "w09" / "push_and_install.sh").read_text()
+    install = (ROOT / "deploy" / "w09" / "install_on_host.sh").read_text()
+    service = (ROOT / "deploy" / "w09" / "exploratory_autoresearch.py").read_text()
+    for name in runner.FULLSCOPE_SOURCE_MODULES:
+        assert name in push
+        assert name in install
+    assert "/usr/local/bin/deep03-v3-fullscope-run" in install
+    assert "deep03_fullscope_runner.py" not in service

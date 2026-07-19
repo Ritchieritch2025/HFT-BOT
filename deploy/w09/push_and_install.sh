@@ -89,7 +89,8 @@ cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
 for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_prepare.py deep03_v3_methods.py \
-              deep03_v3_runner.py; do
+              deep03_v3_runner.py deep03_fullscope_graph.py \
+              deep03_v3_l2.py deep03_fullscope_runner.py; do
     cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
 done
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"

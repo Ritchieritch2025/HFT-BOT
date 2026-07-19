@@ -166,6 +166,12 @@ def _require_fullscope_authority(authority_context: Mapping[str, Any]) -> None:
         )
 
 
+def _validate_l2_market_buckets(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 256:
+        raise Deep03InputError("L2 market bucket count must be an integer in [1,256]")
+    return value
+
+
 def _require_base_without_rfq(input_manifest: Mapping[str, Any]) -> None:
     if input_manifest.get("rfq_policy") != "FORBIDDEN_AND_ABSENT":
         raise Deep03InputError("full-scope base/L2 runner requires RFQ-forbidden input")
@@ -237,8 +243,12 @@ def _validate_l2_independent_audit(
     try:
         receipt_raw = receipt_path.read_bytes()
         receipt = json.loads(receipt_raw)
+        report_raw = report_path.read_bytes()
     except (OSError, ValueError) as exc:
-        raise Deep03InputError(f"L2 independent audit receipt unreadable: {exc}") from exc
+        raise Deep03InputError(f"L2 independent audit artifact unreadable: {exc}") from exc
+    if not report_raw:
+        raise Deep03InputError("L2 independent audit report is empty")
+    report_sha256 = hashlib.sha256(report_raw).hexdigest()
     if not isinstance(receipt, dict) or set(receipt) != L2_AUDIT_FIELDS:
         raise Deep03InputError("L2 independent audit receipt field set is invalid")
     if receipt_raw != _canonical_json(receipt):
@@ -267,7 +277,7 @@ def _validate_l2_independent_audit(
         "blockers": [],
         "approved_claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
         "rfq_scope": "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED",
-        "audit_report_sha256": sha256_file(report_path),
+        "audit_report_sha256": report_sha256,
     }
     for field, value in fixed.items():
         if receipt.get(field) != value:
@@ -281,8 +291,8 @@ def _validate_l2_independent_audit(
         "receipt": receipt,
         "receipt_bytes": receipt_raw,
         "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
-        "report_bytes": report_path.read_bytes(),
-        "report_sha256": sha256_file(report_path),
+        "report_bytes": report_raw,
+        "report_sha256": report_sha256,
     }
 
 
@@ -419,8 +429,28 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
         raise Deep03InputError("L2 captured-date coverage mismatch")
     if availability.get("explicit_absent_dates") != list(L2_ABSENT_DATES):
         raise Deep03InputError("L2 absent-date coverage mismatch")
-    if (result.get("row_conservation") or {}).get("state") != "PASS":
-        raise Deep03InputError("L2 row conservation is not PASS")
+    eligible_dates = availability.get("eligible_dates")
+    excluded_dates = availability.get("quality_excluded_dates")
+    if not isinstance(eligible_dates, list) or not isinstance(excluded_dates, list):
+        raise Deep03InputError(
+            "L2 repaired receipt must declare eligible_dates and quality_excluded_dates"
+        )
+    if (
+        eligible_dates != sorted(set(eligible_dates))
+        or excluded_dates != sorted(set(excluded_dates))
+        or not eligible_dates
+        or set(eligible_dates) & set(excluded_dates)
+        or set(eligible_dates) | set(excluded_dates) != set(L2_CAPTURE_DATES)
+    ):
+        raise Deep03InputError("L2 eligible/excluded date partition is invalid")
+    conservation = result.get("row_conservation")
+    if (
+        not isinstance(conservation, dict)
+        or conservation.get("state") != "PASS"
+        or conservation.get("eligible_dates") != eligible_dates
+        or conservation.get("excluded_dates") != excluded_dates
+    ):
+        raise Deep03InputError("L2 eligible-date row conservation is not PASS")
     stages = result.get("stages")
     if not isinstance(stages, list) or {
         str(row.get("stage")) for row in stages if isinstance(row, dict)
@@ -429,8 +459,24 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
     quality = result.get("quality")
     if not isinstance(quality, dict) or set(quality) != set(L2_CAPTURE_DATES):
         raise Deep03InputError("L2 quality date set is incomplete")
-    if any(not isinstance(row, dict) or row.get("state") != "PASS" for row in quality.values()):
-        raise Deep03InputError("L2 sequence-quality gate is not PASS")
+    pass_dates = []
+    explicitly_excluded = []
+    for date, row in sorted(quality.items()):
+        if not isinstance(row, dict):
+            raise Deep03InputError(f"L2 quality row is invalid: {date}")
+        blockers = row.get("blockers")
+        if row.get("state") == "PASS" and blockers in (None, []):
+            pass_dates.append(date)
+        elif (
+            row.get("state") == "EXCLUDED_QUALITY_BLOCKED"
+            and isinstance(blockers, list)
+            and blockers
+        ):
+            explicitly_excluded.append(date)
+        else:
+            raise Deep03InputError(f"L2 quality row is neither clean nor excluded: {date}")
+    if pass_dates != eligible_dates or explicitly_excluded != excluded_dates:
+        raise Deep03InputError("L2 quality rows differ from eligible/excluded ledger")
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -528,6 +574,20 @@ def _l2_report_tables(
     )
     if [row.get("date") for row in availability] != list(L2_SCOPE_DATES):
         raise Deep03InputError("L2 availability table does not cover the exact scope")
+    eligible = set(l2_result["availability"]["eligible_dates"])
+    excluded = set(l2_result["availability"]["quality_excluded_dates"])
+    expected_states = {
+        date: (
+            "ABSENT_NOT_CAPTURED"
+            if date in L2_ABSENT_DATES
+            else "CAPTURED_SEQUENCE_RECEIPT_PASS"
+            if date in eligible
+            else "EXCLUDED_QUALITY_BLOCKED"
+        )
+        for date in L2_SCOPE_DATES
+    }
+    if any(row.get("state") != expected_states[row["date"]] for row in availability):
+        raise Deep03InputError("L2 durable availability states differ from quality ledger")
     atlas = rows_as_dicts(
         con,
         "SELECT record_kind,count(*)::BIGINT AS strata_rows,"
@@ -557,12 +617,18 @@ def _l2_report_tables(
         }
         for date, row in sorted(l2_result["quality"].items())
     ]
+    coverage_by_date = []
+    for row in graph_result.get("channel_by_date") or []:
+        projected = dict(row)
+        date = str(projected.get("date") or "")
+        projected["l2_analysis_state"] = expected_states.get(date, "OUTSIDE_SCOPE")
+        coverage_by_date.append(projected)
     return {
         "schema_version": "deep03-fullscope-l2-report-tables-v1",
         "state": "COMPLETE",
         "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
         "source_binding": store.source_binding,
-        "coverage_by_date": list(graph_result.get("channel_by_date") or []),
+        "coverage_by_date": coverage_by_date,
         "mapping_status": list(graph_result.get("mapping_status") or []),
         "availability": availability,
         "quality": quality_rows,
@@ -586,6 +652,8 @@ def _render_fullscope_report(
         "FULLSCOPE_L2_EXECUTION_RECEIPT.json"
     )
     coverage = l2_tables["coverage_by_date"]
+    eligible_dates = l2_result["availability"]["eligible_dates"]
+    excluded_dates = l2_result["availability"]["quality_excluded_dates"]
     graph_chart = _bar_chart(coverage, "date", "l2_rows")
     limitation_rows = [
         {"limitation": value} for value in l2_tables.get("limitations") or []
@@ -598,8 +666,9 @@ def _render_fullscope_report(
     <h3>Market graph mapping ledger</h3>{_table(l2_tables['mapping_status'], source)}</section>
     <section class="meta" id="FULLSCOPE-L2"><h2>L2 / SNBD sequence-valid analysis</h2>
     <p><span class="status tested">TESTED · DESCRIPTIVE ONLY</span></p>
-    <p>Captured dates: {html.escape(', '.join(L2_CAPTURE_DATES))}. Explicitly absent,
-    not zero-filled: {html.escape(', '.join(L2_ABSENT_DATES))}.</p>
+    <p>Sequence-quality eligible dates: {html.escape(', '.join(eligible_dates))}.
+    Quality-blocked and excluded from L2 estimands: {html.escape(', '.join(excluded_dates) or 'none')}.
+    Explicitly absent, not zero-filled: {html.escape(', '.join(L2_ABSENT_DATES))}.</p>
     <h3>Availability</h3>{_table(l2_tables['availability'], source)}
     <h3>Full-stream sequence-quality evidence</h3>{_table(l2_tables['quality'], source)}
     <h3>Topology / retreat / episode / refill-hazard atlas</h3>{_table(l2_tables['atlas_summary'], source)}
@@ -678,6 +747,7 @@ def run_fullscope_discovery(
     required_checkpoint_parent: Path = CANONICAL_CHECKPOINT_ROOT,
 ) -> Path:
     refuse_credential_environment()
+    _validate_l2_market_buckets(l2_market_buckets)
     initial_sources = fullscope_source_hashes()
     authority_context = load_authority_context(
         authority_path=authority_path,
