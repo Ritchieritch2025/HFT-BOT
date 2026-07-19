@@ -139,19 +139,34 @@ IMPACT_STATUSES = {
 }
 D07_PRODUCER_SCHEMA = "fresh-rfq-d07-producer-audit-v1"
 D07_PARTITION_RECEIPT_SCHEMA = "fresh-rfq-d07-partition-receipt-v1"
+# External trust root for the D07 evidence chain.  The runtime gate
+# validates a root-installed 0444 independent-audit PASS receipt/AUTHORITY
+# at startup and sources this anchor block from it; the module itself
+# never trusts a self-consistent caller object.  Every producer receipt,
+# L1/L2 reader attestation, and partition-receipt set digest must
+# hash-match an anchored entry or D07 is BLOCKED_UNANCHORED_EVIDENCE.
+D07_EXTERNAL_ANCHOR_SCHEMA = "fresh-rfq-d07-external-anchor-v1"
 L2_QUALITY_GATE_SCHEMA = "fresh-rfq-d07-l2-quality-gate-v2"
 L2_QUALITY_RECEIPT_SCHEMA_VERSION = "l2-gap-receipt-v1"
-# Canonical sealed L2 quality receipt: the exact field set that
-# tools/l2_gap_check.py scan_date() writes.  Missing, extra or mistyped
+# Canonical sealed L2 quality receipt: the exact field set the production
+# writer tools/l2_gap_check.py main() emits and sealing copies verbatim --
+# the scan_date() record PLUS the unconditional generated_at_utc stamp
+# (l2_gap_check.py main(), before write_record).  Verified against the six
+# real sealed receipts for 2026-07-12..17.  Missing, extra or mistyped
 # fields are typed fail-closed errors -- an omitted loss counter is never
 # read as zero.
 L2_QUALITY_RECEIPT_FIELDS = {
-    "schema_version", "date", "raw_root", "files", "file_inventory",
-    "no_l2_files", "lines", "parse_errors", "sids_total",
+    "schema_version", "date", "generated_at_utc", "raw_root", "files",
+    "file_inventory", "no_l2_files", "lines", "parse_errors", "sids_total",
     "sids_with_seq_gaps", "seq_gap_events", "seq_missed_total",
     "seq_regressions", "stream_restarts", "recorder_markers",
     "markers_lost_frames", "snapshot_re_anchors_total", "per_market",
 }
+# The writer stamp is exactly strftime("%Y-%m-%dT%H:%M:%SZ"): no
+# fractional seconds, no numeric offset.
+L2_QUALITY_GENERATED_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+)
 L2_QUALITY_COUNTER_FIELDS = (
     "lines", "parse_errors", "sids_total", "sids_with_seq_gaps",
     "seq_gap_events", "seq_missed_total", "seq_regressions",
@@ -648,6 +663,19 @@ def build_l2_quality_gate(
         )
     if receipt["date"] != date_text:
         _fail("D07_L2_QUALITY_DATE", "quality receipt date differs")
+    generated = receipt["generated_at_utc"]
+    if (
+        not isinstance(generated, str)
+        or L2_QUALITY_GENERATED_RE.fullmatch(generated) is None
+    ):
+        _fail(
+            "D07_L2_QUALITY_SCHEMA",
+            "generated_at_utc must be exact %Y-%m-%dT%H:%M:%SZ UTC text",
+        )
+    try:
+        dt.datetime.fromisoformat(generated[:-1] + "+00:00")
+    except ValueError as exc:
+        _fail("D07_L2_QUALITY_SCHEMA", f"generated_at_utc: {exc}")
     if not isinstance(receipt["raw_root"], str) or not receipt["raw_root"]:
         _fail("D07_L2_QUALITY_SCHEMA", "raw_root must be non-empty text")
     files = receipt["files"]
@@ -2300,13 +2328,60 @@ def _validate_d07_producer_receipt(value: Any) -> dict[str, Any]:
     return copy.deepcopy(receipt)
 
 
+def _validate_d07_external_anchor(value: Any) -> dict[str, Any]:
+    """Validate the independent-audit external anchor for D07 evidence.
+
+    The anchor is sourced from the independent-audit PASS receipt/AUTHORITY
+    that the runtime gate validates at startup (root-installed 0444 at
+    deploy).  It enumerates the exact SHA-256 digests of the audited
+    producer receipt(s), the exact-reader attestation(s) produced by real
+    reads, and the partition-receipt set digest(s) those reads produced.
+    Anything not enumerated is unanchored evidence and blocks D07.
+    """
+    anchor = _exact_keys(
+        value,
+        {
+            "schema", "state", "audit_authority",
+            "producer_receipt_sha256s", "reader_attestation_sha256s",
+            "partition_receipt_set_sha256s", "anchor_sha256",
+        },
+        "D07 external anchor",
+    )
+    if anchor["schema"] != D07_EXTERNAL_ANCHOR_SCHEMA:
+        _fail("D07_ANCHOR_INVALID", "external anchor schema differs")
+    if anchor["state"] != "INDEPENDENT_AUDIT_PASS":
+        _fail(
+            "D07_ANCHOR_INVALID",
+            "external anchor state must be INDEPENDENT_AUDIT_PASS",
+        )
+    authority = anchor["audit_authority"]
+    if not isinstance(authority, str) or not authority.strip():
+        _fail(
+            "D07_ANCHOR_INVALID",
+            "external anchor must name its audit receipt/AUTHORITY source",
+        )
+    for field in (
+        "producer_receipt_sha256s", "reader_attestation_sha256s",
+        "partition_receipt_set_sha256s",
+    ):
+        entries = anchor[field]
+        if not isinstance(entries, list):
+            _fail("D07_ANCHOR_INVALID", f"{field} must be a list")
+        for index, entry in enumerate(entries):
+            _sha(entry, f"external anchor {field}[{index}]")
+        if len(set(entries)) != len(entries):
+            _fail("D07_ANCHOR_INVALID", f"{field} entries are duplicated")
+    _verify_self_digest(anchor, "anchor_sha256", "D07 external anchor")
+    return copy.deepcopy(anchor)
+
+
 def _validate_partition_receipts(
     value: Any,
     expected_sources: Mapping[str, dict[str, Any]],
     *,
     analysis_date: str,
     observation_count: int,
-) -> list[dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Validate the D07 producer's per-family partition/checkpoint receipts."""
     if not isinstance(value, list) or len(value) != len(
         IMPACT_SOURCE_FAMILIES
@@ -2316,13 +2391,14 @@ def _validate_partition_receipts(
             "exactly one partition receipt per source family is required",
         )
     seen: list[str] = []
-    validated: list[dict[str, Any]] = []
+    validated: dict[str, dict[str, Any]] = {}
     for index, raw in enumerate(value):
         receipt = _exact_keys(
             raw,
             {
                 "schema", "analysis_date", "family", "source_object_count",
-                "source_row_count", "component_row_count", "content_sha256",
+                "source_row_count", "component_row_count",
+                "evidence_row_set_sha256", "content_sha256",
                 "receipt_sha256",
             },
             f"partition receipt {index}",
@@ -2346,6 +2422,10 @@ def _validate_partition_receipts(
             )
         seen.append(family)
         _sha(receipt["content_sha256"], f"partition receipt {index} content")
+        _sha(
+            receipt["evidence_row_set_sha256"],
+            f"partition receipt {index} evidence row set",
+        )
         _verify_self_digest(
             receipt, "receipt_sha256", f"partition receipt {index}",
         )
@@ -2359,7 +2439,7 @@ def _validate_partition_receipts(
                 f"partition receipt {index} counts differ from the exact "
                 "attested source",
             )
-        validated.append(receipt)
+        validated[family] = receipt
     if seen != sorted(IMPACT_SOURCE_FAMILIES) and seen != list(
         IMPACT_SOURCE_FAMILIES
     ):
@@ -2376,8 +2456,15 @@ def _recompute_book_side(
     side: str,
     key: tuple[str, int],
     allowed_logical: Mapping[str, set[str]],
-) -> tuple[int, int, int, int]:
-    """Recompute (ts_us, mid_e6, spread_e6, depth_e2) from raw book evidence."""
+) -> tuple[int, int, int, int, str, str]:
+    """Recompute (ts_us, mid_e6, spread_e6, depth_e2, family, row_sha256).
+
+    ``source_row_sha256`` is binding, not decorative: it must equal the
+    SHA-256 of the row's own canonical bytes, so any tamper of the clock,
+    prices, depths, family, or source object changes the hash; the per-
+    family evidence row-set digest is then bound into the (externally
+    anchored) partition receipt.
+    """
     book = _exact_keys(
         row[f"{side}_book"], IMPACT_BOOK_FIELDS, f"{key}.{side}_book",
     )
@@ -2399,7 +2486,18 @@ def _recompute_book_side(
             f"{key}.{side}_book source object is outside the exact attested "
             f"{family} set",
         )
-    _sha(book["source_row_sha256"], f"{key}.{side}_book.source_row_sha256")
+    row_sha = _sha(
+        book["source_row_sha256"], f"{key}.{side}_book.source_row_sha256",
+    )
+    content = {
+        field: book[field]
+        for field in sorted(IMPACT_BOOK_FIELDS - {"source_row_sha256"})
+    }
+    if row_sha != canonical_sha256(content):
+        _fail(
+            "IMPACT_ADAPTER_BOOK",
+            f"{key}.{side}_book hash does not bind the row's canonical bytes",
+        )
     bid, ask = book["bid_e6"], book["ask_e6"]
     if not 0 <= bid <= ask <= 1_000_000:
         _fail(
@@ -2418,6 +2516,8 @@ def _recompute_book_side(
         (bid + ask) // 2,
         ask - bid,
         book["bid_depth_e2"] + book["ask_depth_e2"],
+        family,
+        row_sha,
     )
 
 
@@ -2498,12 +2598,15 @@ def _validate_impact_adapter(
         label="D07 L1/L2 source reader attestation",
         code="IMPACT_ADAPTER_SOURCE_ATTESTATION",
     )
-    _validate_partition_receipts(
+    partition_by_family = _validate_partition_receipts(
         value["partition_receipts"], expected_sources,
         analysis_date=descriptor["date"],
         observation_count=value["observation_count"]
         if type(value["observation_count"]) is int else -1,
     )
+    evidence_hashes: dict[str, set[str]] = {
+        family: set() for family in IMPACT_SOURCE_FAMILIES
+    }
     if value["partition_receipt_set_sha256"] != canonical_sha256(
         value["partition_receipts"]
     ):
@@ -2658,9 +2761,12 @@ def _validate_impact_adapter(
             # and depth are never trusted -- they must equal the values this
             # module recomputes from the raw attested book evidence rows.
             for side in ("pre", "post"):
-                ts_us, mid_e6, spread_e6, depth_e2 = _recompute_book_side(
+                (
+                    ts_us, mid_e6, spread_e6, depth_e2, book_family, row_sha,
+                ) = _recompute_book_side(
                     row, side, key, allowed_logical,
                 )
+                evidence_hashes[book_family].add(row_sha)
                 if ts_us != row[f"{side}_observation_ts_us"]:
                     _fail(
                         "IMPACT_ADAPTER_RECOMPUTE",
@@ -2694,6 +2800,14 @@ def _validate_impact_adapter(
         observed[key] = copy.deepcopy(row)
     if set(observed) != set(expected):
         _fail("IMPACT_ADAPTER_COVERAGE", "adapter does not enumerate exact mapping set")
+    for family, receipt in partition_by_family.items():
+        digest = canonical_sha256(sorted(evidence_hashes[family]))
+        if receipt["evidence_row_set_sha256"] != digest:
+            _fail(
+                "IMPACT_ADAPTER_PARTITION",
+                f"{family} evidence row set digest differs from the "
+                "partition receipt",
+            )
     return copy.deepcopy(value)
 
 
@@ -2706,6 +2820,7 @@ def _d07_result(
     l2_quality_gates: Mapping[str, dict[str, Any]] | None,
     rfq_events: Mapping[str, dict[str, Any]],
     producer_receipt: dict[str, Any] | None,
+    external_anchor: dict[str, Any] | None,
 ) -> dict[str, Any]:
     contract = {
         "schema": IMPACT_SCHEMA,
@@ -2721,6 +2836,8 @@ def _d07_result(
         "audited_producer_receipt_required": True,
         "source_reader_attestation_required": True,
         "partition_receipts_required": True,
+        "external_audit_anchor_required": True,
+        "book_evidence_hash_self_binding_required": True,
         "pre_post_values_recomputed_from_book_evidence": True,
         "clock_tolerance_authority": RFQ_CLOCK_TOLERANCE_AUTHORITY,
         "pre_event_state_must_be_past_or_event": True,
@@ -2780,6 +2897,67 @@ def _d07_result(
                 f"{date_text} quality gate is not bound to the same exact "
                 "base release",
             )
+    if external_anchor is None:
+        return {
+            "id": "D07", "status": "BLOCKED_UNANCHORED_EVIDENCE",
+            "contract": contract,
+            "detail": (
+                "no independent-audit external anchor supplied; "
+                "self-consistent producer/attestation/partition objects "
+                "are not proof"
+            ),
+            "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
+    anchored_producers = set(external_anchor["producer_receipt_sha256s"])
+    anchored_attestations = set(
+        external_anchor["reader_attestation_sha256s"]
+    )
+    anchored_partitions = set(
+        external_anchor["partition_receipt_set_sha256s"]
+    )
+    unanchored: list[str] = []
+    if producer_receipt["receipt_sha256"] not in anchored_producers:
+        unanchored.append(
+            f"producer_receipt:{producer_receipt['receipt_sha256']}"
+        )
+    for date_text in sorted(expected_dates):
+        adapter = impact_adapters[date_text]
+        attestation = (
+            adapter.get("source_reader_attestation")
+            if isinstance(adapter, Mapping) else None
+        )
+        attestation_sha = (
+            attestation.get("attestation_sha256")
+            if isinstance(attestation, Mapping) else None
+        )
+        partition_sha = (
+            adapter.get("partition_receipt_set_sha256")
+            if isinstance(adapter, Mapping) else None
+        )
+        if not (
+            isinstance(attestation_sha, str)
+            and attestation_sha in anchored_attestations
+        ):
+            unanchored.append(
+                f"{date_text}:source_reader_attestation:{attestation_sha}"
+            )
+        if not (
+            isinstance(partition_sha, str)
+            and partition_sha in anchored_partitions
+        ):
+            unanchored.append(
+                f"{date_text}:partition_receipt_set:{partition_sha}"
+            )
+    if unanchored:
+        return {
+            "id": "D07", "status": "BLOCKED_UNANCHORED_EVIDENCE",
+            "contract": contract,
+            "external_anchor_sha256": external_anchor["anchor_sha256"],
+            "unanchored_evidence": unanchored,
+            "observed_components": 0,
+            "claim": "NO_RFQ_TO_CLOB_IMPACT_RESULT",
+        }
     refused_quality = {
         date: gate.get("blockers")
         for date, gate in l2_quality_gates.items()
@@ -2850,6 +3028,8 @@ def _d07_result(
         "contract": contract,
         "adapter_set_sha256": canonical_sha256(adapter_shas),
         "producer_receipt_sha256": producer_receipt["receipt_sha256"],
+        "external_anchor_sha256": external_anchor["anchor_sha256"],
+        "external_anchor_authority": external_anchor["audit_authority"],
         "exact_base_binding_sha256s": [
             exact_bases[date]["binding_sha256"] for date in sorted(expected_dates)
         ],
@@ -2903,6 +3083,7 @@ def _build_report(
     l2_quality_gates: Mapping[str, dict[str, Any]] | None,
     resource_preflight: dict[str, Any],
     producer_receipt: dict[str, Any] | None,
+    external_anchor: dict[str, Any] | None,
 ) -> dict[str, Any]:
     lifecycle_paths = [
         _checkpoint_path(store, LIFECYCLE_STAGE, f"h{bucket:02d}")
@@ -3298,6 +3479,7 @@ def _build_report(
             l2_quality_gates=l2_quality_gates,
             rfq_events=rfq_events,
             producer_receipt=producer_receipt,
+            external_anchor=external_anchor,
         ),
         "d08_profitability": {
             "id": "D08",
@@ -3365,6 +3547,7 @@ def run_bounded_fresh_rfq(
     base_manifest_bytes_by_date: Mapping[str, bytes] | None = None,
     l2_quality_receipts_by_date: Mapping[str, dict[str, Any]] | None = None,
     d07_producer_receipt: dict[str, Any] | None = None,
+    d07_external_anchor: dict[str, Any] | None = None,
     report_path: str | os.PathLike[str] | None = None,
     expected_eligible_dates: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -3422,6 +3605,9 @@ def run_bounded_fresh_rfq(
     producer_receipt: dict[str, Any] | None = None
     if d07_producer_receipt is not None:
         producer_receipt = _validate_d07_producer_receipt(d07_producer_receipt)
+    external_anchor: dict[str, Any] | None = None
+    if d07_external_anchor is not None:
+        external_anchor = _validate_d07_external_anchor(d07_external_anchor)
 
     date_set = set(observed_date_texts)
     exact_bases: dict[str, dict[str, Any]] | None = None
@@ -3542,7 +3728,7 @@ def run_bounded_fresh_rfq(
             report = _build_report(
                 con, store, descriptors, metas, lifecycle_totals,
                 hash_buckets, impact_adapters, exact_bases, l2_quality_gates,
-                resource_preflight, producer_receipt,
+                resource_preflight, producer_receipt, external_anchor,
             )
         if report_path is not None:
             _write_report(Path(report_path), report)
