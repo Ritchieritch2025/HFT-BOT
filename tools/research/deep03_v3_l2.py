@@ -436,7 +436,19 @@ class L2ReplayEngine:
         ):
             base["classification"] = "REJECTED_MISSING_REPLAY_KEY"
             self.qc["rejected_missing_replay_key"] += 1
-            return _row_with_state(base, {}), []
+            completed: list[dict[str, Any]] = []
+            book = self.books.get(market) if market else None
+            if book is not None:
+                book.invalidate()
+                boundary = (
+                    int(recv_wall_ns)
+                    if recv_wall_ns is not None
+                    else self.last_clock.get(market, 0)
+                )
+                completed.extend(self._close_market_episodes(
+                    market, boundary, "right_censored_missing_replay_key"
+                ))
+            return _row_with_state(base, book.state() if book else {}), completed
         clock_ns = int(recv_wall_ns)
         completed = self._expire(market, clock_ns)
         self.last_clock[market] = max(clock_ns, self.last_clock.get(market, clock_ns))
