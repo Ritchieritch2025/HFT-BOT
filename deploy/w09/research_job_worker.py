@@ -19,7 +19,8 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import sys
@@ -48,9 +49,29 @@ from research.plugin_api import (  # noqa: E402
 DEFAULT_INBOX_ROOT = Path("/srv/w09-research/inbox")
 DEFAULT_CACHE_ROOT = Path("/srv/w09-research/cache")
 PLANNING_SCHEMA = "research-job-planning-receipt-v1"
+OUTPUT_SCHEMA = "research-job-output-receipt-v1"
+RESULTS_SCHEMA = "research-results-v1"
+REPORT_RECEIPT_SCHEMA = "research-report-receipt-v1"
 MAX_PLAN_BYTES = 2 * 1024 * 1024
 MAX_CONTROL_BYTES = 8 * 1024 * 1024
+MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_OUTPUT_FILE_BYTES = 32 * 1024 * 1024
+MAX_OUTPUT_FILES = 256
+MAX_REPORT_DEPTH = 8
 TERMINAL_PLANNING_STATES = {"READY", "BLOCKED", "REFUSED"}
+REPORT_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+_PRIVATE_KEY_RE = re.compile(
+    rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
+)
+_AWS_ACCESS_KEY_RE = re.compile(rb"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
+_BEARER_RE = re.compile(rb"(?i)\bauthorization\s*[:=]\s*bearer\s+[A-Za-z0-9._~+/-]{12,}")
+_SECRET_ASSIGNMENT_RE = re.compile(
+    rb"(?i)(?:aws_secret_access_key|aws_session_token|secret_access_key|"
+    rb"api[_-]?key|access[_-]?token|session[_-]?token|password|passwd)"
+    rb"[\"']?\s*[:=]\s*[\"']?([A-Za-z0-9/+_.~=-]{16,})"
+)
+_OPENAI_KEY_RE = re.compile(rb"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")
 
 
 class ResearchJobWorkerError(RuntimeError):
@@ -136,6 +157,227 @@ def _inbox_spec_bytes(value: Any) -> bytes:
 
 def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def _credential_like(payload: bytes) -> bool:
+    return any(
+        pattern.search(payload)
+        for pattern in (
+            _PRIVATE_KEY_RE,
+            _AWS_ACCESS_KEY_RE,
+            _BEARER_RE,
+            _SECRET_ASSIGNMENT_RE,
+            _OPENAI_KEY_RE,
+        )
+    )
+
+
+def _safe_report_path(report_root: Path, path: Path) -> PurePosixPath:
+    if path.is_symlink() or not path.is_file():
+        raise ResearchJobWorkerError("REPORT contains a link or special file")
+    relative = path.relative_to(report_root)
+    if (
+        not relative.parts
+        or len(relative.parts) + 1 > MAX_REPORT_DEPTH
+        or any(REPORT_COMPONENT_RE.fullmatch(part) is None for part in relative.parts)
+    ):
+        raise ResearchJobWorkerError("REPORT contains an unsafe path")
+    return PurePosixPath("REPORT", *relative.parts)
+
+
+def _collect_output_artifacts(
+    output_root: Path, job_id: str, *, published: bool
+) -> dict[PurePosixPath, bytes]:
+    """Read one bounded result/report tree without following links."""
+    output_root = Path(output_root)
+    if output_root.is_symlink() or not output_root.is_dir():
+        raise ResearchJobWorkerError("output source is missing or unsafe")
+    entries = list(output_root.iterdir())
+    expected = {"RESULTS.json", "REPORT"}
+    if published:
+        expected.add("OUTPUT_RECEIPT.json")
+    if {path.name for path in entries} != expected:
+        raise ResearchJobWorkerError(
+            "output source must contain only RESULTS.json and REPORT"
+            + (" plus OUTPUT_RECEIPT.json" if published else "")
+        )
+
+    results_raw = _read_regular(
+        output_root / "RESULTS.json",
+        label="RESULTS.json",
+        max_bytes=MAX_OUTPUT_FILE_BYTES,
+    )
+    results = _json(results_raw, "RESULTS.json")
+    if results.get("schema_version") != RESULTS_SCHEMA or results.get("job_id") != job_id:
+        raise ResearchJobWorkerError("RESULTS.json does not bind this job")
+
+    report_root = output_root / "REPORT"
+    if report_root.is_symlink() or not report_root.is_dir():
+        raise ResearchJobWorkerError("REPORT is missing or unsafe")
+    artifacts: dict[PurePosixPath, bytes] = {
+        PurePosixPath("RESULTS.json"): results_raw,
+    }
+    for path in sorted(report_root.rglob("*")):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        relative = _safe_report_path(report_root, path)
+        artifacts[relative] = _read_regular(
+            path, label=str(relative), max_bytes=MAX_OUTPUT_FILE_BYTES
+        )
+    index_path = PurePosixPath("REPORT/index.html")
+    report_receipt_path = PurePosixPath("REPORT/REPORT_RECEIPT.json")
+    if index_path not in artifacts or report_receipt_path not in artifacts:
+        raise ResearchJobWorkerError("output source lacks its report contract")
+    # STATUS.json and OUTPUT_RECEIPT.json consume the other two export slots.
+    if len(artifacts) + 2 > MAX_OUTPUT_FILES:
+        raise ResearchJobWorkerError("output source contains too many files")
+    if sum(len(payload) for payload in artifacts.values()) > MAX_OUTPUT_BYTES:
+        raise ResearchJobWorkerError("output source exceeds 64 MiB")
+    for path, payload in artifacts.items():
+        if path.suffix.lower() in {".json", ".html", ".css", ".csv", ".txt", ".md", ".svg"}:
+            if _credential_like(payload):
+                raise ResearchJobWorkerError("output source contains credential-like content")
+
+    report_receipt = _json(artifacts[report_receipt_path], "REPORT_RECEIPT.json")
+    if (
+        report_receipt.get("schema_version") != REPORT_RECEIPT_SCHEMA
+        or report_receipt.get("job_id") != job_id
+        or report_receipt.get("results_sha256") != _sha(results_raw)
+        or report_receipt.get("report_sha256") != _sha(artifacts[index_path])
+    ):
+        raise ResearchJobWorkerError("report receipt does not bind results/report bytes")
+    return artifacts
+
+
+def _output_receipt(
+    job_id: str, artifacts: dict[PurePosixPath, bytes]
+) -> dict[str, Any]:
+    rows = [
+        {"path": str(path), "bytes": len(payload), "sha256": _sha(payload)}
+        for path, payload in sorted(artifacts.items(), key=lambda item: str(item[0]))
+    ]
+    receipt: dict[str, Any] = {
+        "schema_version": OUTPUT_SCHEMA,
+        "job_id": job_id,
+        "output_directory": "OUTPUT",
+        "artifact_count": len(rows),
+        "artifact_bytes": sum(row["bytes"] for row in rows),
+        "artifacts": rows,
+        "data_files_exported": 0,
+        "source_contract": "DEDICATED_JOB_OUTPUT_ONLY",
+    }
+    receipt["output_sha256"] = _sha(_artifact_bytes(receipt))
+    return receipt
+
+
+def _validate_published_output(job_dir: Path, job_id: str) -> dict[str, Any]:
+    output = job_dir / "OUTPUT"
+    artifacts = _collect_output_artifacts(output, job_id, published=True)
+    raw = _read_regular(
+        output / "OUTPUT_RECEIPT.json",
+        label="OUTPUT_RECEIPT.json",
+        max_bytes=MAX_CONTROL_BYTES,
+    )
+    receipt = _json(raw, "OUTPUT_RECEIPT.json")
+    expected = _output_receipt(job_id, artifacts)
+    if receipt != expected or raw != _artifact_bytes(receipt):
+        raise ResearchJobWorkerError("published output receipt or artifact hashes differ")
+    return receipt
+
+
+def publish_job_output(
+    *, inbox_root: Path = DEFAULT_INBOX_ROOT, job_id: str, source_root: Path
+) -> dict[str, Any]:
+    """Atomically publish already-authorized results under this job's ``OUTPUT``.
+
+    This is intentionally not exposed by the planning-worker CLI.  A separate
+    authority/arm-bound research runner must first advance the job to RUNNING
+    and produce the generic result/report source.  This helper only validates,
+    bounds and seals those output bytes; it cannot start research.
+    """
+    inputs = _job_inputs(Path(inbox_root), job_id)
+    with _job_lock(inputs["job_dir"]):
+        inputs = _job_inputs(Path(inbox_root), job_id)
+        status = inputs["job"]["status"]
+        if (
+            status.get("state") != "RUNNING"
+            or status.get("research_execution_started") is not True
+        ):
+            raise ResearchJobWorkerError(
+                "output publication requires an authority-started RUNNING job"
+            )
+        artifacts = _collect_output_artifacts(Path(source_root), job_id, published=False)
+        receipt = _output_receipt(job_id, artifacts)
+        final = inputs["job_dir"] / "OUTPUT"
+        if final.exists() or final.is_symlink():
+            existing = _validate_published_output(inputs["job_dir"], job_id)
+            if existing.get("output_sha256") != receipt["output_sha256"]:
+                raise ResearchJobWorkerError("published output conflicts with retry bytes")
+            return {
+                "schema_version": OUTPUT_SCHEMA,
+                "state": "OUTPUT_PUBLISHED",
+                "job_id": job_id,
+                "output_sha256": receipt["output_sha256"],
+                "output_receipt_sha256": _sha(_artifact_bytes(existing)),
+                "artifact_count": existing["artifact_count"],
+                "artifact_bytes": existing["artifact_bytes"],
+                "research_started_by_publisher": False,
+                "idempotent_replay": True,
+            }
+
+        stage = inputs["job_dir"] / (
+            ".OUTPUT.preparing.%d.%d" % (os.getpid(), threading.get_ident())
+        )
+        try:
+            stage.mkdir(mode=0o750)
+            for relative, payload in sorted(
+                artifacts.items(), key=lambda item: str(item[0])
+            ):
+                destination = stage.joinpath(*relative.parts)
+                destination.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
+                _write_file(destination, payload)
+            receipt_raw = _artifact_bytes(receipt)
+            _write_file(stage / "OUTPUT_RECEIPT.json", receipt_raw)
+            directories = sorted(
+                (path for path in stage.rglob("*") if path.is_dir()),
+                key=lambda path: len(path.parts),
+                reverse=True,
+            )
+            for directory in directories:
+                fd = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                directory.chmod(0o550)
+            stage_fd = os.open(stage, os.O_RDONLY)
+            try:
+                os.fsync(stage_fd)
+            finally:
+                os.close(stage_fd)
+            os.rename(stage, final)
+            final.chmod(0o550)
+            parent_fd = os.open(inputs["job_dir"], os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+        except Exception:
+            if stage.exists() and not stage.is_symlink():
+                shutil.rmtree(stage)
+            raise
+        validated = _validate_published_output(inputs["job_dir"], job_id)
+        return {
+            "schema_version": OUTPUT_SCHEMA,
+            "state": "OUTPUT_PUBLISHED",
+            "job_id": job_id,
+            "output_sha256": validated["output_sha256"],
+            "output_receipt_sha256": _sha(_artifact_bytes(validated)),
+            "artifact_count": validated["artifact_count"],
+            "artifact_bytes": validated["artifact_bytes"],
+            "research_started_by_publisher": False,
+            "idempotent_replay": False,
+        }
 
 
 def _job_inputs(inbox_root: Path, job_id: str) -> dict[str, Any]:

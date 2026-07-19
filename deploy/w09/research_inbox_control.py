@@ -49,8 +49,11 @@ SCHEMA_BUNDLE = "research-w09-control-bundle-v1"
 SCHEMA_STATE = "research-w09-remote-control-state-v1"
 SCHEMA_ARM = "research-w09-explicit-start-arm-v1"
 DATA_PLANE = "W09_INSTANCE_PROFILE_EXACT_VERSION_READONLY"
-EXPORT_FORMAT = "research-w09-output-tar-v1"
-ARTIFACT_SET = "STATUS_RESULTS_REPORT"
+EXPORT_FORMAT = "research-w09-output-tar-v2"
+ARTIFACT_SET = "STATUS_RESULTS_REPORT_RECEIPT"
+OUTPUT_SCHEMA = "research-job-output-receipt-v1"
+RESULTS_SCHEMA = "research-results-v1"
+REPORT_RECEIPT_SCHEMA = "research-report-receipt-v1"
 INBOX_ROOT = Path("/srv/w09-research/inbox")
 RUN_ARM_ROOT = Path("/run/w09-research-inbox")
 WORKER_UNIT_TEMPLATE = "w09-research-inbox-worker@.service"
@@ -850,30 +853,119 @@ def _safe_report_file(report_root: Path, path: Path) -> PurePosixPath:
     return PurePosixPath("REPORT", *relative.parts)
 
 
+def _expected_output_receipt(
+    job_id: str, artifacts: Mapping[PurePosixPath, bytes]
+) -> dict[str, Any]:
+    rows = [
+        {"path": str(path), "bytes": len(payload), "sha256": _sha(payload)}
+        for path, payload in sorted(artifacts.items(), key=lambda item: str(item[0]))
+    ]
+    value: dict[str, Any] = {
+        "schema_version": OUTPUT_SCHEMA,
+        "job_id": job_id,
+        "output_directory": "OUTPUT",
+        "artifact_count": len(rows),
+        "artifact_bytes": sum(row["bytes"] for row in rows),
+        "artifacts": rows,
+        "data_files_exported": 0,
+        "source_contract": "DEDICATED_JOB_OUTPUT_ONLY",
+    }
+    value["output_sha256"] = _sha(_canonical(value))
+    return value
+
+
+def _dedicated_output_snapshot(
+    job_dir: Path, job_id: str
+) -> dict[PurePosixPath, bytes]:
+    """Validate and snapshot only ``<job>/OUTPUT`` result artifacts."""
+    output = job_dir / "OUTPUT"
+    if output.is_symlink() or not output.is_dir():
+        raise ResearchInboxControlError("completed job OUTPUT is missing or unsafe")
+    entries = list(output.iterdir())
+    if {path.name for path in entries} != {
+        "RESULTS.json",
+        "REPORT",
+        "OUTPUT_RECEIPT.json",
+    }:
+        raise ResearchInboxControlError("completed job OUTPUT has unexpected entries")
+    receipt_first = _read_regular(
+        output / "OUTPUT_RECEIPT.json",
+        label="OUTPUT/OUTPUT_RECEIPT.json",
+        limit=CONTROL_LIMITS["STATUS.json"],
+    )
+    results = _read_regular(
+        output / "RESULTS.json",
+        label="OUTPUT/RESULTS.json",
+        limit=MAX_EXPORT_FILE_BYTES,
+    )
+    report = output / "REPORT"
+    if report.is_symlink() or not report.is_dir():
+        raise ResearchInboxControlError("completed job OUTPUT/REPORT is missing or unsafe")
+    artifacts: dict[PurePosixPath, bytes] = {
+        PurePosixPath("RESULTS.json"): results,
+    }
+    for path in sorted(report.rglob("*")):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        relative = _safe_report_file(report, path)
+        artifacts[relative] = _read_regular(
+            path, label="OUTPUT/%s" % relative, limit=MAX_EXPORT_FILE_BYTES
+        )
+    index_path = PurePosixPath("REPORT/index.html")
+    report_receipt_path = PurePosixPath("REPORT/REPORT_RECEIPT.json")
+    if index_path not in artifacts or report_receipt_path not in artifacts:
+        raise ResearchInboxControlError("completed job lacks its report contract")
+    # STATUS.json and OUTPUT_RECEIPT.json consume the other two export slots.
+    if len(artifacts) + 2 > MAX_EXPORT_FILES:
+        raise ResearchInboxControlError("output snapshot contains too many artifacts")
+    if sum(len(value) for value in artifacts.values()) > MAX_EXPORT_BYTES:
+        raise ResearchInboxControlError("output snapshot exceeds 64 MiB")
+    for path, payload in artifacts.items():
+        if path.suffix.lower() in {".json", ".html", ".css", ".csv", ".txt", ".md", ".svg"}:
+            if _credential_like(payload):
+                raise ResearchInboxControlError(
+                    "output snapshot contains credential-like content"
+                )
+
+    results_value = _json(results, "OUTPUT/RESULTS.json")
+    if (
+        results_value.get("schema_version") != RESULTS_SCHEMA
+        or results_value.get("job_id") != job_id
+    ):
+        raise ResearchInboxControlError("OUTPUT/RESULTS.json does not bind this job")
+    report_receipt = _json(
+        artifacts[report_receipt_path], "OUTPUT/REPORT/REPORT_RECEIPT.json"
+    )
+    if (
+        report_receipt.get("schema_version") != REPORT_RECEIPT_SCHEMA
+        or report_receipt.get("job_id") != job_id
+        or report_receipt.get("results_sha256") != _sha(results)
+        or report_receipt.get("report_sha256") != _sha(artifacts[index_path])
+    ):
+        raise ResearchInboxControlError("report receipt does not bind results/report bytes")
+    receipt = _json(receipt_first, "OUTPUT/OUTPUT_RECEIPT.json")
+    expected = _expected_output_receipt(job_id, artifacts)
+    if receipt != expected or receipt_first != _canonical(receipt):
+        raise ResearchInboxControlError("OUTPUT receipt or artifact hashes differ")
+    receipt_second = _read_regular(
+        output / "OUTPUT_RECEIPT.json",
+        label="OUTPUT/OUTPUT_RECEIPT.json",
+        limit=CONTROL_LIMITS["STATUS.json"],
+    )
+    if _sha(receipt_first) != _sha(receipt_second):
+        raise ResearchInboxControlError("OUTPUT receipt changed during snapshot")
+    files = {PurePosixPath("OUTPUT_RECEIPT.json"): receipt_first}
+    files.update(artifacts)
+    return files
+
+
 def _output_snapshot(
     job_dir: Path, job_id: str, state: Mapping[str, Any]
 ) -> dict[PurePosixPath, bytes]:
     first, status_value = _validate_runtime_status(job_dir, job_id, state)
     files: dict[PurePosixPath, bytes] = {PurePosixPath("STATUS.json"): first}
     if status_value.get("state") == "COMPLETE":
-        results = _read_regular(
-            job_dir / "RESULTS.json", label="RESULTS.json", limit=MAX_EXPORT_FILE_BYTES
-        )
-        report = job_dir / "REPORT"
-        if report.is_symlink() or not report.is_dir():
-            raise ResearchInboxControlError("completed job REPORT is missing or unsafe")
-        files[PurePosixPath("RESULTS.json")] = results
-        for path in sorted(report.rglob("*")):
-            if path.is_dir() and not path.is_symlink():
-                continue
-            relative = _safe_report_file(report, path)
-            files[relative] = _read_regular(
-                path, label=str(relative), limit=MAX_EXPORT_FILE_BYTES
-            )
-        if PurePosixPath("REPORT/index.html") not in files or PurePosixPath(
-            "REPORT/REPORT_RECEIPT.json"
-        ) not in files:
-            raise ResearchInboxControlError("completed job lacks its report contract")
+        files.update(_dedicated_output_snapshot(job_dir, job_id))
     second = _read_regular(job_dir / "STATUS.json", label="STATUS.json", limit=1024 * 1024)
     if _sha(first) != _sha(second):
         raise ResearchInboxControlError("STATUS.json changed during output snapshot")

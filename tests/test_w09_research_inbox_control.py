@@ -263,6 +263,7 @@ def test_explicit_start_arm_guards_one_fixed_systemd_instance(tmp_path):
 
 def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
     control = _control_module()
+    worker = _worker_module()
     _local, remote, job_id, bundle_sha, _receipt = _prepare_upload_commit(control, tmp_path)
     final = remote / "jobs" / job_id
 
@@ -293,13 +294,20 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
         "results_sha256": hashlib.sha256(results_raw).hexdigest(),
         "report_sha256": hashlib.sha256(report_raw).hexdigest(),
     }
-    (final / "RESULTS.json").write_bytes(results_raw)
-    (final / "REPORT").mkdir()
-    (final / "REPORT" / "index.html").write_bytes(report_raw)
-    (final / "REPORT" / "REPORT_RECEIPT.json").write_text(
+    source = tmp_path / "completed-output"
+    source.mkdir()
+    (source / "RESULTS.json").write_bytes(results_raw)
+    (source / "REPORT").mkdir()
+    (source / "REPORT" / "index.html").write_bytes(report_raw)
+    (source / "REPORT" / "REPORT_RECEIPT.json").write_text(
         json.dumps(receipt, sort_keys=True, separators=(",", ":"))
     )
     update_status(remote, job_id, state="RUNNING", message="running")
+    published = worker.publish_job_output(
+        inbox_root=remote, job_id=job_id, source_root=source
+    )
+    assert published["state"] == "OUTPUT_PUBLISHED"
+    assert published["idempotent_replay"] is False
     update_status(remote, job_id, state="COMPLETE", message="complete")
 
     raw = control.export_outputs(remote, job_id)
@@ -307,6 +315,7 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
         names = sorted(member.name for member in archive.getmembers())
         assert names == [
+            "OUTPUT_RECEIPT.json",
             "REPORT/REPORT_RECEIPT.json",
             "REPORT/index.html",
             "RESULTS.json",
@@ -314,7 +323,8 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
         ]
         assert all(member.isfile() and not member.issym() for member in archive.getmembers())
     assert (final / "PLAN.md").is_file()
-    assert (final / "RESULTS.json").read_bytes() == results_raw
+    assert not (final / "RESULTS.json").exists()
+    assert (final / "OUTPUT" / "RESULTS.json").read_bytes() == results_raw
 
 
 def test_real_dispatch_start_worker_ready_export_pull_flow(tmp_path):

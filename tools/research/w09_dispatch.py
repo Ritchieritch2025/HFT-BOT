@@ -53,6 +53,8 @@ SCHEMA_JOB_SPEC = "research-job-spec-v1"
 SCHEMA_REQUEST = "research-job-request-v1"
 SCHEMA_STATUS = "research-job-status-v1"
 SCHEMA_RESULTS = "research-results-v1"
+SCHEMA_OUTPUT_RECEIPT = "research-job-output-receipt-v1"
+LOCAL_OUTPUT_RECEIPT = "W09_OUTPUT_RECEIPT.json"
 
 STATUS_STATES = {
     "NEEDS_METHOD",
@@ -112,7 +114,7 @@ W09_INTERFACE = W09RemoteInterface(
     incoming_root=PurePosixPath("/srv/w09-research/inbox/.incoming"),
     control_helper=PurePosixPath("/usr/local/libexec/w09-research-inbox-control"),
     worker_unit_template="w09-research-inbox-worker@.service",
-    export_format="research-w09-output-tar-v1",
+    export_format="research-w09-output-tar-v2",
     data_plane="W09_INSTANCE_PROFILE_EXACT_VERSION_READONLY",
 )
 
@@ -615,13 +617,65 @@ def _safe_export_path(name: str, *, directory: bool) -> PurePosixPath:
         raise W09DispatchError("remote export contains an invalid path component")
     if len(path.parts) > MAX_REPORT_DEPTH:
         raise W09DispatchError("remote export report path is too deep")
-    if path.parts[0] not in {"STATUS.json", "RESULTS.json", "REPORT"}:
+    if path.parts[0] not in {
+        "STATUS.json",
+        "RESULTS.json",
+        "OUTPUT_RECEIPT.json",
+        "REPORT",
+    }:
         raise W09DispatchError("remote export contains an unapproved artifact")
-    if path.parts[0] in {"STATUS.json", "RESULTS.json"} and len(path.parts) != 1:
+    if path.parts[0] in {
+        "STATUS.json",
+        "RESULTS.json",
+        "OUTPUT_RECEIPT.json",
+    } and len(path.parts) != 1:
         raise W09DispatchError("remote export has an invalid top-level artifact path")
     if path.parts[0] == "REPORT" and len(path.parts) == 1 and not directory:
         raise W09DispatchError("REPORT must be a directory")
     return path
+
+
+def _expected_output_receipt(
+    job_id: str, artifacts: Mapping[PurePosixPath, bytes]
+) -> dict[str, Any]:
+    rows = [
+        {
+            "path": str(path),
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        for path, payload in sorted(artifacts.items(), key=lambda item: str(item[0]))
+    ]
+    value: dict[str, Any] = {
+        "schema_version": SCHEMA_OUTPUT_RECEIPT,
+        "job_id": job_id,
+        "output_directory": "OUTPUT",
+        "artifact_count": len(rows),
+        "artifact_bytes": sum(row["bytes"] for row in rows),
+        "artifacts": rows,
+        "data_files_exported": 0,
+        "source_contract": "DEDICATED_JOB_OUTPUT_ONLY",
+    }
+    value["output_sha256"] = hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
+    return value
+
+
+def _validate_output_receipt(
+    files: Mapping[PurePosixPath, bytes], job_id: str
+) -> dict[str, Any]:
+    raw = files.get(PurePosixPath("OUTPUT_RECEIPT.json"))
+    if raw is None:
+        raise W09DispatchError("COMPLETE remote output lacks OUTPUT_RECEIPT.json")
+    receipt = _json_object(raw, "remote OUTPUT_RECEIPT.json")
+    artifacts = {
+        path: payload
+        for path, payload in files.items()
+        if path == PurePosixPath("RESULTS.json") or path.parts[0] == "REPORT"
+    }
+    expected = _expected_output_receipt(job_id, artifacts)
+    if receipt != expected or raw != _canonical_json_bytes(receipt):
+        raise W09DispatchError("remote output receipt or artifact hashes differ")
+    return receipt
 
 
 def _decode_export(payload: bytes, job_id: str) -> dict[PurePosixPath, bytes]:
@@ -677,17 +731,19 @@ def _decode_export(payload: bytes, job_id: str) -> dict[PurePosixPath, bytes]:
     ):
         raise W09DispatchError("remote STATUS.json does not bind this job")
     results_raw = files.get(PurePosixPath("RESULTS.json"))
+    output_receipt_raw = files.get(PurePosixPath("OUTPUT_RECEIPT.json"))
     report_files = [path for path in files if path.parts[0] == "REPORT"]
     if status_value.get("state") == "COMPLETE":
         if (
             status_value.get("research_execution_started") is not True
             or status_value.get("report_ready") is not True
             or results_raw is None
+            or output_receipt_raw is None
             or PurePosixPath("REPORT/index.html") not in files
             or PurePosixPath("REPORT/REPORT_RECEIPT.json") not in files
         ):
             raise W09DispatchError("COMPLETE remote status lacks its result/report bundle")
-    elif results_raw is not None or report_files:
+    elif results_raw is not None or output_receipt_raw is not None or report_files:
         raise W09DispatchError("non-COMPLETE remote status exposes partial result artifacts")
 
     if results_raw is not None:
@@ -699,12 +755,14 @@ def _decode_export(payload: bytes, job_id: str) -> dict[PurePosixPath, bytes]:
             "remote REPORT_RECEIPT.json",
         )
         if (
-            receipt.get("job_id") != job_id
+            receipt.get("schema_version") != "research-report-receipt-v1"
+            or receipt.get("job_id") != job_id
             or receipt.get("results_sha256") != hashlib.sha256(results_raw).hexdigest()
             or receipt.get("report_sha256")
             != hashlib.sha256(files[PurePosixPath("REPORT/index.html")]).hexdigest()
         ):
             raise W09DispatchError("remote report receipt does not bind results/report bytes")
+        _validate_output_receipt(files, job_id)
     return files
 
 
@@ -785,7 +843,7 @@ def pull_job_outputs(
                 "--format",
                 W09_INTERFACE.export_format,
                 "--artifact-set",
-                "STATUS_RESULTS_REPORT",
+                "STATUS_RESULTS_REPORT_RECEIPT",
             ),
             phase="read-only-export",
             timeout=300,
@@ -813,11 +871,19 @@ def pull_job_outputs(
         try:
             _write_export_stage(stage, files)
             results_raw = files.get(PurePosixPath("RESULTS.json"))
+            output_receipt_raw = files.get(PurePosixPath("OUTPUT_RECEIPT.json"))
             report_present = PurePosixPath("REPORT/index.html") in files
             results_existing = False
             report_existing = False
+            output_receipt_existing = False
             if results_raw is not None:
                 results_existing = _same_file(job_dir / "RESULTS.json", results_raw, "RESULTS.json")
+            if output_receipt_raw is not None:
+                output_receipt_existing = _same_file(
+                    job_dir / LOCAL_OUTPUT_RECEIPT,
+                    output_receipt_raw,
+                    LOCAL_OUTPUT_RECEIPT,
+                )
             report_destination = job_dir / "REPORT"
             if report_destination.is_symlink():
                 raise W09DispatchError("REPORT destination is a symlink")
@@ -846,6 +912,15 @@ def pull_job_outputs(
                 else:
                     os.replace(stage / "REPORT", report_destination)
                     installed.append("REPORT")
+            if output_receipt_raw is not None:
+                if output_receipt_existing:
+                    verified_existing.append(LOCAL_OUTPUT_RECEIPT)
+                else:
+                    os.replace(
+                        stage / "OUTPUT_RECEIPT.json",
+                        job_dir / LOCAL_OUTPUT_RECEIPT,
+                    )
+                    installed.append(LOCAL_OUTPUT_RECEIPT)
             os.replace(stage / "STATUS.json", job_dir / "STATUS.json")
             installed.append("STATUS.json")
             directory = os.open(job_dir, os.O_RDONLY)
