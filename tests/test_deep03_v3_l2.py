@@ -291,6 +291,220 @@ def test_clean_full_stream_end_observes_no_refill_through_fixed_horizon():
     assert episodes[0]["event_observed"] is False
 
 
+def _atlas_replay_row(
+    clock_ns: int,
+    market: str,
+    *,
+    epoch: int = 1,
+    valid: bool = True,
+    msg_type: str = "delta",
+) -> dict[str, object]:
+    value = {column: None for column in l2.REPLAY_COLUMNS}
+    value.update({
+        "date": "2026-07-12",
+        "t_us": clock_ns // 1000,
+        "recv_wall_ns": clock_ns,
+        "recv_mono_ns": clock_ns + 1,
+        "market_ticker": market,
+        "event_proxy": f"E-{market}",
+        "sport": "Baseball",
+        "family": "SERIES-A",
+        "ws_sid": 7,
+        "ws_seq": clock_ns,
+        "msg_type": msg_type,
+        "classification": (
+            "DELTA_APPLIED" if valid else "REJECTED_NEGATIVE_RESULT"
+        ),
+        "snapshot_epoch": epoch,
+        "book_valid": valid,
+        "topology": "TWO_SIDED" if valid else "INVALID_EPOCH",
+        "bid_e4": 4000 if valid else None,
+        "bid_qty_e4": 20_000 if valid else None,
+        "ask_e4": 5000 if valid else None,
+        "ask_qty_e4": 20_000 if valid else None,
+        "bid_depth3_e4": 20_000 if valid else None,
+        "ask_depth3_e4": 20_000 if valid else None,
+        "spread_e4": 1000 if valid else None,
+        "imbalance_depth3": 0.0 if valid else None,
+        "top_changed": valid,
+        "touch_depletion": False,
+        "top3_retreat": False,
+        "control_candidate": False,
+    })
+    return value
+
+
+def _atlas_episode(
+    episode_id: str,
+    duration_us: int,
+    observed: bool,
+) -> dict[str, object]:
+    value = {column: None for column in l2.EPISODE_COLUMNS}
+    value.update({
+        "episode_id": episode_id,
+        "date": "2026-07-12",
+        "market_ticker": f"M-{episode_id}",
+        "event_proxy": f"E-{episode_id}",
+        "sport": "Baseball",
+        "family": "SERIES-A",
+        "side": "yes",
+        "depletion_ns": 1_000_000_000,
+        "observation_end_ns": 1_000_000_000 + duration_us * 1000,
+        "duration_us": duration_us,
+        "endpoint_reason": "refill_observed" if observed else "right_censored_date_end",
+        "event_observed": observed,
+        "refill_ns": 1_000_000_000 + duration_us * 1000 if observed else None,
+        "refill_fraction": 0.8 if observed else None,
+        "original_touch_price_e4": 4000,
+        "pre_touch_qty_e4": 20_000,
+        "removed_e4": 10_000,
+        "depletion_fraction": 0.5,
+        "post_depletion_depth_e4": 10_000,
+        "snapshot_epoch": 1,
+        "covariate_timing": "PRE_DEPLETION_STATE",
+        "covariate_clock_ns": 1_000_000_000,
+        "pre_topology": "TWO_SIDED",
+        "pre_spread_e4": 1000,
+        "pre_imbalance_depth3": 0.0,
+        "pre_side_depth3_e4": 20_000,
+        "pre_opposite_depth3_e4": 20_000,
+    })
+    return value
+
+
+def test_atlas_extends_final_valid_states_and_labels_reset_invalid_censoring():
+    con = duckdb.connect()
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    replay = [
+        _atlas_replay_row(100, "M-RESET", epoch=1, msg_type="snapshot"),
+        _atlas_replay_row(200, "M-RESET", epoch=2, msg_type="snapshot"),
+        _atlas_replay_row(110, "M-INVALID", epoch=1, msg_type="snapshot"),
+        _atlas_replay_row(250, "M-INVALID", epoch=1, valid=False),
+        _atlas_replay_row(300, "M-END", epoch=1, msg_type="snapshot"),
+    ]
+    l2._insert_dict_rows(con, "replay_fixture", l2.REPLAY_COLUMNS, replay)
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    con.execute(
+        "CREATE TEMP TABLE atlas AS "
+        + l2._atlas_sql("replay_fixture", "episode_fixture")
+    )
+    endpoint_rows = dict(con.execute("""
+      SELECT endpoint_reason,sum(n_rows)::BIGINT
+      FROM atlas WHERE record_kind='STATE' GROUP BY endpoint_reason
+    """).fetchall())
+    assert endpoint_rows["RIGHT_CENSORED_SNAPSHOT_RESET"] == 1
+    assert endpoint_rows["RIGHT_CENSORED_INVALID_OR_REJECTED"] == 1
+    assert endpoint_rows["RIGHT_CENSORED_CAPTURE_END"] == 2
+    capture_dwell = con.execute("""
+      SELECT sum(total_dwell_us) FROM atlas
+      WHERE record_kind='STATE'
+        AND endpoint_reason='RIGHT_CENSORED_CAPTURE_END'
+    """).fetchone()[0]
+    # M-RESET's final epoch extends from 200 to the proven stream end at 300;
+    # M-END itself contributes a zero-length terminal state.
+    assert capture_dwell == pytest.approx(0.1)
+    con.close()
+
+
+def test_refill_hazard_is_interval_risk_set_not_raw_episode_rate():
+    con = duckdb.connect()
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    l2._insert_dict_rows(
+        con, "replay_fixture", l2.REPLAY_COLUMNS,
+        [_atlas_replay_row(2_000_000_000, "M-BOUND")],
+    )
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    l2._insert_dict_rows(
+        con, "episode_fixture", l2.EPISODE_COLUMNS,
+        [
+            _atlas_episode("FAST", 50_000, True),
+            _atlas_episode("EDGE", 100_000, True),
+            _atlas_episode("CENSORED", 150_000, False),
+        ],
+    )
+    con.execute(
+        "CREATE TEMP TABLE atlas AS "
+        + l2._atlas_sql("replay_fixture", "episode_fixture")
+    )
+    first_two = con.execute("""
+      SELECT horizon_start_us,horizon_end_us,at_risk_n,events_n,
+             interval_hazard,survival_to_end
+      FROM atlas WHERE record_kind='REFILL_HAZARD'
+      ORDER BY horizon_start_us LIMIT 2
+    """).fetchall()
+    assert first_two[0][:4] == (0, 100_000, 3, 2)
+    assert first_two[0][4] == pytest.approx(2 / 3)
+    assert first_two[0][5] == pytest.approx(1 / 3)
+    assert first_two[1][:4] == (100_000, 200_000, 1, 0)
+    assert first_two[1][5] == pytest.approx(1 / 3)
+    columns = {
+        row[0] for row in con.execute("DESCRIBE atlas").fetchall()
+    }
+    assert "refill_rate" not in columns
+    con.close()
+
+
+def test_matching_refuses_future_and_reset_controls_and_caps_candidates():
+    con = duckdb.connect()
+    base = 1_900_000_000_000_000_000
+    l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
+    controls = []
+    for index in range(100):
+        candidate = _atlas_replay_row(
+            base - index - 1, f"M-PAST-{index}"
+        )
+        candidate.update({
+            "event_proxy": f"E-CONTROL-{index}",
+            "side": "yes",
+            "ws_seq": index + 1,
+            "top_changed": False,
+            "control_candidate": True,
+            "control_quiet_lookback_ns": l2.QUIET_ANCHOR_LOOKBACK_NS,
+        })
+        controls.append(candidate)
+    future = _atlas_replay_row(base + 1, "M-FUTURE")
+    future.update({
+        "event_proxy": "E-FUTURE",
+        "side": "yes",
+        "control_candidate": True,
+        "control_quiet_lookback_ns": l2.QUIET_ANCHOR_LOOKBACK_NS,
+    })
+    reset_adjacent = _atlas_replay_row(base - 1, "M-RESET-ADJACENT")
+    reset_adjacent.update({
+        "event_proxy": "E-RESET-ADJACENT",
+        "side": "yes",
+        "control_candidate": True,
+        "control_quiet_lookback_ns": l2.QUIET_ANCHOR_LOOKBACK_NS - 1,
+    })
+    controls.extend((future, reset_adjacent))
+    l2._insert_dict_rows(con, "replay_fixture", l2.REPLAY_COLUMNS, controls)
+    l2._create_build_table(con, "episode_fixture", l2.EPISODE_TYPES)
+    episode = _atlas_episode("TREAT", 1_000_000, False)
+    episode.update({
+        "market_ticker": "M-TREAT",
+        "event_proxy": "E-TREAT",
+        "depletion_ns": base,
+        "covariate_clock_ns": base,
+    })
+    l2._insert_dict_rows(con, "episode_fixture", l2.EPISODE_COLUMNS, [episode])
+    con.execute(
+        "CREATE TEMP TABLE matches AS "
+        + l2._matches_sql("replay_fixture", "episode_fixture")
+    )
+    selected = con.execute("""
+      SELECT control_ns,anchor_ns,control_market,control_quiet_lookback_ns,
+             candidate_pool_n,stratum_bucket_rank
+      FROM matches
+    """).fetchone()
+    assert selected is not None
+    assert selected[0] < selected[1]
+    assert selected[2] not in {"M-FUTURE", "M-RESET-ADJACENT"}
+    assert selected[3] >= l2.QUIET_ANCHOR_LOOKBACK_NS
+    assert selected[4] <= l2.MAX_CONTROLS_PER_STRATUM_BUCKET
+    assert selected[5] <= l2.MAX_CONTROLS_PER_STRATUM_BUCKET
+    con.close()
+
+
 def _write_exact_fixture(tmp_path: Path) -> dict[str, object]:
     objects: list[dict[str, object]] = []
     releases = []
@@ -468,10 +682,11 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     for bucket in range(2):
         l2._create_build_table(con, "replay_fixture", l2.REPLAY_TYPES)
         replay_row = {column: None for column in l2.REPLAY_COLUMNS}
+        replay_clock = base if bucket == 0 else base - 1_000_000
         replay_row.update({
             "date": "2026-07-12",
-            "t_us": (base + bucket * 1_000_000) // 1000,
-            "recv_wall_ns": base + bucket * 1_000_000,
+            "t_us": replay_clock // 1000,
+            "recv_wall_ns": replay_clock,
             "recv_mono_ns": 100 + bucket,
             "market_ticker": "M-TREAT" if bucket == 0 else "M-CONTROL",
             "event_proxy": "EVENT-TREAT" if bucket == 0 else "EVENT-CONTROL",
@@ -499,9 +714,21 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
             "mid_logodds": 0.0,
             "spread_logodds": 0.4,
             "imbalance_depth3": 0.0,
-            "top_changed": True,
+            "top_changed": bucket == 0,
             "touch_depletion": bucket == 0,
+            "top3_retreat": bucket == 0,
+            "pre_topology": "TWO_SIDED",
+            "pre_spread_e4": 1000,
+            "pre_imbalance_depth3": 0.0,
+            "pre_side_depth3_e4": 20_000,
+            "pre_opposite_depth3_e4": 20_000,
+            "post_side_depth3_e4": 10_000 if bucket == 0 else 20_000,
+            "top3_removed_e4": 10_000 if bucket == 0 else 0,
+            "top3_retreat_fraction": 0.5 if bucket == 0 else 0.0,
             "control_candidate": bucket == 1,
+            "control_quiet_lookback_ns": (
+                l2.QUIET_ANCHOR_LOOKBACK_NS if bucket == 1 else None
+            ),
         })
         l2._insert_dict_rows(
             con, "replay_fixture", l2.REPLAY_COLUMNS, [replay_row]
@@ -536,9 +763,16 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
                 "depletion_fraction": 0.5,
                 "post_depletion_depth_e4": 10_000,
                 "snapshot_epoch": 1,
-                "topology": "TWO_SIDED",
-                "spread_e4": 1000,
-                "imbalance_depth3": 0.0,
+                "covariate_timing": "PRE_DEPLETION_STATE",
+                "covariate_clock_ns": base,
+                "pre_topology": "TWO_SIDED",
+                "pre_spread_e4": 1000,
+                "pre_imbalance_depth3": 0.0,
+                "pre_side_depth3_e4": 20_000,
+                "pre_opposite_depth3_e4": 20_000,
+                "top3_removed_e4": 10_000,
+                "top3_retreat_fraction": 0.5,
+                "top3_retreat": True,
             })
             l2._insert_dict_rows(
                 con, "episode_fixture", l2.EPISODE_COLUMNS, [episode]
@@ -566,9 +800,13 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
                 "depletion_fraction": 0.5,
                 "post_depletion_depth_e4": 10_000,
                 "snapshot_epoch": 1,
-                "topology": "TWO_SIDED",
-                "spread_e4": 1000,
-                "imbalance_depth3": 0.0,
+                "covariate_timing": "PRE_DEPLETION_STATE",
+                "covariate_clock_ns": base,
+                "pre_topology": "TWO_SIDED",
+                "pre_spread_e4": 1000,
+                "pre_imbalance_depth3": 0.0,
+                "pre_side_depth3_e4": 20_000,
+                "pre_opposite_depth3_e4": 20_000,
             })
             l2._insert_dict_rows(
                 con, "episode_fixture", l2.EPISODE_COLUMNS, [no_root]
@@ -598,7 +836,7 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
             f"SELECT DISTINCT record_kind FROM read_parquet('{atlas_path}')"
         ).fetchall()
     }
-    assert {"STATE", "RETREAT", "EPISODE", "REFILL_HAZARD"} <= kinds
+    assert {"STATE", "RETREAT_TOP3_BASELINE", "EPISODE", "REFILL_HAZARD"} <= kinds
     match_path = store.root / matches["data"]["path"]
     assert con.execute(
         f"SELECT count(*) FROM read_parquet('{match_path}')"
@@ -609,8 +847,23 @@ def test_exact_reducers_cross_market_buckets_and_match_without_replacement(
     ).fetchone()
     assert match == (
         "DEP-CROSS-BUCKET", "M-TREAT", "M-CONTROL",
-        "NEAREST_FIRST_GLOBAL_ARBITRATION",
+        "PAST_ONLY_QUIET_NEAREST_GLOBAL_ARBITRATION",
     )
+    temporal = con.execute(
+        f"SELECT control_ns<depletion_ns,past_only,quiet_anchor,"
+        f"control_quiet_lookback_ns FROM read_parquet('{match_path}')"
+    ).fetchone()
+    assert temporal == (True, True, True, l2.QUIET_ANCHOR_LOOKBACK_NS)
+    match_receipt = json.loads(
+        (store.root / "l2_matched_controls/receipts/date=2026-07-12.json").read_text()
+    )
+    metrics = match_receipt["metrics"]
+    assert metrics["invariants"]["future_rows"] == 0
+    assert metrics["negative_controls"]["future_leakage"]["state"] == "PASS"
+    assert metrics["negative_controls"]["reset_proximity"]["state"] == "PASS"
+    assert metrics["theoretical_candidates_per_episode_bound"] <= \
+        l2.MAX_MATCH_CANDIDATES_PER_EPISODE
+    assert "balance" in metrics and "concentration" in metrics
     columns = {
         row[0] for row in con.execute(
             f"DESCRIBE SELECT * FROM read_parquet('{match_path}')"
