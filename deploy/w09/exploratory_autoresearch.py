@@ -192,6 +192,97 @@ def _load_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_fullscope_completion(
+    run_dir: Path,
+    complete: dict[str, Any],
+    release_ids: list[str],
+) -> None:
+    fixed = {
+        "state": "RUN_COMPLETE",
+        "schema_version": "deep03-fullscope-base-l2-run-complete-v1",
+        "mode": MODE,
+        "strict_acceptance_claimed": False,
+        "rfq_reads": 0,
+        "rfq_scope": "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED",
+        "work_package": "DEEP03-FULL-BASE-L2-01",
+        "candidate_or_profit_claim": False,
+        "declared_methods": FULLSCOPE_METHODS,
+        "completed_methods": FULLSCOPE_METHODS,
+        "release_ids": release_ids,
+        "production_mutations": 0,
+        "order_actions": 0,
+    }
+    for field, expected in fixed.items():
+        if complete.get(field) != expected:
+            raise AutoResearchError(
+                "Deep03 completion contract mismatch: %s" % field
+            )
+    if (run_dir / "RUN_FAILED.json").exists() or (run_dir / ".scratch").exists():
+        raise AutoResearchError("Deep03 completion retains failed or scratch state")
+
+    digest_paths = {
+        "input_manifest_sha256": "INPUT_MANIFEST.json",
+        "results_sha256": "RESULTS.json",
+        "fullscope_execution_receipt_sha256": "FULLSCOPE_EXECUTION_RECEIPT.json",
+        "market_graph_result_sha256": "FULLSCOPE_MARKET_GRAPH_RESULT.json",
+        "l2_execution_receipt_sha256": "FULLSCOPE_L2_EXECUTION_RECEIPT.json",
+        "l2_independent_audit_receipt_sha256": "L2_INDEPENDENT_AUDIT_RECEIPT.json",
+        "l2_independent_audit_report_sha256": "L2_INDEPENDENT_AUDIT_REPORT.md",
+        "report_sha256": "REPORT/index.html",
+        "checkpoint_reuse_receipt_sha256": "CHECKPOINT_REUSE_RECEIPT.json",
+        "artifact_sha256sums_sha256": "ARTIFACT_SHA256SUMS",
+    }
+    for digest_field, relative in digest_paths.items():
+        path = run_dir / relative
+        digest = complete.get(digest_field)
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or not path.is_file()
+            or path.is_symlink()
+            or _sha256_file(path) != digest
+        ):
+            raise AutoResearchError(
+                "Deep03 completion artifact mismatch: %s" % digest_field
+            )
+
+    actual_artifacts = []
+    for path in sorted(run_dir.rglob("*")):
+        if path.is_symlink():
+            raise AutoResearchError("Deep03 completion contains a linked artifact")
+        if not path.is_file():
+            continue
+        relative = path.relative_to(run_dir).as_posix()
+        if relative in {"ARTIFACT_SHA256SUMS", "RUN_COMPLETE.json", "RUN_FAILED.json"}:
+            continue
+        if relative.startswith(".scratch/"):
+            continue
+        actual_artifacts.append(
+            {
+                "path": relative,
+                "sha256": _sha256_file(path),
+                "size": path.stat().st_size,
+            }
+        )
+    if complete.get("artifacts") != actual_artifacts:
+        raise AutoResearchError("Deep03 completion artifact ledger mismatch")
+    expected_sums = "".join(
+        "%s  %s\n" % (row["sha256"], row["path"])
+        for row in actual_artifacts
+    ).encode("ascii")
+    if (run_dir / "ARTIFACT_SHA256SUMS").read_bytes() != expected_sums:
+        raise AutoResearchError("Deep03 artifact SHA ledger bytes mismatch")
+
+
 def _completion_is_current(
     path: Path,
     *,
@@ -582,39 +673,7 @@ def run_cycle(
                 runner=runner,
             )
             complete = _load_json(run_dir / "RUN_COMPLETE.json", "RUN_COMPLETE")
-            if (
-                complete.get("state") != "RUN_COMPLETE"
-                or complete.get("schema_version")
-                != "deep03-fullscope-base-l2-run-complete-v1"
-                or complete.get("mode") != MODE
-                or complete.get("strict_acceptance_claimed") is not False
-                or complete.get("rfq_reads") != 0
-                or complete.get("rfq_scope")
-                != "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED"
-                or complete.get("work_package") != "DEEP03-FULL-BASE-L2-01"
-                or complete.get("candidate_or_profit_claim") is not False
-                or complete.get("declared_methods") != FULLSCOPE_METHODS
-                or complete.get("completed_methods") != FULLSCOPE_METHODS
-                or complete.get("release_ids") != release_ids
-            ):
-                raise AutoResearchError("Deep03 completion contract mismatch")
-            for digest_field in (
-                "fullscope_execution_receipt_sha256",
-                "market_graph_result_sha256",
-                "l2_execution_receipt_sha256",
-                "l2_independent_audit_receipt_sha256",
-                "l2_independent_audit_report_sha256",
-                "report_sha256",
-            ):
-                digest = complete.get(digest_field)
-                if (
-                    not isinstance(digest, str)
-                    or len(digest) != 64
-                    or any(character not in "0123456789abcdef" for character in digest)
-                ):
-                    raise AutoResearchError(
-                        "Deep03 completion digest mismatch: %s" % digest_field
-                    )
+            _validate_fullscope_completion(run_dir, complete, release_ids)
 
             hook_ran = False
 
@@ -715,8 +774,6 @@ def main(argv: list[str] | None = None) -> int:
             w0_release_path=args.w0_release,
             w1_release_path=args.w1_release,
             w1_complete_path=args.w1_complete,
-            l2_independent_audit_receipt_path=args.l2_independent_audit_receipt,
-            l2_independent_audit_report_path=args.l2_independent_audit_report,
         )
         result = run_cycle(
             cache=Path(args.cache),
@@ -739,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
             w0_release_path=args.w0_release,
             w1_release_path=args.w1_release,
             w1_complete_path=args.w1_complete,
+            l2_independent_audit_receipt_path=args.l2_independent_audit_receipt,
+            l2_independent_audit_report_path=args.l2_independent_audit_report,
             checkpoint_root=args.checkpoint_root,
             checkpoint_reserve_bytes=args.checkpoint_reserve_bytes,
             max_attempts=args.max_attempts,

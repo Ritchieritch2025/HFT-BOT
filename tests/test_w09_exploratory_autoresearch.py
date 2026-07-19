@@ -104,6 +104,85 @@ def _materialize_degraded(tmp_path: Path) -> tuple[Path, str]:
     return cache, rid
 
 
+def _write_fake_fullscope_bundle(run_dir: Path, release_ids: list[str], automation):
+    payloads = {
+        "INPUT_MANIFEST.json": b"{}\n",
+        "RESULTS.json": b"{}\n",
+        "FULLSCOPE_EXECUTION_RECEIPT.json": b"{}\n",
+        "FULLSCOPE_MARKET_GRAPH_RESULT.json": b"{}\n",
+        "FULLSCOPE_L2_EXECUTION_RECEIPT.json": b"{}\n",
+        "L2_INDEPENDENT_AUDIT_RECEIPT.json": b"{}\n",
+        "L2_INDEPENDENT_AUDIT_REPORT.md": b"fixture audit\n",
+        "REPORT/index.html": b"<html>fixture report</html>\n",
+        "CHECKPOINT_REUSE_RECEIPT.json": b"{}\n",
+    }
+    for relative, payload in payloads.items():
+        path = run_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    artifacts = []
+    for path in sorted(run_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(run_dir).as_posix()
+        if relative in {"ARTIFACT_SHA256SUMS", "RUN_COMPLETE.json", "RUN_FAILED.json"}:
+            continue
+        artifacts.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+            }
+        )
+    sums = "".join(
+        f"{row['sha256']}  {row['path']}\n" for row in artifacts
+    ).encode("ascii")
+    (run_dir / "ARTIFACT_SHA256SUMS").write_bytes(sums)
+    digest_for = lambda relative: hashlib.sha256(
+        (run_dir / relative).read_bytes()
+    ).hexdigest()
+    complete = {
+        "schema_version": "deep03-fullscope-base-l2-run-complete-v1",
+        "state": "RUN_COMPLETE",
+        "mode": MODE,
+        "strict_acceptance_claimed": False,
+        "rfq_reads": 0,
+        "rfq_scope": "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED",
+        "work_package": "DEEP03-FULL-BASE-L2-01",
+        "candidate_or_profit_claim": False,
+        "declared_methods": automation.FULLSCOPE_METHODS,
+        "completed_methods": automation.FULLSCOPE_METHODS,
+        "release_ids": release_ids,
+        "production_mutations": 0,
+        "order_actions": 0,
+        "input_manifest_sha256": digest_for("INPUT_MANIFEST.json"),
+        "results_sha256": digest_for("RESULTS.json"),
+        "fullscope_execution_receipt_sha256": digest_for(
+            "FULLSCOPE_EXECUTION_RECEIPT.json"
+        ),
+        "market_graph_result_sha256": digest_for(
+            "FULLSCOPE_MARKET_GRAPH_RESULT.json"
+        ),
+        "l2_execution_receipt_sha256": digest_for(
+            "FULLSCOPE_L2_EXECUTION_RECEIPT.json"
+        ),
+        "l2_independent_audit_receipt_sha256": digest_for(
+            "L2_INDEPENDENT_AUDIT_RECEIPT.json"
+        ),
+        "l2_independent_audit_report_sha256": digest_for(
+            "L2_INDEPENDENT_AUDIT_REPORT.md"
+        ),
+        "report_sha256": digest_for("REPORT/index.html"),
+        "checkpoint_reuse_receipt_sha256": digest_for(
+            "CHECKPOINT_REUSE_RECEIPT.json"
+        ),
+        "artifact_sha256sums_sha256": digest_for("ARTIFACT_SHA256SUMS"),
+        "artifacts": artifacts,
+    }
+    (run_dir / "RUN_COMPLETE.json").write_text(json.dumps(complete))
+    return complete
+
+
 def test_exploratory_canary_accepts_degraded_but_strict_stays_red(tmp_path):
     exploratory = _load(
         "w09_exploratory_canary_test",
@@ -227,25 +306,7 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
             output = "prepare pass"
         elif script == "deep03_fullscope_runner.py":
             run_dir = Path(command[command.index("--run-dir") + 1])
-            (run_dir / "RUN_COMPLETE.json").write_text(json.dumps({
-                "schema_version": "deep03-fullscope-base-l2-run-complete-v1",
-                "state": "RUN_COMPLETE",
-                "mode": MODE,
-                "strict_acceptance_claimed": False,
-                "rfq_reads": 0,
-                "rfq_scope": "NOT_INCLUDED_SEPARATE_OVERLAY_REQUIRED",
-                "work_package": "DEEP03-FULL-BASE-L2-01",
-                "candidate_or_profit_claim": False,
-                "declared_methods": automation.FULLSCOPE_METHODS,
-                "completed_methods": automation.FULLSCOPE_METHODS,
-                "fullscope_execution_receipt_sha256": "1" * 64,
-                "market_graph_result_sha256": "2" * 64,
-                "l2_execution_receipt_sha256": "3" * 64,
-                "l2_independent_audit_receipt_sha256": "4" * 64,
-                "l2_independent_audit_report_sha256": "5" * 64,
-                "report_sha256": "6" * 64,
-                "release_ids": [rid],
-            }))
+            _write_fake_fullscope_bundle(run_dir, [rid], automation)
             output = "run pass"
         else:
             output = "ok"
@@ -357,6 +418,74 @@ def test_autoresearch_cycle_runs_once_then_is_an_idempotent_noop(tmp_path, monke
         automation.run_cycle(**unauthorized)
     assert not any(Path(row[1]).name == "deep03_fullscope_runner.py" for row in commands)
 
+
+def test_autoresearch_main_routes_l2_artifacts_to_cycle_not_authority_gate(
+    tmp_path, monkeypatch
+):
+    automation = _load(
+        "w09_exploratory_main_wiring_test",
+        W09 / "exploratory_autoresearch.py",
+    )
+    authority_calls = []
+    cycle_calls = []
+
+    def fake_authority(**kwargs):
+        authority_calls.append(kwargs)
+        return {
+            "input_start_date": "2026-07-10",
+            "input_end_date": "2026-07-17",
+            "authorized_input_release_ids": ["exact-release"],
+        }
+
+    def fake_cycle(**kwargs):
+        cycle_calls.append(kwargs)
+        return {"state": "RESEARCH_COMPLETE", "selection_sha256": "a" * 64}
+
+    monkeypatch.setattr(
+        automation.deep03_authority_gate,
+        "validate_claimed_authority",
+        fake_authority,
+    )
+    monkeypatch.setattr(automation, "run_cycle", fake_cycle)
+    receipt = tmp_path / "l2-audit.json"
+    report = tmp_path / "l2-audit.md"
+    required = [
+        "--authority", str(tmp_path / "authority.json"),
+        "--arm-file", str(tmp_path / "arm.json"),
+        "--arm-claim-root", str(tmp_path / "claims"),
+        "--plan", str(tmp_path / "plan.md"),
+        "--runtime-commit", str(tmp_path / "commit.txt"),
+        "--audit", str(tmp_path / "audit.md"),
+        "--w0-release", str(tmp_path / "w0.json"),
+        "--w1-release", str(tmp_path / "w1.json"),
+        "--w1-complete", str(tmp_path / "w1-complete.json"),
+        "--l2-independent-audit-receipt", str(receipt),
+        "--l2-independent-audit-report", str(report),
+    ]
+    assert automation.main(required) == 0
+    assert len(authority_calls) == 1
+    assert "l2_independent_audit_receipt_path" not in authority_calls[0]
+    assert "l2_independent_audit_report_path" not in authority_calls[0]
+    assert len(cycle_calls) == 1
+    assert cycle_calls[0]["l2_independent_audit_receipt_path"] == receipt
+    assert cycle_calls[0]["l2_independent_audit_report_path"] == report
+
+
+def test_fullscope_completion_recomputes_report_l2_and_artifact_ledger(tmp_path):
+    automation = _load(
+        "w09_exploratory_completion_artifact_test",
+        W09 / "exploratory_autoresearch.py",
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    release_ids = ["exact-release"]
+    complete = _write_fake_fullscope_bundle(run_dir, release_ids, automation)
+    automation._validate_fullscope_completion(run_dir, complete, release_ids)
+
+    report = run_dir / "REPORT" / "index.html"
+    report.write_bytes(report.read_bytes() + b"tamper")
+    with pytest.raises(automation.AutoResearchError, match="report_sha256"):
+        automation._validate_fullscope_completion(run_dir, complete, release_ids)
 
 def test_deployment_payload_and_timer_are_pinned():
     manifest = W09 / "exploratory_autoresearch_payload.sha256"
