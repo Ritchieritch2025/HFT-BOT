@@ -473,6 +473,7 @@ def _minimal_mapping():
     }]
     return {
         "mapping_sha256": _sha("mapping"), "mapping_rows": rows,
+        "mapping_input_ticker_count": 1,
         "pre_event_window_ms": 1_000, "post_event_window_ms": 1_000,
     }
 
@@ -550,7 +551,25 @@ def _producer_receipt():
     return value
 
 
-def _partition_receipts(sources, observation_count):
+def _external_anchor(producer_shas, attestation_shas, partition_set_shas):
+    value = {
+        "schema": bounded.D07_EXTERNAL_ANCHOR_SCHEMA,
+        "state": "INDEPENDENT_AUDIT_PASS",
+        "audit_authority": (
+            "docs/plan_audits/AUDIT_DEEP03_RFQ_D07_RUNTIME_PASS "
+            "(root-installed 0444 runtime AUTHORITY)"
+        ),
+        "producer_receipt_sha256s": sorted(producer_shas),
+        "reader_attestation_sha256s": sorted(attestation_shas),
+        "partition_receipt_set_sha256s": sorted(partition_set_shas),
+    }
+    value["anchor_sha256"] = bounded.canonical_sha256(value)
+    return value
+
+
+def _partition_receipts(sources, observation_count, evidence_digests=None):
+    evidence_digests = evidence_digests or {}
+    empty_digest = bounded.canonical_sha256([])
     receipts = []
     for family in bounded.IMPACT_SOURCE_FAMILIES:
         value = {
@@ -560,11 +579,27 @@ def _partition_receipts(sources, observation_count):
             "source_object_count": sources[family]["exact_object_count"],
             "source_row_count": sources[family]["source_row_count"],
             "component_row_count": observation_count,
+            "evidence_row_set_sha256": evidence_digests.get(
+                family, empty_digest,
+            ),
             "content_sha256": _sha(f"partition-{family}"),
         }
         value["receipt_sha256"] = bounded.canonical_sha256(value)
         receipts.append(value)
     return receipts
+
+
+def _evidence_digests(rows):
+    evidence = {family: set() for family in bounded.IMPACT_SOURCE_FAMILIES}
+    for row in rows:
+        for side in ("pre_book", "post_book"):
+            book = row.get(side)
+            if book is not None:
+                evidence[book["source_family"]].add(book["source_row_sha256"])
+    return {
+        family: bounded.canonical_sha256(sorted(hashes))
+        for family, hashes in evidence.items()
+    }
 
 
 def _d07_context(mapping):
@@ -629,13 +664,21 @@ def _d07_context(mapping):
 
 
 def _book(ts_us, bid_e6, ask_e6, bid_depth_e2, ask_depth_e2, logical_key):
-    return {
+    content = {
         "ts_us": ts_us, "bid_e6": bid_e6, "ask_e6": ask_e6,
         "bid_depth_e2": bid_depth_e2, "ask_depth_e2": ask_depth_e2,
         "source_family": "orderbooks_l1",
         "source_logical_key": logical_key,
-        "source_row_sha256": _sha(f"book-{ts_us}"),
     }
+    # The row hash binds the row's own canonical bytes (module contract).
+    return {**content, "source_row_sha256": _rebind_book(content)}
+
+
+def _rebind_book(book):
+    return bounded.canonical_sha256({
+        field: book[field]
+        for field in sorted(bounded.IMPACT_BOOK_FIELDS - {"source_row_sha256"})
+    })
 
 
 def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
@@ -682,7 +725,7 @@ def _impact(mapping, descriptor, exact_base, quality, *, status="OBSERVED"):
         family: bounded._base_source_attestation(descriptor, family)
         for family in ("orderbooks_l1", "orderbooks_full")
     }
-    partitions = _partition_receipts(sources, len(rows))
+    partitions = _partition_receipts(sources, len(rows), _evidence_digests(rows))
     value = {
         "schema": bounded.IMPACT_SCHEMA, "state": "COMPLETE",
         "analysis_date": "2026-07-19",
@@ -830,6 +873,14 @@ def test_d07_future_exchange_clock_must_be_exclusively_clock_censored():
         row[field] = 0
     row["status"] = "CENSORED_CLOCK"
     row["censor_reason"] = "FUTURE_EXCHANGE_CLOCK"
+    # No book evidence remains, so the anchored partition receipts must
+    # carry the empty evidence row-set digest.
+    value["partition_receipts"] = _partition_receipts(
+        value["source_attestations"], 1,
+    )
+    value["partition_receipt_set_sha256"] = bounded.canonical_sha256(
+        value["partition_receipts"]
+    )
     _resign_impact(value)
     assert bounded._validate_impact_adapter(
         value, descriptor, mapping, exact_base=exact_base,
@@ -838,10 +889,14 @@ def test_d07_future_exchange_clock_must_be_exclusively_clock_censored():
     ) == value
 
 
+REAL_L2_RECEIPTS = Path(__file__).parent / "data"
+
+
 def _canonical_l2_receipt(date, **overrides):
     receipt = {
         "schema_version": "l2-gap-receipt-v1",
         "date": date,
+        "generated_at_utc": "2026-07-14T04:05:06Z",
         "raw_root": "/srv/kalshi/raw",
         "files": ["l2_23.ndjson"],
         "file_inventory": [
@@ -865,13 +920,40 @@ def _canonical_l2_receipt(date, **overrides):
     return receipt
 
 
-def _quality_fixture(receipt=None):
-    """Exact base manifest + attested canonical quality receipt chain."""
-    if receipt is None:
-        receipt = _canonical_l2_receipt(base_fixture.DATE)
-    body = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
+def _retarget_dates(value, old, new):
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [_retarget_dates(item, old, new) for item in value]
+    if isinstance(value, dict):
+        return {
+            _retarget_dates(key, old, new): _retarget_dates(item, old, new)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _quality_fixture(receipt=None, *, body=None, date=None):
+    """Exact base manifest + attested quality receipt chain.
+
+    ``body`` may be the byte-exact content of a REAL sealed production
+    receipt; ``date`` retargets the synthetic base release so a real
+    receipt for another date binds to a same-date exact release.
+    """
+    date = date or base_fixture.DATE
+    if body is None:
+        if receipt is None:
+            receipt = _canonical_l2_receipt(date)
+        body = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
     sha = hashlib.sha256(body).hexdigest()
     manifest = base_fixture._complete_manifest()
+    if date != base_fixture.DATE:
+        manifest = _retarget_dates(manifest, base_fixture.DATE, date)
+        manifest["publication_state"]["canonical_receipt_binding_sha256"] = (
+            bounded.canonical_sha256(
+                manifest["canonical_receipt"]["receipt_object"]
+            )
+        )
     row = next(
         item for item in manifest["objects"]
         if item["kind"] == "l2_quality_receipt"
@@ -880,7 +962,7 @@ def _quality_fixture(receipt=None):
     row["size"] = len(body)
     row["source_key"] = (
         "ec2/control/quality/v1/date=%s/l2_gaps/sha256=%s/l2_gaps.json"
-        % (base_fixture.DATE, sha)
+        % (date, sha)
     )
     base_fixture._retarget_manifest(manifest)
     raw, _manifest_identity = base_fixture._raw_and_identity(manifest)
@@ -901,9 +983,9 @@ def _quality_fixture(receipt=None):
     return raw, identity, body, session.attestation, manifest
 
 
-def _build_quality_gate(raw, identity, body, attestation):
+def _build_quality_gate(raw, identity, body, attestation, date=None):
     return bounded.build_l2_quality_gate(
-        analysis_date=base_fixture.DATE, exact_identity=identity,
+        analysis_date=date or base_fixture.DATE, exact_identity=identity,
         body=body, reader_attestation=attestation,
         base_manifest_bytes=raw,
     )
@@ -942,6 +1024,36 @@ def test_l2_quality_gate_requires_canonical_attested_base_bound_receipt():
     ]
 
 
+def test_l2_quality_gate_accepts_real_production_receipts():
+    """Byte-exact REAL sealed receipts must satisfy the canonical gate.
+
+    Guards against schema drift from reality (audit F1): the required field
+    set is asserted against a real production receipt, a clean real date
+    must reach state PASS, and a real gap date must be REFUSED with its
+    actual counters, never a schema error.
+    """
+    real_clean = (REAL_L2_RECEIPTS / "l2_gaps_2026-07-12.json").read_bytes()
+    parsed = json.loads(real_clean.decode("utf-8"))
+    # Tripwire: canonical schema == the real writer's field set, exactly.
+    assert set(parsed) == bounded.L2_QUALITY_RECEIPT_FIELDS
+    raw, identity, body, attestation, manifest = _quality_fixture(
+        body=real_clean, date="2026-07-12",
+    )
+    gate = _build_quality_gate(
+        raw, identity, body, attestation, date="2026-07-12",
+    )
+    assert gate["state"] == "PASS"
+    assert gate["blockers"] == []
+    assert gate["lines"] == parsed["lines"]
+    assert gate["base_release_id"] == manifest["release_id"]
+
+    real_gap = (REAL_L2_RECEIPTS / "l2_gaps_2026-07-13.json").read_bytes()
+    raw, identity, body, attestation, _m = _quality_fixture(body=real_gap)
+    refused = _build_quality_gate(raw, identity, body, attestation)
+    assert refused["state"] == "REFUSED"
+    assert refused["blockers"] == ["seq_gap_events=1", "seq_missed_total=8"]
+
+
 def test_l2_quality_gate_fails_closed_on_missing_extra_or_mistyped_fields():
     missing = _canonical_l2_receipt(base_fixture.DATE)
     missing.pop("seq_missed_total")
@@ -959,6 +1071,13 @@ def test_l2_quality_gate_fails_closed_on_missing_extra_or_mistyped_fields():
             base_fixture.DATE, recorder_markers={"loss": "many"},
         ),
         _canonical_l2_receipt(base_fixture.DATE, no_l2_files=True),
+        _canonical_l2_receipt(base_fixture.DATE, generated_at_utc=20260714),
+        _canonical_l2_receipt(
+            base_fixture.DATE, generated_at_utc="2026-07-14 04:05:06",
+        ),
+        _canonical_l2_receipt(
+            base_fixture.DATE, generated_at_utc="2026-07-14T04:05:06.5Z",
+        ),
     ):
         raw, identity, body, attestation, _m = _quality_fixture(bad)
         with pytest.raises(
@@ -1183,9 +1302,12 @@ def test_d07_recomputes_pre_post_values_from_attested_book_evidence():
         )
 
     stray_book = _impact(mapping, descriptor, exact_base, quality)
-    stray_book["observations"][0]["post_book"]["source_logical_key"] = (
+    stray = stray_book["observations"][0]["post_book"]
+    stray["source_logical_key"] = (
         "warehouse/facts/orderbooks_l1/date=2026-07-18/part.parquet"
     )
+    # Re-bind the row hash so the unattested-object check itself is hit.
+    stray["source_row_sha256"] = _rebind_book(stray)
     _resign_impact(stray_book)
     with pytest.raises(
         bounded.FreshRfqResearchError, match="IMPACT_ADAPTER_BOOK",
@@ -1297,11 +1419,12 @@ def test_d07_blocks_without_producer_and_hard_fails_on_release_mismatch():
         descriptors, [], {"2026-07-19": {}},
         exact_bases={"2026-07-19": {"release_id": "release-2026-07-19"}},
         l2_quality_gates={"2026-07-19": quality},
-        rfq_events={}, producer_receipt=None,
+        rfq_events={}, producer_receipt=None, external_anchor=None,
     )
     assert blocked["status"] == "BLOCKED_PRODUCER_AUDIT_NOT_SUPPLIED"
     assert blocked["claim"] == "NO_RFQ_TO_CLOB_IMPACT_RESULT"
     assert blocked["contract"]["audited_producer_receipt_required"] is True
+    assert blocked["contract"]["external_audit_anchor_required"] is True
     assert blocked["contract"]["pre_post_values_recomputed_from_book_evidence"] is True
 
     with pytest.raises(
@@ -1312,6 +1435,7 @@ def test_d07_blocks_without_producer_and_hard_fails_on_release_mismatch():
             exact_bases={"2026-07-19": {"release_id": "release-other"}},
             l2_quality_gates={"2026-07-19": quality},
             rfq_events={}, producer_receipt=_producer_receipt(),
+            external_anchor=None,
         )
 
 
@@ -1340,3 +1464,192 @@ def test_rfq_clock_tolerance_is_bound_to_method_registry_authority():
         "deep03_v3_methods.MAX_BOOK_AGE_US"
         in bounded.RFQ_CLOCK_TOLERANCE_AUTHORITY
     )
+
+
+def _anchored_d07_context():
+    mapping = _minimal_mapping()
+    descriptor, exact_base, quality, events = _d07_context(mapping)
+    producer = _producer_receipt()
+    adapter = _impact(mapping, descriptor, exact_base, quality)
+    anchor = _external_anchor(
+        [producer["receipt_sha256"]],
+        [adapter["source_reader_attestation"]["attestation_sha256"]],
+        [adapter["partition_receipt_set_sha256"]],
+    )
+    return mapping, descriptor, exact_base, quality, events, producer, \
+        adapter, anchor
+
+
+def test_d07_anchored_full_path_produces_exploratory_observed():
+    (mapping, descriptor, exact_base, quality, events, producer, adapter,
+     anchor) = _anchored_d07_context()
+    result = bounded._d07_result(
+        [descriptor], [{"mapping": mapping}], {"2026-07-19": adapter},
+        exact_bases={"2026-07-19": exact_base},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events=events,
+        producer_receipt=producer,
+        external_anchor=anchor,
+    )
+    assert result["status"] == "EXPLORATORY_OBSERVED"
+    assert result["observed_components"] == 1
+    assert result["producer_receipt_sha256"] == producer["receipt_sha256"]
+    assert result["external_anchor_sha256"] == anchor["anchor_sha256"]
+    assert result["component_status_conservation_pass"] is True
+    assert result["unaligned_market_response"]["mid_change_e6"]["n"] == 1
+    assert result["unaligned_market_response"]["mid_change_e6"]["p50"] == 10_000
+
+
+def test_d07_refuses_offline_forged_evidence_chain():
+    """Auditor forgeries I1/I2/I3: every trust-chain element must anchor."""
+    (mapping, descriptor, exact_base, quality, events, producer, adapter,
+     anchor) = _anchored_d07_context()
+    kwargs = {
+        "exact_base": exact_base, "l2_quality_gate": quality,
+        "rfq_events": events, "producer_receipt": producer,
+    }
+    l1_logical = exact_base["families"]["orderbooks_l1"]["objects"][0][
+        "logical_key"
+    ]
+
+    # I1: fabricated book state with an invented source_row_sha256 -- the
+    # hash no longer binds the row's canonical bytes and is refused.
+    i1 = _impact(mapping, descriptor, exact_base, quality)
+    row = i1["observations"][0]
+    row["pre_book"] = {
+        "ts_us": row["pre_observation_ts_us"], "bid_e6": 100_000,
+        "ask_e6": 900_000, "bid_depth_e2": 1, "ask_depth_e2": 1,
+        "source_family": "orderbooks_l1", "source_logical_key": l1_logical,
+        "source_row_sha256": "11" * 32,
+    }
+    row["pre_mid_e6"] = 500_000
+    row["pre_spread_e6"] = 800_000
+    row["pre_depth_e2"] = 2
+    _resign_impact(i1)
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="does not bind",
+    ):
+        bounded._validate_impact_adapter(i1, descriptor, mapping, **kwargs)
+
+    # I1b: the attacker re-binds the fabricated row's hash and re-signs the
+    # partition receipts.  Adapter-level consistency then holds by
+    # construction -- which is exactly why the external audit anchor is the
+    # backstop: the mutated partition set digest is unanchored.
+    i1b = copy.deepcopy(i1)
+    book = i1b["observations"][0]["pre_book"]
+    book["source_row_sha256"] = _rebind_book(book)
+    i1b["partition_receipts"] = _partition_receipts(
+        i1b["source_attestations"], 1,
+        _evidence_digests(i1b["observations"]),
+    )
+    i1b["partition_receipt_set_sha256"] = bounded.canonical_sha256(
+        i1b["partition_receipts"]
+    )
+    _resign_impact(i1b)
+    assert bounded._validate_impact_adapter(
+        i1b, descriptor, mapping, **kwargs,
+    ) == i1b
+    blocked = bounded._d07_result(
+        [descriptor], [{"mapping": mapping}], {"2026-07-19": i1b},
+        exact_bases={"2026-07-19": exact_base},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events=events, producer_receipt=producer,
+        external_anchor=anchor,
+    )
+    assert blocked["status"] == "BLOCKED_UNANCHORED_EVIDENCE"
+    assert any(
+        entry.startswith("2026-07-19:partition_receipt_set:")
+        for entry in blocked["unanchored_evidence"]
+    )
+
+    # I2: a self-signed producer receipt with arbitrary SHAs and
+    # state=AUDITED_PASS is not audited evidence -- it is unanchored.
+    forged_producer = {
+        "schema": bounded.D07_PRODUCER_SCHEMA, "state": "AUDITED_PASS",
+        "algorithm_id": "totally-unaudited-algo",
+        "producer_module_sha256": _sha("forged-module"),
+        "audit_receipt_sha256": _sha("forged-audit"),
+    }
+    forged_producer["receipt_sha256"] = bounded.canonical_sha256(
+        forged_producer
+    )
+    forged_adapter = _impact(mapping, descriptor, exact_base, quality)
+    forged_adapter["producer_receipt"] = forged_producer
+    _resign_impact(forged_adapter)
+    blocked = bounded._d07_result(
+        [descriptor], [{"mapping": mapping}], {"2026-07-19": forged_adapter},
+        exact_bases={"2026-07-19": exact_base},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events=events, producer_receipt=forged_producer,
+        external_anchor=anchor,
+    )
+    assert blocked["status"] == "BLOCKED_UNANCHORED_EVIDENCE"
+    assert (
+        f"producer_receipt:{forged_producer['receipt_sha256']}"
+        in blocked["unanchored_evidence"]
+    )
+
+    # I3: an offline-synthesized reader attestation (internally consistent,
+    # no reads performed) has a digest the independent audit never anchored.
+    i3 = _impact(mapping, descriptor, exact_base, quality)
+    synthetic = i3["source_reader_attestation"]
+    synthetic["ephemeral_files_created"] = 99
+    synthetic["attestation_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in synthetic.items()
+        if key != "attestation_sha256"
+    })
+    _resign_impact(i3)
+    blocked = bounded._d07_result(
+        [descriptor], [{"mapping": mapping}], {"2026-07-19": i3},
+        exact_bases={"2026-07-19": exact_base},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events=events, producer_receipt=producer,
+        external_anchor=anchor,
+    )
+    assert blocked["status"] == "BLOCKED_UNANCHORED_EVIDENCE"
+    assert any(
+        entry.startswith("2026-07-19:source_reader_attestation:")
+        for entry in blocked["unanchored_evidence"]
+    )
+
+    # No anchor at all: self-consistent objects are never proof.
+    blocked = bounded._d07_result(
+        [descriptor], [{"mapping": mapping}], {"2026-07-19": adapter},
+        exact_bases={"2026-07-19": exact_base},
+        l2_quality_gates={"2026-07-19": quality},
+        rfq_events=events, producer_receipt=producer,
+        external_anchor=None,
+    )
+    assert blocked["status"] == "BLOCKED_UNANCHORED_EVIDENCE"
+    assert "self-consistent" in blocked["detail"]
+
+
+def test_external_anchor_requires_independent_audit_pass():
+    anchor = _external_anchor([_sha("p")], [_sha("a")], [_sha("s")])
+    assert bounded._validate_d07_external_anchor(anchor) == anchor
+
+    self_declared = {**anchor, "state": "SELF_DECLARED"}
+    self_declared["anchor_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in self_declared.items()
+        if key != "anchor_sha256"
+    })
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_ANCHOR_INVALID",
+    ):
+        bounded._validate_d07_external_anchor(self_declared)
+
+    tampered = {**anchor, "producer_receipt_sha256s": [_sha("other")]}
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="DIGEST_MISMATCH",
+    ):
+        bounded._validate_d07_external_anchor(tampered)
+
+    unnamed = {**anchor, "audit_authority": " "}
+    unnamed["anchor_sha256"] = bounded.canonical_sha256({
+        key: item for key, item in unnamed.items()
+        if key != "anchor_sha256"
+    })
+    with pytest.raises(
+        bounded.FreshRfqResearchError, match="D07_ANCHOR_INVALID",
+    ):
+        bounded._validate_d07_external_anchor(unnamed)
