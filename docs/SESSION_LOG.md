@@ -6,7 +6,62 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
-## 2026-07-19 15:47 UTC — 全量 L2 + Fresh RFQ 转入明确交接，三个 WIP 线均冻结
+## 2026-07-19 19:25 UTC — 接管交接后完成三线修复+四轮独立审计，D3-W2A-2026-07-19.10 已获操作员授权并在 W09 点火运行
+
+- 执行会话：Claude（接管 15:47 交接）。continuation order 全部走完：
+  ①16:00Z 金丝雀段 **PASS**（start_lag=0ms、零缺陷、427 万行零丢弃——
+  RFQ 整点重连缺陷修复被机械证实,收据补记于 offset-segment-fix 分支
+  `ce0855a`）;②A 树 L2 七项 P0 修复 `1fa7481` + 独立审计 **PASS**
+  （`ee2623f` 归档）;③B 树 RFQ P0 修复经一轮返工:首轮审计 **FAIL**
+  （schema 排斥真实收据的 `generated_at_utc` 字段;三种离线伪造被接受）,
+  返工 `77416c0`（schema 对真实收据校准+漂移绊线测试;信任链外部锚定;
+  三伪造变回归测试）复审 **PASS**（`ab220f8` 归档,留强制部署门 I4b:
+  锚只能从 root 0444 固定路径派生）;④C 树每日 RFQ 管线独立审计
+  **PASS_WITH_EXPLICIT_BLOCKERS**（0 P0/0 P1;IAM delta 与发布凭证
+  adapter 为显式未应用门,证实无法绕过,`65c974b` 归档）。
+- 集成 `.09`：cherry-pick 审计范围（逐文件 blob-identical 验证）+
+  I4b 接线闭合（`load_d07_external_anchor` 仅认
+  /etc/w09/deep03/d07-external-anchor.json,O_NOFOLLOW+root+0444 自检）+
+  队列隔离（基础层禁 RFQ 条目,cohort_join FORBIDDEN）,全树 1,816 测试
+  零失败,合并 HEAD `3c643cb` 独立审计 **PASS**（`47206b1` 归档并绑进
+  W0/W1 candidates）。
+- `.09`→`.10` 合流：GPT 会话在 `47206b1` 之上加执行接线（`99f1a1e`、
+  `61281b4`,+660 行,含门吃 L2 机器可读审计收据的两个新参数）,经其
+  wiring 审计（PASS_FOR_RELEASE_DRAFTING,`206ce0e` 入库）后装机。
+  本会话核验 `.10` 为审计链严格后代、安全面未弱化,裁决采用 `.10`、
+  作废本会话 `.09` 授权草案。
+- 点火：操作员逐字授权 D3-W2A-2026-07-19.10（verbatim sha
+  `49003769…`）。AUTHORITY/ARM 由本会话起草(经两轮门拒绝修正:
+  `w1_data_quality` 键、`independent_plan_audit` 重绑 audit.md
+  `f754d46d…`、ARM 补 `authorized_instance_type`)、操作员亲手安置
+  （本会话安全层拒绝经手授权文件——与"授权由操作员物理执行"的治理
+  方向一致）。19:19Z `D3_W2A_AUTHORITY_PASS`
+  (authority sha `5c0238eb…`),服务启动,范围
+  HISTORICAL_BASE_L1_TRADES_MARKET_GRAPH_L2、RFQ OFF、23h/$15 上限。
+- decisions（E2）:
+  - 操作员 2026-07-19:"我们没有对于算力资源的限制 现在重中之重是完成
+    数据分析任务"——成本让位于完成度,资源升级不再以省钱为先(本条即
+    落盘处)。
+  - 操作员授权 `.10` = 方法范围正式扩至六项(B01-B04 +
+    D3-FULL-MARKET-GRAPH-01 + D3-FULL-L2-SNBD-01,均 DESCRIPTIVE_ONLY
+    _NO_PNL);L2 估计量仅 07-12/15/17,07-13/14/16 隔离记账。
+  - fresh RFQ T0 重锚 2026-07-20T00:00:00Z(gen fresh-rfq-20260720-01,
+    7/19 因 14 小时 EVENT_COMPLETENESS_UNPROVEN 失格)——首个合格日
+    最早 7/21 02:00Z 后可证。
+  - 证据分级提案(探索轻/候选中/真钱重,拟 D-6)仍待操作员拍板,未生效。
+- context capsule: 生产机 fresh RFQ 采集健康(新代,0 丢弃);W09 磁盘
+  清后 34%;.03-.06 OOM 根因链(16GB 池→分块修复→B01 全局 ASOF)已由
+  bounded checkpoint 设计终结;真实重复率历史样本 0.4%(7/6:118 万条
+  中 4,676 个重复 ID);L2 质量收据 sha 与生产端逐一核验
+  (7/12 `b7d9aa37…`)。X 族(16 vCPU)配额申请仍挂 AWS 审核。
+- blocked / handoff: ①`.10` 运行中,监控轮询 5 分钟/次,终态后按六项
+  清单验收(过程收据闭合、输入指纹、重复率+花费欠账、统计抽查复算、
+  结论边界、候选独立判读);②RFQ overlay 需 7/21 后单独授权轮(D07 锚
+  文件 d07-external-anchor.json 尚未生成安置——须绑定 RFQ 模块审计
+  收据);③.03-.10 实际花费合计仍未结账,验收时清算;④W-HYGIENE-01 待
+  纳入:aggregate_maker_edge.py 硬编码费率、mac_report_pull.sh 无环境
+  变量口子;⑤main 分支远落后于工作分支且多会话共用主目录的风险仍未
+  制度化解决。
 
 - operator scope: 最终研究要求全量合法 L1、trades、盘口图谱、L2 与
   eligible fresh RFQ；旧 284-object 受损 RFQ 继续
