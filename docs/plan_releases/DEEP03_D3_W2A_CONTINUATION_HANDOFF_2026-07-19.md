@@ -21,8 +21,14 @@ the eight exact V3 releases for `2026-07-10` through `2026-07-17`, execute
 - Research instance W09: `i-0e53d134dceffe166`, fixed role/profile
   `w09-research-runner`, region `us-east-2`, fixed Elastic IP previously
   `18.226.151.192`.
-- W09 is stopped after an attempted change to `x8g.4xlarge` could not start:
-  the account's `Running On-Demand X instances` quota was `0`. An increase to
+- W09 was returned to `r8g.2xlarge` and verified live over SSH on
+  `2026-07-19`: IMDS reported exact instance
+  `i-0e53d134dceffe166`, type `r8g.2xlarge`; the host reported `8` CPUs and
+  `64,643,260 KiB` RAM. Research and its autoresearch timer were inactive.
+  The enabled idle-stop timer remained active, so the box may stop itself
+  after its normal idle window.
+- The prior attempted change to `x8g.4xlarge` could not start because the
+  account's `Running On-Demand X instances` quota was `0`. An increase to
   `16` X vCPUs is pending AWS review.
 - A later attempt to start `r8g.8xlarge` also required a quota increase. It
   needs `32` Standard vCPUs; together with production it requires an applied
@@ -30,6 +36,11 @@ the eight exact V3 releases for `2026-07-10` through `2026-07-17`, execute
   has not been read through an account-wide API in this session.
 - The only no-new-quota W09 shape proven by prior operation is
   `r8g.2xlarge`, `8 vCPU / 64 GiB`.
+- At the same live check, the 300 GB root volume was `79%` used with about
+  `62 GB` free. A checkpointed successor must measure its storage bound,
+  remove only independently verified disposable scratch/cache, or expand EBS
+  before materializing durable partitions. Never delete source evidence or
+  immutable receipts to make space.
 - S3, IAM, exact-version manifests, EBS, and production-side publication are
   not the blocker. Do not create another IAM policy or copy the dataset.
 
