@@ -706,6 +706,7 @@ def _l1_asof_ambiguity_sql(relation: str = "l1_enriched") -> str:
                )) AS economic_variants
         FROM {relation}
         WHERE date IS NOT NULL AND market_ticker IS NOT NULL AND t_us IS NOT NULL
+          AND book_state='TWO_SIDED'
         GROUP BY date,market_ticker,t_us
       )
       SELECT count(*) FILTER (WHERE economic_variants>1) AS ambiguous_keys,
@@ -746,6 +747,68 @@ def _assert_l1_asof_timestamps_unambiguous(
             "B01 same-timestamp L1 ASOF ambiguity: "
             f"partition={marker} "
             f"ambiguous_keys={profile['ambiguous_keys']} "
+            f"ambiguous_rows={profile['ambiguous_rows']}"
+        )
+    return profile
+
+
+def _l1_interval_order_ambiguity_sql(relation: str = "l1_enriched") -> str:
+    """QC the complete receive-order key used by interval ``lead()``."""
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", relation) is None:
+        raise ValueError("invalid L1 interval-order QC relation")
+    return f"""
+      WITH keyed AS (
+        SELECT date,market_ticker,t_us,
+               coalesce(recv_wall_ns,0) AS recv_wall_key,
+               coalesce(recv_mono_ns,0) AS recv_mono_key,
+               coalesce(ws_sid,0) AS ws_sid_key,
+               coalesce(ws_seq,0) AS ws_seq_key,
+               count(*) AS raw_rows,
+               count(DISTINCT struct_pack(
+                 event_proxy:=event_proxy,sport:=sport,
+                 book_state:=book_state,occurrence_us:=occurrence_us,
+                 close_us:=close_us
+               )) AS interval_variants
+        FROM {relation}
+        WHERE date IS NOT NULL AND market_ticker IS NOT NULL AND t_us IS NOT NULL
+        GROUP BY date,market_ticker,t_us,recv_wall_key,recv_mono_key,
+                 ws_sid_key,ws_seq_key
+      )
+      SELECT count(*) FILTER (WHERE interval_variants>1) AS ambiguous_keys,
+             coalesce(sum(raw_rows) FILTER (WHERE interval_variants>1),0)
+               AS ambiguous_rows,
+             count(*) FILTER (WHERE raw_rows>1 AND interval_variants=1)
+               AS safe_duplicate_keys,
+             coalesce(sum(raw_rows-1) FILTER (
+               WHERE raw_rows>1 AND interval_variants=1
+             ),0) AS safe_duplicate_excess_rows
+      FROM keyed
+    """
+
+
+def _assert_l1_interval_order_unambiguous(
+    con, relation: str = "l1_enriched", *, marker: str = "global"
+) -> dict[str, int]:
+    row = con.execute(_l1_interval_order_ambiguity_sql(relation)).fetchone()
+    profile = {
+        "ambiguous_keys": int(row[0]),
+        "ambiguous_rows": int(row[1]),
+        "safe_duplicate_keys": int(row[2]),
+        "safe_duplicate_excess_rows": int(row[3]),
+    }
+    print(
+        "D3_W2A_QC l1_interval_full_order_tie "
+        f"partition={marker} ambiguous_keys={profile['ambiguous_keys']} "
+        f"ambiguous_rows={profile['ambiguous_rows']} "
+        f"safe_duplicate_keys={profile['safe_duplicate_keys']} "
+        "safe_duplicate_excess_rows="
+        f"{profile['safe_duplicate_excess_rows']}",
+        flush=True,
+    )
+    if profile["ambiguous_keys"]:
+        raise RuntimeError(
+            "L1 interval full receive-order ambiguity: "
+            f"partition={marker} ambiguous_keys={profile['ambiguous_keys']} "
             f"ambiguous_rows={profile['ambiguous_rows']}"
         )
     return profile
@@ -1250,6 +1313,7 @@ def setup_database(con, input_manifest: dict[str, Any]) -> dict[str, Any]:
             "ELSE 'INVALID_BOOK' END AS book_state "
             "FROM l1_norm l LEFT JOIN dim_market d USING(date,market_ticker)"
         )
+        _assert_l1_interval_order_unambiguous(con)
         _materialize_l1_intervals(con, release_dates)
 
     trade_objects = _fact_objects(input_manifest, "trades")

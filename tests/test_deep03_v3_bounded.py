@@ -19,6 +19,7 @@ from deep03_v3_methods import (  # noqa: E402
     BOUNDED_CHECKPOINT_SCHEMA,
     BOUNDED_STAGE_MANIFEST_SCHEMA,
     BoundedCheckpointStore,
+    _assert_l1_interval_order_unambiguous,
     _assert_l1_asof_timestamps_unambiguous,
     bounded_stage_abi,
     bounded_source_binding,
@@ -277,6 +278,49 @@ def test_l1_asof_qc_fails_closed_on_different_quote_at_same_key(capsys):
         )
         with pytest.raises(RuntimeError, match="same-timestamp L1 ASOF ambiguity"):
             _assert_l1_asof_timestamps_unambiguous(con)
+    finally:
+        con.close()
+    assert "ambiguous_keys=1 ambiguous_rows=2" in capsys.readouterr().out
+
+
+def test_b01_asof_qc_ignores_non_two_sided_rows_at_same_timestamp(capsys):
+    con = duckdb.connect()
+    try:
+        _install_l1_asof_rows(
+            con,
+            [
+                ("2026-07-17", "M1", 100, 1, 1, 1, 1, "TWO_SIDED", 4000, 4200),
+                ("2026-07-17", "M1", 100, 2, 2, 1, 2, "ONE_SIDED", 4100, None),
+            ],
+        )
+        profile = _assert_l1_asof_timestamps_unambiguous(con)
+        assert profile["ambiguous_keys"] == 0
+    finally:
+        con.close()
+
+
+def test_l1_interval_qc_fails_on_different_outputs_at_full_receive_order_tie(capsys):
+    con = duckdb.connect()
+    try:
+        con.execute(
+            """
+            CREATE TABLE l1_enriched(
+              date DATE,market_ticker VARCHAR,t_us BIGINT,
+              recv_wall_ns BIGINT,recv_mono_ns BIGINT,ws_sid BIGINT,ws_seq BIGINT,
+              event_proxy VARCHAR,sport VARCHAR,book_state VARCHAR,
+              occurrence_us BIGINT,close_us BIGINT
+            )
+            """
+        )
+        con.executemany(
+            "INSERT INTO l1_enriched VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                ("2026-07-17", "M1", 100, 1, 1, 1, 1, "E1", "Tennis", "TWO_SIDED", 500, 1000),
+                ("2026-07-17", "M1", 100, 1, 1, 1, 1, "E1", "Tennis", "ONE_SIDED", 500, 1000),
+            ],
+        )
+        with pytest.raises(RuntimeError, match="full receive-order ambiguity"):
+            _assert_l1_interval_order_unambiguous(con)
     finally:
         con.close()
     assert "ambiguous_keys=1 ambiguous_rows=2" in capsys.readouterr().out

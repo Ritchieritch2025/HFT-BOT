@@ -691,6 +691,9 @@ def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
     finally:
         con.close()
     assert capsys.readouterr().out.splitlines() == [
+        "D3_W2A_QC l1_interval_full_order_tie partition=global "
+        "ambiguous_keys=0 ambiguous_rows=0 safe_duplicate_keys=0 "
+        "safe_duplicate_excess_rows=0",
         "D3_W2A_STAGE l1_intervals date=2026-07-17 state=START",
         "D3_W2A_STAGE l1_intervals date=2026-07-17 state=COMPLETE",
         "D3_W2A_STAGE trade_id_qc state=START",
