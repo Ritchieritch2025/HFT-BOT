@@ -14,7 +14,12 @@ No method computes strategy PnL or emits a candidate verdict.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import math
+import os
+import re
+import uuid
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
@@ -56,6 +61,314 @@ TRADE_DEDUP_COLUMNS = (
     "taker_side",
     "occurrence_us",
 )
+BOUNDED_CHECKPOINT_SCHEMA = "deep03-bounded-checkpoint-v1"
+BOUNDED_STAGE_MANIFEST_SCHEMA = "deep03-bounded-stage-manifest-v1"
+BOUNDED_CHECKPOINT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.=-]{0,199}$")
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    """Return the single byte representation used by bounded receipts."""
+    return (
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        + "\n"
+    ).encode("ascii")
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _atomic_replace_bytes(path: Path, payload: bytes) -> None:
+    """Durably replace a metadata file; incomplete bytes are never visible."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.parent / f".{path.name}.partial-{uuid.uuid4().hex}"
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def bounded_source_binding(input_manifest: dict[str, Any]) -> str:
+    """Bind checkpoints to exact releases and exact immutable source objects.
+
+    Local cache paths are deliberately excluded: moving a byte-identical,
+    exact-version cache does not change the research input.  Every immutable
+    identity field that can change the facts remains included.
+    """
+    objects = []
+    for obj in input_manifest.get("objects") or []:
+        objects.append(
+            {
+                "release_id": obj.get("release_id"),
+                "date": obj.get("date"),
+                "kind": obj.get("kind"),
+                "channel": obj.get("channel"),
+                "logical_key": obj.get("logical_key"),
+                "source_version_id": obj.get("source_version_id"),
+                "sha256": obj.get("sha256"),
+                "row_count": obj.get("row_count"),
+            }
+        )
+    payload = {
+        "release_ids": list(input_manifest.get("release_ids") or []),
+        "release_dates": list(input_manifest.get("release_dates") or []),
+        "objects": sorted(
+            objects,
+            key=lambda row: (
+                str(row["release_id"]),
+                str(row["logical_key"]),
+                str(row["source_version_id"]),
+            ),
+        ),
+    }
+    return _sha256_bytes(_canonical_json_bytes(payload))
+
+
+class BoundedCheckpointStore:
+    """Fail-closed durable Parquet checkpoints for bounded Deep03 stages.
+
+    A partition becomes reusable only after both its Parquet payload and its
+    atomic COMPLETE receipt exist and independently verify.  A data file left
+    without a receipt is an unpublished crash remnant and is recomputed.  A
+    receipt whose bytes, schema, count, stage version, or source binding drift
+    is evidence corruption and is never silently repaired.
+    """
+
+    def __init__(self, root: Path, source_binding: str):
+        self.root = Path(root).resolve()
+        if not re.fullmatch(r"[0-9a-f]{64}", source_binding):
+            raise ValueError("bounded checkpoint source binding must be SHA-256")
+        self.source_binding = source_binding
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / ".partial").mkdir(exist_ok=True)
+
+    @staticmethod
+    def _key(value: str, label: str) -> str:
+        if not isinstance(value, str) or BOUNDED_CHECKPOINT_KEY_RE.fullmatch(value) is None:
+            raise ValueError(f"invalid bounded checkpoint {label}: {value!r}")
+        return value
+
+    def _paths(self, stage: str, partition_key: str) -> tuple[Path, Path]:
+        stage = self._key(stage, "stage")
+        partition_key = self._key(partition_key, "partition key")
+        base = self.root / stage
+        return (
+            base / "data" / f"{partition_key}.parquet",
+            base / "receipts" / f"{partition_key}.json",
+        )
+
+    def _read_receipt(self, receipt_path: Path) -> dict[str, Any]:
+        try:
+            raw = receipt_path.read_bytes()
+            receipt = json.loads(raw)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"bounded checkpoint receipt unreadable: {receipt_path}: {exc}"
+            ) from exc
+        if raw != _canonical_json_bytes(receipt):
+            raise RuntimeError(
+                f"bounded checkpoint receipt is not canonical: {receipt_path}"
+            )
+        return receipt
+
+    def validate_partition(
+        self,
+        con,
+        *,
+        stage: str,
+        stage_version: str,
+        partition_key: str,
+    ) -> dict[str, Any]:
+        data_path, receipt_path = self._paths(stage, partition_key)
+        if not receipt_path.is_file():
+            raise FileNotFoundError(receipt_path)
+        receipt = self._read_receipt(receipt_path)
+        expected = {
+            "schema_version": BOUNDED_CHECKPOINT_SCHEMA,
+            "state": "COMPLETE",
+            "stage": stage,
+            "stage_version": stage_version,
+            "partition_key": partition_key,
+            "source_binding": self.source_binding,
+        }
+        for field, value in expected.items():
+            if receipt.get(field) != value:
+                raise RuntimeError(
+                    "bounded checkpoint receipt binding mismatch: "
+                    f"{partition_key}: {field}"
+                )
+        data = receipt.get("data")
+        if not isinstance(data, dict):
+            raise RuntimeError(f"bounded checkpoint data receipt missing: {partition_key}")
+        expected_relative = data_path.relative_to(self.root).as_posix()
+        if data.get("path") != expected_relative or not data_path.is_file():
+            raise RuntimeError(f"bounded checkpoint payload missing: {partition_key}")
+        size = data_path.stat().st_size
+        if data.get("size_bytes") != size or data.get("sha256") != _sha256_path(data_path):
+            raise RuntimeError(f"bounded checkpoint payload hash mismatch: {partition_key}")
+        relation = f"read_parquet({quote(data_path)})"
+        schema = [
+            {"name": row[0], "type": row[1]}
+            for row in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
+        ]
+        if data.get("schema") != schema:
+            raise RuntimeError(f"bounded checkpoint payload schema mismatch: {partition_key}")
+        row_count = int(con.execute(f"SELECT count(*) FROM {relation}").fetchone()[0])
+        if data.get("row_count") != row_count:
+            raise RuntimeError(f"bounded checkpoint payload row-count mismatch: {partition_key}")
+        return receipt
+
+    def write_partition(
+        self,
+        con,
+        *,
+        stage: str,
+        stage_version: str,
+        partition_key: str,
+        select_sql: str,
+        metrics: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Write or verify one partition; return ``(receipt, reused)``."""
+        if not isinstance(stage_version, str) or not stage_version:
+            raise ValueError("bounded checkpoint stage version is empty")
+        data_path, receipt_path = self._paths(stage, partition_key)
+        if receipt_path.exists():
+            return (
+                self.validate_partition(
+                    con,
+                    stage=stage,
+                    stage_version=stage_version,
+                    partition_key=partition_key,
+                ),
+                True,
+            )
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        # A crash may have promoted data just before its receipt.  It was
+        # never COMPLETE, so deleting and deterministically recomputing it is
+        # the only permitted recovery.
+        if data_path.exists():
+            data_path.unlink()
+        temporary = self.root / ".partial" / f"{stage}-{partition_key}-{uuid.uuid4().hex}.parquet"
+        try:
+            con.execute(
+                f"COPY ({select_sql}) TO {quote(temporary)} "
+                "(FORMAT PARQUET,COMPRESSION ZSTD)"
+            )
+            relation = f"read_parquet({quote(temporary)})"
+            schema = [
+                {"name": row[0], "type": row[1]}
+                for row in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
+            ]
+            row_count = int(con.execute(f"SELECT count(*) FROM {relation}").fetchone()[0])
+            payload_sha256 = _sha256_path(temporary)
+            size_bytes = temporary.stat().st_size
+            os.replace(temporary, data_path)
+            receipt = {
+                "schema_version": BOUNDED_CHECKPOINT_SCHEMA,
+                "state": "COMPLETE",
+                "stage": stage,
+                "stage_version": stage_version,
+                "partition_key": partition_key,
+                "source_binding": self.source_binding,
+                "data": {
+                    "path": data_path.relative_to(self.root).as_posix(),
+                    "sha256": payload_sha256,
+                    "size_bytes": size_bytes,
+                    "row_count": row_count,
+                    "schema": schema,
+                },
+                "metrics": metrics or {},
+            }
+            _atomic_replace_bytes(receipt_path, _canonical_json_bytes(receipt))
+            return (
+                self.validate_partition(
+                    con,
+                    stage=stage,
+                    stage_version=stage_version,
+                    partition_key=partition_key,
+                ),
+                False,
+            )
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    def finalize_stage(
+        self,
+        con,
+        *,
+        stage: str,
+        stage_version: str,
+        partition_keys: Iterable[str],
+    ) -> Path:
+        """Publish a canonical complete-set manifest for exactly these keys."""
+        stage = self._key(stage, "stage")
+        keys = sorted(self._key(value, "partition key") for value in partition_keys)
+        if not keys or len(keys) != len(set(keys)):
+            raise ValueError("bounded stage partition set is empty or duplicated")
+        receipt_dir = self.root / stage / "receipts"
+        actual = sorted(path.stem for path in receipt_dir.glob("*.json"))
+        if actual != keys:
+            raise RuntimeError(
+                f"bounded stage receipt set mismatch: {stage}: expected={keys} actual={actual}"
+            )
+        partitions = []
+        for key in keys:
+            receipt = self.validate_partition(
+                con,
+                stage=stage,
+                stage_version=stage_version,
+                partition_key=key,
+            )
+            receipt_path = self._paths(stage, key)[1]
+            partitions.append(
+                {
+                    "partition_key": key,
+                    "receipt_path": receipt_path.relative_to(self.root).as_posix(),
+                    "receipt_sha256": _sha256_path(receipt_path),
+                    "data_sha256": receipt["data"]["sha256"],
+                    "row_count": receipt["data"]["row_count"],
+                }
+            )
+        manifest = {
+            "schema_version": BOUNDED_STAGE_MANIFEST_SCHEMA,
+            "state": "COMPLETE",
+            "stage": stage,
+            "stage_version": stage_version,
+            "source_binding": self.source_binding,
+            "partition_count": len(partitions),
+            "row_count": sum(row["row_count"] for row in partitions),
+            "partitions": partitions,
+        }
+        manifest_path = self.root / stage / "MANIFEST.json"
+        payload = _canonical_json_bytes(manifest)
+        if manifest_path.exists() and manifest_path.read_bytes() != payload:
+            raise RuntimeError(f"bounded immutable stage manifest drift: {stage}")
+        _atomic_replace_bytes(manifest_path, payload)
+        _atomic_replace_bytes(
+            self.root / stage / "MANIFEST.sha256",
+            (_sha256_bytes(payload) + "  MANIFEST.json\n").encode("ascii"),
+        )
+        return manifest_path
 
 
 def _json_value(value: Any) -> Any:
