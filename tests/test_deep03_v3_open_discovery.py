@@ -30,6 +30,7 @@ from deep03_v3_methods import (  # noqa: E402
     L1_INTERVAL_COLUMNS,
     TRADE_DEDUP_BUCKETS,
     TRADE_DEDUP_COLUMNS,
+    TRADE_DUPLICATE_FASTPATH_MAX_ROWS,
     _l1_interval_select_sql,
     _manifest_release_dates,
     _materialize_l1_intervals,
@@ -62,9 +63,26 @@ DEEP03_MODULES = {
 
 
 def _trade_dedup_markers(
-    profile: tuple[int, int, int, int, int] = (1, 0, 0, 1, 0),
+    profile: tuple[int, int, int, int, int, int, int] = (
+        1,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+    ),
+    fastpath_max_rows: int = TRADE_DUPLICATE_FASTPATH_MAX_ROWS,
 ) -> list[str]:
-    non_null, duplicate, conflicting, raw_rows, excess = profile
+    (
+        non_null,
+        duplicate,
+        conflicting,
+        raw_rows,
+        excess,
+        duplicate_raw_rows,
+        eligible_duplicate_raw_rows,
+    ) = profile
     rows = [
         "D3_W2A_STAGE trades_dedup state=START",
         "D3_W2A_STAGE trade_duplicate_ids state=START",
@@ -73,22 +91,50 @@ def _trade_dedup_markers(
             "D3_W2A_QC_PROFILE "
             f"non_null_id_count={non_null} duplicate_id_count={duplicate} "
             f"conflicting_id_count={conflicting} raw_rows={raw_rows} "
-            f"excess_repeat_rows={excess}"
+            f"excess_repeat_rows={excess} "
+            f"duplicate_raw_rows={duplicate_raw_rows} "
+            f"eligible_duplicate_raw_rows={eligible_duplicate_raw_rows}"
         ),
         "D3_W2A_STAGE trade_id_qc state=DROPPED",
         "D3_W2A_STAGE trades_dedup_unique state=START",
         "D3_W2A_STAGE trades_dedup_unique state=COMPLETE",
-        "D3_W2A_STAGE trade_duplicate_candidates state=START",
-        "D3_W2A_STAGE trade_duplicate_candidates state=COMPLETE",
     ]
-    for bucket in range(TRADE_DEDUP_BUCKETS):
-        label = f"{bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+    if duplicate == 0 or eligible_duplicate_raw_rows == 0:
+        rows.append("D3_W2A_STAGE trades_dedup state=COMPLETE")
+        return rows
+    if eligible_duplicate_raw_rows <= fastpath_max_rows:
         rows.extend(
             [
-                f"D3_W2A_STAGE trades_dedup bucket={label} state=START",
-                f"D3_W2A_STAGE trades_dedup bucket={label} state=COMPLETE",
+                "D3_W2A_STAGE trade_duplicate_candidates state=START",
+                "D3_W2A_STAGE trade_duplicate_candidates state=COMPLETE",
+                (
+                    "D3_W2A_QC trade_duplicate_sort_key_ambiguity "
+                    "candidate_set=global ambiguous_sort_key_count=0"
+                ),
             ]
         )
+    for bucket in range(TRADE_DEDUP_BUCKETS):
+        label = f"{bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+        rows.append(f"D3_W2A_STAGE trades_dedup bucket={label} state=START")
+        if eligible_duplicate_raw_rows > fastpath_max_rows:
+            rows.extend(
+                [
+                    (
+                        "D3_W2A_STAGE trade_duplicate_candidates "
+                        f"bucket={label} state=START"
+                    ),
+                    (
+                        "D3_W2A_STAGE trade_duplicate_candidates "
+                        f"bucket={label} state=COMPLETE"
+                    ),
+                    (
+                        "D3_W2A_QC trade_duplicate_sort_key_ambiguity "
+                        f"candidate_set=bucket-{bucket:02d}-of-"
+                        f"{TRADE_DEDUP_BUCKETS} ambiguous_sort_key_count=0"
+                    ),
+                ]
+            )
+        rows.append(f"D3_W2A_STAGE trades_dedup bucket={label} state=COMPLETE")
     rows.append("D3_W2A_STAGE trades_dedup state=COMPLETE")
     return rows
 
@@ -529,6 +575,33 @@ def _synthetic_method_input(tmp_path: Path) -> dict:
     }
 
 
+def _refresh_trade_id_qc(con) -> None:
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE trade_id_qc AS
+        SELECT trade_id,count(*) AS raw_rows,
+               count(DISTINCT hash(struct_pack(
+                 date:=date,t_us:=t_us,market_ticker:=market_ticker,
+                 yes_price_e4:=yes_price_e4,no_price_e4:=no_price_e4,
+                 count_e4:=count_e4,taker_side:=lower(taker_side)
+               ))) AS economic_variants
+        FROM trades_norm WHERE trade_id IS NOT NULL GROUP BY trade_id
+        """
+    )
+
+
+def _trade_qc_profile(con) -> tuple[int, int, int, int, int, int, int]:
+    return con.execute(
+        "SELECT count(*),count(*) FILTER (WHERE raw_rows>1),"
+        "count(*) FILTER (WHERE economic_variants>1),"
+        "coalesce(sum(raw_rows),0),coalesce(sum(raw_rows-1),0),"
+        "coalesce(sum(raw_rows) FILTER (WHERE raw_rows>1),0),"
+        "coalesce(sum(raw_rows) FILTER (WHERE raw_rows>1 "
+        "AND economic_variants=1),0) "
+        "FROM trade_id_qc"
+    ).fetchone()
+
+
 def _install_trade_dedup_fixture(con) -> None:
     con.execute(
         """CREATE TEMP TABLE trades_norm(
@@ -580,18 +653,7 @@ def _install_trade_dedup_fixture(con) -> None:
         "(DATE '2026-07-18','M1','E-DIM-18',190,1000)"
     )
     # This is intentionally byte-for-byte the production global QC estimand.
-    con.execute(
-        """
-        CREATE OR REPLACE TEMP TABLE trade_id_qc AS
-        SELECT trade_id,count(*) AS raw_rows,
-               count(DISTINCT hash(struct_pack(
-                 date:=date,t_us:=t_us,market_ticker:=market_ticker,
-                 yes_price_e4:=yes_price_e4,no_price_e4:=no_price_e4,
-                 count_e4:=count_e4,taker_side:=lower(taker_side)
-               ))) AS economic_variants
-        FROM trades_norm WHERE trade_id IS NOT NULL GROUP BY trade_id
-        """
-    )
+    _refresh_trade_id_qc(con)
 
 
 def test_corrected_methods_execute_or_close_not_estimable_with_evidence(
@@ -659,13 +721,8 @@ def test_duplicate_only_bucketed_trades_equal_legacy_global_query(capsys):
     con = duckdb.connect()
     try:
         _install_trade_dedup_fixture(con)
-        qc_profile = con.execute(
-            "SELECT count(*),count(*) FILTER (WHERE raw_rows>1),"
-            "count(*) FILTER (WHERE economic_variants>1),"
-            "coalesce(sum(raw_rows),0),coalesce(sum(raw_rows-1),0) "
-            "FROM trade_id_qc"
-        ).fetchone()
-        assert qc_profile == (14, 7, 3, 21, 7)
+        qc_profile = _trade_qc_profile(con)
+        assert qc_profile == (14, 7, 3, 21, 7, 14, 8)
         cross_day_qc = con.execute(
             "SELECT raw_rows,economic_variants FROM trade_id_qc "
             "WHERE trade_id='cross-same-id'"
@@ -769,27 +826,270 @@ def test_duplicate_only_bucketed_trades_equal_legacy_global_query(capsys):
         con.close()
 
 
+@pytest.mark.parametrize(
+    "profile",
+    [
+        (3, 0, 0, 3, 0, 0, 0),
+        (1, 1, 1, 2, 1, 2, 0),
+    ],
+    ids=("no-duplicate-ids", "only-conflicting-duplicate-ids"),
+)
+def test_trade_dedup_zero_eligible_duplicates_skips_all_candidates(
+    profile, capsys
+):
+    class RecordingConnection:
+        def __init__(self):
+            self.statements = []
+            self.result = None
+
+        def execute(self, sql):
+            normalized = " ".join(sql.split())
+            self.statements.append(normalized)
+            if normalized.startswith("SELECT count(*) AS non_null_id_count"):
+                self.result = profile
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    con = RecordingConnection()
+    _materialize_trades_dedup(con)
+    assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(profile)
+    assert len(con.statements) == 6
+    assert con.statements[-1] == "DROP TABLE trade_duplicate_ids"
+    assert any(
+        statement.startswith("INSERT INTO trades_dedup(")
+        for statement in con.statements
+    )
+    assert not any(
+        "trade_duplicate_candidates" in statement
+        for statement in con.statements
+    )
+
+
+@pytest.mark.parametrize(
+    ("eligible_duplicate_raw_rows", "uses_global_candidate"),
+    [
+        (TRADE_DUPLICATE_FASTPATH_MAX_ROWS, True),
+        (TRADE_DUPLICATE_FASTPATH_MAX_ROWS + 1, False),
+    ],
+    ids=("at-fastpath-limit", "above-fastpath-limit"),
+)
+def test_trade_dedup_fastpath_threshold_is_inclusive_and_fallback_is_bucketed(
+    eligible_duplicate_raw_rows, uses_global_candidate, capsys
+):
+    profile = (
+        1,
+        1,
+        0,
+        eligible_duplicate_raw_rows,
+        eligible_duplicate_raw_rows - 1,
+        eligible_duplicate_raw_rows,
+        eligible_duplicate_raw_rows,
+    )
+
+    class RecordingConnection:
+        def __init__(self):
+            self.statements = []
+            self.result = None
+
+        def execute(self, sql):
+            normalized = " ".join(sql.split())
+            self.statements.append(normalized)
+            if normalized.startswith("SELECT count(*) AS non_null_id_count"):
+                self.result = profile
+            elif normalized.startswith("SELECT count(*) FROM ("):
+                self.result = (0,)
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    con = RecordingConnection()
+    _materialize_trades_dedup(con)
+    assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(profile)
+    candidate_ctas = [
+        statement
+        for statement in con.statements
+        if statement.startswith(
+            "CREATE OR REPLACE TEMP TABLE trade_duplicate_candidates AS"
+        )
+    ]
+    ambiguity_qc = [
+        statement
+        for statement in con.statements
+        if statement.startswith("SELECT count(*) FROM (")
+    ]
+    candidate_drops = [
+        statement
+        for statement in con.statements
+        if statement == "DROP TABLE trade_duplicate_candidates"
+    ]
+    expected_sets = 1 if uses_global_candidate else TRADE_DEDUP_BUCKETS
+    assert len(candidate_ctas) == expected_sets
+    assert len(ambiguity_qc) == expected_sets
+    assert len(candidate_drops) == expected_sets
+    if uses_global_candidate:
+        assert "AND q.qc_bucket=" not in candidate_ctas[0]
+    else:
+        for bucket, statement in enumerate(candidate_ctas):
+            assert (
+                f"ON t.trade_id=q.trade_id AND q.qc_bucket={bucket} "
+                f"AND hash(t.trade_id)%{TRADE_DEDUP_BUCKETS}={bucket}"
+            ) in statement
+
+
+def test_large_duplicate_fallback_preserves_legacy_global_result(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        deep03_methods, "TRADE_DUPLICATE_FASTPATH_MAX_ROWS", 1
+    )
+    con = duckdb.connect()
+    try:
+        _install_trade_dedup_fixture(con)
+        profile = _trade_qc_profile(con)
+        con.execute(
+            "CREATE TEMP TABLE trades_dedup_legacy AS "
+            + _legacy_trade_dedup_select_sql()
+        )
+        _materialize_trades_dedup(con)
+        assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(
+            profile, fastpath_max_rows=1
+        )
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM trades_dedup_legacy EXCEPT ALL "
+            "SELECT * FROM trades_dedup)"
+        ).fetchone() == (0,)
+        assert con.execute(
+            "SELECT count(*) FROM ("
+            "SELECT * FROM trades_dedup EXCEPT ALL "
+            "SELECT * FROM trades_dedup_legacy)"
+        ).fetchone() == (0,)
+        assert con.execute(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name IN "
+            "('trade_id_qc','trade_duplicate_ids',"
+            "'trade_duplicate_candidates')"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def _add_exact_sort_tie(con, event_proxies: tuple[str, str]) -> None:
+    rows = [
+        (
+            "2026-07-17",
+            400,
+            8,
+            9,
+            "M1",
+            event_proxy,
+            "S",
+            "Tennis",
+            "ATP",
+            "exact-sort-tie",
+            6000,
+            4000,
+            1600,
+            "yes",
+        )
+        for event_proxy in event_proxies
+    ]
+    con.executemany(
+        "INSERT INTO trades_norm VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
+    )
+    _refresh_trade_id_qc(con)
+
+
+@pytest.mark.parametrize(
+    ("fastpath_max_rows", "candidate_set"),
+    [
+        (TRADE_DUPLICATE_FASTPATH_MAX_ROWS, "global"),
+        (1, None),
+    ],
+    ids=("global-candidate", "bucket-candidate"),
+)
+def test_trade_dedup_ambiguous_full_sort_key_fails_closed(
+    fastpath_max_rows, candidate_set, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        deep03_methods,
+        "TRADE_DUPLICATE_FASTPATH_MAX_ROWS",
+        fastpath_max_rows,
+    )
+    con = duckdb.connect()
+    try:
+        _install_trade_dedup_fixture(con)
+        _add_exact_sort_tie(con, ("E-TIE-A", "E-TIE-B"))
+        bucket = con.execute(
+            "SELECT hash('exact-sort-tie')%32"
+        ).fetchone()[0]
+        expected_set = candidate_set or f"bucket-{bucket:02d}-of-32"
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                "trade duplicate candidate sort-key ambiguity: "
+                f"candidate_set={expected_set} ambiguous_sort_key_count=1"
+            ),
+        ):
+            _materialize_trades_dedup(con)
+        lines = capsys.readouterr().out.splitlines()
+        assert (
+            "D3_W2A_QC trade_duplicate_sort_key_ambiguity "
+            f"candidate_set={expected_set} ambiguous_sort_key_count=1"
+        ) in lines
+        assert "D3_W2A_STAGE trades_dedup state=COMPLETE" not in lines
+    finally:
+        con.close()
+
+
+def test_trade_dedup_identical_full_sort_key_output_tie_is_legal(capsys):
+    con = duckdb.connect()
+    try:
+        _install_trade_dedup_fixture(con)
+        _add_exact_sort_tie(con, ("E-TIE-SAME", "E-TIE-SAME"))
+        profile = _trade_qc_profile(con)
+        _materialize_trades_dedup(con)
+        assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(
+            profile
+        )
+        assert con.execute(
+            "SELECT count(*),min(event_proxy) FROM trades_dedup "
+            "WHERE trade_id='exact-sort-tie'"
+        ).fetchone() == (1, "E-TIE-SAME")
+    finally:
+        con.close()
+
+
 def test_trade_dedup_query_shape_is_unique_fastpath_then_32_duplicate_buckets(
     capsys,
 ):
     class RecordingConnection:
         def __init__(self):
             self.statements = []
-            self.profile = (10, 2, 1, 12, 2)
+            self.profile = (10, 2, 1, 12, 2, 4, 2)
+            self.result = None
 
         def execute(self, sql):
-            self.statements.append(" ".join(sql.split()))
+            normalized = " ".join(sql.split())
+            self.statements.append(normalized)
+            if normalized.startswith("SELECT count(*) AS non_null_id_count"):
+                self.result = self.profile
+            elif normalized.startswith("SELECT count(*) FROM ("):
+                self.result = (0,)
             return self
 
         def fetchone(self):
-            return self.profile
+            return self.result
 
     con = RecordingConnection()
     _materialize_trades_dedup(con)
     assert capsys.readouterr().out.splitlines() == _trade_dedup_markers(
         con.profile
     )
-    assert len(con.statements) == 40
+    assert len(con.statements) == 41
     assert con.statements[0].startswith(
         "CREATE OR REPLACE TEMP TABLE trades_dedup(date DATE,t_us BIGINT"
     )
@@ -810,7 +1110,13 @@ def test_trade_dedup_query_shape_is_unique_fastpath_then_32_duplicate_buckets(
     assert "t.recv_wall_ns,t.recv_mono_ns" in con.statements[5]
     assert "hash(t.trade_id)%32 AS source_bucket" in con.statements[5]
     assert "hash(t.trade_id)%32=q.qc_bucket" in con.statements[5]
-    bucket_inserts = con.statements[6:38]
+    ambiguity_qc = con.statements[6]
+    assert "GROUP BY trade_id,t_us,coalesce(recv_wall_ns,0)" in ambiguity_qc
+    assert "coalesce(recv_mono_ns,0),market_ticker" in ambiguity_qc
+    assert "count(DISTINCT struct_pack(" in ambiguity_qc
+    for field in TRADE_DEDUP_COLUMNS:
+        assert f"{field}:={field}" in ambiguity_qc
+    bucket_inserts = con.statements[7:39]
     assert len(bucket_inserts) == TRADE_DEDUP_BUCKETS
     for bucket, statement in enumerate(bucket_inserts):
         assert statement.startswith(
@@ -824,7 +1130,7 @@ def test_trade_dedup_query_shape_is_unique_fastpath_then_32_duplicate_buckets(
             "coalesce(c.recv_mono_ns,0),c.market_ticker"
         ) in statement
         assert "PARTITION BY c.date" not in statement
-    assert con.statements[38:] == [
+    assert con.statements[39:] == [
         "DROP TABLE trade_duplicate_candidates",
         "DROP TABLE trade_duplicate_ids",
     ]
@@ -839,10 +1145,15 @@ def test_trade_dedup_bucket_failure_stops_before_complete_marker(capsys):
     class FailingConnection:
         def __init__(self):
             self.statements = []
+            self.result = None
 
         def execute(self, sql):
             normalized = " ".join(sql.split())
             self.statements.append(normalized)
+            if normalized.startswith("SELECT count(*) AS non_null_id_count"):
+                self.result = (2, 1, 0, 2, 1, 2, 2)
+            elif normalized.startswith("SELECT count(*) FROM ("):
+                self.result = (0,)
             if normalized.startswith("INSERT INTO trades_dedup(") and (
                 "c.source_bucket=7" in normalized
             ):
@@ -850,16 +1161,17 @@ def test_trade_dedup_bucket_failure_stops_before_complete_marker(capsys):
             return self
 
         def fetchone(self):
-            return (1, 0, 0, 1, 0)
+            return self.result
 
     con = FailingConnection()
     with pytest.raises(RuntimeError, match="synthetic bucket failure"):
         _materialize_trades_dedup(con)
     lines = capsys.readouterr().out.splitlines()
-    stop = _trade_dedup_markers().index(
+    profile = (2, 1, 0, 2, 1, 2, 2)
+    stop = _trade_dedup_markers(profile).index(
         "D3_W2A_STAGE trades_dedup bucket=07/32 state=START"
     )
-    assert lines == _trade_dedup_markers()[: stop + 1]
+    assert lines == _trade_dedup_markers(profile)[: stop + 1]
     assert "D3_W2A_STAGE trades_dedup state=COMPLETE" not in lines
     assert "DROP TABLE trade_id_qc" in con.statements
     assert "DROP TABLE trade_duplicate_candidates" not in con.statements

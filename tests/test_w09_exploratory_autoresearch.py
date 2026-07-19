@@ -336,6 +336,7 @@ def test_deployment_payload_and_timer_are_pinned():
         rows.append(relative)
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
     assert set(rows) == {
+        "deploy/w09/deep03_open_discovery_modules.sha256",
         "deploy/w09/deep03_authority_gate.py",
         "deploy/w09/deep03_one_shot_arm.py",
         "deploy/w09/exploratory_v3_query_canary.py",

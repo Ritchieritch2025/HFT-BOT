@@ -43,6 +43,7 @@ L1_INTERVAL_COLUMNS = (
     "phase",
 )
 TRADE_DEDUP_BUCKETS = 32
+TRADE_DUPLICATE_FASTPATH_MAX_ROWS = 1_000_000
 TRADE_DEDUP_COLUMNS = (
     "date",
     "t_us",
@@ -341,6 +342,102 @@ def _trade_duplicate_bucket_select_sql(bucket: int) -> str:
     """
 
 
+def _trade_duplicate_candidate_select_sql(bucket: int | None = None) -> str:
+    """Return the narrow duplicate candidate projection, optionally bucketed."""
+    if bucket is None:
+        bucket_join = ""
+    else:
+        if isinstance(bucket, bool) or not isinstance(bucket, int):
+            raise ValueError("trade dedup bucket must be an integer")
+        if bucket < 0 or bucket >= TRADE_DEDUP_BUCKETS:
+            raise ValueError("trade dedup bucket is outside the fixed 32 buckets")
+        bucket_join = (
+            f" AND q.qc_bucket={bucket}"
+            f" AND hash(t.trade_id)%{TRADE_DEDUP_BUCKETS}={bucket}"
+        )
+    return f"""
+        SELECT t.date,t.t_us,t.market_ticker,
+               coalesce(t.fact_event_ticker,d.event_ticker,t.market_ticker)
+                 AS event_proxy,
+               t.sport,t.trade_id,t.yes_price_e4,t.count_e4,t.taker_side,
+               d.occurrence_us,t.recv_wall_ns,t.recv_mono_ns,
+               hash(t.trade_id)%{TRADE_DEDUP_BUCKETS} AS source_bucket,
+               q.qc_bucket
+        FROM trades_norm t JOIN trade_duplicate_ids q
+          ON t.trade_id=q.trade_id{bucket_join}
+        LEFT JOIN dim_market d
+          ON t.date=d.date AND t.market_ticker=d.market_ticker
+        WHERE q.economic_variants=1
+          AND hash(t.trade_id)%{TRADE_DEDUP_BUCKETS}=q.qc_bucket
+          AND t.date IS NOT NULL AND t.t_us IS NOT NULL
+          AND t.market_ticker IS NOT NULL
+    """
+
+
+def _assert_trade_duplicate_sort_key_unambiguous(
+    con, candidate_set: str
+) -> None:
+    """Fail closed when an exact winner sort key maps to different outputs."""
+    ambiguous_sort_key_count = int(
+        con.execute(
+            """
+            SELECT count(*)
+            FROM (
+              SELECT trade_id,t_us,coalesce(recv_wall_ns,0),
+                     coalesce(recv_mono_ns,0),market_ticker
+              FROM trade_duplicate_candidates
+              GROUP BY trade_id,t_us,coalesce(recv_wall_ns,0),
+                       coalesce(recv_mono_ns,0),market_ticker
+              HAVING count(DISTINCT struct_pack(
+                       date:=date,t_us:=t_us,market_ticker:=market_ticker,
+                       event_proxy:=event_proxy,sport:=sport,
+                       trade_id:=trade_id,yes_price_e4:=yes_price_e4,
+                       count_e4:=count_e4,taker_side:=taker_side,
+                       occurrence_us:=occurrence_us
+                     )) > 1
+            ) ambiguous_sort_keys
+            """
+        ).fetchone()[0]
+    )
+    print(
+        "D3_W2A_QC trade_duplicate_sort_key_ambiguity "
+        f"candidate_set={candidate_set} "
+        f"ambiguous_sort_key_count={ambiguous_sort_key_count}",
+        flush=True,
+    )
+    if ambiguous_sort_key_count:
+        raise RuntimeError(
+            "trade duplicate candidate sort-key ambiguity: "
+            f"candidate_set={candidate_set} "
+            f"ambiguous_sort_key_count={ambiguous_sort_key_count}"
+        )
+
+
+def _materialize_trade_duplicate_candidates(
+    con, bucket: int | None = None
+) -> None:
+    """Create and validate one bounded candidate set."""
+    if bucket is None:
+        candidate_set = "global"
+        marker = ""
+    else:
+        candidate_set = f"bucket-{bucket:02d}-of-{TRADE_DEDUP_BUCKETS}"
+        marker = f" bucket={bucket:02d}/{TRADE_DEDUP_BUCKETS}"
+    print(
+        f"D3_W2A_STAGE trade_duplicate_candidates{marker} state=START",
+        flush=True,
+    )
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE trade_duplicate_candidates AS "
+        + _trade_duplicate_candidate_select_sql(bucket)
+    )
+    print(
+        f"D3_W2A_STAGE trade_duplicate_candidates{marker} state=COMPLETE",
+        flush=True,
+    )
+    _assert_trade_duplicate_sort_key_unambiguous(con, candidate_set)
+
+
 def _materialize_trades_dedup(con) -> None:
     """Stream unique IDs and bucket only true duplicate trade IDs."""
     print("D3_W2A_STAGE trades_dedup state=START", flush=True)
@@ -370,7 +467,12 @@ def _materialize_trades_dedup(con) -> None:
                count(*) FILTER (WHERE economic_variants>1)
                  AS conflicting_id_count,
                coalesce(sum(raw_rows),0) AS raw_rows,
-               coalesce(sum(raw_rows-1),0) AS excess_repeat_rows
+               coalesce(sum(raw_rows-1),0) AS excess_repeat_rows,
+               coalesce(sum(raw_rows) FILTER (WHERE raw_rows>1),0)
+                 AS duplicate_raw_rows,
+               coalesce(sum(raw_rows) FILTER (
+                 WHERE raw_rows>1 AND economic_variants=1
+               ),0) AS eligible_duplicate_raw_rows
         FROM trade_id_qc
         """
     ).fetchone()
@@ -380,7 +482,9 @@ def _materialize_trades_dedup(con) -> None:
         f"duplicate_id_count={int(profile[1])} "
         f"conflicting_id_count={int(profile[2])} "
         f"raw_rows={int(profile[3])} "
-        f"excess_repeat_rows={int(profile[4])}",
+        f"excess_repeat_rows={int(profile[4])} "
+        f"duplicate_raw_rows={int(profile[5])} "
+        f"eligible_duplicate_raw_rows={int(profile[6])}",
         flush=True,
     )
     # Nothing after this point consumes the global QC table.  Release it
@@ -413,31 +517,20 @@ def _materialize_trades_dedup(con) -> None:
     )
     print("D3_W2A_STAGE trades_dedup_unique state=COMPLETE", flush=True)
 
-    # Only real, globally non-conflicting duplicates reach the window.  Carry
-    # the 10 consumed output columns plus the two original receive-clock
-    # tie-breaks and both independently computed bucket witnesses.
-    print("D3_W2A_STAGE trade_duplicate_candidates state=START", flush=True)
-    con.execute(
-        f"""
-        CREATE OR REPLACE TEMP TABLE trade_duplicate_candidates AS
-        SELECT t.date,t.t_us,t.market_ticker,
-               coalesce(t.fact_event_ticker,d.event_ticker,t.market_ticker)
-                 AS event_proxy,
-               t.sport,t.trade_id,t.yes_price_e4,t.count_e4,t.taker_side,
-               d.occurrence_us,t.recv_wall_ns,t.recv_mono_ns,
-               hash(t.trade_id)%{TRADE_DEDUP_BUCKETS} AS source_bucket,
-               q.qc_bucket
-        FROM trades_norm t JOIN trade_duplicate_ids q
-          ON t.trade_id=q.trade_id
-        LEFT JOIN dim_market d
-          ON t.date=d.date AND t.market_ticker=d.market_ticker
-        WHERE q.economic_variants=1
-          AND hash(t.trade_id)%{TRADE_DEDUP_BUCKETS}=q.qc_bucket
-          AND t.date IS NOT NULL AND t.t_us IS NOT NULL
-          AND t.market_ticker IS NOT NULL
-        """
+    eligible_duplicate_raw_rows = int(profile[6])
+    if int(profile[1]) == 0 or eligible_duplicate_raw_rows == 0:
+        con.execute("DROP TABLE trade_duplicate_ids")
+        print("D3_W2A_STAGE trades_dedup state=COMPLETE", flush=True)
+        return
+
+    # Small duplicate sets retain the single narrow candidate CTAS.  Larger
+    # sets rescan the source once per complete trade-id hash bucket so that no
+    # all-duplicate candidate table is ever resident at once.
+    use_global_candidate = (
+        eligible_duplicate_raw_rows <= TRADE_DUPLICATE_FASTPATH_MAX_ROWS
     )
-    print("D3_W2A_STAGE trade_duplicate_candidates state=COMPLETE", flush=True)
+    if use_global_candidate:
+        _materialize_trade_duplicate_candidates(con)
 
     for bucket in range(TRADE_DEDUP_BUCKETS):
         label = f"{bucket:02d}/{TRADE_DEDUP_BUCKETS}"
@@ -445,15 +538,20 @@ def _materialize_trades_dedup(con) -> None:
             f"D3_W2A_STAGE trades_dedup bucket={label} state=START",
             flush=True,
         )
+        if not use_global_candidate:
+            _materialize_trade_duplicate_candidates(con, bucket)
         con.execute(
             f"INSERT INTO trades_dedup({columns}) "
             + _trade_duplicate_bucket_select_sql(bucket)
         )
+        if not use_global_candidate:
+            con.execute("DROP TABLE trade_duplicate_candidates")
         print(
             f"D3_W2A_STAGE trades_dedup bucket={label} state=COMPLETE",
             flush=True,
         )
-    con.execute("DROP TABLE trade_duplicate_candidates")
+    if use_global_candidate:
+        con.execute("DROP TABLE trade_duplicate_candidates")
     con.execute("DROP TABLE trade_duplicate_ids")
     print("D3_W2A_STAGE trades_dedup state=COMPLETE", flush=True)
 
