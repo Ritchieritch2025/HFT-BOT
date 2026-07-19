@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+exec /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/research_inbox_control.py "$@"

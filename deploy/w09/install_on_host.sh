@@ -8,6 +8,7 @@ PAYLOAD_ROOT="${1:-/tmp/w09-bringup}"
 INSTALL_ROOT="/opt/w09/research"
 VENV="/opt/w09/venv"
 CACHE_ROOT="/srv/w09-research/cache"
+INBOX_ROOT="/srv/w09-research/inbox"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "W09_INSTALL_REFUSED: run as root" >&2
@@ -63,6 +64,15 @@ fi
 if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
       deploy/w09/exploratory_autoresearch_payload.sha256 >/dev/null); then
     echo "W09_INSTALL_REFUSED: exploratory autoresearch payload mismatch" >&2
+    exit 65
+fi
+if [ ! -f "$PAYLOAD_ROOT/deploy/w09/research_inbox_payload.sha256" ]; then
+    echo "W09_INSTALL_REFUSED: Research Inbox payload manifest missing" >&2
+    exit 66
+fi
+if ! (cd "$PAYLOAD_ROOT" && sha256sum -c \
+      deploy/w09/research_inbox_payload.sha256 >/dev/null); then
+    echo "W09_INSTALL_REFUSED: Research Inbox payload mismatch" >&2
     exit 65
 fi
 if ! grep -Eq '^[0-9a-f]{40}$' \
@@ -133,7 +143,8 @@ systemctl enable --now chrony.service
 systemctl restart chrony.service
 
 install -d -m 0755 /opt/w09 "$INSTALL_ROOT/tools" \
-    "$INSTALL_ROOT/tools/research" "$INSTALL_ROOT/config" /etc/w09 \
+    "$INSTALL_ROOT/tools/research" "$INSTALL_ROOT/tools/research/plugins" \
+    "$INSTALL_ROOT/deploy/w09" "$INSTALL_ROOT/config" /etc/w09 \
     /etc/w09/deep03 /etc/w09/deep03/approvals
 install -m 0644 "$PAYLOAD_ROOT/tools/research_data.py" \
     "$INSTALL_ROOT/tools/research_data.py"
@@ -147,6 +158,19 @@ for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
     install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
         "$INSTALL_ROOT/tools/research/$module"
 done
+for module in inbox.py plan_contract.py data_catalog.py data_resolver.py \
+              plugin_api.py; do
+    install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
+        "$INSTALL_ROOT/tools/research/$module"
+done
+install -m 0644 "$PAYLOAD_ROOT/tools/research/plugins/__init__.py" \
+    "$INSTALL_ROOT/tools/research/plugins/__init__.py"
+install -m 0444 "$PAYLOAD_ROOT/tools/research/plugins/deep03.py" \
+    "$INSTALL_ROOT/tools/research/plugins/deep03.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_job_worker.py" \
+    "$INSTALL_ROOT/deploy/w09/research_job_worker.py"
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/research_inbox_control.py" \
+    "$INSTALL_ROOT/tools/research_inbox_control.py"
 install -m 0644 \
     "$PAYLOAD_ROOT/deploy/w09/deep03_open_discovery_modules.sha256" \
     "$INSTALL_ROOT/deep03_open_discovery_modules.sha256"
@@ -196,7 +220,10 @@ python3 -m venv "$VENV"
 PYTHONPATH="$INSTALL_ROOT/tools" "$VENV/bin/python" -c \
     'import research_data as rd, research_reference as rr; assert rd.ref is rr; print("research_reader=v2+v3")'
 
-install -d -o ubuntu -g ubuntu -m 0750 /srv/w09-research "$CACHE_ROOT"
+install -d -o ubuntu -g ubuntu -m 0750 \
+    /srv/w09-research "$CACHE_ROOT" "$INBOX_ROOT" \
+    "$INBOX_ROOT/jobs" "$INBOX_ROOT/.incoming" \
+    "$INBOX_ROOT/.control" "$INBOX_ROOT/.locks"
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/cost-contract.json" \
     /etc/w09/cost-contract.json
 cat > /usr/local/bin/research_data <<'EOF'
@@ -241,7 +268,13 @@ install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09-inhibit-run" \
     /usr/local/libexec/w09-inhibit-run
 install -m 0440 "$PAYLOAD_ROOT/deploy/w09/w09-inhibit-run.sudoers" \
     /etc/sudoers.d/w09-inhibit-run
+install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09-research-inbox-control" \
+    /usr/local/libexec/w09-research-inbox-control
+install -m 0440 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-research-inbox-control.sudoers" \
+    /etc/sudoers.d/w09-research-inbox-control
 /usr/sbin/visudo -cf /etc/sudoers.d/w09-inhibit-run >/dev/null
+/usr/sbin/visudo -cf /etc/sudoers.d/w09-research-inbox-control >/dev/null
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/acceptance_on_host.sh" \
     /usr/local/bin/w09-accept
 install -m 0644 "$PAYLOAD_ROOT/deploy/w09/w09-idle-check.service" \
@@ -254,6 +287,26 @@ install -m 0644 \
 install -m 0644 \
     "$PAYLOAD_ROOT/deploy/w09/w09-exploratory-autoresearch.timer" \
     /etc/systemd/system/w09-exploratory-autoresearch.timer
+install -m 0644 \
+    "$PAYLOAD_ROOT/deploy/w09/w09-research-inbox-worker@.service" \
+    /etc/systemd/system/w09-research-inbox-worker@.service
+
+sha256sum \
+    "$INSTALL_ROOT/deploy/w09/research_job_worker.py" \
+    "$INSTALL_ROOT/tools/research_inbox_control.py" \
+    "$INSTALL_ROOT/tools/research_reference.py" \
+    "$INSTALL_ROOT/tools/research/inbox.py" \
+    "$INSTALL_ROOT/tools/research/plan_contract.py" \
+    "$INSTALL_ROOT/tools/research/data_catalog.py" \
+    "$INSTALL_ROOT/tools/research/data_resolver.py" \
+    "$INSTALL_ROOT/tools/research/plugin_api.py" \
+    "$INSTALL_ROOT/tools/research/plugins/__init__.py" \
+    "$INSTALL_ROOT/tools/research/plugins/deep03.py" \
+    /usr/local/libexec/w09-research-inbox-control \
+    /etc/systemd/system/w09-research-inbox-worker@.service \
+    > /etc/w09/research_inbox.sha256
+chmod 0444 /etc/w09/research_inbox.sha256
+sha256sum -c /etc/w09/research_inbox.sha256 >/dev/null
 
 sha256sum \
     "$INSTALL_ROOT/tools/v3_query_canary.py" \

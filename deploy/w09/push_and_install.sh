@@ -11,6 +11,7 @@ READER_MODULE_MANIFEST="$HERE/research_reader_modules.sha256"
 QUERY_CANARY_MANIFEST="$HERE/v3_query_canary.sha256"
 DEEP03_MODULE_MANIFEST="$HERE/deep03_open_discovery_modules.sha256"
 EXPLORATORY_MANIFEST="$HERE/exploratory_autoresearch_payload.sha256"
+INBOX_MANIFEST="$HERE/research_inbox_payload.sha256"
 
 if [ "${W09_SHUTDOWN_BEHAVIOR_CONFIRMED:-}" != "stop" ]; then
     echo "W09_SHUTDOWN_GATE: first confirm InstanceInitiatedShutdownBehavior=stop, then run with W09_SHUTDOWN_BEHAVIOR_CONFIRMED=stop" >&2
@@ -52,6 +53,15 @@ if ! (cd "$ROOT" && \
     echo "W09_SOURCE_GATE: exploratory autoresearch payload changed" >&2
     exit 65
 fi
+if [ ! -f "$INBOX_MANIFEST" ]; then
+    echo "W09_SOURCE_GATE: Research Inbox payload manifest missing" >&2
+    exit 65
+fi
+if ! (cd "$SOURCE_REPO" && \
+      shasum -a 256 -c "$INBOX_MANIFEST" >/dev/null); then
+    echo "W09_SOURCE_GATE: pinned Research Inbox payload changed" >&2
+    exit 65
+fi
 if [ ! -f "$KEY" ]; then
     echo "W09_SSH_GATE: key missing: $KEY" >&2
     exit 66
@@ -69,7 +79,7 @@ fi
 tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
-mkdir -p "$tmp/tools/research" "$tmp/config" "$tmp/deploy/w09"
+mkdir -p "$tmp/tools/research/plugins" "$tmp/config" "$tmp/deploy/w09"
 cp "$SOURCE_REPO/tools/research_data.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/research_reference.py" "$tmp/tools/"
 cp "$SOURCE_REPO/tools/warehouse_common.py" "$tmp/tools/"
@@ -78,10 +88,19 @@ for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_runner.py; do
     cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
 done
+for module in inbox.py plan_contract.py data_catalog.py data_resolver.py \
+              plugin_api.py; do
+    cp "$SOURCE_REPO/tools/research/$module" "$tmp/tools/research/"
+done
+cp "$SOURCE_REPO/tools/research/plugins/__init__.py" \
+    "$tmp/tools/research/plugins/"
+cp "$SOURCE_REPO/tools/research/plugins/deep03.py" \
+    "$tmp/tools/research/plugins/"
 cp "$SOURCE_REPO/config/warehouse.yaml" "$tmp/config/"
 cp "$READER_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$DEEP03_MODULE_MANIFEST" "$tmp/deploy/w09/"
 cp "$EXPLORATORY_MANIFEST" "$tmp/deploy/w09/"
+cp "$INBOX_MANIFEST" "$tmp/deploy/w09/"
 printf '%s\n' "$SOURCE_COMMIT" > "$tmp/deploy/w09/source-commit.txt"
 for file in \
     acceptance_on_host.sh amazon-time-sync.sources cost-contract.json \
@@ -93,6 +112,9 @@ for file in \
     v3_query_canary.sha256 exploratory_v3_query_canary.py \
     exploratory_release_selector.py exploratory_autoresearch.py \
     deep03_authority_gate.py \
+    research_job_worker.py research_inbox_control.py \
+    w09-research-inbox-control w09-research-inbox-control.sudoers \
+    w09-research-inbox-worker@.service \
     w09-exploratory-autoresearch.service \
     w09-exploratory-autoresearch.timer; do
     cp "$HERE/$file" "$tmp/deploy/w09/$file"
