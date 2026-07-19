@@ -60,6 +60,9 @@ DEEP03_MODULES = {
     "tools/research/deep03_v3_prepare.py",
     "tools/research/deep03_v3_methods.py",
     "tools/research/deep03_v3_runner.py",
+    "tools/research/deep03_fullscope_graph.py",
+    "tools/research/deep03_v3_l2.py",
+    "tools/research/deep03_fullscope_runner.py",
 }
 
 
@@ -1428,3 +1431,4 @@ def test_w09_payload_sha_pins_and_installs_every_deep03_module():
     assert "/usr/local/bin/deep03-v3-prepare" in install
     assert "/usr/local/bin/deep03-v3-w1-preflight" in install
     assert "/usr/local/bin/deep03-v3-run" in install
+    assert "/usr/local/bin/deep03-v3-fullscope-run" in install

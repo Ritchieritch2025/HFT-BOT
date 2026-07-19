@@ -25,7 +25,8 @@ for module in research_data.py research_reference.py warehouse_common.py; do
 done
 for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_prepare.py deep03_v3_methods.py \
-              deep03_v3_runner.py; do
+              deep03_v3_runner.py deep03_fullscope_graph.py \
+              deep03_v3_l2.py deep03_fullscope_runner.py; do
     if [ ! -f "$PAYLOAD_ROOT/tools/research/$module" ]; then
         echo "W09_INSTALL_REFUSED: missing Deep03 module: $module" >&2
         exit 66
@@ -158,7 +159,8 @@ install -m 0644 "$PAYLOAD_ROOT/tools/warehouse_common.py" \
     "$INSTALL_ROOT/tools/warehouse_common.py"
 for module in deep03_v3_common.py deep03_v3_w1_preflight.py \
               deep03_v3_prepare.py deep03_v3_methods.py \
-              deep03_v3_runner.py; do
+              deep03_v3_runner.py deep03_fullscope_graph.py \
+              deep03_v3_l2.py deep03_fullscope_runner.py; do
     install -m 0644 "$PAYLOAD_ROOT/tools/research/$module" \
         "$INSTALL_ROOT/tools/research/$module"
 done
@@ -248,6 +250,13 @@ exec /opt/w09/venv/bin/python \
   /opt/w09/research/tools/research/deep03_v3_runner.py "$@"
 EOF
 chmod 0755 /usr/local/bin/deep03-v3-run
+cat > /usr/local/bin/deep03-v3-fullscope-run <<'EOF'
+#!/bin/sh
+set -eu
+exec /opt/w09/venv/bin/python \
+  /opt/w09/research/tools/research/deep03_fullscope_runner.py "$@"
+EOF
+chmod 0755 /usr/local/bin/deep03-v3-fullscope-run
 
 install -m 0755 "$PAYLOAD_ROOT/deploy/w09/w09_idle_check.py" \
     /usr/local/sbin/w09-idle-check
@@ -287,6 +296,10 @@ sha256sum \
     "$INSTALL_ROOT/tools/research/deep03_v3_prepare.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_methods.py" \
     "$INSTALL_ROOT/tools/research/deep03_v3_runner.py" \
+    "$INSTALL_ROOT/tools/research/deep03_fullscope_graph.py" \
+    "$INSTALL_ROOT/tools/research/deep03_v3_l2.py" \
+    "$INSTALL_ROOT/tools/research/deep03_fullscope_runner.py" \
+    /usr/local/bin/deep03-v3-fullscope-run \
     /usr/local/bin/w09-run \
     /usr/local/libexec/w09-inhibit-run \
     > /etc/w09/exploratory_autoresearch.sha256
