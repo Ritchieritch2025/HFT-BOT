@@ -9,9 +9,9 @@
   "fixed_region": "us-east-2",
   "fixed_role": "w09-research-runner",
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W0-2026-07-18.01",
+  "release_id": "D3-W0-2026-07-18.02",
   "research_execution_authority": false,
-  "runtime_commit": "0776ee3680e5d7c41c67a68d4c8c7f03947718c6",
+  "runtime_commit": "06443852ce924e8a46f1f0d9e22fa806bce24462",
   "schema_version": "deep03-w0-release-v1",
   "state": "RELEASE_CANDIDATE"
 }

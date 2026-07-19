@@ -27,13 +27,13 @@
   "expected_object_count": 2657,
   "holdout_opened": false,
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W1-2026-07-18.01",
+  "release_id": "D3-W1-2026-07-18.02",
   "research_execution_authority": false,
   "rfq_included": false,
-  "runtime_commit": "0776ee3680e5d7c41c67a68d4c8c7f03947718c6",
+  "runtime_commit": "06443852ce924e8a46f1f0d9e22fa806bce24462",
   "schema_version": "deep03-w1-release-v1",
   "state": "RELEASE_CANDIDATE",
   "strict_acceptance_claimed": false,
-  "w0_release_id": "D3-W0-2026-07-18.01",
-  "w0_release_sha256": "9d0ac41c47518eb1ca20a493763a6fee1c703e58c147161349f30fd10c153360"
+  "w0_release_id": "D3-W0-2026-07-18.02",
+  "w0_release_sha256": "ff90bff5fff3c1e6a1226709cf0b45cb55b5454d16f576e6ed64ca61f0c80ba0"
 }
