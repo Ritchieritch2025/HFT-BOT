@@ -133,6 +133,27 @@ def test_sequence_regression_invalidates_until_snapshot_reset():
     assert result["replay_rows"][2]["classification"] == "SNAPSHOT_APPLIED"
 
 
+def test_missing_sequence_key_invalidates_prior_state_until_snapshot():
+    base = 3_500_000_000_000
+    missing = list(row(
+        base + 1_000_000, "M1", "delta", side="yes", price=4000,
+        delta=1_000, seq=2,
+    ))
+    missing[-1] = None
+    result = l2.replay_rows([
+        row(base, "M1", "snapshot", yes=[[4000, 20_000]],
+            no=[[5000, 20_000]], seq=1),
+        tuple(missing),
+        row(base + 2_000_000, "M1", "delta", side="yes", price=4000,
+            delta=1_000, seq=3),
+    ])
+    assert result["replay_rows"][1]["classification"] == \
+        "REJECTED_MISSING_REPLAY_KEY"
+    assert result["replay_rows"][1]["book_valid"] is False
+    assert result["replay_rows"][2]["classification"] == \
+        "REJECTED_DELTA_BEFORE_SNAPSHOT"
+
+
 def test_negative_result_invalidates_and_censors_open_episode():
     base = 4_000_000_000_000
     result = l2.replay_rows([
