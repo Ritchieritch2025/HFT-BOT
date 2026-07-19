@@ -35,7 +35,9 @@ denominator.
 ### 2.2 Fresh RFQ cohort
 
 - lane: `W-RFQ-FRESH-01` only;
-- strict T0: `2026-07-19T00:00:00Z`;
+- generation-specific strict T0; the original generation was bound to
+  `2026-07-19T00:00:00Z`, and every replacement generation must carry a new
+  precommitted authority, runtime commit and T0;
 - old 284-object RFQ lineage and every repair derivative remain
   `DATA_INTEGRITY_BLOCKED / NO_REPAIR`;
 - an RFQ date is eligible only after 24/24 analysis hours, D+1 00/01 watermark
@@ -45,10 +47,11 @@ denominator.
   same-date base release. It is not inserted into the 7/10-7/17 base cohort.
 
 The observed `2026-07-19` closed-hour receipts are not eligible: every checked
-hour is `EVENT_COMPLETENESS_UNPROVEN`. Therefore 7/19 is disqualified unless a
-future independent audit proves the receipt evidence itself was mechanically
-wrong without repairing or replacing source bytes. The normal next candidate
-is the first later UTC day with 24/24 clean hours.
+hour is `EVENT_COMPLETENESS_UNPROVEN`. Therefore 7/19 is permanently
+disqualified for strict fresh-RFQ research. No parser correction may relabel,
+repair or replace those source-hour receipts. The normal next candidate is the
+first later UTC day captured under an independently audited replacement
+generation with 24/24 clean hours; the planned candidate is `2026-07-20`.
 
 ## 3. Analytical modules
 
