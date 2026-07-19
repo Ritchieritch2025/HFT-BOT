@@ -269,8 +269,11 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
 
     def planning_runner(command, **kwargs):
         control.verify_start_arm(remote, tmp_path / "run", job_id)
-        update_status(remote, job_id, state="PREFLIGHT", message="planning")
-        update_status(remote, job_id, state="READY", message="planned")
+        worker.build_catalog = lambda _cache: _catalog()
+        planned = worker.plan_job(
+            inbox_root=remote, cache_root=tmp_path / "cache", job_id=job_id
+        )
+        assert planned["state"] == "READY"
         return subprocess.CompletedProcess(command, 0, b"", b"")
 
     control.start_committed_job(
@@ -281,13 +284,48 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
         runner=planning_runner,
         require_root=False,
     )
+    report_raw = b"<!doctype html><title>Result</title>"
+    update_status(remote, job_id, state="RUNNING", message="running")
+    inputs = worker._job_inputs(remote, job_id)
+    bindings = worker._planning_provenance_bindings(inputs)
+    provenance = {
+        "schema_version": worker.PROVENANCE_SCHEMA,
+        **{
+            key: bindings[key]
+            for key in (
+                "job_id",
+                "plugin_id",
+                "plan_sha256",
+                "job_spec_sha256",
+                "catalog_sha256",
+                "selection_sha256",
+                "preflight_sha256",
+                "plugin_source_sha256",
+                "planning_receipt_sha256",
+                "execution_request_artifact_sha256",
+                "execution_request_digest",
+                "authority_schema",
+                "arm_schema",
+            )
+        },
+        "authority_sha256": "a" * 64,
+        "arm_sha256": "b" * 64,
+        "adopted_plan_sha256": inputs["plan_sha256"],
+        "source_run_id": "offline-fixture-run",
+        "source_run_complete_sha256": "c" * 64,
+        "source_results_sha256": "d" * 64,
+        "source_report_sha256": hashlib.sha256(report_raw).hexdigest(),
+    }
+    provenance["provenance_sha256"] = hashlib.sha256(
+        worker._artifact_bytes(provenance)
+    ).hexdigest()
     results = {
         "schema_version": "research-results-v1",
         "job_id": job_id,
         "title": "Result",
+        "execution_provenance": provenance,
     }
     results_raw = json.dumps(results, sort_keys=True, separators=(",", ":")).encode()
-    report_raw = b"<!doctype html><title>Result</title>"
     receipt = {
         "schema_version": "research-report-receipt-v1",
         "job_id": job_id,
@@ -302,9 +340,11 @@ def test_export_is_read_only_bounded_status_results_report_tar(tmp_path):
     (source / "REPORT" / "REPORT_RECEIPT.json").write_text(
         json.dumps(receipt, sort_keys=True, separators=(",", ":"))
     )
-    update_status(remote, job_id, state="RUNNING", message="running")
     published = worker.publish_job_output(
-        inbox_root=remote, job_id=job_id, source_root=source
+        inbox_root=remote,
+        job_id=job_id,
+        source_root=source,
+        execution_provenance=provenance,
     )
     assert published["state"] == "OUTPUT_PUBLISHED"
     assert published["idempotent_replay"] is False
