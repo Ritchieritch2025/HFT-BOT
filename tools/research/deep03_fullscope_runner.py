@@ -456,7 +456,13 @@ def _validate_l2_result(result: Mapping[str, Any], source_binding: str) -> None:
     if (
         not isinstance(conservation, dict)
         or set(conservation) != conservation_fields
-        or any(conservation[field] is not True for field in conservation_fields)
+        or any(
+            not isinstance(conservation[field], dict)
+            or conservation[field].get("state") != "PASS"
+            or conservation[field].get("observed_rows")
+            != conservation[field].get("expected_rows")
+            for field in conservation_fields
+        )
     ):
         raise Deep03InputError("L2 row-conservation equations are not all PASS")
     stages = result.get("stages")

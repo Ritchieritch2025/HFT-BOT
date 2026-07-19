@@ -79,6 +79,23 @@ def test_full_stream_gap_receipt_is_fail_closed():
     assert marker["per_market_forward_ws_seq_gap_inference_used"] is False
 
 
+def test_full_stream_gap_receipt_requires_complete_strict_typed_schema():
+    incomplete = l2.assess_l2_quality_receipt({"date": "2026-07-12", "lines": 1})
+    assert incomplete["state"] == "REFUSED"
+    assert "parse_errors=MISSING" in incomplete["blockers"]
+    assert "recorder_markers=MISSING" in incomplete["blockers"]
+    assert "no_l2_files=MISSING" in incomplete["blockers"]
+
+    malformed = l2.assess_l2_quality_receipt(clean_receipt(
+        parse_errors="0", no_l2_files=0,
+        recorder_markers={"gap": False},
+    ))
+    assert malformed["state"] == "REFUSED"
+    assert "parse_errors=INVALID" in malformed["blockers"]
+    assert "no_l2_files=INVALID" in malformed["blockers"]
+    assert "recorder_marker:gap=INVALID" in malformed["blockers"]
+
+
 def test_forward_per_market_sequence_jump_is_not_packet_loss():
     base = 1_000_000_000_000
     result = l2.replay_rows([
@@ -705,6 +722,21 @@ def test_bounded_resume_refuses_corrupt_completed_payload(tmp_path: Path):
     with pytest.raises(RuntimeError, match="payload hash mismatch"):
         l2.execute_l2_snbd_bounded(con, manifest, resumed, market_buckets=1)
     resumed.close()
+    con.close()
+
+
+def test_bounded_execution_requires_manifest_row_count_for_every_l2_fact(tmp_path: Path):
+    manifest = _write_exact_fixture(tmp_path)
+    fact = next(obj for obj in manifest["objects"] if obj["kind"] == "facts")
+    fact["row_count"] = None
+    con = duckdb.connect()
+    store = l2.BoundedCheckpointStore(
+        tmp_path / "missing-row-count-checkpoints",
+        l2.bounded_source_binding(manifest),
+    )
+    with pytest.raises(l2.L2ResearchError, match="row_count is mandatory"):
+        l2.execute_l2_snbd_bounded(con, manifest, store, market_buckets=1)
+    store.close()
     con.close()
 
 

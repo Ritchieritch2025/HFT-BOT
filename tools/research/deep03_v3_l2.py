@@ -318,39 +318,54 @@ class L2Book:
 
 def assess_l2_quality_receipt(receipt: Mapping[str, object]) -> dict[str, Any]:
     """Assess the sealed complete-stream receipt; any gap blocks the date."""
-    markers = receipt.get("recorder_markers") or {}
-    if not isinstance(markers, Mapping):
-        markers = {}
     blockers: list[str] = []
-    for key in (
+    count_fields = (
+        "lines",
         "parse_errors",
         "seq_gap_events",
         "seq_missed_total",
         "seq_regressions",
         "markers_lost_frames",
-    ):
-        value = receipt.get(key, 0)
-        try:
-            count = int(value or 0)
-        except (TypeError, ValueError):
+    )
+    counts: dict[str, int] = {}
+    for key in count_fields:
+        if key not in receipt:
+            blockers.append(f"{key}=MISSING")
+            counts[key] = 0
+            continue
+        value = receipt[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             blockers.append(f"{key}=INVALID")
+            counts[key] = 0
         else:
-            if count:
-                blockers.append(f"{key}={count}")
+            counts[key] = value
+            if key != "lines" and value:
+                blockers.append(f"{key}={value}")
+
+    if "recorder_markers" not in receipt:
+        blockers.append("recorder_markers=MISSING")
+        markers: Mapping[object, object] = {}
+    elif not isinstance(receipt["recorder_markers"], Mapping):
+        blockers.append("recorder_markers=INVALID")
+        markers = {}
+    else:
+        markers = receipt["recorder_markers"]
     for key, value in sorted(markers.items(), key=lambda item: str(item[0])):
-        if str(key).lower() in {"gap", "loss", "epoch_change"}:
-            try:
-                count = int(value or 0)
-            except (TypeError, ValueError):
-                count = 1
+        if not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            blockers.append(f"recorder_marker:{key}=INVALID")
+            continue
+        if key.lower() in {"gap", "loss", "epoch_change"}:
+            count = value
             if count:
                 blockers.append(f"recorder_marker:{key}={count}")
-    if bool(receipt.get("no_l2_files")):
+
+    if "no_l2_files" not in receipt:
+        blockers.append("no_l2_files=MISSING")
+    elif not isinstance(receipt["no_l2_files"], bool):
+        blockers.append("no_l2_files=INVALID")
+    elif receipt["no_l2_files"]:
         blockers.append("no_l2_files=true")
-    try:
-        lines = int(receipt.get("lines") or 0)
-    except (TypeError, ValueError):
-        lines = 0
+    lines = counts["lines"]
     if lines <= 0:
         blockers.append("lines<=0")
     return {
@@ -1870,16 +1885,19 @@ def execute_l2_snbd_bounded(
             int(observed_end) if observed_end is not None else None
         )
         declared_counts = [obj.get("row_count") for obj in objects]
-        if all(
+        if not all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
             for value in declared_counts
         ):
-            _require_row_conservation(
-                label="l2_manifest_to_source",
-                observed=source_count,
-                expected=sum(int(value) for value in declared_counts),
-                context=date,
+            raise L2ResearchError(
+                f"L2 manifest row_count is mandatory for every fact object: {date}"
             )
+        _require_row_conservation(
+            label="l2_manifest_to_source",
+            observed=source_count,
+            expected=sum(int(value) for value in declared_counts),
+            context=date,
+        )
         partition_keys = {
             bucket: _partition_key(date, bucket) for bucket in bucket_values
         }

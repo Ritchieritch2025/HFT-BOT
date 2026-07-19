@@ -174,10 +174,19 @@ def _l2_result(binding: str) -> dict:
             "excluded_data_quality_dates": sorted(runner.L2_KNOWN_EXCLUDED_DATES),
         },
         "row_conservation": {
-            "all_captured_physical_coverage": True,
-            "included_clean_replay": True,
-            "replay_classification": True,
-            "included_plus_excluded_coverage": True,
+            field: {
+                "state": "PASS",
+                "label": field,
+                "context": "fixture",
+                "observed_rows": 6,
+                "expected_rows": 6,
+            }
+            for field in (
+                "all_captured_physical_coverage",
+                "included_clean_replay",
+                "replay_classification",
+                "included_plus_excluded_coverage",
+            )
         },
         "episode_rows": 1,
         "atlas_rows": 1,
