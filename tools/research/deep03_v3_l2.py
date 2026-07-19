@@ -525,8 +525,12 @@ class L2ReplayEngine:
             self.qc["snapshots_applied"] += 1
             return _row_with_state(base, book.state()), completed
         if msg_type != "delta":
+            book.invalidate()
             base["classification"] = "REJECTED_INVALID_MESSAGE_TYPE"
             self.qc["rejected_invalid_message_type"] += 1
+            completed.extend(self._close_market_episodes(
+                market, clock_ns, "right_censored_invalid_epoch"
+            ))
             return _row_with_state(base, book.state()), completed
         try:
             result = book.apply_delta(
@@ -871,7 +875,11 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
             "min_removed_e4": MIN_TOP3_RETREAT_QTY_E4,
             "min_fraction": MIN_TOP3_RETREAT_FRACTION,
         },
-        "quiet_anchor_lookback_ns": QUIET_ANCHOR_LOOKBACK_NS,
+        "quiet_anchor": {
+            "lookback_ns": QUIET_ANCHOR_LOOKBACK_NS,
+            "definition": "valid_two_sided_state_with_no_top3_state_change_since_anchor_start",
+            "snapshot_or_epoch_reset_restarts_lookback": True,
+        },
         "matching": {
             "direction": "past_only",
             "window_ns": MATCH_WINDOW_NS,
@@ -1754,7 +1762,24 @@ def execute_l2_snbd_bounded(
     abi = _l2_abi(market_buckets)
     quality: dict[str, dict[str, Any]] = {}
     for date in L2_CAPTURE_DATES:
-        assessment = _load_quality_assessment(input_manifest, date)
+        try:
+            assessment = _load_quality_assessment(input_manifest, date)
+        except L2ResearchError as exc:
+            # Receipt failure is a date-local refusal.  Exact fact objects are
+            # still scanned into physical coverage, while no row from this
+            # date may enter an estimand.
+            assessment = {
+                "date": date,
+                "state": "REFUSED",
+                "usable_for_replay": False,
+                "blockers": [f"quality_receipt_error:{exc}"],
+                "lines": None,
+                "sequence_authority": "sealed full-stream l2_gaps.json",
+                "per_market_forward_ws_seq_gap_inference_used": False,
+                "logical_key": None,
+                "source_version_id": None,
+                "sha256": None,
+            }
         blockers = list(assessment["blockers"])
         known_exclusion = L2_KNOWN_EXCLUDED_DATES.get(date)
         if known_exclusion and known_exclusion not in blockers:
