@@ -929,6 +929,75 @@ def test_final_parse_and_hash_use_identical_bytes_and_exact_offsets(
     assert max(requested) <= rfq.HASH_CHUNK_BYTES
 
 
+def test_final_parse_excludes_old_transport_marker_but_hashes_full_file(
+        tmp_path):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    prefix = (_capture_row(when, marker="transport_close") +
+              _capture_row(when, frame={"type": "rfq_created"})).encode()
+    ack = _capture_row(
+        when, frame={"type": "subscribed",
+                     "msg": {"channel": "communications", "sid": 9}}).encode()
+    suffix_event = _capture_row(
+        when, frame={"type": "rfq_deleted"}).encode()
+    complete = prefix + ack + suffix_event
+    base.write_bytes(complete)
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): len(prefix)}, "2026-07-12T04")
+
+    assert findings == [] and evidence["findings"] == []
+    assert evidence["markers"].get("transport_close", 0) == 0
+    assert evidence["subscription_invalidations"] == 0
+    assert evidence["rfq_created"] == 0
+    assert evidence["rfq_deleted"] == 1
+    assert evidence["subscribed_communications"] == 1
+    assert evidence["subscription_proven_at_end"] is True
+    assert evidence["subscription_ack_identity_sha256"] == \
+        hashlib.sha256(ack).hexdigest()
+    assert objects == [{
+        "ordinal": 0,
+        "relpath": "date=2026-07-12/rfq_04.ndjson",
+        "bytes_before": len(prefix),
+        "size": len(complete),
+        "parsed_bytes_at_close": len(complete),
+        "sha256": hashlib.sha256(complete).hexdigest(),
+    }]
+
+
+@pytest.mark.parametrize("unsafe", ["negative", "past_eof", "mid_line"])
+def test_final_parse_rejects_unsafe_segment_start_cursor(tmp_path, unsafe):
+    raw = tmp_path / "raw"
+    day = raw / "date=2026-07-12"
+    day.mkdir(parents=True)
+    base = day / "rfq_04.ndjson"
+    when = rfq.dt.datetime(2026, 7, 12, 4, 1,
+                           tzinfo=rfq.dt.timezone.utc)
+    complete = _capture_row(when, marker="transport_close").encode()
+    base.write_bytes(complete)
+    cursor = {
+        "negative": -1,
+        "past_eof": len(complete) + 1,
+        "mid_line": 1,
+    }[unsafe]
+
+    evidence, objects, findings = rfq.parse_and_attest_hour_shards(
+        base, raw, {str(base): cursor}, "2026-07-12T04")
+
+    assert objects == []
+    assert evidence["recorder_rows"] == 0
+    assert evidence["markers"] == {}
+    assert len(findings) == 1
+    if unsafe == "mid_line":
+        assert "not a complete-line boundary" in findings[0]
+    else:
+        assert "invalid pre-capture byte cursor" in findings[0]
+
+
 def test_equal_length_rewrite_cannot_pair_stale_ack_with_new_hash(tmp_path):
     raw = tmp_path / "raw"
     day = raw / "date=2026-07-12"

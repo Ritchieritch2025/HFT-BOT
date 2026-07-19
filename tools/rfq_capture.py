@@ -979,8 +979,10 @@ def parse_and_attest_hour_shards(
     Final receipt facts must describe the exact bytes whose SHA-256 is stored.
     Reusing an earlier incremental parse would allow an equal-length rewrite
     to pair stale ACK/event facts with a later digest.  This routine pins each
-    non-symlink inode, hashes every byte, parses the same byte stream through
-    exact complete-line boundaries, and rechecks both the FD and path identity.
+    non-symlink inode, hashes every byte, parses only the segment suffix after
+    its pre-capture complete-line cursor, and rechecks both the FD and path
+    identity.  Prefix bytes remain covered by the object digest but cannot
+    contribute evidence to the new capture segment.
     """
     evidence = _empty_capture_evidence()
     paths, findings = discover_hour_shards(base_path, require_base=True)
@@ -988,7 +990,7 @@ def parse_and_attest_hour_shards(
     for path in paths:
         key = str(path)
         evidence["shards"].append(key)
-        start = int(offsets_before.get(key, 0))
+        start = offsets_before.get(key, 0)
         evidence["start_offsets"][key] = start
         parsed_end: int | None = 0
         try:
@@ -996,6 +998,8 @@ def parse_and_attest_hour_shards(
             if (stat.S_ISLNK(before.st_mode) or
                     not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
                 raise OSError("not a single-link regular file")
+            if type(start) is not int:
+                raise OSError("pre-capture byte cursor is not an integer")
             if start < 0 or start > before.st_size:
                 raise OSError("invalid pre-capture byte cursor")
             flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -1012,24 +1016,39 @@ def parse_and_attest_hour_shards(
                     item.st_size, item.st_mtime_ns, item.st_ctime_ns)
                 if fingerprint(opened) != fingerprint(before):
                     raise OSError("identity changed during final open")
+                if start:
+                    os.lseek(fd, start - 1, os.SEEK_SET)
+                    if os.read(fd, 1) != b"\n":
+                        raise OSError(
+                            "pre-capture byte cursor is not a complete-line boundary")
+                    os.lseek(fd, 0, os.SEEK_SET)
                 while True:
                     chunk = os.read(fd, HASH_CHUNK_BYTES)
                     if not chunk:
                         break
                     digest.update(chunk)
+                    chunk_start = total
                     total += len(chunk)
+                    # Hash the entire immutable object, but parse only bytes
+                    # written for this capture segment.  ``start`` was pinned
+                    # before child launch and validated as a complete-line
+                    # boundary above.
+                    if total <= start:
+                        continue
+                    parse_chunk = chunk[max(0, start - chunk_start):]
                     cursor = 0
-                    while cursor < len(chunk):
+                    while cursor < len(parse_chunk):
                         if discarding_long_line:
-                            newline = chunk.find(b"\n", cursor)
+                            newline = parse_chunk.find(b"\n", cursor)
                             if newline < 0:
                                 break
                             discarding_long_line = False
                             cursor = newline + 1
                             continue
-                        newline = chunk.find(b"\n", cursor)
-                        stop = len(chunk) if newline < 0 else newline + 1
-                        piece = chunk[cursor:stop]
+                        newline = parse_chunk.find(b"\n", cursor)
+                        stop = (len(parse_chunk) if newline < 0 else
+                                newline + 1)
+                        piece = parse_chunk[cursor:stop]
                         if len(buffer) + len(piece) > MAX_CAPTURE_LINE_BYTES:
                             parse_incomplete = True
                             buffer.clear()
