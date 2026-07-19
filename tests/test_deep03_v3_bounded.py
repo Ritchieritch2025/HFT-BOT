@@ -276,3 +276,50 @@ def test_l1_asof_qc_fails_closed_on_different_quote_at_same_key(capsys):
     finally:
         con.close()
     assert "ambiguous_keys=1 ambiguous_rows=2" in capsys.readouterr().out
+
+
+def test_one_pass_physical_scatter_writes_empty_and_nonempty_shards(tmp_path):
+    con = duckdb.connect()
+    try:
+        con.execute("CREATE TABLE source_rows(value BIGINT)")
+        con.executemany("INSERT INTO source_rows VALUES (?)", [(0,), (2,), (3,)])
+        store = BoundedCheckpointStore(
+            tmp_path / "checkpoints", bounded_source_binding(_manifest())
+        )
+        results = store.write_partitioned_query(
+            con,
+            stage="l1_physical",
+            stage_version="l1-physical-v1",
+            partition_column="market_bucket",
+            partition_keys={0: "date=2026-07-17_bucket=00", 1: "date=2026-07-17_bucket=01", 2: "date=2026-07-17_bucket=02"},
+            select_sql=(
+                "SELECT value,value%2 AS market_bucket FROM source_rows"
+            ),
+        )
+        assert {key: value[0]["data"]["row_count"] for key, value in results.items()} == {
+            "date=2026-07-17_bucket=00": 2,
+            "date=2026-07-17_bucket=01": 1,
+            "date=2026-07-17_bucket=02": 0,
+        }
+        for key, (receipt, reused) in results.items():
+            assert reused is False
+            assert [row["name"] for row in receipt["data"]["schema"]] == ["value"]
+            assert "market_bucket" not in receipt["data"]["path"]
+
+        resumed = store.write_partitioned_query(
+            con,
+            stage="l1_physical",
+            stage_version="l1-physical-v1",
+            partition_column="market_bucket",
+            partition_keys={0: "date=2026-07-17_bucket=00", 1: "date=2026-07-17_bucket=01", 2: "date=2026-07-17_bucket=02"},
+            select_sql="SELECT error('scatter must not rerun'),0 AS market_bucket",
+        )
+        assert all(reused for _receipt, reused in resumed.values())
+        store.finalize_stage(
+            con,
+            stage="l1_physical",
+            stage_version="l1-physical-v1",
+            partition_keys=results,
+        )
+    finally:
+        con.close()

@@ -19,6 +19,7 @@ import json
 import math
 import os
 import re
+import shutil
 import uuid
 from decimal import Decimal
 from pathlib import Path
@@ -224,7 +225,7 @@ class BoundedCheckpointStore:
         size = data_path.stat().st_size
         if data.get("size_bytes") != size or data.get("sha256") != _sha256_path(data_path):
             raise RuntimeError(f"bounded checkpoint payload hash mismatch: {partition_key}")
-        relation = f"read_parquet({quote(data_path)})"
+        relation = f"read_parquet({quote(data_path)},hive_partitioning=false)"
         schema = [
             {"name": row[0], "type": row[1]}
             for row in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
@@ -273,44 +274,168 @@ class BoundedCheckpointStore:
                 f"COPY ({select_sql}) TO {quote(temporary)} "
                 "(FORMAT PARQUET,COMPRESSION ZSTD)"
             )
-            relation = f"read_parquet({quote(temporary)})"
-            schema = [
-                {"name": row[0], "type": row[1]}
-                for row in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
-            ]
-            row_count = int(con.execute(f"SELECT count(*) FROM {relation}").fetchone()[0])
-            payload_sha256 = _sha256_path(temporary)
-            size_bytes = temporary.stat().st_size
-            os.replace(temporary, data_path)
-            receipt = {
-                "schema_version": BOUNDED_CHECKPOINT_SCHEMA,
-                "state": "COMPLETE",
-                "stage": stage,
-                "stage_version": stage_version,
-                "partition_key": partition_key,
-                "source_binding": self.source_binding,
-                "data": {
-                    "path": data_path.relative_to(self.root).as_posix(),
-                    "sha256": payload_sha256,
-                    "size_bytes": size_bytes,
-                    "row_count": row_count,
-                    "schema": schema,
-                },
-                "metrics": metrics or {},
-            }
-            _atomic_replace_bytes(receipt_path, _canonical_json_bytes(receipt))
             return (
-                self.validate_partition(
+                self._publish_temporary(
                     con,
                     stage=stage,
                     stage_version=stage_version,
                     partition_key=partition_key,
+                    temporary=temporary,
+                    metrics=metrics,
                 ),
                 False,
             )
         finally:
             if temporary.exists():
                 temporary.unlink()
+
+    def _publish_temporary(
+        self,
+        con,
+        *,
+        stage: str,
+        stage_version: str,
+        partition_key: str,
+        temporary: Path,
+        metrics: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Promote an already-written Parquet file and publish its receipt."""
+        data_path, receipt_path = self._paths(stage, partition_key)
+        if receipt_path.exists():
+            raise RuntimeError(
+                f"bounded checkpoint receipt appeared during publish: {partition_key}"
+            )
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        relation = f"read_parquet({quote(temporary)},hive_partitioning=false)"
+        schema = [
+            {"name": row[0], "type": row[1]}
+            for row in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
+        ]
+        row_count = int(con.execute(f"SELECT count(*) FROM {relation}").fetchone()[0])
+        payload_sha256 = _sha256_path(temporary)
+        size_bytes = temporary.stat().st_size
+        if data_path.exists():
+            data_path.unlink()
+        os.replace(temporary, data_path)
+        receipt = {
+            "schema_version": BOUNDED_CHECKPOINT_SCHEMA,
+            "state": "COMPLETE",
+            "stage": stage,
+            "stage_version": stage_version,
+            "partition_key": partition_key,
+            "source_binding": self.source_binding,
+            "data": {
+                "path": data_path.relative_to(self.root).as_posix(),
+                "sha256": payload_sha256,
+                "size_bytes": size_bytes,
+                "row_count": row_count,
+                "schema": schema,
+            },
+            "metrics": metrics or {},
+        }
+        _atomic_replace_bytes(receipt_path, _canonical_json_bytes(receipt))
+        return self.validate_partition(
+            con,
+            stage=stage,
+            stage_version=stage_version,
+            partition_key=partition_key,
+        )
+
+    def write_partitioned_query(
+        self,
+        con,
+        *,
+        stage: str,
+        stage_version: str,
+        partition_column: str,
+        partition_keys: dict[int, str],
+        select_sql: str,
+    ) -> dict[str, tuple[dict[str, Any], bool]]:
+        """Scan one source query once and checkpoint every physical shard.
+
+        ``select_sql`` must return the integer ``partition_column`` plus the
+        narrow payload columns.  DuckDB's partitioned COPY performs the
+        scatter in one query.  The partition column is encoded by the
+        directory and intentionally excluded from each Parquet payload.
+        """
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", partition_column) is None:
+            raise ValueError("invalid bounded partition column")
+        if not partition_keys or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in partition_keys
+        ):
+            raise ValueError("bounded physical partition values must be integers")
+        normalized = {
+            value: self._key(key, "partition key")
+            for value, key in partition_keys.items()
+        }
+        if len(normalized) != len(set(normalized.values())):
+            raise ValueError("bounded physical partition keys are duplicated")
+
+        result: dict[str, tuple[dict[str, Any], bool]] = {}
+        missing: dict[int, str] = {}
+        for value, key in sorted(normalized.items()):
+            _data_path, receipt_path = self._paths(stage, key)
+            if receipt_path.exists():
+                result[key] = (
+                    self.validate_partition(
+                        con,
+                        stage=stage,
+                        stage_version=stage_version,
+                        partition_key=key,
+                    ),
+                    True,
+                )
+            else:
+                missing[value] = key
+        if not missing:
+            return result
+
+        generated = self.root / ".partial" / (
+            f"scatter-{stage}-{uuid.uuid4().hex}"
+        )
+        try:
+            con.execute(
+                f"COPY ({select_sql}) TO {quote(generated)} "
+                f"(FORMAT PARQUET,COMPRESSION ZSTD,PARTITION_BY ({partition_column}))"
+            )
+            for value, key in sorted(missing.items()):
+                partition_dir = generated / f"{partition_column}={value}"
+                files = sorted(partition_dir.glob("*.parquet"))
+                if len(files) == 1:
+                    temporary = files[0]
+                else:
+                    temporary = self.root / ".partial" / (
+                        f"consolidate-{stage}-{key}-{uuid.uuid4().hex}.parquet"
+                    )
+                    if files:
+                        con.execute(
+                            f"COPY (SELECT * FROM read_parquet({path_list(files)})) "
+                            f"TO {quote(temporary)} (FORMAT PARQUET,COMPRESSION ZSTD)"
+                        )
+                    else:
+                        # The expected partition is empty.  LIMIT 0 preserves
+                        # the exact payload schema without rescanning facts.
+                        con.execute(
+                            f"COPY (SELECT * EXCLUDE ({partition_column}) "
+                            f"FROM ({select_sql}) WHERE false) TO {quote(temporary)} "
+                            "(FORMAT PARQUET,COMPRESSION ZSTD)"
+                        )
+                receipt = self._publish_temporary(
+                    con,
+                    stage=stage,
+                    stage_version=stage_version,
+                    partition_key=key,
+                    temporary=temporary,
+                )
+                result[key] = (receipt, False)
+                if temporary.exists():
+                    temporary.unlink()
+        finally:
+            if generated.exists():
+                shutil.rmtree(generated)
+        return result
 
     def finalize_stage(
         self,
