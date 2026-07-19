@@ -78,6 +78,9 @@ IMPACT_SCHEMA = "fresh-rfq-clob-impact-adapter-v2"
 MAX_D07_COMPONENTS_PER_DAY = 2_000_000
 MAX_D07_SOURCE_ROWS_PER_COMPONENT = 10_000_000
 MAX_RFQ_CLOCK_ABS_SKEW_US = 5_000_000
+CLOCK_WITHIN_TOLERANCE = "CLOCK_WITHIN_TOLERANCE"
+FUTURE_EXCHANGE_CLOCK = "FUTURE_EXCHANGE_CLOCK"
+STALE_EXCHANGE_CLOCK = "STALE_EXCHANGE_CLOCK"
 EXACT_SOURCE_IDENTITY_FIELDS = {
     "logical_key", "bucket", "key", "version_id", "size", "sha256",
 }
@@ -755,6 +758,13 @@ def _event_bucket(rfq_id: str, buckets: int) -> int:
     return int.from_bytes(digest[:8], "big") % buckets
 
 
+def _event_clock_state(exchange_ts_us: int, recv_wall_ns: int) -> str:
+    skew_us = recv_wall_ns // 1_000 - exchange_ts_us
+    if abs(skew_us) <= MAX_RFQ_CLOCK_ABS_SKEW_US:
+        return CLOCK_WITHIN_TOLERANCE
+    return FUTURE_EXCHANGE_CLOCK if skew_us < 0 else STALE_EXCHANGE_CLOCK
+
+
 def _parse_event(
     frame: dict[str, Any], outer: dict[str, Any], *, analysis_date: str,
     source_key: str, source_version_id: str, line_number: int,
@@ -845,6 +855,7 @@ def _parse_event(
         "legs": legs,
         "creator_hash": creator_hash,
     }
+    clock_skew_us = outer["recv_wall_ns"] // 1_000 - exchange_ts_us
     return {
         "analysis_date": analysis_date,
         "event_type": "CREATE" if event_type == "rfq_created" else "DELETE",
@@ -852,7 +863,10 @@ def _parse_event(
         "rfq_id_sha256": hashlib.sha256(rfq_id.encode("utf-8")).hexdigest(),
         "exchange_ts_us": exchange_ts_us,
         "recv_wall_ns": outer["recv_wall_ns"],
-        "clock_skew_ms": outer["recv_wall_ns"] // 1_000_000 - exchange_ts_us // 1_000,
+        "clock_skew_us": clock_skew_us,
+        "clock_state": _event_clock_state(
+            exchange_ts_us, outer["recv_wall_ns"],
+        ),
         "market_ticker": market_ticker,
         "creator_hash": creator_hash,
         "contracts_e2": contracts_e2,
@@ -989,7 +1003,8 @@ EVENT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("analysis_date", "VARCHAR"), ("event_type", "VARCHAR"),
     ("rfq_id", "VARCHAR"), ("rfq_id_sha256", "VARCHAR"),
     ("exchange_ts_us", "BIGINT"), ("recv_wall_ns", "BIGINT"),
-    ("clock_skew_ms", "BIGINT"), ("market_ticker", "VARCHAR"),
+    ("clock_skew_us", "BIGINT"), ("clock_state", "VARCHAR"),
+    ("market_ticker", "VARCHAR"),
     ("creator_hash", "VARCHAR"), ("contracts_e2", "BIGINT"),
     ("target_cost_e6", "BIGINT"), ("mve_collection_ticker", "VARCHAR"),
     ("legs_json", "VARCHAR"), ("leg_count", "INTEGER"),
@@ -1411,7 +1426,7 @@ valid_create_ids AS (
 creates AS (
   SELECT s.*
   FROM source s JOIN valid_create_ids v USING (rfq_id)
-  WHERE s.event_type='CREATE'
+  WHERE s.event_type='CREATE' AND s.clock_state='{CLOCK_WITHIN_TOLERANCE}'
   QUALIFY row_number() OVER (
     PARTITION BY s.rfq_id
     ORDER BY s.recv_wall_ns,s.source_key,s.source_version_id,s.source_line
@@ -1433,21 +1448,27 @@ delete_candidates AS (
   SELECT c.rfq_id,
          d.exchange_ts_us AS deleted_ts_us,
          d.recv_wall_ns AS delete_recv_wall_ns,
+         d.clock_skew_us AS delete_clock_skew_us,
+         d.clock_state AS delete_clock_state,
          d.creator_hash AS delete_creator_hash,
          d.source_key AS delete_source_key,
          d.source_line AS delete_source_line,
-         CASE WHEN d.market_ticker=c.market_ticker
-                    AND d.exchange_ts_us>=c.exchange_ts_us
-                    AND d.exchange_ts_us<{analysis_end_us}
-                    AND (d.contracts_e2 IS NULL OR c.contracts_e2 IS NULL
-                         OR d.contracts_e2=c.contracts_e2)
-                    AND (d.target_cost_e6 IS NULL OR c.target_cost_e6 IS NULL
-                         OR d.target_cost_e6=c.target_cost_e6)
-              THEN true ELSE false END AS consistent
+         CASE
+           WHEN d.clock_state!='{CLOCK_WITHIN_TOLERANCE}' THEN 'CLOCK_CENSORED'
+           WHEN d.exchange_ts_us<c.exchange_ts_us
+                OR d.exchange_ts_us>={analysis_end_us} THEN 'TEMPORAL_INCONSISTENT'
+           WHEN d.market_ticker!=c.market_ticker
+                OR NOT (d.contracts_e2 IS NULL OR c.contracts_e2 IS NULL
+                        OR d.contracts_e2=c.contracts_e2)
+                OR NOT (d.target_cost_e6 IS NULL OR c.target_cost_e6 IS NULL
+                        OR d.target_cost_e6=c.target_cost_e6)
+             THEN 'PAYLOAD_INCONSISTENT'
+           ELSE 'CONSISTENT'
+         END AS candidate_state
   FROM creates c JOIN deletes d USING (rfq_id)
 ),
 chosen_delete AS (
-  SELECT * FROM delete_candidates WHERE consistent
+  SELECT * FROM delete_candidates WHERE candidate_state='CONSISTENT'
   QUALIFY row_number() OVER (
     PARTITION BY rfq_id
     ORDER BY deleted_ts_us,delete_recv_wall_ns,delete_source_key,delete_source_line
@@ -1455,8 +1476,18 @@ chosen_delete AS (
 ),
 delete_quality AS (
   SELECT rfq_id,
-         count(*) FILTER (WHERE NOT consistent)::BIGINT AS inconsistent_delete_count,
-         count(*) FILTER (WHERE consistent)::BIGINT AS consistent_delete_count
+         count(*)::BIGINT AS delete_candidate_count,
+         count(*) FILTER (WHERE candidate_state IN
+             ('TEMPORAL_INCONSISTENT','PAYLOAD_INCONSISTENT'))::BIGINT
+             AS inconsistent_delete_count,
+         count(*) FILTER (WHERE candidate_state='TEMPORAL_INCONSISTENT')::BIGINT
+             AS temporal_inconsistent_delete_count,
+         count(*) FILTER (WHERE candidate_state='PAYLOAD_INCONSISTENT')::BIGINT
+             AS payload_inconsistent_delete_count,
+         count(*) FILTER (WHERE candidate_state='CLOCK_CENSORED')::BIGINT
+             AS clock_censored_delete_count,
+         count(*) FILTER (WHERE candidate_state='CONSISTENT')::BIGINT
+             AS consistent_delete_count
   FROM delete_candidates GROUP BY rfq_id
 )
 SELECT
@@ -1465,7 +1496,8 @@ SELECT
   c.rfq_id_sha256,
   c.exchange_ts_us AS created_ts_us,
   c.recv_wall_ns AS create_recv_wall_ns,
-  c.clock_skew_ms AS create_clock_skew_ms,
+  c.clock_skew_us AS create_clock_skew_us,
+  c.clock_state AS create_clock_state,
   c.market_ticker,
   c.contracts_e2,
   c.target_cost_e6,
@@ -1478,16 +1510,33 @@ SELECT
   coalesce(cd.delete_creator_hash,c.creator_hash) AS requester_hash,
   (cd.rfq_id IS NOT NULL) AS deletion_observed,
   cd.deleted_ts_us,
+  cd.delete_recv_wall_ns,
+  cd.delete_clock_skew_us,
+  CASE
+    WHEN cd.rfq_id IS NOT NULL THEN 'CONSISTENT_DELETE_OBSERVED'
+    WHEN coalesce(dq.inconsistent_delete_count,0)>0
+      THEN 'CENSORED_INCONSISTENT_DELETE'
+    WHEN coalesce(dq.clock_censored_delete_count,0)>0
+      THEN 'CENSORED_DELETE_CLOCK'
+    ELSE 'RIGHT_CENSORED_NO_DELETE'
+  END AS delete_endpoint_state,
   CASE WHEN cd.rfq_id IS NULL THEN NULL
-       ELSE ((cd.deleted_ts_us-c.exchange_ts_us)/1000)::BIGINT END AS lifetime_ms,
+       ELSE (cd.deleted_ts_us-c.exchange_ts_us)::BIGINT END AS lifetime_us,
   CASE WHEN cd.rfq_id IS NULL
-       THEN greatest(0,({analysis_end_us}-c.exchange_ts_us)/1000)::BIGINT
-       ELSE ((cd.deleted_ts_us-c.exchange_ts_us)/1000)::BIGINT END AS observed_duration_ms,
+       THEN greatest(0,({analysis_end_us}-c.exchange_ts_us))::BIGINT
+       ELSE (cd.deleted_ts_us-c.exchange_ts_us)::BIGINT END AS observed_duration_us,
   ({analysis_end_us})::BIGINT AS censor_end_us,
   (cs.create_occurrence_count-1)::BIGINT AS exact_create_duplicate_count,
   coalesce(ds.delete_occurrence_count-ds.delete_distinct_raw_count,0)::BIGINT
     AS exact_delete_duplicate_count,
+  coalesce(dq.delete_candidate_count,0)::BIGINT AS delete_candidate_count,
   coalesce(dq.inconsistent_delete_count,0)::BIGINT AS inconsistent_delete_count,
+  coalesce(dq.temporal_inconsistent_delete_count,0)::BIGINT
+    AS temporal_inconsistent_delete_count,
+  coalesce(dq.payload_inconsistent_delete_count,0)::BIGINT
+    AS payload_inconsistent_delete_count,
+  coalesce(dq.clock_censored_delete_count,0)::BIGINT
+    AS clock_censored_delete_count,
   coalesce(dq.consistent_delete_count,0)::BIGINT AS consistent_delete_count
 FROM creates c
 JOIN create_stats cs USING (rfq_id)
@@ -1512,7 +1561,20 @@ def _materialize_lifecycle(
     totals = {
         "create_occurrences": 0, "delete_occurrences": 0,
         "unique_create_ids": 0, "conflicting_create_ids": 0,
-        "orphan_delete_ids": 0, "lifecycle_rows": 0,
+        "clock_excluded_create_ids": 0, "lifecycle_rows": 0,
+        "future_clock_create_occurrences": 0,
+        "stale_clock_create_occurrences": 0,
+        "unique_delete_rows": 0, "exact_delete_duplicates": 0,
+        "orphan_delete_rows": 0, "orphan_delete_ids": 0,
+        "excluded_parent_delete_rows": 0,
+        "valid_parent_delete_candidates": 0,
+        "consistent_delete_candidates": 0,
+        "inconsistent_delete_candidates": 0,
+        "clock_censored_delete_candidates": 0,
+        "consistent_delete_endpoints": 0,
+        "inconsistent_delete_censored_endpoints": 0,
+        "clock_censored_delete_endpoints": 0,
+        "no_delete_right_censored_endpoints": 0,
     }
     for bucket in range(buckets):
         event_paths = [
@@ -1525,19 +1587,43 @@ def _materialize_lifecycle(
         metrics_row = con.execute(f"""
           WITH source AS (SELECT * FROM {relation}),
           creates AS (
-            SELECT rfq_id,count(*) n,count(DISTINCT economic_sha256) variants
+            SELECT rfq_id,count(*) n,count(DISTINCT economic_sha256) variants,
+                   count(*) FILTER (
+                     WHERE clock_state='{CLOCK_WITHIN_TOLERANCE}'
+                   ) valid_clock_occurrences
             FROM source WHERE event_type='CREATE' GROUP BY rfq_id
           ),
           deletes AS (
-            SELECT DISTINCT rfq_id FROM source WHERE event_type='DELETE'
+            SELECT * FROM source WHERE event_type='DELETE'
+            QUALIFY row_number() OVER (
+              PARTITION BY rfq_id,raw_sha256
+              ORDER BY recv_wall_ns,source_key,source_version_id,source_line
+            )=1
+          ),
+          valid_parents AS (
+            SELECT rfq_id FROM creates
+            WHERE variants=1 AND valid_clock_occurrences>0
           )
           SELECT
             count(*) FILTER (WHERE event_type='CREATE'),
             count(*) FILTER (WHERE event_type='DELETE'),
             (SELECT count(*) FROM creates),
             (SELECT count(*) FROM creates WHERE variants>1),
+            (SELECT count(*) FROM creates
+              WHERE variants=1 AND valid_clock_occurrences=0),
+            count(*) FILTER (
+              WHERE event_type='CREATE' AND clock_state='{FUTURE_EXCHANGE_CLOCK}'
+            ),
+            count(*) FILTER (
+              WHERE event_type='CREATE' AND clock_state='{STALE_EXCHANGE_CLOCK}'
+            ),
+            (SELECT count(*) FROM deletes),
             (SELECT count(*) FROM deletes d LEFT JOIN creates c USING (rfq_id)
-              WHERE c.rfq_id IS NULL)
+              WHERE c.rfq_id IS NULL),
+            (SELECT count(DISTINCT d.rfq_id) FROM deletes d
+              LEFT JOIN creates c USING (rfq_id) WHERE c.rfq_id IS NULL),
+            (SELECT count(*) FROM deletes d JOIN creates c USING (rfq_id)
+              LEFT JOIN valid_parents v USING (rfq_id) WHERE v.rfq_id IS NULL)
           FROM source
         """).fetchone()
         metrics = {
@@ -1545,7 +1631,14 @@ def _materialize_lifecycle(
             "delete_occurrences": int(metrics_row[1]),
             "unique_create_ids": int(metrics_row[2]),
             "conflicting_create_ids": int(metrics_row[3]),
-            "orphan_delete_ids": int(metrics_row[4]),
+            "clock_excluded_create_ids": int(metrics_row[4]),
+            "future_clock_create_occurrences": int(metrics_row[5]),
+            "stale_clock_create_occurrences": int(metrics_row[6]),
+            "unique_delete_rows": int(metrics_row[7]),
+            "exact_delete_duplicates": int(metrics_row[1]) - int(metrics_row[7]),
+            "orphan_delete_rows": int(metrics_row[8]),
+            "orphan_delete_ids": int(metrics_row[9]),
+            "excluded_parent_delete_rows": int(metrics_row[10]),
         }
         key = f"h{bucket:02d}"
         receipt, _ = store.write_partition(
@@ -1556,17 +1649,75 @@ def _materialize_lifecycle(
             select_sql=_lifecycle_sql(event_paths, analysis_end_us),
             metrics=metrics,
         )
-        expected_rows = metrics["unique_create_ids"] - metrics["conflicting_create_ids"]
+        expected_rows = (
+            metrics["unique_create_ids"]
+            - metrics["conflicting_create_ids"]
+            - metrics["clock_excluded_create_ids"]
+        )
         if receipt["data"]["row_count"] != expected_rows:
             _fail("CONSERVATION_FAILED", f"lifecycle bucket {bucket}")
         metrics["lifecycle_rows"] = receipt["data"]["row_count"]
+        lifecycle_path = _checkpoint_path(store, LIFECYCLE_STAGE, key)
+        lifecycle_relation = f"read_parquet({quote(lifecycle_path)})"
+        quality_row = con.execute(f"""
+          SELECT coalesce(sum(delete_candidate_count),0)::BIGINT,
+                 coalesce(sum(consistent_delete_count),0)::BIGINT,
+                 coalesce(sum(inconsistent_delete_count),0)::BIGINT,
+                 coalesce(sum(clock_censored_delete_count),0)::BIGINT,
+                 count(*) FILTER (
+                   WHERE delete_endpoint_state='CONSISTENT_DELETE_OBSERVED'
+                 )::BIGINT,
+                 count(*) FILTER (
+                   WHERE delete_endpoint_state='CENSORED_INCONSISTENT_DELETE'
+                 )::BIGINT,
+                 count(*) FILTER (
+                   WHERE delete_endpoint_state='CENSORED_DELETE_CLOCK'
+                 )::BIGINT,
+                 count(*) FILTER (
+                   WHERE delete_endpoint_state='RIGHT_CENSORED_NO_DELETE'
+                 )::BIGINT
+          FROM {lifecycle_relation}
+        """).fetchone()
+        metrics.update({
+            "valid_parent_delete_candidates": int(quality_row[0]),
+            "consistent_delete_candidates": int(quality_row[1]),
+            "inconsistent_delete_candidates": int(quality_row[2]),
+            "clock_censored_delete_candidates": int(quality_row[3]),
+            "consistent_delete_endpoints": int(quality_row[4]),
+            "inconsistent_delete_censored_endpoints": int(quality_row[5]),
+            "clock_censored_delete_endpoints": int(quality_row[6]),
+            "no_delete_right_censored_endpoints": int(quality_row[7]),
+        })
+        if metrics["unique_delete_rows"] != (
+            metrics["orphan_delete_rows"]
+            + metrics["excluded_parent_delete_rows"]
+            + metrics["valid_parent_delete_candidates"]
+        ):
+            _fail(
+                "CONSERVATION_FAILED",
+                f"delete assignment does not conserve in bucket {bucket}",
+            )
+        if metrics["valid_parent_delete_candidates"] != (
+            metrics["consistent_delete_candidates"]
+            + metrics["inconsistent_delete_candidates"]
+            + metrics["clock_censored_delete_candidates"]
+        ):
+            _fail(
+                "CONSERVATION_FAILED",
+                f"delete candidate classes do not conserve in bucket {bucket}",
+            )
         for name in totals:
             totals[name] += metrics[name]
         receipts.append(receipt)
     if totals["unique_create_ids"] != (
         totals["lifecycle_rows"] + totals["conflicting_create_ids"]
+        + totals["clock_excluded_create_ids"]
     ):
         _fail("CONSERVATION_FAILED", "global lifecycle rows do not conserve")
+    if totals["delete_occurrences"] != (
+        totals["unique_delete_rows"] + totals["exact_delete_duplicates"]
+    ):
+        _fail("CONSERVATION_FAILED", "global delete dedup does not conserve")
     return receipts, totals
 
 
@@ -1606,6 +1757,84 @@ def _numeric_summary_sql(
         "p99": None if row[6] is None else int(row[6]),
         "max": None if row[7] is None else int(row[7]),
     }
+
+
+def _duration_summary_us(
+    con: duckdb.DuckDBPyConnection,
+    relation: str,
+    column: str,
+    *,
+    where: str = "true",
+) -> dict[str, Any]:
+    exact = _numeric_summary_sql(
+        con, relation, column, where=where, unit="MICROSECONDS",
+    )
+
+    def display_ms(value: int | None) -> int | None:
+        if value is None:
+            return None
+        return (value + 500) // 1_000
+
+    return {
+        "exact": exact,
+        "display_milliseconds": {
+            key: (value if key == "n" else display_ms(value))
+            for key, value in exact.items()
+            if key in {"n", "min", "p10", "p50", "p90", "p95", "p99", "max"}
+        } | {
+            "unit": "MILLISECONDS",
+            "display_rounding": "HALF_UP_FROM_EXACT_INTEGER_MICROSECONDS",
+            "statistics_computed_before_display_conversion": True,
+        },
+    }
+
+
+def _kaplan_meier_us(
+    con: duckdb.DuckDBPyConnection, relation: str,
+) -> list[dict[str, Any]]:
+    """Compute KM directly on exact integer microsecond durations."""
+    survival = []
+    for horizon in SURVIVAL_HORIZONS_MS:
+        horizon_us = horizon * 1_000
+        row = con.execute(f"""
+          WITH bins AS (
+            SELECT observed_duration_us t_us,
+                   count(*) FILTER (WHERE deletion_observed)::DOUBLE deaths,
+                   count(*) FILTER (WHERE NOT deletion_observed)::DOUBLE censored
+            FROM {relation} GROUP BY observed_duration_us
+          ), risks AS (
+            SELECT t_us,deaths,censored,
+                   (sum(deaths+censored) OVER ()
+                    - coalesce(sum(deaths+censored) OVER (
+                        ORDER BY t_us ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                      ),0))::DOUBLE at_risk
+            FROM bins
+          )
+          SELECT count(*) FILTER (WHERE t_us<={horizon_us} AND deaths>0),
+                 coalesce(sum(deaths) FILTER (WHERE t_us<={horizon_us}),0),
+                 coalesce(sum(censored) FILTER (WHERE t_us<={horizon_us}),0),
+                 CASE WHEN bool_or(
+                        t_us<={horizon_us} AND deaths>=at_risk AND deaths>0
+                      )
+                      THEN 0.0
+                      ELSE exp(coalesce(sum(
+                        CASE WHEN t_us<={horizon_us} AND deaths>0
+                             THEN ln(1.0-deaths/at_risk) ELSE 0 END
+                      ),0)) END
+          FROM risks
+        """).fetchone()
+        survival.append({
+            "horizon_ms": horizon,
+            "horizon_us": horizon_us,
+            "comparison_contract": (
+                "observed_duration_us <= horizon_ms * 1000"
+            ),
+            "event_time_count": int(row[0]),
+            "deletions_through_horizon": int(row[1]),
+            "censored_through_horizon": int(row[2]),
+            "kaplan_meier_survival_bps": int(round(float(row[3]) * 10_000)),
+        })
+    return survival
 
 
 def _python_numeric_summary(values: list[int], unit: str) -> dict[str, Any]:
@@ -2008,22 +2237,54 @@ def _build_report(
         _checkpoint_path(store, MAPPING_STAGE, _partition_key(day["date"], bucket))
         for day in descriptors for bucket in range(buckets)
     ]
+    event_paths = [
+        _checkpoint_path(
+            store, SOURCE_EVENT_STAGE, _partition_key(day["date"], bucket),
+        )
+        for day in descriptors for bucket in range(buckets)
+    ]
     life = f"read_parquet({path_list(lifecycle_paths)},union_by_name=true,hive_partitioning=false)"
     mapped = f"read_parquet({path_list(mapping_paths)},union_by_name=true,hive_partitioning=false)"
-    rfq_events = {
-        str(row[0]): {
-            "created_ts_us": int(row[1]),
-            "create_recv_wall_ns": int(row[2]),
-            "create_clock_skew_ms": int(row[3]),
-            "legs_json": str(row[4]),
-            "leg_count": int(row[5]),
+    events = f"read_parquet({path_list(event_paths)},union_by_name=true,hive_partitioning=false)"
+    event_by_locator = {
+        (str(row[1]), str(row[2]), int(row[3])): {
+            "request_id": str(row[0]),
+            "created_ts_us": int(row[4]),
+            "create_recv_wall_ns": int(row[5]),
+            "create_clock_skew_us": int(row[6]),
+            "create_clock_state": str(row[7]),
+            "legs_json": str(row[8]),
+            "leg_count": int(row[9]),
         }
         for row in con.execute(f"""
-          SELECT rfq_id,created_ts_us,create_recv_wall_ns,create_clock_skew_ms,
+          SELECT rfq_id,source_key,source_version_id,source_line,
+                 exchange_ts_us,recv_wall_ns,clock_skew_us,clock_state,
                  legs_json,leg_count
-          FROM {life}
+          FROM {events} WHERE event_type='CREATE'
         """).fetchall()
     }
+    rfq_events: dict[str, dict[str, Any]] = {}
+    for meta in metas:
+        for occurrence in meta["provenance"]["rfq_created_occurrences"]:
+            if occurrence["occurrence_kind"] != "PRIMARY":
+                continue
+            locator = (
+                occurrence["object_key"], occurrence["version_id"],
+                occurrence["line_number"],
+            )
+            event = event_by_locator.get(locator)
+            if event is None or event["request_id"] != occurrence["request_id"]:
+                _fail(
+                    "CONSERVATION_FAILED",
+                    f"primary RFQ event locator differs for {occurrence['request_id']}",
+                )
+            if occurrence["request_id"] in rfq_events:
+                _fail("CONSERVATION_FAILED", "primary RFQ ID repeats across dates")
+            rfq_events[occurrence["request_id"]] = event
+    if len(rfq_events) != sum(
+        meta["provenance"]["rfq_created_unique_count"] for meta in metas
+    ):
+        _fail("CONSERVATION_FAILED", "primary RFQ event map does not conserve")
 
     per_hour = [
         {"utc_hour": str(row[0]), "requests": int(row[1])}
@@ -2064,45 +2325,25 @@ def _build_report(
           FROM {life} GROUP BY size_mode ORDER BY size_mode
         """).fetchall()
     ]
-    deleted_count, censored_count = [int(value) for value in con.execute(f"""
+    endpoint_row = [int(value) for value in con.execute(f"""
       SELECT count(*) FILTER (WHERE deletion_observed),
-             count(*) FILTER (WHERE NOT deletion_observed)
+             count(*) FILTER (WHERE NOT deletion_observed),
+             count(*) FILTER (
+               WHERE delete_endpoint_state='CENSORED_INCONSISTENT_DELETE'
+             ),
+             count(*) FILTER (
+               WHERE delete_endpoint_state='CENSORED_DELETE_CLOCK'
+             ),
+             count(*) FILTER (
+               WHERE delete_endpoint_state='RIGHT_CENSORED_NO_DELETE'
+             )
       FROM {life}
     """).fetchone()]
-    survival = []
-    for horizon in SURVIVAL_HORIZONS_MS:
-        row = con.execute(f"""
-          WITH bins AS (
-            SELECT observed_duration_ms t,
-                   count(*) FILTER (WHERE deletion_observed)::DOUBLE deaths,
-                   count(*) FILTER (WHERE NOT deletion_observed)::DOUBLE censored
-            FROM {life} GROUP BY observed_duration_ms
-          ), risks AS (
-            SELECT t,deaths,censored,
-                   (sum(deaths+censored) OVER ()
-                    - coalesce(sum(deaths+censored) OVER (
-                        ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                      ),0))::DOUBLE at_risk
-            FROM bins
-          )
-          SELECT count(*) FILTER (WHERE t<={horizon} AND deaths>0),
-                 coalesce(sum(deaths) FILTER (WHERE t<={horizon}),0),
-                 coalesce(sum(censored) FILTER (WHERE t<={horizon}),0),
-                 CASE WHEN bool_or(t<={horizon} AND deaths>=at_risk AND deaths>0)
-                      THEN 0.0
-                      ELSE exp(coalesce(sum(
-                        CASE WHEN t<={horizon} AND deaths>0
-                             THEN ln(1.0-deaths/at_risk) ELSE 0 END
-                      ),0)) END
-          FROM risks
-        """).fetchone()
-        survival.append({
-            "horizon_ms": horizon,
-            "event_time_count": int(row[0]),
-            "deletions_through_horizon": int(row[1]),
-            "censored_through_horizon": int(row[2]),
-            "kaplan_meier_survival_bps": int(round(float(row[3]) * 10_000)),
-        })
+    (
+        deleted_count, censored_count, inconsistent_endpoint_count,
+        clock_endpoint_count, no_delete_endpoint_count,
+    ) = endpoint_row
+    survival = _kaplan_meier_us(con, life)
 
     combo_row = con.execute(f"""
       SELECT count(*) FILTER (WHERE leg_count>0 OR mve_collection_ticker IS NOT NULL),
@@ -2192,12 +2433,65 @@ def _build_report(
             "conflicting_create_ids_excluded": lifecycle_totals[
                 "conflicting_create_ids"
             ],
+            "clock_excluded_create_ids": lifecycle_totals[
+                "clock_excluded_create_ids"
+            ],
+            "future_clock_create_occurrences": lifecycle_totals[
+                "future_clock_create_occurrences"
+            ],
+            "stale_clock_create_occurrences": lifecycle_totals[
+                "stale_clock_create_occurrences"
+            ],
             "lifecycle_rows": lifecycle_totals["lifecycle_rows"],
             "identity_equation_pass": lifecycle_totals["unique_create_ids"] == (
                 lifecycle_totals["conflicting_create_ids"]
+                + lifecycle_totals["clock_excluded_create_ids"]
                 + lifecycle_totals["lifecycle_rows"]
             ),
             "orphan_delete_ids_excluded": lifecycle_totals["orphan_delete_ids"],
+            "delete_occurrences": lifecycle_totals["delete_occurrences"],
+            "unique_delete_rows": lifecycle_totals["unique_delete_rows"],
+            "exact_delete_duplicates": lifecycle_totals[
+                "exact_delete_duplicates"
+            ],
+            "orphan_delete_rows_excluded": lifecycle_totals[
+                "orphan_delete_rows"
+            ],
+            "excluded_parent_delete_rows": lifecycle_totals[
+                "excluded_parent_delete_rows"
+            ],
+            "valid_parent_delete_candidates": lifecycle_totals[
+                "valid_parent_delete_candidates"
+            ],
+            "consistent_delete_candidates": lifecycle_totals[
+                "consistent_delete_candidates"
+            ],
+            "inconsistent_delete_candidates": lifecycle_totals[
+                "inconsistent_delete_candidates"
+            ],
+            "clock_censored_delete_candidates": lifecycle_totals[
+                "clock_censored_delete_candidates"
+            ],
+            "delete_dedup_equation_pass": lifecycle_totals[
+                "delete_occurrences"
+            ] == (
+                lifecycle_totals["unique_delete_rows"]
+                + lifecycle_totals["exact_delete_duplicates"]
+            ),
+            "delete_assignment_equation_pass": lifecycle_totals[
+                "unique_delete_rows"
+            ] == (
+                lifecycle_totals["orphan_delete_rows"]
+                + lifecycle_totals["excluded_parent_delete_rows"]
+                + lifecycle_totals["valid_parent_delete_candidates"]
+            ),
+            "delete_candidate_class_equation_pass": lifecycle_totals[
+                "valid_parent_delete_candidates"
+            ] == (
+                lifecycle_totals["consistent_delete_candidates"]
+                + lifecycle_totals["inconsistent_delete_candidates"]
+                + lifecycle_totals["clock_censored_delete_candidates"]
+            ),
             "mapping_components": mapping_component_total,
             "all_exact_objects_parsed": all(
                 row["provenance"]["all_object_bytes_parsed"] is True
@@ -2218,6 +2512,15 @@ def _build_report(
         "d01_flow_census": {
             "id": "D01", "status": "EXPLORATORY_COMPLETE",
             "unique_requests": request_count,
+            "unique_requests_before_conflict_and_clock_gates": lifecycle_totals[
+                "unique_create_ids"
+            ],
+            "conflicting_request_ids_excluded": lifecycle_totals[
+                "conflicting_create_ids"
+            ],
+            "clock_anomalous_request_ids_excluded": lifecycle_totals[
+                "clock_excluded_create_ids"
+            ],
             "create_occurrences_before_exact_dedup": source_create,
             "delete_occurrences_before_exact_dedup": source_delete,
             "per_utc_hour": per_hour,
@@ -2244,13 +2547,32 @@ def _build_report(
             "id": "D03", "status": "EXPLORATORY_COMPLETE_WITH_RIGHT_CENSORING",
             "deletion_observed": deleted_count,
             "right_censored": censored_count,
+            "exclusive_endpoint_counts": {
+                "CONSISTENT_DELETE_OBSERVED": deleted_count,
+                "CENSORED_INCONSISTENT_DELETE": inconsistent_endpoint_count,
+                "CENSORED_DELETE_CLOCK": clock_endpoint_count,
+                "RIGHT_CENSORED_NO_DELETE": no_delete_endpoint_count,
+            },
+            "endpoint_equation_pass": request_count == (
+                deleted_count + inconsistent_endpoint_count
+                + clock_endpoint_count + no_delete_endpoint_count
+            ),
             "deletion_match_coverage_bps": _bps(deleted_count, request_count),
-            "observed_lifetime_ms": _numeric_summary_sql(
-                con, life, "lifetime_ms", where="deletion_observed",
-                unit="MILLISECONDS",
+            "observed_lifetime": _duration_summary_us(
+                con, life, "lifetime_us", where="deletion_observed",
             ),
             "kaplan_meier": survival,
-            "censoring_rule": "UNMATCHED_AT_END_OF_LAST_CONTIGUOUS_UTC_DATE",
+            "censoring_rules": {
+                "RIGHT_CENSORED_NO_DELETE": (
+                    "UNMATCHED_AT_END_OF_LAST_CONTIGUOUS_UTC_DATE"
+                ),
+                "CENSORED_INCONSISTENT_DELETE": (
+                    "DELETE_SEEN_BUT_TEMPORAL_OR_PAYLOAD_CONTRACT_FAILED"
+                ),
+                "CENSORED_DELETE_CLOCK": (
+                    "DELETE_EXCHANGE_RECEIVE_CLOCK_OUTSIDE_TOLERANCE"
+                ),
+            },
         },
         "d04_combo_leg_pressure": {
             "id": "D04", "status": "EXPLORATORY_COMPLETE",
