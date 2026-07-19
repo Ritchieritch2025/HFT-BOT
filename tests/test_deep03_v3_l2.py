@@ -562,7 +562,21 @@ def _write_exact_fixture(tmp_path: Path) -> dict[str, object]:
         })
         quality = tmp_path / f"quality/date={date}/l2_gaps.json"
         quality.parent.mkdir(parents=True, exist_ok=True)
-        quality.write_text(json.dumps(clean_receipt(date=date)) + "\n")
+        receipt_overrides: dict[str, object] = {"date": date}
+        if date == "2026-07-13":
+            receipt_overrides["seq_gap_events"] = 1
+        elif date == "2026-07-14":
+            receipt_overrides.update({
+                "parse_errors": 37,
+                "markers_lost_frames": 1000,
+                "recorder_markers": {"loss": 4},
+            })
+        elif date == "2026-07-16":
+            receipt_overrides.update({
+                "seq_gap_events": 2,
+                "recorder_markers": {"epoch_change": 3},
+            })
+        quality.write_text(json.dumps(clean_receipt(**receipt_overrides)) + "\n")
         quality_payload = quality.read_bytes()
         objects.append({
             "release_id": release_id,
@@ -594,10 +608,16 @@ def test_bounded_exact_input_absent_days_conservation_and_resume(tmp_path: Path)
     first = l2.execute_l2_snbd_bounded(
         con, manifest, store, market_buckets=2
     )
-    assert first["state"] == "COMPLETE"
-    assert first["claim_tier"] == "DESCRIPTIVE_ONLY_NO_PNL"
-    assert first["row_conservation"]["observed_rows"] == 18
-    assert first["row_conservation"]["expected_rows"] == 18
+    assert first["state"] == "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS"
+    assert first["claim_tier"] == "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL"
+    assert first["row_accounting"]["all_captured_source_rows"] == 18
+    assert first["row_accounting"]["physical_coverage_rows"] == 18
+    assert first["row_accounting"]["included_clean_source_rows"] == 9
+    assert first["row_accounting"]["excluded_data_quality_rows"] == 9
+    assert first["row_accounting"]["replay_rows"] == 9
+    assert first["row_conservation"]["included_plus_excluded_coverage"][
+        "state"
+    ] == "PASS"
     availability = con.execute(
         f"SELECT date,state FROM read_parquet('{checkpoint_root / 'l2_availability/data/scope.parquet'}') ORDER BY date"
     ).fetchall()
@@ -605,7 +625,21 @@ def test_bounded_exact_input_absent_days_conservation_and_resume(tmp_path: Path)
         ("2026-07-10", "ABSENT_NOT_CAPTURED"),
         ("2026-07-11", "ABSENT_NOT_CAPTURED"),
     ]
-    assert all(row[1] == "CAPTURED_SEQUENCE_RECEIPT_PASS" for row in availability[2:])
+    assert availability[2:] == [
+        ("2026-07-12", "CAPTURED_CLEAN_INCLUDED"),
+        ("2026-07-13", "EXCLUDED_DATA_QUALITY"),
+        ("2026-07-14", "EXCLUDED_DATA_QUALITY"),
+        ("2026-07-15", "CAPTURED_CLEAN_INCLUDED"),
+        ("2026-07-16", "EXCLUDED_DATA_QUALITY"),
+        ("2026-07-17", "CAPTURED_CLEAN_INCLUDED"),
+    ]
+    assert first["availability"]["included_clean_dates"] == [
+        "2026-07-12", "2026-07-15", "2026-07-17"
+    ]
+    assert first["availability"]["excluded_data_quality_dates"] == [
+        "2026-07-13", "2026-07-14", "2026-07-16"
+    ]
+    assert first["universe_scope"]["full_market_coverage_claim"] is False
     store.close()
 
     resumed_store = l2.BoundedCheckpointStore(checkpoint_root, binding)
@@ -637,15 +671,17 @@ def test_bounded_resume_refuses_corrupt_completed_payload(tmp_path: Path):
     con.close()
 
 
-def test_bounded_execution_refuses_gap_receipt_and_absent_day_fact(tmp_path: Path):
+def test_bounded_execution_excludes_bad_date_without_killing_clean_dates_and_refuses_absent_fact(
+    tmp_path: Path,
+):
     manifest = _write_exact_fixture(tmp_path)
     quality_object = next(
         obj for obj in manifest["objects"]
-        if obj["kind"] == "l2_quality_receipt" and obj["date"] == "2026-07-14"
+        if obj["kind"] == "l2_quality_receipt" and obj["date"] == "2026-07-12"
     )
     quality_path = Path(quality_object["local_path"])
     quality_path.write_text(json.dumps(clean_receipt(
-        date="2026-07-14", seq_gap_events=1
+        date="2026-07-12", seq_gap_events=1
     )) + "\n")
     quality_object["sha256"] = __import__("hashlib").sha256(
         quality_path.read_bytes()
@@ -654,8 +690,19 @@ def test_bounded_execution_refuses_gap_receipt_and_absent_day_fact(tmp_path: Pat
     store = l2.BoundedCheckpointStore(
         tmp_path / "gap-checkpoints", l2.bounded_source_binding(manifest)
     )
-    with pytest.raises(l2.L2ResearchError, match="sequence receipt refused"):
-        l2.execute_l2_snbd_bounded(con, manifest, store, market_buckets=1)
+    result = l2.execute_l2_snbd_bounded(
+        con, manifest, store, market_buckets=1
+    )
+    assert result["state"] == "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS"
+    assert result["availability"]["included_clean_dates"] == [
+        "2026-07-15", "2026-07-17"
+    ]
+    assert result["row_accounting"]["all_captured_source_rows"] == 18
+    assert result["row_accounting"]["physical_coverage_rows"] == 18
+    assert result["row_accounting"]["included_clean_source_rows"] == 6
+    assert result["row_accounting"]["excluded_data_quality_rows"] == 12
+    assert result["quality"]["2026-07-12"]["analysis_disposition"] == \
+        "EXCLUDED_DATA_QUALITY"
     store.close()
 
     absent_fact = dict(next(

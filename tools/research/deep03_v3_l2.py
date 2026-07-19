@@ -856,6 +856,8 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
         "market_partition_algorithm": "duckdb-hash-v1-modulo-plus-null-bucket",
         "market_bucket_count": market_buckets,
         "capture_dates": list(L2_CAPTURE_DATES),
+        "analysis_dates": list(L2_ANALYSIS_DATES),
+        "known_excluded_dates": dict(L2_KNOWN_EXCLUDED_DATES),
         "explicit_absent_dates": list(L2_ABSENT_DATES),
         "replay_columns": list(REPLAY_COLUMNS),
         "episode_columns": list(EPISODE_COLUMNS),
@@ -864,6 +866,7 @@ def _l2_abi(market_buckets: int) -> dict[str, Any]:
         "min_depletion_fraction": MIN_DEPLETION_FRACTION,
         "refill_fraction": REFILL_FRACTION,
         "per_market_forward_ws_seq_gap_inference_used": False,
+        "universe_scope": "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
     }
     payload["abi_sha256"] = hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
     return payload
@@ -1730,25 +1733,39 @@ def execute_l2_snbd_bounded(
     if store.source_binding != expected_binding:
         raise L2ResearchError("L2 checkpoint store source binding mismatch")
     abi = _l2_abi(market_buckets)
-    quality = {
-        date: _load_quality_assessment(input_manifest, date)
-        for date in L2_CAPTURE_DATES
-    }
-    blocked = {
-        date: row["blockers"]
-        for date, row in quality.items()
-        if row["state"] != "PASS"
-    }
-    if blocked:
-        raise L2ResearchError(
-            "L2 full-stream sequence receipt refused captured date(s): "
-            + json.dumps(blocked, sort_keys=True)
+    quality: dict[str, dict[str, Any]] = {}
+    for date in L2_CAPTURE_DATES:
+        assessment = _load_quality_assessment(input_manifest, date)
+        blockers = list(assessment["blockers"])
+        known_exclusion = L2_KNOWN_EXCLUDED_DATES.get(date)
+        if known_exclusion and known_exclusion not in blockers:
+            # These dispositions come from the immutable independent audit of
+            # the exact capture, not from an inferred per-market ws_seq gap.
+            blockers.append(f"independent_quality_audit:{known_exclusion}")
+        included = (
+            date in L2_ANALYSIS_DATES
+            and assessment["state"] == "PASS"
+            and not known_exclusion
         )
+        assessment["receipt_state"] = assessment["state"]
+        assessment["blockers"] = blockers
+        assessment["analysis_disposition"] = (
+            "INCLUDED_CLEAN_DATE" if included else "EXCLUDED_DATA_QUALITY"
+        )
+        assessment["usable_for_estimands"] = included
+        assessment["known_quality_disposition"] = known_exclusion
+        quality[date] = assessment
+    analysis_dates = tuple(
+        date for date in L2_CAPTURE_DATES
+        if quality[date]["usable_for_estimands"]
+    )
 
     physical_stage = "l2_physical"
     replay_stage = "l2_replay"
     episode_stage = "l2_episodes"
-    physical_version = _stage_version(abi, physical_stage, "exact-source-v1")
+    physical_version = _stage_version(
+        abi, physical_stage, "all-captured-coverage-v2"
+    )
     replay_version = _stage_version(abi, replay_stage, "sequence-replay-v2")
     episode_version = _stage_version(abi, episode_stage, "causal-lifecycle-v2")
     bucket_values = range(market_buckets + 1)  # final value is NULL-market bucket
@@ -1761,16 +1778,21 @@ def execute_l2_snbd_bounded(
         replay_stage: {"written": 0, "reused": 0},
         episode_stage: {"written": 0, "reused": 0},
     }
+    date_replay_qc: dict[str, dict[str, int]] = {
+        date: defaultdict(int) for date in analysis_dates
+    }
 
     for date in L2_CAPTURE_DATES:
         objects = _l2_fact_objects(input_manifest, date)
         typed = _normalized_l2_sql(con, objects, date)
         source_count = int(con.execute(f"SELECT count(*) FROM ({typed})").fetchone()[0])
         if source_count <= 0:
-            raise L2ResearchError(
-                f"captured L2 date has zero Sports fact rows: {date}"
-            )
+            quality[date]["usable_for_estimands"] = False
+            quality[date]["analysis_disposition"] = "EXCLUDED_DATA_QUALITY"
+            quality[date]["blockers"].append("empty_sports_l2_capture")
         source_counts[date] = source_count
+        quality[date]["source_objects"] = len(objects)
+        quality[date]["source_rows"] = source_count
         observed_end = con.execute(
             f"SELECT max(recv_wall_ns) FROM ({typed})"
         ).fetchone()[0]
@@ -1815,8 +1837,8 @@ def execute_l2_snbd_bounded(
         partition_keys=physical_keys,
     )
     physical_manifest = json.loads(physical_manifest_path.read_text(encoding="ascii"))
-    _require_row_conservation(
-        label="l2_source_to_physical",
+    physical_conservation = _require_row_conservation(
+        label="l2_all_captured_source_to_physical_coverage",
         observed=int(physical_manifest["row_count"]),
         expected=sum(source_counts.values()),
         context="all_captured_dates",
@@ -1824,6 +1846,8 @@ def execute_l2_snbd_bounded(
 
     for key in sorted(physical_keys):
         partition_date = key[len("date=") : len("date=") + 10]
+        if not quality[partition_date]["usable_for_estimands"]:
+            continue
         replay_receipt, episode_receipt, reused = _replay_one_partition(
             con,
             store,
@@ -1838,6 +1862,9 @@ def execute_l2_snbd_bounded(
         replay_keys.append(key)
         activity[replay_stage]["reused" if reused else "written"] += 1
         activity[episode_stage]["reused" if reused else "written"] += 1
+        for metric, value in (replay_receipt.get("metrics", {}).get("qc") or {}).items():
+            if isinstance(value, int) and not isinstance(value, bool):
+                date_replay_qc[partition_date][metric] += value
         if replay_receipt["data"]["row_count"] < 0 or episode_receipt["data"]["row_count"] < 0:
             raise L2ResearchError(f"negative durable row count: {key}")
 
@@ -1852,9 +1879,46 @@ def execute_l2_snbd_bounded(
     replay_manifest = json.loads(replay_manifest_path.read_text(encoding="ascii"))
     episode_manifest = json.loads(episode_manifest_path.read_text(encoding="ascii"))
     replay_conservation = _require_row_conservation(
-        label="l2_physical_to_replay",
+        label="l2_included_clean_source_to_replay",
         observed=int(replay_manifest["row_count"]),
-        expected=int(physical_manifest["row_count"]),
+        expected=sum(
+            source_counts[date]
+            for date in L2_CAPTURE_DATES
+            if quality[date]["usable_for_estimands"]
+        ),
+        context="included_clean_dates_only",
+    )
+    replay_qc: dict[str, int] = defaultdict(int)
+    for metrics in date_replay_qc.values():
+        for metric, value in metrics.items():
+            replay_qc[metric] += value
+    rejected_rows = sum(
+        value for metric, value in replay_qc.items()
+        if metric.startswith("rejected_")
+    )
+    classified_rows = (
+        replay_qc.get("snapshots_applied", 0)
+        + replay_qc.get("deltas_applied", 0)
+        + rejected_rows
+    )
+    included_source_rows = sum(
+        source_counts[date] for date in L2_CAPTURE_DATES
+        if quality[date]["usable_for_estimands"]
+    )
+    excluded_quality_rows = sum(
+        source_counts[date] for date in L2_CAPTURE_DATES
+        if not quality[date]["usable_for_estimands"]
+    )
+    classification_conservation = _require_row_conservation(
+        label="l2_replay_classification",
+        observed=classified_rows,
+        expected=included_source_rows,
+        context="included_clean_dates_only",
+    )
+    coverage_conservation = _require_row_conservation(
+        label="l2_coverage_included_plus_excluded",
+        observed=included_source_rows + excluded_quality_rows,
+        expected=sum(source_counts.values()),
         context="all_captured_dates",
     )
 
@@ -1865,7 +1929,9 @@ def execute_l2_snbd_bounded(
     reducer_keys: list[str] = []
     activity[atlas_stage] = {"written": 0, "reused": 0}
     activity[match_stage] = {"written": 0, "reused": 0}
-    for date in L2_CAPTURE_DATES:
+    for date in analysis_dates:
+        if not quality[date]["usable_for_estimands"]:
+            continue
         date_keys = sorted(
             key for key in replay_keys if key.startswith(f"date={date}_")
         )
@@ -1900,29 +1966,41 @@ def execute_l2_snbd_bounded(
 
     availability_stage = "l2_availability"
     availability_version = _stage_version(
-        abi, availability_stage, "captured-vs-explicit-absent-v1"
+        abi, availability_stage, "coverage-and-quality-disposition-v2"
     )
     con.execute("""
       CREATE OR REPLACE TEMP TABLE l2_availability_build(
         date VARCHAR,state VARCHAR,source_objects BIGINT,source_rows BIGINT,
-        quality_state VARCHAR,quality_sha256 VARCHAR,absence_reason VARCHAR
+        analysis_rows BIGINT,eligible_for_estimands BOOLEAN,
+        quality_state VARCHAR,quality_sha256 VARCHAR,quality_blockers_json VARCHAR,
+        absence_reason VARCHAR,universe_scope VARCHAR
       )
     """)
     availability_rows = []
     for date in L2_SCOPE_DATES:
         if date in L2_ABSENT_DATES:
             availability_rows.append((
-                date, "ABSENT_NOT_CAPTURED", 0, 0, "NOT_APPLICABLE", None,
+                date, "ABSENT_NOT_CAPTURED", 0, 0, 0, False,
+                "NOT_APPLICABLE", None, "[]",
                 "L2 capture was not legitimately available for this exact date",
+                "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
             ))
         else:
+            included = bool(quality[date]["usable_for_estimands"])
             availability_rows.append((
-                date, "CAPTURED_SEQUENCE_RECEIPT_PASS",
+                date, (
+                    "CAPTURED_CLEAN_INCLUDED"
+                    if included else "EXCLUDED_DATA_QUALITY"
+                ),
                 len(_l2_fact_objects(input_manifest, date)), source_counts[date],
-                quality[date]["state"], quality[date]["sha256"], None,
+                source_counts[date] if included else 0, included,
+                quality[date]["receipt_state"], quality[date]["sha256"],
+                json.dumps(quality[date]["blockers"], sort_keys=True),
+                None,
+                "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
             ))
     con.executemany(
-        "INSERT INTO l2_availability_build VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO l2_availability_build VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         availability_rows,
     )
     availability_receipt, availability_reused = store.write_partition(
@@ -1933,7 +2011,19 @@ def execute_l2_snbd_bounded(
         select_sql="SELECT * FROM l2_availability_build ORDER BY date",
         metrics={
             "captured_dates": list(L2_CAPTURE_DATES),
+            "included_clean_dates": [
+                date for date in L2_CAPTURE_DATES
+                if quality[date]["usable_for_estimands"]
+            ],
+            "excluded_data_quality_dates": [
+                date for date in L2_CAPTURE_DATES
+                if not quality[date]["usable_for_estimands"]
+            ],
             "explicit_absent_dates": list(L2_ABSENT_DATES),
+            "all_captured_rows_in_coverage_ledger": sum(source_counts.values()),
+            "included_analysis_rows": included_source_rows,
+            "excluded_data_quality_rows": excluded_quality_rows,
+            "universe_scope": "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
         },
     )
     availability_manifest_path = store.finalize_stage(
@@ -1958,27 +2048,66 @@ def execute_l2_snbd_bounded(
             "row_count": manifest["row_count"],
         })
     return {
-        "schema_version": "deep03-v3-l2-snbd-execution-v1",
-        "state": "COMPLETE",
-        "claim_tier": "DESCRIPTIVE_ONLY_NO_PNL",
+        "schema_version": "deep03-v3-l2-snbd-execution-v2",
+        "state": "COMPLETE_WITH_DATA_QUALITY_EXCLUSIONS",
+        "claim_tier": "DESCRIPTIVE_CLEAN_DATES_ONLY_NO_PNL",
         "source_binding": store.source_binding,
         "stage_abi": abi,
         "quality": quality,
         "availability": {
             "captured_dates": list(L2_CAPTURE_DATES),
+            "included_clean_dates": [
+                date for date in L2_CAPTURE_DATES
+                if quality[date]["usable_for_estimands"]
+            ],
+            "excluded_data_quality_dates": [
+                date for date in L2_CAPTURE_DATES
+                if not quality[date]["usable_for_estimands"]
+            ],
             "explicit_absent_dates": list(L2_ABSENT_DATES),
             "receipt": availability_receipt,
             "reused": availability_reused,
         },
-        "row_conservation": replay_conservation,
+        "row_accounting": {
+            "all_captured_source_rows": sum(source_counts.values()),
+            "physical_coverage_rows": int(physical_manifest["row_count"]),
+            "included_clean_source_rows": included_source_rows,
+            "excluded_data_quality_rows": excluded_quality_rows,
+            "replay_rows": int(replay_manifest["row_count"]),
+            "classified_rows": classified_rows,
+            "rejected_rows_within_clean_dates": rejected_rows,
+            "applied_snapshot_rows": replay_qc.get("snapshots_applied", 0),
+            "applied_delta_rows": replay_qc.get("deltas_applied", 0),
+            "rejection_class_counts": {
+                key: value for key, value in sorted(replay_qc.items())
+                if key.startswith("rejected_")
+            },
+            "per_clean_date_qc": {
+                date: dict(sorted(metrics.items()))
+                for date, metrics in sorted(date_replay_qc.items())
+            },
+        },
+        "row_conservation": {
+            "all_captured_physical_coverage": physical_conservation,
+            "included_clean_replay": replay_conservation,
+            "replay_classification": classification_conservation,
+            "included_plus_excluded_coverage": coverage_conservation,
+        },
         "episode_rows": int(episode_manifest["row_count"]),
         "atlas_rows": int(atlas_manifest["row_count"]),
         "matched_control_rows": int(match_manifest["row_count"]),
         "activity": activity,
         "stages": manifests,
+        "universe_scope": {
+            "state": "TARGETED_WATCHLIST_NOT_FULL_MARKET_UNIVERSE",
+            "all_legitimately_captured_rows_within_watchlist_covered": True,
+            "full_market_coverage_claim": False,
+        },
         "limitations": [
             "Per-market forward ws_seq jumps are not packet-loss evidence.",
             "L2 is absent, not zero, on 2026-07-10 and 2026-07-11.",
+            "2026-07-13, 2026-07-14, and 2026-07-16 are coverage-only and excluded from every estimand because of full-stream data quality.",
+            "The captured L2 universe is a targeted watchlist, not every market on the exchange.",
             "Displayed depth/refill is not own-order queue position or fill probability.",
             "No fee, latency, fill, or PnL claim is made.",
         ],
