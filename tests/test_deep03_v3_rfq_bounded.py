@@ -184,7 +184,10 @@ def test_end_to_end_fresh_only_exact_dedup_lifecycle_and_resume(
     assert report["d02_size_intent"]["target_cost_dollars"]["n"] == 1
     assert report["d03_lifecycle"]["deletion_observed"] == 1
     assert report["d03_lifecycle"]["right_censored"] == 1
-    assert report["d03_lifecycle"]["observed_lifetime_ms"]["p50"] == 10_000
+    assert report["d03_lifecycle"]["observed_lifetime"]["exact"]["p50"] == 10_000_000
+    assert report["d03_lifecycle"]["observed_lifetime"][
+        "display_milliseconds"
+    ]["p50"] == 10_000
     assert report["d04_combo_leg_pressure"]["combo_requests"] == 1
     assert report["d04_combo_leg_pressure"]["yes_side_legs"] == 1
     assert report["d04_combo_leg_pressure"]["no_side_legs"] == 1
@@ -284,19 +287,28 @@ def test_exact_body_tamper_poison_fails_without_report(tmp_path, monkeypatch):
     assert not (tmp_path / "must-not-exist.json").exists()
 
 
-def _event_row(rfq_id, *, economic, raw, event_type="CREATE", ts=1_000_000):
+def _event_row(
+    rfq_id, *, economic, raw, event_type="CREATE", ts=1_000_000,
+    recv_us=None, market="KX-A", clock_state=None, source_line=1,
+):
+    if recv_us is None:
+        recv_us = ts
+    skew_us = recv_us - ts
+    if clock_state is None:
+        clock_state = bounded._event_clock_state(ts, recv_us * 1_000)
     return {
         "analysis_date": "2026-07-19", "event_type": event_type,
         "rfq_id": rfq_id, "rfq_id_sha256": _sha(rfq_id),
-        "exchange_ts_us": ts, "recv_wall_ns": ts * 1000,
-        "clock_skew_ms": 0, "market_ticker": "KX-A",
+        "exchange_ts_us": ts, "recv_wall_ns": recv_us * 1000,
+        "clock_skew_us": skew_us, "clock_state": clock_state,
+        "market_ticker": market,
         "creator_hash": None, "contracts_e2": 100,
         "target_cost_e6": None, "mve_collection_ticker": None,
         "legs_json": "[]", "leg_count": 0, "yes_leg_count": 0,
         "no_leg_count": 0, "unknown_side_leg_count": 0,
         "raw_sha256": raw, "economic_sha256": economic,
         "source_key": "ec2/raw/date=2026-07-19/rfq_00.ndjson",
-        "source_version_id": "v1", "source_line": 1,
+        "source_version_id": "v1", "source_line": source_line,
     }
 
 
@@ -325,6 +337,121 @@ def test_global_full_id_reducer_excludes_conflict_without_cross_id_collision(tmp
         row = dict(zip(names, result[0]))
         assert row["rfq_id"] == "other-id"
         assert row["exact_create_duplicate_count"] == 1
+    finally:
+        con.close()
+
+
+def test_lifecycle_delete_endpoint_classes_are_mutually_exclusive(tmp_path):
+    rows = []
+    for index, request_id in enumerate(("ok", "inconsistent", "clock", "none")):
+        rows.append(_event_row(
+            request_id, economic=_sha(f"create-{request_id}"),
+            raw=_sha(f"create-raw-{request_id}"), source_line=index + 1,
+        ))
+    rows.extend([
+        _event_row(
+            "ok", economic=_sha("delete-ok"), raw=_sha("delete-ok"),
+            event_type="DELETE", ts=2_000_000, source_line=10,
+        ),
+        _event_row(
+            "ok", economic=_sha("delete-ok-bad"), raw=_sha("delete-ok-bad"),
+            event_type="DELETE", ts=2_500_000, market="KX-WRONG",
+            source_line=11,
+        ),
+        _event_row(
+            "inconsistent", economic=_sha("delete-inconsistent"),
+            raw=_sha("delete-inconsistent"), event_type="DELETE",
+            ts=500_000, source_line=12,
+        ),
+        _event_row(
+            "clock", economic=_sha("delete-clock"), raw=_sha("delete-clock"),
+            event_type="DELETE", ts=2_000_000, recv_us=8_000_001,
+            source_line=13,
+        ),
+    ])
+    source = tmp_path / "events.ndjson"
+    source.write_bytes(b"".join(
+        bounded.canonical_bytes(row) + b"\n" for row in rows
+    ))
+    parquet = tmp_path / "events.parquet"
+    con = duckdb.connect()
+    try:
+        con.execute(
+            f"COPY ({bounded._json_select(source, bounded.EVENT_COLUMNS)}) "
+            f"TO {bounded.quote(parquet)} (FORMAT PARQUET)"
+        )
+        values = con.execute(
+            bounded._lifecycle_sql([parquet], 20_000_000)
+        ).fetchall()
+        names = [item[0] for item in con.description]
+        result = {dict(zip(names, row))["rfq_id"]: dict(zip(names, row))
+                  for row in values}
+        assert result["ok"]["delete_endpoint_state"] == "CONSISTENT_DELETE_OBSERVED"
+        assert result["ok"]["consistent_delete_count"] == 1
+        assert result["ok"]["payload_inconsistent_delete_count"] == 1
+        assert result["ok"]["delete_candidate_count"] == 2
+        assert result["inconsistent"]["delete_endpoint_state"] == (
+            "CENSORED_INCONSISTENT_DELETE"
+        )
+        assert result["inconsistent"]["temporal_inconsistent_delete_count"] == 1
+        assert result["clock"]["delete_endpoint_state"] == "CENSORED_DELETE_CLOCK"
+        assert result["clock"]["clock_censored_delete_count"] == 1
+        assert result["none"]["delete_endpoint_state"] == "RIGHT_CENSORED_NO_DELETE"
+        assert sum(
+            row["consistent_delete_count"]
+            + row["inconsistent_delete_count"]
+            + row["clock_censored_delete_count"]
+            for row in result.values()
+        ) == sum(row["delete_candidate_count"] for row in result.values())
+    finally:
+        con.close()
+
+
+def test_future_clock_create_is_not_admitted_to_lifecycle(tmp_path):
+    rows = [
+        _event_row(
+            "valid", economic=_sha("valid"), raw=_sha("valid"),
+        ),
+        _event_row(
+            "future", economic=_sha("future"), raw=_sha("future"),
+            ts=8_000_001, recv_us=1_000_000,
+        ),
+    ]
+    source = tmp_path / "events.ndjson"
+    source.write_bytes(b"".join(
+        bounded.canonical_bytes(row) + b"\n" for row in rows
+    ))
+    parquet = tmp_path / "events.parquet"
+    con = duckdb.connect()
+    try:
+        con.execute(
+            f"COPY ({bounded._json_select(source, bounded.EVENT_COLUMNS)}) "
+            f"TO {bounded.quote(parquet)} (FORMAT PARQUET)"
+        )
+        result = con.execute(
+            bounded._lifecycle_sql([parquet], 20_000_000)
+        ).fetchall()
+        assert [row[1] for row in result] == ["valid"]
+    finally:
+        con.close()
+
+
+def test_km_compares_exact_microseconds_at_horizon_boundary():
+    con = duckdb.connect()
+    try:
+        con.execute(
+            "CREATE TEMP TABLE life(deletion_observed BOOLEAN,"
+            "observed_duration_us BIGINT)"
+        )
+        con.executemany(
+            "INSERT INTO life VALUES (?,?)",
+            [(True, 1_000_000), (True, 1_000_001), (False, 2_000_000)],
+        )
+        first = bounded._kaplan_meier_us(con, "life")[0]
+        assert first["horizon_ms"] == 1_000
+        assert first["horizon_us"] == 1_000_000
+        assert first["deletions_through_horizon"] == 1
+        assert first["event_time_count"] == 1
     finally:
         con.close()
 
