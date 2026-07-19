@@ -51,6 +51,7 @@ CAPTURE_RE = re.compile(
 CONTAINER_RE = re.compile(
     r"^date=(\d{4}-\d{2}-\d{2})/rfq_receipts_"
     r"([01]\d|2[0-3])\.ndjson(?:\.([1-9][0-9]*))?$")
+MAX_LEDGER_LINE_BYTES = 4 << 20
 
 
 class RunnerError(RuntimeError):
@@ -315,10 +316,11 @@ def _latest_family_inventory(
     return latest, projected
 
 
-def _select_segments(raw: bytes, *, expected_hours: list[str],
-                     authority: dict[str, Any]) -> list[dict[str, Any]]:
+def _select_segment_lines(lines: Iterator[tuple[int, bytes]], *,
+                          expected_hours: list[str],
+                          authority: dict[str, Any]) -> list[dict[str, Any]]:
     by_hour = {}
-    for number, physical in enumerate(raw.splitlines(), 1):
+    for number, physical in lines:
         if not physical.strip():
             continue
         row = _json(physical, f"session ledger line {number}")
@@ -337,6 +339,77 @@ def _select_segments(raw: bytes, *, expected_hours: list[str],
         _fail("SESSION_LEDGER_INCOMPLETE", repr(sorted(
             set(expected_hours) - set(by_hour))))
     return [by_hour[hour] for hour in expected_hours]
+
+
+def _select_segments(raw: bytes, *, expected_hours: list[str],
+                     authority: dict[str, Any]) -> list[dict[str, Any]]:
+    return _select_segment_lines(
+        iter(enumerate(raw.splitlines(), 1)),
+        expected_hours=expected_hours, authority=authority)
+
+
+def _select_segments_path(path: pathlib.Path, *, expected_hours: list[str],
+                          authority: dict[str, Any]) -> list[dict[str, Any]]:
+    """Stream a growing ledger and retain only this date's 26 small rows.
+
+    There is deliberately no whole-ledger byte ceiling: a healthy append-only
+    production ledger must not become unreadable merely because it outlives a
+    64 MiB process limit.  Every individual receipt line remains hard bounded,
+    and a concurrent append/change fails closed so the next timer retry can
+    take a stable snapshot.
+    """
+    path = pathlib.Path(path).absolute()
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise RunnerError("LOCAL_INPUT_INVALID", f"{path}: {exc}") from exc
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size <= 0:
+            _fail("LOCAL_INPUT_INVALID", str(path))
+
+        def lines() -> Iterator[tuple[int, bytes]]:
+            with os.fdopen(os.dup(fd), "rb", buffering=0) as handle:
+                number = 0
+                while True:
+                    physical = handle.readline(MAX_LEDGER_LINE_BYTES + 1)
+                    if not physical:
+                        break
+                    number += 1
+                    if len(physical) > MAX_LEDGER_LINE_BYTES:
+                        _fail("SESSION_LEDGER_LINE_TOO_LARGE", str(number))
+                    if not physical.endswith(b"\n"):
+                        _fail("SESSION_LEDGER_PARTIAL_LINE", str(number))
+                    yield number, physical[:-1]
+
+        selected = _select_segment_lines(
+            lines(), expected_hours=expected_hours, authority=authority)
+        after = os.fstat(fd)
+        named = os.stat(path, follow_symlinks=False)
+        signature = lambda row: (
+            row.st_dev, row.st_ino, row.st_size,
+            row.st_mtime_ns, row.st_ctime_ns)
+        if (signature(before) != signature(after)
+                or stat.S_ISLNK(named.st_mode)
+                or (named.st_dev, named.st_ino) !=
+                (after.st_dev, after.st_ino)):
+            _fail("LOCAL_INPUT_CHANGED", str(path))
+        return selected
+    finally:
+        os.close(fd)
+
+
+def _require_single_session(segments: list[dict[str, Any]]) -> None:
+    fields = (
+        "supervisor_pid", "child_pid", "child_generation",
+        "child_subscription_ack_wall_ns",
+        "child_subscription_ack_identity_sha256",
+    )
+    sessions = {tuple(row[field] for field in fields) for row in segments}
+    if len(sessions) != 1:
+        _fail("MULTIPLE_CAPTURE_SESSIONS", "24+2 ledger rows mix sessions")
 
 
 def build_hour_set(*, date: str, authority: dict[str, Any],
@@ -374,6 +447,16 @@ def _write_private(path: pathlib.Path, raw: bytes) -> None:
         os.close(fd)
 
 
+def _require_local_regular(path: pathlib.Path, label: str) -> None:
+    try:
+        observed = pathlib.Path(path).lstat()
+    except OSError as exc:
+        raise RunnerError("LOCAL_INPUT_INVALID", f"{label}: {exc}") from exc
+    if stat.S_ISLNK(observed.st_mode) or not stat.S_ISREG(observed.st_mode) \
+            or observed.st_size <= 0:
+        _fail("LOCAL_INPUT_INVALID", label)
+
+
 def produce(date: str, *, transport: AwsReadOnly,
             authority_path: pathlib.Path = AUTHORITY,
             raw_root: pathlib.Path = RAW_ROOT,
@@ -388,6 +471,23 @@ def produce(date: str, *, transport: AwsReadOnly,
     if existing.exists():
         gate.load_package(existing, expected_date=date)
         return existing
+    try:
+        day_start = dt.datetime.strptime(date, "%Y-%m-%d").replace(
+            tzinfo=dt.timezone.utc)
+    except ValueError as exc:
+        raise RunnerError("DATE_INVALID", str(exc)) from exc
+    generated_at_utc = generated_at_utc or dt.datetime.now(
+        dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        generated_time = dt.datetime.strptime(
+            generated_at_utc, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc)
+    except ValueError as exc:
+        raise RunnerError("GENERATED_TIME_INVALID", str(exc)) from exc
+    final_close = day_start + dt.timedelta(days=1, hours=2)
+    if generated_time < final_close:
+        _fail("WATERMARK_NOT_CLOSED", generated_at_utc)
+
     authority_raw = _read_regular(authority_path, gate.MAX_JSON_BYTES)
     if hashlib.sha256(authority_raw).hexdigest() != \
             gate.PRODUCTION_ENVELOPE_FILE_SHA256:
@@ -404,16 +504,28 @@ def produce(date: str, *, transport: AwsReadOnly,
         for hour in expected_hours
     }
 
+    # Mandatory cheap gates come before hashing any raw body or issuing an
+    # exact-version GET.  The append-only session ledger is streamed, not read
+    # into a process-sized buffer; only this date's canonical 26 rows remain.
+    segments = _select_segments_path(
+        session_ledger, expected_hours=expected_hours, authority=authority)
+    _require_single_session(segments)
+    selected_ledger_raw = b"".join(
+        _canonical(row) + b"\n" for row in segments)
+    health = gate.build_health_receipt(
+        date=date, authority_envelope=envelope,
+        session_ledger_sha256=hashlib.sha256(selected_ledger_raw).hexdigest(),
+        session_ledger_row_count=len(segments),
+        checked_at_utc=generated_at_utc, alert_path=alert_path)
+
     seal_path = pathlib.Path(seal_root) / f"date={date}.json"
     seal_body = _read_regular(seal_path, source.MAX_SEAL_BYTES)
     seal_value = _json(seal_body, "full_v2 seal")
     raw_files = seal_value.get("raw_files")
     if not isinstance(raw_files, list):
         _fail("SEAL_INVALID", "raw_files missing")
-    seal_identity = _resolve_local(
-        seal_path, f"ec2/warehouse/seals/date={date}.json", transport)
-    captures = []
-    containers = []
+    capture_paths: list[tuple[pathlib.Path, str]] = []
+    container_paths: list[tuple[pathlib.Path, str]] = []
     for row in raw_files:
         if not isinstance(row, dict) or not isinstance(row.get("file"), str):
             _fail("SEAL_INVALID", "raw file row invalid")
@@ -424,16 +536,25 @@ def produce(date: str, *, transport: AwsReadOnly,
         if (capture_match is not None
                 and f"{capture_match.group(1)}T{capture_match.group(2)}"
                 in set(expected_hours)):
-            captures.append(_resolve_local(
-                destination, "ec2/raw/" + relpath, transport))
+            _require_local_regular(destination, relpath)
+            capture_paths.append((destination, "ec2/raw/" + relpath))
         elif (container_match is not None
               and f"{container_match.group(1)}T{container_match.group(2)}"
               in expected_close_hours):
-            containers.append(_resolve_local(
-                destination, "ec2/raw/" + relpath, transport))
+            _require_local_regular(destination, relpath)
+            container_paths.append((destination, "ec2/raw/" + relpath))
 
-    final_close = (dt.datetime.strptime(date, "%Y-%m-%d").replace(
-        tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=2))
+    capture_hours = {
+        f"{match.group(1)}T{match.group(2)}"
+        for _path, key in capture_paths
+        if (match := CAPTURE_RE.fullmatch(key.removeprefix("ec2/raw/")))
+    }
+    if capture_hours != set(expected_hours):
+        _fail(
+            "LOCAL_24_PLUS_2_INCOMPLETE",
+            repr(sorted(set(expected_hours) - capture_hours)),
+        )
+
     final_rel_prefix = final_close.strftime("date=%Y-%m-%d/rfq_receipts_%H.ndjson")
     final_key_prefix = "ec2/raw/" + final_rel_prefix
     versions, inventory_pages = _latest_family_inventory(
@@ -446,6 +567,19 @@ def produce(date: str, *, transport: AwsReadOnly,
                   for path in local_final}
     if not local_keys or set(local_keys) != set(versions):
         _fail("FINAL_CONTAINER_INVENTORY_MISMATCH", final_key_prefix)
+
+    # The complete cheap gate has now passed.  Only below this line may the
+    # producer hash large local bodies or exact-GET source objects.
+    seal_identity = _resolve_local(
+        seal_path, f"ec2/warehouse/seals/date={date}.json", transport)
+    captures = [
+        _resolve_local(path, key, transport)
+        for path, key in capture_paths
+    ]
+    containers = [
+        _resolve_local(path, key, transport)
+        for path, key in container_paths
+    ]
     for key, path in sorted(local_keys.items()):
         containers.append(_resolve_local(
             path, key, transport, version_id=versions[key]))
@@ -455,8 +589,7 @@ def produce(date: str, *, transport: AwsReadOnly,
     snapshot = close_inventory.build_close_inventory_snapshot(
         analysis_date=date, pages=inventory_pages,
         exact_identities=final_identities)
-    inventory_observed_at = generated_at_utc or dt.datetime.now(
-        dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inventory_observed_at = generated_at_utc
     close_receipt = {
         "schema_version": gate.CLOSE_ATTESTATION_SCHEMA,
         "state": gate.CLOSE_ATTESTATION_STATE,
@@ -480,20 +613,9 @@ def produce(date: str, *, transport: AwsReadOnly,
         expected_hours=expected_hours,
         authority_sha256=authority["authority_sha256"],
         generation=authority["generation"], open_exact=reader.open_exact)
-    ledger_raw = _read_regular(session_ledger, gate.MAX_LEDGER_BYTES)
-    segments = _select_segments(
-        ledger_raw, expected_hours=expected_hours, authority=authority)
     hour_set = build_hour_set(
         date=date, authority=authority, source_evidence=evidence,
         segments=segments)
-    generated_at_utc = generated_at_utc or dt.datetime.now(
-        dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    selected_ledger_raw = b"".join(_canonical(row) + b"\n" for row in segments)
-    health = gate.build_health_receipt(
-        date=date, authority_envelope=envelope,
-        session_ledger_sha256=hashlib.sha256(selected_ledger_raw).hexdigest(),
-        session_ledger_row_count=len(segments),
-        checked_at_utc=generated_at_utc, alert_path=alert_path)
 
     pathlib.Path(scratch_root).mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(

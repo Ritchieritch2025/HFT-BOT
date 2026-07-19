@@ -24,6 +24,25 @@ def test_runner_rebuilds_all_26_hour_receipts_from_session_ledger(
     assert len(built["receipts"]) == 26
 
 
+def test_session_ledger_is_streamed_and_not_bound_to_whole_file_limit(
+        tmp_path, monkeypatch):
+    auth, _envelope, segments, _evidence, _expected, _paths = \
+        eligibility_fixture._inputs(tmp_path, monkeypatch)
+    ledger = tmp_path / "long-lived-ledger.ndjson"
+    irrelevant = json.dumps({"type": "old-generation", "padding": "x" * 8192})
+    with ledger.open("wb") as handle:
+        for _ in range(256):
+            handle.write(irrelevant.encode() + b"\n")
+        for row in segments:
+            handle.write(runner._canonical(row) + b"\n")
+    selected = runner._select_segments_path(
+        ledger, expected_hours=runner._expected_hours(
+            eligibility_fixture.DATE), authority=auth)
+    assert selected == segments
+    assert "_read_regular(session_ledger" not in (
+        ROOT / "tools" / "fresh_rfq_daily_runner.py").read_text()
+
+
 def test_producer_unit_is_independent_and_aws_transport_has_no_write_api():
     service = (ROOT / "deploy" /
                "kalshi-fresh-rfq-daily-producer.service").read_text()

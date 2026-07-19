@@ -289,6 +289,9 @@ def build_health_receipt(*, date: str, authority_envelope: Any,
     alert_state = "ABSENT_AT_CHECK"
     alert_file_sha256 = None
     alert_observed_at_utc = None
+    day_start = dt.datetime.strptime(date, "%Y-%m-%d").replace(
+        tzinfo=dt.timezone.utc)
+    day_close = day_start + dt.timedelta(days=1, hours=2)
     if os.path.lexists(alert):
         alert_value, alert_raw = _read_json(alert, "capture alert")
         if (not isinstance(alert_value, dict)
@@ -306,9 +309,15 @@ def build_health_receipt(*, date: str, authority_envelope: Any,
                 "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
         except (TypeError, ValueError) as exc:
             raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
-        if observed >= t0:
-            _fail("CAPTURE_ALERT_PRESENT", alert_value["observed_at_utc"])
-        alert_state = "PRESENT_PRE_T0_ONLY"
+        if day_start <= observed < day_close:
+            _fail(
+                "CAPTURE_ALERT_PRESENT",
+                f"{alert_value['observed_at_utc']} belongs to {date}",
+            )
+        alert_state = (
+            "PRESENT_PRE_T0_ONLY" if observed < t0
+            else "PRESENT_OUTSIDE_DATE_WINDOW"
+        )
         alert_file_sha256 = hashlib.sha256(alert_raw).hexdigest()
         alert_observed_at_utc = alert_value["observed_at_utc"]
     _sha(session_ledger_sha256, "health session ledger SHA")
@@ -320,9 +329,7 @@ def build_health_receipt(*, date: str, authority_envelope: Any,
                 tzinfo=dt.timezone.utc)
     except (TypeError, ValueError) as exc:
         raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
-    close = (dt.datetime.strptime(date, "%Y-%m-%d").replace(
-        tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=2))
-    if checked < close:
+    if checked < day_close:
         _fail("HEALTH_RECEIPT_INVALID", "health check precedes D+1 02 close")
     receipt = {
         "schema_version": HEALTH_SCHEMA,
@@ -376,7 +383,8 @@ def _validate_health_receipt(value: Any, *, date: str,
         if (value.get("alert_file_sha256") is not None
                 or value.get("alert_observed_at_utc") is not None):
             _fail("HEALTH_RECEIPT_INVALID", "absent alert has file evidence")
-    elif alert_state == "PRESENT_PRE_T0_ONLY":
+    elif alert_state in {
+            "PRESENT_PRE_T0_ONLY", "PRESENT_OUTSIDE_DATE_WINDOW"}:
         _sha(value.get("alert_file_sha256"), "pre-T0 alert file SHA")
         try:
             observed = dt.datetime.strptime(
@@ -387,8 +395,17 @@ def _validate_health_receipt(value: Any, *, date: str,
                 "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
         except (TypeError, ValueError) as exc:
             raise EligibilityError("HEALTH_RECEIPT_INVALID", str(exc)) from exc
-        if observed >= t0:
+        day_start = dt.datetime.strptime(date, "%Y-%m-%d").replace(
+            tzinfo=dt.timezone.utc)
+        day_close = day_start + dt.timedelta(days=1, hours=2)
+        if alert_state == "PRESENT_PRE_T0_ONLY" and observed >= t0:
             _fail("HEALTH_RECEIPT_INVALID", "alert is not pre-T0")
+        if alert_state == "PRESENT_OUTSIDE_DATE_WINDOW" and (
+                observed < t0 or day_start <= observed < day_close):
+            _fail(
+                "HEALTH_RECEIPT_INVALID",
+                "alert is not outside this analysis-date window",
+            )
     else:
         _fail("HEALTH_RECEIPT_INVALID", "unknown alert observation state")
     supplied = _sha(value.get("health_receipt_sha256"), "health receipt SHA")

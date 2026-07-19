@@ -241,6 +241,25 @@ def test_alert_and_old_lineage_overlap_fail_before_commit(tmp_path, monkeypatch)
     assert not (overlap_root / "eligible").exists()
 
 
+def test_post_t0_alert_is_scoped_to_its_date_window(tmp_path, monkeypatch):
+    _auth, envelope, segments, _evidence, _hours, paths = _inputs(
+        tmp_path, monkeypatch)
+    _write(paths["alert"], {
+        "type": "rfq_capture_alert", "status": "ALERT",
+        "observed_at_utc": "2026-07-19T12:00:00Z",
+        "reason": "later date only",
+    })
+    selected = b"".join(gate.canonical_bytes(row) + b"\n"
+                        for row in segments)
+    receipt = gate.build_health_receipt(
+        date=DATE, authority_envelope=envelope,
+        session_ledger_sha256=hashlib.sha256(selected).hexdigest(),
+        session_ledger_row_count=26, checked_at_utc=GENERATED,
+        alert_path=paths["alert"])
+    assert receipt["alert_state"] == "PRESENT_OUTSIDE_DATE_WINDOW"
+    assert receipt["alert_observed_at_utc"] == "2026-07-19T12:00:00Z"
+
+
 def test_tamper_and_pre_t0_day_fail_closed(tmp_path, monkeypatch):
     _auth, _envelope, _segments, _evidence, _hours, paths = _inputs(
         tmp_path, monkeypatch)
