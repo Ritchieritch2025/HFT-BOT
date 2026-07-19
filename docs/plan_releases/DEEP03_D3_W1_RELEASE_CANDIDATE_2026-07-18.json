@@ -23,17 +23,18 @@
     "2026-07-17__v3ref__seal-e25887ab__pub-74f48fcbc81a41b7"
   ],
   "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
+  "expected_evidence_tier": "SEALED_DEGRADED_EVIDENCE",
   "expected_object_bytes": 29473216651,
   "expected_object_count": 2657,
   "holdout_opened": false,
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W1-2026-07-18.02",
+  "release_id": "D3-W1-2026-07-18.03",
   "research_execution_authority": false,
   "rfq_included": false,
-  "runtime_commit": "06443852ce924e8a46f1f0d9e22fa806bce24462",
+  "runtime_commit": "3f2071493967f05cd466230c3e8eeb83ac241dab",
   "schema_version": "deep03-w1-release-v1",
   "state": "RELEASE_CANDIDATE",
   "strict_acceptance_claimed": false,
-  "w0_release_id": "D3-W0-2026-07-18.02",
-  "w0_release_sha256": "ff90bff5fff3c1e6a1226709cf0b45cb55b5454d16f576e6ed64ca61f0c80ba0"
+  "w0_release_id": "D3-W0-2026-07-18.03",
+  "w0_release_sha256": "dc37f951b55c7fa1e5008b403d19ac44e67ab33670bff3d35460ec3fdd2a612b"
 }
