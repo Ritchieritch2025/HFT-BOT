@@ -6,6 +6,23 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-20 04:50 UTC — .11 慢速诊断→.12 线程释放热切换,决定性证明拦下一次不安全提速
+
+- .11 (authority 5c0238eb/c62678c4) 稳定运行 7h,l2_episodes 阶段瓶颈
+  (单线程回放引擎,~1.1 核),按速率将超 23h 窗;操作员裁决提线程并全权
+  委托 (op text .12 sha 8df77889…)。
+- 首版 .12 (全局 8 线程) 被决定性证明否决:l2_exact_atlas 浮点求和随
+  归约顺序漂移 (~3e-10 rel),8 线程下自身不可复现;且实测 .11 的 t2
+  atlas 本就非字节可复现。修正案:全局 8 线程 + L2 专用 threads=1 新
+  会话 (L2_PINNED_THREADS),比 .11 更确定。commit 5d5d278,三重证明
+  PASS,1834 测试绿;独立审计 PASS (33a00ef7…),刷新 L2 receipt
+  (677d1f4d…),候选重绑 .12 (7cc17e8)。
+- 04:40Z 热切换:停 .11 (3,487 检查点保留),装 .12,W1 预检 PASS
+  (W1_COMPLETE de2ef32d…),AUTHORITY d788a27f… 门 PASS,04:44Z 点火,
+  从检查点续跑。监控/进度页已切新 run id。
+- 已知欠账:episodes 阶段本身未提速 (回放引擎单线程,需 ABI 级工作流
+  另立);若仍超时走"续跑授权"预案。.03-.12 花费合计仍待结算。
+
 ## 2026-07-19 19:25 UTC — 接管交接后完成三线修复+四轮独立审计，D3-W2A-2026-07-19.10 已获操作员授权并在 W09 点火运行
 
 - 执行会话：Claude（接管 15:47 交接）。continuation order 全部走完：
