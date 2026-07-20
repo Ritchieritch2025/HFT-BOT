@@ -17,12 +17,15 @@ import fcntl
 import hashlib
 import html
 import json
+import multiprocessing
 import os
 import platform
+import random
 import shutil
 import socket
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -51,8 +54,14 @@ from deep03_v3_l2 import (
     L2_CAPTURE_DATES,
     L2_KNOWN_EXCLUDED_DATES,
     L2_SCOPE_DATES,
+    L2ResearchError,
     PRIMARY_STALE_TTL_NS,
     STALE_TTL_REGISTRY_NS,
+    _l2_abi,
+    _load_quality_assessment,
+    _partition_key,
+    _replay_one_partition,
+    _stage_version,
     execute_l2_snbd_bounded,
 )
 from deep03_v3_methods import (
@@ -125,6 +134,337 @@ def _l2_pinned_connection(scratch: Path, memory_limit: str):
     con = duckdb.connect()
     _configure_duckdb(con, scratch, memory_limit, L2_PINNED_THREADS)
     return con
+
+
+# --------------------------------------------------------------------------
+# .13 — partition-level parallelism for the L2 replay/episodes bottleneck.
+#
+# The per-partition replay engine is single-threaded Python
+# (deep03_v3_l2._replay_one_partition; measured ~20 min/partition on the live
+# .12 run) and partitions are fully independent, so before the sequential
+# pinned-session chain runs, this runner prewarms every still-pending
+# replay+episodes partition in worker PROCESSES.  execute_l2_snbd_bounded then
+# validates and reuses the prewarmed partitions byte-as-written through its
+# normal resume path — the per-partition compute path is the SAME l2.py
+# function in both regimes, every store write goes through the SAME
+# BoundedCheckpointStore.write_partition, and each worker session is a fresh
+# DuckDB connection pinned to L2_PINNED_THREADS with its own scratch subdir
+# (the byte-reproducible regime proven by
+# tests/test_deep03_thread_determinism.py; parallel-vs-sequential byte
+# identity proven by tests/test_deep03_l2_parallel_prewarm.py).  The pool
+# lives HERE and not in deep03_v3_l2.py because that module's own sha256 is
+# part of the L2 stage ABI (_l2_abi "module_sha256"): any byte change there
+# re-versions every L2 stage and the fail-closed store would refuse the
+# live source-bound namespace's completed partitions.
+#
+# Worker count: the capacity request was 6 workers (8 vCPUs idle), but the
+# live .12 run measured ~10GB total RSS with ONE partition in flight, so
+# 6 x ~10GB ~= 60GB would exceed both the ~45GB safe planning bound and the
+# service MemoryMax=52G (w09-exploratory-autoresearch.service).  The honest
+# bound is 4 workers: ~4 x 10GB ~= 40GB projected peak, at the MemoryHigh=40G
+# soft ceiling and under MemoryMax=52G.  Workers run with
+# maxtasksperchild=1 so every partition gets a fresh process (no RSS
+# accumulation across partitions, and "fresh session" stays literal).
+L2_EPISODE_WORKERS = 4
+# The exclusive checkpoint writer flock (methods.py BoundedCheckpointStore)
+# admits one store at a time, so workers hold it only for the short
+# validate/publish steps and retry while another worker publishes.  The
+# timeout only bounds pathological starvation; a worst-case publish queue
+# behind 3 other workers is minutes, not hours.
+L2_PREWARM_LOCK_TIMEOUT_S = 7200.0
+L2_PREWARM_LOCK_RETRY_S = 0.2
+# These stage names and semantic version strings MUST equal the literals
+# inside deep03_v3_l2.execute_l2_snbd_bounded (which cannot export them
+# without a byte change that would re-version every stage).  Drift is
+# fail-closed, never corrupting: a prewarmed receipt written under a stale
+# version string makes the sequential validate_partition raise loudly.
+_L2_PHYSICAL_STAGE = ("l2_physical", "all-captured-coverage-v2")
+_L2_REPLAY_STAGE = ("l2_replay", "sequence-replay-v3")
+_L2_EPISODE_STAGE = ("l2_episodes", "causal-lifecycle-v3")
+
+
+class _SerializedWriterStore:
+    """Checkpoint-store access that owns the writer lock per call, not per run.
+
+    ``_replay_one_partition`` touches its store only at the partition edges
+    (reuse validation before, two ``write_partition`` publishes after); the
+    ~20-minute replay compute in between never needs the store.  This wrapper
+    lets N worker processes run that compute concurrently while every store
+    operation still executes on a real, exclusively-locked
+    ``BoundedCheckpointStore`` — the audited write/validate code runs
+    unchanged, so atomic-per-partition publishing and fail-closed validation
+    are exactly the sequential path's.
+    """
+
+    _key = staticmethod(BoundedCheckpointStore._key)
+
+    def __init__(
+        self,
+        root: Path,
+        source_binding: str,
+        timeout_s: float = L2_PREWARM_LOCK_TIMEOUT_S,
+    ) -> None:
+        self.root = Path(root).resolve()
+        self.source_binding = source_binding
+        self.timeout_s = float(timeout_s)
+
+    def _paths(self, stage: str, partition_key: str) -> tuple[Path, Path]:
+        # Delegate to the store's own (lock-free) path derivation so the two
+        # can never disagree.
+        return BoundedCheckpointStore._paths(self, stage, partition_key)
+
+    def _with_store(self, operation):
+        deadline = time.monotonic() + self.timeout_s
+        while True:
+            try:
+                store = BoundedCheckpointStore(self.root, self.source_binding)
+            except RuntimeError:
+                # Another worker holds the exclusive writer flock.  (Invalid
+                # root/binding raise ValueError in __init__ and are never
+                # retried.)
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(L2_PREWARM_LOCK_RETRY_S * (0.5 + random.random()))
+                continue
+            try:
+                return operation(store)
+            finally:
+                store.close()
+
+    def validate_partition(self, con, **kwargs) -> dict[str, Any]:
+        return self._with_store(
+            lambda store: store.validate_partition(con, **kwargs)
+        )
+
+    def write_partition(self, con, **kwargs) -> tuple[dict[str, Any], bool]:
+        return self._with_store(
+            lambda store: store.write_partition(con, **kwargs)
+        )
+
+
+def _l2_prewarm_worker(spec: dict[str, Any]) -> dict[str, Any]:
+    """Compute one replay+episodes partition in a worker process.
+
+    Byte-equivalence to the sequential path: the compute is
+    ``deep03_v3_l2._replay_one_partition`` itself, on a fresh DuckDB session
+    configured exactly like ``_l2_pinned_connection`` (threads pinned to
+    ``L2_PINNED_THREADS``), writing through the real
+    ``BoundedCheckpointStore``.  A worker that dies mid-partition leaves at
+    most a receiptless payload or a ``.partial`` remnant — states the store
+    already refuses to reuse and deterministically recomputes.
+    """
+    import duckdb
+
+    key = str(spec["partition_key"])
+    con = duckdb.connect()
+    try:
+        _configure_duckdb(
+            con, Path(spec["scratch_dir"]), spec["memory_limit"], L2_PINNED_THREADS
+        )
+        store = _SerializedWriterStore(
+            Path(spec["namespace"]), str(spec["source_binding"])
+        )
+        physical_stage, physical_version = spec["physical"]
+        replay_stage, replay_version = spec["replay"]
+        episode_stage, episode_version = spec["episode"]
+        # Fail closed: replay only from a physical partition the store fully
+        # validates (payload sha256, schema, row count) — the same check the
+        # sequential resume path performs before reusing that partition.
+        store.validate_partition(
+            con,
+            stage=physical_stage,
+            stage_version=physical_version,
+            partition_key=key,
+        )
+        replay_receipt, episode_receipt, reused = _replay_one_partition(
+            con,
+            store,
+            source_path=store._paths(physical_stage, key)[0],
+            replay_stage=replay_stage,
+            replay_version=replay_version,
+            episode_stage=episode_stage,
+            episode_version=episode_version,
+            key=key,
+        )
+        return {
+            "partition_key": key,
+            "reused": bool(reused),
+            "replay_rows": int(replay_receipt["data"]["row_count"]),
+            "episode_rows": int(episode_receipt["data"]["row_count"]),
+            "replay_receipt_path": str(store._paths(replay_stage, key)[1]),
+            "episode_receipt_path": str(store._paths(episode_stage, key)[1]),
+        }
+    finally:
+        con.close()
+
+
+def _complete_physical_receipt_row_count(
+    receipt_path: Path,
+    *,
+    stage: str,
+    stage_version: str,
+    partition_key: str,
+    source_binding: str,
+) -> int | None:
+    """Row count of a canonical COMPLETE physical receipt, else ``None``.
+
+    This is a cheap eligibility probe only — full payload validation (sha256,
+    schema, count) happens in the worker under the writer lock before any
+    replay reads the payload.  Anything unreadable or unbound means "not
+    prewarmable"; the sequential chain remains the authority for that date.
+    """
+    try:
+        receipt = json.loads(receipt_path.read_bytes())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(receipt, dict):
+        return None
+    expected = {
+        "state": "COMPLETE",
+        "stage": stage,
+        "stage_version": stage_version,
+        "partition_key": partition_key,
+        "source_binding": source_binding,
+    }
+    if any(receipt.get(field) != value for field, value in expected.items()):
+        return None
+    data = receipt.get("data")
+    row_count = data.get("row_count") if isinstance(data, dict) else None
+    if isinstance(row_count, bool) or not isinstance(row_count, int) or row_count < 0:
+        return None
+    return row_count
+
+
+def prewarm_l2_episode_partitions(
+    *,
+    checkpoint_namespace: Path,
+    source_binding: str,
+    input_manifest: Mapping[str, Any],
+    market_buckets: int,
+    memory_limit: str,
+    scratch_root: Path,
+    workers: int = L2_EPISODE_WORKERS,
+) -> dict[str, Any]:
+    """Prewarm pending L2 replay+episodes partitions across worker processes.
+
+    Only partitions whose physical shard is already COMPLETE in the store are
+    dispatched, and only for dates the exact sequential rule admits (clean
+    analysis dates with nonzero captured rows — the empty-capture demotion is
+    reproduced via the physical receipts' conserved row counts).  Partitions
+    the store already completed are skipped, exactly like the sequential
+    resume path.  A namespace without a physical stage (first-ever run) is a
+    fast no-op: the sequential chain then computes everything itself.
+
+    Fail-closed: any worker error aborts the run before the sequential chain
+    starts; nothing a failed worker leaves behind is reusable (the store
+    treats payloads without receipts as crash remnants and recomputes them).
+    """
+    _validate_l2_market_buckets(market_buckets)
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
+        raise Deep03InputError("L2 prewarm worker count must be a positive integer")
+    namespace = Path(checkpoint_namespace).resolve()
+    abi = _l2_abi(market_buckets)
+    physical_stage, physical_semantic = _L2_PHYSICAL_STAGE
+    replay_stage, replay_semantic = _L2_REPLAY_STAGE
+    episode_stage, episode_semantic = _L2_EPISODE_STAGE
+    physical_version = _stage_version(abi, physical_stage, physical_semantic)
+    replay_version = _stage_version(abi, replay_stage, replay_semantic)
+    episode_version = _stage_version(abi, episode_stage, episode_semantic)
+    paths = _SerializedWriterStore(namespace, source_binding)
+    receipt: dict[str, Any] = {
+        "schema_version": "deep03-fullscope-l2-episode-prewarm-v1",
+        "workers_configured": int(workers),
+        "pinned_threads": L2_PINNED_THREADS,
+        "eligible_dates": [],
+        "skipped_dates": {},
+        "already_complete": [],
+        "computed": [],
+        "reused_by_worker": [],
+    }
+    pending: list[str] = []
+    for date in L2_ANALYSIS_DATES:
+        try:
+            assessment = _load_quality_assessment(input_manifest, date)
+        except L2ResearchError as exc:
+            receipt["skipped_dates"][date] = f"quality_receipt_error:{exc}"
+            continue
+        if assessment["state"] != "PASS" or L2_KNOWN_EXCLUDED_DATES.get(date):
+            receipt["skipped_dates"][date] = "not_an_included_clean_date"
+            continue
+        keys = [
+            _partition_key(date, bucket) for bucket in range(market_buckets + 1)
+        ]
+        row_counts = [
+            _complete_physical_receipt_row_count(
+                paths._paths(physical_stage, key)[1],
+                stage=physical_stage,
+                stage_version=physical_version,
+                partition_key=key,
+                source_binding=source_binding,
+            )
+            for key in keys
+        ]
+        if any(count is None for count in row_counts):
+            receipt["skipped_dates"][date] = "physical_stage_incomplete"
+            continue
+        if sum(row_counts) <= 0:
+            # Mirrors the sequential empty-capture demotion (source_count<=0
+            # excludes the date, so it must never gain replay partitions).
+            receipt["skipped_dates"][date] = "empty_sports_l2_capture"
+            continue
+        receipt["eligible_dates"].append(date)
+        for key in keys:
+            if (
+                paths._paths(replay_stage, key)[1].exists()
+                and paths._paths(episode_stage, key)[1].exists()
+            ):
+                receipt["already_complete"].append(key)
+            else:
+                pending.append(key)
+    receipt["pending_count"] = len(pending)
+    if not pending:
+        receipt["state"] = "NOOP_NOTHING_PENDING"
+        receipt["workers_used"] = 0
+        return receipt
+    scratch_root = Path(scratch_root)
+    if scratch_root.exists():
+        shutil.rmtree(scratch_root)
+    scratch_root.mkdir(parents=True, mode=0o750)
+    specs = [
+        {
+            "partition_key": key,
+            "namespace": str(namespace),
+            "source_binding": source_binding,
+            "physical": (physical_stage, physical_version),
+            "replay": (replay_stage, replay_version),
+            "episode": (episode_stage, episode_version),
+            "memory_limit": memory_limit,
+            "scratch_dir": str(scratch_root / key),
+        }
+        for key in sorted(pending)
+    ]
+    workers_used = min(int(workers), len(specs))
+    receipt["workers_used"] = workers_used
+    context = multiprocessing.get_context("spawn")
+    try:
+        with context.Pool(processes=workers_used, maxtasksperchild=1) as pool:
+            for row in pool.imap_unordered(_l2_prewarm_worker, specs):
+                bucket = "reused_by_worker" if row["reused"] else "computed"
+                receipt[bucket].append(row["partition_key"])
+    except Deep03InputError:
+        raise
+    except Exception as exc:
+        raise Deep03InputError(
+            f"L2 episode prewarm worker failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    receipt["computed"].sort()
+    receipt["reused_by_worker"].sort()
+    receipt["already_complete"].sort()
+    receipt["state"] = "COMPLETE"
+    shutil.rmtree(scratch_root)
+    return receipt
+
+
 FULLSCOPE_SOURCE_MODULES = (
     # deep03_v3_methods.py carries the checkpoint store, row-conservation and
     # bounded execution logic the L2 unit depends on; the independent audit
@@ -1127,6 +1467,20 @@ def run_fullscope_discovery(
             # The full-thread session closes BEFORE the pinned L2 session
             # opens: the two 16GB-capped buffer pools must never coexist.
             con.close()
+        # Parallel prewarm of pending replay/episodes partitions.  This runs
+        # while the parent holds NO DuckDB buffer pool and NO checkpoint
+        # store (each worker takes the exclusive writer flock only for its
+        # short validate/publish steps).  The sequential pinned chain below
+        # then reuses the prewarmed partitions byte-as-written.
+        l2_prewarm_scratch = run_dir / ".scratch-l2-prewarm"
+        l2_prewarm = prewarm_l2_episode_partitions(
+            checkpoint_namespace=checkpoint_namespace,
+            source_binding=source_binding,
+            input_manifest=input_manifest,
+            market_buckets=l2_market_buckets,
+            memory_limit=memory_limit,
+            scratch_root=l2_prewarm_scratch,
+        )
         l2_con = _l2_pinned_connection(l2_scratch, memory_limit)
         try:
             with BoundedCheckpointStore(
@@ -1269,6 +1623,8 @@ def run_fullscope_discovery(
             "memory_limit": memory_limit,
             "threads": threads,
             "l2_pinned_threads": L2_PINNED_THREADS,
+            "l2_episode_workers": L2_EPISODE_WORKERS,
+            "l2_episode_prewarm": l2_prewarm,
             "l2_market_buckets": l2_market_buckets,
             "l2_independent_audit_receipt_sha256": l2_audit["receipt_sha256"],
             "l2_independent_audit_report_sha256": l2_audit["report_sha256"],
@@ -1287,6 +1643,8 @@ def run_fullscope_discovery(
             shutil.rmtree(scratch)
         if l2_scratch.exists():
             shutil.rmtree(l2_scratch)
+        if l2_prewarm_scratch.exists():
+            shutil.rmtree(l2_prewarm_scratch)
         if fullscope_source_hashes() != initial_sources:
             raise Deep03InputError("full-scope source modules changed before completion")
         artifacts = _artifact_rows(run_dir)
