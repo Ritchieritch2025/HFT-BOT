@@ -6,6 +6,21 @@ which decisions landed in which files, what the next session must know.
 
 ---
 
+## 2026-07-20 13:35 UTC — .13 并行事件抽取上线(4 worker),预计今晚收报告
+
+- .12 实测 6h 确证瓶颈=单线程回放引擎(恰 1.0 核),episodes 30/96 格,
+  将超窗;按操作员常设指令建 .13:runner 层多进程并行(4 worker,内存
+  数学 4×10GB≈40G=MemoryHigh;6×10GB 会破 52G MemoryMax),
+  _SerializedWriterStore 串行化存储边沿,l2/methods 模块字节不动(ABI
+  安全)。commit bc761cd,六重证明(含真实 SIGKILL 注入+flock 并发压测)
+  PASS,1840 测试;独立审计 PASS(d417f8c4…),receipt 9be3af4e…,候选
+  重绑 3e10fe5。
+- 13:30Z 热切换:停 .12(检查点保留),装 .13,W1 预检 PASS(W1_COMPLETE
+  9a077a21…),AUTHORITY 11a8735f… 门 PASS 点火(操作员逐字授权 .13,
+  sha d6d9d352…)。预计 episodes 剩余 ~60 格 ÷4 ≈ 5-6h,随后收尾 ~1h。
+- 欠账不变:.03-.13 花费合计待结算;RFQ overlay 待 7/21 02:00Z 后合格
+  证据+单独授权;D-6 证据分级待裁决。
+
 ## 2026-07-20 04:50 UTC — .11 慢速诊断→.12 线程释放热切换,决定性证明拦下一次不安全提速
 
 - .11 (authority 5c0238eb/c62678c4) 稳定运行 7h,l2_episodes 阶段瓶颈
