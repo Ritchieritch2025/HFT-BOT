@@ -92,6 +92,39 @@ L2_METHOD_ID = "D3-FULL-L2-SNBD-01"
 FULLSCOPE_METHODS = (*METHODS, GRAPH_METHOD_ID, L2_METHOD_ID)
 L2_CHECKPOINT_EXPANSION_FACTOR = 8
 DEFAULT_L2_MARKET_BUCKETS = 16
+# The L2 stage chain runs single-threaded, on its own session.  The chain
+# aggregates DOUBLE columns (l2_exact_atlas total_dwell_us is sum(dwell_us)
+# where dwell_us is a `/1000` true division, deep03_v3_l2.py), and DuckDB
+# parallel float reduction is order-dependent: measured 2026-07-20
+# (tests/test_deep03_thread_determinism.py), the .11 production setting
+# threads=2 was itself run-to-run NONDETERMINISTIC on the atlas payload
+# bytes, and threads=1 is the only byte-reproducible regime (3/3 identical
+# runs).  Every other L2 stage (physical, replay, episodes, matches,
+# availability) is thread-count invariant, so completed live partitions are
+# reused byte-as-written and any partition .12 recomputes is byte-identical
+# to a .11 recompute except the atlas float sums, which .11 could not
+# reproduce even against itself (the differences are pure summation-order
+# reassociation, ~1e-9 relative).  The pin lives HERE and not in
+# deep03_v3_l2.py because that module's own sha256 is part of the L2 stage
+# ABI (_l2_abi "module_sha256"): any byte change there re-versions every L2
+# stage and the fail-closed checkpoint store would refuse the partitions
+# the live source-bound store already completed.  The pin is a dedicated
+# fresh session, not a runtime `SET threads`: lowering the setting inside a
+# session that started with more threads was measured to change the float
+# reduction order yet again.  B01-B04 and the market graph (thread-count
+# invariant: the bounded reducers pin their order-sensitive sections
+# internally, and the graph aggregates only integer row counts) run at the
+# full session thread count.
+L2_PINNED_THREADS = 1
+
+
+def _l2_pinned_connection(scratch: Path, memory_limit: str):
+    """A fresh DuckDB session in the exact .11 L2 compute regime."""
+    import duckdb
+
+    con = duckdb.connect()
+    _configure_duckdb(con, scratch, memory_limit, L2_PINNED_THREADS)
+    return con
 FULLSCOPE_SOURCE_MODULES = (
     # deep03_v3_methods.py carries the checkpoint store, row-conservation and
     # bounded execution logic the L2 unit depends on; the independent audit
@@ -1064,6 +1097,7 @@ def run_fullscope_discovery(
             raise Deep03InputError("another runner holds this prepared run") from exc
         started = utc_now()
         scratch = run_dir / ".scratch"
+        l2_scratch = run_dir / ".scratch-l2"
         graph_stage = scratch / "fullscope-graph"
         import duckdb
 
@@ -1089,19 +1123,27 @@ def run_fullscope_discovery(
             graph_source = _validate_graph_result(
                 graph_result, input_manifest, graph_stage
             )
-            with BoundedCheckpointStore(checkpoint_namespace, source_binding) as store:
+        finally:
+            # The full-thread session closes BEFORE the pinned L2 session
+            # opens: the two 16GB-capped buffer pools must never coexist.
+            con.close()
+        l2_con = _l2_pinned_connection(l2_scratch, memory_limit)
+        try:
+            with BoundedCheckpointStore(
+                checkpoint_namespace, source_binding
+            ) as store:
                 l2_result = execute_l2_snbd_bounded(
-                    con,
+                    l2_con,
                     input_manifest,
                     store,
                     market_buckets=l2_market_buckets,
                 )
                 _validate_l2_result(l2_result, source_binding)
                 l2_tables = _l2_report_tables(
-                    con, store, l2_result, graph_result
+                    l2_con, store, l2_result, graph_result
                 )
         finally:
-            con.close()
+            l2_con.close()
 
         quality = _quality_receipt(input_manifest)
         estimability = _estimability_receipt(input_manifest, capabilities, methods)
@@ -1226,6 +1268,7 @@ def run_fullscope_discovery(
             "duckdb_version": duckdb.__version__,
             "memory_limit": memory_limit,
             "threads": threads,
+            "l2_pinned_threads": L2_PINNED_THREADS,
             "l2_market_buckets": l2_market_buckets,
             "l2_independent_audit_receipt_sha256": l2_audit["receipt_sha256"],
             "l2_independent_audit_report_sha256": l2_audit["report_sha256"],
@@ -1242,6 +1285,8 @@ def run_fullscope_discovery(
         )
         if scratch.exists():
             shutil.rmtree(scratch)
+        if l2_scratch.exists():
+            shutil.rmtree(l2_scratch)
         if fullscope_source_hashes() != initial_sources:
             raise Deep03InputError("full-scope source modules changed before completion")
         artifacts = _artifact_rows(run_dir)

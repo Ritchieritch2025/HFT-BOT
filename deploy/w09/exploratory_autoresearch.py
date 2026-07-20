@@ -27,8 +27,18 @@ import deep03_authority_gate
 
 
 MODE = "MODE 1 / EXPLORATORY_AUTORESEARCH"
+# The D3-W2A-08 capacity fix stays memory-bounded through the 16GB DuckDB
+# limit plus bounded durable checkpoint partitions; the .12 thread raise is
+# physical parallelism only.  Statistical semantics are unchanged: the
+# thread-count-invariant B01-B04 and market-graph stages use all 8 threads,
+# while the runner executes the L2 chain on its own session pinned to
+# L2_PINNED_THREADS=1 (deep03_fullscope_runner.py) -- the only
+# byte-reproducible regime for its order-sensitive DOUBLE aggregation; the
+# prior threads=2 was measured run-to-run nondeterministic on that stage.
+# Completed live checkpoints are reused byte-as-written
+# (proof: tests/test_deep03_thread_determinism.py).
 DEEP03_MEMORY_LIMIT = "16GB"
-DEEP03_THREADS = 2
+DEEP03_THREADS = 8
 DEEP03_L2_MARKET_BUCKETS = 16
 DEEP03_CHECKPOINT_ROOT = "/srv/w09-research/checkpoints"
 DEEP03_CHECKPOINT_RESERVE_BYTES = 8 * 1024**3

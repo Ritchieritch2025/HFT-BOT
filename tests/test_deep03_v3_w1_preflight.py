@@ -48,8 +48,8 @@ def _fixture(tmp_path: Path, monkeypatch) -> dict:
     audit.write_text("# independent audit\n")
     plan_sha = _sha(plan)
     audit_sha = _sha(audit)
-    w0_id = "D3-W0-2026-07-19.11"
-    w1_id = "D3-W1-2026-07-19.11"
+    w0_id = "D3-W0-2026-07-19.12"
+    w1_id = "D3-W1-2026-07-19.12"
     w0 = tmp_path / "W0.json"
     w0.write_text(json.dumps({
         "schema_version": "deep03-w0-release-v1",
