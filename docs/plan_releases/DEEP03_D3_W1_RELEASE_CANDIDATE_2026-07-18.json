@@ -1,7 +1,7 @@
 {
   "adopted_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
   "all_inputs_prior_exposed": true,
-  "audit_sha256": "7eab0b5769c3830619428b1e1b024bdc836182d56397243fe9389f0337208095",
+  "audit_sha256": "33a00ef743e85a0831b6a8dcaecf49f79ce3ca87b45a542081ecd7f4b0f93359",
   "authorized_input_dates": [
     "2026-07-10",
     "2026-07-11",
@@ -28,21 +28,21 @@
   "expected_object_bytes": 29473216651,
   "expected_object_count": 2657,
   "holdout_opened": false,
-  "integrated_head_audit_path": "docs/plan_audits/AUDIT_DEEP03_FULLSCOPE_11_FORMAT_ROUTING_2026-07-19.md",
-  "integrated_head_audit_sha256": "7eab0b5769c3830619428b1e1b024bdc836182d56397243fe9389f0337208095",
+  "integrated_head_audit_path": "docs/plan_audits/AUDIT_DEEP03_FULLSCOPE_12_THREADS_2026-07-20.md",
+  "integrated_head_audit_sha256": "33a00ef743e85a0831b6a8dcaecf49f79ce3ca87b45a542081ecd7f4b0f93359",
   "integrated_head_audit_state": "PASS",
-  "integrated_head_commit": "416168cf094aa3da952a01d6d57dbd2ecc783265",
+  "integrated_head_commit": "5d5d27836891ae22cebecae85f90f2674e579909",
   "mode": "MODE 1 / EXPLORATORY_AUTORESEARCH",
-  "release_id": "D3-W1-2026-07-19.11",
+  "release_id": "D3-W1-2026-07-19.12",
   "research_execution_authority": false,
   "rfq_included": false,
   "rfq_overlay_audit_path": "docs/plan_audits/AUDIT_DEEP03_RFQ_QUALITY_D07_ATTESTATION_2026-07-19.md",
   "rfq_overlay_audit_sha256": "482bfd6c9cf7d81c85692273f0e808d7e9fac77c7ab73834190dcd25d6c86e43",
   "rfq_overlay_audited_module_commit": "77416c04922bd695cf4df83b4adf64c56b35f394",
-  "runtime_commit": "416168cf094aa3da952a01d6d57dbd2ecc783265",
+  "runtime_commit": "5d5d27836891ae22cebecae85f90f2674e579909",
   "schema_version": "deep03-w1-release-v1",
   "state": "RELEASE_CANDIDATE",
   "strict_acceptance_claimed": false,
-  "w0_release_id": "D3-W0-2026-07-19.11",
-  "w0_release_sha256": "c3d809e6447ef7b462777bb022a4acb098c7cba3f72f9bcea2de3b4b8ab54fa3"
+  "w0_release_id": "D3-W0-2026-07-19.12",
+  "w0_release_sha256": "4c568fa85fc3bbb0623197f15cc2c505d837a59108562455f73d6faa7c2d4483"
 }
