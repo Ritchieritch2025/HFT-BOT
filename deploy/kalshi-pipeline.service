@@ -1,0 +1,62 @@
+# Kalshi 24/7 data pipeline — systemd replacement for the Mac LaunchAgent
+# com.ritcardo.kalshi-pipeline.plist (W-A1, PLAN_AWS_MIGRATION).
+#
+# The three load-bearing launchd behaviors and how they map here:
+#   (a) top-of-hour respawn / hourly raw-log rotation — INSIDE
+#       tools/pipeline_supervisor.sh (KALSHI_SHADOW_SECONDS to the hour
+#       boundary, loop respawns ws_shadow). systemd does NOT own rotation.
+#   (b) single-instance lock — INSIDE the supervisor (work/live/supervisor.lock
+#       mkdir lock; a second instance exits 0). Restart=on-failure means a
+#       clean "another instance is running" exit does NOT respawn-loop.
+#   (c) reconnect is owned by the app's W-C1 watchdog ladder, so this unit is
+#       Restart=on-failure ONLY — deliberately NO WatchdogSec= (two
+#       supervisors fighting = restart storms; PLAN_AWS_MIGRATION W-A1).
+#
+# Install: sudo cp deploy/kalshi-pipeline.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+# W-A1 leaves this unit INSTALLED BUT NOT ENABLED/STARTED — capture on EC2
+# begins only at W-A4 cutover step 1 (operator go/no-go).
+
+[Unit]
+Description=Kalshi data pipeline supervisor (ws_shadow firehose + ingest + export)
+Wants=network-online.target
+After=network-online.target chrony.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hft-bot
+# venv first so python3 = venv python (duckdb/numpy/pandas/pytest live there)
+Environment=PATH=/home/ubuntu/hft-bot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash tools/pipeline_supervisor.sh
+
+# (c) above: app owns reconnect; systemd only revives a CRASHED supervisor.
+Restart=on-failure
+# mirrors the launchd ThrottleInterval=30 anti-storm spacing
+RestartSec=30
+# supervisor exit 78 = EX_CONFIG (~/.kalshi/env.sh missing, S4 operator-only).
+# Looping every 30s on a missing credential file helps nobody; stay stopped
+# and visible in `systemctl status` instead.
+RestartPreventExitStatus=78
+
+# One-box guardrail (W-A0 REVISION, 16 GB): the whole pipeline tree is shielded
+# from the OOM killer relative to everything else on the box; WITHIN the tree,
+# kalshi-oom-guard.timer re-ranks children every minute (ws_shadow -1000 =
+# never killed; build/export python +300 = sacrificed first). Worst case is a
+# late report, never a dead capture (S2).
+OOMScoreAdjust=-600
+
+# 90 s, not 30 (W-A5 restart evidence 2026-07-10): the supervisor itself now
+# exits on TERM in <1 s, but ws_shadow's graceful drain and a mid-DuckDB
+# export (python defers signals inside C calls) can legitimately need more
+# than 30 s — at 30 s systemd SIGKILLed them mid-write. SIGKILL stays as the
+# backstop; avoid restarts in the 00:00–00:15 export window when possible.
+TimeoutStopSec=90
+KillMode=control-group
+
+# same log files the Mac used (work/live/, tailed by freshness tooling)
+StandardOutput=append:/home/ubuntu/hft-bot/work/live/supervisor.out.log
+StandardError=append:/home/ubuntu/hft-bot/work/live/supervisor.err.log
+
+[Install]
+WantedBy=multi-user.target

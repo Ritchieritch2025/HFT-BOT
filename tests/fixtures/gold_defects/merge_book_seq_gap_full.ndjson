@@ -1,0 +1,8 @@
+{"ts_utc": 1783305740000000, "market_ticker": "KXMERGE-GAPA", "msg_type": "snapshot", "yes_levels": [[4500, 100000]], "no_levels": [[5300, 70000]]}
+{"ts_utc": 1783305741000000, "market_ticker": "KXMERGE-GAPB", "msg_type": "snapshot", "yes_levels": [[3000, 20000]], "no_levels": [[6500, 10000]]}
+{"ts_utc": 1783305742000000, "market_ticker": "KXMERGE-GAPA", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": -30000}
+{"ts_utc": 1783305743000000, "market_ticker": "KXMERGE-GAPB", "msg_type": "delta", "side": "yes", "price_e4": 3000, "delta_e4": -50000}
+{"ts_utc": 1783305744000000, "market_ticker": "KXMERGE-GAPA", "msg_type": "delta", "side": "yes", "price_e4": 4400, "delta_e4": 50000}
+{"ts_utc": 1783305745000000, "market_ticker": "KXMERGE-GAPB", "msg_type": "delta", "side": "yes", "price_e4": 3000, "delta_e4": 10000}
+{"ts_utc": 1783305746000000, "market_ticker": "KXMERGE-GAPB", "msg_type": "snapshot", "yes_levels": [[3100, 15000]], "no_levels": [[6400, 8000]]}
+{"ts_utc": 1783305747000000, "market_ticker": "KXMERGE-GAPA", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": -70000}

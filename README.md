@@ -78,7 +78,7 @@ Knobs (env): `TRADINGD_WORKERS=2` (dedicated connections), `TRADINGD_SPIN=0`,
 `TRADINGD_RING=1024`, `TRADINGD_MAX_QUEUE_AGE_MS=2000`,
 `TRADINGD_MAX_ORDERS_PER_SEC=0` (token bucket, 0=off), `TRADINGD_KEEPALIVE_S=15`,
 `TRADINGD_DRAIN_MS=2000`, `REDIS_HOST/REDIS_PORT` (telemetry, optional),
-`KALSHI_BASE_URL` (demo/testing).
+`KALSHI_BASE_URL` (local_mock/testing host override).
 
 Strategies live in `src/strategies.cpp`. The default roster is empty; install
 real strategy code before expecting the engine to emit orders.
@@ -114,6 +114,7 @@ real strategy code before expecting the engine to emit orders.
   `RequestExecutor` (reserve-before-send), server-derived limits/costs. See
   `docs/PLAN_TOKEN_RULES.md`.
 - **Roadmap.** `docs/PLAN_PROD_V1.md` sequences production readiness (P0–P10):
-  hygiene → tool registry → ops console → CI → spec-drift/rulebook → demo
+  hygiene → tool registry → ops console → CI → spec-drift/rulebook → empirical
   verification → WS feed → risk+kill-switch → transmission unification → strategy
-  framework → canary rollout.
+  framework → canary rollout. (The Kalshi demo exchange is no longer supported;
+  live verification and canary now run against prod, which places REAL orders.)

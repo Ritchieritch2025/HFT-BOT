@@ -115,8 +115,32 @@ class Mocks:
         self.procs = []
 
 
+def _absolutize(cmd):
+    """ROOT-anchor a relative command so it survives a cwd change (below).
+
+    cmd[0] like `./build/x` or `./tools/x.py` -> absolute; for an interpreter
+    (python3/bash/sh) ROOT-anchor the relative script argument. Mock args built by
+    build_cmd are already absolute/URLs, so only these leading tokens matter.
+    """
+    if not cmd:
+        return cmd
+    cmd = list(cmd)
+    if cmd[0].startswith("./"):
+        cmd[0] = os.path.join(ROOT, cmd[0][2:])
+    elif os.path.basename(cmd[0]) in ("python3", "python", "bash", "sh") and len(cmd) > 1 \
+            and not cmd[1].startswith("-") and not os.path.isabs(cmd[1]):
+        cmd[1] = os.path.join(ROOT, cmd[1])
+    return cmd
+
+
 def run_tool(tool, allow_network=False):
     os.makedirs(LOGDIR, exist_ok=True)
+    # Run every tool from a scratch cwd so any cwd-relative output (rotation
+    # shards, replay/recorder NDJSON, fuzz corpus) lands under build/scratch
+    # (gitignored) instead of littering the repo root. Commands are ROOT-anchored
+    # via _absolutize so the cwd change is transparent.
+    scratch = os.path.join(ROOT, "build", "scratch")
+    os.makedirs(scratch, exist_ok=True)
     ok, reason = may_run(tool, allow_network)
     name = tool["name"]
     if not ok:
@@ -125,23 +149,34 @@ def run_tool(tool, allow_network=False):
     mocks = Mocks()
     logpath = os.path.join(LOGDIR, "%s.txt" % name)
     start = time.time()
+    err_reason = ""
     try:
-        cmd = mocks.build_cmd(tool)
-        proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE,
+        cmd = _absolutize(mocks.build_cmd(tool))
+        run_cwd = ROOT if tool.get("cwd") == "root" else scratch
+        proc = subprocess.run(cmd, cwd=run_cwd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, timeout=300)
         out = proc.stdout.decode("utf-8", "replace")
         rc = proc.returncode
     except subprocess.TimeoutExpired:
-        out, rc = "TIMEOUT\n", 124
+        out, rc, err_reason = "TIMEOUT\n", 124, "timeout"
+    except FileNotFoundError as e:
+        # Binary/script not built or missing: report cleanly, never crash the caller.
+        out, rc, err_reason = "ERROR: %s\n" % e, 127, "binary missing (run make?)"
+    except OSError as e:
+        # Exec format error, permission denied, etc.: report cleanly.
+        out, rc, err_reason = "ERROR: %s\n" % e, 126, "exec failed: %s" % e
     finally:
         mocks.stop()
     dur = int((time.time() - start) * 1000)
     with open(logpath, "w") as f:
         f.write(out)
     passed, failed, token_ok = parse_output(out, tool.get("pass_token"))
-    status = "pass" if (rc == 0 and token_ok) else "fail"
-    return {"suite": name, "status": status, "passed": passed, "failed": failed,
-            "duration_ms": dur, "log": os.path.relpath(logpath, ROOT)}
+    status = "pass" if (rc == 0 and token_ok) else ("error" if err_reason else "fail")
+    rec = {"suite": name, "status": status, "passed": passed, "failed": failed,
+           "duration_ms": dur, "log": os.path.relpath(logpath, ROOT)}
+    if err_reason:
+        rec["reason"] = err_reason
+    return rec
 
 
 def record(rec):
@@ -166,7 +201,10 @@ def runnable_test_set(tools):
     # The console "Run all" set: test + check kinds that are pure/offline.
     return [t for t in tools if t.get("kind") in ("test", "check")
             and t.get("safety") in ("pure", "offline")
-            and t.get("name") != "run_pipeline"]  # avoid recursive full-sweep
+            and t.get("autorun", True)  # component validators that need input args opt out
+            and "<" not in t.get("args_template", "")
+            and t.get("name") not in ("run_pipeline", "run_tests", "lifecycle_check")
+            and not t.get("name", "").startswith("run_")]  # wrappers live in Tools
 
 
 def main():

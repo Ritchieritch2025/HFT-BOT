@@ -1,0 +1,20 @@
+{
+ "builder_version": "gold_io/W2.4-1 layout=1",
+ "date": "2026-07-06",
+ "files": {
+  "gold_2026-07-06.bin": "b8dcd5fb2557ceeb83045ed74da5b2f1",
+  "markets_2026-07-06.csv": "b21b813d94f67e453cfc338f7ebf82fd",
+  "trade_ids_2026-07-06.csv": "d0ea7704a911f70f0bb1fb1dbda931d8"
+ },
+ "gold_layout_version": 1,
+ "markets": 1,
+ "markets_missing_dim": 0,
+ "record_count": 26,
+ "safety_verdicts": {
+  "V5": "pending",
+  "V7": "pending",
+  "unsafe_for_microstructure": []
+ },
+ "source_day": {},
+ "trade_count": 25
+}

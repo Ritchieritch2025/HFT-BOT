@@ -10,13 +10,13 @@ namespace kalshi {
 
 namespace {
 
-// Append a JSON array of quoted tickers: ["A","B"].
-void append_ticker_array(std::string& j, const std::vector<std::string>& tickers) {
+// Append a JSON array of quoted Kalshi-safe strings: ["A","B"].
+void append_string_array(std::string& j, const std::vector<std::string>& values) {
   j += '[';
-  for (std::size_t i = 0; i < tickers.size(); ++i) {
+  for (std::size_t i = 0; i < values.size(); ++i) {
     if (i) j += ',';
     j += '"';
-    j += tickers[i];  // Kalshi tickers are [A-Za-z0-9._-]; safe to inline
+    j += values[i];  // Kalshi channel/ticker names are [A-Za-z0-9._-]; safe to inline
     j += '"';
   }
   j += ']';
@@ -25,7 +25,11 @@ void append_ticker_array(std::string& j, const std::vector<std::string>& tickers
 }  // namespace
 
 KalshiWsClient::KalshiWsClient(IWebSocketTransport& transport, WsConfig cfg, Signer signer)
-    : t_(transport), cfg_(std::move(cfg)), signer_(std::move(signer)), epoch_(cfg_.epoch) {}
+    : t_(transport),
+      cfg_(std::move(cfg)),
+      signer_(std::move(signer)),
+      now_ms_([] { return trading::wall_ns() / 1'000'000; }),
+      epoch_(cfg_.epoch) {}
 
 WsHeaders KalshiWsClient::build_auth_headers(std::int64_t now_ms) const {
   const std::string ts = std::to_string(now_ms);
@@ -43,8 +47,15 @@ WsHeaders KalshiWsClient::build_auth_headers(std::int64_t now_ms) const {
 std::string KalshiWsClient::build_subscribe(int id, const std::vector<std::string>& tickers) const {
   std::string j = R"({"id":)";
   j += std::to_string(id);
-  j += R"(,"cmd":"subscribe","params":{"channels":["orderbook_delta"],"market_tickers":)";
-  append_ticker_array(j, tickers);
+  j += R"(,"cmd":"subscribe","params":{"channels":)";
+  append_string_array(j, channels_);
+  // Firehose: with no tickers we omit market_tickers entirely, so ticker/trade
+  // channels stream EVERY market exchange-wide (Kalshi treats an absent filter
+  // as "all"). A per-ticker subscribe still sends the filter as before.
+  if (!tickers.empty()) {
+    j += R"(,"market_tickers":)";
+    append_string_array(j, tickers);
+  }
   j += R"(,"use_yes_price":)";
   j += cfg_.use_yes_price ? "true" : "false";  // I5: always explicit
   j += "}}";
@@ -73,7 +84,7 @@ std::string KalshiWsClient::build_get_snapshot(int id, const std::vector<std::ui
     j += std::to_string(sids[i]);
   }
   j += R"(],"action":"get_snapshot","market_tickers":)";
-  append_ticker_array(j, tickers);
+  append_string_array(j, tickers);
   j += "}}";
   return j;
 }
@@ -81,14 +92,45 @@ std::string KalshiWsClient::build_get_snapshot(int id, const std::vector<std::ui
 void KalshiWsClient::start() {
   t_.on_message([this](const WsMessage& m) { on_message(m); });
   t_.set_url(cfg_.url);
-  t_.set_headers(build_auth_headers(trading::wall_ns() / 1'000'000));
+  refresh_auth();  // sign the first handshake
   t_.start();
 }
 
 void KalshiWsClient::stop() { t_.stop(); }
 
+void KalshiWsClient::force_reconnect() {
+  // The ping-silence watchdog (apps/ws_shadow.cpp) calls this after N s of zero
+  // inbound frames — a half-open socket ixwebsocket never notices (ping disabled
+  // in ix_transport.cpp => no library heartbeat => no Close/Error => its
+  // auto-reconnect never fires; capture stays dead until the hourly respawn,
+  // the 2026-07-07 diagnosis). Drop the wedged connection and reopen it. stop()
+  // delivers a Close on the mock (and may on the real transport) which itself
+  // re-signs; refresh_auth() here guarantees a CURRENT signature even when the
+  // wedged transport delivered no Close at all, so the reopen never replays a
+  // stale (401-bound) signature. start() then reopens -> on_open bumps the
+  // epoch, counts a reconnect, and resubscribes. Only ever invoked on proven
+  // silence, so the healthy stream path is untouched (P4).
+  ++forced_reconnects_;
+  t_.stop();
+  refresh_auth();
+  t_.start();
+}
+
+void KalshiWsClient::refresh_auth() {
+  // ixwebsocket owns the reconnect loop and replays whatever headers are set on
+  // the transport; a signature signed once at startup goes stale within minutes
+  // and Kalshi 401s every reconnect until the process restarts (root cause of
+  // the 2026-07-07 06:00–09:00 UTC capture gap). Re-sign with a current
+  // timestamp before each connection attempt. Called on the transport thread
+  // from on_close (dropped after open) and from the Error branch (handshake
+  // rejected, e.g. 401) — both run to completion before ixwebsocket's next
+  // connect(), which re-reads the extra headers.
+  t_.set_headers(build_auth_headers(now_ms_()));
+}
+
 void KalshiWsClient::on_message(const WsMessage& m) {
-  last_activity_ms_ = trading::wall_ns() / 1'000'000;  // any inbound frame = alive (I6)
+  // any inbound frame = alive (I6); relaxed store, read by the watchdog thread.
+  last_activity_ms_.store(trading::wall_ns() / 1'000'000, std::memory_order_relaxed);
   switch (m.type) {
     case WsMessage::Type::Open: on_open(); break;
     case WsMessage::Type::Close: on_close(); break;
@@ -96,7 +138,16 @@ void KalshiWsClient::on_message(const WsMessage& m) {
     case WsMessage::Type::Ping:
     case WsMessage::Type::Pong:
       break;  // transport auto-pongs (heartbeat echo); we only note liveness
-    case WsMessage::Type::Error: ++errors_; break;
+    case WsMessage::Type::Error:
+      ++errors_;
+      // Surface the transport error reason (no secrets in it) so a failing
+      // handshake/subscribe is diagnosable instead of a silent error counter.
+      std::fprintf(stderr, "[ws] transport error: %.200s\n", m.data.c_str());
+      // A transport Error is a failed connection attempt (handshake/connect);
+      // ixwebsocket will retry. A 401 leaves no Open->Close, so re-sign HERE or
+      // the stale signature repeats forever (the incident's 401 lockout loop).
+      refresh_auth();
+      break;
   }
 }
 
@@ -113,10 +164,13 @@ void KalshiWsClient::on_open() {
 void KalshiWsClient::on_close() {
   // State keyed to the dead connection's sids is abandoned; the next Open bumps
   // the epoch and resubscribes. (The transport owns backoff+jitter reconnect.)
+  // Re-sign fresh auth headers now so the transport's next reconnect handshake
+  // carries a current signature instead of the stale startup one (I10 incident).
+  refresh_auth();
 }
 
 void KalshiWsClient::resubscribe() {
-  if (want_.empty()) return;
+  if (want_.empty() && !firehose_) return;  // firehose subscribes with no filter
   t_.send_text(build_subscribe(next_id(), want_));
 }
 

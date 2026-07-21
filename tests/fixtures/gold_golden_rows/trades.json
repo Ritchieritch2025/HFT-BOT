@@ -1,0 +1,140 @@
+{
+ "meta": {
+  "source": "tools/warehouse.py load(), staging 2026-07-06",
+  "sampling_window": "2026-07-06 outside 08:18-08:36 UTC (G5; padded from 08:35)",
+  "excluded_us": [
+   1783325880000000,
+   1783326960000000
+  ]
+ },
+ "rows": [
+  {
+   "input": {
+    "ts_utc": 1783315156256000,
+    "market_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026457F3635C8B-F8BF807DF18",
+    "trade_id": "80301365-e890-49dd-8087-3916b0e64a96",
+    "yes_price_e4": "0.3880",
+    "no_price_e4": "0.6120",
+    "count_e4": "107.16",
+    "taker_side": "no"
+   },
+   "expect_e4": {
+    "yes_price_e4": 3880,
+    "no_price_e4": 6120,
+    "count_e4": 1071600
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315156259000,
+    "market_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202605814389616-DF03B48AF66",
+    "trade_id": "64b4eed8-9e7a-4e14-edc5-271a80e3aa1f",
+    "yes_price_e4": "0.0350",
+    "no_price_e4": "0.9650",
+    "count_e4": "26.73",
+    "taker_side": "yes"
+   },
+   "expect_e4": {
+    "yes_price_e4": 350,
+    "no_price_e4": 9650,
+    "count_e4": 267300
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315156261000,
+    "market_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026908967F2B07-0B9B35FD273",
+    "trade_id": "84fd7f9f-1a79-5ffb-7ca0-cb1ea15c2901",
+    "yes_price_e4": "0.0250",
+    "no_price_e4": "0.9750",
+    "count_e4": "186.56",
+    "taker_side": "yes"
+   },
+   "expect_e4": {
+    "yes_price_e4": 250,
+    "no_price_e4": 9750,
+    "count_e4": 1865600
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783305732458000,
+    "market_ticker": "KXWCGOAL-26JUL05MEXENG-MEXEALVAR11-1",
+    "trade_id": "1ce2561d-05c0-5bac-72d3-47a909b5256d",
+    "yes_price_e4": "0.0600",
+    "no_price_e4": "0.9400",
+    "count_e4": "15.63",
+    "taker_side": "yes"
+   },
+   "expect_e4": {
+    "yes_price_e4": 600,
+    "no_price_e4": 9400,
+    "count_e4": 156300
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783305735694000,
+    "market_ticker": "KXMLBTOTAL-26JUL052130BOSLAA-14",
+    "trade_id": "c22ad5fb-e117-5290-0b2d-40f8241da6ad",
+    "yes_price_e4": "0.4500",
+    "no_price_e4": "0.5500",
+    "count_e4": "209.70",
+    "taker_side": "yes"
+   },
+   "expect_e4": {
+    "yes_price_e4": 4500,
+    "no_price_e4": 5500,
+    "count_e4": 2097000
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315157622000,
+    "market_ticker": "KXWCSTART-26JUL06PORESP-POR-CRIS7",
+    "trade_id": "14efa34c-0749-586d-e70a-3cd513dd21c0",
+    "yes_price_e4": "0.9100",
+    "no_price_e4": "0.0900",
+    "count_e4": "2.00",
+    "taker_side": "no"
+   },
+   "expect_e4": {
+    "yes_price_e4": 9100,
+    "no_price_e4": 900,
+    "count_e4": 20000
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315158416000,
+    "market_ticker": "KXTRUMPSAY-26JUL06-50",
+    "trade_id": "4071d5d7-6982-53b8-f70c-3fc1eacf9ed1",
+    "yes_price_e4": "0.9900",
+    "no_price_e4": "0.0100",
+    "count_e4": "93.51",
+    "taker_side": "no"
+   },
+   "expect_e4": {
+    "yes_price_e4": 9900,
+    "no_price_e4": 100,
+    "count_e4": 935100
+   }
+  },
+  {
+   "input": {
+    "ts_utc": 1783315156262000,
+    "market_ticker": "KXMVECROSSCATEGORY-S2026AF117352350-73A1EFC020D",
+    "trade_id": "f0524aec-cfa1-746e-bfae-7eff35b0e6c4",
+    "yes_price_e4": "0.0090",
+    "no_price_e4": "0.9910",
+    "count_e4": "1030.92",
+    "taker_side": "yes"
+   },
+   "expect_e4": {
+    "yes_price_e4": 90,
+    "no_price_e4": 9910,
+    "count_e4": 10309200
+   }
+  }
+ ]
+}

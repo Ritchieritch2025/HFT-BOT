@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
 
   // --- Live gate: not-enabled runtime -> require_orders_allowed throws ---
   {
-    KalshiExecutionEngine eng(make_rt(Env::Demo, Mode::Live, /*orders_enabled*/ false));
+    KalshiExecutionEngine eng(make_rt(Env::Prod, Mode::Live, /*orders_enabled*/ false));
     bool threw = false;
     try { eng.submit(an_order()); } catch (const SafetyViolation&) { threw = true; }
     check(threw, "Live w/o orders_enabled: submit throws (gate fires)");
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 
   // --- Live enabled: gate passes but transmission is not wired -> fail closed ---
   {
-    KalshiExecutionEngine eng(make_rt(Env::Demo, Mode::Live, /*orders_enabled*/ true));
+    KalshiExecutionEngine eng(make_rt(Env::Prod, Mode::Live, /*orders_enabled*/ true));
     bool threw = false;
     try { eng.submit(an_order()); } catch (const SafetyViolation&) { threw = true; }
     check(threw, "Live enabled: transmit skeleton not wired -> throws (fail closed)");

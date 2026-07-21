@@ -24,9 +24,10 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
-              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction
+              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_strategies \
+              $(BUILD)/test_market_filter $(BUILD)/test_gold_layout
 
-BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
+BINS := $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
         $(BUILD)/preflight $(BUILD)/bench_rtt $(BUILD)/bench_order \
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
@@ -139,9 +140,6 @@ $(BUILD)/ixws/%.o: $(IXWS_DIR)/%.cpp | $(BUILD)/ixws
 $(BUILD)/ixwebsocket.a: $(IXWS_OBJS)
 	ar rcs $@ $^
 
-$(BUILD)/kalshi_example: examples/kalshi_example.cpp $(BUILD)/client.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
-
 $(BUILD)/test_signing: tests/test_signing.cpp $(BUILD)/client.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
@@ -211,6 +209,15 @@ $(BUILD)/test_request_spec: tests/test_request_spec.cpp $(BUILD)/request_spec.o 
 $(BUILD)/test_orderbook: tests/test_orderbook.cpp include/kalshi/orderbook.hpp include/kalshi/sid_stream.hpp include/trading/bus.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_orderbook.cpp -o $@
 
+$(BUILD)/test_strategies: tests/test_strategies.cpp $(BUILD)/strategies.o include/kalshi/strategy.hpp include/kalshi/wire.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_strategies.cpp $(BUILD)/strategies.o -o $@
+
+$(BUILD)/test_market_filter: tests/test_market_filter.cpp include/trading/market_filter.hpp include/trading/fixedpoint.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_market_filter.cpp -o $@
+
+$(BUILD)/test_gold_layout: tests/test_gold_layout.cpp include/trading/gold_record.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_gold_layout.cpp -o $@
+
 $(BUILD)/test_sid_stream: tests/test_sid_stream.cpp include/kalshi/sid_stream.hpp include/kalshi/orderbook.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_sid_stream.cpp -o $@
 
@@ -229,9 +236,17 @@ $(BUILD)/bench_ws_decode: apps/bench_ws_decode.cpp $(BUILD)/gateway.o $(BUILD)/s
 # Decoder/reader fuzzer under ASan+UBSan (OUR JSON parsing surface). simdjson is
 # excluded from instrumentation via the ignore-list — it does deliberate
 # low-level ops (SIMDJSON_ASSUME etc.) that UBSan flags but are safe by design.
+# -fsanitize-ignorelist= is CLANG-ONLY; g++ (the Linux default compiler) has no
+# equivalent flag, so it is added conditionally. Under g++ the simdjson header
+# inlines DO get instrumented — W-A2 (2026-07-09) ran `make fuzz` (200k iters)
+# on the EC2 box to prove that is clean in practice; re-prove after any
+# simdjson upgrade.
+# `=` (lazy), not `:=`: the compiler probe should run only when the fuzz rule
+# actually fires, not on every make parse (audit nit, 2026-07-09).
+FUZZ_IGNORELIST = $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo "-fsanitize-ignorelist=tests/sanitizer_ignore.txt")
 $(BUILD)/fuzz_decode: tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o tests/sanitizer_ignore.txt | $(BUILD)
 	$(CXX) -std=c++23 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
-	    -fsanitize-ignorelist=tests/sanitizer_ignore.txt \
+	    $(FUZZ_IGNORELIST) \
 	    -Iinclude -I$(SIMDJSON_DIR) $(OPENSSL_INC) \
 	    tests/fuzz_decode.cpp src/gateway.cpp src/storage.cpp src/env.cpp src/limits.cpp src/request_spec.cpp $(BUILD)/simdjson.o -o $@
 
@@ -275,8 +290,8 @@ $(BUILD)/tradingd: apps/tradingd.cpp apps/feed.hpp apps/daemon_util.hpp \
 $(BUILD)/ingestd: apps/ingestd.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/ingestd.cpp $(BUILD)/client.o $(BUILD)/resp.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
-$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
-	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+$(BUILD)/preflight: apps/preflight.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/preflight.cpp $(BUILD)/rest_api.o $(BUILD)/request_executor.o $(BUILD)/request_spec.o $(BUILD)/limits.o $(BUILD)/client.o $(BUILD)/env.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/bench_rtt: apps/bench_rtt.cpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
 	$(CXX) $(CXXFLAGS) apps/bench_rtt.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
@@ -333,15 +348,20 @@ gate:
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
                  $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
+PY_WAREHOUSE_TESTS := tests/test_ingest.py tests/test_export_day.py
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 # Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest
 # ignore it — so no test litters the repo root.
 check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
 	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
+	@set -e; for t in $(PY_WAREHOUSE_TESTS); do echo "== $$t"; python3 $$t | tail -1; done
 
-test: $(BUILD)/test_signing
-	$(BUILD)/test_signing
+# pytest contract suites (EXECUTION_PLAN WP-00). Empty scaffold is green;
+# legacy suites remain under `make check` (see tests/conftest.py). The old
+# `make test` (ran test_signing only) is covered by `make check`.
+test:
+	./tests/run_pytest.sh
 
 clean:
 	rm -rf $(BUILD)

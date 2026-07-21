@@ -1,0 +1,2 @@
+{"ts_utc": 1783305736000000, "market_ticker": "KXMERGE-SAMEUS", "msg_type": "snapshot", "yes_levels": [[4500, 100000]], "no_levels": [[5300, 70000]]}
+{"ts_utc": 1783305737000000, "market_ticker": "KXMERGE-SAMEUS", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": -30000}

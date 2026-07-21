@@ -1,0 +1,4 @@
+{"ts_utc": 1783307646005000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "msg_type": "delta", "side": "yes", "price_e4": 1700, "delta_e4": 1250000, "yes_levels": null, "no_levels": null}
+{"ts_utc": 1783307646105000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "msg_type": "delta", "side": "yes", "price_e4": 1700, "delta_e4": 0, "yes_levels": null, "no_levels": null}
+{"ts_utc": 1783307646205000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "msg_type": "delta", "side": "up", "price_e4": 1700, "delta_e4": 100000, "yes_levels": null, "no_levels": null}
+{"ts_utc": 1783307646305000, "market_ticker": "KXMLBSPREAD-26JUL052130BOSLAA-BOS5", "msg_type": "merge", "side": "yes", "price_e4": 1700, "delta_e4": 100000, "yes_levels": null, "no_levels": null}

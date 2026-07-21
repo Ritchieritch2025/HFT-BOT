@@ -1,9 +1,36 @@
 #include "kalshi/ix_transport.hpp"
 
+#include "ixwebsocket/IXSocketTLSOptions.h"
 #include "ixwebsocket/IXWebSocket.h"
 #include "ixwebsocket/IXWebSocketHttpHeaders.h"
 
+#include <cstdlib>
+#include <filesystem>
+
 namespace kalshi {
+
+namespace {
+// The statically-linked OpenSSL has no usable default trust store on macOS, so
+// TLS cert verification fails ("certificate verify failed") unless we point it
+// at a CA bundle. Honor SSL_CERT_FILE, else probe the common system locations.
+// Never disables verification — that would break the TLS safety invariant.
+std::string find_ca_bundle() {
+  if (const char* env = std::getenv("SSL_CERT_FILE"); env && *env &&
+      std::filesystem::exists(env))
+    return env;
+  for (const char* p : {
+           "/etc/ssl/cert.pem",                        // macOS system OpenSSL compat
+           "/etc/ssl/certs/ca-certificates.crt",       // Debian/Ubuntu
+           "/etc/pki/tls/certs/ca-bundle.crt",         // RHEL/Fedora
+           "/opt/homebrew/etc/openssl@3/cert.pem",     // Homebrew (Apple silicon)
+           "/usr/local/etc/openssl@3/cert.pem",        // Homebrew (Intel)
+       }) {
+    std::error_code ec;
+    if (std::filesystem::exists(p, ec)) return p;
+  }
+  return {};
+}
+}  // namespace
 
 IxWebSocketTransport::IxWebSocketTransport() : ws_(std::make_unique<ix::WebSocket>()) {
   ws_->disablePerMessageDeflate();  // deflate off at runtime (compiled out too)
@@ -12,6 +39,13 @@ IxWebSocketTransport::IxWebSocketTransport() : ws_(std::make_unique<ix::WebSocke
   ws_->setMinWaitBetweenReconnectionRetries(1000);    // 1s
   ws_->setMaxWaitBetweenReconnectionRetries(30000);   // 30s cap
   ws_->setPingInterval(0);  // Kalshi pings us; we only pong (auto) + watch silence
+
+  // TLS trust: verify the server cert against a real CA bundle (fail closed if
+  // none is found — a missing bundle surfaces as a connect error, never as a
+  // silently-insecure connection).
+  ix::SocketTLSOptions tls;
+  tls.caFile = find_ca_bundle();
+  ws_->setTLSOptions(tls);
 }
 
 IxWebSocketTransport::~IxWebSocketTransport() {
@@ -23,6 +57,10 @@ void IxWebSocketTransport::set_url(const std::string& url) { ws_->setUrl(url); }
 void IxWebSocketTransport::set_headers(const WsHeaders& headers) {
   ix::WebSocketHttpHeaders h;
   for (const auto& [k, v] : headers) h[k] = v;
+  // Suppress ixwebsocket's auto-injected browser-style Origin header: Kalshi's
+  // gateway 403s the WS upgrade when an Origin is present (empty value + the
+  // handshake patch => the header is omitted entirely).
+  if (h.find("Origin") == h.end()) h["Origin"] = "";
   ws_->setExtraHeaders(h);
 }
 

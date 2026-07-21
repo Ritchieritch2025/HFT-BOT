@@ -1,0 +1,6099 @@
+[SPEAKER_00] SPEAKER_02: It basically is going to make the best players
+
+[SPEAKER_00] in the space, like it's going to make them so much more valuable
+
+[SPEAKER_00] than it would like before.
+
+[SPEAKER_00] If somebody was, you know, 3X vers someone, now I think that
+
+[SPEAKER_00] the best guy is going to be that's going to make him 30X
+
+[SPEAKER_00] because he can just do more things.
+
+[SPEAKER_00] SPEAKER_00: GP.
+
+[SPEAKER_00] We almost took a week off because SP is on the IR.
+
+[SPEAKER_00] He'll be back next week.
+
+[SPEAKER_00] Um he'll be with a bang, and he's looking forward to getting
+
+[SPEAKER_00] back.
+
+[SPEAKER_00] But you know, in the last hour we got saved, and we have now
+
+[SPEAKER_00] contacted professional podcast, I would say host for hire,
+
+[SPEAKER_00] previous guest.
+
+[SPEAKER_00] You want to be called Peanut.
+
+[SPEAKER_00] People know you as Mike or Mr.
+
+[SPEAKER_00] Peanut Better.
+
+[SPEAKER_00] Nobody knows you as Peanut, but uh welcome, welcome back, I
+
+[SPEAKER_00] guess, to the show in a different role.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I've already gotten shit on this show once
+
+[SPEAKER_00] for trying to change my name.
+
+[SPEAKER_00] Um, like full, you know, full transparency here.
+
+[SPEAKER_00] I would eventually like to get out of the name Peanut Better
+
+[SPEAKER_00] altogether, but it just doesn't seem like it's in the cards.
+
+[SPEAKER_00] People already like yelled at me enough for this.
+
+[SPEAKER_00] So I like I think I'm just stuck with it.
+
+[SPEAKER_00] As someone who knows you is stuck with golden pants, I feel
+
+[SPEAKER_00] like at least you kind of know the pain.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that was because I messaged you that and
+
+[SPEAKER_00] you're like, Do you know how hard it is to be known as Peanut
+
+[SPEAKER_00] Better?
+
+[SPEAKER_00] SPEAKER_02: I'm like, Listen, in my like the household I grew up
+
+[SPEAKER_00] in, my brother saw my Twitter name as Peanut Better and has
+
+[SPEAKER_00] just, I mean, relentlessly picked on me, insulted me this
+
+[SPEAKER_00] entire time.
+
+[SPEAKER_00] So yeah, he's kind of in my head.
+
+[SPEAKER_00] I'm trying to get out of it.
+
+[SPEAKER_00] Um, but it just it looks like I'm stuck with this name forever
+
+[SPEAKER_00] now.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] And that was to to foreshadow a question.
+
+[SPEAKER_00] I would flup asked the question of like, what is my take?
+
+[SPEAKER_00] I disagree with you on.
+
+[SPEAKER_00] I'm not gonna use that one because that one's an obvious
+
+[SPEAKER_00] one, but yeah, the the name change to just peanut was was
+
+[SPEAKER_00] popular.
+
+[SPEAKER_00] SPEAKER_02: As long as I get the mister out of there, I think
+
+[SPEAKER_00] it's like it's a mister.
+
+[SPEAKER_00] I the mister makes it seem so lame.
+
+[SPEAKER_00] So I that's the part I'm trying to cut out the hardest.
+
+[SPEAKER_00] SPEAKER_00: Okay, okay.
+
+[SPEAKER_00] Well, we'll we'll workshop it.
+
+[SPEAKER_00] Um, but yeah, so we're we're filling uh you're filling in for
+
+[SPEAKER_00] SP.
+
+[SPEAKER_00] Big shoes to fill.
+
+[SPEAKER_00] Um, and we're gonna go through the standard format.
+
+[SPEAKER_00] But you DM'd me a question maybe two weeks back that SP and I
+
+[SPEAKER_00] were like trying to fit in as a main topic, and I thought like
+
+[SPEAKER_00] this is a perfect time to do it.
+
+[SPEAKER_00] And basically the question, you can elaborate on it, but the
+
+[SPEAKER_00] question was something along the lines of like who is AI, what
+
+[SPEAKER_00] type of better is the current do the current like AI tools help
+
+[SPEAKER_00] the most, if I if I remember it correctly.
+
+[SPEAKER_00] But yeah, if you want to elaborate on on the queue.
+
+[SPEAKER_00] SPEAKER_02: Sure, yeah.
+
+[SPEAKER_00] So basically, I don't want to do everybody has done some version
+
+[SPEAKER_00] of you know, like what AI is going to change about betting
+
+[SPEAKER_00] markets in a sense of like, you know, what effect is it gonna
+
+[SPEAKER_00] have on models and things like that.
+
+[SPEAKER_00] I think that that's pretty like talked about or at least gone
+
+[SPEAKER_00] over in detail.
+
+[SPEAKER_00] What I kind of wanted to ask was now, like, now markets are going
+
+[SPEAKER_00] to become more efficient.
+
+[SPEAKER_00] I think anybody we can take at least you could be a relatively
+
+[SPEAKER_00] AI skeptic.
+
+[SPEAKER_00] I if you have a reasonable opinion of what AI is, it is at
+
+[SPEAKER_00] the minimum allowing people to build software in a way that
+
+[SPEAKER_00] they haven't been able to build it before.
+
+[SPEAKER_00] And basically been everybody's been able to ramp up the
+
+[SPEAKER_00] production of what they can do, kind of, you know, maybe you
+
+[SPEAKER_00] aren't changing your entire operations in terms of
+
+[SPEAKER_00] capabilities, but the like, you know, the breadth of topics that
+
+[SPEAKER_00] you can cover is so much wider.
+
+[SPEAKER_00] So before, like the example I used was before, if I I just
+
+[SPEAKER_00] wouldn't have been able to bet certain markets that now I'm
+
+[SPEAKER_00] able to whip together something.
+
+[SPEAKER_00] I'm able to tell Claude, hey, Claude, you know, take our MBA
+
+[SPEAKER_00] sim and make a dumbed-down version of it for WMBA and kind
+
+[SPEAKER_00] of go ahead and like create that out.
+
+[SPEAKER_00] Um, I'm talking, you know, it doesn't matter which markets I'm
+
+[SPEAKER_00] talking about, but in general, let's just assume, I think a
+
+[SPEAKER_00] pretty like reasonable assumption, that markets are
+
+[SPEAKER_00] going to be way more efficient and are going to be the markets
+
+[SPEAKER_00] that were before not worth your time if you were a very sharp
+
+[SPEAKER_00] person, are now kind of going to be worth your time and maybe a
+
+[SPEAKER_00] lesser extent.
+
+[SPEAKER_00] So you can like go in and bet a market that you otherwise just
+
+[SPEAKER_00] didn't have time to do.
+
+[SPEAKER_00] Now you're able to go in, kind of put together a hack version
+
+[SPEAKER_00] and kind of create something there.
+
+[SPEAKER_00] So, like, how does that affect those markets long term?
+
+[SPEAKER_00] And how would you adjust your betting based on that?
+
+[SPEAKER_00] SPEAKER_00: Yeah, I think I think it's an interesting
+
+[SPEAKER_00] question because and I don't want I don't want to steal your
+
+[SPEAKER_00] your answer, but I think we briefly taught like talked about
+
+[SPEAKER_00] in DMs, like the idea of it helping like the best, like
+
+[SPEAKER_00] single betters.
+
+[SPEAKER_00] Um and then I was thinking, well, is there any like is it
+
+[SPEAKER_00] all doom and gloom for people who are you know on the more
+
+[SPEAKER_00] like kind of coming up in the space and haven't really like
+
+[SPEAKER_00] got uh haven't really started winning at at a high rate um or
+
+[SPEAKER_00] winning a lot of money and being a professional and whatever?
+
+[SPEAKER_00] And it kind of helps them like in a in an exactly opposite way
+
+[SPEAKER_00] of like getting that first model if they have like really good
+
+[SPEAKER_00] expertise of of the sport and have like a realistically like a
+
+[SPEAKER_00] realistic understanding of probabilistic thinking and and
+
+[SPEAKER_00] all of this type of stuff, like it might get them like the exact
+
+[SPEAKER_00] opposite effect, which is like they can finally do one thing
+
+[SPEAKER_00] really well.
+
+[SPEAKER_00] And then like the best betters, they can start to now expand to
+
+[SPEAKER_00] a lot of things.
+
+[SPEAKER_00] Uh so I kind of felt like you you put into two camps and like
+
+[SPEAKER_00] they it's kind of impacts them exactly the opposite.
+
+[SPEAKER_00] SPEAKER_02: Yeah, that's like kind of exactly what I was going
+
+[SPEAKER_00] with, where it's if you are, you know, let's say you are a very
+
+[SPEAKER_00] skilled NBA better right now, never has it been easier for you
+
+[SPEAKER_00] to change your like I think if you are one of the best NBA
+
+[SPEAKER_00] betters, the A, you know, Claude in its current circumstance is
+
+[SPEAKER_00] not as much making your models better as it is allowing you to
+
+[SPEAKER_00] branch out and cover more areas than you ever have before.
+
+[SPEAKER_00] Um, and like I was thinking of it, say if you were a baseball
+
+[SPEAKER_00] better, okay, and you are betting uh, you know, betting
+
+[SPEAKER_00] baseball regularly, whatever you had before as your metric for
+
+[SPEAKER_00] say a new guy's coming up from the minor leagues.
+
+[SPEAKER_00] Maybe before you're like, hey, let's put together something for
+
+[SPEAKER_00] pitchers who are making their first start, but we don't want
+
+[SPEAKER_00] to spend a ton of time on it.
+
+[SPEAKER_00] Now you can kind of go into that area and attack that more kind
+
+[SPEAKER_00] of broadly, way in a way that you couldn't before.
+
+[SPEAKER_00] Like it would take so much effort and time to go and look
+
+[SPEAKER_00] up and scrape all his stats.
+
+[SPEAKER_00] Now you can like in three seconds be like, hey, let's put
+
+[SPEAKER_00] together like the most basic version of our model for these
+
+[SPEAKER_00] new guys.
+
+[SPEAKER_00] So I think like if you're already at the top of your
+
+[SPEAKER_00] sport, or not even at the top, if you are a good better in your
+
+[SPEAKER_00] sport, it's going to allow you to spread out um and provide
+
+[SPEAKER_00] like you know different markets than you were able to.
+
+[SPEAKER_00] What you said about a new better is I also think like if you're
+
+[SPEAKER_00] starting out, you should probably lean into
+
+[SPEAKER_00] specialization more than ever now, right?
+
+[SPEAKER_00] With markets becoming more efficient.
+
+[SPEAKER_00] And if you are going to be somebody who say you're I'm
+
+[SPEAKER_00] gonna butt in WMBA now and like I'm starting in that market, now
+
+[SPEAKER_00] you kind of because other people are gonna be in it, you have to
+
+[SPEAKER_00] specialize more than ever because the top guys are gonna
+
+[SPEAKER_00] be covering a breadth of topics.
+
+[SPEAKER_00] You have to really to in order to beat them, you kind of have
+
+[SPEAKER_00] to hone in on your one skill set.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah.
+
+[SPEAKER_00] Exactly, exactly.
+
+[SPEAKER_00] And what I was thinking also is if like you have to think of it
+
+[SPEAKER_00] in terms of prediction markets too.
+
+[SPEAKER_00] Like the more the flip side is you can use it to automate some
+
+[SPEAKER_00] of your betting strategies, um, if you're already at the top.
+
+[SPEAKER_00] Uh so there's like lots of different, there's like a couple
+
+[SPEAKER_00] different paths.
+
+[SPEAKER_00] You could either do a better job at originating uh a bunch of
+
+[SPEAKER_00] different spots.
+
+[SPEAKER_00] And I think that concept of like, when I was thinking, oh,
+
+[SPEAKER_00] basketball, it's like, okay, I I do mains and now I'm gonna do
+
+[SPEAKER_00] player props.
+
+[SPEAKER_00] But I think what you said for baseball makes a lot of sense,
+
+[SPEAKER_00] where it's like if you have a pitcher pitching his first
+
+[SPEAKER_00] start, a lot of times you might just like kind of toss a towel
+
+[SPEAKER_00] in that game and not quote it or not bet it.
+
+[SPEAKER_00] But if you now you can actually probably find that as like a
+
+[SPEAKER_00] huge spot because you can spend a lot of time on like judging
+
+[SPEAKER_00] how good a pitcher pitching his first start in the majors like
+
+[SPEAKER_00] could be, or what's the distribution of you know stuff
+
+[SPEAKER_00] that could happen with a pitcher on their first start.
+
+[SPEAKER_00] And there's probably a lot of edge there, but you just it
+
+[SPEAKER_00] wasn't worth it because there's only like I don't know, ball, I
+
+[SPEAKER_00] don't know, ball, but however many pitchers pitching their
+
+[SPEAKER_00] first start of the year, it can't be that many.
+
+[SPEAKER_00] SPEAKER_02: Um yeah, similarly, so like I one example is like so
+
+[SPEAKER_00] I bet NBA props, and when I first started, I would pretty
+
+[SPEAKER_00] much look exclusively for unique situations where I would be
+
+[SPEAKER_00] like, okay, why would the numbers be off?
+
+[SPEAKER_00] You know, can I deep dive this and use my own assumptions and
+
+[SPEAKER_00] go in there?
+
+[SPEAKER_00] And as like my bottle gets better, it's like it's the
+
+[SPEAKER_00] ultimate like humans go to the laziest thing.
+
+[SPEAKER_00] It's like, oh, now I have these numbers.
+
+[SPEAKER_00] I don't need to look into those.
+
+[SPEAKER_00] And like that becomes, and it's kind of like this system where
+
+[SPEAKER_00] the new person then can go and be like, oh, there's alpha here
+
+[SPEAKER_00] that like Mike's too lazy to go and generate.
+
+[SPEAKER_00] But now like it seems like you're able to kind of you're
+
+[SPEAKER_00] able to automate.
+
+[SPEAKER_00] Uh one thing that you were always on was like, hey, you
+
+[SPEAKER_00] should automate as many things as you can because then that
+
+[SPEAKER_00] allows you, like it frees up your time.
+
+[SPEAKER_00] Like, this is like that times a hundred, right?
+
+[SPEAKER_00] It's like you can automate things that before you could
+
+[SPEAKER_00] only automate rigid things.
+
+[SPEAKER_00] Now you can automate stuff that's more flexible and like
+
+[SPEAKER_00] has more kind of areas of change.
+
+[SPEAKER_00] So like I think that will allow people that will allow the best
+
+[SPEAKER_00] groups to kind of go in the like the areas where they before were
+
+[SPEAKER_00] just screw it, like it's not worth our time to mess with it.
+
+[SPEAKER_00] Um, but at the same time, if you're new in there, it also
+
+[SPEAKER_00] allows you to quickly generate like you can generate, like I
+
+[SPEAKER_00] couldn't code worth of shit.
+
+[SPEAKER_00] Like, there's no way I could create what I created uh without
+
+[SPEAKER_00] Claude or kind of in that realm.
+
+[SPEAKER_00] So it allows you to kind of go in there.
+
+[SPEAKER_00] So I think for the, you know, if you're already established, like
+
+[SPEAKER_00] I said, you'll be able to attack new markets.
+
+[SPEAKER_00] If you're newer, it almost needs to make you specialize in a way
+
+[SPEAKER_00] before there was tons of friction where you could kind of
+
+[SPEAKER_00] find lots of spots.
+
+[SPEAKER_00] Now I think that like because that friction is being
+
+[SPEAKER_00] eliminated, you kind of have to scale back what you're attacking
+
+[SPEAKER_00] now and really, really kind of hone in um because it just won't
+
+[SPEAKER_00] be as easy, everything's gonna be more efficient.
+
+[SPEAKER_00] SPEAKER_00: My my uh so I also thought about this in like the
+
+[SPEAKER_00] really macro sense of like who does who does this help, like
+
+[SPEAKER_00] what players.
+
+[SPEAKER_00] And I think it hurts the biggest trading firms.
+
+[SPEAKER_00] Like if if I was Susquehanna or Jump or Jane Street and I had a
+
+[SPEAKER_00] choice, if I thought, would I make more money in prediction
+
+[SPEAKER_00] markets with Claude and whatever or without it, I would think
+
+[SPEAKER_00] without it.
+
+[SPEAKER_00] Um because the thing, like uh to to steal a quote from my partner
+
+[SPEAKER_00] Luke, he was like the best the best trades these trading firms
+
+[SPEAKER_00] make is they pay, you know, 250k to the smartest kids in college
+
+[SPEAKER_00] who are gonna make five million dollars for them.
+
+[SPEAKER_00] And like they have the bank roles to basically just not need
+
+[SPEAKER_00] Claude because they have like 50 Claude juniors on the desk, like
+
+[SPEAKER_00] doing all the work.
+
+[SPEAKER_00] And like that was gave them like a work capacity that was
+
+[SPEAKER_00] previously like not even remotely reachable by people
+
+[SPEAKER_00] like us, you know, like our groups or you know,
+
+[SPEAKER_00] sophisticated solo operators or whatnot.
+
+[SPEAKER_00] So I I think that it opens the door for you know the garage
+
+[SPEAKER_00] band market maker or the you know the lone wolf, you know, SP
+
+[SPEAKER_00] type who's really sophisticated and you know can actually
+
+[SPEAKER_00] compete um by themselves.
+
+[SPEAKER_00] So I would say like I'm optimistic about AI.
+
+[SPEAKER_00] I know there's a lot of like doom and gloom on AI, like, and
+
+[SPEAKER_00] that goes beyond the scope of betting, but I'd say like in
+
+[SPEAKER_00] betting, if you're listening to this podcast, it's probably a
+
+[SPEAKER_00] good thing relative to the field for you.
+
+[SPEAKER_00] SPEAKER_02: I would agree.
+
+[SPEAKER_00] I you could probably make the argument either side without me
+
+[SPEAKER_00] pushing, like I think there's arguments for both sides.
+
+[SPEAKER_00] The argument for if you're like SIG and you know one of those
+
+[SPEAKER_00] trading firms is listen, everything's gonna be so
+
+[SPEAKER_00] optimized that you're gonna have to live on the margins here.
+
+[SPEAKER_00] There's gonna be no more roars, or you know, the roars are gonna
+
+[SPEAKER_00] be far and few in between.
+
+[SPEAKER_00] You're gonna be grinding order book flow and things like that,
+
+[SPEAKER_00] where they are, you know, they're better set up to take
+
+[SPEAKER_00] advantage of those kind of like little mismanagements.
+
+[SPEAKER_00] It's not like SIG's not like relying on ball knowledge,
+
+[SPEAKER_00] they're relying on order book matching and kind of taking a
+
+[SPEAKER_00] dollar here, making a dollar one on one there.
+
+[SPEAKER_00] For the most part, I'm you know, I'm speaking generalizations,
+
+[SPEAKER_00] but um the other side is to your point, if everybody one of their
+
+[SPEAKER_00] advantages before would be the ability to scale at a rate that
+
+[SPEAKER_00] nobody else can do.
+
+[SPEAKER_00] If you're one person, you can't create a million models, but now
+
+[SPEAKER_00] you can.
+
+[SPEAKER_00] So now that you can scale at the same of them, it really comes
+
+[SPEAKER_00] down to more expertise, um, you know, domain expertise, uh,
+
+[SPEAKER_00] whether really just it's more mono-imono than it was before,
+
+[SPEAKER_00] where it's like, hey, you know, I'm just gonna get overwhelmed
+
+[SPEAKER_00] by a group who's doing things more efficiently, more
+
+[SPEAKER_00] strategically than I am now.
+
+[SPEAKER_00] The argument would be, hey, now that I it's basically your
+
+[SPEAKER_00] ideas, there's no more limiting factor of can you code this
+
+[SPEAKER_00] correctly or can you create?
+
+[SPEAKER_00] I mean, I'm speaking a little bit far out here.
+
+[SPEAKER_00] There still are some of that, like, don't get me wrong, but
+
+[SPEAKER_00] I'm just saying if you're speaking in a couple years here,
+
+[SPEAKER_00] it's going to be can you create systems in place and can you
+
+[SPEAKER_00] think of these things that basically to have it be
+
+[SPEAKER_00] generated for you because everything's going to be you
+
+[SPEAKER_00] know generated relatively quickly uh and relatively well
+
+[SPEAKER_00] by sub agents and all these things.
+
+[SPEAKER_00] So I would agree with you now that it basically is going to
+
+[SPEAKER_00] make the best players in the space, like it's going to make
+
+[SPEAKER_00] them so much more valuable than it would like before, if
+
+[SPEAKER_00] somebody was, you know, 3X versus someone, now I think that
+
+[SPEAKER_00] the best guy is going to be that's going to make him 30X
+
+[SPEAKER_00] because he can just do more things.
+
+[SPEAKER_00] Essentially, you're going to be able to multiply his domain
+
+[SPEAKER_00] expertise or his knowledge in a way that you couldn't before,
+
+[SPEAKER_00] where it's like, hey, you know, if I'm typing boilerplate code
+
+[SPEAKER_00] for five hours and somebody else is typing boilerplate code for
+
+[SPEAKER_00] five hours, there's not that much marginal difference.
+
+[SPEAKER_00] Now, if it's like real high-level decisions that you're
+
+[SPEAKER_00] making all the time, it's going to basically compound that
+
+[SPEAKER_00] difference.
+
+[SPEAKER_00] So yeah, I would say that basically it has never been
+
+[SPEAKER_00] better if you are like a solo operator and very skilled.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that's a good point.
+
+[SPEAKER_00] Like it narrows, like it compresses the time that's spent
+
+[SPEAKER_00] on the stuff that like everybody can do with time, which is like,
+
+[SPEAKER_00] let's say you're like setting up your database.
+
+[SPEAKER_00] Not everybody can do this, but like this is, you know, if you
+
+[SPEAKER_00] and I had like to go pull a college football database and
+
+[SPEAKER_00] then like tag certain plays a certain way and like go through
+
+[SPEAKER_00] this this process, like we would be able to both do it.
+
+[SPEAKER_00] But what you can do that I can't do is to like understand what
+
+[SPEAKER_00] this means and to ask it the right questions, right?
+
+[SPEAKER_00] So like all of a sudden, like the time spent do where you and
+
+[SPEAKER_00] I are doing the thing that we both can do in that um in that
+
+[SPEAKER_00] example is basically compressed to zero.
+
+[SPEAKER_00] And now we're competing on the other thing for the majority of
+
+[SPEAKER_00] time, which you're killing me in.
+
+[SPEAKER_00] SPEAKER_02: Yeah.
+
+[SPEAKER_00] So like a great example was last year.
+
+[SPEAKER_00] I like, and it first of all, it's it's amazing how quick this
+
+[SPEAKER_00] stuff is like changing.
+
+[SPEAKER_00] And like to the people who are AI skeptics, last year I asked
+
+[SPEAKER_00] it to basically go through, and every offensive coordinator, I
+
+[SPEAKER_00] was like, hey, go and find what their previous stops were.
+
+[SPEAKER_00] With college football, it's a little different because like
+
+[SPEAKER_00] the data's not very clean.
+
+[SPEAKER_00] You're like scraping from weird places.
+
+[SPEAKER_00] There's not like one data source that has this stuff, right?
+
+[SPEAKER_00] So I asked it to do it, and it basically like it just came back
+
+[SPEAKER_00] a ton of error.
+
+[SPEAKER_00] So I spent time just going through and being like, okay,
+
+[SPEAKER_00] that's wrong.
+
+[SPEAKER_00] Like he actually went to this college.
+
+[SPEAKER_00] Like that was just hours spent cleaning data.
+
+[SPEAKER_00] If I asked it to do it this year, like it might hallucinate
+
+[SPEAKER_00] one or two things, but it's like getting it 98% correct.
+
+[SPEAKER_00] That's just time now that everybody is gonna have off
+
+[SPEAKER_00] their plate, and it's really gonna come down to like actual
+
+[SPEAKER_00] decisions of who's better, like all the stuff that when people
+
+[SPEAKER_00] ask me, like, what part about sports spending is probably
+
+[SPEAKER_00] underrated, it's like how much of my time is spent putting out
+
+[SPEAKER_00] fires, where it's like, oh shit, I put the wrong thing here, or
+
+[SPEAKER_00] I'm just trying to get this up and operational.
+
+[SPEAKER_00] That to me is going to like trend towards less and less, and
+
+[SPEAKER_00] it already is, honestly, like less time am I spent just
+
+[SPEAKER_00] maintaining the same stuff.
+
+[SPEAKER_00] And now I'm actually able to add things in and add different
+
+[SPEAKER_00] stuff like to the equation.
+
+[SPEAKER_00] And as you are able to add stuff, the person who's not like
+
+[SPEAKER_00] there is gonna necessarily be a ceiling on someone who's like,
+
+[SPEAKER_00] okay, this is like I've thought of everything that I wanted to
+
+[SPEAKER_00] put into my model, and then there's gonna be someone who has
+
+[SPEAKER_00] 5,000 more things that they're like, you know, that you can
+
+[SPEAKER_00] there's always something that you can add to your model if
+
+[SPEAKER_00] you're pretty good at this.
+
+[SPEAKER_00] Um, but there's eventually gonna be a difference there where
+
+[SPEAKER_00] someone is not adding as much or whatever they're adding, like
+
+[SPEAKER_00] just because now so much of the time was spent just putting out
+
+[SPEAKER_00] fires, if that's gone, all that extra time is kind of area to
+
+[SPEAKER_00] separate or stratify yourself from the group.
+
+[SPEAKER_00] SPEAKER_00: Right, exactly.
+
+[SPEAKER_00] And then people you can spend it on the two things, which is like
+
+[SPEAKER_00] getting your fare better or getting your trading better.
+
+[SPEAKER_00] And those are gonna be the things that eventually, like, I
+
+[SPEAKER_00] think start to separate people very um, but yeah, start to
+
+[SPEAKER_00] really separate people in the space.
+
+[SPEAKER_00] I had a funny, it's it's funny, like you talk about how
+
+[SPEAKER_00] different it is a year ago.
+
+[SPEAKER_00] Like a year ago, like it was it's just it's not even
+
+[SPEAKER_00] comparable to what AI is today or the tools are today.
+
+[SPEAKER_00] Like I I I was doing, I was creating like I was basically
+
+[SPEAKER_00] trying to create a live model for something.
+
+[SPEAKER_00] Um and I knew that I couldn't, you know, I'm a hashtag, you
+
+[SPEAKER_00] know, sim believer, but I can't sim it how I would want to SIM
+
+[SPEAKER_00] it because it would, you know, it wouldn't work live.
+
+[SPEAKER_00] So it was like, no problem, I'll make a Markov chain.
+
+[SPEAKER_00] So I go through and like I I you know go through the process,
+
+[SPEAKER_00] like kind of tell it like this is what you need to look out
+
+[SPEAKER_00] for, like what are you what parameters are you using, like,
+
+[SPEAKER_00] and we kind of go back and forth, but the underlying
+
+[SPEAKER_00] structure, like the the guts of the the model I am trusting to
+
+[SPEAKER_00] to uh to Claude, and I start to run it while I'm watching like
+
+[SPEAKER_00] the the data come in.
+
+[SPEAKER_00] I'm like, it's good.
+
+[SPEAKER_00] And then I tell I tell Gabriel, I was like, yeah, so anyway,
+
+[SPEAKER_00] like today I spent a lot of time with Claude.
+
+[SPEAKER_00] It built like a Markov chain.
+
+[SPEAKER_00] I'm testing it on live games now, and like after that, I'm
+
+[SPEAKER_00] gonna have it explained to me what a Markov chain is.
+
+[SPEAKER_00] It's just like, but you know, and but that's the thing.
+
+[SPEAKER_00] It's just like I'm sure that and I understand it's it's it's
+
+[SPEAKER_00] math.
+
+[SPEAKER_00] SPEAKER_02: I I kind of like yeah, you understand the general
+
+[SPEAKER_00] theory of it, but you don't like the now you basically have to
+
+[SPEAKER_00] understand what things do, where they're good at, rather than the
+
+[SPEAKER_00] actual implementation.
+
+[SPEAKER_00] It's like going back to like old school math, uh too bad SP's not
+
+[SPEAKER_00] here to talk about you know theoretical, like when you talk
+
+[SPEAKER_00] about series and stuff.
+
+[SPEAKER_00] It's like, oh, I kind of understand what series are, but
+
+[SPEAKER_00] like the actual like summing of them and taking it to E and
+
+[SPEAKER_00] stuff like that.
+
+[SPEAKER_00] It's like, okay, that's where I'm kind of lost.
+
+[SPEAKER_00] Now you just kind of have to know what the series is and it
+
+[SPEAKER_00] will take it from there.
+
+[SPEAKER_00] Um there's uh let me ask you, so like how are you having it help
+
+[SPEAKER_00] you as far as like execution of trading?
+
+[SPEAKER_00] Because I would say that's somewhere where I just like I'm
+
+[SPEAKER_00] not very good at executing trading, I would say, right now.
+
+[SPEAKER_00] Um and basically that's like where I would say my biggest
+
+[SPEAKER_00] area of growth could be.
+
+[SPEAKER_00] SPEAKER_00: Uh well, I think you touched on one one part of it,
+
+[SPEAKER_00] which is just like scraping help.
+
+[SPEAKER_00] So there's a lot of like there's a lot of stuff that goes into, I
+
+[SPEAKER_00] would say like our live trading that's scraped.
+
+[SPEAKER_00] But uh I the other thing for execution of trading is like
+
+[SPEAKER_00] understanding the uh exchange APIs.
+
+[SPEAKER_00] I think it's uh if you were just plopped in the middle of it with
+
+[SPEAKER_00] no AI, I think a lot of you know the thing is the exchanges are
+
+[SPEAKER_00] so new, all of us have had AI to help.
+
+[SPEAKER_00] But if you were like plopped in the middle of it and asked to
+
+[SPEAKER_00] quote RFQs without any AI, I think it would be fair.
+
+[SPEAKER_00] Very, very, very difficult.
+
+[SPEAKER_00] So understanding like uh how Call She's API works, how
+
+[SPEAKER_00] Polly's API works, and then because it can go online, it can
+
+[SPEAKER_00] read these docs.
+
+[SPEAKER_00] Like it's that's that's one of the things that AI is so good
+
+[SPEAKER_00] at.
+
+[SPEAKER_00] It's just like taking a like a ton of documentation and you ask
+
+[SPEAKER_00] it questions about it, or like this is what I'm trying to do,
+
+[SPEAKER_00] what are some options?
+
+[SPEAKER_00] Can I do this faster?
+
+[SPEAKER_00] SPEAKER_02: Like to to me, that's the the biggest help with
+
+[SPEAKER_00] the the stuff you couldn't like Google or query before that's
+
+[SPEAKER_00] like specific to things is where it's absolutely like perfect,
+
+[SPEAKER_00] where you're saying where it's like, okay, like this very
+
+[SPEAKER_00] specific thing, how do you like look at the already existing
+
+[SPEAKER_00] documentation?
+
+[SPEAKER_00] Tell me how to do it.
+
+[SPEAKER_00] Yeah, I I like all the APIs, stuff like that.
+
+[SPEAKER_00] Do you let me do you think if there wasn't AI, like, do you
+
+[SPEAKER_00] think it's a coincidence, I guess, that all this API trading
+
+[SPEAKER_00] is happening at the same time AI is coming up?
+
+[SPEAKER_00] Do you think everybody would be able to market make at this
+
+[SPEAKER_00] level?
+
+[SPEAKER_00] Like, would we be able to get all these market makers?
+
+[SPEAKER_00] Sure, we'd get SIG and stuff like that, but like, you know,
+
+[SPEAKER_00] could you even get up and running without the help of AI
+
+[SPEAKER_00] to the extent that you have with all these different platforms?
+
+[SPEAKER_00] SPEAKER_00: Uh that's yeah, I I would say no.
+
+[SPEAKER_00] And that that's to my point of of why I think like SIG and
+
+[SPEAKER_00] jump, if they had the option, like I guess I don't know.
+
+[SPEAKER_00] Well as long as it's like remove any effects outside of
+
+[SPEAKER_00] prediction market trading, they would probably want no AI
+
+[SPEAKER_00] because they would be the ones who are actually able to get
+
+[SPEAKER_00] something to work quickly.
+
+[SPEAKER_00] Um, you know, my partner Gabriel does does come from like a
+
+[SPEAKER_00] programmatic trading background, so I think we would have gotten
+
+[SPEAKER_00] up eventually, but it would have been so much slower.
+
+[SPEAKER_00] Um, I don't think there's any way we would have been up on
+
+[SPEAKER_00] multiple platforms uh at this point.
+
+[SPEAKER_00] And yeah, I mean, I I think that's exactly why you see
+
+[SPEAKER_00] people.
+
+[SPEAKER_00] I mean, if you think about people we've had on the pod,
+
+[SPEAKER_00] Exy, Troy Cuban, um, all the people who have come on and
+
+[SPEAKER_00] talked about being like fully automated, are always talking
+
+[SPEAKER_00] about what they tell Claude.
+
+[SPEAKER_00] Like myself included.
+
+[SPEAKER_00] Like, yeah.
+
+[SPEAKER_00] SPEAKER_02: Let me ask you, Ben, do you if you could get rid of
+
+[SPEAKER_00] AI in the space and everybody's competing with a no AAI like
+
+[SPEAKER_00] lifestyle?
+
+[SPEAKER_00] We're going back, you know, five years ago, two years no AI.
+
+[SPEAKER_00] Would you take everybody, would you take it away from everybody?
+
+[SPEAKER_00] SPEAKER_00: Uh I feel like Gabriel would kill me if I tried
+
+[SPEAKER_00] to.
+
+[SPEAKER_00] Because he'd be like, well, now you do so much more work.
+
+[SPEAKER_00] But uh I'd like to.
+
+[SPEAKER_00] SPEAKER_02: But you're gonna scale where it probably like
+
+[SPEAKER_00] making it more work probably helped.
+
+[SPEAKER_00] Like, think of you're talking about like the people the kids
+
+[SPEAKER_00] who like came on.
+
+[SPEAKER_00] You could scale in a way they can't, right?
+
+[SPEAKER_00] It's like you have an advantage of a team with you.
+
+[SPEAKER_00] I think if you have a team, and I'm I would say yes for us, just
+
+[SPEAKER_00] because our team has been started in the past year or so.
+
+[SPEAKER_00] Um, I would say if I were you guys and you guys already had a
+
+[SPEAKER_00] process like before AI, I feel like the answer has to be no.
+
+[SPEAKER_00] I feel like if you could take it out, you probably should.
+
+[SPEAKER_00] SPEAKER_00: I feel like we're probably on the edge.
+
+[SPEAKER_00] Like I think it's obvious for the people like we're it's
+
+[SPEAKER_00] obvious for the people above us, I think that they should take
+
+[SPEAKER_00] they should say no.
+
+[SPEAKER_00] I think it's obvious for the people who are doing less volume
+
+[SPEAKER_00] that it's a yes.
+
+[SPEAKER_00] I would say you know what I would say, I would I would say I
+
+[SPEAKER_00] want it because I think like one thing our team our team has is
+
+[SPEAKER_00] we're not a big team, we're a five-person team.
+
+[SPEAKER_00] And um I think what everybody on the team brings is like a lot of
+
+[SPEAKER_00] critical, interesting thinking, and it lets us all be spend a
+
+[SPEAKER_00] lot of time on stuff that's a little more creative and less
+
+[SPEAKER_00] time consuming without having to expand the team.
+
+[SPEAKER_00] Because if you think about other people's teams or like you know,
+
+[SPEAKER_00] jump sig, I mean, these are teams that start to run to the
+
+[SPEAKER_00] you know dozens to hundreds of people.
+
+[SPEAKER_00] So I still think we're in that in that camp of like we want it.
+
+[SPEAKER_00] SPEAKER_02: Yeah, and I think it it's almost it's so hard to like
+
+[SPEAKER_00] separate out what is AI driven, which were versus what is like
+
+[SPEAKER_00] exchange driven, right?
+
+[SPEAKER_00] It's could because if it was just the old school, you know,
+
+[SPEAKER_00] maybe the answer for you would be like don't ever get out of
+
+[SPEAKER_00] the sportsbook space.
+
+[SPEAKER_00] Like, how much is this helping them like profit?
+
+[SPEAKER_00] You know what I mean?
+
+[SPEAKER_00] So it's like one of those situations where it's
+
+[SPEAKER_00] hypothetical that is so hard to kind of imagine it, like the
+
+[SPEAKER_00] macro effects that it's had.
+
+[SPEAKER_00] And maybe, you know, if AI doesn't exist, do the exchanges
+
+[SPEAKER_00] get started to this extent?
+
+[SPEAKER_00] Like, how much is Calci been helped by the growth of it?
+
+[SPEAKER_00] It's one of those weird questions.
+
+[SPEAKER_00] SPEAKER_00: A lot, yeah.
+
+[SPEAKER_00] You know, it's right.
+
+[SPEAKER_00] Think about all the people that are now trading pro
+
+[SPEAKER_00] programmatically, who would never, like you said, who would
+
+[SPEAKER_00] never have traded programmatically before.
+
+[SPEAKER_00] It's gotta be like 20x the accounts that would have if it
+
+[SPEAKER_00] wasn't AI.
+
+[SPEAKER_00] SPEAKER_02: Or they would have put together the shittiest,
+
+[SPEAKER_00] hackiest, like not even like I'm not saying they are shitty or
+
+[SPEAKER_00] haggy, but it's like they just there's no way you could get the
+
+[SPEAKER_00] scale that you could now.
+
+[SPEAKER_00] It's like now that like the marketplace would be dominated
+
+[SPEAKER_00] by SIG in a way that it isn't now, uh, the more like as we're
+
+[SPEAKER_00] talking this out, the more I think it's gotta, it's like it's
+
+[SPEAKER_00] just terrible for SIG.
+
+[SPEAKER_00] Like discussion.
+
+[SPEAKER_00] I'm like, yeah, you're right.
+
+[SPEAKER_00] It would have been it's is given way more power.
+
+[SPEAKER_00] It's really like a democratizing tool more than I kind of
+
+[SPEAKER_00] originally thought it would be.
+
+[SPEAKER_00] SPEAKER_00: It's kind of like if I'll I'll talk to Rufus and we
+
+[SPEAKER_00] just think, man, if we could just shut down data golf, you
+
+[SPEAKER_00] know, like, you know, uh it's like that's probably what they
+
+[SPEAKER_00] think.
+
+[SPEAKER_00] Man, if if we could just actually force these idiots to
+
+[SPEAKER_00] have to learn how to code, we would crush them.
+
+[SPEAKER_00] SPEAKER_02: Exactly.
+
+[SPEAKER_00] If we could stop these dipshits from creating Python scripts
+
+[SPEAKER_00] like by just asking, come on, Claude, please connect to the
+
+[SPEAKER_00] web socket.
+
+[SPEAKER_00] SPEAKER_00: Please, please.
+
+[SPEAKER_00] Please.
+
+[SPEAKER_00] Um, yeah, I was gonna say, like, what are what are some things
+
+[SPEAKER_00] that that you found it especially useful for in your in
+
+[SPEAKER_00] your betting or your I guess in your growth the last year since
+
+[SPEAKER_00] you you've you know built a team and are scaling.
+
+[SPEAKER_00] SPEAKER_02: Sure.
+
+[SPEAKER_00] I I would say that like number one, there's a joke that
+
+[SPEAKER_00] somebody's like, you don't actually like claude, you just
+
+[SPEAKER_00] like dashboards, which I do kind of feel that I I actually love
+
+[SPEAKER_00] my little dashboards too.
+
+[SPEAKER_00] Every single time I'm like, hey, why don't we just go ahead and
+
+[SPEAKER_00] throw something up on railway, like create a dashboard for me?
+
+[SPEAKER_00] Um I would say it's been instrumental in so obviously I
+
+[SPEAKER_00] come from you know blue collar, you know, hard-earned Excel
+
+[SPEAKER_00] background.
+
+[SPEAKER_00] So everything was in Excel before uh I added my latest
+
+[SPEAKER_00] partner.
+
+[SPEAKER_00] SPEAKER_00: Um I thought you were R, no.
+
+[SPEAKER_00] What weren't you in R?
+
+[SPEAKER_00] SPEAKER_02: Yeah, so I was in Excel, I added R in, and then
+
+[SPEAKER_00] when my partner came in, I was like, hey, like let's move
+
+[SPEAKER_00] everything over.
+
+[SPEAKER_00] Everything in R, like we create I created was so hacky that like
+
+[SPEAKER_00] I would basically do some stuff in R and bring it back to Excel.
+
+[SPEAKER_00] Um but like I was running stuff in R, yeah, but it was just it
+
+[SPEAKER_00] was so unreliable in the sense that like I would have to then
+
+[SPEAKER_00] try to bring it back to Excel or kind of get my final version in
+
+[SPEAKER_00] Excel.
+
+[SPEAKER_00] I would have it sped out in a CSV that I would then upload to
+
+[SPEAKER_00] a Excel sheet.
+
+[SPEAKER_00] So like basically everything we've created has been like it's
+
+[SPEAKER_00] been so huge for us because everything we created is like
+
+[SPEAKER_00] almost from scratch in the past couple years.
+
+[SPEAKER_00] So um in the past two years, we've created so many more
+
+[SPEAKER_00] things that just would be raw manpower of you know, generating
+
+[SPEAKER_00] otherwise.
+
+[SPEAKER_00] So it's been huge in the ability of just create something quick,
+
+[SPEAKER_00] um, and you know, we'll refine it from there.
+
+[SPEAKER_00] But basically, like take an existing idea that I had that
+
+[SPEAKER_00] was done poorly, and take that idea and just create a version
+
+[SPEAKER_00] of it.
+
+[SPEAKER_00] Um, and that's basically where we're at right now.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] So are you now migrating to Python?
+
+[SPEAKER_00] SPEAKER_02: Yeah, I would say everything that we have, I I
+
+[SPEAKER_00] think is pretty much exclusively in Python.
+
+[SPEAKER_00] Um and it's almost everything now is generating on some
+
+[SPEAKER_00] version of a dashboard that we like kind of have that's
+
+[SPEAKER_00] adjustable and can resim.
+
+[SPEAKER_00] But like we were for a while, I was operating like out of cursor
+
+[SPEAKER_00] and doing things, and now it's pretty much exclusively in
+
+[SPEAKER_00] clawed code and like the outcomes in the terminal, yeah.
+
+[SPEAKER_00] It's just like yeah, it it now is we're able to generate it in
+
+[SPEAKER_00] a way that's so much more of a user-friendly output.
+
+[SPEAKER_00] And I'm you know, basically my partner is full time just like
+
+[SPEAKER_00] me being like, hey, can you fix this and make this as easy as
+
+[SPEAKER_00] possible for me?
+
+[SPEAKER_00] So I've almost kind of regressed in that sense that now I'm like,
+
+[SPEAKER_00] I don't even have to get into the nitty-gritty.
+
+[SPEAKER_00] I'm like, hey, like make this come out nice for me so I can
+
+[SPEAKER_00] like look at it um exclusively.
+
+[SPEAKER_00] So yeah, I it's been so big on just if you the nice part of
+
+[SPEAKER_00] having everything, even if it's shitty in Excel, was I had the
+
+[SPEAKER_00] like framework of what I wanted.
+
+[SPEAKER_00] And then you're just able to be like, okay, like create this,
+
+[SPEAKER_00] but make it not shitty.
+
+[SPEAKER_00] So um I always kind of over, I always generated like basically
+
+[SPEAKER_00] the like a wide imagination of like what this could eventually
+
+[SPEAKER_00] scale into, even if it wasn't doing all those like intricacies
+
+[SPEAKER_00] right now.
+
+[SPEAKER_00] It was like, okay, this is what I want this value to eventually
+
+[SPEAKER_00] be right now.
+
+[SPEAKER_00] Let's just put in my shitty guess of the number and then
+
+[SPEAKER_00] we'll go from there.
+
+[SPEAKER_00] Um, so that's been super helpful.
+
+[SPEAKER_00] Also, like kind of having it hone in on what those numbers
+
+[SPEAKER_00] are.
+
+[SPEAKER_00] So, like before it was like, you know, I let's make this regress
+
+[SPEAKER_00] 80%.
+
+[SPEAKER_00] Why 80%?
+
+[SPEAKER_00] Because that seems reasonable to me.
+
+[SPEAKER_00] Like it was like so much, there's so many variables that I
+
+[SPEAKER_00] just relied on, like, I don't know, this seems kind of right.
+
+[SPEAKER_00] And now you're able to be like, you know, Claude, please tell me
+
+[SPEAKER_00] what this variable should be, no mistakes.
+
+[SPEAKER_00] And it kind of does it.
+
+[SPEAKER_00] Like, it might not be perfect, but it will honestly get you
+
+[SPEAKER_00] pretty close on like as long as you have the specific thing that
+
+[SPEAKER_00] you want it to generate.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] No, I so I was I was also a blue-collar Excel worker for a
+
+[SPEAKER_00] while, and right before the AI boom, I was like, I'm gonna
+
+[SPEAKER_00] learn Python because it's just too late.
+
+[SPEAKER_00] Like, I had so many macros in my I had the golf, we had the golf
+
+[SPEAKER_00] model in an Excel.
+
+[SPEAKER_00] Like thing, it just crashed all the time.
+
+[SPEAKER_00] Macros just like out, like, and I was like, okay, part of my
+
+[SPEAKER_00] first Python project was make just literally taking that and
+
+[SPEAKER_00] putting it into Python, and it took forever, forever.
+
+[SPEAKER_00] And now I'm sure if I could go find like that old Excel sheet,
+
+[SPEAKER_00] I could give it to Claude and it would do it in 30 seconds, and
+
+[SPEAKER_00] then you would obviously refine it.
+
+[SPEAKER_00] Like, like, and that's the other thing.
+
+[SPEAKER_00] Like, one of the things that really matters now with Claude
+
+[SPEAKER_00] is like checking Claude, like making sure things make sense.
+
+[SPEAKER_00] Like, that's where a lot of I think the skill is now.
+
+[SPEAKER_00] Um, is understanding like where you know, Claude loves to still
+
+[SPEAKER_00] sweep things under the rug, in my opinion.
+
+[SPEAKER_00] Like, well, yeah, it's so lazy.
+
+[SPEAKER_00] SPEAKER_02: It like just wants to be like it wants to, oh, I
+
+[SPEAKER_00] made this shortcut, and you're like, no, no, you can't take the
+
+[SPEAKER_00] shortcut.
+
+[SPEAKER_00] Like, it's that's the most human thing about it, is that it tries
+
+[SPEAKER_00] to find the fucking easiest way out of every problem ever.
+
+[SPEAKER_00] It's like, oh, this is crashing, I just got rid of it.
+
+[SPEAKER_00] SPEAKER_00: It's like nobody and then it tells you it's like,
+
+[SPEAKER_00] it's like, yeah, like the thing is, yeah, this will work, but
+
+[SPEAKER_00] like it won't work on like back nine on Sunday, but that's only
+
+[SPEAKER_00] a small part of the tournament, so it's not a big deal.
+
+[SPEAKER_00] It's like, first of all, don't fucking tell me what's a big
+
+[SPEAKER_00] deal in robot.
+
+[SPEAKER_00] SPEAKER_02: I'm not gonna ask tell me.
+
+[SPEAKER_00] I know it's like one.
+
+[SPEAKER_00] I was like, I'm not gonna, it was like, don't worry about like
+
+[SPEAKER_00] some effect, it's not that impactful.
+
+[SPEAKER_00] I was like, but listen, I'll fucking decide what's impactful.
+
+[SPEAKER_00] You just like you just go ahead and put it in the thing.
+
+[SPEAKER_00] But yeah, no, that's the number one.
+
+[SPEAKER_00] That is, I thought, a nice part of building these before AI, is
+
+[SPEAKER_00] you kind of have a bullshit detector of hey, that's not
+
+[SPEAKER_00] right.
+
+[SPEAKER_00] Like, you know, you can kind of see it, I think, easier.
+
+[SPEAKER_00] And maybe that's all just cope because I spent so much time
+
+[SPEAKER_00] building the like the longest.
+
+[SPEAKER_00] SPEAKER_00: You have to cope it.
+
+[SPEAKER_00] SPEAKER_02: Yeah, my XL, like you said, I had a thing where
+
+[SPEAKER_00] like I would do these CFB sims and I would do it, and I'd
+
+[SPEAKER_00] literally have to do it overnight or it wouldn't finish.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] So I would run a macro and it would just run overnight, and
+
+[SPEAKER_00] then obviously something broke halfway through the night, and
+
+[SPEAKER_00] I'd be like, absolutely.
+
+[SPEAKER_00] It's or I put one setting wrong and I'd be like, oh my god, I
+
+[SPEAKER_00] put up the like I put one point D multiplier on here.
+
+[SPEAKER_00] The every single game is off.
+
+[SPEAKER_00] SPEAKER_00: Yeah, you're like you re-sim the thing you sim the
+
+[SPEAKER_00] night before by accident.
+
+[SPEAKER_00] SPEAKER_02: Yep.
+
+[SPEAKER_00] SPEAKER_00: I've done that, and you're like, oh my god.
+
+[SPEAKER_00] You're like, why is everything this oh no?
+
+[SPEAKER_00] SPEAKER_02: You're like, oh my, I can't believe like I ran this
+
+[SPEAKER_00] here.
+
+[SPEAKER_00] So you'd ruin the whole day.
+
+[SPEAKER_00] And I will say, like, so I still do some of my NBA prop stuff in
+
+[SPEAKER_00] Excel because it's so like adjustable on the fly and I like
+
+[SPEAKER_00] a lot of manual assumptions.
+
+[SPEAKER_00] The I have given a couple tasks to the like the Claude XL, and
+
+[SPEAKER_00] it is so fucking good.
+
+[SPEAKER_00] It's infuriating.
+
+[SPEAKER_00] It's like I can't believe oh my god.
+
+[SPEAKER_00] I was like, hey, clean up this.
+
+[SPEAKER_00] I never tried it.
+
+[SPEAKER_00] I was like, clean up this thing and like make sure, and it like
+
+[SPEAKER_00] put it up into a tab, lined it up.
+
+[SPEAKER_00] It was like, you actually said to do this, but I corrected you,
+
+[SPEAKER_00] and it was like 100% right.
+
+[SPEAKER_00] It should have corrected me.
+
+[SPEAKER_00] I was like, oh, that's really like humiliating to have it.
+
+[SPEAKER_00] Tell me, it's so good on that level too.
+
+[SPEAKER_00] It's just it's crazy how having giving it the context of your
+
+[SPEAKER_00] data has been like the real unlock.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, exactly.
+
+[SPEAKER_00] I think that's good.
+
+[SPEAKER_00] I think it's good news for those of us who have done this before
+
+[SPEAKER_00] because you can't the one thing you you definitely can't do is
+
+[SPEAKER_00] like Claude, build me.
+
+[SPEAKER_00] I like you see this joke, but it's like Claude, build build me
+
+[SPEAKER_00] a MBA model that beats sides at the close, make no more mistakes
+
+[SPEAKER_00] or whatever.
+
+[SPEAKER_00] But like there's people out there that have never built
+
+[SPEAKER_00] anything that wins in sports betting or like understand it,
+
+[SPEAKER_00] and that will be doing like less um obvious versions of that and
+
+[SPEAKER_00] be like very wrong.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I the what I found now, it's like it's funny
+
+[SPEAKER_00] that as you try to make all these things easier.
+
+[SPEAKER_00] What I found is like actually I have to write these book long
+
+[SPEAKER_00] prompts where I'm explaining every single little detail.
+
+[SPEAKER_00] It's like, oh my god, at this point, like, but it's still
+
+[SPEAKER_00] faster, obviously.
+
+[SPEAKER_00] Um I do think there is gonna be an interesting kind of
+
+[SPEAKER_00] stratification when it's someone who has grown up in the like
+
+[SPEAKER_00] they never even had the coding skills or like the background to
+
+[SPEAKER_00] begin with, where they're going to be able to like right now, we
+
+[SPEAKER_00] are using AIs to ex to adapt our existing paraphras.
+
+[SPEAKER_00] When you start to build it from just pure AI, like where you
+
+[SPEAKER_00] don't even you don't have the old paradigm kind of is like the
+
+[SPEAKER_00] format.
+
+[SPEAKER_00] If I I'm not explaining this great, uh one example is so we
+
+[SPEAKER_00] were trying to build something that like generates
+
+[SPEAKER_00] combinations, um, basically, and like my my partner is in a
+
+[SPEAKER_00] coding background was like, Okay, I'll like use this app and
+
+[SPEAKER_00] like have it create it through Python.
+
+[SPEAKER_00] And like my dumbass, who doesn't know any better, was like,
+
+[SPEAKER_00] Claude, make sure that you do it, like because like and he was
+
+[SPEAKER_00] limited by basically the old apps and the like the way that
+
+[SPEAKER_00] he was kind of framing it, where not having those kind of old
+
+[SPEAKER_00] background in like Python or anything in Apple Fi or
+
+[SPEAKER_00] whatever, I was just like, hey, like you figure it out, and it
+
+[SPEAKER_00] kind of came up with a new way.
+
+[SPEAKER_00] So I do wonder if there's like problems that we have solved
+
+[SPEAKER_00] using old methods of standard computing that actually like we
+
+[SPEAKER_00] shouldn't be like you should have more of an outcome-based
+
+[SPEAKER_00] product for Claude asking it and then let it generate how it's
+
+[SPEAKER_00] gonna get to the answer, um, especially as we get smarter and
+
+[SPEAKER_00] smarter here.
+
+[SPEAKER_00] I wonder if like we are kind of limiting it almost based on like
+
+[SPEAKER_00] the old paradigm.
+
+[SPEAKER_00] SPEAKER_00: Yeah, it's like you can still sense check its
+
+[SPEAKER_00] outputs and stuff.
+
+[SPEAKER_00] SPEAKER_02: So there's no but like use a Markov chain or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] What if you just told it, hey, you come up with the best way to
+
+[SPEAKER_00] solve this problem?
+
+[SPEAKER_00] Like there's you know, there's obviously positives and
+
+[SPEAKER_00] negatives to it.
+
+[SPEAKER_00] SPEAKER_00: It's like right, you know, right.
+
+[SPEAKER_00] It's like you just sim it.
+
+[SPEAKER_00] Yeah, it's like it won't be a pie like a dot pie file that
+
+[SPEAKER_00] lives on my computer.
+
+[SPEAKER_00] That's you you you do it.
+
+[SPEAKER_00] SPEAKER_02: Yeah, there is like something where there is gonna
+
+[SPEAKER_00] be like a realm where we are generating things based on
+
+[SPEAKER_00] Python codes that it doesn't need to generate, right?
+
+[SPEAKER_00] It's like yeah, it actually is gonna be like, hey, I figured
+
+[SPEAKER_00] out that the best way to do this is to send it not through XG
+
+[SPEAKER_00] Boost, but to send it through whatever other thing because I
+
+[SPEAKER_00] know every single different you know machine learning type and
+
+[SPEAKER_00] you don't.
+
+[SPEAKER_00] So there are gonna be like a group of people that do that.
+
+[SPEAKER_00] The problem is like, you know, without how much expertise do
+
+[SPEAKER_00] you get by building it yourself?
+
+[SPEAKER_00] I that's the question, I guess.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I always feel like interpretability is like
+
+[SPEAKER_00] underrated by people, but you know, we'll see how long that
+
+[SPEAKER_00] that lasts.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yeah.
+
+[SPEAKER_00] I don't know how much of that is me not having the more advanced
+
+[SPEAKER_00] system, so I'm like, oh yeah, yeah, I you need to interpret it
+
+[SPEAKER_00] because otherwise I would be a dumbass.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah.
+
+[SPEAKER_00] Most of my opinions are just protecting my ego.
+
+[SPEAKER_00] Um well, I think that was I think it's a good time to hit
+
+[SPEAKER_00] the news.
+
+[SPEAKER_00] Uh that was a good, I think like open AI anthropic will probably
+
+[SPEAKER_00] refer to this as one of the top AI conversations of 2026.
+
+[SPEAKER_00] All right, we're gonna we're gonna hit the news.
+
+[SPEAKER_00] Um first we gotta do the topic that will not die.
+
+[SPEAKER_00] We got Matt Calish is still going.
+
+[SPEAKER_00] Um I think we've talked about it, you've talked about it.
+
+[SPEAKER_00] Um, this is week three, I think.
+
+[SPEAKER_00] The funniest tweet about it I saw was that one where it's like
+
+[SPEAKER_00] I this was like a week ago, but it's like, imagine you were like
+
+[SPEAKER_00] jaywalking, got hit by like two weeks ago, got hit by a bus,
+
+[SPEAKER_00] woke up from your coma, and this was still going on, and it was
+
+[SPEAKER_00] the screenshot of like him being pissed about his Brooks Kapka
+
+[SPEAKER_00] vet.
+
+[SPEAKER_00] SPEAKER_02: Um we gotta admit, right?
+
+[SPEAKER_00] Like the Brooks Kapka thing was obviously just a total like
+
+[SPEAKER_00] fake.
+
+[SPEAKER_00] That is not the reason he there's no way that has caused
+
+[SPEAKER_00] this rant to go on at this level.
+
+[SPEAKER_00] There's it's just a total, like he, you know, I'm trying to
+
+[SPEAKER_00] think of the moment where it was like set up, it was totally an
+
+[SPEAKER_00] op to create this situation where he could complain about
+
+[SPEAKER_00] slippage and then get into his calci beefs.
+
+[SPEAKER_00] There's no way that he just happened to get mad about this
+
+[SPEAKER_00] Brooks Kepka thing, and now that has just led him like down this
+
+[SPEAKER_00] path.
+
+[SPEAKER_00] SPEAKER_00: I have a I have a question.
+
+[SPEAKER_00] Do you think Brooks Kepka knows about this?
+
+[SPEAKER_00] SPEAKER_02: Oh, that is a good question.
+
+[SPEAKER_00] I think no.
+
+[SPEAKER_00] Yeah, I lean no, but it isn't a big enough part of the story to
+
+[SPEAKER_00] know about this.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that that's a thing.
+
+[SPEAKER_00] If if it it kept being if it kept being Brooks Kepka, it was
+
+[SPEAKER_00] only that for like the first day, like you said, and then it
+
+[SPEAKER_00] just turned into like this obviously campaign against call
+
+[SPEAKER_00] for so yeah, yeah.
+
+[SPEAKER_00] I think that that's a good point.
+
+[SPEAKER_00] But I always think it's funny if like when in gambling Twitter,
+
+[SPEAKER_00] like a certain athlete is just somehow dragged into like this
+
+[SPEAKER_00] shit show of a conversation.
+
+[SPEAKER_00] Like, does it get back to that athlete?
+
+[SPEAKER_00] And are they like, Who are these fucking trolls?
+
+[SPEAKER_00] SPEAKER_02: Like, do you think Tiger Woods knew everybody was
+
+[SPEAKER_00] hammering him, even like after does he know that like every
+
+[SPEAKER_00] dipshit is betting him on Calci and people have to bet?
+
+[SPEAKER_00] Does Scotty Shuffler know that you are on Scotty Shuffler know
+
+[SPEAKER_00] every single Calci tournament?
+
+[SPEAKER_00] SPEAKER_00: I hope not because he know that yeah, yeah, he's
+
+[SPEAKER_00] getting hammered on Calci.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Maybe, maybe.
+
+[SPEAKER_00] I there's some funny ones.
+
+[SPEAKER_00] Like, I when when Tiger was getting bet on Calci after he
+
+[SPEAKER_00] like wrecked his car, like I feel like if I was on the PGA
+
+[SPEAKER_00] tour and somehow I saw that, I would definitely like show that
+
+[SPEAKER_00] to other people on the PGA tour.
+
+[SPEAKER_00] SPEAKER_02: Like, does Travis Kelsey know I launched 30k on
+
+[SPEAKER_00] his game?
+
+[SPEAKER_00] That's what I was thinking about that.
+
+[SPEAKER_00] SPEAKER_00: Like, something like that, I think, is is is quite
+
+[SPEAKER_00] funny.
+
+[SPEAKER_00] Like, it could he could know that.
+
+[SPEAKER_00] Especially because it could know that.
+
+[SPEAKER_00] SPEAKER_02: So it leaked.
+
+[SPEAKER_00] I mean, I know Kalchi trades against insiders.
+
+[SPEAKER_00] Obviously, no insider has ever traded on Calci's money before,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] But it theoretically did leak the day before.
+
+[SPEAKER_00] So I would think, you know, Taylor's pretty buttoned up in
+
+[SPEAKER_00] her camp.
+
+[SPEAKER_00] I would guess somebody was like, hey, this leaked to Kalchi, just
+
+[SPEAKER_00] so you know.
+
+[SPEAKER_00] So I'd like to think, yeah, they looked into it and Travis Kelsey
+
+[SPEAKER_00] specifically looked at and was like, oh, this guy lost 30k.
+
+[SPEAKER_00] Probably I'm like, that's funny.
+
+[SPEAKER_00] Yeah, like I would like to think he laughed at me at some in some
+
+[SPEAKER_00] levels, like, what a dipshit.
+
+[SPEAKER_00] SPEAKER_00: That would make it all worth it.
+
+[SPEAKER_00] Um, but but yeah, so so Kaelish is is on the rant.
+
+[SPEAKER_00] The only thing I want to say about this is like I wanted to
+
+[SPEAKER_00] update this because when SP and I first talked about it, like
+
+[SPEAKER_00] Like I think we were we weren't team Kalish, but we were like
+
+[SPEAKER_00] he's making some good points, you know.
+
+[SPEAKER_00] Like it it hadn't it hadn't taken too much of a turn.
+
+[SPEAKER_00] But I feel like he's really kind of lost the uh side of justice
+
+[SPEAKER_00] here, and it's now just turned into just an absolute
+
+[SPEAKER_00] ridiculous, like, you know, there's no he's he's not like he
+
+[SPEAKER_00] would make good points by like pointing out some obviously like
+
+[SPEAKER_00] marketing practices that were you know not genuine and and a
+
+[SPEAKER_00] bunch of stuff, and like he was kind of being honest about DK,
+
+[SPEAKER_00] like, yeah, like you know, we limit people, but now it's kind
+
+[SPEAKER_00] of I feel like he's just basically now gone into a
+
+[SPEAKER_00] fantasy world, and yeah, he's I can't really support him
+
+[SPEAKER_00] anymore.
+
+[SPEAKER_00] SPEAKER_02: He like he it's one of those things where like if
+
+[SPEAKER_00] you ever like I'm sure you're a podcast guy, everybody, every
+
+[SPEAKER_00] sports like nerd is a podcast guy.
+
+[SPEAKER_00] Obviously, you have a podcast.
+
+[SPEAKER_00] So when you listen to one at first, you're kind of like, oh
+
+[SPEAKER_00] my god, this guy's bringing up all these original points.
+
+[SPEAKER_00] And then as you like listen consistently, eventually you're
+
+[SPEAKER_00] like, well, he's just hammering the same things home, like over
+
+[SPEAKER_00] and over.
+
+[SPEAKER_00] And you the person hasn't changed whatsoever, but your
+
+[SPEAKER_00] perception of them goes from like the highest level to once
+
+[SPEAKER_00] you're just like in there, you're like, okay, you know,
+
+[SPEAKER_00] like obviously he comes back to earth.
+
+[SPEAKER_00] That's what happened with Kaelash, where he came in and
+
+[SPEAKER_00] everyone was like, Oh my god, great! Like, he's bringing up
+
+[SPEAKER_00] some good points, he's talking, it's this informed guy, and now
+
+[SPEAKER_00] he's just hammering the same things over and over again.
+
+[SPEAKER_00] You're like, okay, dude, like we we get it.
+
+[SPEAKER_00] Is there any more depth to this other than you're pissed about
+
+[SPEAKER_00] some kind of stock price thing or whatever?
+
+[SPEAKER_00] I don't know uh if that's actually what he's mad about,
+
+[SPEAKER_00] but like, yeah, he just hammering the same points and
+
+[SPEAKER_00] he's just doing it so disingenuously on his side.
+
+[SPEAKER_00] Like, it seemed like at first he was willing to kind of give some
+
+[SPEAKER_00] ground, and then he just enough people yell at you that you just
+
+[SPEAKER_00] dig your heels.
+
+[SPEAKER_00] I do kind of respect that in some sense that like enough
+
+[SPEAKER_00] people have yelled at him about the limiting.
+
+[SPEAKER_00] He's like, no, actually, we don't limit at all.
+
+[SPEAKER_00] Like, screw you.
+
+[SPEAKER_00] Like, yeah, it's just our I can respect somebody getting yelled
+
+[SPEAKER_00] at enough that he just has now taken the other side of the
+
+[SPEAKER_00] position.
+
+[SPEAKER_00] Like, nope, I'm just gonna do it.
+
+[SPEAKER_00] You're like, Yep, actually, you're totally wrong.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that that that's exact that's exactly
+
+[SPEAKER_00] that's that's exactly it.
+
+[SPEAKER_00] Like, he's dug his heels in, he's now just decided because
+
+[SPEAKER_00] the certain the questions like that I think people bring to him
+
+[SPEAKER_00] that are honest questions is are like, what do you think about DK
+
+[SPEAKER_00] predicts?
+
+[SPEAKER_00] Like, what is how is that different than Cal She?
+
+[SPEAKER_00] What do you, you know, what would happen if you limited
+
+[SPEAKER_00] somebody who was betting their opinion and not betting
+
+[SPEAKER_00] arbitrage or you know, you know, stuff like that.
+
+[SPEAKER_00] And like on on those topics where you'd think that there
+
+[SPEAKER_00] would be a nuanced conversation where, like, you know, it would
+
+[SPEAKER_00] be hard to defend DraftKings position, maybe um, there, he
+
+[SPEAKER_00] just doesn't try.
+
+[SPEAKER_00] You know, it's just like something, you know, you're fat
+
+[SPEAKER_00] and so and so, and I'm blocking you now.
+
+[SPEAKER_00] SPEAKER_02: Yeah, Shipper brought up a good point when we
+
+[SPEAKER_00] were on when we were talking about circles off where he's
+
+[SPEAKER_00] like, you can win over 80% of people by just never even
+
+[SPEAKER_00] acknowledging that side of the argument, just hammer your
+
+[SPEAKER_00] points home.
+
+[SPEAKER_00] And anything that like kind of works against you, you just
+
+[SPEAKER_00] ignore that.
+
+[SPEAKER_00] It's like that part, there's no benefit in even acknowledging
+
+[SPEAKER_00] their point.
+
+[SPEAKER_00] Just go to the points where you're winning the conversation
+
+[SPEAKER_00] at and like talk about that.
+
+[SPEAKER_00] So I know there's one guy who I he seems like he's got somewhat
+
+[SPEAKER_00] of a following who keeps like bringing up all these things DK
+
+[SPEAKER_00] did like when they were a DFS platform and giving insiders
+
+[SPEAKER_00] info.
+
+[SPEAKER_00] I don't know how true any of that is.
+
+[SPEAKER_00] Yeah, but like he just totally ignores that guy, like
+
+[SPEAKER_00] completely.
+
+[SPEAKER_00] And I I don't know like what's I don't I never was in the DFS
+
+[SPEAKER_00] streets, but it's he definitely the nice thing about like having
+
+[SPEAKER_00] Twitter, you can pick the replies that you want to like
+
+[SPEAKER_00] amplify, I guess, if you're him.
+
+[SPEAKER_00] If you have 18 replies, you can like pick out the dumbest
+
+[SPEAKER_00] arguments against you and be like, Yep, that's who's arguing
+
+[SPEAKER_00] against me.
+
+[SPEAKER_00] It's the dumbest ones.
+
+[SPEAKER_00] Right, right.
+
+[SPEAKER_00] There's no need to ever like bring up the people who might
+
+[SPEAKER_00] bring up a good point against you because you have enough just
+
+[SPEAKER_00] folly that you can smash back, like smash the ball right back
+
+[SPEAKER_00] in their face and like have it work that way.
+
+[SPEAKER_00] So yeah, he definitely picks the guys that he wants to argument
+
+[SPEAKER_00] that he can win the argument, which makes sense.
+
+[SPEAKER_00] It's just not an interesting conversation if you're actually
+
+[SPEAKER_00] trying to discuss it as opposed to just you know trying to dunk
+
+[SPEAKER_00] on Trek for whatever other reason.
+
+[SPEAKER_00] SPEAKER_00: Right, right.
+
+[SPEAKER_00] He's in trying to, he's engaged with Heralibob recently, so that
+
+[SPEAKER_00] that's been new.
+
+[SPEAKER_00] SPEAKER_02: The one Heralibob response was very good, you
+
+[SPEAKER_00] know.
+
+[SPEAKER_00] Yes.
+
+[SPEAKER_00] SPEAKER_00: Okay, I didn't know you were regarding that.
+
+[SPEAKER_00] SPEAKER_02: That one was great.
+
+[SPEAKER_00] Um, not quite spanky bringing up uh the slave trait in his
+
+[SPEAKER_00] defense, which was right, I I have to say taking that.
+
+[SPEAKER_00] I didn't take it see it taking that turn, but that was uh that
+
+[SPEAKER_00] was a good one.
+
+[SPEAKER_00] SPEAKER_00: Um Kaylish brings people out.
+
+[SPEAKER_00] It's like in poker, like the best, like the best players will
+
+[SPEAKER_00] like take a weird line to bring like the GTO players like
+
+[SPEAKER_00] outside of their comfort zone and like they won't know the
+
+[SPEAKER_00] game tree.
+
+[SPEAKER_00] SPEAKER_02: Kalish just brings these guys way outside the game
+
+[SPEAKER_00] tree, and now they're talking about slave trading, and it's
+
+[SPEAKER_00] just yeah, he's making you, you know, it's an ultimate like
+
+[SPEAKER_00] pressure makes diamonds kind of or pressure burst pipe situation
+
+[SPEAKER_00] where he's like throwing so much junk at you that you're now
+
+[SPEAKER_00] responding back talking about the slave trade and being like,
+
+[SPEAKER_00] Yep, that's similar to the plight of my million-dollar
+
+[SPEAKER_00] lifestyle I've made scraping, you know, top-down betting.
+
+[SPEAKER_00] SPEAKER_00: He's too good, man.
+
+[SPEAKER_00] He's he's he's absolutely too good.
+
+[SPEAKER_00] SPEAKER_02: I will say he is he's the person that we want to
+
+[SPEAKER_00] be the prediction mark, like the PM fighter.
+
+[SPEAKER_00] Like, get Googer the fuck out of here.
+
+[SPEAKER_00] I don't care.
+
+[SPEAKER_00] He comes in with just the most milked toast takes.
+
+[SPEAKER_00] I want a guy who's just completely insane.
+
+[SPEAKER_00] Like he just is willing to say whatever at any point in time.
+
+[SPEAKER_00] I want he's kind of the villain that we need.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] Like he's he's larger than life.
+
+[SPEAKER_00] Like, you can't, yeah.
+
+[SPEAKER_00] SPEAKER_02: Yeah, the PM bros have gotten too sort of, you
+
+[SPEAKER_00] know, you need battling sides on each of them where they're both
+
+[SPEAKER_00] insane.
+
+[SPEAKER_00] Like right, the PM bros have such an insane like denying of
+
+[SPEAKER_00] facts to be like, actually, you know, prediction markets are
+
+[SPEAKER_00] gonna change the world.
+
+[SPEAKER_00] We need someone on the up, you need a counterweight who's also
+
+[SPEAKER_00] insane.
+
+[SPEAKER_00] You can't have like a pretend journalist going in there and
+
+[SPEAKER_00] doing it.
+
+[SPEAKER_00] You need like another psychopath who's also making stuff up for
+
+[SPEAKER_00] no reason uh to battle them.
+
+[SPEAKER_00] So like you need both sides of the aisle.
+
+[SPEAKER_00] SPEAKER_00: It's like John Wang versus Matt Caleb.
+
+[SPEAKER_00] SPEAKER_02: Yeah, exactly.
+
+[SPEAKER_00] Live on Elf Spaces.
+
+[SPEAKER_00] It's the ultimate, he's the Joker to the like Batman, you
+
+[SPEAKER_00] know.
+
+[SPEAKER_00] You can't have just one guy who's normal and like in the
+
+[SPEAKER_00] mixed market, people are talking about how it's gonna change the
+
+[SPEAKER_00] world.
+
+[SPEAKER_00] You can't counterweight that with somebody who's like, you
+
+[SPEAKER_00] know, I wish they would just do responsible gaming.
+
+[SPEAKER_00] Like, no, you need somebody who's like, fuck those guys.
+
+[SPEAKER_00] I changed the world with DraftKings.
+
+[SPEAKER_00] We don't limit people actually.
+
+[SPEAKER_00] We created like I actually created this perfect environment
+
+[SPEAKER_00] that nobody can complain about.
+
+[SPEAKER_00] I just need that on the other side.
+
+[SPEAKER_00] So I'm glad that the PM bros finally have found their like
+
+[SPEAKER_00] the joker to their Batman.
+
+[SPEAKER_00] SPEAKER_00: I feel like that's uh that's a good place to put
+
+[SPEAKER_00] the final word in on Kaelash.
+
+[SPEAKER_00] I I agree with that.
+
+[SPEAKER_00] Um, okay, so number two on the news docket is the this is one
+
+[SPEAKER_00] that's like kind of outside our sphere, so we'll obviously have
+
+[SPEAKER_00] to take some have some hot takes on it.
+
+[SPEAKER_00] But it is basically Polymarket had this market about will micro
+
+[SPEAKER_00] strategy, which is Sky like Brian Saylor runs it, and all
+
+[SPEAKER_00] they do is just long Bitcoin, I guess.
+
+[SPEAKER_00] And they were like, which I guess is like a company.
+
+[SPEAKER_00] I I I I don't know, but there is a market of like will they sell
+
+[SPEAKER_00] Bitcoin before um June 1st or May 31st, or I I don't know,
+
+[SPEAKER_00] what some recent date.
+
+[SPEAKER_00] And basically what happened was like there was no announcement
+
+[SPEAKER_00] and the market like settles at you know, whatever date the
+
+[SPEAKER_00] market settles on the contract, but after the market settle
+
+[SPEAKER_00] date, they they released their like quarterly um disclosure and
+
+[SPEAKER_00] it said they did sell before that date.
+
+[SPEAKER_00] So the market closed as a no, but after the market closed,
+
+[SPEAKER_00] they came out and said we did sell during the period the
+
+[SPEAKER_00] market was on.
+
+[SPEAKER_00] And now and polymarkets like sticking with the no, but people
+
+[SPEAKER_00] afterwards, like after the their financial disclosure came out,
+
+[SPEAKER_00] ended up like buying the yes because the market was like
+
+[SPEAKER_00] still open somehow.
+
+[SPEAKER_00] It's just this whole clusterfuck that happens when you do like a
+
+[SPEAKER_00] poorly designed in the rules.
+
+[SPEAKER_00] SPEAKER_02: Does it say like the it has to be settled by it must
+
+[SPEAKER_00] say that, right?
+
+[SPEAKER_00] Like it's settled by X date.
+
+[SPEAKER_00] SPEAKER_00: That's already more research than than than I've
+
+[SPEAKER_00] done.
+
+[SPEAKER_00] But yeah, like I I I guess the the they say the market settles
+
+[SPEAKER_00] on this date, basically.
+
+[SPEAKER_00] SPEAKER_02: So they have to do that, right?
+
+[SPEAKER_00] Like to me, uh people are like complain I you know, it's I
+
+[SPEAKER_00] don't want to go like too hard on this because if if they said
+
+[SPEAKER_00] hey the date settles by here, and then the ruling came and the
+
+[SPEAKER_00] information came out afterwards, like I don't understand how you
+
+[SPEAKER_00] can say, Yeah, I won that market.
+
+[SPEAKER_00] Like they have to settle it by a certain date, otherwise you
+
+[SPEAKER_00] could just have infinite time where you're like, Oh, you know
+
+[SPEAKER_00] what I mean?
+
+[SPEAKER_00] It's like a stack correction in sport in NBA.
+
+[SPEAKER_00] It's no different than hey, they decided this guy had a stack
+
+[SPEAKER_00] correction, you know, after 24 hours after the fight happened,
+
+[SPEAKER_00] or a better example would be like in boxing where they uh if
+
+[SPEAKER_00] there was a fight that happened and then they have a drug uh
+
+[SPEAKER_00] test that happens a week later, you know, you can't go to circa
+
+[SPEAKER_00] and be like, hey, you know, I bet on the event, but like it
+
+[SPEAKER_00] turned out that it got voided.
+
+[SPEAKER_00] They have to eventually pay people out.
+
+[SPEAKER_00] So to me, whatever they say is the date, like they have to go
+
+[SPEAKER_00] off of that date, no.
+
+[SPEAKER_00] SPEAKER_00: I I I agree, and those were both um brought up in
+
+[SPEAKER_00] the Twitter discourse I I saw.
+
+[SPEAKER_00] But I think like because there's now all these funny memes where
+
+[SPEAKER_00] it's like idea for a company, it's like polymarket, but when
+
+[SPEAKER_00] the event you bet on happens, you get paid.
+
+[SPEAKER_00] And it's like which which is funny, but it's like goes back
+
+[SPEAKER_00] to what SP said a long time ago when we're talking about a long
+
+[SPEAKER_00] time ago, oh like two months ago, when we're talking about
+
+[SPEAKER_00] like Cardi B.
+
+[SPEAKER_00] And it's like you just have to design markets where like if
+
+[SPEAKER_00] like the common sense, like if people would say like, yes, this
+
+[SPEAKER_00] happened, like then that's what's getting paid out.
+
+[SPEAKER_00] Because the name of the market is like, will MicroStrategy sell
+
+[SPEAKER_00] Bitcoin before this date?
+
+[SPEAKER_00] And like they they do sell it before that date, but the market
+
+[SPEAKER_00] isn't actually that's not the actual market.
+
+[SPEAKER_00] So it's just kind of like it's just this thing where I always
+
+[SPEAKER_00] feel like they like these companies, they like want they
+
+[SPEAKER_00] want sports, is just like the like the bastard like child,
+
+[SPEAKER_00] like that they want to shove in the corner.
+
+[SPEAKER_00] But every single public problem they've had has come from
+
+[SPEAKER_00] non-sports markets because they're just like so poorly
+
+[SPEAKER_00] designed and ambiguous.
+
+[SPEAKER_00] SPEAKER_02: Well, they don't have any like sports, they're
+
+[SPEAKER_00] really just copying a market that's existed for however many
+
+[SPEAKER_00] years, right?
+
+[SPEAKER_00] It's like sports betting's been around since you know lefty
+
+[SPEAKER_00] Ralstein or whatever sports gambling hall of fame that we
+
+[SPEAKER_00] gotta learn about.
+
+[SPEAKER_00] But um but like these new events, there's no precedent set
+
+[SPEAKER_00] over the years.
+
+[SPEAKER_00] So they have they're kind of making them up, you know, on the
+
+[SPEAKER_00] fly.
+
+[SPEAKER_00] I don't even mean that in like a derogatory sense.
+
+[SPEAKER_00] It just these these edge cases haven't existed before.
+
+[SPEAKER_00] But yeah, anytime you have something where like not only
+
+[SPEAKER_00] are you trying to teach people about these new markets that
+
+[SPEAKER_00] they've never heard of, now you have to explain, like, oh,
+
+[SPEAKER_00] actually, and the way it's worded, just so you know, really
+
+[SPEAKER_00] matters, and you need to check the rules, like it's just gonna
+
+[SPEAKER_00] be too much of a learning curve.
+
+[SPEAKER_00] And you're right, it's like sports are the baxter child of
+
+[SPEAKER_00] these things they want to pretend don't exist while it's
+
+[SPEAKER_00] the only thing that goes well for them.
+
+[SPEAKER_00] So uh, I shouldn't say the only thing that goes well for them.
+
+[SPEAKER_00] That's probably an overstatement for poly market, which it's more
+
+[SPEAKER_00] these true like believers or whatever.
+
+[SPEAKER_00] But like I don't know.
+
+[SPEAKER_00] I to me the people bitching about this, also like, and this
+
+[SPEAKER_00] is gonna be probably unfair.
+
+[SPEAKER_00] If you're on PolyMarket International VPNing in and like
+
+[SPEAKER_00] you're making this market, I just think that like you have to
+
+[SPEAKER_00] be smarter than the person who's on ColG who doesn't know what
+
+[SPEAKER_00] the hell they're doing.
+
+[SPEAKER_00] So like there's a little bit, I give them a little bit more
+
+[SPEAKER_00] grace with dude, read the rules, like that's what should be
+
+[SPEAKER_00] there.
+
+[SPEAKER_00] And these people complaining about something that like
+
+[SPEAKER_00] doesn't technically follow the rules.
+
+[SPEAKER_00] Yes, it's a poor market by poly market, but I don't know.
+
+[SPEAKER_00] If you're on a place that has markets about Jesus Christ
+
+[SPEAKER_00] coming back, I think that it's reasonable to assume they're
+
+[SPEAKER_00] gonna have some dumb markets.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, that is fair.
+
+[SPEAKER_00] And I guess you have to decide like how much are the dumb
+
+[SPEAKER_00] markets worth to everybody?
+
+[SPEAKER_00] Because this is just part of are you accepting this as like part
+
+[SPEAKER_00] of what's always gonna happen?
+
+[SPEAKER_00] Because that that's that's always what's gonna happen.
+
+[SPEAKER_00] SPEAKER_02: I guess poly market to me, it seems like they're
+
+[SPEAKER_00] much more of the belief, like we're giving you everything and
+
+[SPEAKER_00] it's up to the user to decide.
+
+[SPEAKER_00] Where it's Calci's kind of been more hey, this is every market
+
+[SPEAKER_00] that we put up here is good.
+
+[SPEAKER_00] They're kind of giving it more their seal of approval, more or
+
+[SPEAKER_00] less, and maybe that's an unfair bar to hold them to, but that's
+
+[SPEAKER_00] kind of what it's seen so far.
+
+[SPEAKER_00] Um, where polymarket users are more sophisticated, which causes
+
+[SPEAKER_00] its own problems for them.
+
+[SPEAKER_00] But to me, like it's a bunch of people bitching about this,
+
+[SPEAKER_00] honestly, that feel it feels like they should know better.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah.
+
+[SPEAKER_00] Yeah, actually, like since uh the Cardi B Super Bowl, I'm
+
+[SPEAKER_00] trying to think of like a call stream market that was really
+
+[SPEAKER_00] like hotly debated.
+
+[SPEAKER_00] SPEAKER_02: Oh the Ayatollah guy.
+
+[SPEAKER_00] SPEAKER_00: Oh yeah, yeah, yeah, yeah.
+
+[SPEAKER_00] SPEAKER_02: And then which to be fair to them, like I don't know.
+
+[SPEAKER_00] That I think they just kind of got put in a tough spot with
+
+[SPEAKER_00] regulators on that one to some extent.
+
+[SPEAKER_00] SPEAKER_00: Yeah, like it was so dumb that they were promoting
+
+[SPEAKER_00] it, but like if they're stinking, like that was like
+
+[SPEAKER_00] yeah, I would say like that was that I feel like that blew up
+
+[SPEAKER_00] for like a different reason.
+
+[SPEAKER_00] SPEAKER_02: Yeah, that one to me, they weren't clearly in the
+
+[SPEAKER_00] wrong in the way that they were for the Cardi B where it was
+
+[SPEAKER_00] like you're just this is incorrect, you know.
+
+[SPEAKER_00] Like I felt like that was a much more justifiable end resolution,
+
+[SPEAKER_00] even if the promotion up to it wasn't very smart, right?
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] Um the okay, Calci Perps.
+
+[SPEAKER_00] Honestly, I don't even really know what the fuck perp is.
+
+[SPEAKER_00] Um it's like uh stock, I guess.
+
+[SPEAKER_00] It's just you know, I was gonna say it's not a binary option.
+
+[SPEAKER_00] SPEAKER_02: Like if you just know that this one, I Calci has
+
+[SPEAKER_00] perps.
+
+[SPEAKER_00] I have no idea basically what the hell.
+
+[SPEAKER_00] Like, I I mean I've read it, I kind of understand it.
+
+[SPEAKER_00] I don't understand these allow like they're like they're kind
+
+[SPEAKER_00] of like options, right?
+
+[SPEAKER_00] They're a little bit more levered up than regular stocks,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] SPEAKER_00: You can get like stopped out of a perp.
+
+[SPEAKER_00] Yeah, exactly.
+
+[SPEAKER_00] So like yeah, like you it's not like you don't have to put up
+
+[SPEAKER_00] the full collateral and it expires at zero or one.
+
+[SPEAKER_00] Like you can put it up, you know, you can get levered up,
+
+[SPEAKER_00] and if the price goes from you know 100 to 80, you lose it, you
+
+[SPEAKER_00] know, everything.
+
+[SPEAKER_00] So that's great.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it to me it just looks like it's a more
+
+[SPEAKER_00] levered version of a stock in some sense, although like you
+
+[SPEAKER_00] can do it on Bitcoin and cryptocurrency as well.
+
+[SPEAKER_00] Um, which you know, RIP if you did kind of take a perpetual
+
+[SPEAKER_00] move on Bitcoin.
+
+[SPEAKER_00] SPEAKER_00: I was gonna say, like, um, this is a bad time.
+
+[SPEAKER_00] Actually, this is an interesting time for them to launch perps.
+
+[SPEAKER_00] Like, if I'm not in this, obviously in the crypto space,
+
+[SPEAKER_00] but I think we all kind of saw see like Bitcoins like at a
+
+[SPEAKER_00] local low.
+
+[SPEAKER_00] I forget what the exact price is, but it it's it's down there.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I think for if you were like the Calchi bowl
+
+[SPEAKER_00] case or the case for them, like everyone's like, Oh, is it a
+
+[SPEAKER_00] workaround for sports?
+
+[SPEAKER_00] The thing I'll give them is I think that they are trying to
+
+[SPEAKER_00] make it less like they are trying to do the non-sports
+
+[SPEAKER_00] stuff to their best of their ability.
+
+[SPEAKER_00] Like they are really pushing different non-sports stuff all
+
+[SPEAKER_00] the time and trying to get sports to be a smaller, smaller
+
+[SPEAKER_00] portion of the pie.
+
+[SPEAKER_00] Um, yeah, and it just turns out people like sports more.
+
+[SPEAKER_00] So, like they can they're trying to push all these things.
+
+[SPEAKER_00] Yeah, I think they just can't get away from the sports, which
+
+[SPEAKER_00] is what people actually want to bet on.
+
+[SPEAKER_00] SPEAKER_00: I love it because we need them to stay in sports, so
+
+[SPEAKER_00] yeah, I yeah, I we need them to want to defend like we need like
+
+[SPEAKER_00] yeah, we we need sports contracts getting going back to
+
+[SPEAKER_00] being state regulated to be a doomsday scenario for Calci.
+
+[SPEAKER_00] SPEAKER_02: Like, exactly.
+
+[SPEAKER_00] SPEAKER_00: Because we need them to fight against that with all
+
+[SPEAKER_00] their might.
+
+[SPEAKER_00] So I say good luck to perps, but not not too much luck.
+
+[SPEAKER_00] Um, the other thing that I think happened after your circles back
+
+[SPEAKER_00] with it with Stripper and Flop was the Massachusetts gaming
+
+[SPEAKER_00] letters that everyone's posting on Twitter.
+
+[SPEAKER_00] Uh, you guys didn't cover I I don't think you guys.
+
+[SPEAKER_00] No, no, we didn't cover those.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] I mean, it's kind of like what we all thought was gonna happen.
+
+[SPEAKER_00] It would just be like really vague and everyone's freaking
+
+[SPEAKER_00] out about it.
+
+[SPEAKER_00] SPEAKER_02: It's the it's the number one way to tell people
+
+[SPEAKER_00] how smart you are on Twitter to show like anybody who's posting
+
+[SPEAKER_00] their picture of the letter, is I it's just the world's biggest
+
+[SPEAKER_00] high roll for me, right?
+
+[SPEAKER_00] It's like, hey, look, I got limited by draftings.
+
+[SPEAKER_00] Hope you guys are pretty impressed.
+
+[SPEAKER_00] Uh the one guy sent a picture, he's like, Yeah, I took a
+
+[SPEAKER_00] hundred under a hundred and one hundred and eighty-one.
+
+[SPEAKER_00] Like it was clearly a typo by fanatics.
+
+[SPEAKER_00] He's like, and they kicked me out for arbitrage.
+
+[SPEAKER_00] Can you believe that?
+
+[SPEAKER_00] I was like, dude, this doesn't make you look smarter.
+
+[SPEAKER_00] It makes the fact that you're posting a picture of you taking
+
+[SPEAKER_00] a fucking art or taking a under 181 for a hundred dollars to
+
+[SPEAKER_00] cook your account, like that doesn't make that isn't gaining
+
+[SPEAKER_00] you the respect that you think it is.
+
+[SPEAKER_00] SPEAKER_00: I mean, that's so much dumber than just betting
+
+[SPEAKER_00] recreationally.
+
+[SPEAKER_00] SPEAKER_02: Yeah.
+
+[SPEAKER_00] So like everybody just showing, like, oh my god, listen, I got
+
+[SPEAKER_00] the letter.
+
+[SPEAKER_00] I know you guys, like it's just to me a big like that's I kind
+
+[SPEAKER_00] of mocked it with the like DK sent me one being like, Oh,
+
+[SPEAKER_00] you're so sharp.
+
+[SPEAKER_00] Like, everybody it's an example for everybody to go out and
+
+[SPEAKER_00] show, like, I got limited, just so you know.
+
+[SPEAKER_00] Like, congratulations.
+
+[SPEAKER_00] I I don't know.
+
+[SPEAKER_00] Yeah, these these letters I will give.
+
+[SPEAKER_00] I do hate that Spanky, I think, is legitimately trying to help
+
+[SPEAKER_00] betters out.
+
+[SPEAKER_00] I don't think it's so easy to do nothing and to bitch about the
+
+[SPEAKER_00] one person doing something.
+
+[SPEAKER_00] So I do want to give him some grace there.
+
+[SPEAKER_00] Um, in the sense that like how far do you back him?
+
+[SPEAKER_00] SPEAKER_00: Do you back all of his points?
+
+[SPEAKER_00] SPEAKER_02: Um, no, I think I think it's a like I think it's a
+
+[SPEAKER_00] non-fruitful exercise, but I think it's to do nothing and
+
+[SPEAKER_00] bitch about the one person trying to help is a little bit
+
+[SPEAKER_00] like it's way easier to poke holes in what's being done than
+
+[SPEAKER_00] to do something yourself.
+
+[SPEAKER_00] So I'll give him that.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Um, but like to me, I like I said earlier, they're enforcing
+
+[SPEAKER_00] bearding rules in New Jersey.
+
+[SPEAKER_00] Like, that's a hundred percent a giant crisis for everyone.
+
+[SPEAKER_00] That should be like front and center.
+
+[SPEAKER_00] Instead, we're worrying about like them making sure that they
+
+[SPEAKER_00] send me a letter that is totally meaningless.
+
+[SPEAKER_00] If you're getting limited, they're putting me on the back.
+
+[SPEAKER_00] Yeah, there's a 99% when you get limited on your P4.
+
+[SPEAKER_00] Like, I'm glad that they'll tell you, hey, you know, this is for
+
+[SPEAKER_00] Arbing.
+
+[SPEAKER_00] Like, it just they're not gonna go ahead and give you anything
+
+[SPEAKER_00] of detail.
+
+[SPEAKER_00] And almost everybody who gets limited knows why they got
+
+[SPEAKER_00] limited.
+
+[SPEAKER_00] Like they're not gonna be like, hey, you know that trade you
+
+[SPEAKER_00] made on Josh Hart, that's where we got you.
+
+[SPEAKER_00] Like with the situation, they're going to pick the most obscure
+
+[SPEAKER_00] language they can, and it's benefit, it just doesn't benefit
+
+[SPEAKER_00] anyone.
+
+[SPEAKER_00] And all it does is give them like more, I think, lice
+
+[SPEAKER_00] leniency in other areas that they're gonna pursue.
+
+[SPEAKER_00] Um, the more regulation in general, the worse it is for
+
+[SPEAKER_00] people.
+
+[SPEAKER_00] For betters.
+
+[SPEAKER_00] I'm not you know, this isn't some pro-libertarian like you
+
+[SPEAKER_00] know, argument against regulation.
+
+[SPEAKER_00] I'm just saying in general, for betting, we just want there to
+
+[SPEAKER_00] be less rules if you're kind of running rampant trying to
+
+[SPEAKER_00] extract from these books.
+
+[SPEAKER_00] SPEAKER_00: Right, right, right, exactly.
+
+[SPEAKER_00] I think there's space for one of the operators to send a letter
+
+[SPEAKER_00] that's like, oh my god, you're so smart.
+
+[SPEAKER_00] We've never met someone as smart as you, and we're just really
+
+[SPEAKER_00] scared of your bets.
+
+[SPEAKER_00] So, you know, I hope you don't mind, but we're just gonna have
+
+[SPEAKER_00] to ask you to bet a much smaller amount because you're the
+
+[SPEAKER_00] smartest person who's ever come across our platform.
+
+[SPEAKER_00] And then I think that'd be funny.
+
+[SPEAKER_00] I think there's space for that.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I I just don't that's gonna be a tough sell
+
+[SPEAKER_00] through a like a board process that they're gonna have to go
+
+[SPEAKER_00] ahead and like hey, you know, we sent out the letter to everyone.
+
+[SPEAKER_00] Hey, we did this, it's a pretty funny joke.
+
+[SPEAKER_00] You guys will like it.
+
+[SPEAKER_00] Like, that's just not gonna work.
+
+[SPEAKER_00] SPEAKER_00: That's why you gotta be a small guy.
+
+[SPEAKER_00] You know who would do it?
+
+[SPEAKER_00] Forecasters.
+
+[SPEAKER_00] If they actually could lend it.
+
+[SPEAKER_00] SPEAKER_02: Forecasters underdog, like uh.
+
+[SPEAKER_00] Underdogs.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I think that was a lot of time.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Well, the thing is, like, I am happy I saw the letters because
+
+[SPEAKER_00] it's interesting.
+
+[SPEAKER_00] So like the first people to post them as like uh this is what
+
+[SPEAKER_00] they sent out.
+
+[SPEAKER_00] I'm not like too upset at that.
+
+[SPEAKER_00] Because I'm happy like I got to see what the actual letters are.
+
+[SPEAKER_00] A lot of people are bearding in Massachusetts.
+
+[SPEAKER_00] I did, I didn't know.
+
+[SPEAKER_00] But uh yeah, but then like the pylon and like everybody sharing
+
+[SPEAKER_00] their letter that's been shared 200 other times, like that's
+
+[SPEAKER_00] it's it's yeah, it's not flex.
+
+[SPEAKER_00] It's not a flex.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yeah.
+
+[SPEAKER_00] Right, right.
+
+[SPEAKER_00] It's like, oh yep, congrats.
+
+[SPEAKER_00] SPEAKER_00: Actually, a funny, a funny kind of thing that slipped
+
+[SPEAKER_00] through was like during that whole thing, GRP is like, I bet
+
+[SPEAKER_00] a thousand on DraftKings on this like obscure prop.
+
+[SPEAKER_00] Um, so the last one was it was a question that you regarding a
+
+[SPEAKER_00] post you made, but the the Colchy Instagram ad about the
+
+[SPEAKER_00] weather.
+
+[SPEAKER_00] We have a question about it later on, but we can we can put
+
+[SPEAKER_00] it in the news section.
+
+[SPEAKER_00] Um what was the what was the ad you saw on on Instagram?
+
+[SPEAKER_00] SPEAKER_02: Yeah, so it basically they're like outside,
+
+[SPEAKER_00] I think what it's a Broncos game, and they're just asking
+
+[SPEAKER_00] people over under 12 inches, which is like its own kind of
+
+[SPEAKER_00] funny thing to be sending, and people are like, Oh, at least 12
+
+[SPEAKER_00] inches, way under 12 inches.
+
+[SPEAKER_00] And the person goes, Yeah, I make all my money on Cal sheet.
+
+[SPEAKER_00] I just stare up at the sky and I pick winners, like, and he's
+
+[SPEAKER_00] talking about his strategy for it, and it's just the classic
+
+[SPEAKER_00] like they talk about whenever the report comes out and they're
+
+[SPEAKER_00] like, hey, 1% of people make money from things, and they're
+
+[SPEAKER_00] like, obviously, this is like it's any kind of financial
+
+[SPEAKER_00] market.
+
+[SPEAKER_00] This there's plenty of precedent for this.
+
+[SPEAKER_00] Every financial market, it's a winner-take all kind of
+
+[SPEAKER_00] scenario.
+
+[SPEAKER_00] Kalchi's less than even like options trading, for example.
+
+[SPEAKER_00] This should have no effect on the legality, which I generally
+
+[SPEAKER_00] agree with.
+
+[SPEAKER_00] I don't think that like, hey, a bunch of people are making money
+
+[SPEAKER_00] means that this needs to be illegal.
+
+[SPEAKER_00] But the marketing, like the just quick head snap that they have
+
+[SPEAKER_00] to do, where it's anybody like obviously this is what's
+
+[SPEAKER_00] happened.
+
+[SPEAKER_00] This like this happens in every single kind of financial market
+
+[SPEAKER_00] to the marketing of just look up at the sky.
+
+[SPEAKER_00] If it's cloudy, like clearly that will go ahead and like you
+
+[SPEAKER_00] can print money this way.
+
+[SPEAKER_00] So I it just was one of the funniest.
+
+[SPEAKER_00] And I was telling you about it.
+
+[SPEAKER_00] I tried to take a screenshot of it, and like now that Instagram
+
+[SPEAKER_00] saw my time spent on ad or whatever, it they just now like
+
+[SPEAKER_00] literally every single ad I get on Instagram.
+
+[SPEAKER_00] If I get 10 ads, nine are Calchi.
+
+[SPEAKER_00] It's not, and that's not like exaggerating to the extent.
+
+[SPEAKER_00] They are just absolutely hammering at home.
+
+[SPEAKER_00] Um, and I'm just trying to take a picture to pick on them.
+
+[SPEAKER_00] They do a good job of like separating because they put the
+
+[SPEAKER_00] speech out on the uh video, but they do a good job of like
+
+[SPEAKER_00] separating it out so you can't see the full picture.
+
+[SPEAKER_00] Um, so I'll try to get some investigative journalism where I
+
+[SPEAKER_00] can take the screenshots and you know splice them together.
+
+[SPEAKER_00] SPEAKER_00: The so this is, and you guys talked about it uh on
+
+[SPEAKER_00] your your circles back, but this concept of like it's not an ad I
+
+[SPEAKER_00] would run, like I would feel like I'd be like, I I can't in
+
+[SPEAKER_00] good conscience like run that ad, but like it's clearly
+
+[SPEAKER_00] working for them, and like yeah, I don't I don't know.
+
+[SPEAKER_00] Like, I think like yeah, we shit on these ads.
+
+[SPEAKER_00] Uh SP and I say that it's like we shit on the ads, and then we
+
+[SPEAKER_00] do a news item about how calls you just raised at 25 billion or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] SPEAKER_02: And it's like I actually don't think that that's
+
+[SPEAKER_00] contradictory.
+
+[SPEAKER_00] Like, I think that we can point out that what you're doing is
+
+[SPEAKER_00] both successful and wrong.
+
+[SPEAKER_00] Um, yeah, and like wrong maybe is you know, I don't even think
+
+[SPEAKER_00] it's too strong of a word.
+
+[SPEAKER_00] I think that like you can point out that something is bullshit
+
+[SPEAKER_00] even if it isn't making money, you know?
+
+[SPEAKER_00] It'd be like if I can say it'd be like uh, you know, if vaping
+
+[SPEAKER_00] uh being saying that doing fruits or whatever is
+
+[SPEAKER_00] advertising to kids, and then going, well, you know, Jewel is
+
+[SPEAKER_00] making a lot of money from it, so I have to give them their
+
+[SPEAKER_00] credit.
+
+[SPEAKER_00] Like, I don't think that we necessarily can have to like
+
+[SPEAKER_00] say, well, it's working, so you have to give them some credit
+
+[SPEAKER_00] there.
+
+[SPEAKER_00] I just I think it's a super misleading ad and just kind of
+
+[SPEAKER_00] generally bullshit, but um I maybe I gotta alert Kaelish of
+
+[SPEAKER_00] it and we'll have him get on top of it.
+
+[SPEAKER_00] SPEAKER_00: The thing is the draft someone brought up the old
+
+[SPEAKER_00] DraftKings ads, and they were basically the same thing.
+
+[SPEAKER_00] And it's like I don't know.
+
+[SPEAKER_00] I mean, I've always been kind of anti.
+
+[SPEAKER_00] I think like ads and gambling has always been very difficult
+
+[SPEAKER_00] because you can't really like run an ad that the company, the
+
+[SPEAKER_00] operator is gonna be happy with that's like at all honest to the
+
+[SPEAKER_00] the full spectrum of gambling outcomes or the reality of like
+
+[SPEAKER_00] what's the most likely outcomes.
+
+[SPEAKER_00] It's not it's not really a good ad.
+
+[SPEAKER_00] SPEAKER_02: Yeah, you can't sell what you're actually selling,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] You can't be like, hey, it's it's entertainment only.
+
+[SPEAKER_00] Um come ahead and go ahead and slowly lose money as we try to
+
+[SPEAKER_00] increase your hold percentage.
+
+[SPEAKER_00] Like, that's not gonna be an ad that gets people want to sign
+
+[SPEAKER_00] up.
+
+[SPEAKER_00] You have to sell the dream of winning.
+
+[SPEAKER_00] And yeah, I the the parallels between Calchi and DK are so
+
+[SPEAKER_00] like crazy of pushing the limits on regulation, but you know, how
+
+[SPEAKER_00] much are they winning because it's the best product versus
+
+[SPEAKER_00] just having first fit and all these things, like they're just
+
+[SPEAKER_00] so it's just such an easy like parallel path to compare these
+
+[SPEAKER_00] two, and it's funny because they hate each other.
+
+[SPEAKER_00] So that like that's the best part is like just seeing you
+
+[SPEAKER_00] know the old version of themselves and Kal and DK is
+
+[SPEAKER_00] just furious at it.
+
+[SPEAKER_00] SPEAKER_00: Like the Spider-Man meme, they're just playing.
+
+[SPEAKER_00] SPEAKER_02: Exactly.
+
+[SPEAKER_00] You know, they're like what they're like, oh, that was me
+
+[SPEAKER_00] four years ago.
+
+[SPEAKER_00] God, I I absolutely hate like um all right.
+
+[SPEAKER_00] SPEAKER_00: Well, let's let's hit the cues.
+
+[SPEAKER_00] We got a lot of questions.
+
+[SPEAKER_00] You're you're you're a big gut because a lot of questions came
+
+[SPEAKER_00] in.
+
+[SPEAKER_00] So, you know, I think I think we're we're pretty happy with
+
+[SPEAKER_00] this.
+
+[SPEAKER_00] We have one from we gotta start off with the one from uh the
+
+[SPEAKER_00] other hosts.
+
+[SPEAKER_00] Now we have three.
+
+[SPEAKER_00] Uh three people have hosted the pod.
+
+[SPEAKER_00] Sports projections.
+
+[SPEAKER_00] He's on the IR, but he he wrote a tweet.
+
+[SPEAKER_00] He's been on, he's had a couple funny tweets out there too.
+
+[SPEAKER_00] Um what are the top three worst takes in the risk takers podcast
+
+[SPEAKER_00] history?
+
+[SPEAKER_00] Uh I have one.
+
+[SPEAKER_00] How many do you have?
+
+[SPEAKER_00] Do you have three?
+
+[SPEAKER_00] SPEAKER_02: I have three and an honorable mention.
+
+[SPEAKER_00] SPEAKER_00: Okay.
+
+[SPEAKER_00] Okay, so I'm gonna give my one first because and this is gonna
+
+[SPEAKER_00] shock the world.
+
+[SPEAKER_00] I'm gonna use an SP take.
+
+[SPEAKER_00] I'm gonna use one of his takes.
+
+[SPEAKER_00] SPEAKER_02: Disagreeing with someone, yeah.
+
+[SPEAKER_00] That's you know, not necessarily we wouldn't say you're strong
+
+[SPEAKER_00] too.
+
+[SPEAKER_00] SPEAKER_00: Well, I know that Flopp asked a question to
+
+[SPEAKER_00] disagree with you later, so I'm actually just trying to like get
+
+[SPEAKER_00] over the hump.
+
+[SPEAKER_00] Yeah, so the SP take was that account priming accounts was uh
+
+[SPEAKER_00] like astrology for guys.
+
+[SPEAKER_00] And he's recant, he's recanted on this take.
+
+[SPEAKER_00] SPEAKER_02: You're already going back.
+
+[SPEAKER_00] It's something he doesn't believe anymore.
+
+[SPEAKER_00] I want you to hear I want you to roast a take that he still has.
+
+[SPEAKER_00] SPEAKER_00: Okay, I'll get back to you on that.
+
+[SPEAKER_00] Let me let me think.
+
+[SPEAKER_00] But but that one like has aged poorly.
+
+[SPEAKER_00] It's right after that.
+
+[SPEAKER_00] Yeah, every single person who came on the podcast for the next
+
+[SPEAKER_00] like four weeks was like, Yep, that's the one thing I do really
+
+[SPEAKER_00] well.
+
+[SPEAKER_00] Okay, so I I'll I'll I'll think about uh a little bit more of
+
+[SPEAKER_00] something that he actually still still believes in.
+
+[SPEAKER_00] Um certainly something around using your hands and working in
+
+[SPEAKER_00] your backyard is is gonna be an easy one for me.
+
+[SPEAKER_00] But but yeah, okay, I'd love to hear, I'd love to hear yours.
+
+[SPEAKER_00] SPEAKER_02: Okay, honorable mention.
+
+[SPEAKER_00] I have I so I was actually told you I was listening to some of
+
+[SPEAKER_00] your old ones that like I didn't listen to before, or they came
+
+[SPEAKER_00] out in the fall.
+
+[SPEAKER_00] I was like listening to a bunch of college football pods.
+
+[SPEAKER_00] I'm listening back now and hearing your advice.
+
+[SPEAKER_00] You said, you know, don't go all in on PMs.
+
+[SPEAKER_00] You want to make sure that you're still using sportsbooks
+
+[SPEAKER_00] pretty good.
+
+[SPEAKER_00] SPEAKER_00: You're literally doing the same thing I did.
+
+[SPEAKER_00] Okay, go on.
+
+[SPEAKER_00] SPEAKER_02: I know, but I just I well that's honorable mention.
+
+[SPEAKER_00] I just want to say you're giving out, I was like, it's so ironic
+
+[SPEAKER_00] now now knowing like how you've steered into PMs that like your
+
+[SPEAKER_00] one piece of advice was like, hey, you can't go all in on PMs,
+
+[SPEAKER_00] and then weeks later we're burning the boats.
+
+[SPEAKER_00] SPEAKER_00: You gotta adapt or die.
+
+[SPEAKER_00] SPEAKER_02: Um okay, so number three.
+
+[SPEAKER_00] I feel like this pod is generally much more pro-cat than
+
+[SPEAKER_00] pro-dog.
+
+[SPEAKER_00] Am I wrong there?
+
+[SPEAKER_00] SPEAKER_00: S SP is more pro-dog.
+
+[SPEAKER_00] Okay, well, but I just he doesn't currently he doesn't
+
+[SPEAKER_00] currently have a dog.
+
+[SPEAKER_00] So I'm dominating the pet conversation.
+
+[SPEAKER_00] I'm pro-cat.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I think dogs dogs are so much better than
+
+[SPEAKER_00] cats.
+
+[SPEAKER_00] I don't think you can say it's not even close.
+
+[SPEAKER_00] You know how I know it's not close is because when people
+
+[SPEAKER_00] talk about cats, when they talk about a cool cat, they'll be
+
+[SPEAKER_00] like, oh, he's like a dog.
+
+[SPEAKER_00] You never hear someone describe their dog as oh, he's like a
+
+[SPEAKER_00] cat.
+
+[SPEAKER_00] If they did, it would be a whole it would be a huge insult to the
+
+[SPEAKER_00] dog.
+
+[SPEAKER_00] But cats, they'll go, oh, he's like a dog, and it's a it's a
+
+[SPEAKER_00] generally like it's a positive.
+
+[SPEAKER_00] SPEAKER_00: No, it means it's like a fat, lazy cat that like
+
+[SPEAKER_00] can't jump.
+
+[SPEAKER_00] SPEAKER_02: No, that means it likes you.
+
+[SPEAKER_00] Cats that you know, they're like, oh, it's like a dog, it's
+
+[SPEAKER_00] actually nice.
+
+[SPEAKER_00] You're like, oh, because cats can be cool, but it's like a
+
+[SPEAKER_00] 50-50 shot.
+
+[SPEAKER_00] Every like dogs are like 90-10 cool versus not cool.
+
+[SPEAKER_00] SPEAKER_00: Well, dogs will always like you, but like, isn't
+
+[SPEAKER_00] that kind of pathetic?
+
+[SPEAKER_00] Like, don't you want to earn the love?
+
+[SPEAKER_00] It feels better when you've actually earned the love and
+
+[SPEAKER_00] respect of your cat.
+
+[SPEAKER_00] SPEAKER_02: No, I don't I don't like this creature.
+
+[SPEAKER_00] Why do I have to like earn the love of something that is
+
+[SPEAKER_00] beneath me that I feed and like generally take care of?
+
+[SPEAKER_00] And it's like maybe I'll like you after that.
+
+[SPEAKER_00] So that's three.
+
+[SPEAKER_00] Um, I'll move on.
+
+[SPEAKER_00] Number two, the fiction book Glazing by this pod.
+
+[SPEAKER_00] You guys are all pro-fiction books.
+
+[SPEAKER_00] Fiction sucks.
+
+[SPEAKER_00] It's a it's a worthless genre.
+
+[SPEAKER_00] If it was any good, they would make a movie about it.
+
+[SPEAKER_00] I don't want to read a fiction book.
+
+[SPEAKER_00] I want to read.
+
+[SPEAKER_00] If I'm gonna read one, I'm probably gonna listen to it on
+
+[SPEAKER_00] tape if we're being honest.
+
+[SPEAKER_00] And two, I want to like actually learn something.
+
+[SPEAKER_00] I'll do a non-fiction book, uh, listen to it on tape.
+
+[SPEAKER_00] SPEAKER_00: But like reading fiction books is just you won't
+
+[SPEAKER_00] listen to fiction, you'll listen to nonfiction.
+
+[SPEAKER_00] I'm the exact opposite.
+
+[SPEAKER_00] I'll listen to fiction, but I don't like listening to
+
+[SPEAKER_00] nonfiction.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I if I'm generally like if I'm actually
+
+[SPEAKER_00] reading something, like it will be something much drier that I
+
+[SPEAKER_00] feel like I need to read it to understand it.
+
+[SPEAKER_00] Right.
+
+[SPEAKER_00] But like generally, if I do like a non-fiction, it will be like
+
+[SPEAKER_00] something like you know, Chuck Klosterman's 90s book, where
+
+[SPEAKER_00] it's like, okay, this is nonfiction, but it's not like
+
+[SPEAKER_00] teaching me anything, it's just more interesting.
+
+[SPEAKER_00] SPEAKER_00: More like it just like talks about the 90s,
+
+[SPEAKER_00] basically.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it's a book about the 90s.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] SPEAKER_00: That's fair.
+
+[SPEAKER_00] SPEAKER_02: Sounds like fiction adjacent.
+
+[SPEAKER_00] Yeah, it's just literally being like, remember the 90s?
+
+[SPEAKER_00] About the 90s.
+
+[SPEAKER_00] That's what I find interesting.
+
+[SPEAKER_00] SPEAKER_00: Okay.
+
+[SPEAKER_00] Okay, go on.
+
+[SPEAKER_00] SPEAKER_02: Number one with the ball, like this is by far the
+
+[SPEAKER_00] number one take, is your water takes.
+
+[SPEAKER_00] SPEAKER_01: Okay.
+
+[SPEAKER_00] SPEAKER_02: Calling just calling it being like flat water.
+
+[SPEAKER_00] It's just water.
+
+[SPEAKER_00] It's normal water.
+
+[SPEAKER_00] Most people don't refer to them as flat water and sparkling
+
+[SPEAKER_00] water.
+
+[SPEAKER_00] It's just water and like spark, like sparkling water is a thing,
+
+[SPEAKER_00] don't get me wrong, but it's not like it's just water and then
+
+[SPEAKER_00] another thing, which is sparkling water.
+
+[SPEAKER_00] The fact that you had to like get weaned off of sparkling
+
+[SPEAKER_00] water, just I think sparkling water sucks.
+
+[SPEAKER_00] And I just genuinely love like flat water, or as normal people
+
+[SPEAKER_00] call it water.
+
+[SPEAKER_00] SPEAKER_00: Flat water, it's catching on.
+
+[SPEAKER_00] Um, sparkling water is is way better.
+
+[SPEAKER_00] Water's boring.
+
+[SPEAKER_00] I like it.
+
+[SPEAKER_00] I love water after I've like ran two miles.
+
+[SPEAKER_00] Then I'm like really into water or flat water or whatever you
+
+[SPEAKER_00] want to call it.
+
+[SPEAKER_00] But if I'm like sitting down, want to enjoy, but you you have
+
+[SPEAKER_00] to remember, like, I also don't drink.
+
+[SPEAKER_00] So like like I go out to a restaurant, I don't want to get
+
+[SPEAKER_00] water, like, I don't know.
+
+[SPEAKER_00] Yeah, okay.
+
+[SPEAKER_00] Seltzer lime.
+
+[SPEAKER_00] SPEAKER_02: I understand, but you're just replacing it with a
+
+[SPEAKER_00] shitty drink.
+
+[SPEAKER_00] SPEAKER_00: I mean, yeah, that that was part of it.
+
+[SPEAKER_00] Like, like when you stop drinking, you drink a lot of
+
+[SPEAKER_00] seltzer.
+
+[SPEAKER_00] That that's pretty common, I would say.
+
+[SPEAKER_00] And yeah, it's just something else besides water that gives
+
+[SPEAKER_00] you a little fizz.
+
+[SPEAKER_00] Again, I'm not gonna start drinking like like eight
+
+[SPEAKER_00] Coca-Cola's a day.
+
+[SPEAKER_00] That's crazy.
+
+[SPEAKER_00] You know, I have to like monitor my health.
+
+[SPEAKER_00] SPEAKER_02: If you're replacing drinking, I don't think calling
+
+[SPEAKER_00] like eight Coca-Cola's is a fair comp to it.
+
+[SPEAKER_00] SPEAKER_00: So, but I was like, I wasn't also drinking eight
+
+[SPEAKER_00] beers a day.
+
+[SPEAKER_00] But what I'm saying is like I I I do like like the concept of
+
+[SPEAKER_00] like having a can, you know, it has a little fizz, it's not just
+
+[SPEAKER_00] water, like there's something else there.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I it just tastes like shit, it's a
+
+[SPEAKER_00] problem.
+
+[SPEAKER_00] I get I get the theory of it, it's the taste of it that sucks.
+
+[SPEAKER_00] SPEAKER_00: Okay.
+
+[SPEAKER_00] Um, okay.
+
+[SPEAKER_00] If I have another if I have another SP take that is bad, I I
+
+[SPEAKER_00] actually disagree with his um I disagree with two takes.
+
+[SPEAKER_00] One is his running take from your question.
+
+[SPEAKER_00] I actually think like now that I have thought about this question
+
+[SPEAKER_00] more, like he's gonna end up getting the world killed by
+
+[SPEAKER_00] being in the top one percent of of runners.
+
+[SPEAKER_00] I actually I can't really like square it up with him not being
+
+[SPEAKER_00] there when you include the world's population.
+
+[SPEAKER_00] Um, was it as bad as my Fortnite take?
+
+[SPEAKER_00] SPEAKER_02: I was gonna say, I was gonna say he might be in the
+
+[SPEAKER_00] top one percent.
+
+[SPEAKER_00] You're definitely in the top one percent.
+
+[SPEAKER_00] Yes.
+
+[SPEAKER_00] SPEAKER_00: That was terrible.
+
+[SPEAKER_00] I mean, if I'm if I'm going through like my own takes, like
+
+[SPEAKER_00] there's a lot that are bad and that I disagree with, but I'm
+
+[SPEAKER_00] trying to to to be a different person, only disagree with SP.
+
+[SPEAKER_00] And then and then the second is like SP's desire to do all these
+
+[SPEAKER_00] things like around the house and like how that automatically is
+
+[SPEAKER_00] is good.
+
+[SPEAKER_00] Like I think it's a I I think it's a bad take because of how
+
+[SPEAKER_00] valuable his time is.
+
+[SPEAKER_00] Like, if you're working a regular job and you don't have
+
+[SPEAKER_00] like the ability to turn monetize hours outside of that
+
+[SPEAKER_00] job, like sure, doing your yard work and like cooking these big
+
+[SPEAKER_00] dinners and building, mounting this TV and stuff, like all
+
+[SPEAKER_00] become additive, but like for him, it's very subtract, like
+
+[SPEAKER_00] monetarily, um it's expensive for him to be doing this stuff.
+
+[SPEAKER_00] So he really has to like to do it.
+
+[SPEAKER_00] And I don't know, I don't believe that he likes to do it
+
+[SPEAKER_00] so much that it like replaces the monetary cost for him.
+
+[SPEAKER_00] Um, maybe one or two things, but his his whole like pitch to be
+
+[SPEAKER_00] the blue-collar guy on the pod, I disagree with it.
+
+[SPEAKER_00] SPEAKER_02: That's a good take.
+
+[SPEAKER_00] That's a good disagreement because I actually do some of
+
+[SPEAKER_00] the similar stuff to SP where I'm like, like it's it's
+
+[SPEAKER_00] definitely I moved all my stuff like from one apartment to the
+
+[SPEAKER_00] other.
+
+[SPEAKER_00] I moved it the other day.
+
+[SPEAKER_00] I was like cleaning out my car.
+
+[SPEAKER_00] It's like honestly, like I should just like pay someone to
+
+[SPEAKER_00] detail my car rather than me doing it myself.
+
+[SPEAKER_00] Like it just dollar-wise doesn't add up.
+
+[SPEAKER_00] I don't really enjoy it, but where else would I like have the
+
+[SPEAKER_00] time to listen to these 90s books?
+
+[SPEAKER_00] Um, if I wasn't kind of cleaning the car.
+
+[SPEAKER_00] So yeah, I like I don't know.
+
+[SPEAKER_00] I'm kind of on SP's camp, but I am willing, like I am freely
+
+[SPEAKER_00] admitting it probably is minus EV, but I just do it out of
+
+[SPEAKER_00] habit.
+
+[SPEAKER_00] SPEAKER_00: Fair enough.
+
+[SPEAKER_00] All right.
+
+[SPEAKER_00] We've we've done SP's question.
+
+[SPEAKER_00] That was a good question.
+
+[SPEAKER_00] We got Alex, uh, another guest of the pod.
+
+[SPEAKER_00] These are just rapid fire.
+
+[SPEAKER_00] What percent of pro betters would quit if there's no
+
+[SPEAKER_00] volatility to their results?
+
+[SPEAKER_00] Just got paid EV.
+
+[SPEAKER_00] Like SP said he would quit last week.
+
+[SPEAKER_00] So um I think that I don't, I don't I actually think it's it's
+
+[SPEAKER_00] it's not that high.
+
+[SPEAKER_00] SPEAKER_02: I I think it's I mean yes, people would stick
+
+[SPEAKER_00] with it way more, would you not think?
+
+[SPEAKER_00] SPEAKER_00: I I was gonna say like SP said like he wants he
+
+[SPEAKER_00] would not paint your idea, yeah, but I don't think he would quit.
+
+[SPEAKER_00] I because that was just a preference.
+
+[SPEAKER_00] So my my my belief is like somewhere around five percent.
+
+[SPEAKER_00] Um for the true there's some there's I've I think we've all
+
+[SPEAKER_00] met like people who do make a living off gambling who are just
+
+[SPEAKER_00] also like degenerate, um, and somehow you know, yes, the
+
+[SPEAKER_00] breaking news, the big the big accusations flop is a
+
+[SPEAKER_00] degenerate.
+
+[SPEAKER_00] Yeah, would flop?
+
+[SPEAKER_00] Uh it's that's a good question.
+
+[SPEAKER_00] But yeah, I think like for the most of us, like most of us
+
+[SPEAKER_00] would probably be happy to accept the uh the EV.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I agree.
+
+[SPEAKER_00] SPEAKER_00: Um if rec flow were evenly distributed across all
+
+[SPEAKER_00] market categories on PMs, where where do you go after after
+
+[SPEAKER_00] sports?
+
+[SPEAKER_00] SPEAKER_02: Um so like if you're saying like if there's enough
+
+[SPEAKER_00] liquidity that I could bet on anything in PMs, it's where
+
+[SPEAKER_00] would like what would I find interesting essentially is the
+
+[SPEAKER_00] question here.
+
+[SPEAKER_00] SPEAKER_00: Basically, yeah.
+
+[SPEAKER_00] SPEAKER_02: Um I think any I think markets that are
+
+[SPEAKER_00] essentially like non-reoccurring.
+
+[SPEAKER_00] So stuff where it has no like there's no model that can be
+
+[SPEAKER_00] generated for it, there's no kind of value in doing it
+
+[SPEAKER_00] consistently, where each time it's a different problem.
+
+[SPEAKER_00] I like one of the examples, uh Thon asked me later about like
+
+[SPEAKER_00] what's a market that I spent way too much time on, and it
+
+[SPEAKER_00] actually I was able to get a lot down, so I couldn't pick this,
+
+[SPEAKER_00] but like depending on the astronomer CEO getting fired or
+
+[SPEAKER_00] not.
+
+[SPEAKER_00] Like situations where it's like this randomly comes up, there's
+
+[SPEAKER_00] no past markets to go in, it's just you generating a number out
+
+[SPEAKER_00] of thin air.
+
+[SPEAKER_00] Like, I love those kind of markets where it's just
+
+[SPEAKER_00] basically, you know, can you create, can you think through
+
+[SPEAKER_00] this problem logically?
+
+[SPEAKER_00] And can you come up with bullshit numbers on the spot to
+
+[SPEAKER_00] generate it?
+
+[SPEAKER_00] So I would say anything that's like non-reoccurring um that
+
+[SPEAKER_00] comes up randomly.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that that's probably like the right those do
+
+[SPEAKER_00] tend to have a lot of liquidity, or like the big ones, like the
+
+[SPEAKER_00] strong mercio.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yeah.
+
+[SPEAKER_00] SPEAKER_00: Those are gone.
+
+[SPEAKER_00] SPEAKER_02: No, I just those are like the things that if there
+
+[SPEAKER_00] was another world where I know like I know it's not beneficial
+
+[SPEAKER_00] for me to spend my time looking into these, but I still do it
+
+[SPEAKER_00] because it's like uh I because I think it's genuinely
+
+[SPEAKER_00] interesting.
+
+[SPEAKER_00] Um it's so sad that like my big break from working is actually
+
+[SPEAKER_00] you can go ahead and do gambling in another uh gamble more gamble
+
+[SPEAKER_00] in a different market.
+
+[SPEAKER_00] So maybe uh to Alex's point, but yeah, I think that anything like
+
+[SPEAKER_00] where you're just generating something on the fly is such an
+
+[SPEAKER_00] interesting even in sports.
+
+[SPEAKER_00] I love like all-star games and like random stuff like that.
+
+[SPEAKER_00] I love kind of the piecemeal, uh the match or whatever would be
+
+[SPEAKER_00] like the golfing version of it where it's like, hey, just come
+
+[SPEAKER_00] up with something how it works.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] Yeah, I I I think those are fun.
+
+[SPEAKER_00] Um my answer was it's kind of a weird one.
+
+[SPEAKER_00] Like, if I couldn't, so I would like to do the game show markets
+
+[SPEAKER_00] as long as there was no information leakage, like that
+
+[SPEAKER_00] that would be my favorite thing to do.
+
+[SPEAKER_00] Survivor's trader, survivor traders, you know, whatever.
+
+[SPEAKER_00] Obviously, you know, dancing with the stars was more live.
+
+[SPEAKER_00] Like, there's some there's some ones that are, you know, did you
+
+[SPEAKER_00] bet dancing with the stars?
+
+[SPEAKER_00] No, that was the first time even I even knew that like those
+
+[SPEAKER_00] markets were really a thing.
+
+[SPEAKER_00] Because everyone was posting about like Alex Earl and the
+
+[SPEAKER_00] other Steve Irwin's kit or whatever, but it seemed like all
+
+[SPEAKER_00] the sharps were on Irwin's kit, right?
+
+[SPEAKER_00] SPEAKER_02: Yeah, I think I was on Irwin's kit.
+
+[SPEAKER_00] Yeah, I lost it.
+
+[SPEAKER_00] I was on the losing side of it, so no.
+
+[SPEAKER_00] SPEAKER_00: Um, another culture market loss for Mr.
+
+[SPEAKER_00] Peanut Better.
+
+[SPEAKER_00] But uh but yeah, like those to me are like low data competition
+
+[SPEAKER_00] problems.
+
+[SPEAKER_00] It's similar, honestly, to what what you're you're also looking
+
+[SPEAKER_00] to do.
+
+[SPEAKER_00] Like obviously, there's like 50 seasons of Survivor, but the
+
+[SPEAKER_00] rules change all the time.
+
+[SPEAKER_00] And you know, I I think the concept of like if you were to
+
+[SPEAKER_00] be able to bet like episode to episode while it was going on,
+
+[SPEAKER_00] like it's like game state, right?
+
+[SPEAKER_00] It's like okay, what happened in the last episode?
+
+[SPEAKER_00] Now figure out like how likely everyone is to win with the new
+
+[SPEAKER_00] information.
+
+[SPEAKER_00] Like to me, that would be my favorite um other market.
+
+[SPEAKER_00] But if I had to do one like realistically, because you know,
+
+[SPEAKER_00] those I I don't know, you know, I think they're really bad when
+
+[SPEAKER_00] it's obviously just telling you who wins the show.
+
+[SPEAKER_00] So I I like mentions.
+
+[SPEAKER_00] Like after talking with Foster, like the c the men the concept
+
+[SPEAKER_00] of mentions is is great.
+
+[SPEAKER_00] I think it's has its own issues as liquidity gets bigger.
+
+[SPEAKER_00] Like you never really want a big position because anybody could
+
+[SPEAKER_00] just say, you know, the market is now aware of itself and and
+
+[SPEAKER_00] and whatever.
+
+[SPEAKER_00] But if we're kind of just doing this as an exercise, I like the
+
+[SPEAKER_00] concept of mention markets for both one off events and like
+
+[SPEAKER_00] continuous like NFL games.
+
+[SPEAKER_00] And stuff.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it once it starts to get like uh uh what's
+
+[SPEAKER_00] the physics term where once you watch a molecule it like reacts
+
+[SPEAKER_00] in a different way.
+
+[SPEAKER_00] Once it gets to that point, um attempt to sound smart that
+
+[SPEAKER_00] really didn't work.
+
+[SPEAKER_00] SPEAKER_00: So once it gets to something about under
+
+[SPEAKER_00] observation, it's yeah, I don't know.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yeah, we don't know.
+
+[SPEAKER_00] So um, so but once it gets to that level, like obviously it's
+
+[SPEAKER_00] not fun, but like in this situation, I think it's fair to
+
+[SPEAKER_00] say he's talking in a world where your liquidity is whatever
+
+[SPEAKER_00] you make it, like they are not aware of it.
+
+[SPEAKER_00] SPEAKER_00: Yeah, the mention markets, it's like sports, yeah.
+
+[SPEAKER_00] SPEAKER_02: The one uh fluppin' uh Henry show where they talked
+
+[SPEAKER_00] to the guy and he said that like Jerome Powell said pardon me or
+
+[SPEAKER_00] whatever after a sneeze.
+
+[SPEAKER_00] Yeah, pardon him was in there, and it like he wouldn't get
+
+[SPEAKER_00] picked up by the transcripts for the live betting.
+
+[SPEAKER_00] That was like the first time I genuinely got excited.
+
+[SPEAKER_00] I was like, oh my god, like what that's such a great angle.
+
+[SPEAKER_00] Like in general, to though like for those to me, aren't as
+
+[SPEAKER_00] interesting just because it feels like it's a lot of like
+
+[SPEAKER_00] the same like you know, rules of thumb that they apply to all of
+
+[SPEAKER_00] them.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, that was a great, I mean, that was
+
+[SPEAKER_00] electric.
+
+[SPEAKER_00] Jerome Balkoffs, and he's like on stream and he's like, let's
+
+[SPEAKER_00] go.
+
+[SPEAKER_00] Um, all right, we got Dennis Rodman Jr.
+
+[SPEAKER_00] Esquire, uh, great name, frequent question asker.
+
+[SPEAKER_00] If you could only bet one market for the rest of your life,
+
+[SPEAKER_00] moneyline's totals are spreads, but your counterparty could see
+
+[SPEAKER_00] your choice and shade that market two percent against you
+
+[SPEAKER_00] permanently.
+
+[SPEAKER_00] Which do you pick and why?
+
+[SPEAKER_00] I don't think I'd win.
+
+[SPEAKER_00] SPEAKER_02: I was gonna say, uh, I would pick totals because I
+
+[SPEAKER_00] think totals are the most inefficient.
+
+[SPEAKER_00] And once we start getting to the point where they're shading
+
+[SPEAKER_00] against me, it's like I need to do everything I can can to win
+
+[SPEAKER_00] in this situation.
+
+[SPEAKER_00] So I'm gonna go do totals uh because I think like that's the
+
+[SPEAKER_00] only one.
+
+[SPEAKER_00] Sides and money lines just in general are like they're not
+
+[SPEAKER_00] only are like I know totals are less efficient in general, but
+
+[SPEAKER_00] like the and uh this is without testing, so that I'm just
+
+[SPEAKER_00] speaking out of bullshit, but it like the standard the variation
+
+[SPEAKER_00] of a total, like a total can be more way off than a spreader.
+
+[SPEAKER_00] A spreader money line, it's pretty easy to throw together a
+
+[SPEAKER_00] number that's like pretty close where it's like totals.
+
+[SPEAKER_00] Sometimes you can see the total be way off what it's supposed to
+
+[SPEAKER_00] be um in different markets.
+
+[SPEAKER_00] So like if I'm gonna be competing where they already
+
+[SPEAKER_00] have two percent on me, I really need it to be totals because I
+
+[SPEAKER_00] need the deviation to the true number to be off the like
+
+[SPEAKER_00] perceived number by as much as possible.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, I would I would agree.
+
+[SPEAKER_00] Um, okay, this one's for you from Bunchu.
+
+[SPEAKER_00] Who is this year's Julian Saiyan, aka your Heisman?
+
+[SPEAKER_00] Who I'm gonna lose.
+
+[SPEAKER_00] SPEAKER_02: Yeah, who I'm gonna lose a lot on.
+
+[SPEAKER_00] Um yeah.
+
+[SPEAKER_00] Uh so I have bet on three people for Heisman right now.
+
+[SPEAKER_00] Um one is Brandon Soresby.
+
+[SPEAKER_00] He's going to be suspended for the season uh due to a gambling
+
+[SPEAKER_00] allegation.
+
+[SPEAKER_00] So uh that bet has not worked out.
+
+[SPEAKER_00] The other one, uh one other guy I don't think is gonna be a
+
+[SPEAKER_00] starter now, so I've stopped betting on him.
+
+[SPEAKER_00] Um and the third one I'm still getting down on, so I can't tell
+
+[SPEAKER_00] you.
+
+[SPEAKER_00] So I would say Heisman this year going about as well as last year
+
+[SPEAKER_00] did.
+
+[SPEAKER_00] Um, already betting on guys who are gonna either not start or
+
+[SPEAKER_00] not play at all.
+
+[SPEAKER_00] So find someone else for a Heisman touting, I'm not good at
+
+[SPEAKER_00] it.
+
+[SPEAKER_00] SPEAKER_00: Okay, we'll we'll we'll check back in, but you
+
+[SPEAKER_00] know, at least you're standing with our our gambling brethren
+
+[SPEAKER_00] um in solidarity.
+
+[SPEAKER_00] Okay, another question for you.
+
+[SPEAKER_00] I have to imagine because I don't know who the hell this
+
+[SPEAKER_00] person is, but this is from Hoopster Bobby.
+
+[SPEAKER_00] When is Cortez Hankton gonna get off his ass and sign a recruit?
+
+[SPEAKER_00] Who's that?
+
+[SPEAKER_00] SPEAKER_02: Yeah, the that's a very uh niche recruiting
+
+[SPEAKER_00] question for Ohio State.
+
+[SPEAKER_00] Um is that Ohio State?
+
+[SPEAKER_00] SPEAKER_00: It's no way it's their no, that's not their head.
+
+[SPEAKER_00] SPEAKER_02: Okay, what what um Cortez Hankton is um he's like
+
+[SPEAKER_00] the replacement for Brian Hartline.
+
+[SPEAKER_00] Brian Hartline was probably the best wide receiver recruiter in
+
+[SPEAKER_00] like probably NCAA history, um, based on Ohio State's recruits
+
+[SPEAKER_00] and the guys they've had in there.
+
+[SPEAKER_00] Um I would say, you know, I don't know to Bobby.
+
+[SPEAKER_00] So I don't get into the recruiting game very much.
+
+[SPEAKER_00] Um it's just it's to a point where I feel weird learning what
+
+[SPEAKER_00] these 18-year-olds are gonna do and kind of like generating
+
+[SPEAKER_00] their decisions.
+
+[SPEAKER_00] I like to wait till they're 19 and then I don't feel weird
+
+[SPEAKER_00] about it.
+
+[SPEAKER_00] SPEAKER_00: Um, fair enough.
+
+[SPEAKER_00] Okay, Pips MBA.
+
+[SPEAKER_00] Would you quit betting to build a business with your best friend
+
+[SPEAKER_00] in a field you love if it had a real shot at being worth a few
+
+[SPEAKER_00] million in two to three years?
+
+[SPEAKER_00] SPEAKER_02: No, I absolutely love sports betting.
+
+[SPEAKER_00] Um it's like the question I like to answer the most.
+
+[SPEAKER_00] It's about sports, which I've loved my entire life.
+
+[SPEAKER_00] I think I'm uniquely good at it.
+
+[SPEAKER_00] Um, and if anything, I would just have my like I've thought
+
+[SPEAKER_00] about like bringing my friends into my business um and kind of
+
+[SPEAKER_00] have already.
+
+[SPEAKER_00] So um, no, the answer is I all people are like, you know, if
+
+[SPEAKER_00] you weren't sports betting, like what would you say like you
+
+[SPEAKER_00] conquer sports betting?
+
+[SPEAKER_00] I was like, my answer would be I would just do more sports
+
+[SPEAKER_00] betting.
+
+[SPEAKER_00] Like if I was too good at like if I made enough money, I never
+
+[SPEAKER_00] had to worry about making money again.
+
+[SPEAKER_00] I would just try to be college football Saturdays.
+
+[SPEAKER_00] Like, this is what I genuinely love doing, and I there's no
+
+[SPEAKER_00] other business that like I would want to start.
+
+[SPEAKER_00] SPEAKER_00: Yeah, I mean, I echo that.
+
+[SPEAKER_00] I actually our business is I built with one of my best
+
+[SPEAKER_00] friends from high school, and I hope it's at least worth a few
+
+[SPEAKER_00] million.
+
+[SPEAKER_00] So I would say, like, I would just build in this field, like
+
+[SPEAKER_00] Mr.
+
+[SPEAKER_00] You know, this is the best.
+
+[SPEAKER_00] I I like I actually was talking to my wife.
+
+[SPEAKER_00] I was like, if if I wasn't doing this, like my second favorite
+
+[SPEAKER_00] job is like I'd basically I just want to be like a stay-at-home
+
+[SPEAKER_00] cat dad or you know, husband or whatever.
+
+[SPEAKER_00] Like, I just don't know.
+
+[SPEAKER_00] There's just nothing else that I think I would want to do.
+
+[SPEAKER_00] I mean, you could be like, oh, would you go like trade options?
+
+[SPEAKER_00] SPEAKER_02: Yeah, no, I probably wouldn't I would lean into like
+
+[SPEAKER_00] coaching, uh like you know, be a high school football, just spend
+
+[SPEAKER_00] all my time high school football coach or something in those
+
+[SPEAKER_00] lanes.
+
+[SPEAKER_00] Like, but in general, like this is just obviously uh like
+
+[SPEAKER_00] lucrative aside, it's just to me, it's a much more interesting
+
+[SPEAKER_00] problem each day, and it's way more like high-level thinking,
+
+[SPEAKER_00] uh, rather than mundane, kind of smaller stuff.
+
+[SPEAKER_00] So, yeah.
+
+[SPEAKER_00] My answer if I was gonna start a business with uh my best friend,
+
+[SPEAKER_00] it would just be a gambling business and we'd go from there.
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] I have a take.
+
+[SPEAKER_00] I I think people like overrate how good like other businesses
+
+[SPEAKER_00] are.
+
+[SPEAKER_00] Like people are like, Oh, I'm gonna get out of sports betting,
+
+[SPEAKER_00] I'm gonna open up a laundromat.
+
+[SPEAKER_00] Oh, sick, dude.
+
+[SPEAKER_00] That's gonna be really fun.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it's really easy to glorify something from
+
+[SPEAKER_00] the outside, like yeah, especially if you've done this.
+
+[SPEAKER_00] The people bitch about like the like day-to-day the issues with
+
+[SPEAKER_00] sports betting, a lot of them, like the logistical stuff, is
+
+[SPEAKER_00] like what you're spending all your time doing in the
+
+[SPEAKER_00] non-sports industry.
+
+[SPEAKER_00] It's like, what if they took all the fun parts out of sports
+
+[SPEAKER_00] betting?
+
+[SPEAKER_00] That's what you're trying 24-7.
+
+[SPEAKER_00] So, yeah, I don't know.
+
+[SPEAKER_00] I when I was working as an actuary, I absolutely hated it.
+
+[SPEAKER_00] Um, I I shouldn't say that.
+
+[SPEAKER_00] It wasn't like I was miserable going to work each day, I just
+
+[SPEAKER_00] wasn't very like challenged by it.
+
+[SPEAKER_00] I didn't have my competitiveness brought out by it.
+
+[SPEAKER_00] Um, so like I will champion this is just a very fun industry to
+
+[SPEAKER_00] be in.
+
+[SPEAKER_00] You basically are playing a game 24-7, um, trying to make money
+
+[SPEAKER_00] off of it.
+
+[SPEAKER_00] So no.
+
+[SPEAKER_00] SPEAKER_00: Well said.
+
+[SPEAKER_00] Okay, this is uh this is a suggestion for you, but promo
+
+[SPEAKER_00] cactus says we need a risk taker's Mr.
+
+[SPEAKER_00] Peanut Better style ranking list.
+
+[SPEAKER_00] I guess this would be of guests because we don't have the same
+
+[SPEAKER_00] number of like hosts involved as yeah, there'd be two people,
+
+[SPEAKER_00] it'd be a pretty shitty tier list.
+
+[SPEAKER_00] Yeah, and it would just be really offensive to to one of
+
+[SPEAKER_00] us.
+
+[SPEAKER_00] SPEAKER_02: I have thought about doing uh like non-circles off,
+
+[SPEAKER_00] like I'll just rank everybody who's not on circles off in
+
+[SPEAKER_00] their own tier list.
+
+[SPEAKER_00] So it would be like you guys, Rufus's pod, and Henry and
+
+[SPEAKER_00] Chris, and doing one, but that's one of those things I think I
+
+[SPEAKER_00] want to do, but then I'd have to re-download the pictures again,
+
+[SPEAKER_00] and right that's just kind of annoying.
+
+[SPEAKER_00] SPEAKER_00: So right, you already have the picture, you
+
+[SPEAKER_00] like you have your whole process, your pipeline built for
+
+[SPEAKER_00] the circles off one.
+
+[SPEAKER_00] SPEAKER_02: Yeah, there's no way I could go and hit download
+
+[SPEAKER_00] picture like that.
+
+[SPEAKER_00] I don't have the time in the day.
+
+[SPEAKER_00] SPEAKER_00: It's a lot.
+
+[SPEAKER_00] I mean, like we were talking about the Claude stuff.
+
+[SPEAKER_00] Like, do you ever get to the point where you literally have
+
+[SPEAKER_00] to type like a one-sentence reply to Claude and you're like,
+
+[SPEAKER_00] I can't believe I have to fucking do this?
+
+[SPEAKER_00] SPEAKER_02: Like, yeah, I'm uh I actually thought about looking
+
+[SPEAKER_00] in something and adding like a voice recognition because I had
+
+[SPEAKER_00] to go in and like just hit yes.
+
+[SPEAKER_00] It's like what if I just hit yes, yes, allow, allow all,
+
+[SPEAKER_00] allow all.
+
+[SPEAKER_00] You know how many times I click allow all a day?
+
+[SPEAKER_00] SPEAKER_00: A lot, yeah.
+
+[SPEAKER_00] Or you're like, no, I'm gonna actually audit everything, but
+
+[SPEAKER_00] every time you just immediately click allow, allow allow allow.
+
+[SPEAKER_00] SPEAKER_02: Yeah, yep.
+
+[SPEAKER_00] Um I don't want to to go ahead and make those decisions for me,
+
+[SPEAKER_00] so I'll just instead make an ask and then never review.
+
+[SPEAKER_00] Never read it.
+
+[SPEAKER_00] Not once am I actually looking at it.
+
+[SPEAKER_00] I just hit allow all, but I feel more in control if I hit allow
+
+[SPEAKER_00] all.
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] It's like I'm my position's more defensible when it deletes the
+
+[SPEAKER_00] entire code base.
+
+[SPEAKER_00] Um okay.
+
+[SPEAKER_00] We got sheets with uh who do we like against the spread in the
+
+[SPEAKER_00] finalist tonight?
+
+[SPEAKER_00] So this is um tonight, even though the pod's out tomorrow.
+
+[SPEAKER_00] I have no clue.
+
+[SPEAKER_00] I'll just say the uh I don't even know what the spread is.
+
+[SPEAKER_00] I guess I'll say the Spurs, but I guess they're probably huge
+
+[SPEAKER_00] favorites.
+
+[SPEAKER_00] But uh I'll take the Spurs.
+
+[SPEAKER_00] Small favorites, Spurs, uh actually, I'll take I'll take
+
+[SPEAKER_00] the Knicks because uh they're more rested.
+
+[SPEAKER_00] There we go.
+
+[SPEAKER_00] SPEAKER_02: Okay, yeah, they haven't accounted for that yet,
+
+[SPEAKER_00] so that's my um rest vs Rusty.
+
+[SPEAKER_00] We can get into one of those.
+
+[SPEAKER_00] Um no, I I'm on the Spurs pretty heavy for the series.
+
+[SPEAKER_00] Uh I took some look at headlines on the Spurs for game one.
+
+[SPEAKER_00] So uh I made the full heel turn after being on the Thunder all
+
+[SPEAKER_00] season.
+
+[SPEAKER_00] Uh by game seven, I like actually was pro net Spurs,
+
+[SPEAKER_00] which felt yeah, we I talked about this.
+
+[SPEAKER_00] Uh or Shipper said something about this.
+
+[SPEAKER_00] He's like, it feels disgusting to like change your loyalties
+
+[SPEAKER_00] after cheering for a team all season.
+
+[SPEAKER_00] But uh that's basically I like I was cheering for Thunder all
+
+[SPEAKER_00] season.
+
+[SPEAKER_00] Uh and by game seven, I was actually on the other side of
+
+[SPEAKER_00] the bet, uh, which felt gross.
+
+[SPEAKER_00] So now I have to fully lean in.
+
+[SPEAKER_00] Uh that's sick though.
+
+[SPEAKER_00] Like, yeah, yeah, yeah.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] It just it feels disgusting after cheering for SGA for so
+
+[SPEAKER_00] long and be like, this flopper.
+
+[SPEAKER_00] Now I gotta like be like he's falling down all the time.
+
+[SPEAKER_00] What's going on?
+
+[SPEAKER_00] SPEAKER_00: Um but yeah, that's so common in golf because it's
+
+[SPEAKER_00] like individuals too.
+
+[SPEAKER_00] So like one week you're just rooting for somebody and you're
+
+[SPEAKER_00] like, I hope this guy fucking chokes and ruins his whole life
+
+[SPEAKER_00] now, like the next week.
+
+[SPEAKER_00] SPEAKER_02: Do you ever get this kind of happens uh in basketball
+
+[SPEAKER_00] in like in some of the awards markets?
+
+[SPEAKER_00] I feel it has to happen so much more in golf.
+
+[SPEAKER_00] Do you ever kind of get pissed when there's a player you like
+
+[SPEAKER_00] and then the market catches up and actually like moves ahead of
+
+[SPEAKER_00] you, and you're like, well, no, like I should still get credit
+
+[SPEAKER_00] because I liked him before.
+
+[SPEAKER_00] Like absolutely now is ahead of you, and you're like, it kind of
+
+[SPEAKER_00] sucks because you're like infuriating, especially when
+
+[SPEAKER_00] they win and you don't bet them.
+
+[SPEAKER_00] SPEAKER_00: Yeah, it's not allowed to until I win.
+
+[SPEAKER_00] Yeah, once I win, then after that, you can increase the price
+
+[SPEAKER_00] of that person.
+
+[SPEAKER_00] SPEAKER_02: Oh, yeah.
+
+[SPEAKER_00] So I never even thought about that.
+
+[SPEAKER_00] Like they're coming up in second or third, and you have them on
+
+[SPEAKER_00] all these outrights, and then the market goes ahead of them,
+
+[SPEAKER_00] and you never actually win one of the outrights.
+
+[SPEAKER_00] SPEAKER_00: Yeah, like Cam Young is a good example of that.
+
+[SPEAKER_00] Uh good news was Tommy Fleetwood lost so much that nobody thought
+
+[SPEAKER_00] he could actually win.
+
+[SPEAKER_00] So we were we did actually still get a good price on him when he
+
+[SPEAKER_00] won, but there's been plenty of examples of that, that over the
+
+[SPEAKER_00] years for sure.
+
+[SPEAKER_00] And it's so infuriating.
+
+[SPEAKER_00] So infuriating.
+
+[SPEAKER_00] The worst feeling in golf betting, I think.
+
+[SPEAKER_00] Um we got uh this was this is uh you you alluded to this question
+
+[SPEAKER_00] earlier.
+
+[SPEAKER_00] We got Thon.
+
+[SPEAKER_00] Actually, I saw he is on circles off.
+
+[SPEAKER_00] I haven't I haven't I haven't gotten the time for pods today,
+
+[SPEAKER_00] but I gotta uh gotta check that out.
+
+[SPEAKER_00] Love Thon.
+
+[SPEAKER_00] What's the smallest most slash most most niche market you've
+
+[SPEAKER_00] sunk way too much time into on call sheet PMs?
+
+[SPEAKER_00] SPEAKER_02: Uh so like the bad answer to the correct answer to
+
+[SPEAKER_00] his question is I spent a ton of time uh researching the New York
+
+[SPEAKER_00] mayor market uh and then like actually didn't bet it at all,
+
+[SPEAKER_00] but like really like dove deep into it uh because the liquidity
+
+[SPEAKER_00] was there.
+
+[SPEAKER_00] Um a great story with that.
+
+[SPEAKER_00] I'll tell that so I go through and I research and I look into
+
+[SPEAKER_00] and when I say research, like I don't want to oversell it here.
+
+[SPEAKER_00] I had ChatGPT do deep research and then asked it questions.
+
+[SPEAKER_00] Like, let's be honest on there.
+
+[SPEAKER_00] Uh it was still when I was using ChatGPT um rather than claw.
+
+[SPEAKER_00] SPEAKER_00: Oh yeah, throwback.
+
+[SPEAKER_00] SPEAKER_02: Yeah, throwback.
+
+[SPEAKER_00] So uh, but I like looked into previous mayor results, like
+
+[SPEAKER_00] primary results, and looked at the difference between like, you
+
+[SPEAKER_00] know, the primary, like how much did the uh Democratic primary
+
+[SPEAKER_00] did they win by in their first matchup?
+
+[SPEAKER_00] And like compared these going back like all these years, and I
+
+[SPEAKER_00] look at it and I'm like I messaged Fluff about it, and I
+
+[SPEAKER_00] tell him, hey, you know, like I don't think this margin of
+
+[SPEAKER_00] victory by Mandami is quite as big as everyone is making it out
+
+[SPEAKER_00] to be, based on like historic results.
+
+[SPEAKER_00] And he goes, I was like, granted, I don't know that much
+
+[SPEAKER_00] about this market, uh, but like I don't think like it's as big
+
+[SPEAKER_00] as everyone's making it out to be.
+
+[SPEAKER_00] And he messaged me back, are you kidding?
+
+[SPEAKER_00] Like seven or I can't remember what the percentage, but that's
+
+[SPEAKER_00] a huge percent.
+
+[SPEAKER_00] Uh like in politics, that's a monster percent.
+
+[SPEAKER_00] And he sends me back a map of fucking Ronald Reagan's victory,
+
+[SPEAKER_00] and he was like, This was considered a landslide victory.
+
+[SPEAKER_00] I was like, Well, I understand in the general term of uh
+
+[SPEAKER_00] fucking politics, like this percentage huge.
+
+[SPEAKER_00] I'm talking about this specific market of like Democratic
+
+[SPEAKER_00] primaries in New York, and he's like super time, just sends me
+
+[SPEAKER_00] back a map of Ronald Reagan being like 1984, like 7% is
+
+[SPEAKER_00] massive, like comparing it to the president.
+
+[SPEAKER_00] I was like, I understand.
+
+[SPEAKER_00] SPEAKER_00: The presidential election.
+
+[SPEAKER_00] SPEAKER_02: The presidential election, this is slightly
+
+[SPEAKER_00] different, like a more nuanced conversation, but then I didn't
+
+[SPEAKER_00] end up betting it.
+
+[SPEAKER_00] SPEAKER_00: Um, but and Flock probably ended up betting it and
+
+[SPEAKER_00] stole your information.
+
+[SPEAKER_00] SPEAKER_02: Yeah, and actually he was like, Yeah, my name is
+
+[SPEAKER_00] locked away, I'm sure.
+
+[SPEAKER_00] Then he made tons on it and like total, like actually made
+
+[SPEAKER_00] private while I'm you know the nerd looking up all the answers.
+
+[SPEAKER_00] Um so I looked, I actually took my Cal sheet, I saw Thon's
+
+[SPEAKER_00] question before, and I like uploaded uh all my transactions
+
+[SPEAKER_00] from CalShi and to call it and was like, give me the most
+
+[SPEAKER_00] random ones from it.
+
+[SPEAKER_00] So uh it looks like I had about 90 contracts on the Coldplay CEO
+
+[SPEAKER_00] scandal.
+
+[SPEAKER_00] Um I had a small amount on Stephon Diggs and Cardi B to get
+
+[SPEAKER_00] engaged to not get engaged.
+
+[SPEAKER_00] I guess it really just against voting on love.
+
+[SPEAKER_00] Uh between Brad and McKelcey um one.
+
+[SPEAKER_00] We'll dig into that on the I had uh I did a ton of uh research.
+
+[SPEAKER_00] This is one where I got killed.
+
+[SPEAKER_00] Was I did a ton of research on some of the Epstein list stuff
+
+[SPEAKER_00] and just got absolutely crushed by all of it.
+
+[SPEAKER_00] SPEAKER_00: Um plus your psyche must have just been kind of
+
+[SPEAKER_00] hurting after that.
+
+[SPEAKER_00] SPEAKER_02: Yeah, you know, it's basically just not only did I
+
+[SPEAKER_00] have to see you know my hero Jay-Z get named in the list, I
+
+[SPEAKER_00] had to lose money on it.
+
+[SPEAKER_00] So um, but that was one of those, like it was a macro,
+
+[SPEAKER_00] should have paid more close, kind of got rules cucked on it
+
+[SPEAKER_00] and should have paid more attention to it.
+
+[SPEAKER_00] SPEAKER_00: The Jay-Z one was like mentioned because of his
+
+[SPEAKER_00] like album or something, or yeah.
+
+[SPEAKER_00] SPEAKER_02: So they like they if it was they released so many
+
+[SPEAKER_00] documents, and yeah, you could be mentioned it like someone
+
+[SPEAKER_00] could be like Obama was talking on the TV and be like, oh, Obama
+
+[SPEAKER_00] got mentioned in the Epstein showing, yeah.
+
+[SPEAKER_00] Yeah, so and I was on no for like everybody and just got
+
+[SPEAKER_00] crushed.
+
+[SPEAKER_00] So um, so that was a tough one.
+
+[SPEAKER_00] I did Dancing with the Stars, like I mentioned, um, and uh
+
+[SPEAKER_00] Will Trump comment on Taylor Swift.
+
+[SPEAKER_00] Those are some of the dumbest markets that I've been in.
+
+[SPEAKER_00] SPEAKER_00: Okay, those are pretty dumb.
+
+[SPEAKER_00] I mine was uh I did a so I I don't know if you watch any
+
+[SPEAKER_00] YouTube golf.
+
+[SPEAKER_00] Your your friend Kirk Evans loves it over at uh circles
+
+[SPEAKER_00] back, but um Bryson De Chambeau is also a YouTube golfer and a
+
+[SPEAKER_00] professional real golfer, and he was sponsored by Call She.
+
+[SPEAKER_00] Like one day it like came out.
+
+[SPEAKER_00] It's like Bryson's being sponsored by Callsry, and
+
+[SPEAKER_00] they're like, okay, we're gonna put all these like YouTube
+
+[SPEAKER_00] Bryson markets up.
+
+[SPEAKER_00] And I was like, all right, you know, let's see.
+
+[SPEAKER_00] Like one of them was like, how many course records will he
+
+[SPEAKER_00] break on YouTube in the upcoming year?
+
+[SPEAKER_00] And so I like read the rules.
+
+[SPEAKER_00] I went back to all of his course record videos, figured out like
+
+[SPEAKER_00] if he broke the course record by how much, um, or by how much did
+
+[SPEAKER_00] he not break it?
+
+[SPEAKER_00] And I started like, there's so many strikes.
+
+[SPEAKER_00] There's like one, two, three, right.
+
+[SPEAKER_00] But yeah, you basically have to know two things, like how many
+
+[SPEAKER_00] videos do you think he will release, like what's his cadence
+
+[SPEAKER_00] of releasing his videos, and then like what's his chance per
+
+[SPEAKER_00] per video.
+
+[SPEAKER_00] Um so then I was like, okay, I'm gonna like put all these prices
+
+[SPEAKER_00] up.
+
+[SPEAKER_00] And then I realized like the prices that whoever had put like
+
+[SPEAKER_00] the first prices up were they were so wrong because a tie
+
+[SPEAKER_00] wasn't counting as breaking it, and they had like eight plus on
+
+[SPEAKER_00] there as a strike, and like his historic rate of like like
+
+[SPEAKER_00] breaking a course record, he basically what he does is he
+
+[SPEAKER_00] goes to a course and in one go he tries to break the course
+
+[SPEAKER_00] record on on film, and like while like yes, he's probably
+
+[SPEAKER_00] like the best player that has played that course, it's still
+
+[SPEAKER_00] like hard to break a course record in one shot, and on the
+
+[SPEAKER_00] call should rule is like he has to do it and not tie it.
+
+[SPEAKER_00] And I had him like breaking like one or two, um most of the time
+
+[SPEAKER_00] in that season, and their strikes were like going up to
+
+[SPEAKER_00] eight.
+
+[SPEAKER_00] I was like, this is ridiculous.
+
+[SPEAKER_00] So whatever.
+
+[SPEAKER_00] I I post all these things, and and the the problem was like
+
+[SPEAKER_00] they actually took it down and then relaunched the market as
+
+[SPEAKER_00] ties count because they of how like how bad Bryson was like,
+
+[SPEAKER_00] This is ridiculous, everyone's betting on me to get like one
+
+[SPEAKER_00] course record, like ties should count, or what it's just like
+
+[SPEAKER_00] bad optically.
+
+[SPEAKER_00] It was like this guy sucks.
+
+[SPEAKER_00] SPEAKER_02: It's not an interesting question if it's
+
+[SPEAKER_00] one, right?
+
+[SPEAKER_00] Like if it's seven, then it's interesting, right?
+
+[SPEAKER_00] SPEAKER_00: Right.
+
+[SPEAKER_00] So so that that was one where it was obviously a waste of time
+
+[SPEAKER_00] because it didn't do any volume, and they just changed the entire
+
+[SPEAKER_00] market after.
+
+[SPEAKER_00] Um, all right, we have the flop question.
+
+[SPEAKER_00] So flop had a few, and then it bled into uh his boy Clar's uh
+
+[SPEAKER_00] asking more golf one.
+
+[SPEAKER_00] But okay, question one is something I disagree with you
+
+[SPEAKER_00] on.
+
+[SPEAKER_00] I think I think the one thing that I disagree with you on a
+
+[SPEAKER_00] macro sense is I still like Goker.
+
+[SPEAKER_00] And I know you're yeah, yeah.
+
+[SPEAKER_00] I understand that he doesn't treat him at all.
+
+[SPEAKER_00] SPEAKER_02: Well, let's get what did Flop Angeli say?
+
+[SPEAKER_00] SPEAKER_00: What is one thing GP disagrees with Peanut about had
+
+[SPEAKER_00] to be real since GP likes to agree with everyone.
+
+[SPEAKER_00] So okay, I like Goker.
+
+[SPEAKER_00] He's I think like as a as a person, he's a reasonable
+
+[SPEAKER_00] person.
+
+[SPEAKER_00] He obviously is pursuing um prediction markets and sports
+
+[SPEAKER_00] books differently on Twitter, where it feels like he's
+
+[SPEAKER_00] probably consulting for sports books, and that's kind of
+
+[SPEAKER_00] talking, he's kind of talking his book, and that's where his
+
+[SPEAKER_00] bread's buttered.
+
+[SPEAKER_00] But if you read his actual newsletter, it's pretty good.
+
+[SPEAKER_00] Like he he puts a lot of the good information on there.
+
+[SPEAKER_00] It's it's much different than his uh tweets.
+
+[SPEAKER_00] And then if you like DM with them, it's also like he's a he's
+
+[SPEAKER_00] a reasonable dude.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I saw him, he and uh the other guy uh who's
+
+[SPEAKER_00] kind of the opposite side of the coin is like Audi um is like the
+
+[SPEAKER_00] prediction market.
+
+[SPEAKER_00] Literally every news that comes out is actually super great for
+
+[SPEAKER_00] prediction markets and stuff.
+
+[SPEAKER_00] Like they both seem, I'll give them, they both seem like pretty
+
+[SPEAKER_00] like they can take a joke, they're pretty reasonable.
+
+[SPEAKER_00] Like in it's just the role that they're meant to play on Twitter
+
+[SPEAKER_00] is the villain.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] So I think their Twitter personas like are much more
+
+[SPEAKER_00] disagreeable than they actually are as people, where they're
+
+[SPEAKER_00] like they seem much more reasonable in every interview
+
+[SPEAKER_00] I've heard with them.
+
+[SPEAKER_00] So yeah, I I totally get what you're saying, as far as like
+
+[SPEAKER_00] Goger is playing a role, and I just the like disingenuoineness
+
+[SPEAKER_00] of it, where it's just like it's so clear that he's never once
+
+[SPEAKER_00] talked about anything DK has done in the prediction market
+
+[SPEAKER_00] space.
+
+[SPEAKER_00] They put out the world's worst product of all time, and it's
+
+[SPEAKER_00] like it's never mentioned once.
+
+[SPEAKER_00] It's the you know, Jason Robbins is ready to attack this market.
+
+[SPEAKER_00] Like it's just a laugh.
+
+[SPEAKER_00] SPEAKER_00: Yeah, that's the thing, it's like if like yeah,
+
+[SPEAKER_00] he does have reasonable and Like if he was to do the same thing.
+
+[SPEAKER_00] Oh, yeah, yeah, yeah.
+
+[SPEAKER_00] He seemed like I was gonna say, if he did the same thing for for
+
+[SPEAKER_00] DK, we would all love him because like his actual
+
+[SPEAKER_00] commentary is like when he's like being critical, is like
+
+[SPEAKER_00] funny and stuff that we would we would agree with, but it's just
+
+[SPEAKER_00] that he doesn't apply it to DraftKings and Vanduel or or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] And that is I agree, like that's that's frustrating, but like I
+
+[SPEAKER_00] do like him still.
+
+[SPEAKER_00] SPEAKER_02: Yeah, he does play, he does play a role, like he has
+
+[SPEAKER_00] a role in the system.
+
+[SPEAKER_00] I I've given him, like I said, I gave him two PB journalism
+
+[SPEAKER_00] awards.
+
+[SPEAKER_00] I saw that.
+
+[SPEAKER_00] So I I believe in him there um and what he's doing.
+
+[SPEAKER_00] And but yeah, I I get what you're saying.
+
+[SPEAKER_00] SPEAKER_00: Okay, so we have we have a question for you from
+
+[SPEAKER_00] Flop.
+
+[SPEAKER_00] Uh, if you construct a team of only college players with one
+
+[SPEAKER_00] week to prepare versus the NFL team drafting first next season,
+
+[SPEAKER_00] what would the spread in total be?
+
+[SPEAKER_00] What would be the spread in total if you had an entire
+
+[SPEAKER_00] off-season to prepare?
+
+[SPEAKER_00] So I guess this is like part who do you how do you construct your
+
+[SPEAKER_00] team?
+
+[SPEAKER_00] And then Yeah.
+
+[SPEAKER_00] SPEAKER_02: So the best way to, I think, to think about it is
+
+[SPEAKER_00] like, okay, how would the all rookie team do?
+
+[SPEAKER_00] And then you're gonna have to, I'm in his hypothetical, let's
+
+[SPEAKER_00] say we don't have you know perfect, we're not perfect
+
+[SPEAKER_00] evaluators, right?
+
+[SPEAKER_00] Like we won't get the all-rookie team, but that's just the best
+
+[SPEAKER_00] way to evaluate, I guess, like what is the ceiling of a
+
+[SPEAKER_00] rookie's or whatever.
+
+[SPEAKER_00] I the very like natural instinct is like there's the dipshit
+
+[SPEAKER_00] who's like, oh, they you know, the Raiders suck, they'll beat
+
+[SPEAKER_00] the Raiders by a ton.
+
+[SPEAKER_00] And then like the midwit, when you get to the like middle of
+
+[SPEAKER_00] the bell curve, it's like, oh my god, NFL teams are so
+
+[SPEAKER_00] unbeatable.
+
+[SPEAKER_00] You see this with there was like the question, Wemby on a suite
+
+[SPEAKER_00] on the would Wemby on a 16 seed win the NTA tournament.
+
+[SPEAKER_00] There's like the person who's like, you don't understand how
+
+[SPEAKER_00] great these professional athletes are.
+
+[SPEAKER_00] Like, there's no way they could compete.
+
+[SPEAKER_00] I do think like once you talk about once you're getting to
+
+[SPEAKER_00] just all first rounders, there is like a level where it's like,
+
+[SPEAKER_00] holy shit, you're gonna get like the best rookie wide receiver,
+
+[SPEAKER_00] the best like neighbors.
+
+[SPEAKER_00] Yeah, it's like neighbors, what would like neighbors, uh, the
+
+[SPEAKER_00] top two defensive ends of the class, like they're all gonna be
+
+[SPEAKER_00] there.
+
+[SPEAKER_00] I think like in the details of Fluff's question, if you're
+
+[SPEAKER_00] talking on you only get one week to prepare, is actually quite a
+
+[SPEAKER_00] big deal because college players play in such different systems.
+
+[SPEAKER_00] You basically are eliminating like half the players from the
+
+[SPEAKER_00] pool because they simply wouldn't be able to mesh with
+
+[SPEAKER_00] one another.
+
+[SPEAKER_00] Like in the NFL, it's not obviously McVeigh's running a
+
+[SPEAKER_00] different system than like a coach who's running a more
+
+[SPEAKER_00] shotgun-based approach, or like Stefanski is notorious for going
+
+[SPEAKER_00] under center and kind of rolling his quarterbacks out versus
+
+[SPEAKER_00] coaches who are more out of shotgun, uh, like the Bengals or
+
+[SPEAKER_00] whatever, don't go under center.
+
+[SPEAKER_00] But the offenses still are like the same general concept.
+
+[SPEAKER_00] Where in college, it's like you might have one guy if a team is
+
+[SPEAKER_00] running a power running system like in Iowa, they just can't
+
+[SPEAKER_00] play with the Baylor guys in a week.
+
+[SPEAKER_00] Like you wouldn't be able to run an offense, you wouldn't be able
+
+[SPEAKER_00] to create an offense that everybody understood.
+
+[SPEAKER_00] So you basically would have to get rid of like half the pool.
+
+[SPEAKER_00] So this is just a long way of saying, I have no idea.
+
+[SPEAKER_00] I'll say if they only get a week to practice, make the line team
+
+[SPEAKER_00] who's picking number one 21 and a half.
+
+[SPEAKER_00] Uh, if I get a full all-season to practice, nine and a half.
+
+[SPEAKER_00] SPEAKER_00: Okay.
+
+[SPEAKER_00] SPEAKER_02: Maybe seven and a half.
+
+[SPEAKER_00] SPEAKER_00: That's pretty good.
+
+[SPEAKER_00] Yeah, I was gonna say, I was like, damn.
+
+[SPEAKER_00] Um, fair enough.
+
+[SPEAKER_00] Uh then we have uh a Scotty.
+
+[SPEAKER_00] We have a Scotty, we have some Scotty ones for real sport.
+
+[SPEAKER_00] GP uh assume Scotty is plus 500 to win the US Open.
+
+[SPEAKER_00] What if what is he if he cannot use any caddy?
+
+[SPEAKER_00] So he has to literally get somebody who knows nothing to
+
+[SPEAKER_00] just carry his clubs around.
+
+[SPEAKER_00] So he doesn't have to carry his own clubs, but it would be like
+
+[SPEAKER_00] somebody who knows absolutely nothing.
+
+[SPEAKER_00] SPEAKER_02: Do you think that's like multiple?
+
+[SPEAKER_00] SPEAKER_00: Through a whole tournament?
+
+[SPEAKER_00] Could be, yeah.
+
+[SPEAKER_00] It could be like somewhere over one stroke, I would say.
+
+[SPEAKER_00] Yeah, at least, especially like at these courses that they play,
+
+[SPEAKER_00] these championships at really big hilly courses.
+
+[SPEAKER_00] Yeah, you get tired, like four rounds carrying your bag.
+
+[SPEAKER_00] I could see it mattering like one to two strokes.
+
+[SPEAKER_00] Um, so he has his guy carrying his clubs, but he doesn't get
+
+[SPEAKER_00] Ted Scott.
+
+[SPEAKER_00] I think he would get.
+
+[SPEAKER_00] I don't think like I think his decision making would all be
+
+[SPEAKER_00] pretty spot on.
+
+[SPEAKER_00] Like that's obviously a strength of him and and Ted, but like
+
+[SPEAKER_00] they've done it for so long.
+
+[SPEAKER_00] Like, I think Scotty knows what to do.
+
+[SPEAKER_00] I think he'd get pretty like bored or like annoyed out there,
+
+[SPEAKER_00] not having anybody to talk to about stuff for four whole days.
+
+[SPEAKER_00] Like, I think his concentration would probably suffer.
+
+[SPEAKER_00] So if he's plus 500 and he doesn't get Ted Scott, and he
+
+[SPEAKER_00] just gets some rando.
+
+[SPEAKER_00] I mean, he put his pastor on the bag one one day when Ted Scott
+
+[SPEAKER_00] couldn't come.
+
+[SPEAKER_00] SPEAKER_02: How much how much does a good caddy to a shitty
+
+[SPEAKER_00] caddy like what do you I mean I get like I'm saying the best
+
+[SPEAKER_00] caddy on the tour to let's not say the worst, but like you
+
+[SPEAKER_00] know, the tenth percentile caddy.
+
+[SPEAKER_00] How many strokes do you think that could mean?
+
+[SPEAKER_00] SPEAKER_00: Almost nothing.
+
+[SPEAKER_00] Like maybe like point point one, point two, something, something
+
+[SPEAKER_00] like that.
+
+[SPEAKER_00] Like I think most of it's all gonna be like mental with the
+
+[SPEAKER_00] players, you know.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it's just gonna be thin, kind of how much
+
+[SPEAKER_00] yeah, exactly.
+
+[SPEAKER_00] Exactly.
+
+[SPEAKER_00] Exactly.
+
+[SPEAKER_00] Scotty's caddy is worth more to Scotty than he is to where you
+
+[SPEAKER_00] know, to exactly.
+
+[SPEAKER_00] SPEAKER_00: Like if Ted Scott went to Rory, it wouldn't be the
+
+[SPEAKER_00] same thing.
+
+[SPEAKER_00] But uh yeah, I don't know.
+
+[SPEAKER_00] I I'd probably make him maybe plus 600 or plus 650.
+
+[SPEAKER_00] It wouldn't be a crazy jump, but I I I would certainly ding him
+
+[SPEAKER_00] like slightly with a manual adjustment.
+
+[SPEAKER_00] But I don't think like I think everybody who's done golf
+
+[SPEAKER_00] modeling, like there's no really good way to measure how good a
+
+[SPEAKER_00] caddy is.
+
+[SPEAKER_00] SPEAKER_02: Um it's so ingrained, right?
+
+[SPEAKER_00] To like right, it's part of your it's the it's baked into the
+
+[SPEAKER_00] cake, essentially.
+
+[SPEAKER_00] SPEAKER_00: Exactly.
+
+[SPEAKER_00] Like, so like I don't think anybody has like caddy numbers
+
+[SPEAKER_00] or whatnot.
+
+[SPEAKER_00] So I would probably just hand wave it and just knock them a
+
+[SPEAKER_00] little bit.
+
+[SPEAKER_00] How much then?
+
+[SPEAKER_00] Oh, sorry, good.
+
+[SPEAKER_00] SPEAKER_02: How much do you think?
+
+[SPEAKER_00] Say you got Scotty's caddy and like all Scotty's resources.
+
+[SPEAKER_00] How much do you think it knocks off your strokes if you get them
+
+[SPEAKER_00] for a month?
+
+[SPEAKER_00] SPEAKER_00: Oh, a month.
+
+[SPEAKER_00] Um I have all yeah, maybe a stroke, a stroke and a half,
+
+[SPEAKER_00] okay, something like that.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] I mean, like, that's a lot, like it's gonna take a lot of time.
+
+[SPEAKER_00] I don't know.
+
+[SPEAKER_00] SPEAKER_02: I mean that's just I was like, oh, okay.
+
+[SPEAKER_00] SPEAKER_00: Like it's like a lot.
+
+[SPEAKER_00] I mean, that would move me.
+
+[SPEAKER_00] Like, I'm I'm trying to be scratch, right?
+
+[SPEAKER_00] I'm a 2.5, like with Ted Scott in a month, I could be a 1.5, a
+
+[SPEAKER_00] one, like that would be a crazy jump.
+
+[SPEAKER_00] So I I do think like if I got to play every round with Ted Scott
+
+[SPEAKER_00] and he knew my game and and whatever, that Scott is caddy,
+
+[SPEAKER_00] but like I would think I would probably be at least a stroke
+
+[SPEAKER_00] better, I think.
+
+[SPEAKER_00] SPEAKER_02: Yeah.
+
+[SPEAKER_00] What if you're playing a course Ted Scott knows you are just
+
+[SPEAKER_00] going in, you don't know it?
+
+[SPEAKER_00] Like, how much of a difference does he make?
+
+[SPEAKER_00] Like if you're playing a brand new course, huge.
+
+[SPEAKER_00] SPEAKER_00: Like that would be multiple, multiple strokes.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] If we were playing my home course, like it wouldn't be as
+
+[SPEAKER_00] big of an impact.
+
+[SPEAKER_00] But yeah, going to a new course, that would be yeah, I I could
+
+[SPEAKER_00] see it being two to three to four strokes.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Something like that.
+
+[SPEAKER_00] Because you're you it only takes like one really, really bad
+
+[SPEAKER_00] decision to cost you like three strokes on a new two strokes on
+
+[SPEAKER_00] a new course.
+
+[SPEAKER_00] So yeah, for that that that's a good, that's a good corollary.
+
+[SPEAKER_00] Um, okay, Scotty plus 500 to win the US Open.
+
+[SPEAKER_00] This is from Clark's he gets his caddy.
+
+[SPEAKER_00] I love that.
+
+[SPEAKER_00] It's it's because it's built on Chris's uh question.
+
+[SPEAKER_00] But one random club is removed from his bag before the
+
+[SPEAKER_00] tournament and he can't replace it.
+
+[SPEAKER_00] He also has no idea it's happening until he reaches for
+
+[SPEAKER_00] it.
+
+[SPEAKER_00] What's his new fare?
+
+[SPEAKER_00] Um and then it's like how many random clubs removed until he's
+
+[SPEAKER_00] over a hundred to one fare.
+
+[SPEAKER_00] Uh well, it would matter because if he got his putter or his
+
+[SPEAKER_00] driver removed, it would it would really change his fare.
+
+[SPEAKER_00] Um so, but that's only you have a one in seven chance of hitting
+
+[SPEAKER_00] a key club.
+
+[SPEAKER_00] So I guess I mean you could do the math on this.
+
+[SPEAKER_00] Like, let's say, okay, if he loses his driver, his putter, he
+
+[SPEAKER_00] goes from plus 500 to like does he have any chance if he loses
+
+[SPEAKER_00] his putter?
+
+[SPEAKER_00] He has a chance.
+
+[SPEAKER_00] Scary to say, but he has a chance.
+
+[SPEAKER_00] He could pop it as well.
+
+[SPEAKER_00] SPEAKER_02: How much do you think a putter is worth?
+
+[SPEAKER_00] SPEAKER_00: For Scotty?
+
+[SPEAKER_00] Uh for yeah.
+
+[SPEAKER_00] No, no, that that not that many.
+
+[SPEAKER_00] Not that many, but it's probably worth three to four, two to
+
+[SPEAKER_00] three, three to four, two to four.
+
+[SPEAKER_00] Around.
+
+[SPEAKER_00] This is a round.
+
+[SPEAKER_00] SPEAKER_02: Okay, okay.
+
+[SPEAKER_00] SPEAKER_00: So um, let's call it two around, two and a half
+
+[SPEAKER_00] around, something like that.
+
+[SPEAKER_00] These pros can like blade their wedge and kind of make it work.
+
+[SPEAKER_00] SPEAKER_02: It probably gets better by the end of the
+
+[SPEAKER_00] tourney, right?
+
+[SPEAKER_00] Like you absolutely, yeah, yeah.
+
+[SPEAKER_00] SPEAKER_00: Like he'll figure it out.
+
+[SPEAKER_00] Like, yeah, for sure.
+
+[SPEAKER_00] The first round will be difficult, he'll get used to it.
+
+[SPEAKER_00] Um, US Open, like it's gonna be less about making birdies.
+
+[SPEAKER_00] So he's actually like gonna be this isn't gonna be as big of an
+
+[SPEAKER_00] issue for him at a US Open.
+
+[SPEAKER_00] And uh, but it will be a big issue.
+
+[SPEAKER_00] So let's just say like without his putter, he becomes like 70
+
+[SPEAKER_00] to 1 or something.
+
+[SPEAKER_00] Um, and then without his driver, he becomes 25 to 1, 30 to 1,
+
+[SPEAKER_00] something like that.
+
+[SPEAKER_00] So okay, so I would just say like those are the numbers, and
+
+[SPEAKER_00] then we could we could run the math.
+
+[SPEAKER_00] Um how many random clubs removed until it's uh over 100 to one
+
+[SPEAKER_00] fair?
+
+[SPEAKER_00] You would I mean once you hit his driver and his putter, like
+
+[SPEAKER_00] you're he's fucked.
+
+[SPEAKER_00] SPEAKER_02: So yeah, you how many irons like you have to
+
+[SPEAKER_00] basically I mean it the iron question is like how many are in
+
+[SPEAKER_00] a row, right?
+
+[SPEAKER_00] Like I just it almost has to get to like the putter and driver,
+
+[SPEAKER_00] right?
+
+[SPEAKER_00] It almost yeah, or at least one of them and then like three
+
+[SPEAKER_00] irons in a row.
+
+[SPEAKER_00] SPEAKER_00: Yeah, exactly, exactly, exactly.
+
+[SPEAKER_00] So my guess would be like five or six clubs.
+
+[SPEAKER_00] Like there's other like semi-key clubs, like I'm sure his lot his
+
+[SPEAKER_00] lob wedge would be his third key club.
+
+[SPEAKER_00] Um so yeah, say like five or six would would put him over a
+
+[SPEAKER_00] hundred to one.
+
+[SPEAKER_00] And then if Scotty knew beforehand what would he how
+
+[SPEAKER_00] would he change his bag, he would bring two two drivers and
+
+[SPEAKER_00] two putters, and then he would take out, he would regap the
+
+[SPEAKER_00] rest for the rest of his irons to be like a little bit
+
+[SPEAKER_00] different.
+
+[SPEAKER_00] Um but good question.
+
+[SPEAKER_00] Good question.
+
+[SPEAKER_00] Okay, we got shh oh I skipped Shipper.
+
+[SPEAKER_00] Okay, I can't skip Shipper.
+
+[SPEAKER_00] Wow, I skipped them a while ago.
+
+[SPEAKER_00] Okay, if an odd screen, if odd screens didn't exist, um,
+
+[SPEAKER_00] basically would you make more or less money today and assume that
+
+[SPEAKER_00] so odd screens don't exist, but odds feeds and sports books
+
+[SPEAKER_00] don't exist either.
+
+[SPEAKER_00] This is kind of like the AI question.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I I said I think that, or I guess I didn't
+
+[SPEAKER_00] say anything.
+
+[SPEAKER_00] I uh I think that I would be he said so he said the traders also
+
+[SPEAKER_00] can't look at other books, right?
+
+[SPEAKER_00] Yeah so I I followed up with him and he said no, like they also
+
+[SPEAKER_00] can't look.
+
+[SPEAKER_00] I think that I would make more because I think generally the
+
+[SPEAKER_00] prior of the trader is going to shift so heavily to better is
+
+[SPEAKER_00] unprofitable now that there aren't like the arbors in there,
+
+[SPEAKER_00] like the number of profitable betters is decreasing so heavily
+
+[SPEAKER_00] that they're gonna be so much slower to limit.
+
+[SPEAKER_00] Um, and they're gonna be so much slower to limit because like
+
+[SPEAKER_00] basically if you're winning without an odd screen, like the
+
+[SPEAKER_00] number of people who can do that is so much lesser that like
+
+[SPEAKER_00] they're gonna be so much slower to do it.
+
+[SPEAKER_00] I'm not very like I would not say executing and getting the
+
+[SPEAKER_00] best price always is like a super good skill of mine.
+
+[SPEAKER_00] So I think definitely more profitable.
+
+[SPEAKER_00] SPEAKER_00: It's huge for you.
+
+[SPEAKER_00] SPEAKER_02: Yeah, like I think that this is like basically
+
+[SPEAKER_00] would be, you know, my gift would be let's get this odd
+
+[SPEAKER_00] screen out of there.
+
+[SPEAKER_00] Uh, if I could get rid of it for everybody else, that would be a
+
+[SPEAKER_00] pretty big benefit.
+
+[SPEAKER_00] Um, I will say, like, more when I was betting like college
+
+[SPEAKER_00] football, um, like when I was more focused on main lines in
+
+[SPEAKER_00] general, it would be much more detrimental to me.
+
+[SPEAKER_00] Now I've kind of shifted my focus to you know, beat up on
+
+[SPEAKER_00] the easy stuff, go bet, like you know, shoot uh SGP angles, bet
+
+[SPEAKER_00] uh straight props, stuff like that.
+
+[SPEAKER_00] It just it's gonna help me so much more now uh than it would
+
+[SPEAKER_00] like a little bit ago.
+
+[SPEAKER_00] SPEAKER_00: Yeah, yeah, true.
+
+[SPEAKER_00] SPEAKER_02: I think golf would be so hard without like a market
+
+[SPEAKER_00] fair to come up with these longer shots.
+
+[SPEAKER_00] SPEAKER_00: God, if if dra if if data golf didn't exist, I don't
+
+[SPEAKER_00] know.
+
+[SPEAKER_00] Yeah, it would be great.
+
+[SPEAKER_00] It would be great.
+
+[SPEAKER_00] SPEAKER_02: I would be so I guess how much does line chop or
+
+[SPEAKER_00] does I guess if they can't look at theirs, their numbers are
+
+[SPEAKER_00] gonna be, but like I feel like without a market sense, it would
+
+[SPEAKER_00] be much harder to bet on the tail, like these 50 to 80 to
+
+[SPEAKER_00] ones.
+
+[SPEAKER_00] No, do you like think no, not as much?
+
+[SPEAKER_00] SPEAKER_00: Like no, I would say like it's I guess you have the
+
+[SPEAKER_00] previous clothes.
+
+[SPEAKER_00] Yeah, you're you're also oh yeah, I didn't even think about
+
+[SPEAKER_00] that, but we could just use the previous clothes.
+
+[SPEAKER_00] So that would be even better case of you know, but I guess
+
+[SPEAKER_00] sportsbox can use the previous clothes.
+
+[SPEAKER_00] No, I I would say it's it it's it's not that big of a deal
+
+[SPEAKER_00] because you're just you're basically like all of golf
+
+[SPEAKER_00] modeling is gonna be through a sim anyway.
+
+[SPEAKER_00] So like if your sim's good, it should win at the tails and at
+
+[SPEAKER_00] the meat of the distribution, right?
+
+[SPEAKER_00] Like in the the golf, the sports books to build out a golf, like
+
+[SPEAKER_00] a really good golf sim, it's like it's not really worth their
+
+[SPEAKER_00] time, you know.
+
+[SPEAKER_00] Like they golf isn't like the most popular sport, but it's a
+
+[SPEAKER_00] very complicated complicated sim to build, and like they can just
+
+[SPEAKER_00] get numbers from data golf and kind of like move them around.
+
+[SPEAKER_00] Like what they're gonna have to do to now put up good numbers is
+
+[SPEAKER_00] is it's a long journey for them if they don't have their own
+
+[SPEAKER_00] sims.
+
+[SPEAKER_00] Yeah, and I think it would be really good.
+
+[SPEAKER_00] SPEAKER_02: Yeah, and I guess I was thinking of it as like,
+
+[SPEAKER_00] okay, the tales of a like a sport onbetting are like it's
+
+[SPEAKER_00] really hard to get to the fair price of alt in the NBA without
+
+[SPEAKER_00] having uh without like it's really hard to price an alt
+
+[SPEAKER_00] without knowing the other markets.
+
+[SPEAKER_00] Like it's just there's way so much uncertainty.
+
+[SPEAKER_00] But with golf, because it's like the main thing and you're always
+
+[SPEAKER_00] going for tail outcomes, you're it's not like the same
+
+[SPEAKER_00] uncertainty doesn't exist, right?
+
+[SPEAKER_00] It's like it doesn't right, it's not the same betting a golf
+
+[SPEAKER_00] outright, even though the probabilities are similar to
+
+[SPEAKER_00] betting uh, you know, eight plus threes.
+
+[SPEAKER_00] Like they're just fundamentally different questions, even if the
+
+[SPEAKER_00] odds are in the same range.
+
+[SPEAKER_00] So yeah, I guess I was kind of viewing it through the prism of
+
+[SPEAKER_00] like, you know, I think it's really hard to price the tail
+
+[SPEAKER_00] outcomes of a college football game uh without an odd screen or
+
+[SPEAKER_00] somebody else helping you do the work, essentially, where you're
+
+[SPEAKER_00] like, okay, I know I want to target variants in this spot,
+
+[SPEAKER_00] but golf, because the population pool is you know what it is,
+
+[SPEAKER_00] it's just you're gonna have more odds.
+
+[SPEAKER_00] Like it's not as unique of a problem.
+
+[SPEAKER_00] SPEAKER_00: And everybody everybody who wins is basically
+
+[SPEAKER_00] a tail outcome besides Scott.
+
+[SPEAKER_00] Yeah, yeah.
+
+[SPEAKER_00] Like what you would consider to be a tail outcome.
+
+[SPEAKER_00] So it's like, but I there's a there's a question to go off of
+
+[SPEAKER_00] that.
+
+[SPEAKER_00] Any advice for back testing markets that have very few
+
+[SPEAKER_00] results, like golf outrights, and finishes.
+
+[SPEAKER_00] Um, I currently I test against benchmark models.
+
+[SPEAKER_00] I think that's probably data golf and sharp line, so like
+
+[SPEAKER_00] Chris, um, but potential to disguise edges, miscalibration.
+
+[SPEAKER_00] So I think like it's really hard to run a golf outright finish
+
+[SPEAKER_00] sim because you have to like you have to or back test because you
+
+[SPEAKER_00] have to like re-sim the whole tournament.
+
+[SPEAKER_00] You can't just be like, oh, this is the outright price, you know,
+
+[SPEAKER_00] like I would have spit out with some simple math.
+
+[SPEAKER_00] Like to price an outright, you have to simplify to do it.
+
+[SPEAKER_00] Yeah.
+
+[SPEAKER_00] So I have an outright back test that takes still takes all
+
+[SPEAKER_00] night.
+
+[SPEAKER_00] Um, that one's computationally heavy.
+
+[SPEAKER_00] But what I would do, what I would say is like, you know, you
+
+[SPEAKER_00] test your sim against outright top five, top 10, top 20, make
+
+[SPEAKER_00] cut.
+
+[SPEAKER_00] And that way you, you know, outright and top five share a
+
+[SPEAKER_00] lot of the same um characteristics.
+
+[SPEAKER_00] You know, they're both kind of long shot.
+
+[SPEAKER_00] Um you know, you're gonna get those more frequently if you
+
+[SPEAKER_00] have, if you as a player have a higher standard deviation,
+
+[SPEAKER_00] basically.
+
+[SPEAKER_00] Like you should get outrights above your skill level and top
+
+[SPEAKER_00] fives.
+
+[SPEAKER_00] So it does help.
+
+[SPEAKER_00] And to a certain extent, top tens, but then top 20s and make
+
+[SPEAKER_00] cuts, it's like the flip.
+
+[SPEAKER_00] So it allows you to kind of calibrate through the mix of
+
+[SPEAKER_00] it's basically like this is what I predicted.
+
+[SPEAKER_00] Like, did that kind of play out across the board?
+
+[SPEAKER_00] Instead of being like, I'm just trying to predict golf
+
+[SPEAKER_00] outrights.
+
+[SPEAKER_00] It's like, well, if you just do that, it's gonna be very
+
+[SPEAKER_00] difficult to actually get any confidence in your back test
+
+[SPEAKER_00] because this person's right.
+
+[SPEAKER_00] It's like you only have a couple a year.
+
+[SPEAKER_00] SPEAKER_02: R right.
+
+[SPEAKER_00] Basically, you can test the whole distribution of your model
+
+[SPEAKER_00] if you do all the markets rather than if you just do outrights.
+
+[SPEAKER_00] You're never gonna create a sample size.
+
+[SPEAKER_00] It's kind of like uh you can do like pairing sampling to see if
+
+[SPEAKER_00] something is like you can create basically a bigger population
+
+[SPEAKER_00] pool by expanding the number of markets you're back testing.
+
+[SPEAKER_00] If you like, you can make you can have more confidence in a
+
+[SPEAKER_00] well-calibrated model if you're testing everything as opposed to
+
+[SPEAKER_00] outrights.
+
+[SPEAKER_00] You're just never going to be able to have a sample size large
+
+[SPEAKER_00] enough to like feel good about it's like trying to test on if
+
+[SPEAKER_00] you were doing only alt lines on like college football, you'd be
+
+[SPEAKER_00] like, there's no way like I feel can feel good about this, but
+
+[SPEAKER_00] can I feel good about like if I do you know spread, money, line,
+
+[SPEAKER_00] total?
+
+[SPEAKER_00] It's like if my spread, money, line, and total are all coming
+
+[SPEAKER_00] out equal, you'll just feel much more confident than if you just
+
+[SPEAKER_00] start doing like some weird random event.
+
+[SPEAKER_00] SPEAKER_00: Exactly.
+
+[SPEAKER_00] Exactly.
+
+[SPEAKER_00] That's exactly right.
+
+[SPEAKER_00] Um there any questions that you really wanted to hit that we
+
+[SPEAKER_00] haven't hit yet.
+
+[SPEAKER_00] SPEAKER_02: Clar's hit a long one about Wemby that was good.
+
+[SPEAKER_00] I just think it's gonna take too long for us.
+
+[SPEAKER_00] Okay, you want to do it?
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] SPEAKER_00: We we can give us the the great.
+
+[SPEAKER_00] Claris is just gonna yell at the end of the question.
+
+[SPEAKER_00] SPEAKER_02: He said I could give me permission.
+
+[SPEAKER_00] SPEAKER_00: Yeah, he wanna give it to you.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Sorry, Claris.
+
+[SPEAKER_00] We did we did the golf one.
+
+[SPEAKER_00] Um the good uh when was the last time you yelled at somebody?
+
+[SPEAKER_00] Yellow at my dad like a while ago.
+
+[SPEAKER_00] I'm not a yellow.
+
+[SPEAKER_00] As everybody knows, I like to go.
+
+[SPEAKER_00] I think like it's it's been a while probably before my dad's
+
+[SPEAKER_00] just really custom.
+
+[SPEAKER_00] Something about like moving a table, like no, actually I
+
+[SPEAKER_00] yelled at my dad.
+
+[SPEAKER_00] It's just my dad.
+
+[SPEAKER_00] Sometimes where uh basically he didn't want to I was like busy
+
+[SPEAKER_00] because it doesn't work anymore.
+
+[SPEAKER_00] And he was like, you need to do this.
+
+[SPEAKER_00] I'm like, I'm busy, you don't fucking do anything, you do it.
+
+[SPEAKER_00] Something like that.
+
+[SPEAKER_00] SPEAKER_02: Wow, that's really mean.
+
+[SPEAKER_00] So I'm going with a much more fruitful example of I let I got
+
+[SPEAKER_00] into an argument last weekend where I got into a yelling.
+
+[SPEAKER_00] Uh it was uh or two weekends ago, sorry.
+
+[SPEAKER_00] Uh, Buddy's Bachelor Party.
+
+[SPEAKER_00] We got into an argument over.
+
+[SPEAKER_00] So a while back, there was a conversation of how many tacos
+
+[SPEAKER_00] from Taco Bell could I eat in one setting?
+
+[SPEAKER_00] SPEAKER_00: Yeah.
+
+[SPEAKER_00] SPEAKER_02: I said I could do 20.
+
+[SPEAKER_00] I only did 15, but it was really like it was the taste of the
+
+[SPEAKER_00] tacos that limited me.
+
+[SPEAKER_00] Rather, like it just once you eat the same food repetitive.
+
+[SPEAKER_00] I said by the spirit of the question, I got it correct
+
+[SPEAKER_00] because like I could have ate more and like it turned into a
+
+[SPEAKER_00] yelling match.
+
+[SPEAKER_00] So um yours much more serious.
+
+[SPEAKER_00] You're screaming at your poor dad about moving a table.
+
+[SPEAKER_00] Me, meanwhile, I'm yelling at my friend about uh the number of
+
+[SPEAKER_00] tacos that could be eaten in one setting.
+
+[SPEAKER_00] Uh mind you, a competition that we did, I think, eight years
+
+[SPEAKER_00] ago.
+
+[SPEAKER_00] SPEAKER_00: Irrelevant.
+
+[SPEAKER_00] Wow.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Okay.
+
+[SPEAKER_00] Sounds pretty good.
+
+[SPEAKER_00] And that that that's that's a good one there.
+
+[SPEAKER_00] Um we talked about kind of college versus pro, so there's
+
+[SPEAKER_00] another LSU Cleveland Browns question.
+
+[SPEAKER_00] SPEAKER_02: Um, I'll just say on that half, uh, everybody uses
+
+[SPEAKER_00] 2019 LSU as the team for that example.
+
+[SPEAKER_00] Uh the 2001 Miami Hurricanes were a better college.
+
+[SPEAKER_00] Team.
+
+[SPEAKER_00] Um, and they are the team that you should use for any
+
+[SPEAKER_00] hypotheticals we're doing the best college team of all time.
+
+[SPEAKER_00] SPEAKER_00: Okay, there you go.
+
+[SPEAKER_00] I think that's a good that's a good answer to that question.
+
+[SPEAKER_00] Lifestyle, okay.
+
+[SPEAKER_00] How much money is enough none money?
+
+[SPEAKER_00] Can we retire?
+
+[SPEAKER_00] We've already answered this, as we would still bet on sports.
+
+[SPEAKER_00] So um one part of that question was like, what life events are
+
+[SPEAKER_00] you comfortable missing to grind edges?
+
+[SPEAKER_00] Like that I'll still I want to go to anything I actually want
+
+[SPEAKER_00] to go to, is basically it.
+
+[SPEAKER_00] I'm willing to say no to stuff I don't want to go to.
+
+[SPEAKER_00] And then if I want to go to it, I'm I'm there.
+
+[SPEAKER_00] And that's how I split it up.
+
+[SPEAKER_00] Like, I don't go to things I feel like I have to go to, I'll
+
+[SPEAKER_00] just say I gotta work.
+
+[SPEAKER_00] SPEAKER_02: Yeah, I I would say that I was like, I really did
+
+[SPEAKER_00] all like somebody else also asked about like work-life
+
+[SPEAKER_00] balance, um, and you know, how do you manage that?
+
+[SPEAKER_00] I would say that I did a really poor job of early on, I just
+
+[SPEAKER_00] grinded the shit out of everything and like really went
+
+[SPEAKER_00] hard.
+
+[SPEAKER_00] And now have like once you kind of reach a little bit where
+
+[SPEAKER_00] you're like, oh, I don't have to work.
+
+[SPEAKER_00] Like, there is almost like uh plane taking off, like you have
+
+[SPEAKER_00] to get to crazing altitude.
+
+[SPEAKER_00] And when you're in that zone of like trying to make sure you can
+
+[SPEAKER_00] do it, like I think it actually is plus EV to like okay, miss a
+
+[SPEAKER_00] couple things while you're really in the building stage,
+
+[SPEAKER_00] and that's okay.
+
+[SPEAKER_00] And like you can make it up on the back end.
+
+[SPEAKER_00] Now you don't want your whole life to be this thing where
+
+[SPEAKER_00] you're like grinding and eventually like I can actually
+
+[SPEAKER_00] have fun in two years or something like that.
+
+[SPEAKER_00] Like, you know what I mean?
+
+[SPEAKER_00] You can get to a point where you do it too much, but there is
+
+[SPEAKER_00] like because this there's like asymmetric returns in gambling.
+
+[SPEAKER_00] I do think there is a point where you just grind it, grind
+
+[SPEAKER_00] it, grind it until you get to a point where you're comfortable,
+
+[SPEAKER_00] and then you it's like it's hard to pull back because you've been
+
+[SPEAKER_00] used to this for doing this for so long.
+
+[SPEAKER_00] And I would say that sometimes I struggle pulling back, but I
+
+[SPEAKER_00] think there is like a point you have to get like an escape
+
+[SPEAKER_00] velocity to reach, and then you can start to do everything, like
+
+[SPEAKER_00] not everything you want, but you know, it's much easier.
+
+[SPEAKER_00] SPEAKER_00: Yeah, 100% agree.
+
+[SPEAKER_00] I'd say people are more more prone to peg to less work than
+
+[SPEAKER_00] more, and like that stage is very important for just and
+
+[SPEAKER_00] nobody's gonna understand it.
+
+[SPEAKER_00] Like, people are gonna be like, wow, that's crazy that you're
+
+[SPEAKER_00] you know, you're trying to you're not gonna go out and have
+
+[SPEAKER_00] fun with your friends because you want to like figure out if
+
+[SPEAKER_00] the 2017 2019 LSU team could be the 2017 cool routes or
+
+[SPEAKER_00] whatever.
+
+[SPEAKER_00] But it's just like you gotta do it.
+
+[SPEAKER_00] Like it's the the reason it's it's not many people make it.
+
+[SPEAKER_00] SPEAKER_02: So like Yeah, and the there's a pretty thin line
+
+[SPEAKER_00] between I like you're making a decent amount of money, um, have
+
+[SPEAKER_00] you get to look at sports problems all day, and you're a
+
+[SPEAKER_00] loser who didn't make anything.
+
+[SPEAKER_00] SPEAKER_00: So like exactly, exactly.
+
+[SPEAKER_00] It's not uh it's not a linear distribution of results,
+
+[SPEAKER_00] exactly.
+
+[SPEAKER_00] There's keen, you know.
+
+[SPEAKER_00] SPEAKER_02: There's keen there's almost like, yeah, like I said,
+
+[SPEAKER_00] there's an escape velocity where and now like I would say uh
+
+[SPEAKER_00] sometimes I look back, I'm like, oh my god, like I worked, but
+
+[SPEAKER_00] it's like now I don't have to work that hard because of the
+
+[SPEAKER_00] time where I was like doing stupid amounts.
+
+[SPEAKER_00] And a part of it was also I like didn't it the old like adage of
+
+[SPEAKER_00] work smarter, not harder, like that definitely but you like you
+
+[SPEAKER_00] just don't know what you don't know to start.
+
+[SPEAKER_00] So like you basically just have to grind it until you figure
+
+[SPEAKER_00] out, oh, I don't need to work this hard because I figured
+
+[SPEAKER_00] everything out.
+
+[SPEAKER_00] Not everything, right?
+
+[SPEAKER_00] SPEAKER_00: But you know, exactly.
+
+[SPEAKER_00] Yeah, I think I think exactly.
+
+[SPEAKER_00] Um I because I thought about this question, two mulligans per
+
+[SPEAKER_00] hole, do I make the cut at Shinnecock?
+
+[SPEAKER_00] I think so.
+
+[SPEAKER_00] I think so.
+
+[SPEAKER_00] But I'm I'm not a hundred percent sure.
+
+[SPEAKER_00] But I think I probably do.
+
+[SPEAKER_00] Um okay.
+
+[SPEAKER_00] We gotta do a Bayesian, we gotta do a Bayesian update because we
+
+[SPEAKER_00] gotta keep the the um you know, we gotta keep the flow of the
+
+[SPEAKER_00] show right.
+
+[SPEAKER_00] I'm gonna do a very, very Bayesian thing, and I'm gonna do
+
+[SPEAKER_00] my third update on the same thing, making me now I'm at the
+
+[SPEAKER_00] point where the posterior is it's so strong that this opinion
+
+[SPEAKER_00] is 100% correct, and I'll not hear any any dissent on this.
+
+[SPEAKER_00] Apple TV is hands down the best streaming service.
+
+[SPEAKER_00] It's not even remotely close to this.
+
+[SPEAKER_00] You have Silo coming back, Margot's got money problems, is
+
+[SPEAKER_00] new, great.
+
+[SPEAKER_00] Widows, Widows Bay, new, great.
+
+[SPEAKER_00] And then the next thing they're putting out is like this like
+
+[SPEAKER_00] heist thriller with uh uh the main character from Queen's
+
+[SPEAKER_00] Gambit, like that's obviously just gonna be good.
+
+[SPEAKER_00] Like everything they put out is good, and everything that's
+
+[SPEAKER_00] coming out like in Netflix is like one out of 12 is good, and
+
+[SPEAKER_00] it's just that they like spew content and like they make you
+
+[SPEAKER_00] think it's like really valuable.
+
+[SPEAKER_00] But at this point, like even though Netflix puts out like 20
+
+[SPEAKER_00] times the content, I'm still watching more on Apple TV
+
+[SPEAKER_00] because of everything they putting out, they're putting out
+
+[SPEAKER_00] something I want to watch.
+
+[SPEAKER_00] And I I went from like I think they're the second best to like
+
+[SPEAKER_00] they're probably the first, they're definitely the first.
+
+[SPEAKER_00] This is a true Bayesian update that's updated over time as more
+
+[SPEAKER_00] evidence has come in.
+
+[SPEAKER_00] SPEAKER_02: They're kind of like the old what HBO was at its
+
+[SPEAKER_00] peak, right?
+
+[SPEAKER_00] Like every like they might not come out with as much stuff, but
+
+[SPEAKER_00] they're coming out with the six best shows nobody else has ever
+
+[SPEAKER_00] watched.
+
+[SPEAKER_00] Like, no, I feel like every single show I like on there, I'm
+
+[SPEAKER_00] like, have you watched it?
+
+[SPEAKER_00] Like, I really liked uh it's not like the highest quality, not
+
+[SPEAKER_00] like the but I like the John Hammond show.
+
+[SPEAKER_00] SPEAKER_00: Um, that's a great one.
+
+[SPEAKER_00] Friends and neighbors.
+
+[SPEAKER_00] SPEAKER_02: The uh Dark Matter show I watched.
+
+[SPEAKER_00] SPEAKER_00: Um that's another good one.
+
+[SPEAKER_00] SPEAKER_02: Yeah, so like I feel like all the Apple shows I've
+
+[SPEAKER_00] watched every single time I've never like oh oh that's not
+
+[SPEAKER_00] true.
+
+[SPEAKER_00] I had to watch uh I was dragged into watching the one with Reese
+
+[SPEAKER_00] Weatherspoon.
+
+[SPEAKER_00] That one was pretty terrible.
+
+[SPEAKER_00] The morning show.
+
+[SPEAKER_00] The morning show, yeah.
+
+[SPEAKER_00] SPEAKER_00: Honestly, I didn't like the morning show either,
+
+[SPEAKER_00] which is funny because that was like their first show, was like
+
+[SPEAKER_00] the morning show, and people were like, oh, it's really good.
+
+[SPEAKER_00] I never got into it.
+
+[SPEAKER_00] SPEAKER_02: Yeah, it was just yeah, it was like it it really
+
+[SPEAKER_00] feels like a Netflix show in the sense that it's kind of like
+
+[SPEAKER_00] sloppy put together.
+
+[SPEAKER_00] But in general, yeah, they have like they have these shows with
+
+[SPEAKER_00] like huge name actors that like get zero marketing that you're
+
+[SPEAKER_00] like you're it's I think it's just because Apple has so much
+
+[SPEAKER_00] money and they're uh you know, they don't give a shit.
+
+[SPEAKER_00] So they're like, why don't we make one high quality product
+
+[SPEAKER_00] that we can just give people uh while screwing everybody on
+
+[SPEAKER_00] Apple?
+
+[SPEAKER_00] You feel like you're stealing.
+
+[SPEAKER_00] SPEAKER_00: You're like, this is like John Ham, and you know, you
+
+[SPEAKER_00] know, here's Nicole Kidman, and then oh it's it's you know Hugh
+
+[SPEAKER_00] Grant.
+
+[SPEAKER_00] Like every show has like an alias set.
+
+[SPEAKER_00] You're like, and I'm paying like six dollars for it.
+
+[SPEAKER_00] SPEAKER_02: Like zero marketing on any of the show.
+
+[SPEAKER_00] Right, right.
+
+[SPEAKER_00] They exactly like like that dark matter show.
+
+[SPEAKER_00] Nobody ever talked about it.
+
+[SPEAKER_00] I just looked, I was like, Is that Jennifer Connolly's in the
+
+[SPEAKER_00] show?
+
+[SPEAKER_00] Like right, right.
+
+[SPEAKER_00] SPEAKER_00: So right, and they yeah, and it Anna Taylor Joy is
+
+[SPEAKER_00] because she was also in Mad Max too, which is solid.
+
+[SPEAKER_00] But yeah, it's like every show has an A-less actor, and you've
+
+[SPEAKER_00] never seen this is the most advertising they've gotten.
+
+[SPEAKER_00] SPEAKER_02: Is actually on the Yeah, the Apple's gonna break
+
+[SPEAKER_00] this out.
+
+[SPEAKER_00] This is gonna be it's gonna be caught and Apple are like, oh
+
+[SPEAKER_00] finally, those two little companies get a break now that
+
+[SPEAKER_00] they're not gone.
+
+[SPEAKER_00] SPEAKER_00: Thank God.
+
+[SPEAKER_00] Um, but yeah, so that and now I'm I'm officially considering
+
+[SPEAKER_00] that not needed to be updated, the market's settled, so yeah.
+
+[SPEAKER_00] SPEAKER_02: So I'll I'll do my Bayesian update was before our
+
+[SPEAKER_00] conversation about Kaelash, I was like, hey, you know, like
+
+[SPEAKER_00] kind of unhinged, what's going on?
+
+[SPEAKER_00] After our conversation, I think we need him as part of the
+
+[SPEAKER_00] environment to balance out the PM bros.
+
+[SPEAKER_00] Like, I think that he they create by himself, like the the
+
+[SPEAKER_00] PM bros are like an invasive species that's taken a habit of
+
+[SPEAKER_00] sports gambling, and we need a predator like Kaylish to come in
+
+[SPEAKER_00] and like put them down in their place.
+
+[SPEAKER_00] So that's why I'll say that Kaelish is like the proper
+
+[SPEAKER_00] person that we need in the space.
+
+[SPEAKER_00] SPEAKER_00: Okay.
+
+[SPEAKER_00] I'm I'm on board.
+
+[SPEAKER_00] I wouldn't want to lose him, honestly.
+
+[SPEAKER_00] Like if he wasn't on Twitter, uh it wouldn't be as fun.
+
+[SPEAKER_00] So I'm on board with that.
+
+[SPEAKER_00] Um well we may have actually set a record for the longest,
+
+[SPEAKER_00] longest one.
+
+[SPEAKER_00] I'm not 100% sure, but it's pretty close.
+
+[SPEAKER_00] Uh thanks, thanks for coming on and uh doing two hours of of
+
+[SPEAKER_00] this.
+
+[SPEAKER_00] You know, people some people don't have the stamina.
+
+[SPEAKER_00] So I I knew since you had done it with me and SP before, uh, we
+
+[SPEAKER_00] could uh we could get it done.
+
+[SPEAKER_00] But this was a lot of fun.
+
+[SPEAKER_00] Thanks for uh helping us put a show out this week.
+
+[SPEAKER_00] And uh yeah, you have anything for the audience?
+
+[SPEAKER_00] Anything you want to push, plug?
+
+[SPEAKER_00] SPEAKER_02: No, nothing.
+
+[SPEAKER_00] Oh I will say I can't now I like have shit on you guys for I was
+
+[SPEAKER_00] like, oh, you guys always do over two.
+
+[SPEAKER_00] Now I can't do any like jokes about your guys' length of
+
+[SPEAKER_00] episodes because I got on here and just didn't shut the fuck up
+
+[SPEAKER_00] for two hours.
+
+[SPEAKER_00] SPEAKER_00: So it's hard.
+
+[SPEAKER_00] Yeah, it is.
+
+[SPEAKER_00] SPEAKER_02: I don't want you to keep going, you know.
+
+[SPEAKER_00] People have to hear my Apple TV date.
+
+[SPEAKER_00] Well, yeah, exactly.
+
+[SPEAKER_00] SPEAKER_00: Like the third for the third time.
+
+[SPEAKER_00] Like people need to hear that.
+
+[SPEAKER_00] SPEAKER_02: I gotta repeat myself one more time just so
+
+[SPEAKER_00] people know about Apple TV.
+
+[SPEAKER_00] SPEAKER_00: Um, so yeah, it is hard.
+
+[SPEAKER_00] I'm actually I'm happy that that you've now realized this.
+
+[SPEAKER_00] It it's it's quite difficult.
+
+[SPEAKER_00] So anyway, but thanks everyone for questions um and listening,
+
+[SPEAKER_00] and uh, we will we will see you next week in SP's uh triumphant
+
+[SPEAKER_00] return.

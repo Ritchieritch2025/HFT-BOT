@@ -2,9 +2,9 @@
 // READ-ONLY: sends batch orderbook GETs (never an order) in a tight loop at a
 // known tier and reports how many succeed before the server throttles, so the
 // per-batch token cost can be inferred (tier_read_rate / calls_per_sec) and
-// recorded in the rulebook (T9). Requires a real demo/prod key.
+// recorded in the rulebook (T9). Requires a real prod key.
 //
-// Env: KALSHI_ENV (demo|prod), KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH.
+// Env: KALSHI_ENV (prod|prod), KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH.
 // Args: probe_batch_cost <seconds> <ticker> [<ticker> ...]
 
 #include "daemon_util.hpp"
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (rt.env == Env::LocalMock) {
-    std::fprintf(stderr, "[probe] needs a real demo/prod key (KALSHI_ENV=demo)\n");
+    std::fprintf(stderr, "[probe] needs a real prod key (KALSHI_ENV=prod KALSHI_ALLOW_PROD=1)\n");
     return 2;
   }
 

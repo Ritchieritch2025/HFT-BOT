@@ -1,0 +1,9 @@
+HTTP/2 200 
+date: Tue, 07 Jul 2026 03:16:16 GMT
+content-type: application/json
+cache-control: public, max-age=15
+content-security-policy: default-src 'none';
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-kalshi-cache-hits: 1
+

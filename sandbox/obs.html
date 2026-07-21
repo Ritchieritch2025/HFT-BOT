@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kalshi Observatory</title>
+<link rel="stylesheet" href="/uplot/uPlot.min.css"/>
+<!-- W-D1 v5 — DECISION-DRIVEN IA. Four zones = four operator questions. Every
+     panel states which question it answers + what action an anomaly triggers.
+     Granularity: distribution>average, breakdown>global, baseline>bare number.
+     REAL data only (obs_server.py). uPlot vendored; SSE push. -->
+<style>
+  :root{--bg:#0a0d11;--panel:#0e1319;--border:#1c2733;--grid:#161f28;--text:#c3cdd7;
+    --muted:#5a6672;--head:#7d8b98;--line:#6f93ad;--green:#3fb950;--amber:#d29922;--red:#f85149;--dim:#48535e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:12px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .wrap{max-width:1520px;margin:0 auto;padding:0 12px 30px}
+  .num{text-align:right}.mut{color:var(--muted)}.hd{color:var(--head)}
+  .g{color:var(--green)}.a{color:var(--amber)}.r{color:var(--red)}.d{color:var(--dim)}
+  header{display:flex;align-items:center;gap:14px;padding:7px 12px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);z-index:9;font-size:11.5px}
+  .brand{font-weight:700;letter-spacing:.5px}.brand .k{color:var(--line)}
+  .hl{margin-left:auto;display:flex;gap:14px;align-items:center;color:var(--muted)}.hl b{color:var(--text)}
+  .tick{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block}.tick.down{background:var(--red)}
+  /* zone banners */
+  .zone{display:flex;align-items:baseline;gap:10px;margin:14px 0 2px;padding:0 2px}
+  .zone .q{font-weight:700;font-size:13px;letter-spacing:.4px}
+  .zone .n{color:var(--line);font-weight:700}
+  .zone .sub{color:var(--muted);font-size:10.5px;margin-left:auto}
+  .row{display:grid;gap:8px}
+  .r4{grid-template-columns:repeat(4,1fr)}.r3{grid-template-columns:repeat(3,1fr)}.r2{grid-template-columns:2fr 1fr}
+  @media(max-width:1000px){.r4,.r3,.r2{grid-template-columns:1fr 1fr}}
+  .panel{border:1px solid var(--border);border-radius:2px;background:var(--panel)}
+  .panel>.h{display:flex;align-items:center;gap:8px;padding:4px 9px;border-bottom:1px solid var(--border);
+    font-size:10.5px;letter-spacing:.5px;color:var(--head);text-transform:uppercase}
+  .panel>.h .m{margin-left:auto;color:var(--muted);text-transform:none;letter-spacing:0;font-size:10px}
+  .ask{padding:3px 9px;border-bottom:1px solid var(--grid);font-size:10px;color:var(--muted);background:#0b0f14}
+  .ask b{color:var(--head);font-weight:600}.ask .act{color:var(--amber)}
+  .body{padding:7px 9px}
+  table.t{width:100%;border-collapse:collapse;font-size:11px}
+  table.t td{padding:3px 6px;border-bottom:1px solid var(--grid)}table.t tr:last-child td{border-bottom:0}
+  table.t td.s{text-align:right;white-space:nowrap}
+  .big{font-size:20px;font-weight:700}.u{color:var(--muted);font-size:10px}
+  .kpi{display:flex;align-items:baseline;gap:6px}
+  /* baseline band bar */
+  .band{position:relative;height:26px;background:#0a0f14;border:1px solid var(--border);border-radius:2px;margin-top:4px}
+  .band .base{position:absolute;top:0;bottom:0;background:rgba(111,147,173,.22);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .band .p50{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+  .band .cur{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--green)}
+  .band.bad .cur{background:var(--red)}
+  /* heatmap */
+  table.hm{border-collapse:collapse;font-size:9.5px;width:100%}
+  table.hm th{color:var(--muted);font-weight:500;padding:2px 4px;text-align:center;font-size:9px}
+  table.hm td.c{color:var(--head);padding:2px 6px 2px 2px;white-space:nowrap;text-align:left;font-size:10px}
+  table.hm td.cell{width:34px;height:16px;text-align:center;border:1px solid var(--bg);color:#0a0d11;font-size:8.5px}
+  /* distribution bars */
+  .dist{display:flex;flex-direction:column;gap:4px;padding-top:2px}
+  .dist .b{display:flex;align-items:center;gap:8px}
+  .dist .b .l{width:38px;color:var(--head)}
+  .dist .b .bar{flex:1;height:14px;background:#0a0f14;border:1px solid var(--border)}
+  .dist .b .bar>i{display:block;height:100%}
+  .dist .b .v{width:56px;text-align:right}
+  /* clean-day cells */
+  .cd{display:flex;gap:4px;margin-top:5px}
+  .cd .day{flex:1;text-align:center;padding:5px 0;border:1px solid var(--border);border-radius:2px;font-size:9.5px}
+  .cd .day.ok{background:#12261a;color:var(--green);border-color:#1d4a30}
+  .cd .day.gaps{background:#2b1416;color:var(--red);border-color:#4a1e22}
+  .cd .day.noscan{background:#181d24;color:var(--dim)}
+  .badge{font-weight:700}.note{padding:3px 9px;color:var(--muted);font-size:9.5px}
+  [data-prov]{cursor:pointer}[data-prov]:hover{outline:1px solid var(--line);outline-offset:-1px}
+  .provtag{color:var(--line);font-size:9px;border:1px solid var(--border);border-radius:2px;padding:0 3px;margin-left:5px;cursor:pointer}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:440px;max-width:92vw;background:#0b0f14;
+    border-left:1px solid var(--line);z-index:20;transform:translateX(100%);transition:transform .12s;
+    display:flex;flex-direction:column}
+  #drawer.open{transform:none}
+  #drawer .dh{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--head)}
+  #drawer .dh .x{margin-left:auto;cursor:pointer;color:var(--muted);font-size:14px}
+  #drawer .dbody{padding:11px 12px;overflow:auto;font-size:10.5px}
+  #drawer pre{white-space:pre-wrap;word-break:break-all;color:var(--text);margin:6px 0 0}
+  #drawer .src{color:var(--line)}#drawer .fp{color:var(--muted);word-break:break-all}
+  #drawer table{width:100%;border-collapse:collapse;margin-top:6px}#drawer td{border-bottom:1px solid var(--grid);padding:2px 4px}
+  #ov{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:19;display:none}#ov.open{display:block}
+  /* ④ incident timeline */
+  .itl{position:relative;height:46px;background:#0a0f14;border:1px solid var(--border);border-radius:2px;overflow:hidden;margin-top:2px}
+  .itl .day{position:absolute;top:0;bottom:0;border-left:1px solid #131b23}
+  .itl .daylbl{position:absolute;bottom:0;font-size:8px;color:var(--muted);transform:translateX(2px)}
+  .itl .gap{position:absolute;top:6px;height:15px;background:var(--red);opacity:.82;cursor:pointer}
+  .itl .gap.pinned{background:#ff3b30;opacity:1;box-shadow:0 0 0 1px #fff}
+  .itl .rec{position:absolute;top:6px;height:15px;width:2px;background:#5aa2ff}
+  .itl .err{position:absolute;top:24px;height:15px;width:3px;background:var(--amber);cursor:pointer}
+  .itl .mk.active{outline:2px solid #fff;z-index:4}
+  .itl .guide{position:absolute;top:0;bottom:0;width:1px;background:#fff;opacity:.7;display:none;z-index:3}
+  .itl .pin{position:absolute;top:1px;font-size:8px;color:#fff;background:#ff3b30;padding:0 3px;border-radius:2px;transform:translateX(-50%);white-space:nowrap;z-index:5}
+  .tlleg{padding:5px 0 0;color:var(--muted);font-size:9.5px}
+  .ilist{max-height:210px;overflow:auto;border-top:1px solid var(--border)}
+  .irow{display:flex;gap:9px;align-items:baseline;padding:5px 9px;border-bottom:1px solid var(--grid);cursor:pointer}
+  .irow:hover{background:#10161d}.irow.active{background:#16202b;outline:1px solid var(--line);outline-offset:-1px}
+  .irow.pinned{background:#1c1310;border-left:2px solid #ff3b30}
+  .irow .sev{width:42px;font-weight:700;font-size:10px}.irow .sev.crit{color:var(--red)}.irow .sev.warn{color:var(--amber)}
+  .irow .t{color:var(--muted);width:118px;font-size:10.5px}.irow .msg{flex:1;font-size:11px}
+  .irow .src{color:var(--muted);font-size:9px}
+  .pinbadge{color:#fff;background:#ff3b30;font-size:8.5px;padding:0 4px;border-radius:2px;font-weight:700}
+  .proc{display:flex;align-items:center;gap:7px;padding:3px 0}
+  .proc .st{width:8px;height:8px;border-radius:50%}.proc .st.up{background:var(--green)}.proc .st.down{background:var(--red)}.proc .st.un{background:var(--amber)}
+  .proc .nm{width:88px;color:var(--head)}.proc .meta{margin-left:auto;color:var(--muted);font-size:10px}
+</style></head>
+<body>
+<header>
+  <span class="brand">KALSHI <span class="k">OBSERVATORY</span></span>
+  <span class="hl"><span><span id="tick" class="tick"></span> <span id="conn">connecting</span></span>
+    <span>rate <b id="hz">—</b>/s</span><span>fresh <b id="fr">—</b>ms</span><span id="clk">—</span></span>
+</header>
+<div class="wrap">
+
+  <!-- ================= ZONE ① HEALTHY NOW? ================= -->
+  <div class="zone"><span class="q"><span class="n">①</span> HEALTHY NOW?</span>
+    <span class="sub">live · SSE · is the machine capturing right this second</span></div>
+  <div class="row r4">
+    <div class="panel">
+      <div class="h">PROCESS &amp; FEED LIVENESS <span class="m">pgrep · feed</span></div>
+      <div class="ask">Q: <b>are the daemons up &amp; is data arriving?</b> · <span class="act">⚠ dead proc / age&gt;30s → restart</span></div>
+      <div class="body" id="q1-live"></div>
+    </div>
+    <div class="panel">
+      <div class="h">RATE vs BASELINE <span class="m">now vs 24h-ago band</span></div>
+      <div class="ask">Q: <b>is throughput normal vs same time yesterday?</b> · <span class="act">⚠ below band → investigate feed</span></div>
+      <div class="body" id="q1-base"></div>
+    </div>
+    <div class="panel">
+      <div class="h">CHANNEL BREAKDOWN <span class="m">trade vs ticker /s</span></div>
+      <div class="ask">Q: <b>which channel carries it / is one silent?</b> · <span class="act">⚠ a channel → 0 while other flows</span></div>
+      <div class="body" id="q1-ch"></div>
+    </div>
+    <div class="panel">
+      <div class="h">DISK <span class="m">work/ volume</span></div>
+      <div class="ask">Q: <b>will capture run out of space?</b> · <span class="act">⚠ &gt;85% → prune / expand</span></div>
+      <div class="body" id="q1-disk"></div>
+    </div>
+  </div>
+
+  <!-- ================= ZONE ② DATA USABLE? ================= -->
+  <div class="zone"><span class="q"><span class="n">②</span> DATA USABLE?</span>
+    <span class="sub">is what we captured complete &amp; trustworthy for backtest</span></div>
+  <div class="row r2">
+    <div class="panel">
+      <div class="h">COVERAGE MATRIX <span class="m">manifest.csv · day × category · rows</span></div>
+      <div class="ask">Q: <b>which category/day is thin or missing?</b> · <span class="act">⚠ empty/low cell → check capture+ingest for it</span></div>
+      <div class="body" id="q2-cov" style="overflow:auto"></div>
+      <div class="note">archived days only; today is in staging (not yet archived). cell = row_count, log-shaded green.</div>
+    </div>
+    <div class="panel">
+      <div class="h">LATENCY DISTRIBUTION <span class="m">freshness_ms · p50/p95/p99</span></div>
+      <div class="ask">Q: <b>is the TAIL latency acceptable?</b> · <span class="act">⚠ p99 spike → investigate (avg is banned)</span></div>
+      <div class="body" id="q2-lat"></div>
+    </div>
+  </div>
+  <div class="row r2" style="margin-top:8px">
+    <div class="panel">
+      <div class="h">7-CLEAN-DAYS PROGRESS <span class="m">gap record + evidence</span></div>
+      <div class="ask">Q: <b>how close to the capture gate?</b> · <span class="act">⚠ any gap/no-scan resets the streak</span></div>
+      <div class="body" id="q2-clean"></div>
+    </div>
+    <div class="panel">
+      <div class="h">INTEGRITY COUNTS <span class="m">drop / corrupt (D2)</span></div>
+      <div class="ask">Q: <b>is anything silently dropped/corrupted?</b> · <span class="act">⚠ drop&gt;0 → D2 incident</span></div>
+      <div class="body" id="q2-int"></div>
+    </div>
+  </div>
+
+  <!-- ================= ZONE ③ WHAT'S MISSING FOR TRADING? ================= -->
+  <div class="zone"><span class="q"><span class="n">③</span> WHAT'S MISSING FOR TRADING?</span>
+    <span class="sub">lifecycle gates — the path to a live order</span></div>
+  <div class="panel">
+    <div class="h">LIFECYCLE GATES <span class="m" id="q3-meta">lifecycle_status.json</span></div>
+    <div class="ask">Q: <b>which gate blocks the next phase, and why?</b> · <span class="act">⚠ blocked/unknown → work that gate</span></div>
+    <table class="t" id="q3-gates"></table>
+  </div>
+
+  <!-- ================= ZONE ④ INCIDENT FORENSICS ================= -->
+  <div class="zone"><span class="q"><span class="n">④</span> INCIDENT FORENSICS</span>
+    <span class="sub">what broke, when, did it recover — click an incident to pin it on the timeline</span></div>
+  <div class="panel">
+    <div class="h">TIMELINE — gap · reconnect · error on one axis <span class="m" id="q4-meta"></span></div>
+    <div class="ask">Q: <b>when did capture break &amp; did it recover?</b> · <span class="act">⚠ click a row → jump the timeline to it</span></div>
+    <div class="body" style="padding:8px 9px 6px">
+      <div id="q4-tl" class="itl"></div>
+      <div class="tlleg"><span class="r">▬ gap</span> · <span style="color:#5aa2ff">▎reconnect (recovery)</span> · <span class="a">▎auth/401 · logged</span> · <span style="color:#fff">│ selected</span></div>
+    </div>
+    <div id="q4-list" class="ilist"></div>
+  </div>
+
+  <div class="note" style="margin-top:12px">read-only · localhost · no order/panic (S5) · <b class="hd">times shown in Eastern (EDT/EST auto)</b> — canonical data + partition dates stay UTC (D1) · click any ⌕ or incident to trace / jump to source</div>
+</div>
+<div id="ov"></div>
+<div id="drawer"><div class="dh"><span>PROVENANCE — source of this figure</span><span class="x" id="drawer-x">✕</span></div><div class="dbody" id="drawer-b"></div></div>
+
+<script src="/uplot/uPlot.iife.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const f=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+// DISPLAY timezone = America/New_York (EDT/EST, DST-auto). Canonical DATA stays
+// UTC; only the display is Eastern. Partition dates (coverage / clean-days) stay
+// UTC because that's their warehouse key.
+const _ET="America/New_York";
+const _etT=new Intl.DateTimeFormat("en-US",{timeZone:_ET,hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+const _etMD=new Intl.DateTimeFormat("en-US",{timeZone:_ET,month:"2-digit",day:"2-digit"});
+const _etMDT=new Intl.DateTimeFormat("en-US",{timeZone:_ET,month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+const _etZ=new Intl.DateTimeFormat("en-US",{timeZone:_ET,timeZoneName:"short"}).formatToParts(new Date()).find(p=>p.type==="timeZoneName").value;
+const hms=t=>_etT.format(new Date(t));
+const etMD=t=>_etMD.format(new Date(t));
+const etMDT=t=>_etMDT.format(new Date(t)).replace(", "," ");
+function etMidnight(ms){const p=_etT.formatToParts(new Date(ms));const g=k=>+p.find(x=>x.type===k).value;return Math.floor(ms/1000)*1000-(g("hour")*3600+g("minute")*60+g("second"))*1000;}
+setInterval(()=>$("#clk").textContent=hms(Date.now())+" "+_etZ,1000);
+let LATEST=null;
+// ---- provenance drawer: click any [data-prov] to see the source record ----
+function openProv(p){
+  let h=`<div class="src">${p.source||""}</div>`;
+  if(p.window)h+=`<div class="fp">window: ${p.window}</div>`;
+  if(p.category)h+=`<div class="fp">${p.category} · ${p.date} · <b>${f(p.rows)}</b> rows · median-over-days ${f(p.median_over_days)}</div>`;
+  if(p.files&&p.files.length)h+=`<table>`+p.files.map(x=>`<tr><td>${x.table||''} / ${x.subcategory||''}</td><td style="text-align:right">${f(x.rows)}</td></tr><tr><td colspan="2" class="fp">${x.file_path||''}<br>md5 ${x.md5||''}</td></tr>`).join("")+`</table>`;
+  if(p.per_day)h+=`<table>`+p.per_day.map(d=>`<tr><td>${d.day_ago}d ago · same clock</td><td style="text-align:right">p50 ${f(d.p50)}/s · n=${d.n}</td></tr>`).join("")+`</table>`;
+  if(p.record)h+=`<div class="fp" style="margin-top:6px">raw record:</div><pre>${JSON.stringify(p.record,null,1)}</pre>`;
+  $("#drawer-b").innerHTML=h;$("#drawer").classList.add("open");$("#ov").classList.add("open");
+}
+function closeProv(){$("#drawer").classList.remove("open");$("#ov").classList.remove("open");}
+$("#drawer-x").onclick=closeProv;$("#ov").onclick=closeProv;
+document.addEventListener("click",e=>{const t=e.target.closest("[data-prov]");if(t){e.stopPropagation();try{openProv(JSON.parse(t.dataset.prov));}catch(_){}}});
+const provAttr=o=>`data-prov='${JSON.stringify(o||{}).replace(/'/g,"&#39;")}'`;
+
+function renderHeader(feedLatest,age){
+  const L=feedLatest;if(!L)return;LATEST=L;
+  $("#hz").textContent=f(L.msg_rate_hz);$("#fr").textContent=f(Math.max(0,L.freshness_ms));
+  const stale=age!=null&&age>10;$("#tick").className="tick"+((L.connected&&!stale)?"":" down");$("#conn").textContent=(L.connected&&!stale)?"connected":"stale";
+}
+function renderQ1(q){
+  if(!q)return;
+  // liveness
+  const pr=q.procs||{},fd=q.feed||{};
+  const procRow=(nm,p)=>{const cls=p.alive===true?"up":p.alive===false?"down":"un";
+    return `<div class="proc"><span class="st ${cls}"></span><span class="nm">${nm}</span><span class="meta">${p.alive===true?"pid "+p.pid+" · "+p.etime:p.alive===false?"DOWN":"UNKNOWN"}</span></div>`;};
+  const ageCls=fd.age_s==null?"a":fd.age_s>30?"r":fd.age_s>5?"a":"g";
+  $("#q1-live").innerHTML=procRow("ws_shadow",pr.ws_shadow||{})+procRow("ingest",pr.ingest||{})+procRow("supervisor",pr.supervisor||{})
+    +`<div class="proc" style="border-top:1px solid var(--grid);margin-top:3px;padding-top:6px" ${provAttr(fd.prov)}><span class="nm">feed age</span><span class="meta ${ageCls}">${fd.age_s==null?"UNKNOWN":fd.age_s+"s · "+f(fd.msg_rate_hz)+"/s"} <span class="provtag">⌕</span></span></div>`;
+  // baseline band (multi-day median; auto-degrades past a gap day, mod 2)
+  const b=q.baseline||{},cur=fd.msg_rate_hz||0;
+  if(b.status==="ok"&&!b.degraded){
+    const hi=Math.max(b.hi,cur,1),scale=v=>Math.min(100,100*v/hi);
+    $("#q1-base").innerHTML=`<div class="kpi"><span class="big ${cur<b.lo?'r':'g'}">${f(cur)}</span><span class="u">/s now</span>
+      <span class="u" style="margin-left:auto">band ${f(b.lo)}–${f(b.hi)}</span><span class="provtag" ${provAttr(b.prov)}>⌕</span></div>
+      <div class="band ${cur<b.lo?'bad':''}"><span class="base" style="left:${scale(b.lo)}%;width:${Math.max(1,scale(b.hi)-scale(b.lo))}%"></span>
+      <span class="p50" style="left:${scale(b.p50)}%"></span><span class="cur" style="left:${scale(cur)}%"></span></div>
+      <div class="note" style="padding:4px 0 0">grey = last ${b.ndays}d p10–p90 @ same clock · line = p50 · green = now</div>`;
+  } else if(b.status==="ok"&&b.degraded){
+    $("#q1-base").innerHTML=`<div class="kpi"><span class="big a">${f(cur)}</span><span class="u">/s now</span><span class="provtag" ${provAttr(b.prov)}>⌕</span></div>
+      <div class="note" style="padding:4px 0 0"><span class="a">baseline DEGRADED</span> — the last ${b.ndays} comparable day(s) at this clock-time were themselves in capture gaps, so no trustworthy band. per-day p50: ${(b.days||[]).map(d=>d.day_ago+"d="+f(d.p50)).join(", ")||"none"}. Fills in as clean days accumulate.</div>`;
+  } else $("#q1-base").innerHTML='<div class="a">baseline UNKNOWN (no comparable window)</div>';
+  // channels
+  const c=q.channels||{};
+  if(c.status==="ok"){const tot=c.trades_per_s+c.tickers_per_s||1;
+    $("#q1-ch").innerHTML=`<table class="t">
+      <tr><td>tickers</td><td class="s g">${f(c.tickers_per_s)}/s</td></tr>
+      <tr><td>trades</td><td class="s g">${f(c.trades_per_s)}/s</td></tr></table>
+      <div class="band" style="height:10px"><span class="base" style="left:0;width:${100*c.tickers_per_s/tot}%;background:rgba(63,185,80,.3);border:0"></span>
+      <span class="base" style="left:${100*c.tickers_per_s/tot}%;width:${100*c.trades_per_s/tot}%;background:rgba(111,147,173,.35);border:0"></span></div>`;
+  } else $("#q1-ch").innerHTML='<div class="a">UNKNOWN</div>';
+  // disk
+  const dk=q.disk||{};
+  if(dk.used_pct!=null){const cls=dk.used_pct>85?"r":dk.used_pct>70?"a":"g";
+    $("#q1-disk").innerHTML=`<div class="kpi"><span class="big ${cls}">${f(dk.used_pct,1)}</span><span class="u">% used</span></div>
+      <div class="band" style="height:10px"><span class="base" style="left:0;width:${dk.used_pct}%;background:${dk.used_pct>85?'rgba(248,81,73,.4)':'rgba(63,185,80,.3)'};border:0"></span></div>
+      <div class="note" style="padding:4px 0 0">${f(dk.free_gb,0)} GB free of ${f(dk.total_gb,0)} GB</div>`;
+  } else $("#q1-disk").innerHTML='<div class="a">UNKNOWN</div>';
+}
+function renderQ2(q){
+  if(!q)return;
+  // coverage heatmap — coloured by DEVIATION from the category's own median
+  // (mod 1): a low-but-normal category (near its median) reads green; a real
+  // shortfall (well below median) reads red — distinguishes naturally-small
+  // from capture-missed. Click a cell for its manifest source rows.
+  const cv=q.coverage||{dates:[],matrix:[]};
+  const fmtCell=r=>r<=0?"·":r>=1e6?(r/1e6).toFixed(1)+"M":r>=1e3?(r/1e3).toFixed(0)+"k":r;
+  const covCol=c=>{if(c.rows<=0)return"background:#181d24;color:#48535e";const p=c.pct;
+    if(p==null)return"background:rgba(111,147,173,.28);color:#0a0d11";
+    if(p<=-50)return"background:rgba(248,81,73,.62);color:#0a0d11";
+    if(p<=-20)return"background:rgba(210,153,34,.55);color:#0a0d11";
+    if(p>=40)return"background:rgba(90,162,255,.45);color:#0a0d11";
+    return"background:rgba(63,185,80,.42);color:#0a0d11";};
+  $("#q2-cov").innerHTML=`<table class="hm"><tr><th></th>${cv.dates.map(d=>`<th>${d.slice(5)}</th>`).join("")}</tr>`+
+    cv.matrix.map(m=>`<tr><td class="c">${m.category}</td>${m.cells.map(c=>`<td class="cell" style="${covCol(c)}" ${provAttr(c.prov)} title="${m.category} ${c.date}: ${f(c.rows)} rows · ${c.pct==null?'no baseline':(c.pct>=0?'+':'')+f(c.pct)+'% vs median '+f(c.median)}">${fmtCell(c.rows)}</td>`).join("")}</tr>`).join("")+`</table>`
+    +`<div class="note" style="padding:6px 0 0">colour = vs category's own median (last ${cv.dates.length}d): <span class="r">▼ shortfall</span> · <span class="g">normal</span> · <span style="color:#5aa2ff">▲ thicker</span> · grey none · <b class="hd">click a cell → source</b></div>`;
+  // latency distribution
+  const L=q.latency||{};
+  if(L.p50!=null){const hi=Math.max(L.max,1);const bar=(v,c)=>`<div class="b"><span class="l">${c}</span><div class="bar"><i style="width:${100*v/hi}%;background:${v===L.p99||v===L.max?'var(--amber)':'var(--line)'}"></i></div><span class="v">${f(v)} ms</span></div>`;
+    $("#q2-lat").innerHTML=`<div class="dist">${bar(L.p50,"p50")}${bar(L.p95,"p95")}${bar(L.p99,"p99")}${bar(L.max,"max")}</div>
+      <div class="note" style="padding:5px 0 0">${L.n} samples · <b>p99=${f(L.p99)}ms</b> is the decision number (mean is banned) <span class="provtag" ${provAttr(L.prov)}>⌕ src</span></div>`;
+  } else $("#q2-lat").innerHTML='<div class="a">UNKNOWN — no samples</div>';
+  // clean days
+  const cd=q.clean||{days:[]};
+  $("#q2-clean").innerHTML=`<div class="kpi"><span class="big ${cd.streak>=cd.target?'g':cd.streak>0?'a':'r'}">${cd.streak}</span><span class="u">/ ${cd.target} clean days</span></div>
+    <div class="cd">${cd.days.slice().reverse().map(d=>{const cls=d.evidence==="ok"?"ok":d.evidence==="gaps"?"gaps":"noscan";
+      return `<div class="day ${cls}" title="${d.date}: ${d.evidence}">${d.date.slice(5)}<br>${d.evidence==="ok"?"✓":d.evidence==="gaps"?d.gaps+"g":"?"}</div>`;}).join("")}</div>
+    <div class="note" style="padding:4px 0 0">✓ clean · <span class="r">Ng</span> gaps · <span class="d">?</span> no-scan (evidence required — silence never counts, audit A3)</div>`;
+  // integrity
+  const ct=q.counts||{};
+  $("#q2-int").innerHTML=`<table class="t">
+    <tr><td>recorder dropped</td><td class="s ${ct.recorder_dropped?'r':'g'}">${f(ct.recorder_dropped)}</td></tr>
+    <tr><td>telemetry dropped</td><td class="s ${ct.telemetry_dropped?'r':'g'}">${f(ct.telemetry_dropped)}</td></tr>
+    <tr><td>corrupt lines</td><td class="s a">${(ct.corrupt&&ct.corrupt.status)==="not_persisted"?"not persisted":"—"}</td></tr></table>
+    <div class="note" style="padding:4px 0 0">${ct.corrupt&&ct.corrupt.note?ct.corrupt.note:""}</div>`;
+}
+
+function renderQ3(gates){
+  if(!gates||!gates.stages)return;
+  const lc=s=>(s.status||"").toLowerCase();
+  const cl=s=>["blocked","fail","failed","error"].includes(lc(s))?"r":lc(s)==="unknown"?"a":lc(s)==="not_started"?"d":["pass","passed","ok"].includes(lc(s))?"g":"a";
+  $("#q3-gates").innerHTML=gates.stages.map(s=>{const p=(s.checks||[]).filter(c=>c.status==="pass").length,t=(s.checks||[]).length;
+    return `<tr><td>${s.label||s.id}${s.reason?` <span class="rsn">— ${s.reason}</span>`:t?` <span class="rsn">${p}/${t} checks</span>`:''}</td><td class="s badge ${cl(s)}">${s.status}</td></tr>`;}).join("");
+  $("#q3-meta").textContent=`overall ${gates.overall}`;
+}
+let Q4SPAN=null,Q4INC=null;
+function jumpTo(inc){
+  if(!Q4SPAN)return;const W=Q4SPAN.now_us-Q4SPAN.start_us||1,frac=(inc.start_us-Q4SPAN.start_us)/W*100;
+  const g=$("#q4-tl .guide");if(g){g.style.left=frac+"%";g.style.display="block";}
+  document.querySelectorAll("#q4-tl .mk").forEach(m=>m.classList.toggle("active",m.dataset.id===inc.id));
+  document.querySelectorAll(".irow").forEach(r=>r.classList.toggle("active",r.dataset.id===inc.id));
+  const row=document.querySelector('.irow[data-id="'+(window.CSS&&CSS.escape?CSS.escape(inc.id):inc.id)+'"]');if(row)row.scrollIntoView({block:"nearest"});
+}
+function renderQ4(d){
+  if(!d||!d.incidents)return;Q4SPAN=d.span;Q4INC=d.incidents;
+  const sp=d.span,W=sp.now_us-sp.start_us||1,fr=t=>(t-sp.start_us)/W*100;
+  $("#q4-meta").textContent=`${d.counts.gap} gaps · ${d.counts.auth} auth · ${d.counts.logged} logged · 07-06→now`;
+  let mk="";
+  for(let t=etMidnight(sp.start_us/1000)+86400000;t*1000<sp.now_us;t+=86400000){const x=fr(t*1000);mk+=`<span class="day" style="left:${x}%"></span><span class="daylbl" style="left:${x}%">${etMD(t)}</span>`;}
+  d.incidents.forEach(i=>{const x=fr(i.start_us);
+    if(i.kind==="gap"){const w=Math.max(.15,fr(i.end_us)-x);
+      mk+=`<span class="gap mk${i.pinned?' pinned':''}" data-id="${i.id}" style="left:${x}%;width:${w}%" title="${i.summary}"></span>`;
+      if(i.recover_us)mk+=`<span class="rec" style="left:${fr(i.recover_us)}%"></span>`;
+      if(i.pinned)mk+=`<span class="pin" style="left:${x}%">W-C5?</span>`;
+    } else mk+=`<span class="err mk" data-id="${i.id}" style="left:${x}%" title="${i.summary}"></span>`;});
+  mk+=`<span class="guide"></span>`;$("#q4-tl").innerHTML=mk;
+  $("#q4-list").innerHTML=d.incidents.map(i=>{const iso=etMDT(i.start_us/1000);
+    return `<div class="irow ${i.pinned?'pinned':''}" data-id="${i.id}"><span class="sev ${i.severity}">${i.severity.toUpperCase()}</span>
+      <span class="t">${iso} ET</span><span class="msg">${i.pinned?'<span class="pinbadge">CASE #1</span> ':''}${i.summary}${i.note?'<br><span class="mut" style="font-size:10px">'+i.note+'</span>':''}</span>
+      <span class="src">${i.source}</span></div>`;}).join("");
+  document.querySelectorAll(".irow").forEach(r=>r.onclick=()=>{const i=Q4INC.find(x=>x.id===r.dataset.id);if(i)jumpTo(i);});
+  document.querySelectorAll("#q4-tl .mk").forEach(m=>m.onclick=()=>{const i=Q4INC.find(x=>x.id===m.dataset.id);if(i)jumpTo(i);});
+  if(!window._pinned){const p=d.incidents.find(x=>x.pinned);if(p){jumpTo(p);window._pinned=true;}}
+}
+let ES;
+function connect(){
+  ES=new EventSource("/stream");
+  ES.addEventListener("snapshot",e=>{const d=JSON.parse(e.data);
+    renderHeader(d.feed&&d.feed.latest,d.feed&&d.feed.live_age_s);renderQ1(d.q1);renderQ2(d.q2);renderQ3(d.gates);renderQ4(d.incidents);});
+  ES.addEventListener("feed",e=>{const r=JSON.parse(e.data);renderHeader(r,(Date.now()-r.ts_ms)/1000);});
+  ES.addEventListener("aux",e=>{const d=JSON.parse(e.data);renderQ1(d.q1);renderQ2(d.q2);renderQ3(d.gates);renderQ4(d.incidents);});
+  ES.onerror=()=>{$("#conn").textContent="reconnecting";$("#tick").className="tick down";};
+}
+connect();
+</script>
+</body></html>

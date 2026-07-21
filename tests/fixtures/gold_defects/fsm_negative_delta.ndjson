@@ -1,0 +1,2 @@
+{"ts_utc": 1783305750000000, "market_ticker": "KXFSM-NEG", "msg_type": "snapshot", "yes_levels": [[3000, 50000]], "no_levels": [[6500, 40000]]}
+{"ts_utc": 1783305751000000, "market_ticker": "KXFSM-NEG", "msg_type": "delta", "side": "no", "price_e4": 6500, "delta_e4": -50000}

@@ -29,7 +29,7 @@
 
 ## Hard rules
 
-1. No strategy logic. No new transmission paths. Tier upgrade never runs
+1. No strategy logic. Tier upgrade never runs
    automatically and never from the trading hot path.
 2. Never log KALSHI-ACCESS-KEY, signatures, private keys, or raw auth
    headers. A grep test enforces this.
@@ -47,14 +47,14 @@
 
 | # | Fact | Source |
 |---|---|---|
-| F1 | Hosts: prod `external-api.kalshi.com`, demo `external-api.demo.kalshi.co`; compatibility `api.elections.kalshi.com` / `demo-api.kalshi.co`; same signature scheme on all | api_environments |
+| F1 | Hosts: prod `external-api.kalshi.com`, compatibility `api.elections.kalshi.com`; same signature scheme on all. (The demo hosts `external-api.demo.kalshi.co` / `demo-api.kalshi.co` are no longer supported — the demo environment has been removed and those hosts are not in the allowlist.) | api_environments |
 | F2 | Sign `timestamp_ms + METHOD + path_without_query` (no scheme/host/query); RSA-PSS SHA-256, MGF1-SHA256, salt = digest len, base64; KALSHI-ACCESS-TIMESTAMP is unix **milliseconds** | api_environments, quickstarts |
 | F3 | `GET /trade-api/v2/account/limits` (wire path incl. prefix) → **nested** schema, all four fields REQUIRED: `{usage_tier: string, read: BucketLimit, write: BucketLimit, grants: []}` where `BucketLimit = {refill_rate: int (tokens/s), bucket_capacity: int (max tokens)}` and each grant = `{exchange_instance: "event_contract"\|"margined", level: string, source: "volume"\|"manual", expires_ts?: int64 (absent = permanent)}`. Public tiers: basic, advanced, expert, premier, paragon, prime, prestige | get-account-api-limits OpenAPI v3.23.0 |
 | F4 | Units RESOLVED by v3.23.0: `refill_rate` is explicitly **tokens per second**. Keep the tier-table sanity check as a fallback SAFEGUARD only (warn on mismatch with published budgets; never silently rescale) | get-account-api-limits BucketLimit schema; rate_limits |
 | F5 | `GET /trade-api/v2/account/endpoint_costs` → `{default_cost (currently 10), endpoint_costs: [{method, path, cost}]}`; only non-default entries listed; absent ⇒ default_cost | list-non-default-endpoint-costs OpenAPI |
 | F6 | Read bucket = GET + anything not explicitly routed; Write bucket = order placement, amends, cancels, order groups, RFQ quote flow. (NOT in docs: block-trade accepts — route to Write as ASSUMPTION if desired) | rate_limits |
 | F7 | Bucket capacity IS server-provided: initialize `TokenBucketI64` directly from `read.bucket_capacity` / `write.bucket_capacity`. No hardcoded 1 s / 2 s derivation. (The spec's note that capacity == refill_rate means 1 s of budget and larger values are burst headroom is EXPLANATION, not something to re-derive locally) | get-account-api-limits BucketLimit schema |
-| F8 | Batch order endpoints bill per item: 25 creates × 10 = 250; 25 cancels × 2 = 50. Whole batch must fit at once. Batch READ billing is UNDOCUMENTED ⇒ per-item ASSUMPTION, verify in demo | rate_limits |
+| F8 | Batch order endpoints bill per item: 25 creates × 10 = 250; 25 cancels × 2 = 50. Whole batch must fit at once. Batch READ billing is UNDOCUMENTED ⇒ per-item ASSUMPTION, verify in prod (read-only) | rate_limits |
 | F9 | 429 body `{"error":"too many requests"}`; no Retry-After / X-RateLimit; no cooldown; continuous refill | rate_limits |
 | F10 | `POST /trade-api/v2/account/api_usage_level/upgrade`: costs **30 tokens from the Write bucket**; 201 = permanent **Advanced** grant (Predictions instance only); 403 = "no API-created order in user's last 100 Predictions orders"; still requires signed auth. Resulting grant is visible in F3's `grants` array (`source: "volume"` or `"manual"`) | upgrade-account-api-usage-level OpenAPI |
 | F11 | Costs change server-side (read costs announced to drop below default) ⇒ refresh table periodically | changelog Apr 2026 |
@@ -183,7 +183,7 @@ response, telemetry fields present, secret-grep clean.
 Tasks: batch create = n × cost(POST single); batch cancel = n × cost(single
 cancel); batch reads = n × single-read cost **ASSUMPTION (F8)** unless
 endpoint_costs says otherwise; local rejection if bucket lacks TOTAL cost
-(partial batches never sent). Add the demo-environment empirical probe
+(partial batches never sent). Add the prod (read-only) empirical probe
 script (`tools/probe_batch_cost.sh`: sustained batch-orderbook calls at
 known tier, log throughput to first 429) and record findings in the
 rulebook.

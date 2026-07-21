@@ -1,0 +1,4 @@
+date,market_id,market_ticker,category,close_time,liquidity_tier
+2026-07-06,0,KXNBA-26JUL06-LAL,Sports,2026-07-07T03:00:00Z,high
+2026-07-06,1,KXMLB-26JUL06-NYY,Sports,2026-07-07T02:00:00Z,mid
+2026-07-06,2,KXNBA-26JUL06-LAL,Sports,2026-07-07T03:00:00Z,high

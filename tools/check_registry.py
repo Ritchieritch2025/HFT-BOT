@@ -16,7 +16,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAFETY = {"pure", "offline", "network_read", "live_order"}
-KIND = {"test", "bench", "probe", "daemon", "check", "example"}
+KIND = {"test", "bench", "probe", "daemon", "check", "example", "tool"}
 REQUIRED = ["name", "kind", "safety", "cmd", "description", "docs"]
 # Makefile $(BUILD)/<x> targets that are NOT standalone tools.
 NON_TOOLS = {"ixws", "scratch"}
@@ -56,15 +56,21 @@ def main():
         names.add(n)
 
         cmd = t.get("cmd", "")
-        m = re.match(r"^\./(build/([A-Za-z0-9_]+))$", cmd)
+        cmd0 = cmd.split()[0] if cmd.split() else ""
+        m = re.match(r"^\./(build/([A-Za-z0-9_]+))$", cmd0)
         if m:
             build_bins[m.group(2)] = t
             if require_built and t.get("build") != "on_demand":
                 if not os.path.exists(os.path.join(ROOT, m.group(1))):
                     errs.append("%s: binary %s not built" % (n, m.group(1)))
         else:
-            # script tool: the file must exist (always cheap to check)
-            rel = cmd[2:] if cmd.startswith("./") else cmd
+            # Script/interpreter tool: the script file must exist (always cheap
+            # to check). Accept both ./tools/x.py and python3 tools/x.py forms.
+            parts = cmd.split()
+            script = cmd0
+            if os.path.basename(cmd0) in ("python3", "python", "bash", "sh") and len(parts) > 1:
+                script = parts[1]
+            rel = script[2:] if script.startswith("./") else script
             if not os.path.exists(os.path.join(ROOT, rel)):
                 errs.append("%s: cmd path '%s' does not exist" % (n, cmd))
 

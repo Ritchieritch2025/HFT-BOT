@@ -1,0 +1,6 @@
+[Unit]
+Description=Kalshi alert notifier (oneshot)
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/bin/bash /home/ubuntu/hft-bot/deploy/alert_notify.sh

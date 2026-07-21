@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# 24/7 all-markets data pipeline supervisor — three layers.
+#
+#   LAYER 1  ws_shadow firehose (ticker+trade, ALL markets) appends to hourly
+#            raw logs:   work/raw/date=<YYYY-MM-DD>/firehose_<HH>.ndjson
+#            (ws_shadow opens the capture append-only, so restarts within the
+#            same hour keep appending — no truncation, no data loss)
+#   LAYER 2  tools/ingest.py --loop tails the raw logs every ~60s into
+#            work/warehouse/staging.duckdb (change-only + hourly heartbeats,
+#            checkpointed byte offsets — restart-safe)
+#   LAYER 3  tools/export_day.py archives each completed UTC day (sorted,
+#            zstd-15 Parquet / csv.gz), verifies, manifests, prunes staging
+#
+# Meant to be kept alive by a launchd LaunchAgent
+# (deploy/com.ritcardo.kalshi-pipeline.plist).
+#
+# Credentials are sourced from ~/.kalshi/env.sh which YOU create (never stored
+# by the tooling):
+#   export KALSHI_API_KEY_ID=...
+#   export KALSHI_PRIVATE_KEY_PATH=$HOME/.kalshi/private_key.pem
+#
+# Tunables (env): CATALOG_EVERY_HOURS (default 1), FULL_CATALOG_EVERY_HOURS
+# (default 6), RAW_RETENTION_DAYS (default 2, matches config/warehouse.yaml).
+set -u
+cd "$(dirname "$0")/.."
+
+CREDS="$HOME/.kalshi/env.sh"
+if [ ! -f "$CREDS" ]; then
+  echo "[supervisor] FATAL: $CREDS not found. Create it with your KALSHI_API_KEY_ID"
+  echo "             and KALSHI_PRIVATE_KEY_PATH exports, then reload the LaunchAgent."
+  exit 78   # EX_CONFIG
+fi
+# shellcheck disable=SC1090
+source "$CREDS"
+export KALSHI_ENV=prod KALSHI_ALLOW_PROD=1 KALSHI_MODE=data_collect
+
+CATALOG_EVERY_HOURS="${CATALOG_EVERY_HOURS:-1}"
+FULL_CATALOG_EVERY_HOURS="${FULL_CATALOG_EVERY_HOURS:-6}"
+# 3 -> 2: operator ruling 2026-07-10 (audit B3 disk math) — raw is vaulted
+# to S3 hourly since W-A5, so 2 local days is a safe window on the 200GB box.
+RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-2}"
+
+RAW="work/raw"; LIVE="work/live"; mkdir -p "$RAW" "$LIVE"
+
+# --- single-instance lock: two supervisors = two ws_shadow writers appending --
+# --- to the SAME hourly raw file = interleaved corrupt lines. Never allow it. --
+LOCK="$LIVE/supervisor.lock"
+if mkdir "$LOCK" 2>/dev/null; then
+  echo $$ > "$LOCK/pid"
+elif kill -0 "$(cat "$LOCK/pid" 2>/dev/null)" 2>/dev/null; then
+  echo "[supervisor] another instance (pid $(cat "$LOCK/pid")) is running; exiting"
+  exit 0
+else
+  rm -rf "$LOCK"; mkdir "$LOCK"; echo $$ > "$LOCK/pid"
+fi
+cleanup() {
+  [ -f "$LIVE/ingest.pid" ] && kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null
+  kill "$WATCHDOG_PID" 2>/dev/null
+  [ -n "${WS_PID:-}" ] && kill "$WS_PID" 2>/dev/null
+  rm -rf "$LOCK"
+}
+# W-A5 (audit finding 3): a signal trap in bash RESUMES execution after the
+# handler — the old `trap cleanup EXIT INT TERM` cleaned up and then kept
+# looping, so every systemctl stop escalated to SIGKILL after 30 s. Split:
+# INT/TERM exit(143) -> the EXIT trap runs cleanup exactly once.
+trap cleanup EXIT
+trap 'exit 143' INT TERM
+
+echo "[supervisor] start pid=$$ raw=$RAW retention=${RAW_RETENTION_DAYS}d"
+
+# --- LAYER 2: one ingest daemon, watched every 60s -----------------------------
+ingest_alive() {
+  [ -f "$LIVE/ingest.pid" ] && kill -0 "$(cat "$LIVE/ingest.pid")" 2>/dev/null
+}
+start_ingest() {
+  python3 tools/ingest.py --loop >> "$LIVE/ingest.log" 2>&1 &
+  echo $! > "$LIVE/ingest.pid"
+  echo "[supervisor] ingest daemon started pid=$(cat "$LIVE/ingest.pid")"
+}
+# Watchdog: the main loop blocks inside hour-long ws_shadow runs, so a crashed
+# ingest daemon must be revived independently (skipped during the export pause).
+( while true; do
+    sleep 60
+    # W-C2.1: refresh the live capture-gap alert every cycle. Read-only over raw
+    # (checks the newest firehose segment's freshness), writes ONLY
+    # work/live/capture_alert.json + exits non-zero on an active gap. It never
+    # touches ws_shadow/ingest/export, so it cannot affect capture continuity (P4).
+    python3 tools/capture_gaps.py --live >/dev/null 2>&1
+    [ -f "$LIVE/export_pause" ] && continue
+    ingest_alive || start_ingest
+  done ) &
+WATCHDOG_PID=$!
+
+hour_cycle=0
+LAST_EXPORTED=""
+LAST_SWEPT=""
+while true; do
+  ingest_alive || start_ingest
+
+  # --- reference catalog + classification + dim snapshots (background) --------
+  # W-A4 single-REST-owner gate: these three tools are this script's ONLY REST
+  # spenders. Touch work/live/rest_disabled to run WS-capture-only (zero REST)
+  # during the Mac<->EC2 overlap; remove the flag to become the REST owner.
+  # The skip is logged every cycle — a silently-suppressed catalog is D2 rot.
+  if [ -f "$LIVE/rest_disabled" ]; then
+    echo "[supervisor] REST disabled ($LIVE/rest_disabled present): catalog/classification/dim block skipped this cycle (W-A4 single-REST-owner)"
+  elif [ $((hour_cycle % FULL_CATALOG_EVERY_HOURS)) -eq 0 ]; then
+    ( python3 tools/catalog_sync.py --settled-pages 40 &&
+      python3 tools/build_classification.py &&
+      python3 tools/dim_snapshot.py ) >> "$LIVE/catalog.log" 2>&1 &
+  elif [ $((hour_cycle % CATALOG_EVERY_HOURS)) -eq 0 ]; then
+    ( python3 tools/catalog_sync.py --skip-markets --settled-pages 0 &&
+      python3 tools/build_classification.py ) >> "$LIVE/catalog.log" 2>&1 &
+  fi
+
+  # --- LAYER 3: export any completed UTC day exactly once ----------------------
+  # DuckDB is single-writer: pause the ingest daemon for the export window.
+  YESTERDAY="$(date -u -v-1d +%F 2>/dev/null || date -u -d 'yesterday' +%F)"
+  if [ "$LAST_EXPORTED" != "$YESTERDAY" ]; then
+    touch "$LIVE/export_pause"
+    if ingest_alive; then kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null; sleep 2; fi
+    if python3 tools/export_day.py --date "$YESTERDAY" >> "$LIVE/export.log" 2>&1; then
+      LAST_EXPORTED="$YESTERDAY"
+      echo "[supervisor] exported $YESTERDAY"
+    else
+      # already-archived (write-once) or dead archive path: both are fine to
+      # retry/skip next hour; details are in export.log
+      grep -q "EXPORT PASS\|already archived" "$LIVE/export.log" && LAST_EXPORTED="$YESTERDAY"
+    fi
+    rm -f "$LIVE/export_pause"
+    ingest_alive || start_ingest
+    # W-C2.1: record the just-completed day's capture gaps into the durable
+    # structured record (event_validate V-EP15's source) BEFORE its raw ages out
+    # of the 3-day retention — an unscanned pruned day loses its gaps forever.
+    # Read-only over raw; writes ONLY the derived work/event_packs/capture_gaps.csv.
+    # Backgrounded + placed AFTER the pause is lifted and ingest is back, so it
+    # extends neither the ingest pause nor the ws_shadow relaunch (P4 preserved).
+    python3 tools/capture_gaps.py --date "$YESTERDAY" >> "$LIVE/capture_gaps.log" 2>&1 &
+    # next_actions.md item 1 (operator-approved same-review wiring): daily coverage
+    # audit of the freshly-archived day; a NON-ZERO exit (V15 full-depth set
+    # shrinkage) is surfaced to the supervisor log. Reads the archive (the day is
+    # already exported), not live staging, and is backgrounded — so it contends
+    # with neither the ingest write lock nor the ws_shadow relaunch (P4 preserved).
+    ( python3 tools/coverage_audit.py --date "$YESTERDAY" >> "$LIVE/coverage_audit.log" 2>&1 \
+        || echo "[supervisor] coverage_audit NONZERO for $YESTERDAY (V15 depth shrinkage; see coverage_audit.log)" ) &
+    # daily research refresh on the freshly archived day (read-only, background)
+    ( python3 tools/mm_scan.py --date "$YESTERDAY" &&
+      python3 tools/mm_backtest.py --date "$YESTERDAY" --from-scan 15 &&
+      python3 tools/mm_calibrate.py --date "$YESTERDAY" ) \
+      >> "$LIVE/mm_research.log" 2>&1 &
+  fi
+
+  # --- second-pass export sweep (2026-07-07 incident): the midnight export can
+  # race the ingest backlog, so rows for yesterday landing in staging minutes
+  # later miss the write-once archive (day-06 lost 45.9k trades until force-
+  # re-exported by hand). Once per day, after 02:00 UTC, re-export yesterday
+  # with --force to sweep late-ingested rows before the staging prune window.
+  HOUR_NOW="$(date -u +%H)"
+  if [ "$LAST_EXPORTED" = "$YESTERDAY" ] && [ "$LAST_SWEPT" != "$YESTERDAY" ] \
+     && [ "$HOUR_NOW" -ge 2 ]; then
+    touch "$LIVE/export_pause"
+    if ingest_alive; then kill "$(cat "$LIVE/ingest.pid")" 2>/dev/null; sleep 2; fi
+    if python3 tools/export_day.py --date "$YESTERDAY" --force --no-prune \
+         >> "$LIVE/export.log" 2>&1; then
+      LAST_SWEPT="$YESTERDAY"
+      echo "[supervisor] second-pass sweep exported $YESTERDAY"
+    fi
+    rm -f "$LIVE/export_pause"
+    ingest_alive || start_ingest
+  fi
+
+  # --- LAYER 1: firehose the rest of this UTC hour into the hourly raw log ----
+  DAY="$(date -u +%F)"; HH="$(date -u +%H)"
+  DAYDIR="$RAW/date=$DAY"; mkdir -p "$DAYDIR"
+  CAP="$DAYDIR/firehose_$HH.ndjson"
+  SECS_LEFT=$(( 3600 - 10#$(date -u +%M) * 60 - 10#$(date -u +%S) ))
+  [ "$SECS_LEFT" -lt 30 ] && SECS_LEFT=30
+  # rider (a): rotate metrics between capture segments (writer not running).
+  # NO redirect (audit B1, 2026-07-10): systemd creates supervisor.out.log as
+  # root via StandardOutput=append:, so a ubuntu-uid `>>` open FAILS and kills
+  # the command before rotate_metrics runs (the `|| true` swallowed exactly
+  # that for two cycles). Plain stdout already lands in that file via systemd.
+  bash tools/rotate_metrics.sh work/metrics.ndjson || true
+  # W-A5 (audit finding 3): ws_shadow runs BACKGROUNDED + wait — a foreground
+  # child blocks bash signal-trap delivery for the whole hour, which is why
+  # systemctl stop used to time out into SIGKILL. `wait` is interruptible.
+  KALSHI_WS_FIREHOSE=1 KALSHI_SHADOW_SECONDS="$SECS_LEFT" \
+    KALSHI_SHADOW_CAPTURE="$CAP" KALSHI_SHADOW_METRICS=work/metrics.ndjson \
+    ./build/ws_shadow >> "$LIVE/ws_shadow.log" 2>&1 &
+  WS_PID=$!
+  if ! wait "$WS_PID"; then
+    echo "[supervisor] ws_shadow exited non-zero (will retry in 15s)"
+    sleep 15 & wait $!
+  fi
+  WS_PID=""
+
+  # --- prune raw logs older than retention (archive parquet is kept forever) --
+  find "$RAW" -name '*.ndjson*' -type f -mtime +"$RAW_RETENTION_DAYS" -delete 2>/dev/null
+  find "$RAW" -type d -empty -delete 2>/dev/null
+
+  hour_cycle=$((hour_cycle + 1))
+done

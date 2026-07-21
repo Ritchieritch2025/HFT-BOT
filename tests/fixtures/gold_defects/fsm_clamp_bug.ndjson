@@ -1,0 +1,3 @@
+{"ts_utc": 1783305736000000, "market_ticker": "KXFSM-CLAMP", "msg_type": "snapshot", "yes_levels": [[4500, 100000]], "no_levels": [[5200, 80000]]}
+{"ts_utc": 1783305737000000, "market_ticker": "KXFSM-CLAMP", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": -150000}
+{"ts_utc": 1783305738000000, "market_ticker": "KXFSM-CLAMP", "msg_type": "delta", "side": "yes", "price_e4": 4500, "delta_e4": 50000}

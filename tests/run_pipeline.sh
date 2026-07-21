@@ -79,7 +79,45 @@ run_suite "make_check" make check
 
 # 2. signing + ops-console backend (Python)
 run_suite "test_signing" ./build/test_signing
+run_suite "test_strategies" ./build/test_strategies
+run_suite "test_market_filter" ./build/test_market_filter
 run_suite "test_console" python3 tests/test_console.py
+run_suite "test_feed_readiness" python3 tests/test_feed_readiness.py
+run_suite "test_verify_ws_capture" python3 tests/test_verify_ws_capture.py
+run_suite "test_capture_gaps" ./tests/run_pytest.sh tests/test_capture_gaps.py
+run_suite "test_verify_feed_metrics" python3 tests/test_verify_feed_metrics.py
+run_suite "test_gold_layout" ./build/test_gold_layout
+run_suite "test_gold_dtype" ./tests/run_pytest.sh tests/test_gold_dtype.py
+run_suite "test_gold_load" ./tests/run_pytest.sh tests/test_gold_load.py
+run_suite "test_gold_fsm" ./tests/run_pytest.sh tests/test_gold_fsm.py
+run_suite "test_gold_merge" ./tests/run_pytest.sh tests/test_gold_merge.py
+run_suite "test_gold_io" ./tests/run_pytest.sh tests/test_gold_io.py
+run_suite "test_gold_validate" ./tests/run_pytest.sh tests/test_gold_validate.py
+run_suite "test_kalshi_golden" ./tests/run_pytest.sh tests/test_kalshi_golden.py
+run_suite "test_gold_v5_delta" ./tests/run_pytest.sh tests/test_gold_v5_delta.py
+run_suite "test_gold_v7_race" ./tests/run_pytest.sh tests/test_gold_v7_race.py
+run_suite "test_coverage_audit" ./tests/run_pytest.sh tests/test_coverage_audit.py
+run_suite "test_event_measure_split" ./tests/run_pytest.sh tests/test_event_measure_split.py
+run_suite "test_event_index" ./tests/run_pytest.sh tests/test_event_index.py
+run_suite "test_event_pack" ./tests/run_pytest.sh tests/test_event_pack.py
+run_suite "test_freshness" ./tests/run_pytest.sh tests/test_freshness.py
+run_suite "test_daily_check" ./tests/run_pytest.sh tests/test_daily_check.py
+run_suite "test_pipeline_contract" ./tests/run_pytest.sh tests/test_pipeline_contract.py
+run_suite "test_alert_notify" ./tests/run_pytest.sh tests/test_alert_notify.py
+run_suite "test_catalog_sync_pacing" ./tests/run_pytest.sh tests/test_catalog_sync_pacing.py
+run_suite "test_dim_snapshot_schema_drift" ./tests/run_pytest.sh tests/test_dim_snapshot_schema_drift.py
+run_suite "test_research_metrics" ./tests/run_pytest.sh tests/test_research_metrics.py
+run_suite "test_gate_metrics" ./tests/run_pytest.sh tests/test_gate_metrics.py
+run_suite "test_ingest" python3 tests/test_ingest.py
+run_suite "test_export_day" python3 tests/test_export_day.py
+run_suite "test_timestamp_ladder" ./tests/run_pytest.sh tests/test_timestamp_ladder.py
+run_suite "test_backtest_clock" ./tests/run_pytest.sh tests/test_backtest_clock.py
+run_suite "test_jitter_report" ./tests/run_pytest.sh tests/test_jitter_report.py
+run_suite "test_warehouse_status" python3 tests/test_warehouse_status.py
+run_suite "test_warehouse_nonuniform_archive" ./tests/run_pytest.sh tests/test_warehouse_nonuniform_archive.py
+run_suite "test_warehouse_event" ./tests/run_pytest.sh tests/test_warehouse_event.py
+run_suite "test_event_validate" ./tests/run_pytest.sh tests/test_event_validate.py
+run_suite "test_event_export" ./tests/run_pytest.sh tests/test_event_export.py
 
 # 3. RESP client against mini_redis
 run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \
@@ -89,6 +127,7 @@ run_suite_with_mock "test_resp" mini_redis.py "$((PORT_BASE+1))" -- \
 run_suite "rest_api"          bash tests/run_rest_api.sh "$((PORT_BASE+10))"
 run_suite "request_executor"  bash tests/run_request_executor.sh "$((PORT_BASE+11))"
 run_suite "ws_smoke"          bash tests/run_ws_smoke.sh
+run_suite "ws_shadow_mock"    bash tests/run_ws_shadow_mock.sh
 
 # 5. simdjson-linked offline unit tests (scratch dir keeps the root clean)
 run_suite "test_storage"   ./build/test_storage   "$SCRATCH"

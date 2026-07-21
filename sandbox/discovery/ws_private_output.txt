@@ -1,0 +1,12 @@
+[handshake] HTTP/1.1 101 Switching Protocols
+[sent] {"id": 1, "cmd": "subscribe", "params": {"channels": ["fill", "user_orders", "market_positions"]}}
+[msg] {"type":"subscribed","id":1,"msg":{"channel":"fill","sid":1}}
+
+[msg] {"type":"subscribed","id":1,"msg":{"channel":"user_orders","sid":2}}
+
+[msg] {"type":"subscribed","id":1,"msg":{"channel":"market_positions","sid":3}}
+
+[ping #1] 23:16:36 payload=b'heartbeat'
+[ping #2] 23:16:46 payload=b'heartbeat'
+[ping #3] 23:16:56 payload=b'heartbeat'
+[summary] messages=3 server_pings=3 over 25s

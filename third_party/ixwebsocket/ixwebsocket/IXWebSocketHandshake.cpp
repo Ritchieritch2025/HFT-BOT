@@ -137,6 +137,10 @@ namespace ix
 
         for (auto& it : extraHeaders)
         {
+            // An explicitly-empty value suppresses the header entirely. This lets
+            // a caller cancel a default header (e.g. set Origin:"" to send NO
+            // Origin — Kalshi's gateway 403s a browser-style Origin). [local patch]
+            if (it.second.empty()) continue;
             ss << it.first << ": " << it.second << "\r\n";
         }
 

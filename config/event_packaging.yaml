@@ -1,0 +1,24 @@
+# Event-packaging policy (PLAN_EVENT_PACKAGING §3.1). Consumed by event_index.py
+# (W-E1) to decide the packaging unit per category and the padding around an
+# inferred window. Times are microseconds. This file is the ONLY place the
+# category->unit policy lives (E2). Derived layer only — never affects capture.
+#
+#   unit: event | market | skip
+#   pre_pad_us / post_pad_us: microseconds added around inferred bounds
+#   seal_after_close_us: quiet period after max(close_time) before a unit seals
+#   min_ticks_to_seal: minimum observed ticks before a unit may seal
+defaults:
+  unit: event
+  pre_pad_us: 3600000000            # 1h
+  post_pad_us: 3600000000           # 1h
+  seal_after_close_us: 7200000000   # 2h quiet after max(close_time) -> sealed
+  min_ticks_to_seal: 1
+
+categories:
+  Sports:      { unit: event,  pre_pad_us: 7200000000,  post_pad_us: 3600000000 }
+  Politics:    { unit: event }
+  Crypto:      { unit: market, pre_pad_us: 300000000,   post_pad_us: 600000000 }
+  Financials:  { unit: event }
+  Economics:   { unit: event,  pre_pad_us: 14400000000, post_pad_us: 7200000000 }
+  Exotics:     { unit: skip }       # Q7 — MVE/combo, never MM; skip packing
+  # unset category -> defaults.unit

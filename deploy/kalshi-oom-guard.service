@@ -1,0 +1,8 @@
+# Companion of kalshi-oom-guard.timer — see deploy/oom_guard.sh for the
+# ranking this enforces (one-box isolation guardrail, W-A1).
+[Unit]
+Description=Kalshi one-box OOM/CPU isolation guard (oneshot)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /home/ubuntu/hft-bot/deploy/oom_guard.sh

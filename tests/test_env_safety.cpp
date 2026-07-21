@@ -70,15 +70,22 @@ int main() {
   check(throws(), "live without KALSHI_ALLOW_LIVE throws");
   reset_env(); set("KALSHI_MODE", "live"); set("KALSHI_ALLOW_LIVE", "1");
   check(throws(), "live in local_mock throws even with allow");
-  reset_env(); set("KALSHI_ENV", "demo"); set("KALSHI_MODE", "live"); set("KALSHI_ALLOW_LIVE", "1");
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_MODE", "live"); set("KALSHI_ALLOW_LIVE", "1");
   {
     Runtime rt = resolve_runtime();
-    check(rt.orders_enabled, "demo + live + allow => orders_enabled");
+    check(rt.orders_enabled, "prod + live + allow => orders_enabled");
     check(!rt.read_only, "live is not read_only");
     bool gate_ok = true;
     try { require_orders_allowed(rt); } catch (...) { gate_ok = false; }
     check(gate_ok, "require_orders_allowed passes in live");
   }
+
+  // Demo env is no longer supported: always fail-closed, even with allows set.
+  reset_env(); set("KALSHI_ENV", "demo");
+  check(throws(), "demo env is rejected (Kalshi demo unavailable)");
+  reset_env(); set("KALSHI_ENV", "demo"); set("KALSHI_ALLOW_PROD", "1");
+  check(throws(), "demo env rejected even with KALSHI_ALLOW_PROD");
 
   // Prod + Shadow: consumes data, never transmits.
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1"); set("KALSHI_MODE", "shadow");
@@ -98,19 +105,19 @@ int main() {
   reset_env(); set("KALSHI_MODE", "yolo");
   check(throws(), "unknown mode throws (fail closed)");
 
-  // Host allowlist cross-validation (both directions).
-  reset_env(); set("KALSHI_ENV", "demo"); set("KALSHI_BASE_URL", "https://api.elections.kalshi.com");
-  check(throws(), "prod host under demo env throws");
+  // Host allowlist cross-validation. A leftover demo host must be rejected under
+  // prod, and a prod collector must reject a localhost/mock host.
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   set("KALSHI_BASE_URL", "https://external-api.demo.kalshi.co");
-  check(throws(), "demo host under prod env throws");
+  check(throws(), "leftover demo host under prod env throws");
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_BASE_URL", "https://127.0.0.1:9999");
+  check(throws(), "localhost host under prod env throws");
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   set("KALSHI_BASE_URL", "https://external-api.kalshi.com");
-  check(!throws(), "documented alternate prod host accepted");
+  check(!throws(), "documented prod host accepted");
 
   // TLS rule: non-https only for local_mock localhost.
-  reset_env(); set("KALSHI_ENV", "demo"); set("KALSHI_BASE_URL", "http://external-api.demo.kalshi.co");
-  check(throws(), "http host under demo throws (TLS rule)");
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   set("KALSHI_BASE_URL", "http://api.elections.kalshi.com");
   check(throws(), "http under prod throws even for allowlisted host");
@@ -124,7 +131,8 @@ int main() {
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   set("KALSHI_BASE_URL", "http://some-new-host.kalshi.com"); set("KALSHI_HOST_UNSAFE_OVERRIDE", "1");
   check(throws(), "override does NOT bypass TLS rule");
-  reset_env(); set("KALSHI_ENV", "demo"); set("KALSHI_MODE", "live"); set("KALSHI_ALLOW_LIVE", "1");
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_MODE", "live"); set("KALSHI_ALLOW_LIVE", "1");
   set("KALSHI_BASE_URL", "https://some-new-host.kalshi.com"); set("KALSHI_HOST_UNSAFE_OVERRIDE", "1");
   check(throws(), "override refused in live mode");
 
@@ -134,28 +142,20 @@ int main() {
     Runtime rt = resolve_runtime();  // local_mock default
     check(rt.ws_url.rfind("ws://127.0.0.1", 0) == 0, "default ws url is localhost ws://");
   }
-  reset_env(); set("KALSHI_ENV", "demo");
-  {
-    Runtime rt = resolve_runtime();
-    check(rt.ws_url == "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2",
-          "demo default ws url resolved");
-  }
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   {
     Runtime rt = resolve_runtime();
     check(rt.ws_url == "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
           "prod default ws url resolved");
   }
-  // Cross-validation both directions + TLS rule for the WS host.
-  reset_env(); set("KALSHI_ENV", "demo");
-  set("KALSHI_WS_URL", "wss://external-api-ws.kalshi.com/trade-api/ws/v2");
-  check(throws(), "prod ws host under demo env throws");
+  // Cross-validation + TLS rule for the WS host: a leftover demo WS host must be
+  // rejected under prod, and non-TLS is refused off local_mock.
   reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
   set("KALSHI_WS_URL", "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2");
-  check(throws(), "demo ws host under prod env throws");
-  reset_env(); set("KALSHI_ENV", "demo");
-  set("KALSHI_WS_URL", "ws://external-api-ws.demo.kalshi.co/trade-api/ws/v2");
-  check(throws(), "non-TLS ws url under demo throws (TLS rule)");
+  check(throws(), "leftover demo ws host under prod env throws");
+  reset_env(); set("KALSHI_ENV", "prod"); set("KALSHI_ALLOW_PROD", "1");
+  set("KALSHI_WS_URL", "ws://external-api-ws.kalshi.com/trade-api/ws/v2");
+  check(throws(), "non-TLS ws url under prod throws (TLS rule)");
   reset_env(); set("KALSHI_WS_URL", "ws://127.0.0.1:18200/trade-api/ws/v2");
   check(!throws(), "non-TLS ws localhost accepted under local_mock");
 

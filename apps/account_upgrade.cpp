@@ -7,7 +7,7 @@
 //
 // This is the ONLY write this tool performs; it never places an order.
 //
-// Env: KALSHI_ENV (demo|prod), KALSHI_ALLOW_PROD=1 for prod, KALSHI_API_KEY_ID,
+// Env: KALSHI_ENV (prod|prod), KALSHI_ALLOW_PROD=1 for prod, KALSHI_API_KEY_ID,
 //      KALSHI_PRIVATE_KEY_PATH, optional KALSHI_BASE_URL.
 
 #include "daemon_util.hpp"

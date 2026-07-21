@@ -10,6 +10,11 @@
 //     (per-sid seq handling, I1/I3), and emits NormalizedEvents to a sink;
 //   - on reconnect (transport Open after the first) bumps stream_epoch (I8),
 //     drops old-sid state, and resubscribes;
+//   - RE-SIGNS fresh handshake auth headers before every reconnect attempt (on
+//     transport Close and on handshake Error) — ixwebsocket replays whatever
+//     headers are set, and a signature signed once at startup goes stale and
+//     Kalshi 401s every reconnect until the process restarts (the 2026-07-07
+//     06:00–09:00 UTC capture gap);
 //   - tracks last-activity for the ping-silence watchdog (I6).
 //
 // Read-only market data. Never sends orders.
@@ -19,6 +24,7 @@
 #include "kalshi/ws_transport.hpp"
 #include "trading/bus.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -49,18 +55,36 @@ class KalshiWsClient {
   // Signs `timestamp + "GET" + ws_sign_path` with RSA-PSS -> base64. Returns
   // nullopt on failure (auth headers then omitted -> handshake will 401).
   using Signer = std::function<std::optional<std::string>(std::string_view)>;
+  // Wall-clock source in ms for auth timestamps. Defaults to the real clock;
+  // tests inject a controllable one to prove reconnects re-sign with a NEWER
+  // timestamp deterministically (no sleeps).
+  using Clock = std::function<std::int64_t()>;
 
   KalshiWsClient(IWebSocketTransport& transport, WsConfig cfg, Signer signer);
 
   void set_sink(trading::MarketDataSink* s) { sink_ = s; }
   void set_book_manager(OrderBookManager* m) { books_ = m; }
   void set_recorder(WsRecorder* r) { recorder_ = r; }  // durable raw log (Phase 4)
+  void set_clock(Clock c) { now_ms_ = std::move(c); }  // tests only
 
   // Register orderbook_delta subscriptions; sent on open and every resubscribe.
   void want_orderbook(std::vector<std::string> tickers) { want_ = std::move(tickers); }
+  // Firehose mode: subscribe to the configured channels with NO market filter,
+  // streaming every market exchange-wide (use with ticker/trade channels).
+  void set_firehose(bool on) { firehose_ = on; }
+  void want_channels(std::vector<std::string> channels) {
+    if (!channels.empty()) channels_ = std::move(channels);
+  }
 
   void start();  // set url + auth headers, connect
   void stop();
+  // Watchdog-driven recovery (W-C1). A silently-wedged (half-open) socket
+  // delivers no Close/Error, so ixwebsocket's auto-reconnect never fires (its
+  // own ping is disabled, ix_transport.cpp) and capture stays dead until the
+  // hourly respawn (the 2026-07-07 top-of-hour capture gap). Tear the transport
+  // down and bring it back up ourselves; start() re-signs fresh auth headers.
+  // Fail-closed (S2): uncertain liveness restarts, never silently continues.
+  void force_reconnect();
 
   // --- exposed for tests (pure builders / auth) ---
   WsHeaders build_auth_headers(std::int64_t now_ms) const;
@@ -73,12 +97,18 @@ class KalshiWsClient {
   std::uint32_t epoch() const { return epoch_; }
   std::uint64_t messages() const { return messages_; }
   std::uint64_t reconnects() const { return reconnects_; }
+  std::uint64_t forced_reconnects() const { return forced_reconnects_; }  // W-C1 watchdog
   std::uint64_t errors() const { return errors_; }
   std::uint64_t overflow_events() const { return overflow_events_; }  // error 25 (I7)
   std::uint64_t lifecycle_deletes() const { return lifecycle_deletes_; }
-  std::int64_t last_activity_ms() const { return last_activity_ms_; }
+  std::int64_t last_activity_ms() const {
+    return last_activity_ms_.load(std::memory_order_relaxed);
+  }
   bool ping_silent(std::int64_t now_ms, std::int64_t timeout_ms = 30000) const {
-    return last_activity_ms_ != 0 && now_ms - last_activity_ms_ > timeout_ms;
+    // last_activity_ms_ is written on the transport thread and read here on the
+    // watchdog (main) thread; atomic so this teardown-deciding read is not UB.
+    const std::int64_t last = last_activity_ms_.load(std::memory_order_relaxed);
+    return last != 0 && now_ms - last > timeout_ms;
   }
 
  private:
@@ -87,23 +117,32 @@ class KalshiWsClient {
   void on_close();
   void on_text(const std::string& text);
   void resubscribe();
+  // Re-sign handshake auth headers with a CURRENT timestamp and hand them to the
+  // transport, so the next (re)connect attempt authenticates fresh instead of
+  // replaying a stale, since-rejected signature.
+  void refresh_auth();
   int next_id() { return next_id_++; }
 
   IWebSocketTransport& t_;
   WsConfig cfg_;
   Signer signer_;
+  Clock now_ms_;  // wall-clock ms for auth timestamps (real clock by default)
   KalshiRawDecoder decoder_;
   trading::MarketDataSink* sink_ = nullptr;
   OrderBookManager* books_ = nullptr;
   WsRecorder* recorder_ = nullptr;
   std::vector<std::string> want_;
+  bool firehose_ = false;
+  std::vector<std::string> channels_{"orderbook_delta"};
 
   std::uint32_t epoch_;
   bool opened_once_ = false;
   int next_id_ = 1;
   std::uint64_t messages_ = 0, reconnects_ = 0, errors_ = 0, overflow_events_ = 0;
+  std::uint64_t forced_reconnects_ = 0;  // watchdog-forced reconnects (W-C1)
   std::uint64_t lifecycle_deletes_ = 0;
-  std::int64_t last_activity_ms_ = 0;
+  // Cross-thread (transport writes, watchdog reads to decide force_reconnect).
+  std::atomic<std::int64_t> last_activity_ms_{0};
 };
 
 }  // namespace kalshi

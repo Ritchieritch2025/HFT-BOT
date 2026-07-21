@@ -26,15 +26,20 @@ def _free_port():
     return p
 
 
-def _req(method, url, obj=None):
+def _req(method, url, obj=None, timeout=10):
     data = json.dumps(obj).encode() if obj is not None else None
     r = urllib.request.Request(url, data=data, method=method,
                                headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(r, timeout=10) as resp:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode())
+            return e.code, json.loads(e.read().decode())
+
+
+def _get_text(url, timeout=10):
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return resp.status, resp.read().decode("utf-8", "replace")
 
 
 class TestOutputParser(unittest.TestCase):
@@ -160,10 +165,120 @@ class TestDashboardServerPolicy(unittest.TestCase):
         self.assertFalse(flags["fill_test"], "live_order not runnable")
         self.assertTrue(flags["test_ring"], "pure test runnable")
 
+    def test_market_feed_tape_ui_is_present_and_real_only(self):
+        code, html = _get_text(self.base + "/")
+        self.assertEqual(code, 200)
+        for marker in (
+            "Market Feed Readiness",
+            "Market Feed Tape",
+            'id="md-max-age"',
+            'id="md-max-spread"',
+            'id="md-min-size"',
+            'id="md-row-limit"',
+            'id="md-hot-only"',
+            'id="market-tbody"',
+            "if(o.synthetic) return false;",
+            "yes_bid_dollars",
+            "yes_ask_dollars",
+            "/api/feed_readiness",
+        ):
+            self.assertIn(marker, html)
+
+    def test_feed_readiness_api_returns_json_without_secrets(self):
+        code, body = _req("GET", self.base + "/api/feed_readiness")
+        self.assertEqual(code, 200)
+        self.assertEqual(body.get("type"), "feed_readiness")
+        self.assertIn(body.get("status"), ("active", "ready", "missing_prerequisites"))
+        self.assertIn("checks", body)
+        self.assertIn("api_key_id_present", body.get("env", {}))
+        self.assertNotIn(os.environ.get("KALSHI_API_KEY_ID", "unlikely-secret"), json.dumps(body))
+
     def test_pure_tool_runs_and_passes(self):
         code, body = _req("POST", self.base + "/api/run", {"name": "test_fixedpoint"})
         self.assertEqual(code, 200)
         self.assertEqual(body["status"], "pass")
+
+    def test_broken_tool_returns_json_not_crash(self):
+        # A tool whose binary is missing/unrunnable must yield a clean JSON
+        # error record, never a dropped connection (server-side robustness).
+        code, body = _req("POST", self.base + "/api/run", {"name": "test_ring"})
+        self.assertEqual(code, 200)
+        self.assertIn(body["status"], ("pass", "fail", "error"))
+        if body["status"] == "error":
+            self.assertTrue(body.get("reason"), "error status must carry a reason")
+
+    # ---- lifecycle readiness source (/api/init compatibility + /api/lifecycle) ----
+    _init_cache = None
+
+    def _init(self):
+        if TestDashboardServerPolicy._init_cache is None:
+            TestDashboardServerPolicy._init_cache = _req(
+                "POST", self.base + "/api/init", {}, timeout=120)
+        return TestDashboardServerPolicy._init_cache
+
+    def test_api_init_returns_valid_json(self):
+        code, body = self._init()
+        self.assertEqual(code, 200)
+        self.assertEqual(body.get("type"), "lifecycle_status")
+        self.assertIn(body.get("status"), ("pass", "fail", "skipped", "not_started", "blocked"))
+        stages = body.get("stages")
+        self.assertIsInstance(stages, list)
+        self.assertEqual([s.get("label") for s in stages], [
+            "Kalshi API Updates",
+            "API Spec Alignment",
+            "Connection / Exchange Evaluation",
+            "Core Tests",
+            "Data Pipeline",
+            "Strategy Shadow",
+            "Live Execution Gate",
+            "Coverage Audit (research)",  # W4: non-blocking research stage
+        ])
+        for s in stages:
+            self.assertIn("id", s)
+            self.assertIn("label", s)
+            self.assertIn(s.get("status"), ("pass", "fail", "skipped", "not_started", "blocked"))
+            self.assertIn("summary", s)
+
+    def test_api_init_never_contains_live_order(self):
+        _, body = self._init()
+        live = {t["name"] for t in run_tests.load_registry()
+                if t.get("safety") == "live_order"}
+        for stage in body["stages"]:
+            for check in stage.get("checks", []):
+                self.assertNotIn(check.get("name"), live,
+                                 "%s (live_order) must never appear in lifecycle" %
+                                 check.get("name"))
+
+    def test_api_init_network_steps_skipped_without_flag(self):
+        # Server was started WITHOUT --allow-network: Exchange/API steps must
+        # be skipped (not run, not failed).
+        _, body = self._init()
+        self.assertFalse(body["allow_network"])
+        by_stage = {s["id"]: s for s in body["stages"]}
+        self.assertEqual(by_stage["connection_exchange"]["status"], "skipped")
+        by_check = {c["name"]: c for c in by_stage["connection_exchange"]["checks"]}
+        for name in ("preflight", "account_info"):
+            self.assertIn(name, by_check, "network step %s missing from lifecycle" % name)
+            self.assertEqual(by_check[name]["status"], "skipped",
+                             "%s must be skipped without --allow-network" % name)
+
+    def test_lifecycle_get_and_run_return_json(self):
+        code, body = _req("GET", self.base + "/api/lifecycle")
+        self.assertEqual(code, 200)
+        self.assertEqual(body.get("type"), "lifecycle_status")
+        code, body = _req("POST", self.base + "/api/lifecycle/run",
+                          {"run_core_tests": False}, timeout=120)
+        self.assertEqual(code, 200)
+        self.assertEqual(body.get("type"), "lifecycle_status")
+        self.assertIn(body.get("status"), ("pass", "fail", "skipped", "not_started", "blocked"))
+
+    def test_kalshi_updates_stream_is_sse(self):
+        req = urllib.request.Request(self.base + "/updates-stream?backfill=0",
+                                     method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get_content_type(), "text/event-stream")
+            self.assertTrue(resp.readline().decode().startswith("retry:"))
 
 
 if __name__ == "__main__":

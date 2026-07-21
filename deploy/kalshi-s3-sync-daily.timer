@@ -1,0 +1,9 @@
+# W-A5 ②: daily full sync incl. the warehouse durable layer, at 03:10 UTC —
+# after the 00:00 export and the 02:00 second-pass sweep.
+[Unit]
+Description=Kalshi EC2->S3 daily full sync (raw+warehouse+reports)
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+[Install]
+WantedBy=timers.target

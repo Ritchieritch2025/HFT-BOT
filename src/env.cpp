@@ -55,8 +55,6 @@ std::string default_base_url(Env env) {
   switch (env) {
     case Env::LocalMock:
       return "http://127.0.0.1:" + getenv_or("KALSHI_MOCK_PORT", "18099");
-    case Env::Demo:
-      return "https://external-api.demo.kalshi.co";
     case Env::Prod:
       // Canonical prod host per Kalshi api_environments (PLAN_TOKEN_RULES F1).
       // api.elections.kalshi.com is a compatibility host, kept in the allowlist
@@ -68,14 +66,12 @@ std::string default_base_url(Env env) {
 
 // WS endpoints (docs/kalshi_ws_protocol.md). The WS host is a SEPARATE host from
 // REST (external-api-ws.* vs api.elections/external-api.*), so it needs its own
-// allowlist — a prod collector must never open the demo WS and vice-versa.
+// allowlist — a prod collector must open only the prod WS host.
 std::string default_ws_url(Env env) {
   switch (env) {
     case Env::LocalMock:
       return "ws://127.0.0.1:" + getenv_or("KALSHI_MOCK_WS_PORT", "18200") +
              "/trade-api/ws/v2";
-    case Env::Demo:
-      return "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2";
     case Env::Prod:
       return "wss://external-api-ws.kalshi.com/trade-api/ws/v2";
   }
@@ -104,7 +100,6 @@ void validate_ws_url(Env env, Mode mode, const std::string& url) {
   bool ok = false;
   switch (env) {
     case Env::LocalMock: ok = is_localhost; break;
-    case Env::Demo:      ok = host_in(u.host, {"external-api-ws.demo.kalshi.co"}); break;
     case Env::Prod:      ok = host_in(u.host, {"external-api-ws.kalshi.com"}); break;
   }
   if (!ok)
@@ -145,9 +140,6 @@ void validate_base_url(Env env, Mode mode, const std::string& url) {
     case Env::LocalMock:
       ok = is_localhost;  // only localhost
       break;
-    case Env::Demo:
-      ok = host_in(u.host, {"external-api.demo.kalshi.co"});
-      break;
     case Env::Prod:
       // Canonical first; api.elections.kalshi.com kept as a compatibility host.
       ok = host_in(u.host, {"external-api.kalshi.com", "api.elections.kalshi.com"});
@@ -169,14 +161,16 @@ Runtime resolve_runtime() {
   if (env_s == "local_mock" || env_s == "localmock" || env_s == "local") {
     rt.env = Env::LocalMock;
   } else if (env_s == "demo") {
-    rt.env = Env::Demo;
+    throw SafetyViolation(
+        "KALSHI_ENV=demo is not supported (Kalshi's demo exchange is unavailable) — "
+        "use prod (with KALSHI_ALLOW_PROD=1) or local_mock");
   } else if (env_s == "prod" || env_s == "production") {
     if (!truthy("KALSHI_ALLOW_PROD"))
       throw SafetyViolation("KALSHI_ENV=prod requires KALSHI_ALLOW_PROD=1 (fail closed)");
     rt.env = Env::Prod;
   } else {
     throw SafetyViolation("unknown KALSHI_ENV '" + env_s +
-                          "' (expected local_mock|demo|prod) — fail closed");
+                          "' (expected local_mock|prod) — fail closed");
   }
 
   // --- mode ---
@@ -200,7 +194,7 @@ Runtime resolve_runtime() {
   rt.read_only = rt.mode != Mode::Live;
   rt.shadow = rt.mode == Mode::Shadow;
   rt.orders_enabled = rt.mode == Mode::Live && truthy("KALSHI_ALLOW_LIVE") &&
-                      (rt.env == Env::Demo || rt.env == Env::Prod);
+                      rt.env == Env::Prod;
 
   // --- base url + cross-validation ---
   const char* override_url = std::getenv("KALSHI_BASE_URL");

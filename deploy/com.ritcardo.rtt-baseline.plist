@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Pre-migration cross-time RTT baseline sampler (operator req 2026-07-08).
+         Fires one bench_rtt burst every 5 min on the Mac and appends a record to
+         work/latency_baseline/samples.ndjson. Perishable "before" curve for the
+         W-A5 migration-gain diff. Credential-free, off the capture hot path.
+
+         *** UNLOAD THIS AT W-A4 CUTOVER *** — it adds periodic REST calls, and
+         the cutover requires a SINGLE REST owner. Stop with:
+             launchctl unload ~/Library/LaunchAgents/com.ritcardo.rtt-baseline.plist
+         Permanent post-cutover latency sampling is W-D2 (observatory) on EC2. -->
+    <key>Label</key>
+    <string>com.ritcardo.rtt-baseline</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ritcardo/HFT BOT/tools/rtt_baseline_sampler.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ritcardo/HFT BOT</string>
+
+    <!-- Run once on load, then every 5 minutes. NOT KeepAlive: each run is a
+         one-shot burst that exits; launchd re-fires it on the interval. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <!-- Thermal courtesy: background QoS (efficiency cores) + low priority.
+         Never competes with the capture pipeline. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityBackgroundIO</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ritcardo/HFT BOT/work/latency_baseline/sampler.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ritcardo/HFT BOT/work/latency_baseline/sampler.err.log</string>
+</dict>
+</plist>

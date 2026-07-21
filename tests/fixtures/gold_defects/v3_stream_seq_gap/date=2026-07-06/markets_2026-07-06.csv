@@ -1,0 +1,5 @@
+date,market_id,market_ticker,category,close_time,liquidity_tier
+2026-07-06,0,KXGV-A,Sports,2026-07-06T23:00:00Z,high
+2026-07-06,1,KXGV-B,Sports,2026-07-06T23:00:00Z,high
+2026-07-06,2,KXGV-C,Sports,2026-07-06T23:00:00Z,high
+2026-07-06,3,KXGV-D,Sports,2026-07-06T23:00:00Z,high

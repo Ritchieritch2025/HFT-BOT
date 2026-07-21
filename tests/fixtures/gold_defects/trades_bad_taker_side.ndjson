@@ -1,0 +1,2 @@
+{"ts_utc": 1783305735694000, "market_ticker": "KXMLBTOTAL-26JUL052130BOSLAA-14", "trade_id": "1111bbbb-0001-5290-0b2d-40f8241da6ad", "yes_price_e4": 4500, "no_price_e4": 5500, "count_e4": 2097000, "taker_side": "yes"}
+{"ts_utc": 1783305736000000, "market_ticker": "KXMLBTOTAL-26JUL052130BOSLAA-14", "trade_id": "1111bbbb-0002-5290-0b2d-40f8241da6ad", "yes_price_e4": 4500, "no_price_e4": 5500, "count_e4": 100000, "taker_side": "maker"}
