@@ -16,6 +16,7 @@ import errno
 import fcntl
 import hashlib
 import html
+import inspect
 import json
 import multiprocessing
 import os
@@ -26,6 +27,8 @@ import socket
 import stat
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -138,6 +141,10 @@ def _l2_pinned_connection(scratch: Path, memory_limit: str):
 
 # --------------------------------------------------------------------------
 # .13 — partition-level parallelism for the L2 replay/episodes bottleneck.
+# .14 — corrects how those partitions are parallelized (see below): the pool
+# is a concurrent.futures.ProcessPoolExecutor, not a multiprocessing.Pool, so
+# a worker that dies during spawn bootstrap aborts LOUDLY (BrokenProcessPool)
+# instead of hanging the parent forever (the .13 deadlock).
 #
 # The per-partition replay engine is single-threaded Python
 # (deep03_v3_l2._replay_one_partition; measured ~20 min/partition on the live
@@ -162,9 +169,10 @@ def _l2_pinned_connection(scratch: Path, memory_limit: str):
 # 6 x ~10GB ~= 60GB would exceed both the ~45GB safe planning bound and the
 # service MemoryMax=52G (w09-exploratory-autoresearch.service).  The honest
 # bound is 4 workers: ~4 x 10GB ~= 40GB projected peak, at the MemoryHigh=40G
-# soft ceiling and under MemoryMax=52G.  Workers run with
-# maxtasksperchild=1 so every partition gets a fresh process (no RSS
-# accumulation across partitions, and "fresh session" stays literal).
+# soft ceiling and under MemoryMax=52G.  Every partition gets a fresh spawned
+# process (no RSS accumulation, and "fresh session" stays literal); see
+# _run_l2_prewarm_pool for how that freshness is delivered across Python
+# versions (max_tasks_per_child=1 on >=3.11, fresh-executor waves otherwise).
 L2_EPISODE_WORKERS = 4
 # The exclusive checkpoint writer flock (methods.py BoundedCheckpointStore)
 # admits one store at a time, so workers hold it only for the short
@@ -181,6 +189,17 @@ L2_PREWARM_LOCK_RETRY_S = 0.2
 _L2_PHYSICAL_STAGE = ("l2_physical", "all-captured-coverage-v2")
 _L2_REPLAY_STAGE = ("l2_replay", "sequence-replay-v3")
 _L2_EPISODE_STAGE = ("l2_episodes", "causal-lifecycle-v3")
+
+# ProcessPoolExecutor gained a ``max_tasks_per_child`` argument in Python 3.11.
+# When present it gives the literal "one fresh spawned process per partition"
+# guarantee in a single continuously-pipelined pool.  On older interpreters
+# (the audit/CI environment is CPython 3.9) the same freshness is achieved by
+# ``_run_l2_prewarm_pool`` running the specs in fresh-executor WAVES of
+# ``workers_used`` — every wave's processes are fully reaped before the next
+# wave spawns, so RSS never accumulates across partitions either way.
+_PREWARM_MAX_TASKS_PER_CHILD_SUPPORTED = (
+    "max_tasks_per_child" in inspect.signature(ProcessPoolExecutor).parameters
+)
 
 
 class _SerializedWriterStore:
@@ -296,6 +315,80 @@ def _l2_prewarm_worker(spec: dict[str, Any]) -> dict[str, Any]:
         }
     finally:
         con.close()
+
+
+def _run_l2_prewarm_pool(
+    worker: Callable[[dict[str, Any]], dict[str, Any]],
+    specs: Sequence[dict[str, Any]],
+    workers_used: int,
+    context,
+) -> list[dict[str, Any]]:
+    """Map ``worker`` over ``specs`` across fresh spawned worker processes.
+
+    .14 root fix.  This deliberately uses ``concurrent.futures``'
+    ``ProcessPoolExecutor`` and NOT ``multiprocessing.Pool``.  A worker that
+    dies during spawn bootstrap — before it ever takes a task — makes the
+    executor raise ``BrokenProcessPool``, which we convert into a LOUD, typed
+    ``Deep03InputError`` abort.  ``multiprocessing.Pool`` has no such
+    detection: its ``_maintain_pool`` silently respawns a bootstrap-dying
+    worker forever while ``imap_unordered`` waits on results that never
+    arrive, so the parent hangs in a futex indefinitely (the .13 deadlock:
+    17h at 100% CPU across constantly-churning spawn children, zero
+    checkpoints).  ``worker`` is a parameter (not a hard reference to
+    ``_l2_prewarm_worker``) purely so a fault-injection test can drive this
+    exact path from a real script ``__main__`` with a bootstrap-dying worker.
+
+    Fresh-process-per-partition (the memory contract behind
+    ``L2_EPISODE_WORKERS``): on Python >=3.11 via ``max_tasks_per_child=1`` on
+    one pipelined pool; on older interpreters by running the specs in
+    fresh-executor waves of ``workers_used`` (each wave submits exactly as
+    many tasks as it has workers, so every worker runs exactly one task, and
+    the executor teardown reaps every process before the next wave spawns).
+    Either way peak concurrency is ``workers_used`` and no RSS carries across
+    partitions.  A worker raising a normal exception (e.g. a store validation
+    ``RuntimeError`` on an unvalidatable shard) surfaces through
+    ``future.result()`` and aborts the whole prewarm fail-closed — no
+    retry-forever.
+    """
+    rows: list[dict[str, Any]] = []
+
+    def _drain(pool: ProcessPoolExecutor, batch: Sequence[dict[str, Any]]) -> None:
+        futures = [pool.submit(worker, spec) for spec in batch]
+        try:
+            for future in as_completed(futures):
+                rows.append(future.result())
+        except BaseException:
+            for pending_future in futures:
+                pending_future.cancel()
+            raise
+
+    try:
+        if _PREWARM_MAX_TASKS_PER_CHILD_SUPPORTED:
+            with ProcessPoolExecutor(
+                max_workers=workers_used,
+                mp_context=context,
+                max_tasks_per_child=1,
+            ) as pool:
+                _drain(pool, specs)
+        else:
+            for start in range(0, len(specs), workers_used):
+                wave = specs[start : start + workers_used]
+                with ProcessPoolExecutor(
+                    max_workers=len(wave), mp_context=context
+                ) as pool:
+                    _drain(pool, wave)
+    except BrokenProcessPool as exc:
+        raise Deep03InputError(
+            "L2 episode prewarm aborted: a worker process died unexpectedly "
+            f"(BrokenProcessPool: {exc}); refusing to retry-forever"
+        ) from exc
+    except Deep03InputError:
+        raise
+    except Exception as exc:
+        raise Deep03InputError(
+            f"L2 episode prewarm worker failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    return rows
 
 
 def _complete_physical_receipt_row_count(
@@ -446,17 +539,11 @@ def prewarm_l2_episode_partitions(
     workers_used = min(int(workers), len(specs))
     receipt["workers_used"] = workers_used
     context = multiprocessing.get_context("spawn")
-    try:
-        with context.Pool(processes=workers_used, maxtasksperchild=1) as pool:
-            for row in pool.imap_unordered(_l2_prewarm_worker, specs):
-                bucket = "reused_by_worker" if row["reused"] else "computed"
-                receipt[bucket].append(row["partition_key"])
-    except Deep03InputError:
-        raise
-    except Exception as exc:
-        raise Deep03InputError(
-            f"L2 episode prewarm worker failed: {type(exc).__name__}: {exc}"
-        ) from exc
+    for row in _run_l2_prewarm_pool(
+        _l2_prewarm_worker, specs, workers_used, context
+    ):
+        bucket = "reused_by_worker" if row["reused"] else "computed"
+        receipt[bucket].append(row["partition_key"])
     receipt["computed"].sort()
     receipt["reused_by_worker"].sort()
     receipt["already_complete"].sort()
