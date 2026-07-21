@@ -32,7 +32,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/test_rest_api $(BUILD)/bench_orderbook $(BUILD)/test_storage \
         $(BUILD)/test_shadow $(BUILD)/test_decode $(BUILD)/test_ws_client \
         $(BUILD)/test_recorder $(BUILD)/test_replay $(BUILD)/ws_smoke \
-        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode \
+        $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(BUILD)/bench_engine \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
         $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
         $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(PURE_TESTS)
@@ -144,6 +144,12 @@ $(BUILD)/kalshi_example: examples/kalshi_example.cpp $(BUILD)/client.o $(BUILD)/
 
 $(BUILD)/test_signing: tests/test_signing.cpp $(BUILD)/client.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/bench_engine: apps/bench_engine.cpp apps/bench_engine_core.hpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) apps/bench_engine.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
+
+$(BUILD)/test_engine_bench: tests/test_engine_bench.cpp apps/bench_engine_core.hpp apps/feed.hpp $(BUILD)/client.o $(BUILD)/simdjson.o
+	$(CXX) $(CXXFLAGS) tests/test_engine_bench.cpp $(BUILD)/client.o $(BUILD)/simdjson.o -o $@ $(LDLIBS)
 
 $(BUILD)/test_integration: tests/test_integration.cpp $(BUILD)/client.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
@@ -332,7 +338,8 @@ gate:
 
 # Fixture-driven tests: link simdjson but hit no network — safe to run in `check`.
 OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
-                 $(BUILD)/test_request_spec $(BUILD)/test_batch_cost
+                 $(BUILD)/test_request_spec $(BUILD)/test_batch_cost \
+                 $(BUILD)/test_engine_bench
 
 # Build + run every pure + offline (fixture-driven) unit test, after the gates.
 # Every test is passed $(SCRATCH) as argv[1]; file-writing tests use it, the rest

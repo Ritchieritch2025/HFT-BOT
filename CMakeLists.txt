@@ -52,6 +52,12 @@ foreach(daemon tradingd ingestd)
 endforeach()
 add_executable(bench_orderbook apps/bench_orderbook.cpp)
 target_link_libraries(bench_orderbook PRIVATE kalshi)
+add_executable(bench_engine apps/bench_engine.cpp)
+target_include_directories(bench_engine PRIVATE apps)
+target_link_libraries(bench_engine PRIVATE kalshi)
+add_executable(test_engine_bench tests/test_engine_bench.cpp)
+target_include_directories(test_engine_bench PRIVATE apps)
+target_link_libraries(test_engine_bench PRIVATE kalshi)
 
 # WS-path decode benchmark + JSON/NDJSON fuzzer (transport-independent — no
 # ixwebsocket, so CMake builds them; the ixwebsocket-linked ws_smoke/ws_shadow
@@ -81,3 +87,4 @@ foreach(t signing ring fixedpoint ids env_safety bus orderbook sid_stream readab
 endforeach()
 add_test(NAME storage COMMAND test_storage ${CMAKE_CURRENT_BINARY_DIR})
 add_test(NAME shadow COMMAND test_shadow ${CMAKE_CURRENT_BINARY_DIR})
+add_test(NAME engine_bench COMMAND test_engine_bench ${CMAKE_CURRENT_BINARY_DIR})
