@@ -5,3 +5,7 @@ work/
 # test-generated data artifacts (raw logs, replays, rotation shards, fuzz corpus)
 *.ndjson
 *.ndjson.*
+# experiment scratch workspaces (multi-GB; never commit)
+sandbox/
+# Deepresearch archives: data JSONs are committed, the 35M visual HTML stays local-only
+Deepresearch V3/*/REPORT/
