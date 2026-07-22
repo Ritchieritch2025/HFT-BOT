@@ -726,6 +726,13 @@ def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> Non
     assert all(
         row["coverage_count_num_e4"] == 4_000
         and row["coverage_count_den_e4"] == 10_000
+        and row["weighted_censored_entry_price_sum_e8"] == 5_000 * 6_000
+        and row["weighted_gross_lower_sum_e8"]
+        == row["weighted_gross_sum_e8"]
+        - row["weighted_censored_entry_price_sum_e8"]
+        and row["weighted_gross_upper_sum_e8"]
+        == row["weighted_gross_sum_e8"] + 10_000 * 6_000
+        - row["weighted_censored_entry_price_sum_e8"]
         and row["weighted_gross_lower_sum_e8"]
         < row["weighted_gross_sum_e8"]
         < row["weighted_gross_upper_sum_e8"]

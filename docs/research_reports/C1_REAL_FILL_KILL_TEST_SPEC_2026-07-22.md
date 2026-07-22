@@ -2,6 +2,9 @@
 
 **Experiment ID:** `C1-REAL-FILL-2026-07-22.01`  
 **Frozen:** 2026-07-22  
+**Audit repair:** repair-01 on 2026-07-22, before the full run; post-fill exit
+depth and partial-identification bounds were added after an adversarial sample
+found that the point-estimate wording could overstate executable quantity.
 **Phase advanced:** Phase 1.5, candidate falsification only  
 **Execution:** W09 read-only research; no exchange writes, no live orders  
 **Claim ceiling:** `EXPLORATORY_NON_GATE` until every fee, latency, and terminal
@@ -146,8 +149,23 @@ long YES: gross_e4 = future_yes_bid_e4 - entry_yes_price_e4
 long NO:  gross_e4 = future_no_bid_e4  - entry_no_price_e4
 ```
 
-Midpoint markout is published as a diagnostic only. Missing, stale, invalid,
+Midpoint markout is published as a diagnostic only. The future state must be
+strictly later than the public fill print; a state in the fill microsecond or
+earlier is censored against the strategy. Missing, stale, invalid,
 cross-epoch, or crossed future state is censored, never forward-filled.
+
+The executable component is capped by displayed same-outcome exit depth at the
+future touch. For a fill slice of quantity `F` and future exit depth `Q`:
+
+```text
+observed_quantity = min(F, Q)
+censored_quantity = F - observed_quantity
+```
+
+Only `observed_quantity` receives the future executable-bid markout. This is a
+per-slice liquidity diagnostic, not a simultaneous portfolio-capacity claim.
+The censored quantity remains in the ledger and can never silently inherit the
+observed price.
 
 Displayed refill/no-refill is an ex-post attribution column only. The report
 must separate:
@@ -169,15 +187,29 @@ market, maximum-market share, and HHI. With three dates, report each date and
 direction consistency; no t-test, p-value, or significance language is
 allowed.
 
-Pilot verdict precedence:
+Pilot verdict precedence (audit repair-01, fixed before the full run):
 
 1. `METHODOLOGY_INVALID` for conservation, dedupe, clock, or hash failure.
-2. `KILL_C1_ENTRY` if strict-through executable gross markout is non-positive
-   on all three dates at both 200ms and 1000ms under `PRIMARY`, or strict fills
-   are zero.
-3. `RETAIN_FOR_20_DAY_VALIDATION` only if strict gross direction is positive on
-   all three dates and strict fill support is nonzero on every date.
+2. `KILL_C1_ENTRY` if strict fills are zero. Otherwise, each required
+   `PRIMARY x date x cancel-timer x {200ms,1000ms}` cell receives a
+   partial-identification interval. Observed quantity contributes its exact
+   executable gross markout; each censored unit contributes the mechanically
+   valid interval `[-entry_price, 10000-entry_price]`. C1 is killed only when
+   the *upper* gross bound is non-positive in every required cell.
+3. `RETAIN_FOR_20_DAY_VALIDATION` only when the *lower* gross bound is strictly
+   positive in every required cell and strict fill support is nonzero on every
+   date.
 4. Otherwise `INDETERMINATE_MORE_CLEAN_DAYS`.
+
+No coverage percentage is selected after observing the pilot. Every cell must
+publish total, observed, and censored quantity plus its integer weighted gross
+lower/point/upper sums and the exact weighted entry-price sum for censored
+quantity. The publisher must mechanically recompute `lower = point -
+censored_entry_sum` and `upper = point + 10000*censored_quantity -
+censored_entry_sum`; zero observed quantity forces zero point and midpoint
+sums. This repair replaces the earlier point-estimate-only wording because an
+independent pre-run audit proved that sparse observed depth could otherwise
+force either a false retain or a false kill.
 
 No positive pilot verdict is promotion. The G3 fee-after threshold remains
 blocked until exact fees, measured latency, a complete exit/terminal ledger,
@@ -195,9 +227,16 @@ Acceptance requires:
 - every frozen hash and row conservation check passes;
 - no public trade ID is allocated more than once per fill track/variant;
 - filled quantity never exceeds eligible public trade quantity;
+- every executable markout uses a strictly post-fill state and never exceeds
+  displayed exit depth; observed plus censored quantity equals filled quantity;
+- the 48-partition merge independently recomputes global trade-allocation and
+  public-volume conservation rather than trusting partition receipts;
+- the pilot verdict is recomputed from published integer lower/upper bounds;
+- the publisher verifies the analysis artifact ledger byte-for-byte, including
+  all 48 partition receipts and their campaign/fill/markout/exclusion files,
+  before generating any chart or report completion receipt;
 - two identical replays produce byte-identical canonical tables and verdict;
 - tests cover side complement, at-price strict rejection, partial fills,
   exact queue exhaustion, same-time boundaries, duplicate/conflicting IDs,
   overlap suppression, snapshot/epoch invalidation, and post-only rejection;
 - live-order write count is exactly zero.
-

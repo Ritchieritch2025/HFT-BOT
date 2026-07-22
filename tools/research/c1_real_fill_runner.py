@@ -1813,6 +1813,8 @@ def aggregate_outputs(
                    AS weighted_gross_sum_e8,
                  coalesce(sum(mid_twice_gross_e4*observed_count_e4),0)::BIGINT
                    AS weighted_mid_twice_sum_e8,
+                 coalesce(sum(quote_price_e4*censored_count_e4),0)::BIGINT
+                   AS weighted_censored_entry_price_sum_e8,
                  coalesce(sum(
                    coalesce(gross_e4,0)*observed_count_e4
                    - quote_price_e4*censored_count_e4
@@ -1836,6 +1838,8 @@ def aggregate_outputs(
                  AS weighted_gross_sum_e8,
                coalesce(o.weighted_mid_twice_sum_e8,0)::BIGINT
                  AS weighted_mid_twice_sum_e8,
+               coalesce(o.weighted_censored_entry_price_sum_e8,0)::BIGINT
+                 AS weighted_censored_entry_price_sum_e8,
                coalesce(o.weighted_gross_lower_sum_e8,0)::BIGINT
                  AS weighted_gross_lower_sum_e8,
                coalesce(o.weighted_gross_upper_sum_e8,0)::BIGINT
@@ -1847,13 +1851,20 @@ def aggregate_outputs(
     )
     for row in markouts:
         quantity = int(row["observed_count_e4"])
+        censored = int(row["censored_count_e4"])
+        point = int(row["weighted_gross_sum_e8"])
+        censored_entry = int(row["weighted_censored_entry_price_sum_e8"])
         if (
             int(row["total_filled_count_e4"])
-            != quantity + int(row["censored_count_e4"])
+            != quantity + censored
+            or not 0 <= censored_entry <= 10_000 * censored
             or int(row["weighted_gross_lower_sum_e8"])
-            > int(row["weighted_gross_sum_e8"])
-            or int(row["weighted_gross_sum_e8"])
-            > int(row["weighted_gross_upper_sum_e8"])
+            != point - censored_entry
+            or int(row["weighted_gross_upper_sum_e8"])
+            != point + 10_000 * censored - censored_entry
+            or (quantity == 0 and (
+                point != 0 or int(row["weighted_mid_twice_sum_e8"]) != 0
+            ))
         ):
             raise C1RunnerError("aggregate markout quantity/bound conservation failed")
         row["coverage_count_num_e4"] = quantity
@@ -1889,6 +1900,8 @@ def aggregate_outputs(
                  AS censored_count_e4,
                coalesce(sum(gross_e4*observed_count_e4),0)::BIGINT
                  AS weighted_gross_sum_e8,
+               coalesce(sum(quote_price_e4*censored_count_e4),0)::BIGINT
+                 AS weighted_censored_entry_price_sum_e8,
                coalesce(sum(
                  coalesce(gross_e4,0)*observed_count_e4
                  - quote_price_e4*censored_count_e4
@@ -1903,13 +1916,19 @@ def aggregate_outputs(
         """
     )
     for row in attribution:
+        observed = int(row["observed_count_e4"])
+        censored = int(row["censored_count_e4"])
+        point = int(row["weighted_gross_sum_e8"])
+        censored_entry = int(row["weighted_censored_entry_price_sum_e8"])
         if (
             int(row["total_filled_count_e4"])
-            != int(row["observed_count_e4"]) + int(row["censored_count_e4"])
+            != observed + censored
+            or not 0 <= censored_entry <= 10_000 * censored
             or int(row["weighted_gross_lower_sum_e8"])
-            > int(row["weighted_gross_sum_e8"])
-            or int(row["weighted_gross_sum_e8"])
-            > int(row["weighted_gross_upper_sum_e8"])
+            != point - censored_entry
+            or int(row["weighted_gross_upper_sum_e8"])
+            != point + 10_000 * censored - censored_entry
+            or (observed == 0 and point != 0)
         ):
             raise C1RunnerError("attribution quantity/bound conservation failed")
         row["coverage_count_num_e4"] = int(row["observed_count_e4"])
