@@ -1,0 +1,38 @@
+{
+  "schema_version": "c1-real-fill-spec-v1",
+  "experiment_id": "C1-REAL-FILL-2026-07-22.01",
+  "runtime_commit": "5d5d27836891ae22cebecae85f90f2674e579909",
+  "source_binding": "c08083fe0f6a05cb60f95f1eee70d61a8075792e83c8f72c62927254c36b1979",
+  "eligible_dates": ["2026-07-12", "2026-07-15", "2026-07-17"],
+  "manifest_sha256": {
+    "l2_availability": "bb9c56fddaa86372902fc4d10317e49b4885cf814fef7647e40f4bc8266ed28b",
+    "l2_replay": "3cf24b5a28d27badd2fcd1638ac14e2fe27f2558a9a90e377b7eedf6a84a48f2",
+    "l2_episodes": "ecdc27a2cd64ba456683d4db12c0128fbfb0f4d60b58a7960f7f327b4163d89a",
+    "trades_market": "5d963ea39487c0991f3f759fa2d6872e0d50deadd5fbacc41e73e8a2a62f01ee",
+    "dim_market_date": "7af45436bf2bc41b6f94ccc6c11f44f70ce5d4f18fe62fb6a7666010f7def6dc"
+  },
+  "upstream_sha256": {
+    "input_manifest": "e51fac1d9ffd27c4a45bc8b685191e058b4138f470dd83a1719e5e13b729a927",
+    "l2_execution_receipt": "61992c459883291011f53b538e1fdf3f1015a4f82cc367880db405b878fc9f51"
+  },
+  "order_count_e4": 10000,
+  "min_depletion_fraction": "0.500000",
+  "min_depletion_count_e4": 10000,
+  "refill_fraction": "0.800000",
+  "campaign_horizon_us": 1000000,
+  "activation_state_ttl_us": 250000,
+  "latency_scenarios": [
+    {"id": "FAST", "place_us": 5000, "cancel_us": 5000},
+    {"id": "PRIMARY", "place_us": 50000, "cancel_us": 50000},
+    {"id": "STRESS", "place_us": 500000, "cancel_us": 500000}
+  ],
+  "cancel_timer_us": [200000, 300000],
+  "markout_horizon_us": [100000, 200000, 500000, 1000000],
+  "fill_tracks": [
+    "BINDING_STRICT_THROUGH",
+    "QUEUE_PESSIMISTIC",
+    "OPTIMISTIC_AT_TOUCH"
+  ],
+  "fee_state": "NOT_ESTIMABLE_FAIL_CLOSED",
+  "live_order_writes_allowed": false
+}
