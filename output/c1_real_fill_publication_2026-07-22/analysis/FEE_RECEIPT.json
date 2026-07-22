@@ -1,0 +1,1 @@
+{"net_pnl_published":false,"reason":"historical fee overrides and per-order rounding accumulator are not exact-bound","schema_version":"c1-fee-receipt-v1","state":"NOT_ESTIMABLE_FAIL_CLOSED"}

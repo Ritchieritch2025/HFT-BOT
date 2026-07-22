@@ -1,0 +1,1 @@
+{"decision_clock":"recv_wall_ns","past_only_asof":true,"schema_version":"c1-clock-receipt-v1","state":"PASS","state_ttl_us":250000,"trade_resolution":"microsecond_ambiguity_against_strategy"}
