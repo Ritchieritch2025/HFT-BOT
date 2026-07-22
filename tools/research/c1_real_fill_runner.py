@@ -1016,7 +1016,12 @@ MARKOUT_COLUMNS = FILL_COLUMNS + (
     ("horizon_us", "BIGINT"),
     ("target_ns", "BIGINT"),
     ("state_ns", "BIGINT"),
+    ("state_epoch", "BIGINT"),
     ("markout_status", "VARCHAR"),
+    ("exit_price_e4", "BIGINT"),
+    ("exit_top_qty_e4", "BIGINT"),
+    ("observed_count_e4", "BIGINT"),
+    ("censored_count_e4", "BIGINT"),
     ("gross_e4", "BIGINT"),
     ("mid_twice_gross_e4", "BIGINT"),
 )
@@ -1027,6 +1032,13 @@ def compute_markouts(
     slices: Sequence[Mapping[str, Any]],
     config: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
+    """Measure only executable future top quantity, censoring the remainder.
+
+    The frozen partial-liquidity policy is registered before production use:
+    at each horizon, at most ``min(fill_count, same_outcome_top_quantity)`` is
+    observed.  Every other filled unit remains censored and later receives
+    the complete legal outcome-price bound in aggregation.
+    """
     requests: list[dict[str, Any]] = []
     for fill in slices:
         for horizon_us in config["markout_horizon_us"]:
@@ -1043,7 +1055,8 @@ def compute_markouts(
         + ",r.recv_wall_ns AS state_ns,r.classification AS state_classification,"
         "r.snapshot_epoch AS state_epoch,r.book_valid AS state_book_valid,"
         "r.topology AS state_topology,r.bid_e4 AS state_bid_e4,"
-        "r.ask_e4 AS state_ask_e4 "
+        "r.bid_qty_e4 AS state_bid_qty_e4,r.ask_e4 AS state_ask_e4,"
+        "r.ask_qty_e4 AS state_ask_qty_e4 "
         "FROM c1_markout_requests m ASOF LEFT JOIN c1_replay_latest r ON "
         "m.market_ticker=r.market_ticker AND m.target_ns>=r.recv_wall_ns "
         "ORDER BY m.fill_slice_id,m.horizon_us"
@@ -1055,7 +1068,9 @@ def compute_markouts(
         "state_book_valid",
         "state_topology",
         "state_bid_e4",
+        "state_bid_qty_e4",
         "state_ask_e4",
+        "state_ask_qty_e4",
     ]
     ttl_ns = int(config["activation_state_ttl_us"]) * 1_000
     result: list[dict[str, Any]] = []
@@ -1070,6 +1085,13 @@ def compute_markouts(
             status = "CENSORED_FUTURE_STATE"
         elif int(row["target_ns"]) - state_ns > ttl_ns:
             status = "CENSORED_STALE_STATE"
+        elif state_ns // 1_000 <= int(row["trade_us"]):
+            # A state no later than the fill print is not future markout
+            # evidence.  The trade tape has only microsecond precision, so
+            # every L2 state in that complete microsecond is resolved against
+            # the strategy, including a recv_wall_ns value numerically above
+            # the lower microsecond boundary.
+            status = "CENSORED_NO_POST_TRADE_STATE"
         elif row.get("state_classification") not in VALID_REPLAY_CLASSIFICATIONS:
             status = "CENSORED_SEQUENCE_INVALID"
         elif row.get("state_book_valid") is not True or row.get("state_topology") != "TWO_SIDED":
@@ -1078,13 +1100,19 @@ def compute_markouts(
             status = "CENSORED_EPOCH_MISMATCH"
         bid = row.get("state_bid_e4")
         ask = row.get("state_ask_e4")
+        bid_quantity = row.get("state_bid_qty_e4")
+        ask_quantity = row.get("state_ask_qty_e4")
         if status == "OBSERVED" and (
             type(bid) is not int or type(ask) is not int or not (0 < bid < ask < 10_000)
         ):
             status = "CENSORED_TOUCH_INVALID"
         output = {name: row.get(name) for name, _kind in request_columns}
         output["state_ns"] = state_ns
-        output["markout_status"] = status
+        output["state_epoch"] = row.get("state_epoch")
+        output["exit_price_e4"] = None
+        output["exit_top_qty_e4"] = None
+        output["observed_count_e4"] = 0
+        output["censored_count_e4"] = int(row["fill_count_e4"])
         output["gross_e4"] = None
         output["mid_twice_gross_e4"] = None
         if status == "OBSERVED":
@@ -1092,11 +1120,35 @@ def compute_markouts(
             if row["side"] == "yes":
                 exit_price = int(bid)
                 mid_twice = int(bid) + int(ask)
+                exit_quantity = bid_quantity
             else:
                 exit_price = 10_000 - int(ask)
                 mid_twice = 20_000 - int(bid) - int(ask)
-            output["gross_e4"] = exit_price - entry
-            output["mid_twice_gross_e4"] = mid_twice - 2 * entry
+                exit_quantity = ask_quantity
+            if type(exit_quantity) is not int or exit_quantity <= 0:
+                status = "CENSORED_EXIT_TOP_QTY_INVALID"
+            else:
+                filled = int(row["fill_count_e4"])
+                observed = min(filled, exit_quantity)
+                censored = filled - observed
+                output["exit_top_qty_e4"] = exit_quantity
+                output["exit_price_e4"] = exit_price
+                output["observed_count_e4"] = observed
+                output["censored_count_e4"] = censored
+                output["gross_e4"] = exit_price - entry
+                output["mid_twice_gross_e4"] = mid_twice - 2 * entry
+                status = (
+                    "OBSERVED_FULL"
+                    if censored == 0
+                    else "OBSERVED_PARTIAL_TOP_DEPTH"
+                )
+        output["markout_status"] = status
+        if (
+            int(output["observed_count_e4"])
+            + int(output["censored_count_e4"])
+            != int(row["fill_count_e4"])
+        ):
+            raise C1RunnerError("markout executable-quantity conservation failed")
         result.append(output)
     if len(result) != len(requests):
         raise C1RunnerError("markout request conservation failed")
@@ -1127,6 +1179,24 @@ def process_partition(
     output_root: Path,
 ) -> dict[str, Any]:
     episodes = _episode_rows(con, bundle.episodes.path)
+    if any(str(row.get("date")) != bundle.date for row in episodes):
+        raise C1RunnerError(
+            f"episode partition contains a row outside {bundle.date}"
+        )
+    wrong_replay_date = int(
+        con.execute(
+            "SELECT count(*) FROM read_parquet("
+            + _q(bundle.replay.path)
+            + ",hive_partitioning=false) "
+            "WHERE date IS NULL OR cast(date AS VARCHAR)<>?",
+            [bundle.date],
+        ).fetchone()[0]
+    )
+    if wrong_replay_date:
+        raise C1RunnerError(
+            f"replay partition contains rows outside {bundle.date}: "
+            f"{wrong_replay_date}"
+        )
     accepted, overlap_exclusions = suppress_overlaps(
         episodes,
         campaign_horizon_us=int(config["campaign_horizon_us"]),
@@ -1219,6 +1289,11 @@ def process_partition(
             "activation_ttl_us": config["activation_state_ttl_us"],
             "same_microsecond_resolved_against_strategy": True,
         },
+        "markout_policy": {
+            "future_state_must_be_after_complete_trade_microsecond": True,
+            "executable_quantity": "MIN_FILL_COUNT_AND_SAME_OUTCOME_TOP_QTY",
+            "unexecutable_quantity": "CENSORED_WITH_LEGAL_PRICE_BOUNDS",
+        },
         "fee_state": FEE_STATE,
         "live_order_writes": 0,
         "artifacts": {
@@ -1300,39 +1375,42 @@ def _pilot_verdict(
             for horizon in (200_000, 1_000_000)
         ]
         all_supported = all(
-            row is not None and int(row["filled_count_e4"]) > 0 for row in cells
+            row is not None and int(row["total_filled_count_e4"]) > 0
+            for row in cells
         )
-        all_nonpositive = all_supported and all(
-            int(row["weighted_gross_sum_e8"]) <= 0 for row in cells if row is not None
+        # No data-dependent coverage threshold is permitted.  Missing
+        # executable quantity receives the complete legal outcome-price
+        # interval [0,10000], already folded into these exact weighted bounds.
+        all_upper_nonpositive = all_supported and all(
+            int(row["weighted_gross_upper_sum_e8"]) <= 0
+            for row in cells
+            if row is not None
         )
-        support_by_date = {
-            day: sum(
-                int(row["filled_count_e4"])
-                for row in strict_primary
-                if str(row["date"]) == day
-            )
-            for day in eligible_dates
-        }
-        all_positive = all_supported and all(
-            int(row["weighted_gross_sum_e8"]) > 0 for row in cells if row is not None
-        ) and all(value > 0 for value in support_by_date.values())
-        if all_nonpositive:
+        all_lower_positive = all_supported and all(
+            int(row["weighted_gross_lower_sum_e8"]) > 0
+            for row in cells
+            if row is not None
+        )
+        if all_upper_nonpositive:
             code = "KILL_C1_ENTRY"
             reason = (
-                "strict-through executable gross markout is non-positive in every "
+                "even the legal-price upper gross bound is non-positive in every "
                 "PRIMARY date/timer cell at 200ms and 1000ms"
             )
             precedence = 2
-        elif all_positive:
+        elif all_lower_positive:
             code = "RETAIN_FOR_20_DAY_VALIDATION"
             reason = (
-                "strict-through gross direction is positive with support on every "
-                "clean date; this pilot is not a promotion"
+                "even the legal-price lower gross bound is positive in every "
+                "PRIMARY date/timer cell; this pilot is not a promotion"
             )
             precedence = 3
         else:
             code = "INDETERMINATE_MORE_CLEAN_DAYS"
-            reason = "PRIMARY strict-through direction/support is mixed or censored"
+            reason = (
+                "PRIMARY strict-through legal-price censoring bounds overlap zero, "
+                "or a required date/timer cell has no support"
+            )
             precedence = 4
     return {
         "code": code,
@@ -1340,6 +1418,7 @@ def _pilot_verdict(
         "reason": reason,
         "binding_track": "STRICT_THROUGH",
         "binding_latency": "PRIMARY",
+        "decision_rule": "LEGAL_PRICE_CENSORING_BOUNDS_NO_COVERAGE_THRESHOLD",
         "fees_estimated": False,
         "positive_promotion": False,
         "live_ready": False,
@@ -1388,6 +1467,117 @@ def _concentration_rows(
     return output
 
 
+def _validate_global_output_invariants(con: Any) -> dict[str, int]:
+    """Recheck allocation/quantity laws after all 48 shards are merged."""
+    duplicate_slice_ids = int(
+        con.execute(
+            "SELECT count(*) FROM (SELECT fill_slice_id FROM c1_all_fills "
+            "GROUP BY fill_slice_id HAVING count(*)<>1)"
+        ).fetchone()[0]
+    )
+    allocation_failures, volume_failures = con.execute(
+        """
+        WITH allocated AS (
+          SELECT latency_id,cancel_timer_us,track,trade_id,
+                 count(*) AS slice_rows,
+                 count(DISTINCT campaign_id) AS campaigns,
+                 count(DISTINCT public_count_e4) AS public_variants,
+                 max(public_count_e4) AS public_count_e4,
+                 sum(fill_count_e4) AS filled_count_e4
+          FROM c1_all_fills
+          GROUP BY latency_id,cancel_timer_us,track,trade_id
+        )
+        SELECT count(*) FILTER (
+                 WHERE slice_rows<>1 OR campaigns<>1 OR public_variants<>1
+               ),
+               count(*) FILTER (
+                 WHERE filled_count_e4<=0
+                    OR filled_count_e4>public_count_e4
+               )
+        FROM allocated
+        """
+    ).fetchone()
+    markout_linkage_failures = int(
+        con.execute(
+            """
+            SELECT count(*) FROM (
+              SELECT coalesce(f.fill_slice_id,m.fill_slice_id) AS fill_slice_id
+              FROM (SELECT DISTINCT fill_slice_id FROM c1_all_fills) f
+              FULL OUTER JOIN (
+                SELECT DISTINCT fill_slice_id FROM c1_all_markouts
+              ) m USING(fill_slice_id)
+              WHERE f.fill_slice_id IS NULL OR m.fill_slice_id IS NULL
+            ) q
+            """
+        ).fetchone()[0]
+    )
+    markout_identity_failures, markout_quantity_failures = con.execute(
+        """
+        WITH by_slice AS (
+          SELECT fill_slice_id,count(*) AS rows,
+                 count(DISTINCT horizon_us) AS horizons,
+                 min(fill_count_e4) AS min_fill,
+                 max(fill_count_e4) AS max_fill,
+                 min(observed_count_e4+censored_count_e4) AS min_accounted,
+                 max(observed_count_e4+censored_count_e4) AS max_accounted,
+                 count(*) FILTER (
+                   WHERE horizon_us NOT IN (100000,200000,500000,1000000)
+                      OR target_ns<>trade_us*1000+horizon_us*1000
+                      OR state_ns>target_ns
+                 ) AS bad_clock_rows,
+                 count(*) FILTER (
+                   WHERE observed_count_e4<0 OR censored_count_e4<0
+                      OR (observed_count_e4>0 AND (
+                           gross_e4 IS NULL OR mid_twice_gross_e4 IS NULL
+                         ))
+                      OR observed_count_e4>coalesce(exit_top_qty_e4,0)
+                      OR (markout_status='OBSERVED_FULL' AND (
+                           observed_count_e4<=0 OR censored_count_e4<>0
+                         ))
+                      OR (markout_status='OBSERVED_PARTIAL_TOP_DEPTH' AND (
+                           observed_count_e4<=0 OR censored_count_e4<=0
+                         ))
+                      OR (markout_status LIKE 'CENSORED_%' AND observed_count_e4<>0)
+                      OR markout_status NOT IN (
+                           'OBSERVED_FULL','OBSERVED_PARTIAL_TOP_DEPTH',
+                           'CENSORED_MISSING_STATE','CENSORED_FUTURE_STATE',
+                           'CENSORED_STALE_STATE','CENSORED_NO_POST_TRADE_STATE',
+                           'CENSORED_SEQUENCE_INVALID','CENSORED_BOOK_INVALID',
+                           'CENSORED_EPOCH_MISMATCH','CENSORED_TOUCH_INVALID',
+                           'CENSORED_EXIT_TOP_QTY_INVALID'
+                         )
+                      OR (observed_count_e4>0 AND (
+                           state_ns IS NULL OR state_ns//1000<=trade_us
+                           OR state_epoch IS NULL OR state_epoch<>snapshot_epoch
+                           OR exit_price_e4 IS NULL
+                           OR exit_price_e4<>quote_price_e4+gross_e4
+                           OR exit_price_e4 NOT BETWEEN 1 AND 9999
+                         ))
+                 ) AS bad_rows
+          FROM c1_all_markouts GROUP BY fill_slice_id
+        )
+        SELECT count(*) FILTER (WHERE rows<>4 OR horizons<>4),
+               count(*) FILTER (
+                 WHERE min_fill<>max_fill OR min_accounted<>min_fill
+                    OR max_accounted<>max_fill OR bad_rows<>0
+                    OR bad_clock_rows<>0
+               )
+        FROM by_slice
+        """
+    ).fetchone()
+    failures = {
+        "duplicate_fill_slice_ids": duplicate_slice_ids,
+        "cross_partition_trade_allocation_failures": int(allocation_failures),
+        "cross_partition_public_volume_failures": int(volume_failures),
+        "markout_fill_linkage_failures": markout_linkage_failures,
+        "markout_identity_failures": int(markout_identity_failures),
+        "markout_quantity_conservation_failures": int(markout_quantity_failures),
+    }
+    if any(failures.values()):
+        raise C1RunnerError(f"global merged-output invariant failed: {failures}")
+    return failures
+
+
 def aggregate_outputs(
     con: Any,
     *,
@@ -1426,6 +1616,30 @@ def aggregate_outputs(
         + _path_list(markout_paths)
         + ",union_by_name=true,hive_partitioning=false)"
     )
+    global_output_invariants = _validate_global_output_invariants(con)
+    result_cells = [
+        {
+            "date": day,
+            "latency_id": latency["id"],
+            "cancel_timer_us": int(timer),
+            "track": track,
+        }
+        for day in config["eligible_dates"]
+        for latency in config["latency_scenarios"]
+        for timer in config["cancel_timer_us"]
+        for track in ("STRICT_THROUGH", "QUEUE_PESSIMISTIC", "OPTIMISTIC_AT_TOUCH")
+    ]
+    _register_dicts(
+        con,
+        "c1_result_cells",
+        (
+            ("date", "DATE"),
+            ("latency_id", "VARCHAR"),
+            ("cancel_timer_us", "BIGINT"),
+            ("track", "VARCHAR"),
+        ),
+        result_cells,
+    )
     table_dir = output_root / "TABLES"
     table_dir.mkdir(parents=True, exist_ok=False)
     combined_campaign_path = table_dir / "CAMPAIGNS.parquet"
@@ -1453,12 +1667,12 @@ def aggregate_outputs(
     fill_rates = _query_dicts(
         con,
         """
-        WITH tracks(track) AS (
-          VALUES ('STRICT_THROUGH'),('QUEUE_PESSIMISTIC'),
-                 ('OPTIMISTIC_AT_TOUCH')
-        ), eligible AS (
+        WITH eligible AS (
           SELECT c.date,c.latency_id,c.cancel_timer_us,t.track,c.campaign_id
-          FROM c1_all_campaigns c CROSS JOIN tracks t
+          FROM c1_all_campaigns c CROSS JOIN (
+            VALUES ('STRICT_THROUGH'),('QUEUE_PESSIMISTIC'),
+                   ('OPTIMISTIC_AT_TOUCH')
+          ) t(track)
           WHERE t.track<>'QUEUE_PESSIMISTIC' OR c.queue_ahead_e4 IS NOT NULL
         ), fill_by_order AS (
           SELECT date,latency_id,cancel_timer_us,track,campaign_id,
@@ -1466,19 +1680,72 @@ def aggregate_outputs(
                  sum(fill_count_e4)::BIGINT AS filled_count_e4
           FROM c1_all_fills
           GROUP BY date,latency_id,cancel_timer_us,track,campaign_id
+        ), observed AS (
+          SELECT e.date,e.latency_id,e.cancel_timer_us,e.track,
+                 count(*)::BIGINT AS campaigns_eligible,
+                 count(*) FILTER (WHERE coalesce(f.filled_count_e4,0)>0)::BIGINT
+                   AS filled_orders,
+                 coalesce(sum(f.fill_slices),0)::BIGINT AS fill_slices,
+                 coalesce(sum(f.filled_count_e4),0)::BIGINT AS filled_count_e4
+          FROM eligible e LEFT JOIN fill_by_order f
+            USING(date,latency_id,cancel_timer_us,track,campaign_id)
+          GROUP BY e.date,e.latency_id,e.cancel_timer_us,e.track
         )
-        SELECT e.date,e.latency_id,e.cancel_timer_us,e.track,
-               count(*)::BIGINT AS campaigns_eligible,
-               count(*) FILTER (WHERE coalesce(f.filled_count_e4,0)>0)::BIGINT
-                 AS filled_orders,
-               coalesce(sum(f.fill_slices),0)::BIGINT AS fill_slices,
-               coalesce(sum(f.filled_count_e4),0)::BIGINT AS filled_count_e4
-        FROM eligible e LEFT JOIN fill_by_order f
-          USING(date,latency_id,cancel_timer_us,track,campaign_id)
-        GROUP BY e.date,e.latency_id,e.cancel_timer_us,e.track
-        ORDER BY e.date,e.latency_id,e.cancel_timer_us,e.track
+        SELECT g.date,g.latency_id,g.cancel_timer_us,g.track,
+               coalesce(o.campaigns_eligible,0)::BIGINT AS campaigns_eligible,
+               coalesce(o.filled_orders,0)::BIGINT AS filled_orders,
+               coalesce(o.fill_slices,0)::BIGINT AS fill_slices,
+               coalesce(o.filled_count_e4,0)::BIGINT AS filled_count_e4
+        FROM c1_result_cells g LEFT JOIN observed o
+          USING(date,latency_id,cancel_timer_us,track)
+        ORDER BY g.date,g.latency_id,g.cancel_timer_us,g.track
         """
     )
+    queue_band_rows = _query_dicts(
+        con,
+        """
+        WITH cohort AS (
+          SELECT c.date,c.latency_id,c.cancel_timer_us,t.track,c.campaign_id
+          FROM c1_all_campaigns c CROSS JOIN (
+            VALUES ('STRICT_THROUGH'),('QUEUE_PESSIMISTIC'),
+                   ('OPTIMISTIC_AT_TOUCH')
+          ) t(track)
+          WHERE c.queue_ahead_e4 IS NOT NULL
+        ), fill_by_order AS (
+          SELECT date,latency_id,cancel_timer_us,track,campaign_id,
+                 sum(fill_count_e4)::BIGINT AS filled_count_e4
+          FROM c1_all_fills
+          GROUP BY date,latency_id,cancel_timer_us,track,campaign_id
+        ), observed AS (
+          SELECT c.date,c.latency_id,c.cancel_timer_us,c.track,
+                 count(*)::BIGINT AS cohort_orders,
+                 count(*) FILTER (WHERE coalesce(f.filled_count_e4,0)>0)::BIGINT
+                   AS filled_orders,
+                 coalesce(sum(f.filled_count_e4),0)::BIGINT AS filled_count_e4
+          FROM cohort c LEFT JOIN fill_by_order f
+            USING(date,latency_id,cancel_timer_us,track,campaign_id)
+          GROUP BY c.date,c.latency_id,c.cancel_timer_us,c.track
+        )
+        SELECT g.date,g.latency_id,g.cancel_timer_us,g.track,
+               coalesce(o.cohort_orders,0)::BIGINT AS cohort_orders,
+               coalesce(o.filled_orders,0)::BIGINT AS filled_orders,
+               coalesce(o.filled_count_e4,0)::BIGINT AS filled_count_e4
+        FROM c1_result_cells g LEFT JOIN observed o
+          USING(date,latency_id,cancel_timer_us,track)
+        ORDER BY g.date,g.latency_id,g.cancel_timer_us,g.track
+        """,
+    )
+    queue_band_by_key = {
+        (
+            str(row["date"]),
+            str(row["latency_id"]),
+            int(row["cancel_timer_us"]),
+            str(row["track"]),
+        ): row
+        for row in queue_band_rows
+    }
+    if len(fill_rates) != 54 or len(queue_band_rows) != 54:
+        raise C1RunnerError("fill-rate result grid is not exact 3x3x2x3")
     for row in fill_rates:
         eligible = int(row["campaigns_eligible"])
         row["campaigns_accepted"] = accepted_by_date[str(row["date"])]
@@ -1493,30 +1760,107 @@ def aggregate_outputs(
         row["fill_rate_quantity"] = _diagnostic_ratio(
             row["fill_rate_qty_num_e4"], row["fill_rate_qty_den_e4"]
         )
+        row["denominator_scope"] = (
+            "QUEUE_RECONSTRUCTABLE_ACTIVATIONS"
+            if row["track"] == "QUEUE_PESSIMISTIC"
+            else "ALL_ACTIVATION_ELIGIBLE"
+        )
+        comparison = queue_band_by_key.get(
+            (
+                str(row["date"]),
+                str(row["latency_id"]),
+                int(row["cancel_timer_us"]),
+                str(row["track"]),
+            ),
+            {},
+        )
+        row["queue_band_cohort_id"] = "QUEUE_RECONSTRUCTABLE_ACTIVATIONS"
+        row["queue_band_fill_rate_order_num"] = int(
+            comparison.get("filled_orders", 0)
+        )
+        row["queue_band_fill_rate_order_den"] = int(
+            comparison.get("cohort_orders", 0)
+        )
+        row["queue_band_fill_rate_qty_num_e4"] = int(
+            comparison.get("filled_count_e4", 0)
+        )
+        row["queue_band_fill_rate_qty_den_e4"] = (
+            row["queue_band_fill_rate_order_den"] * int(config["order_count_e4"])
+        )
 
     markouts = _query_dicts(
         con,
         """
-        SELECT date,latency_id,cancel_timer_us,track,horizon_us,
-               count(*) FILTER (WHERE markout_status='OBSERVED')::BIGINT
-                 AS observed_slices,
-               count(*) FILTER (WHERE markout_status<>'OBSERVED')::BIGINT
-                 AS censored_slices,
-               coalesce(sum(fill_count_e4) FILTER (
-                 WHERE markout_status='OBSERVED'),0)::BIGINT AS filled_count_e4,
-               coalesce(sum(gross_e4*fill_count_e4) FILTER (
-                 WHERE markout_status='OBSERVED'),0)::BIGINT
+        WITH horizons(horizon_us) AS (
+          VALUES (100000::BIGINT),(200000::BIGINT),(500000::BIGINT),
+                 (1000000::BIGINT)
+        ), grid AS (
+          SELECT c.*,h.horizon_us FROM c1_result_cells c CROSS JOIN horizons h
+        ), observed AS (
+          SELECT date,latency_id,cancel_timer_us,track,horizon_us,
+                 count(*)::BIGINT AS total_slices,
+                 count(*) FILTER (WHERE observed_count_e4>0)::BIGINT
+                   AS observed_slices,
+                 count(*) FILTER (WHERE censored_count_e4>0)::BIGINT
+                   AS censored_slices,
+                 coalesce(sum(fill_count_e4),0)::BIGINT
+                   AS total_filled_count_e4,
+                 coalesce(sum(observed_count_e4),0)::BIGINT
+                   AS observed_count_e4,
+                 coalesce(sum(censored_count_e4),0)::BIGINT
+                   AS censored_count_e4,
+                 coalesce(sum(gross_e4*observed_count_e4),0)::BIGINT
+                   AS weighted_gross_sum_e8,
+                 coalesce(sum(mid_twice_gross_e4*observed_count_e4),0)::BIGINT
+                   AS weighted_mid_twice_sum_e8,
+                 coalesce(sum(
+                   coalesce(gross_e4,0)*observed_count_e4
+                   - quote_price_e4*censored_count_e4
+                 ),0)::BIGINT AS weighted_gross_lower_sum_e8,
+                 coalesce(sum(
+                   coalesce(gross_e4,0)*observed_count_e4
+                   + (10000-quote_price_e4)*censored_count_e4
+                 ),0)::BIGINT AS weighted_gross_upper_sum_e8
+          FROM c1_all_markouts
+          GROUP BY date,latency_id,cancel_timer_us,track,horizon_us
+        )
+        SELECT g.date,g.latency_id,g.cancel_timer_us,g.track,g.horizon_us,
+               coalesce(o.total_slices,0)::BIGINT AS total_slices,
+               coalesce(o.observed_slices,0)::BIGINT AS observed_slices,
+               coalesce(o.censored_slices,0)::BIGINT AS censored_slices,
+               coalesce(o.total_filled_count_e4,0)::BIGINT
+                 AS total_filled_count_e4,
+               coalesce(o.observed_count_e4,0)::BIGINT AS observed_count_e4,
+               coalesce(o.censored_count_e4,0)::BIGINT AS censored_count_e4,
+               coalesce(o.weighted_gross_sum_e8,0)::BIGINT
                  AS weighted_gross_sum_e8,
-               coalesce(sum(mid_twice_gross_e4*fill_count_e4) FILTER (
-                 WHERE markout_status='OBSERVED'),0)::BIGINT
-                 AS weighted_mid_twice_sum_e8
-        FROM c1_all_markouts
-        GROUP BY date,latency_id,cancel_timer_us,track,horizon_us
-        ORDER BY date,latency_id,cancel_timer_us,track,horizon_us
+               coalesce(o.weighted_mid_twice_sum_e8,0)::BIGINT
+                 AS weighted_mid_twice_sum_e8,
+               coalesce(o.weighted_gross_lower_sum_e8,0)::BIGINT
+                 AS weighted_gross_lower_sum_e8,
+               coalesce(o.weighted_gross_upper_sum_e8,0)::BIGINT
+                 AS weighted_gross_upper_sum_e8
+        FROM grid g LEFT JOIN observed o
+          USING(date,latency_id,cancel_timer_us,track,horizon_us)
+        ORDER BY g.date,g.latency_id,g.cancel_timer_us,g.track,g.horizon_us
         """
     )
     for row in markouts:
-        quantity = int(row["filled_count_e4"])
+        quantity = int(row["observed_count_e4"])
+        if (
+            int(row["total_filled_count_e4"])
+            != quantity + int(row["censored_count_e4"])
+            or int(row["weighted_gross_lower_sum_e8"])
+            > int(row["weighted_gross_sum_e8"])
+            or int(row["weighted_gross_sum_e8"])
+            > int(row["weighted_gross_upper_sum_e8"])
+        ):
+            raise C1RunnerError("aggregate markout quantity/bound conservation failed")
+        row["coverage_count_num_e4"] = quantity
+        row["coverage_count_den_e4"] = int(row["total_filled_count_e4"])
+        row["coverage_fraction_diagnostic"] = _diagnostic_ratio(
+            row["coverage_count_num_e4"], row["coverage_count_den_e4"]
+        )
         row["mean_gross_e4"] = _diagnostic_ratio(
             int(row["weighted_gross_sum_e8"]), quantity
         )
@@ -1525,28 +1869,53 @@ def aggregate_outputs(
             if quantity
             else None
         )
+    if len(markouts) != 216:
+        raise C1RunnerError("markout result grid is not exact 3x3x2x3x4")
 
     attribution = _query_dicts(
         con,
         """
         SELECT date,latency_id,cancel_timer_us,track,refill_group,horizon_us,
-               count(*) FILTER (WHERE markout_status='OBSERVED')::BIGINT
+               count(*)::BIGINT AS total_slices,
+               count(*) FILTER (WHERE observed_count_e4>0)::BIGINT
                  AS observed_slices,
-               count(*) FILTER (WHERE markout_status<>'OBSERVED')::BIGINT
+               count(*) FILTER (WHERE censored_count_e4>0)::BIGINT
                  AS censored_slices,
-               coalesce(sum(fill_count_e4) FILTER (
-                 WHERE markout_status='OBSERVED'),0)::BIGINT AS filled_count_e4,
-               coalesce(sum(gross_e4*fill_count_e4) FILTER (
-                 WHERE markout_status='OBSERVED'),0)::BIGINT
-                 AS weighted_gross_sum_e8
+               coalesce(sum(fill_count_e4),0)::BIGINT
+                 AS total_filled_count_e4,
+               coalesce(sum(observed_count_e4),0)::BIGINT
+                 AS observed_count_e4,
+               coalesce(sum(censored_count_e4),0)::BIGINT
+                 AS censored_count_e4,
+               coalesce(sum(gross_e4*observed_count_e4),0)::BIGINT
+                 AS weighted_gross_sum_e8,
+               coalesce(sum(
+                 coalesce(gross_e4,0)*observed_count_e4
+                 - quote_price_e4*censored_count_e4
+               ),0)::BIGINT AS weighted_gross_lower_sum_e8,
+               coalesce(sum(
+                 coalesce(gross_e4,0)*observed_count_e4
+                 + (10000-quote_price_e4)*censored_count_e4
+               ),0)::BIGINT AS weighted_gross_upper_sum_e8
         FROM c1_all_markouts
         GROUP BY date,latency_id,cancel_timer_us,track,refill_group,horizon_us
         ORDER BY date,latency_id,cancel_timer_us,track,refill_group,horizon_us
         """
     )
     for row in attribution:
+        if (
+            int(row["total_filled_count_e4"])
+            != int(row["observed_count_e4"]) + int(row["censored_count_e4"])
+            or int(row["weighted_gross_lower_sum_e8"])
+            > int(row["weighted_gross_sum_e8"])
+            or int(row["weighted_gross_sum_e8"])
+            > int(row["weighted_gross_upper_sum_e8"])
+        ):
+            raise C1RunnerError("attribution quantity/bound conservation failed")
+        row["coverage_count_num_e4"] = int(row["observed_count_e4"])
+        row["coverage_count_den_e4"] = int(row["total_filled_count_e4"])
         row["mean_gross_e4"] = _diagnostic_ratio(
-            int(row["weighted_gross_sum_e8"]), int(row["filled_count_e4"])
+            int(row["weighted_gross_sum_e8"]), int(row["observed_count_e4"])
         )
 
     support = _query_dicts(
@@ -1623,6 +1992,8 @@ def aggregate_outputs(
         "allocation_scope": "UNIQUE_PER_LATENCY_CANCEL_TIMER_FILL_TRACK",
         "negative_l2_delta_creates_fill": False,
         "strict_at_touch_creates_fill": False,
+        "global_merged_output_invariants": global_output_invariants,
+        "queue_band_comparison_cohort": "QUEUE_RECONSTRUCTABLE_ACTIVATIONS",
     }
     aggregates = {
         "schema_version": SCHEMA_AGGREGATES,
@@ -1636,6 +2007,8 @@ def aggregate_outputs(
             "headline_track": "STRICT_THROUGH",
             "headline_latency": "PRIMARY",
             "gross_markout_only": True,
+            "markout_quantity_policy": "PARTIAL_SAME_OUTCOME_TOP_DEPTH",
+            "censored_price_bound_e4": [0, 10_000],
             "net_pnl_estimated": False,
             "live_order_writes": 0,
         },

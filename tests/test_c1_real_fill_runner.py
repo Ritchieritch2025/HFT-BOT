@@ -15,16 +15,18 @@ from tools.research.c1_real_fill_runner import (
     PartitionInput,
     _load_config,
     _copy_parquet,
+    _pilot_verdict,
     _register_dicts,
     _trade_rows_with_state,
+    _validate_global_output_invariants,
     aggregate_outputs,
     activation_states,
     allocate_and_fill,
+    compute_markouts,
     expand_variants,
     process_partition,
     suppress_overlaps,
 )
-from tools.research import c1_real_fill_report
 
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "c1_real_fill_v1.json"
@@ -108,6 +110,33 @@ def _trade(trade_id: str, t_us: int, *, price: int = 4_900) -> dict[str, object]
         "state_topology": "TWO_SIDED",
         "state_bid_e4": 4_900,
         "state_ask_e4": 5_100,
+    }
+
+
+def _fill_slice(*, fill_id: str = "fill", trade_us: int = 1_000_000) -> dict[str, object]:
+    return {
+        "fill_slice_id": fill_id,
+        "campaign_id": "campaign",
+        "episode_id": "episode",
+        "date": "2026-07-12",
+        "market_ticker": "MKT",
+        "event_proxy": "EVT",
+        "sport": "Baseball",
+        "family": "SERIES",
+        "side": "yes",
+        "quote_price_e4": 5_000,
+        "snapshot_epoch": 1,
+        "latency_id": "PRIMARY",
+        "cancel_timer_us": 200_000,
+        "track": "STRICT_THROUGH",
+        "refill_group": "NON_REFILL_OR_CENSORED",
+        "trade_id": "trade",
+        "trade_us": trade_us,
+        "public_count_e4": 10_000,
+        "fill_count_e4": 10_000,
+        "fill_reason": "STRICT_THROUGH",
+        "queue_before_e4": None,
+        "queue_after_e4": None,
     }
 
 
@@ -245,6 +274,127 @@ def test_trade_partition_wrong_date_fails_closed(tmp_path: Path) -> None:
     campaign = _eligible_campaign("c1", 0, 100, 2_000)
     with pytest.raises(C1RunnerError, match="outside 2026-07-12"):
         _trade_rows_with_state(con, [wrong, empty], empty, [campaign])
+
+
+def test_markout_requires_post_trade_state_and_conserves_partial_top_depth() -> None:
+    con = duckdb.connect()
+    config = _load_config(CONFIG_PATH)
+    replay_columns = (
+        "market_ticker VARCHAR,recv_wall_ns BIGINT,classification VARCHAR,"
+        "snapshot_epoch BIGINT,book_valid BOOLEAN,topology VARCHAR,"
+        "bid_e4 BIGINT,bid_qty_e4 BIGINT,ask_e4 BIGINT,ask_qty_e4 BIGINT"
+    )
+    con.execute("CREATE TEMP TABLE c1_replay_latest(" + replay_columns + ")")
+    # A same-fill-microsecond state must not count as future evidence.  The
+    # later state proves only 4,000 E4 is executable at the future top.
+    con.executemany(
+        "INSERT INTO c1_replay_latest VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [
+            ("MKT", 1_000_000_500, "DELTA_APPLIED", 1, True, "TWO_SIDED", 4_900, 10_000, 5_100, 10_000),
+            ("MKT", 1_050_000_000, "DELTA_APPLIED", 1, True, "TWO_SIDED", 4_800, 4_000, 5_200, 7_000),
+        ],
+    )
+    rows = compute_markouts(con, [_fill_slice()], config)
+    by_horizon = {row["horizon_us"]: row for row in rows}
+    first = by_horizon[100_000]
+    assert first["markout_status"] == "OBSERVED_PARTIAL_TOP_DEPTH"
+    assert first["observed_count_e4"] == 4_000
+    assert first["censored_count_e4"] == 6_000
+    assert first["observed_count_e4"] + first["censored_count_e4"] == 10_000
+    assert first["gross_e4"] == -200
+    no_fill = _fill_slice(fill_id="no")
+    no_fill["side"] = "no"
+    no_fill["quote_price_e4"] = 4_900
+    no_fill["trade_id"] = "trade-no"
+    no_first = {
+        row["horizon_us"]: row
+        for row in compute_markouts(con, [no_fill], config)
+    }[100_000]
+    assert no_first["exit_price_e4"] == 4_800
+    assert no_first["exit_top_qty_e4"] == 7_000
+    assert no_first["observed_count_e4"] == 7_000
+    assert no_first["censored_count_e4"] == 3_000
+    assert no_first["gross_e4"] == -100
+    # At 500ms the only future state is beyond the frozen 250ms TTL.
+    assert by_horizon[500_000]["observed_count_e4"] == 0
+    assert by_horizon[500_000]["censored_count_e4"] == 10_000
+
+    con.execute("DELETE FROM c1_replay_latest WHERE recv_wall_ns>=1050000000")
+    same_time = compute_markouts(con, [_fill_slice(fill_id="same")], config)
+    assert same_time[0]["markout_status"] == "CENSORED_NO_POST_TRADE_STATE"
+    assert same_time[0]["observed_count_e4"] == 0
+    assert same_time[0]["censored_count_e4"] == 10_000
+
+
+def test_global_merge_rejects_cross_partition_trade_reuse() -> None:
+    con = duckdb.connect()
+    first = _fill_slice(fill_id="f1")
+    second = dict(_fill_slice(fill_id="f2"))
+    second["campaign_id"] = "other-campaign"
+    _register_dicts(con, "merged_fills", FILL_COLUMNS, [first, second])
+    con.execute("CREATE TEMP VIEW c1_all_fills AS SELECT * FROM merged_fills")
+    markouts = []
+    for fill in (first, second):
+        for horizon in (100_000, 200_000, 500_000, 1_000_000):
+            row = dict(fill)
+            row.update(
+                {
+                    "horizon_us": horizon,
+                    "target_ns": 1_000_000_000 + horizon * 1_000,
+                    "state_ns": 1_001_000_000,
+                    "state_epoch": 1,
+                    "markout_status": "OBSERVED_FULL",
+                    "exit_price_e4": 5_001,
+                    "exit_top_qty_e4": 10_000,
+                    "observed_count_e4": 10_000,
+                    "censored_count_e4": 0,
+                    "gross_e4": 1,
+                    "mid_twice_gross_e4": 2,
+                }
+            )
+            markouts.append(row)
+    _register_dicts(con, "merged_markouts", MARKOUT_COLUMNS, markouts)
+    con.execute("CREATE TEMP VIEW c1_all_markouts AS SELECT * FROM merged_markouts")
+    with pytest.raises(C1RunnerError, match="global merged-output invariant"):
+        _validate_global_output_invariants(con)
+
+
+def test_verdict_uses_legal_price_bounds_without_coverage_threshold() -> None:
+    dates = ["2026-07-12", "2026-07-15", "2026-07-17"]
+    fill_rates = [
+        {
+            "date": day,
+            "latency_id": "PRIMARY",
+            "track": "STRICT_THROUGH",
+            "filled_count_e4": 10_000,
+        }
+        for day in dates
+    ]
+
+    def cells(lower: int, upper: int) -> list[dict[str, object]]:
+        return [
+            {
+                "date": day,
+                "latency_id": "PRIMARY",
+                "cancel_timer_us": timer,
+                "track": "STRICT_THROUGH",
+                "horizon_us": horizon,
+                "total_filled_count_e4": 10_000,
+                "weighted_gross_lower_sum_e8": lower,
+                "weighted_gross_upper_sum_e8": upper,
+            }
+            for day in dates
+            for timer in (200_000, 300_000)
+            for horizon in (200_000, 1_000_000)
+        ]
+
+    assert _pilot_verdict(fill_rates, cells(1, 2), dates)["code"] == (
+        "RETAIN_FOR_20_DAY_VALIDATION"
+    )
+    assert _pilot_verdict(fill_rates, cells(-2, 0), dates)["code"] == "KILL_C1_ENTRY"
+    mixed = _pilot_verdict(fill_rates, cells(-1, 1), dates)
+    assert mixed["code"] == "INDETERMINATE_MORE_CLEAN_DAYS"
+    assert mixed["decision_rule"] == "LEGAL_PRICE_CENSORING_BOUNDS_NO_COVERAGE_THRESHOLD"
 
 
 def test_small_partition_runs_end_to_end(tmp_path: Path) -> None:
@@ -390,7 +540,7 @@ def test_small_partition_runs_end_to_end(tmp_path: Path) -> None:
     assert "STRICT_THROUGH" in tracks
 
 
-def test_aggregation_is_publisher_compatible_and_complete(tmp_path: Path) -> None:
+def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> None:
     con = duckdb.connect()
     config = _load_config(CONFIG_PATH)
     output = tmp_path / "analysis"
@@ -460,13 +610,24 @@ def test_aggregation_is_publisher_compatible_and_complete(tmp_path: Path) -> Non
                     }
                     fills.append(fill)
                     for horizon in (100_000, 200_000, 500_000, 1_000_000):
+                        observed = 4_000 if horizon == 100_000 else 10_000
+                        censored = 10_000 - observed
                         markout = dict(fill)
                         markout.update(
                             {
                                 "horizon_us": horizon,
                                 "target_ns": 1_100_000_000 + horizon * 1_000,
                                 "state_ns": 1_100_000_000 + horizon * 1_000,
-                                "markout_status": "OBSERVED",
+                                "state_epoch": 1,
+                                "markout_status": (
+                                    "OBSERVED_PARTIAL_TOP_DEPTH"
+                                    if censored
+                                    else "OBSERVED_FULL"
+                                ),
+                                "exit_price_e4": 5_010,
+                                "exit_top_qty_e4": observed,
+                                "observed_count_e4": observed,
+                                "censored_count_e4": censored,
                                 "gross_e4": 10,
                                 "mid_twice_gross_e4": 20,
                             }
@@ -530,7 +691,6 @@ def test_aggregation_is_publisher_compatible_and_complete(tmp_path: Path) -> Non
         config_path=CONFIG_PATH,
         run_started_monotonic=0.0,
     )
-    c1_real_fill_report.validate_aggregates(aggregates)
     assert aggregates["verdict"]["code"] == "RETAIN_FOR_20_DAY_VALIDATION"
     assert aggregates["concentration"] == [
         {
@@ -543,11 +703,33 @@ def test_aggregation_is_publisher_compatible_and_complete(tmp_path: Path) -> Non
         for day in dates
     ]
     assert all(type(row["count"]) is int for row in aggregates["exclusions"])
-    report_dir = tmp_path / "report"
-    pdf_path = tmp_path / "output" / "pdf" / "C1_TEST.pdf"
-    published = c1_real_fill_report.publish(output, report_dir, pdf_path)
-    assert len(published["charts"]) == 5
-    assert (report_dir / "index.html").is_file()
-    assert pdf_path.stat().st_size > 10_000
+    assert len(aggregates["fill_rates"]) == 54
+    assert len(aggregates["markouts"]) == 216
+    assert all(
+        row["queue_band_cohort_id"] == "QUEUE_RECONSTRUCTABLE_ACTIVATIONS"
+        and row["queue_band_fill_rate_order_den"]
+        == (1 if row["latency_id"] == "PRIMARY" else 0)
+        for row in aggregates["fill_rates"]
+    )
+    assert all(
+        row["total_filled_count_e4"]
+        == row["observed_count_e4"] + row["censored_count_e4"]
+        for row in aggregates["markouts"]
+    )
+    partial_rows = [
+        row
+        for row in aggregates["markouts"]
+        if row["latency_id"] == "PRIMARY"
+        and row["track"] == "STRICT_THROUGH"
+        and row["horizon_us"] == 100_000
+    ]
+    assert all(
+        row["coverage_count_num_e4"] == 4_000
+        and row["coverage_count_den_e4"] == 10_000
+        and row["weighted_gross_lower_sum_e8"]
+        < row["weighted_gross_sum_e8"]
+        < row["weighted_gross_upper_sum_e8"]
+        for row in partial_rows
+    )
     assert (output / "C1_RUN_COMPLETE.json").is_file()
     assert (output / "ANALYSIS_ARTIFACT_SHA256.json").is_file()
