@@ -20,13 +20,16 @@ from pathlib import Path
 import pwd
 import re
 import stat
+import subprocess
 import sys
+import tempfile
 from typing import Any, Mapping
 
 
-AUTHORITY_SCHEMA = "c1-w09-execution-authority-v1"
-ARM_SCHEMA = "c1-w09-execution-arm-v1"
-CONSUMPTION_SCHEMA = "c1-w09-arm-consumption-v1"
+AUTHORITY_SCHEMA = "c1-w09-execution-authority-v2"
+ARM_SCHEMA = "c1-w09-execution-arm-v2"
+CONSUMPTION_SCHEMA = "c1-w09-arm-consumption-v2"
+APPROVAL_SCHEMA = "c1-operator-approval-v1"
 
 INSTANCE_ID = "i-0e53d134dceffe166"
 INSTANCE_TYPE = "r8g.2xlarge"
@@ -58,6 +61,8 @@ UPSTREAM_PATHS = {
 
 AUTHORITY_PATH = Path("/etc/w09/c1/AUTHORITY.json")
 ARM_PATH = Path("/etc/w09/c1/EXECUTION_ARM.json")
+APPROVAL_TEXT_PATH = Path("/etc/w09/c1/OPERATOR_APPROVAL.txt")
+APPROVAL_SIGNATURE_PATH = Path("/etc/w09/c1/OPERATOR_APPROVAL.txt.sig")
 SPEC_PATH = Path("/etc/w09/c1/C1_SPEC.md")
 CONFIG_PATH = Path("/etc/w09/c1/C1_CONFIG.json")
 RUNTIME_COMMIT_PATH = Path("/opt/w09/research/c1-release-commit.txt")
@@ -79,6 +84,15 @@ RUNTIME_FILE_MODES = {
 WRITE_ROOT = Path("/srv/w09-research/c1-runs")
 RUN_PREFIX = "c1-"
 RECEIPT_ROOT = Path("/var/lib/w09-c1/one-shot")
+SSH_KEYGEN_PATH = Path("/usr/bin/ssh-keygen")
+SSH_KEYGEN_SHA256 = "621136662bb8552f45bdec675fa676d47d2ba9f258574bc58efeccb813b14bc0"
+OPERATOR_SIGNER_IDENTITY = "c1-operator-offline-2026-07-22"
+OPERATOR_SIGNATURE_NAMESPACE = "hft-bot-c1-operator"
+OPERATOR_PUBLIC_KEY_FINGERPRINT = "SHA256:AAE/pGNCTrbM2c+kj7CG4QDggGES+YeejuW5Hn593Dg"
+OPERATOR_ALLOWED_SIGNERS_LINE = (
+    "c1-operator-offline-2026-07-22 "
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICoRvqFV/ADwfnFJfzor5pPMKOgyPzacD/xqr5RKHqWm"
+)
 
 READ_ROOTS = [
     str(Path("/etc/w09/c1")),
@@ -89,6 +103,24 @@ READ_ROOTS = [
 MAX_RUNTIME_SECONDS = 4 * 60 * 60
 MAX_COST_USD = Decimal("3")
 W09_USD_PER_HOUR = Decimal("0.50918")
+W09_PREFLIGHT_RUNTIME = {
+    "evidence_state": "WRAPPER_REVERIFICATION_REQUIRED_BEFORE_ARM_CONSUMPTION",
+    "python_version": "3.12.3",
+    "python_binary_path": "/usr/bin/python3.12",
+    "python_binary_sha256": "a7d56a8a764faf7bbf5c164055a48fd072be52287bdeb523a9e07b2042f4e7e1",
+    "duckdb_version": "1.4.5",
+    "duckdb_extension_path": (
+        "/opt/w09/venv/lib/python3.12/site-packages/"
+        "_duckdb.cpython-312-aarch64-linux-gnu.so"
+    ),
+    "duckdb_extension_sha256": (
+        "184620a897f5c1b3dddfa217fe22cd98d614489d8e6bdbfa5fa0b86388af669a"
+    ),
+    "verification_contract": (
+        "c1_run_once.sh verifies resolved Python, exact binary hashes and "
+        "imported DuckDB version/path before calling gate consume"
+    ),
+}
 MAX_AUTHORITY_LIFETIME = dt.timedelta(hours=24)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -110,6 +142,14 @@ AUTHORITY_FIELDS = {
     "authorized_role",
     "operator_authorization_text",
     "operator_authorization_sha256",
+    "operator_approval_signature_sha256",
+    "operator_signer_identity",
+    "operator_signature_namespace",
+    "operator_public_key_fingerprint",
+    "authorized_run_id",
+    "authorized_arm_nonce",
+    "authorized_arm_not_before_utc",
+    "authorized_arm_expires_at_utc",
     "exact_git_commit",
     "runtime_file_sha256s",
     "upstream_sha256s",
@@ -143,6 +183,36 @@ ARM_FIELDS = {
     "armed_at_utc",
     "not_before_utc",
     "expires_at_utc",
+}
+APPROVAL_FIELDS = {
+    "schema_version",
+    "decision",
+    "release_id",
+    "run_id",
+    "arm_nonce",
+    "authority_issued_at_utc",
+    "authority_expires_at_utc",
+    "arm_not_before_utc",
+    "arm_expires_at_utc",
+    "authorized_instance_id",
+    "authorized_instance_type",
+    "authorized_role",
+    "exact_git_commit",
+    "runtime_file_sha256s",
+    "upstream_sha256s",
+    "spec_sha256",
+    "config_sha256",
+    "checkpoint_root",
+    "checkpoint_manifest_sha256s",
+    "eligible_dates",
+    "authorized_read_roots",
+    "authorized_write_root",
+    "max_runtime_seconds",
+    "cost_cap_usd",
+    "live_order_permission",
+    "production_mutation",
+    "s3_write_permission",
+    "rfq_included",
 }
 
 
@@ -341,6 +411,117 @@ def _strict_fields(value: Mapping[str, Any], expected: set[str], label: str) -> 
         raise C1AuthorityError(f"{label} fields differ; missing={missing} extra={extra}")
 
 
+def _canonical_approval_bytes(value: Mapping[str, Any]) -> bytes:
+    try:
+        return (
+            json.dumps(
+                dict(value),
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode("ascii")
+            + b"\n"
+        )
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise C1AuthorityError("operator approval is not canonical JSON") from exc
+
+
+def _verify_operator_signature(
+    approval_raw: bytes,
+    signature_raw: bytes,
+    *,
+    ssh_keygen_path: Path,
+    allowed_signers_line: str,
+) -> None:
+    """Verify an OpenSSH detached signature without writing trusted bytes."""
+    if not allowed_signers_line.endswith("\n"):
+        allowed_signers_line += "\n"
+    handles = [tempfile.TemporaryFile(), tempfile.TemporaryFile()]
+    try:
+        handles[0].write(allowed_signers_line.encode("ascii"))
+        handles[1].write(signature_raw)
+        for handle in handles:
+            handle.flush()
+            handle.seek(0)
+        fd_root = "/proc/self/fd" if Path("/proc/self/fd").is_dir() else "/dev/fd"
+        command = [
+            str(ssh_keygen_path),
+            "-Y",
+            "verify",
+            "-f",
+            f"{fd_root}/{handles[0].fileno()}",
+            "-I",
+            OPERATOR_SIGNER_IDENTITY,
+            "-n",
+            OPERATOR_SIGNATURE_NAMESPACE,
+            "-s",
+            f"{fd_root}/{handles[1].fileno()}",
+        ]
+        completed = subprocess.run(
+            command,
+            input=approval_raw,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"LANG": "C", "PATH": "/usr/bin:/bin"},
+            pass_fds=tuple(handle.fileno() for handle in handles),
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        raise C1AuthorityError("operator signature verifier failed closed") from exc
+    finally:
+        for handle in handles:
+            handle.close()
+    if completed.returncode != 0:
+        raise C1AuthorityError("operator Ed25519 signature verification failed")
+
+
+def _validate_signed_approval(
+    authority: Mapping[str, Any], approval_raw: bytes
+) -> dict[str, Any]:
+    approval = _json(approval_raw, "operator approval text")
+    _strict_fields(approval, APPROVAL_FIELDS, "operator approval")
+    if _canonical_approval_bytes(approval) != approval_raw:
+        raise C1AuthorityError("operator approval text is not canonical pretty JSON")
+    fixed = {
+        "schema_version": APPROVAL_SCHEMA,
+        "decision": "APPROVE_ONE_SHOT_OFFLINE_C1",
+        "release_id": authority.get("release_id"),
+        "run_id": authority.get("authorized_run_id"),
+        "arm_nonce": authority.get("authorized_arm_nonce"),
+        "authority_issued_at_utc": authority.get("issued_at_utc"),
+        "authority_expires_at_utc": authority.get("expires_at_utc"),
+        "arm_not_before_utc": authority.get("authorized_arm_not_before_utc"),
+        "arm_expires_at_utc": authority.get("authorized_arm_expires_at_utc"),
+        "authorized_instance_id": INSTANCE_ID,
+        "authorized_instance_type": INSTANCE_TYPE,
+        "authorized_role": ROLE,
+        "exact_git_commit": authority.get("exact_git_commit"),
+        "runtime_file_sha256s": authority.get("runtime_file_sha256s"),
+        "upstream_sha256s": authority.get("upstream_sha256s"),
+        "spec_sha256": authority.get("spec_sha256"),
+        "config_sha256": authority.get("config_sha256"),
+        "checkpoint_root": str(CHECKPOINT_ROOT),
+        "checkpoint_manifest_sha256s": authority.get(
+            "checkpoint_manifest_sha256s"
+        ),
+        "eligible_dates": EXACT_ELIGIBLE_DATES,
+        "authorized_read_roots": READ_ROOTS,
+        "authorized_write_root": str(WRITE_ROOT),
+        "max_runtime_seconds": authority.get("max_runtime_seconds"),
+        "cost_cap_usd": authority.get("cost_cap_usd"),
+        "live_order_permission": False,
+        "production_mutation": False,
+        "s3_write_permission": False,
+        "rfq_included": False,
+    }
+    for field, expected in fixed.items():
+        if approval.get(field) != expected:
+            raise C1AuthorityError(f"signed operator approval mismatch: {field}")
+    return approval
+
+
 def _fixed_authority_fields(authority: Mapping[str, Any]) -> None:
     fixed = {
         "schema_version": AUTHORITY_SCHEMA,
@@ -355,6 +536,9 @@ def _fixed_authority_fields(authority: Mapping[str, Any]) -> None:
         "authorized_read_roots": READ_ROOTS,
         "authorized_write_root": str(WRITE_ROOT),
         "run_directory_prefix": RUN_PREFIX,
+        "operator_signer_identity": OPERATOR_SIGNER_IDENTITY,
+        "operator_signature_namespace": OPERATOR_SIGNATURE_NAMESPACE,
+        "operator_public_key_fingerprint": OPERATOR_PUBLIC_KEY_FINGERPRINT,
     }
     for field, expected in fixed.items():
         if authority.get(field) != expected:
@@ -365,17 +549,34 @@ def _fixed_authority_fields(authority: Mapping[str, Any]) -> None:
     for field in FALSE_FIELDS:
         if authority.get(field) is not False:
             raise C1AuthorityError(f"AUTHORITY field must be explicit false: {field}")
+    run_id = authority.get("authorized_run_id")
+    if not isinstance(run_id, str) or RUN_ID_RE.fullmatch(run_id) is None:
+        raise C1AuthorityError("authorized_run_id is invalid")
+    nonce = authority.get("authorized_arm_nonce")
+    if not isinstance(nonce, str) or NONCE_RE.fullmatch(nonce) is None:
+        raise C1AuthorityError("authorized_arm_nonce is invalid")
+    _utc(
+        authority.get("authorized_arm_not_before_utc"),
+        "authorized ARM not-before",
+    )
+    _utc(authority.get("authorized_arm_expires_at_utc"), "authorized ARM expiry")
 
 
 def validate_bundle(
     *,
     authority_path: Path = AUTHORITY_PATH,
     arm_path: Path = ARM_PATH,
+    approval_text_path: Path = APPROVAL_TEXT_PATH,
+    approval_signature_path: Path = APPROVAL_SIGNATURE_PATH,
     spec_path: Path = SPEC_PATH,
     config_path: Path = CONFIG_PATH,
     runtime_commit_path: Path = RUNTIME_COMMIT_PATH,
     runtime_file_paths: Mapping[str, Path] = RUNTIME_FILE_PATHS,
     upstream_paths: Mapping[str, Path] = UPSTREAM_PATHS,
+    ssh_keygen_path: Path = SSH_KEYGEN_PATH,
+    expected_ssh_keygen_sha256: str = SSH_KEYGEN_SHA256,
+    allowed_signers_line: str = OPERATOR_ALLOWED_SIGNERS_LINE,
+    verifier_owner_uid: int = 0,
     checkpoint_manifest_paths: Mapping[str, Path] = CHECKPOINT_MANIFEST_PATHS,
     expected_owner_uid: int = 0,
     checkpoint_owner_uid: int | None = None,
@@ -394,6 +595,30 @@ def validate_bundle(
         label="EXECUTION_ARM.json",
         max_bytes=128 * 1024,
         expected_owner_uid=expected_owner_uid,
+    )
+    approval_raw = _secure_bytes(
+        approval_text_path,
+        label="external operator approval text",
+        max_bytes=1024 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
+    approval_signature_raw = _secure_bytes(
+        approval_signature_path,
+        label="external operator approval signature",
+        max_bytes=128 * 1024,
+        expected_owner_uid=expected_owner_uid,
+    )
+    ssh_keygen_raw = _secure_bytes(
+        ssh_keygen_path,
+        label="pinned ssh-keygen verifier",
+        max_bytes=4 * 1024 * 1024,
+        expected_owner_uid=verifier_owner_uid,
+        exact_mode=0o755,
+    )
+    _exact_sha(
+        ssh_keygen_raw,
+        expected_ssh_keygen_sha256,
+        "pinned ssh-keygen verifier SHA-256",
     )
     spec_raw = _secure_bytes(
         spec_path,
@@ -470,8 +695,26 @@ def validate_bundle(
         authority.get("operator_authorization_sha256"),
         "operator_authorization_sha256",
     )
-    if hashlib.sha256(operator_text.encode("utf-8")).hexdigest() != operator_sha:
+    try:
+        external_operator_text = approval_raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise C1AuthorityError("external operator approval is not UTF-8") from exc
+    if operator_text != external_operator_text:
+        raise C1AuthorityError("AUTHORITY operator text differs from external approval")
+    if hashlib.sha256(approval_raw).hexdigest() != operator_sha:
         raise C1AuthorityError("operator authorization text SHA-256 mismatch")
+    signature_sha = _exact_sha(
+        approval_signature_raw,
+        authority.get("operator_approval_signature_sha256"),
+        "operator_approval_signature_sha256",
+    )
+    _verify_operator_signature(
+        approval_raw,
+        approval_signature_raw,
+        ssh_keygen_path=ssh_keygen_path,
+        allowed_signers_line=allowed_signers_line,
+    )
+    signed_approval = _validate_signed_approval(authority, approval_raw)
 
     exact_commit = authority.get("exact_git_commit")
     if not isinstance(exact_commit, str) or COMMIT_RE.fullmatch(exact_commit) is None:
@@ -479,8 +722,6 @@ def validate_bundle(
     installed_commit = _commit(runtime_raw)
     if exact_commit != installed_commit:
         raise C1AuthorityError("authority commit differs from installed runtime")
-    if exact_commit not in operator_text or authority["release_id"] not in operator_text:
-        raise C1AuthorityError("operator text does not name the exact release and commit")
     runtime_file_shas = authority.get("runtime_file_sha256s")
     if (
         not isinstance(runtime_file_shas, dict)
@@ -556,9 +797,16 @@ def validate_bundle(
     nonce = arm.get("arm_nonce")
     if not isinstance(nonce, str) or NONCE_RE.fullmatch(nonce) is None:
         raise C1AuthorityError("ARM nonce is invalid")
+    if run_id != authority["authorized_run_id"] or nonce != authority["authorized_arm_nonce"]:
+        raise C1AuthorityError("ARM run_id/nonce differ from signed operator approval")
     armed = _utc(arm.get("armed_at_utc"), "ARM armed_at_utc")
     not_before = _utc(arm.get("not_before_utc"), "ARM not_before_utc")
     arm_expires = _utc(arm.get("expires_at_utc"), "ARM expires_at_utc")
+    if (
+        arm.get("not_before_utc") != authority["authorized_arm_not_before_utc"]
+        or arm.get("expires_at_utc") != authority["authorized_arm_expires_at_utc"]
+    ):
+        raise C1AuthorityError("ARM window differs from signed operator approval")
     if not (issued <= armed <= not_before < arm_expires <= expires):
         raise C1AuthorityError("ARM window is outside the authority window")
     if arm_expires - not_before >= expires - issued:
@@ -595,13 +843,43 @@ def validate_bundle(
         "effective_runtime_seconds": effective_runtime,
         "cost_cap_usd": float(cost_cap),
         "required_runtime_cost_usd": float(required_cost),
+        "cost_boundary": {
+            "state": "OPERATOR_ESTIMATE_ONLY_NOT_AWS_BILLING_ENFORCEMENT",
+            "hourly_rate_assumption_usd": float(W09_USD_PER_HOUR),
+            "operator_budget_usd": float(cost_cap),
+            "estimated_max_instance_runtime_cost_usd": float(required_cost),
+            "aws_budgets_api_enforced": False,
+            "ebs_network_and_other_charges_included": False,
+        },
+        "runtime_environment_preflight": dict(W09_PREFLIGHT_RUNTIME),
+        "host_producer_toctou_boundary": {
+            "eliminated": False,
+            "reason": (
+                "private read-only mounts constrain C1 but cannot freeze an "
+                "independent host ubuntu producer outside the namespace"
+            ),
+            "mitigation": (
+                "exact manifest binding plus checkpoint-reader per-file hash "
+                "validation; producer quiescence remains an external precondition"
+            ),
+        },
         "expires_at_utc": authority["expires_at_utc"],
         "arm_expires_at_utc": arm["expires_at_utc"],
         "operator_authorization_sha256": operator_sha,
+        "operator_authorization_text": operator_text,
+        "operator_approval_signature_sha256": signature_sha,
+        "operator_signer_identity": OPERATOR_SIGNER_IDENTITY,
+        "operator_signature_namespace": OPERATOR_SIGNATURE_NAMESPACE,
+        "operator_public_key_fingerprint": OPERATOR_PUBLIC_KEY_FINGERPRINT,
+        "signed_operator_approval": signed_approval,
+        "ssh_keygen_sha256": expected_ssh_keygen_sha256,
     }
     artifacts = {
         "AUTHORITY.json": authority_raw,
         "EXECUTION_ARM.json": arm_raw,
+        "OPERATOR_APPROVAL.txt": approval_raw,
+        "OPERATOR_APPROVAL.txt.sig": approval_signature_raw,
+        "SSH_KEYGEN": ssh_keygen_raw,
         "C1_SPEC.md": spec_raw,
         "C1_CONFIG.json": config_raw,
         "RUNTIME_COMMIT.txt": runtime_raw,
@@ -638,12 +916,22 @@ def consume_one_shot(
         "authority_sha256": result["authority_sha256"],
         "arm_sha256": result["arm_sha256"],
         "arm_nonce": result["arm_nonce"],
+        "operator_authorization_sha256": result[
+            "operator_authorization_sha256"
+        ],
         "exact_git_commit": result["exact_git_commit"],
         "consumed_at_utc": now.isoformat().replace("+00:00", "Z"),
+        "authorized_max_runtime_seconds": result["max_runtime_seconds"],
         "effective_runtime_seconds": result["effective_runtime_seconds"],
+        "execution_deadline_utc": (
+            now + dt.timedelta(seconds=result["effective_runtime_seconds"])
+        ).isoformat().replace("+00:00", "Z"),
     }
     raw = _canonical_json(receipt)
-    name = result["arm_sha256"] + ".json"
+    # The externally signed approval hash is the stable one-shot identity.
+    # Keying by literal ARM bytes alone would permit replay by harmlessly
+    # reserializing AUTHORITY/ARM JSON while retaining the same signed scope.
+    name = result["operator_authorization_sha256"] + ".json"
     root_flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         root_flags |= os.O_DIRECTORY
@@ -662,7 +950,9 @@ def consume_one_shot(
         try:
             fd = os.open(name, flags, 0o400, dir_fd=root_fd)
         except FileExistsError as exc:
-            raise C1AuthorityError("this exact ARM was already consumed") from exc
+            raise C1AuthorityError(
+                "this signed operator approval was already consumed"
+            ) from exc
         written = 0
         while written < len(raw):
             written += os.write(fd, raw[written:])
@@ -687,12 +977,15 @@ def record_control_receipts(
     **validation_kwargs: Any,
 ) -> dict[str, Any]:
     """Persist auditable run-local receipts after, and only after, consumption."""
+    now = now or dt.datetime.now(dt.timezone.utc)
     result, _artifacts = validate_bundle(
         expected_owner_uid=expected_owner_uid,
-        now=now or dt.datetime.now(dt.timezone.utc),
+        now=now,
         **validation_kwargs,
     )
-    global_path = Path(receipt_root) / (result["arm_sha256"] + ".json")
+    global_path = Path(receipt_root) / (
+        result["operator_authorization_sha256"] + ".json"
+    )
     raw = _secure_bytes(
         global_path,
         label="global ARM consumption receipt",
@@ -708,15 +1001,47 @@ def record_control_receipts(
         "authority_sha256": result["authority_sha256"],
         "arm_sha256": result["arm_sha256"],
         "arm_nonce": result["arm_nonce"],
+        "operator_authorization_sha256": result[
+            "operator_authorization_sha256"
+        ],
         "exact_git_commit": result["exact_git_commit"],
-        "effective_runtime_seconds": result["effective_runtime_seconds"],
     }
     for field, expected in required.items():
         if consumed.get(field) != expected:
             raise C1AuthorityError(f"global consumption receipt mismatch: {field}")
-    if set(consumed) != {*required, "consumed_at_utc"}:
+    terminal_fields = {
+        "consumed_at_utc",
+        "authorized_max_runtime_seconds",
+        "effective_runtime_seconds",
+        "execution_deadline_utc",
+    }
+    if set(consumed) != {*required, *terminal_fields}:
         raise C1AuthorityError("global consumption receipt fields differ")
-    _utc(consumed.get("consumed_at_utc"), "global consumed_at_utc")
+    consumed_at = _utc(consumed.get("consumed_at_utc"), "global consumed_at_utc")
+    deadline = _utc(
+        consumed.get("execution_deadline_utc"), "global execution_deadline_utc"
+    )
+    consumed_effective = consumed.get("effective_runtime_seconds")
+    if (
+        type(consumed_effective) is not int
+        or consumed_effective <= 0
+        or consumed_effective > result["max_runtime_seconds"]
+        or consumed.get("authorized_max_runtime_seconds")
+        != result["max_runtime_seconds"]
+    ):
+        raise C1AuthorityError("global consumption runtime binding is invalid")
+    if deadline != consumed_at + dt.timedelta(seconds=consumed_effective):
+        raise C1AuthorityError("global consumption deadline differs from consumed runtime")
+    current = now
+    if current < consumed_at or current >= deadline:
+        raise C1AuthorityError("global consumption deadline is no longer active")
+    if deadline > _utc(result["arm_expires_at_utc"], "result arm expiry"):
+        raise C1AuthorityError("global consumption deadline exceeds the ARM")
+    remaining_runtime = min(
+        consumed_effective, int((deadline - current).total_seconds())
+    )
+    if remaining_runtime <= 0:
+        raise C1AuthorityError("global consumption has no runtime remaining")
     control_receipt_root = control_receipt_root or (
         WRITE_ROOT / str(result["run_id"]) / "control"
     )
@@ -725,7 +1050,13 @@ def record_control_receipts(
         result,
         expected_owner_uid=expected_owner_uid,
     )
-    final = {**result, "consumption_receipt": str(global_path)}
+    final = {
+        **result,
+        "consumed_effective_runtime_seconds": consumed_effective,
+        "effective_runtime_seconds": remaining_runtime,
+        "execution_deadline_utc": consumed["execution_deadline_utc"],
+        "consumption_receipt": str(global_path),
+    }
     _write_exclusive_receipt(
         Path(control_receipt_root) / "ARM_CONSUMPTION_RECEIPT.json",
         final,

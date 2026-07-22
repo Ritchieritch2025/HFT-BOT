@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+import shutil
+import subprocess
 
 import pytest
 
@@ -49,6 +51,8 @@ class Bundle:
         self.uid = os.getuid()
         self.authority_path = tmp_path / "AUTHORITY.json"
         self.arm_path = tmp_path / "EXECUTION_ARM.json"
+        self.approval_path = tmp_path / "OPERATOR_APPROVAL.txt"
+        self.approval_signature_path = tmp_path / "OPERATOR_APPROVAL.txt.sig"
         self.spec_path = tmp_path / "C1_SPEC.md"
         self.config_path = tmp_path / "C1_CONFIG.json"
         self.runtime_path = tmp_path / "c1-release-commit.txt"
@@ -56,6 +60,30 @@ class Bundle:
         self.runtime_file_raw: dict[str, bytes] = {}
         self.upstream_paths: dict[str, Path] = {}
         self.upstream_raw: dict[str, bytes] = {}
+        ssh_keygen = shutil.which("ssh-keygen")
+        assert ssh_keygen is not None
+        self.ssh_keygen_path = Path(ssh_keygen).resolve()
+        self.ssh_keygen_sha256 = hashlib.sha256(
+            self.ssh_keygen_path.read_bytes()
+        ).hexdigest()
+        self.signing_key = tmp_path / "test-operator-ed25519"
+        subprocess.run(
+            [
+                str(self.ssh_keygen_path),
+                "-q",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-f",
+                str(self.signing_key),
+            ],
+            check=True,
+        )
+        public_fields = (self.signing_key.with_suffix(".pub")).read_text().split()
+        self.allowed_signers_line = (
+            f"{gate.OPERATOR_SIGNER_IDENTITY} {public_fields[0]} {public_fields[1]}"
+        )
         self.receipt_root = tmp_path / "one-shot"
         self.receipt_root.mkdir(mode=0o750)
         self.receipt_root.chmod(0o750)
@@ -90,8 +118,69 @@ class Bundle:
         self.arm: dict[str, object] = {}
         self.install(self.authority)
 
+    def _approval_for(self, value: dict[str, object]) -> dict[str, object]:
+        return {
+            "schema_version": gate.APPROVAL_SCHEMA,
+            "decision": "APPROVE_ONE_SHOT_OFFLINE_C1",
+            "release_id": value["release_id"],
+            "run_id": value["authorized_run_id"],
+            "arm_nonce": value["authorized_arm_nonce"],
+            "authority_issued_at_utc": value["issued_at_utc"],
+            "authority_expires_at_utc": value["expires_at_utc"],
+            "arm_not_before_utc": value["authorized_arm_not_before_utc"],
+            "arm_expires_at_utc": value["authorized_arm_expires_at_utc"],
+            "authorized_instance_id": value["authorized_instance_id"],
+            "authorized_instance_type": value["authorized_instance_type"],
+            "authorized_role": value["authorized_role"],
+            "exact_git_commit": value["exact_git_commit"],
+            "runtime_file_sha256s": value["runtime_file_sha256s"],
+            "upstream_sha256s": value["upstream_sha256s"],
+            "spec_sha256": value["spec_sha256"],
+            "config_sha256": value["config_sha256"],
+            "checkpoint_root": value["checkpoint_root"],
+            "checkpoint_manifest_sha256s": value[
+                "checkpoint_manifest_sha256s"
+            ],
+            "eligible_dates": value["eligible_dates"],
+            "authorized_read_roots": value["authorized_read_roots"],
+            "authorized_write_root": value["authorized_write_root"],
+            "max_runtime_seconds": value["max_runtime_seconds"],
+            "cost_cap_usd": value["cost_cap_usd"],
+            "live_order_permission": value["live_order_permission"],
+            "production_mutation": value["production_mutation"],
+            "s3_write_permission": value["s3_write_permission"],
+            "rfq_included": value["rfq_included"],
+        }
+
+    def _sign_approval(self, approval: dict[str, object]) -> tuple[bytes, bytes]:
+        raw = gate._canonical_approval_bytes(approval)
+        if self.approval_path.exists():
+            self.approval_path.chmod(0o600)
+        self.approval_path.write_bytes(raw)
+        self.approval_path.chmod(0o600)
+        if self.approval_signature_path.exists():
+            self.approval_signature_path.unlink()
+        subprocess.run(
+            [
+                str(self.ssh_keygen_path),
+                "-Y",
+                "sign",
+                "-f",
+                str(self.signing_key),
+                "-n",
+                gate.OPERATOR_SIGNATURE_NAMESPACE,
+                str(self.approval_path),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        signature = self.approval_signature_path.read_bytes()
+        self.approval_path.chmod(0o444)
+        self.approval_signature_path.chmod(0o444)
+        return raw, signature
+
     def make_authority(self, **updates: object) -> dict[str, object]:
-        operator_text = f"批准 {RELEASE} exact commit {COMMIT}，仅离线 C1 测试。"
         value: dict[str, object] = {
             "schema_version": gate.AUTHORITY_SCHEMA,
             "state": "ACTIVE",
@@ -99,10 +188,13 @@ class Bundle:
             "authorized_instance_id": gate.INSTANCE_ID,
             "authorized_instance_type": gate.INSTANCE_TYPE,
             "authorized_role": gate.ROLE,
-            "operator_authorization_text": operator_text,
-            "operator_authorization_sha256": hashlib.sha256(
-                operator_text.encode("utf-8")
-            ).hexdigest(),
+            "operator_signer_identity": gate.OPERATOR_SIGNER_IDENTITY,
+            "operator_signature_namespace": gate.OPERATOR_SIGNATURE_NAMESPACE,
+            "operator_public_key_fingerprint": gate.OPERATOR_PUBLIC_KEY_FINGERPRINT,
+            "authorized_run_id": "c1-20260722t160000z-real-fill-01",
+            "authorized_arm_nonce": "N" * 32,
+            "authorized_arm_not_before_utc": _utc(NOW - dt.timedelta(minutes=4)),
+            "authorized_arm_expires_at_utc": _utc(NOW + dt.timedelta(hours=1)),
             "exact_git_commit": COMMIT,
             "runtime_file_sha256s": {
                 name: hashlib.sha256(raw).hexdigest()
@@ -135,6 +227,14 @@ class Bundle:
             "expires_at_utc": _utc(NOW + dt.timedelta(hours=4)),
         }
         value.update(updates)
+        approval_raw, signature_raw = self._sign_approval(self._approval_for(value))
+        value["operator_authorization_text"] = approval_raw.decode("utf-8")
+        value["operator_authorization_sha256"] = hashlib.sha256(
+            approval_raw
+        ).hexdigest()
+        value["operator_approval_signature_sha256"] = hashlib.sha256(
+            signature_raw
+        ).hexdigest()
         return value
 
     def make_arm(
@@ -171,6 +271,8 @@ class Bundle:
         return {
             "authority_path": self.authority_path,
             "arm_path": self.arm_path,
+            "approval_text_path": self.approval_path,
+            "approval_signature_path": self.approval_signature_path,
             "spec_path": self.spec_path,
             "config_path": self.config_path,
             "runtime_commit_path": self.runtime_path,
@@ -179,6 +281,10 @@ class Bundle:
             "checkpoint_manifest_paths": self.manifest_paths,
             "expected_owner_uid": self.uid,
             "checkpoint_owner_uid": self.uid,
+            "ssh_keygen_path": self.ssh_keygen_path,
+            "expected_ssh_keygen_sha256": self.ssh_keygen_sha256,
+            "allowed_signers_line": self.allowed_signers_line,
+            "verifier_owner_uid": self.ssh_keygen_path.stat().st_uid,
             "now": NOW,
         }
 
@@ -208,8 +314,53 @@ def test_operator_or_authority_tamper_is_rejected(bundle: Bundle) -> None:
     tampered = dict(bundle.authority)
     tampered["operator_authorization_text"] = "批准别的任务"
     bundle.install(tampered)
-    with pytest.raises(gate.C1AuthorityError, match="operator authorization text"):
+    with pytest.raises(gate.C1AuthorityError, match="operator text differs"):
         gate.validate_bundle(**bundle.kwargs())
+
+
+def test_signature_tamper_and_valid_signature_with_wrong_scope_are_rejected(
+    bundle: Bundle,
+) -> None:
+    bundle.approval_signature_path.chmod(0o644)
+    signature = bytearray(bundle.approval_signature_path.read_bytes())
+    signature[len(signature) // 2] ^= 1
+    bundle.approval_signature_path.write_bytes(bytes(signature))
+    bundle.approval_signature_path.chmod(0o444)
+    authority = dict(bundle.authority)
+    authority["operator_approval_signature_sha256"] = hashlib.sha256(
+        signature
+    ).hexdigest()
+    bundle.install(authority)
+    with pytest.raises(gate.C1AuthorityError, match="signature verification failed"):
+        gate.validate_bundle(**bundle.kwargs())
+
+    second = Bundle(bundle.root / "signed-wrong-scope")
+    approval = json.loads(second.approval_path.read_bytes())
+    approval["max_runtime_seconds"] = 7200
+    approval_raw, signature_raw = second._sign_approval(approval)
+    authority = dict(second.authority)
+    authority["operator_authorization_text"] = approval_raw.decode("utf-8")
+    authority["operator_authorization_sha256"] = hashlib.sha256(approval_raw).hexdigest()
+    authority["operator_approval_signature_sha256"] = hashlib.sha256(
+        signature_raw
+    ).hexdigest()
+    second.install(authority)
+    with pytest.raises(gate.C1AuthorityError, match="signed operator approval mismatch"):
+        gate.validate_bundle(**second.kwargs())
+
+
+def test_verifier_binary_and_offline_identity_are_pinned(bundle: Bundle) -> None:
+    kwargs = bundle.kwargs()
+    kwargs["expected_ssh_keygen_sha256"] = "0" * 64
+    with pytest.raises(gate.C1AuthorityError, match="ssh-keygen verifier SHA"):
+        gate.validate_bundle(**kwargs)
+
+    kwargs = bundle.kwargs()
+    kwargs["allowed_signers_line"] = (
+        "not-the-authorized-identity " + bundle.allowed_signers_line.split(" ", 1)[1]
+    )
+    with pytest.raises(gate.C1AuthorityError, match="signature verification failed"):
+        gate.validate_bundle(**kwargs)
 
 
 def test_expired_authority_is_rejected(bundle: Bundle) -> None:
@@ -226,6 +377,16 @@ def test_expired_authority_is_rejected(bundle: Bundle) -> None:
         },
     )
     with pytest.raises(gate.C1AuthorityError, match="authority is not active"):
+        gate.validate_bundle(**bundle.kwargs())
+
+
+def test_signed_time_window_cannot_be_extended_or_replayed(bundle: Bundle) -> None:
+    extended = dict(bundle.authority)
+    extended["expires_at_utc"] = _utc(NOW + dt.timedelta(hours=8))
+    bundle.install(extended)
+    with pytest.raises(
+        gate.C1AuthorityError, match="signed operator approval mismatch: authority_expires"
+    ):
         gate.validate_bundle(**bundle.kwargs())
 
 
@@ -353,6 +514,22 @@ def test_wrong_mode_owner_and_symlink_are_rejected(bundle: Bundle, tmp_path: Pat
         gate.validate_bundle(**bundle.kwargs())
 
 
+def test_external_approval_files_require_root_style_0444_nofollow(
+    bundle: Bundle, tmp_path: Path
+) -> None:
+    bundle.approval_path.chmod(0o644)
+    with pytest.raises(gate.C1AuthorityError, match="mode is not exactly 0444"):
+        gate.validate_bundle(**bundle.kwargs())
+    bundle.approval_path.chmod(0o444)
+
+    target = tmp_path / "approval-signature-target"
+    _immutable(target, bundle.approval_signature_path.read_bytes())
+    bundle.approval_signature_path.unlink()
+    bundle.approval_signature_path.symlink_to(target)
+    with pytest.raises(gate.C1AuthorityError, match="missing or unsafe"):
+        gate.validate_bundle(**bundle.kwargs())
+
+
 def test_arm_must_bind_sha_nonce_and_strictly_narrower_window(bundle: Bundle) -> None:
     bundle.install(bundle.authority, arm_updates={"authority_sha256": "0" * 64})
     with pytest.raises(gate.C1AuthorityError, match="authority_sha256"):
@@ -362,12 +539,20 @@ def test_arm_must_bind_sha_nonce_and_strictly_narrower_window(bundle: Bundle) ->
     with pytest.raises(gate.C1AuthorityError, match="nonce"):
         gate.validate_bundle(**bundle.kwargs())
 
+    bundle.install(bundle.authority, arm_updates={"arm_nonce": "X" * 32})
+    with pytest.raises(gate.C1AuthorityError, match="signed operator approval"):
+        gate.validate_bundle(**bundle.kwargs())
+
+    wide_authority = bundle.make_authority(
+        authorized_arm_not_before_utc=bundle.authority["issued_at_utc"],
+        authorized_arm_expires_at_utc=bundle.authority["expires_at_utc"],
+    )
     bundle.install(
-        bundle.authority,
+        wide_authority,
         arm_updates={
-            "armed_at_utc": bundle.authority["issued_at_utc"],
-            "not_before_utc": bundle.authority["issued_at_utc"],
-            "expires_at_utc": bundle.authority["expires_at_utc"],
+            "armed_at_utc": wide_authority["issued_at_utc"],
+            "not_before_utc": wide_authority["issued_at_utc"],
+            "expires_at_utc": wide_authority["expires_at_utc"],
         },
     )
     with pytest.raises(gate.C1AuthorityError, match="strictly narrower"):
@@ -395,6 +580,36 @@ def test_o_excl_consumption_is_one_shot_even_concurrently(bundle: Bundle) -> Non
     receipt = json.loads(receipts[0].read_bytes())
     assert receipt["state"] == "CONSUMED_BEFORE_COMPUTE"
     assert receipt["arm_nonce"] == "N" * 32
+    assert receipt["operator_authorization_sha256"] == bundle.authority[
+        "operator_authorization_sha256"
+    ]
+
+
+def test_signed_scope_cannot_be_replayed_by_reserializing_arm(
+    bundle: Bundle,
+) -> None:
+    kwargs = bundle.kwargs()
+    gate.consume_one_shot(**kwargs, receipt_root=bundle.receipt_root)
+
+    # Preserve every externally signed semantic value while changing literal
+    # AUTHORITY/ARM bytes and therefore both raw hashes.
+    authority_raw = (
+        json.dumps(bundle.authority, sort_keys=True, indent=4).encode("utf-8") + b"\n"
+    )
+    arm = dict(bundle.arm)
+    arm["authority_sha256"] = hashlib.sha256(authority_raw).hexdigest()
+    bundle.authority_path.chmod(0o644)
+    bundle.authority_path.write_bytes(authority_raw)
+    bundle.authority_path.chmod(0o444)
+    bundle.arm_path.chmod(0o644)
+    bundle.arm_path.write_bytes(
+        json.dumps(arm, sort_keys=True, indent=4).encode("utf-8") + b"\n"
+    )
+    bundle.arm_path.chmod(0o444)
+
+    with pytest.raises(gate.C1AuthorityError, match="signed operator approval"):
+        gate.consume_one_shot(**kwargs, receipt_root=bundle.receipt_root)
+    assert len(list(bundle.receipt_root.glob("*.json"))) == 1
 
 
 def test_control_receipts_are_root_controlled_canonical_and_fully_bound(
@@ -431,14 +646,40 @@ def test_control_receipts_are_root_controlled_canonical_and_fully_bound(
         "checkpoint_manifest_sha256s",
         "runtime_file_sha256s",
         "upstream_sha256s",
+        "operator_authorization_text",
+        "operator_authorization_sha256",
+        "operator_approval_signature_sha256",
+        "operator_public_key_fingerprint",
+        "signed_operator_approval",
         "run_id",
     ):
         assert auth_value[field] == result[field]
         assert consume_value[field] == result[field]
     assert consume_value["consumption_receipt"].endswith(
-        result["arm_sha256"] + ".json"
+        result["operator_authorization_sha256"] + ".json"
     )
     assert consumed["arm_sha256"] == result["arm_sha256"]
+
+
+def test_record_uses_consumed_deadline_across_second_boundary(bundle: Bundle) -> None:
+    consume_kwargs = bundle.kwargs()
+    consumed = gate.consume_one_shot(
+        **consume_kwargs,
+        receipt_root=bundle.receipt_root,
+    )
+    control_root = bundle.root / "cross-second-control"
+    control_root.mkdir(mode=0o750)
+    record_kwargs = bundle.kwargs()
+    record_kwargs["now"] = NOW + dt.timedelta(seconds=2)
+    recorded = gate.record_control_receipts(
+        **record_kwargs,
+        receipt_root=bundle.receipt_root,
+        control_receipt_root=control_root,
+    )
+    assert consumed["effective_runtime_seconds"] == 3600
+    assert recorded["consumed_effective_runtime_seconds"] == 3600
+    assert recorded["effective_runtime_seconds"] == 3598
+    assert recorded["execution_deadline_utc"] == _utc(NOW + dt.timedelta(hours=1))
 
 
 def test_wrapper_is_fixed_manual_no_sudo_and_consumes_before_compute() -> None:
@@ -456,9 +697,28 @@ def test_wrapper_is_fixed_manual_no_sudo_and_consumes_before_compute() -> None:
     assert "--reuid=nobody" in wrapper
     assert "--regid=nogroup" in wrapper
     assert "--groups=1000" in wrapper
+    assert "/usr/bin/env -i" in wrapper
     assert "/usr/bin/unshare --mount --net" in wrapper
+    assert "PATH=/usr/sbin:/usr/bin:/sbin:/bin" in wrapper
+    assert "unset PYTHONPATH PYTHONHOME" in wrapper
+    assert '"$PYTHON" -I "$GATE" consume' in wrapper
+    assert 'v["execution_deadline_utc"]' in wrapper
+    assert 'datetime.datetime.now(datetime.timezone.utc)' in wrapper
+    assert '"${remaining_seconds}s"' in wrapper
+    assert wrapper.index('remaining_seconds="$(') < wrapper.index(
+        "exec /usr/bin/setpriv"
+    )
+    assert '/usr/bin/readlink -f -- "$PYTHON"' in wrapper
+    assert "/usr/bin/sha256sum -- /usr/bin/python3.12" in wrapper
+    assert 'sys.version.split()[0]=="3.12.3"' in wrapper
+    assert 'duckdb.__version__=="1.4.5"' in wrapper
     assert "/usr/bin/mount --make-rprivate /" in wrapper
-    assert "/usr/bin/mount -o remount,bind,ro" in wrapper
+    assert "/usr/bin/mount -o remount,bind,ro /srv/w09-research" in wrapper
+    assert "/usr/bin/mount -t tmpfs -o mode=0700,size=1m tmpfs /mnt" in wrapper
+    assert "/usr/bin/mount --bind /mnt/c1-work-alias \"$2\"" in wrapper
+    assert '/usr/bin/mount --bind "$2/tmp" /tmp' in wrapper
+    assert '/usr/bin/mount --bind "$2/var-tmp" /var/tmp' in wrapper
+    assert '/usr/bin/mount --bind "$2/dev-shm" /dev/shm' in wrapper
     assert "-perm /0022" in wrapper
     assert "i-0e53d134dceffe166" in wrapper
     assert "r8g.2xlarge" in wrapper
@@ -470,6 +730,7 @@ def test_wrapper_is_fixed_manual_no_sudo_and_consumes_before_compute() -> None:
     assert wrapper.index('"$GATE" record') < wrapper.index("exec /usr/bin/systemd-inhibit")
     assert '/usr/bin/install -d -m 0750 -o root -g root "$control_dir"' in wrapper
     assert '/usr/bin/install -d -m 0750 -o nobody -g nogroup "$work_dir"' in wrapper
+    assert '/usr/bin/chmod 0755 "$run_dir"' in wrapper
     assert "/usr/bin/chown nobody:nogroup \"$run_dir\"" not in wrapper
     assert "runner output directory must not exist" in wrapper
     assert "CONTROL_AUTHORIZATION_RECEIPT.json" in gate_source
