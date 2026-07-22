@@ -1788,6 +1788,45 @@ def aggregate_outputs(
             row["queue_band_fill_rate_order_den"] * int(config["order_count_e4"])
         )
 
+    fill_rate_by_key = {
+        (
+            str(row["date"]), str(row["latency_id"]),
+            int(row["cancel_timer_us"]), str(row["track"]),
+        ): row
+        for row in fill_rates
+    }
+    for day in config["eligible_dates"]:
+        for latency in config["latency_scenarios"]:
+            for timer in config["cancel_timer_us"]:
+                rows = [
+                    fill_rate_by_key[(str(day), str(latency["id"]), int(timer), track)]
+                    for track in (
+                        "STRICT_THROUGH", "QUEUE_PESSIMISTIC",
+                        "OPTIMISTIC_AT_TOUCH",
+                    )
+                ]
+                order_denominators = {
+                    int(row["queue_band_fill_rate_order_den"]) for row in rows
+                }
+                quantity_denominators = {
+                    int(row["queue_band_fill_rate_qty_den_e4"]) for row in rows
+                }
+                order_numerators = [
+                    int(row["queue_band_fill_rate_order_num"]) for row in rows
+                ]
+                quantity_numerators = [
+                    int(row["queue_band_fill_rate_qty_num_e4"]) for row in rows
+                ]
+                if (
+                    len(order_denominators) != 1
+                    or len(quantity_denominators) != 1
+                    or order_numerators != sorted(order_numerators)
+                    or quantity_numerators != sorted(quantity_numerators)
+                ):
+                    raise C1RunnerError(
+                        "queue uncertainty band is not a common monotone cohort"
+                    )
+
     markouts = _query_dicts(
         con,
         """

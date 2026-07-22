@@ -6,6 +6,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from tools.research import c1_real_fill_report as report
 from tools.research.c1_real_fill_runner import (
     CAMPAIGN_COLUMNS,
     FILL_COLUMNS,
@@ -584,55 +585,62 @@ def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> Non
                         "queue_ahead_e4": 0,
                     }
                     campaigns.append(campaign)
-                    fill = {
-                        "fill_slice_id": f"fill-{day}-{timer}",
-                        "campaign_id": campaign_id,
-                        "episode_id": campaign["episode_id"],
-                        "date": day,
-                        "market_ticker": campaign["market_ticker"],
-                        "event_proxy": campaign["event_proxy"],
-                        "sport": "Baseball",
-                        "family": "SERIES",
-                        "side": "yes",
-                        "quote_price_e4": 5_000,
-                        "snapshot_epoch": 1,
-                        "latency_id": "PRIMARY",
-                        "cancel_timer_us": timer,
-                        "track": "STRICT_THROUGH",
-                        "refill_group": "NON_REFILL_OR_CENSORED",
-                        "trade_id": f"trade-{day}-{timer}",
-                        "trade_us": 1_100_000,
-                        "public_count_e4": 10_000,
-                        "fill_count_e4": 10_000,
-                        "fill_reason": "STRICT_THROUGH",
-                        "queue_before_e4": None,
-                        "queue_after_e4": None,
-                    }
-                    fills.append(fill)
-                    for horizon in (100_000, 200_000, 500_000, 1_000_000):
-                        observed = 4_000 if horizon == 100_000 else 10_000
-                        censored = 10_000 - observed
-                        markout = dict(fill)
-                        markout.update(
-                            {
-                                "horizon_us": horizon,
-                                "target_ns": 1_100_000_000 + horizon * 1_000,
-                                "state_ns": 1_100_000_000 + horizon * 1_000,
-                                "state_epoch": 1,
-                                "markout_status": (
-                                    "OBSERVED_PARTIAL_TOP_DEPTH"
-                                    if censored
-                                    else "OBSERVED_FULL"
-                                ),
-                                "exit_price_e4": 5_010,
-                                "exit_top_qty_e4": observed,
-                                "observed_count_e4": observed,
-                                "censored_count_e4": censored,
-                                "gross_e4": 10,
-                                "mid_twice_gross_e4": 20,
-                            }
-                        )
-                        markouts.append(markout)
+                    for track in (
+                        "STRICT_THROUGH", "QUEUE_PESSIMISTIC",
+                        "OPTIMISTIC_AT_TOUCH",
+                    ):
+                        fill = {
+                            "fill_slice_id": f"fill-{day}-{timer}-{track}",
+                            "campaign_id": campaign_id,
+                            "episode_id": campaign["episode_id"],
+                            "date": day,
+                            "market_ticker": campaign["market_ticker"],
+                            "event_proxy": campaign["event_proxy"],
+                            "sport": "Baseball",
+                            "family": "SERIES",
+                            "side": "yes",
+                            "quote_price_e4": 5_000,
+                            "snapshot_epoch": 1,
+                            "latency_id": "PRIMARY",
+                            "cancel_timer_us": timer,
+                            "track": track,
+                            "refill_group": "NON_REFILL_OR_CENSORED",
+                            "trade_id": f"trade-{day}-{timer}",
+                            "trade_us": 1_100_000,
+                            "public_count_e4": 10_000,
+                            "fill_count_e4": 10_000,
+                            "fill_reason": (
+                                "STRICT_THROUGH" if track == "STRICT_THROUGH"
+                                else "AT_TOUCH"
+                            ),
+                            "queue_before_e4": 0 if track == "QUEUE_PESSIMISTIC" else None,
+                            "queue_after_e4": 0 if track == "QUEUE_PESSIMISTIC" else None,
+                        }
+                        fills.append(fill)
+                        for horizon in (100_000, 200_000, 500_000, 1_000_000):
+                            observed = 4_000 if horizon == 100_000 else 10_000
+                            censored = 10_000 - observed
+                            markout = dict(fill)
+                            markout.update(
+                                {
+                                    "horizon_us": horizon,
+                                    "target_ns": 1_100_000_000 + horizon * 1_000,
+                                    "state_ns": 1_100_000_000 + horizon * 1_000,
+                                    "state_epoch": 1,
+                                    "markout_status": (
+                                        "OBSERVED_PARTIAL_TOP_DEPTH"
+                                        if censored
+                                        else "OBSERVED_FULL"
+                                    ),
+                                    "exit_price_e4": 5_010,
+                                    "exit_top_qty_e4": observed,
+                                    "observed_count_e4": observed,
+                                    "censored_count_e4": censored,
+                                    "gross_e4": 10,
+                                    "mid_twice_gross_e4": 20,
+                                }
+                            )
+                            markouts.append(markout)
             _register_dicts(con, "agg_campaigns", CAMPAIGN_COLUMNS, campaigns)
             _register_dicts(con, "agg_fills", FILL_COLUMNS, fills)
             _register_dicts(con, "agg_markouts", MARKOUT_COLUMNS, markouts)
@@ -642,22 +650,28 @@ def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> Non
             _copy_parquet(con, "agg_campaigns", campaign_path, "campaign_id")
             _copy_parquet(con, "agg_fills", fill_path, "fill_slice_id")
             _copy_parquet(con, "agg_markouts", markout_path, "fill_slice_id,horizon_us")
-            receipts.append(
-                {
-                    "partition_key": key,
-                    "date": day,
-                    "counts": {"campaigns_accepted": 1 if bucket == 0 else 0},
-                    "exclusion_reasons": {},
-                    "queue_invariants": {
-                        "duplicate_allocation_count": 0,
-                        "public_volume_exceeded_count": 0,
-                    },
-                    "artifacts": {
-                        "campaigns": {"path": campaign_path.relative_to(output).as_posix()},
-                        "fill_slices": {"path": fill_path.relative_to(output).as_posix()},
-                        "markouts": {"path": markout_path.relative_to(output).as_posix()},
-                    },
-                }
+            exclusion_path = directory / "EXCLUSIONS.csv"
+            exclusion_path.write_text("reason\n", encoding="ascii")
+            receipt = {
+                "partition_key": key,
+                "date": day,
+                "counts": {"campaigns_accepted": 1 if bucket == 0 else 0},
+                "exclusion_reasons": {},
+                "queue_invariants": {
+                    "duplicate_allocation_count": 0,
+                    "public_volume_exceeded_count": 0,
+                },
+                "artifacts": {
+                    "campaigns": {"path": campaign_path.relative_to(output).as_posix()},
+                    "fill_slices": {"path": fill_path.relative_to(output).as_posix()},
+                    "markouts": {"path": markout_path.relative_to(output).as_posix()},
+                    "exclusions": {"path": exclusion_path.relative_to(output).as_posix()},
+                },
+            }
+            receipts.append(receipt)
+            (directory / "PARTITION_RECEIPT.json").write_text(
+                json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="ascii",
             )
     input_receipt = {
         "source_binding": config["source_binding"],
@@ -682,6 +696,10 @@ def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> Non
             ]
         ],
     }
+    (output / "INPUT_RECEIPT.json").write_text(
+        json.dumps(input_receipt, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="ascii",
+    )
     aggregates = aggregate_outputs(
         con,
         output_root=output,
@@ -740,3 +758,8 @@ def test_aggregation_emits_bound_aware_complete_artifacts(tmp_path: Path) -> Non
     )
     assert (output / "C1_RUN_COMPLETE.json").is_file()
     assert (output / "ANALYSIS_ARTIFACT_SHA256.json").is_file()
+    published = report.publish(
+        output, tmp_path / "published", tmp_path / "pdf" / "C1.pdf"
+    )
+    assert Path(published["pdf"]).stat().st_size > 10_000
+    assert Path(published["publication_complete"]).is_file()
