@@ -24,7 +24,7 @@ LDLIBS := $(CRYPTO_LIBS) -lcurl
 PURE_TESTS := $(BUILD)/test_ring $(BUILD)/test_fixedpoint $(BUILD)/test_ids \
               $(BUILD)/test_env_safety $(BUILD)/test_bus $(BUILD)/test_orderbook $(BUILD)/test_recovery \
               $(BUILD)/test_readability $(BUILD)/test_sid_stream $(BUILD)/test_token_bucket \
-              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction
+              $(BUILD)/test_backoff $(BUILD)/test_secret_redaction $(BUILD)/test_shadow_engine
 
 BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration \
         $(BUILD)/test_resp $(BUILD)/ingestd $(BUILD)/tradingd \
@@ -35,7 +35,7 @@ BINS := $(BUILD)/kalshi_example $(BUILD)/test_signing $(BUILD)/test_integration 
         $(BUILD)/ws_shadow $(BUILD)/bench_ws_decode $(BUILD)/bench_engine \
         $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
         $(BUILD)/test_request_spec $(BUILD)/test_request_executor \
-        $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(PURE_TESTS)
+        $(BUILD)/test_batch_cost $(BUILD)/probe_batch_cost $(BUILD)/shadow_mm_replay $(PURE_TESTS)
 
 all: $(BINS)
 
@@ -159,6 +159,12 @@ $(BUILD)/test_resp: tests/test_resp.cpp $(BUILD)/resp.o
 
 $(BUILD)/test_ring: tests/test_ring.cpp include/kalshi/ring.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_ring.cpp -o $@
+
+$(BUILD)/test_shadow_engine: tests/test_shadow_engine.cpp include/trading/shadow/engine.hpp include/trading/shadow/fill_sim.hpp include/trading/shadow/order_registry.hpp include/trading/shadow/ledger.hpp include/trading/shadow/fees.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) tests/test_shadow_engine.cpp -o $@
+
+$(BUILD)/shadow_mm_replay: apps/shadow_mm_replay.cpp include/trading/shadow/engine.hpp include/trading/shadow/fill_sim.hpp include/trading/shadow/order_registry.hpp include/trading/shadow/ledger.hpp include/trading/shadow/fees.hpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) apps/shadow_mm_replay.cpp -o $@
 
 $(BUILD)/test_token_bucket: tests/test_token_bucket.cpp include/kalshi/token_bucket.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) tests/test_token_bucket.cpp -o $@
