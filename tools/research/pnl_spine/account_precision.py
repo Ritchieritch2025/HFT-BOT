@@ -154,7 +154,7 @@ def derive_account_precision(
         subaccount_number = raw_order.get("subaccount_number")
         if (
             type(subaccount_number) is int
-            and 0 <= subaccount_number <= 32
+            and 0 <= subaccount_number <= 63
         ):
             valid_direct_subaccount_orders += 1
 
@@ -254,9 +254,13 @@ def derive_account_precision(
         "schema_version": SCHEMA_VERSION,
         "state": state,
         "claim_tier": (
-            "EMPIRICAL_ACCOUNT_BALANCE_PRECISION"
-            if direct_confirmed
-            else "ARITHMETIC_DIAGNOSTIC_NOT_ACCOUNT_AUTHORITY"
+            "OFFICIAL_CONTRACT_DERIVED_ACCOUNT_PRECISION"
+            if order_contract_confirmed
+            else (
+                "EMPIRICAL_ACCOUNT_BALANCE_PRECISION"
+                if posted_balance_confirmed
+                else "ARITHMETIC_DIAGNOSTIC_NOT_ACCOUNT_AUTHORITY"
+            )
         ),
         "account_balance_precision": precision,
         "account_class_interpretation": (
@@ -274,9 +278,21 @@ def derive_account_precision(
             )
         ),
         "method": (
-            "SHA256_JOIN_REDACTED_AUTHENTICATED_FILL_TO_CANONICAL_ORDER;"
-            "DERIVED_SIGNED_PRINCIPAL_MINUS_ACTUAL_FEE_COST;"
-            "PRECISION_REQUIRES_SEPARATE_OBSERVED_BALANCE_CHANGE"
+            (
+                "AUTHENTICATED_ORDER_SUBACCOUNT_FIELD;"
+                "OFFICIAL_DIRECT_USER_RESPONSE_CONTRACT;"
+                "OFFICIAL_DIRECT_MEMBER_PRECISION_MAPPING"
+            )
+            if order_contract_confirmed
+            else (
+                "ACTUAL_POSTED_BALANCE_CHANGE_ALIGNMENT"
+                if posted_balance_confirmed
+                else (
+                    "SHA256_JOIN_REDACTED_AUTHENTICATED_FILL_TO_"
+                    "CANONICAL_ORDER;DERIVED_SIGNED_PRINCIPAL_MINUS_"
+                    "ACTUAL_FEE_COST;NOT_ACCOUNT_AUTHORITY"
+                )
+            )
         ),
         "official_rule_url": (
             "https://docs.kalshi.com/getting_started/fee_rounding"
