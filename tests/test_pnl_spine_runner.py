@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Any
+from datetime import datetime, timezone
 
 import pytest
 
@@ -22,12 +23,6 @@ from tools.research.pnl_spine.experiments import (  # noqa: E402
     NormalizedStateRow,
     RuntimeBindings,
 )
-from tools.research.pnl_spine.fees import (  # noqa: E402
-    FeePrecision,
-    FeeRule,
-    FeeSchedule,
-)
-from tools.research.pnl_spine.contracts import LiquidityRole  # noqa: E402
 from tools.research.pnl_spine.runner import (  # noqa: E402
     C1_CLASSIFICATION,
     NET_COMPLETE,
@@ -46,7 +41,11 @@ FREEZE_PATH = (
 )
 RUNNER_PATH = ROOT / "tools" / "research" / "pnl_spine" / "runner.py"
 DATES = ["2026-07-12", "2026-07-15", "2026-07-17"]
-NOW = 1_000_000_000_000_000
+NOW = int(
+    datetime(
+        2026, 7, 12, 12, 0, 0, tzinfo=timezone.utc
+    ).timestamp()
+) * 1_000_000_000
 SECOND = 1_000_000_000
 MINUTE = 60 * SECOND
 H_A = "a" * 64
@@ -79,52 +78,72 @@ def freeze() -> dict[str, Any]:
     return json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
 
 
-def fee_rules() -> list[dict[str, Any]]:
-    common: dict[str, Any] = {
-        "multiplier_e4": 10_000,
-        "precision": "DIRECT_CENTICENT",
-        "effective_from_ns": 0,
-        "effective_until_ns": None,
-        "source_sha256": H_A,
-        "market_ticker": None,
-        "series_prefix": "KXTEST",
+def fee_authority() -> dict[str, Any]:
+    private_aggregate = {
+        "actual_fee_field": "fee_cost",
+        "fill_count": 2,
+        "maker_fill_count": 1,
+        "source_private_fill_receipt_sha256": H_E,
+        "taker_fill_count": 1,
+        "total_actual_fee_cost_e6": 10_000,
     }
-    return [
-        {
-            **common,
-            "rule_id": "test-maker",
-            "liquidity_role": "MAKER",
-            "rate_e4": 175,
+    return {
+        "schema_version": "pnl_fee_facts_v1",
+        "account": {
+            "balance_precision": "DIRECT_CENTICENT",
+            "source_sha256": H_D,
         },
-        {
-            **common,
-            "rule_id": "test-taker",
-            "liquidity_role": "TAKER",
-            "rate_e4": 700,
+        "formula": {
+            "effective_from_ns": int(
+                datetime(
+                    2026, 7, 7, tzinfo=timezone.utc
+                ).timestamp()
+            )
+            * SECOND,
+            "effective_until_ns": None,
+            "taker_rate_e4": 700,
+            "maker_rate_e4": 175,
+            "default_taker_multiplier_e4": 10_000,
+            "default_maker_multiplier_e4": 0,
         },
-    ]
+        "source_bindings": {
+            "fee_schedule_pdf_sha256": H_B,
+            "series_history_snapshot_sha256": H_C,
+            "series_history_captured_at_ns": int(
+                datetime(
+                    2026, 7, 23, tzinfo=timezone.utc
+                ).timestamp()
+            )
+            * SECOND,
+            "series_history_includes_historical": True,
+            "event_history_snapshot_sha256": H_D,
+            "private_actual_fee_aggregate_receipt_sha256": (
+                canonical_sha256(private_aggregate)
+            ),
+        },
+        "private_actual_fee_aggregate": private_aggregate,
+        "series_changes": [],
+        "event_assertions": [
+            {
+                "assertion_id": "event-no-waiver",
+                "event_ticker": "KXTEST-EVENT",
+                "effective_from_ns": int(
+                    datetime(
+                        2026, 7, 7, tzinfo=timezone.utc
+                    ).timestamp()
+                )
+                * SECOND,
+                "effective_until_ns": None,
+                "waiver_state": "NO_WAIVER",
+                "fee_type_override": None,
+                "multiplier_e4_override": None,
+                "source_sha256": H_D,
+            }
+        ],
+    }
 
 
-def schedule_sha(rows: list[dict[str, Any]]) -> str:
-    rules = tuple(
-        FeeRule(
-            rule_id=row["rule_id"],
-            liquidity_role=LiquidityRole(row["liquidity_role"]),
-            rate_e4=row["rate_e4"],
-            multiplier_e4=row["multiplier_e4"],
-            precision=FeePrecision(row["precision"]),
-            effective_from_ns=row["effective_from_ns"],
-            effective_until_ns=row["effective_until_ns"],
-            source_sha256=row["source_sha256"],
-            market_ticker=row["market_ticker"],
-            series_prefix=row["series_prefix"],
-        )
-        for row in rows
-    )
-    return FeeSchedule(rules).deterministic_sha256
-
-
-def fee_receipt(rules: list[dict[str, Any]]) -> dict[str, Any]:
+def fee_receipt(authority: dict[str, Any]) -> dict[str, Any]:
     return seal(
         {
             "schema_version": "pnl-spine-fee-facts-receipt-v1",
@@ -133,15 +152,25 @@ def fee_receipt(rules: list[dict[str, Any]]) -> dict[str, Any]:
             "coverage_dates": DATES,
             "coverage_scope": "ALL_ELIGIBLE_SERIES_EVENTS_AND_ROLES",
             "bindings": {
-                "fee_facts_sha256": schedule_sha(rules),
-                "maker_fee_formula_id": "maker-v1",
-                "taker_fee_formula_id": "taker-v1",
-                "account_class": "fixture-direct",
+                "fee_facts_sha256": canonical_sha256(authority),
+                "maker_fee_formula_id": (
+                    "OFFICIAL_QUADRATIC_MAKER_0.0175_C_P_1MP"
+                ),
+                "taker_fee_formula_id": (
+                    "OFFICIAL_QUADRATIC_TAKER_0.07_C_P_1MP"
+                ),
+                "account_class": "DIRECT_MEMBER",
                 "target_balance_precision": 4,
-                "fee_rounding_accumulator_version": "centicent-v1",
-                "rebate_and_event_override_version": "effective-v1",
+                "fee_rounding_accumulator_version": (
+                    "OFFICIAL_PER_ORDER_ACCUMULATOR_CENTICENT_V1"
+                ),
+                "rebate_and_event_override_version": (
+                    "OFFICIAL_EFFECTIVE_DATED_SERIES_EVENT_WAIVER_V1"
+                ),
             },
-            "source_sha256": H_B,
+            "source_sha256": authority["source_bindings"][
+                "fee_schedule_pdf_sha256"
+            ],
             "event_override_history_complete": True,
             "order_rounding_rebate_complete": True,
             "private_fee_precedence": True,
@@ -246,33 +275,80 @@ def terminal_receipt(path_count: int) -> dict[str, Any]:
 
 
 def releases() -> list[dict[str, Any]]:
-    return [
-        {
+    result: list[dict[str, Any]] = []
+    for index, date in enumerate(DATES):
+        objects = [
+            {
+                "logical_key": f"l2/date={date}/book-primary.parquet",
+                "version_id": f"l2-primary-version-{index}",
+                "sha256": H_C,
+                "size_bytes": 100 + index,
+                "channel": "L2",
+                "date": date,
+            },
+            {
+                "logical_key": f"l2/date={date}/book-secondary.parquet",
+                "version_id": f"l2-secondary-version-{index}",
+                "sha256": H_D,
+                "size_bytes": 200 + index,
+                "channel": "L2",
+                "date": date,
+            },
+            {
+                "logical_key": f"trades/date={date}/trades-a.parquet",
+                "version_id": f"trades-a-version-{index}",
+                "sha256": H_A,
+                "size_bytes": 300 + index,
+                "channel": "TRADES",
+                "date": date,
+            },
+            {
+                "logical_key": f"trades/date={date}/trades-b.parquet",
+                "version_id": f"trades-b-version-{index}",
+                "sha256": H_B,
+                "size_bytes": 400 + index,
+                "channel": "TRADES",
+                "date": date,
+            },
+            {
+                "logical_key": f"settlement/date={date}/final.json",
+                "version_id": f"settlement-version-{index}",
+                "sha256": H_D,
+                "size_bytes": 500 + index,
+                "channel": "SETTLEMENT",
+                "date": date,
+            },
+        ]
+        result.append({
             "release_id": f"{date}__v3ref__exact-{index}",
             "date": date,
             "manifest_sha256": H_A,
             "manifest_version_id": f"version-{index}",
             "evidence_tier": "SEALED_DEGRADED_EVIDENCE",
-            "objects": [
-                {
-                    "logical_key": f"l2/date={date}/book.parquet",
-                    "version_id": f"object-version-{index}",
-                    "sha256": H_C,
-                    "size_bytes": 100 + index,
-                    "channel": "L2",
-                    "date": date,
-                }
-            ],
-        }
-        for index, date in enumerate(DATES)
-    ]
+            "objects": objects,
+        })
+    return result
+
+
+def risk_policy(**changes: Any) -> dict[str, Any]:
+    policy: dict[str, Any] = {
+        "schema_version": "pnl-spine-risk-policy-v1",
+        "max_market_e6": 10_000_000,
+        "max_event_e6": 10_000_000,
+        "max_factor_e6": 10_000_000,
+        "max_total_e6": 20_000_000,
+        "max_daily_loss_e6": 5_000_000,
+    }
+    policy.update(changes)
+    policy["policy_sha256"] = canonical_sha256(policy)
+    return policy
 
 
 def a01_row(**changes: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "row_id": "a01-row",
-        "root_event_id": "root-1",
-        "market_ticker": "KXTEST-MARKET",
+        "root_event_id": "KXTEST-EVENT",
+        "market_ticker": "KXTEST-EVENT-MARKET",
         "sport": "Tennis",
         "decision_ts_ns": NOW,
         "features_asof_ns": NOW - SECOND,
@@ -314,6 +390,134 @@ def a01_intent_ids(row: dict[str, Any]) -> tuple[str, ...]:
     return tuple(intent.intent_id for intent in decision.intents)
 
 
+def refresh_evidence_bindings(fixture: dict[str, Any]) -> None:
+    releases_by_date = {
+        release["date"]: release
+        for release in fixture["provenance"]["releases"]
+    }
+    records: list[
+        tuple[str, str, dict[str, Any], str, str, str]
+    ] = []
+    for row in fixture["rows"]:
+        date = datetime.fromtimestamp(
+            row["decision_ts_ns"] // SECOND,
+            tz=timezone.utc,
+        ).date().isoformat()
+        records.append(
+            (
+                "NORMALIZED_ROW",
+                row["row_id"],
+                row,
+                date,
+                "L2",
+                H_C,
+            )
+        )
+    for trade in fixture["public_trades"]:
+        date = datetime.fromtimestamp(
+            trade["timestamp_us"] // 1_000_000,
+            tz=timezone.utc,
+        ).date().isoformat()
+        records.append(
+            (
+                "PUBLIC_TRADE",
+                trade["trade_id"],
+                trade,
+                date,
+                "TRADES",
+                trade["source_sha256"],
+            )
+        )
+    for snapshot in fixture["exit_snapshots"]:
+        date = datetime.fromtimestamp(
+            snapshot["receive_timestamp_us"] // 1_000_000,
+            tz=timezone.utc,
+        ).date().isoformat()
+        records.append(
+            (
+                "L2_SNAPSHOT",
+                snapshot["snapshot_id"],
+                snapshot,
+                date,
+                "L2",
+                snapshot["source_sha256"],
+            )
+        )
+    for settlement in fixture["settlements"]:
+        date = datetime.fromtimestamp(
+            settlement["observed_at_ns"] // SECOND,
+            tz=timezone.utc,
+        ).date().isoformat()
+        records.append(
+            (
+                "SETTLEMENT",
+                settlement["settlement_id"],
+                settlement,
+                date,
+                "SETTLEMENT",
+                settlement["source_sha256"],
+            )
+        )
+
+    bindings: list[dict[str, Any]] = []
+    for kind, record_id, record, date, channel, source_sha in records:
+        release = releases_by_date[date]
+        matches = [
+            obj
+            for obj in release["objects"]
+            if obj["channel"] == channel and obj["sha256"] == source_sha
+        ]
+        assert len(matches) == 1
+        source = matches[0]
+        bindings.append(
+            {
+                "kind": kind,
+                "record_id": record_id,
+                "record_sha256": canonical_sha256(record),
+                "release_id": release["release_id"],
+                "source_object_logical_key": source["logical_key"],
+                "source_object_version_id": source["version_id"],
+                "source_object_sha256": source["sha256"],
+            }
+        )
+    fixture["evidence_bindings"] = bindings
+
+
+def authority_for(fixture: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "pnl-spine-trusted-authority-v1",
+        "code_sha256": fixture["code_sha256"],
+        "fee_facts_sha256": canonical_sha256(
+            fixture["fee_facts_authority"]
+        ),
+        "fee_contexts_sha256": canonical_sha256(
+            fixture["fee_contexts"]
+        ),
+        "release_set_sha256": canonical_sha256(
+            fixture["provenance"]["releases"]
+        ),
+        "evidence_manifest_sha256": canonical_sha256(
+            fixture["evidence_bindings"]
+        ),
+        "closure_manifest_sha256": canonical_sha256(
+            fixture["closures"]
+        ),
+        "risk_policy_sha256": fixture["risk_policy"]["policy_sha256"],
+        "terminal_receipt_sha256": canonical_sha256(
+            fixture["preflight_inputs"]["terminal_coverage"]
+        ),
+    }
+
+
+def execute(fixture: dict[str, Any]) -> dict[str, Any]:
+    authority = authority_for(fixture)
+    return run_fixture(
+        fixture,
+        trusted_authority=authority,
+        expected_trusted_authority_sha256=canonical_sha256(authority),
+    )
+
+
 def base_fixture(
     *,
     row: dict[str, Any] | None = None,
@@ -321,7 +525,8 @@ def base_fixture(
     with_trades: bool = True,
 ) -> dict[str, Any]:
     row = a01_row() if row is None else row
-    rules = fee_rules()
+    authority = fee_authority()
+    policy = risk_policy()
     terminal = terminal_receipt(path_count)
     latency = latency_receipt()
     release = release_receipt()
@@ -353,7 +558,7 @@ def base_fixture(
         ]
     snapshots = [
         {
-            "snapshot_id": "exit-yes",
+            "snapshot_id": "exit-book",
             "market_ticker": row["market_ticker"],
             "receive_timestamp_us": exit_snapshot_us,
             "yes_bids": [
@@ -365,21 +570,7 @@ def base_fixture(
             "book_valid": True,
             "gap_free": True,
             "source_sha256": H_C,
-        },
-        {
-            "snapshot_id": "exit-no",
-            "market_ticker": row["market_ticker"],
-            "receive_timestamp_us": exit_snapshot_us,
-            "yes_bids": [
-                {"yes_price_e4": 5_000, "quantity_e4": 10_000}
-            ],
-            "yes_asks": [
-                {"yes_price_e4": 5_200, "quantity_e4": 10_000}
-            ],
-            "book_valid": True,
-            "gap_free": True,
-            "source_sha256": H_D,
-        },
+        }
     ]
     closures: list[dict[str, Any]] = []
     if len(intent_ids) == 2:
@@ -387,7 +578,7 @@ def base_fixture(
         closures = [
             {
                 "intent_id": intent_buy,
-                "exit_snapshot_id": "exit-yes",
+                "exit_snapshot_id": "exit-book",
                 "exit_decision_ts_ns": exit_decision_ns,
                 "exit_limit_price_e4": 1,
                 "maximum_snapshot_age_us": 10,
@@ -395,7 +586,7 @@ def base_fixture(
             },
             {
                 "intent_id": intent_sell,
-                "exit_snapshot_id": "exit-no",
+                "exit_snapshot_id": "exit-book",
                 "exit_decision_ts_ns": exit_decision_ns,
                 "exit_limit_price_e4": 1,
                 "maximum_snapshot_age_us": 10,
@@ -403,30 +594,40 @@ def base_fixture(
             },
         ]
     fixture: dict[str, Any] = {
-        "schema_version": "pnl-spine-run-fixture-v1",
+        "schema_version": "pnl-spine-run-fixture-v2",
         "run_id": "fixture-run-1",
         "experiment_id": "A01-SPREAD-CAPTURE",
         "code_sha256": H_E,
         "frozen_experiment": freeze(),
         "card_parameter_artifact_sha256": "3" * 64,
         "preflight_inputs": {
-            "fee_facts": fee_receipt(rules),
+            "fee_facts": fee_receipt(authority),
             "measured_latency": latency,
             "release_dq": release,
             "terminal_coverage": terminal,
         },
         "provenance": {
-            "risk_policy_sha256": H_E,
+            "risk_policy_sha256": policy["policy_sha256"],
             "terminal_contract_sha256": canonical_sha256(terminal),
             "releases": releases(),
         },
-        "fee_rules": rules,
+        "fee_facts_authority": authority,
+        "fee_contexts": [
+            {
+                "market_ticker": row["market_ticker"],
+                "series_ticker": "KXTEST",
+                "event_ticker": "KXTEST-EVENT",
+            }
+        ],
+        "risk_policy": policy,
+        "evidence_bindings": [],
         "rows": [row],
         "public_trades": trades,
         "exit_snapshots": snapshots,
         "closures": closures,
         "settlements": [],
     }
+    refresh_evidence_bindings(fixture)
     return fixture
 
 
@@ -435,7 +636,7 @@ def blocker_codes(receipt: dict[str, Any]) -> set[str]:
 
 
 def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
-    receipt = run_fixture(base_fixture())
+    receipt = execute(base_fixture())
 
     assert receipt["state"] == NET_COMPLETE
     assert receipt["blockers"] == []
@@ -453,7 +654,7 @@ def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
     assert {
         row["result"]["closure_state"] for row in strategy
     } == {"CLOSED_BY_EXIT"}
-    assert receipt["totals"]["gross_pnl_e6"] == -40_000
+    assert receipt["totals"]["gross_pnl_e6"] == 50_000
     assert receipt["totals"]["fee_cost_e6"] > 0
     assert receipt["totals"]["net_pnl_e6"] == (
         receipt["totals"]["gross_pnl_e6"]
@@ -492,7 +693,7 @@ def test_abstain_and_triggered_no_fill_strategy_zeros_are_retained(
     path_count: int,
     expected_reason: str,
 ):
-    receipt = run_fixture(
+    receipt = execute(
         base_fixture(
             row=row,
             path_count=path_count,
@@ -522,7 +723,7 @@ def test_missing_real_ioc_exit_latency_blocks_net_pnl_not_defaults_to_zero():
     ]
     fixture["preflight_inputs"]["measured_latency"] = seal(latency)
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert receipt["totals"] is None
@@ -544,7 +745,7 @@ def test_absent_fee_or_latency_receipt_emits_blocked_receipt(
     fixture = base_fixture()
     fixture["preflight_inputs"][input_name] = None
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert receipt["totals"] is None
@@ -554,8 +755,9 @@ def test_absent_fee_or_latency_receipt_emits_blocked_receipt(
 def test_partial_ioc_exit_leaves_residual_and_blocks_complete_pnl():
     fixture = base_fixture()
     fixture["exit_snapshots"][0]["yes_bids"][0]["quantity_e4"] = 5_000
+    refresh_evidence_bindings(fixture)
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert receipt["totals"] is None
@@ -571,7 +773,7 @@ def test_partial_ioc_plus_final_exact_settlement_closes_every_residual():
     fixture["settlements"] = [
         {
             "settlement_id": "settlement-final",
-            "market_ticker": "KXTEST-MARKET",
+            "market_ticker": "KXTEST-EVENT-MARKET",
             "status": "FINALIZED",
             "finalized": True,
             "yes_settlement_value_e4": 10_000,
@@ -580,8 +782,9 @@ def test_partial_ioc_plus_final_exact_settlement_closes_every_residual():
             "source_sha256": H_D,
         }
     ]
+    refresh_evidence_bindings(fixture)
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == NET_COMPLETE
     assert receipt["conservation"]["residual_quantity_e4"] == 0
@@ -609,7 +812,7 @@ def test_nonfinal_settlement_is_censored_and_cannot_close_a_position():
     fixture["settlements"] = [
         {
             "settlement_id": "settlement-provisional",
-            "market_ticker": "KXTEST-MARKET",
+            "market_ticker": "KXTEST-EVENT-MARKET",
             "status": "PROVISIONAL",
             "finalized": False,
             "yes_settlement_value_e4": None,
@@ -618,35 +821,166 @@ def test_nonfinal_settlement_is_censored_and_cannot_close_a_position():
             "source_sha256": H_D,
         }
     ]
+    refresh_evidence_bindings(fixture)
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert "RESIDUAL_POSITION_OPEN" in blocker_codes(receipt)
 
 
-def test_fee_schedule_hole_blocks_path_even_when_receipt_claims_coverage():
+def test_self_signed_zero_fee_authority_cannot_complete_net_pnl():
     fixture = base_fixture()
-    fixture["fee_rules"] = [
-        row
-        for row in fixture["fee_rules"]
-        if row["liquidity_role"] != "MAKER"
-    ]
+    trusted = authority_for(fixture)
+    fixture["fee_facts_authority"]["formula"]["taker_rate_e4"] = 0
+    fixture["fee_facts_authority"]["formula"]["maker_rate_e4"] = 0
     fixture["preflight_inputs"]["fee_facts"] = fee_receipt(
-        fixture["fee_rules"]
-    )
-    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
-        fixture["preflight_inputs"]["terminal_coverage"]
+        fixture["fee_facts_authority"]
     )
 
-    receipt = run_fixture(fixture)
+    receipt = run_fixture(
+        fixture,
+        trusted_authority=trusted,
+        expected_trusted_authority_sha256=canonical_sha256(trusted),
+    )
 
     assert receipt["state"] == PNL_BLOCKED
-    assert (
-        "ENTRY_LEDGER_FAILED" in blocker_codes(receipt)
-        or "PATH_FINALIZATION_FAILED" in blocker_codes(receipt)
-    )
+    assert "FEE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert "EXTERNAL_AUTHORITY_INVALID" in blocker_codes(receipt)
     assert receipt["totals"] is None
+
+
+def test_same_fixture_cannot_self_sign_1970_rows_as_2026_release_data():
+    fixture = base_fixture()
+    row = fixture["rows"][0]
+    old_now = 1_000_000_000_000_000
+    row.update(
+        {
+            "decision_ts_ns": old_now,
+            "features_asof_ns": old_now - SECOND,
+            "book_observed_at_ns": old_now - 250_000_000,
+            "scheduled_start_ts_ns": old_now + 60 * MINUTE,
+            "scheduled_start_asof_ns": old_now - SECOND,
+            "state_started_at_ns": old_now - 5 * SECOND,
+            "warmup_started_at_ns": old_now - 120 * SECOND,
+        }
+    )
+    row_binding = next(
+        binding
+        for binding in fixture["evidence_bindings"]
+        if binding["kind"] == "NORMALIZED_ROW"
+    )
+    row_binding["record_sha256"] = canonical_sha256(row)
+
+    authority = authority_for(fixture)
+    receipt = run_fixture(
+        fixture,
+        trusted_authority=authority,
+        expected_trusted_authority_sha256=canonical_sha256(authority),
+    )
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert "EVIDENCE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert any(
+        "timestamp date escaped exact release" in blocker["detail"]
+        for blocker in receipt["blockers"]
+    )
+
+
+def test_missing_external_authority_pin_can_never_complete():
+    receipt = run_fixture(base_fixture())
+    assert receipt["state"] == PNL_BLOCKED
+    assert "EXTERNAL_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert receipt["trusted_authority_sha256"] is None
+
+
+def test_frozen_root_cap_and_risk_ledger_reject_duplicate_root_intents():
+    fixture = base_fixture(path_count=6)
+    second = a01_row(row_id="a01-row-duplicate-root")
+    fixture["rows"].append(second)
+    terminal = terminal_receipt(6)
+    fixture["preflight_inputs"]["terminal_coverage"] = terminal
+    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
+        terminal
+    )
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert "FROZEN_ROOT_CAP_EXCEEDED" in blocker_codes(receipt)
+    assert receipt["risk_ledger_sha256"] is not None
+    assert any(
+        row["reason_codes"] == ["BLOCK_RISK_ADMISSION_FAILED"]
+        for row in receipt["path_rows"]
+    )
+
+
+def test_closure_cannot_select_an_older_better_l2_snapshot():
+    fixture = base_fixture()
+    latest = copy.deepcopy(fixture["exit_snapshots"][0])
+    latest["snapshot_id"] = "exit-book-latest"
+    latest["receive_timestamp_us"] += 1
+    latest["yes_bids"][0]["yes_price_e4"] = 3_000
+    latest["yes_asks"][0]["yes_price_e4"] = 7_000
+    fixture["exit_snapshots"].append(latest)
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert "EXIT_IOC_FAILED" in blocker_codes(receipt)
+    assert any(
+        "did not select the latest qualified" in blocker["detail"]
+        for blocker in receipt["blockers"]
+    )
+
+
+def test_conflicting_final_settlements_for_same_market_fail_globally():
+    fixture = base_fixture()
+    for closure in fixture["closures"]:
+        closure.update(
+            {
+                "exit_snapshot_id": None,
+                "exit_decision_ts_ns": None,
+                "exit_limit_price_e4": None,
+                "maximum_snapshot_age_us": None,
+            }
+        )
+    fixture["closures"][0]["settlement_id"] = "final-yes"
+    fixture["closures"][1]["settlement_id"] = "final-no"
+    fixture["settlements"] = [
+        {
+            "settlement_id": "final-yes",
+            "market_ticker": "KXTEST-EVENT-MARKET",
+            "status": "FINALIZED",
+            "finalized": True,
+            "yes_settlement_value_e4": 10_000,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        },
+        {
+            "settlement_id": "final-no",
+            "market_ticker": "KXTEST-EVENT-MARKET",
+            "status": "FINALIZED",
+            "finalized": True,
+            "yes_settlement_value_e4": 0,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        },
+    ]
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert "EVIDENCE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert any(
+        "multiple finalized settlement authorities" in blocker["detail"]
+        for blocker in receipt["blockers"]
+    )
 
 
 def test_b09_untrained_is_retained_and_explicitly_blocked():
@@ -661,8 +995,9 @@ def test_b09_untrained_is_retained_and_explicitly_blocked():
         }
     ]
     fixture["closures"] = []
+    refresh_evidence_bindings(fixture)
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert "BLOCKED_PARAMETER_TRAINING" in blocker_codes(receipt)
@@ -683,7 +1018,7 @@ def test_provenance_manifest_drift_blocks_promotion():
         "different-version"
     )
 
-    receipt = run_fixture(fixture)
+    receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
     assert "PROVENANCE_BINDING_INVALID" in blocker_codes(receipt)
@@ -711,6 +1046,18 @@ def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
         json.dumps(fixture, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",
     )
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(
+        json.dumps(
+            authority_for(fixture),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    authority_sha256 = hashlib.sha256(
+        authority_path.read_bytes()
+    ).hexdigest()
     completed = subprocess.run(
         [
             sys.executable,
@@ -718,6 +1065,10 @@ def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
             "tools.research.pnl_spine.runner",
             "--fixture",
             str(fixture_path),
+            "--trusted-authority",
+            str(authority_path),
+            "--trusted-authority-sha256",
+            authority_sha256,
         ],
         cwd=ROOT,
         check=False,

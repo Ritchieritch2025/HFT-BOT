@@ -545,11 +545,13 @@ class FeeFacts:
         start_ns = fill.executed_at_ns
         end_ns = start_ns + 1
         owner_slug = owner.replace(":", "-")
+        point_slug = str(start_ns)
         return FeeSchedule(
             (
                 FeeRule(
                     rule_id=(
-                        f"facts-{self.facts_sha256[:12]}-{owner_slug}-taker"
+                        f"facts-{self.facts_sha256[:12]}-{owner_slug}-"
+                        f"{point_slug}-taker"
                     ),
                     liquidity_role=LiquidityRole.TAKER,
                     rate_e4=self.formula.taker_rate_e4,
@@ -562,7 +564,8 @@ class FeeFacts:
                 ),
                 FeeRule(
                     rule_id=(
-                        f"facts-{self.facts_sha256[:12]}-{owner_slug}-maker"
+                        f"facts-{self.facts_sha256[:12]}-{owner_slug}-"
+                        f"{point_slug}-maker"
                     ),
                     liquidity_role=LiquidityRole.MAKER,
                     rate_e4=self.formula.maker_rate_e4,
@@ -796,28 +799,15 @@ def _parse_event_assertions(
     )
 
 
-def load_fee_facts(
-    path: Path | str,
+def _load_fee_facts_bytes(
+    raw_bytes: bytes,
     *,
     expected_facts_sha256: str | None = None,
     expected_series_history_snapshot_sha256: str | None = None,
     expected_private_actual_fee_aggregate_receipt_sha256: str | None = None,
 ) -> FeeFacts:
-    """Load one canonical, offline fee-facts document.
+    """Validate canonical fee-facts bytes through the single authority path."""
 
-    Optional expected hashes bind a research run to authority values held
-    outside the facts file.  They are equality checks, never replacements.
-    """
-
-    facts_path = Path(path)
-    if facts_path.is_symlink():
-        raise FeeFactsIntegrityError("fee facts path may not be a symlink")
-    try:
-        raw_bytes = facts_path.read_bytes()
-    except OSError as exc:
-        raise FeeFactsIntegrityError(
-            f"cannot read fee facts: {exc}"
-        ) from exc
     facts_sha256 = hashlib.sha256(raw_bytes).hexdigest()
     if expected_facts_sha256 is not None:
         require_sha256("expected_facts_sha256", expected_facts_sha256)
@@ -910,4 +900,73 @@ def load_fee_facts(
             root["event_assertions"]
         ),
         facts_sha256=facts_sha256,
+    )
+
+
+def parse_fee_facts_document(
+    document: Mapping[str, Any],
+    *,
+    expected_facts_sha256: str | None = None,
+    expected_series_history_snapshot_sha256: str | None = None,
+    expected_private_actual_fee_aggregate_receipt_sha256: str | None = None,
+) -> FeeFacts:
+    """Validate an embedded canonical fee-facts authority document.
+
+    This exists for offline runners that already decoded their outer fixture.
+    It deliberately re-enters the same byte parser as :func:`load_fee_facts`;
+    callers cannot substitute a hand-built ``FeeSchedule`` for official
+    formula, series/event/waiver and account-precision authority.
+    """
+
+    if not isinstance(document, Mapping):
+        raise FeeFactsIntegrityError("fee facts document must be an object")
+    try:
+        raw_bytes = canonical_json_bytes(dict(document))
+    except (TypeError, ValueError) as exc:
+        raise FeeFactsIntegrityError(
+            f"fee facts document is not canonical JSON: {exc}"
+        ) from exc
+    return _load_fee_facts_bytes(
+        raw_bytes,
+        expected_facts_sha256=expected_facts_sha256,
+        expected_series_history_snapshot_sha256=(
+            expected_series_history_snapshot_sha256
+        ),
+        expected_private_actual_fee_aggregate_receipt_sha256=(
+            expected_private_actual_fee_aggregate_receipt_sha256
+        ),
+    )
+
+
+def load_fee_facts(
+    path: Path | str,
+    *,
+    expected_facts_sha256: str | None = None,
+    expected_series_history_snapshot_sha256: str | None = None,
+    expected_private_actual_fee_aggregate_receipt_sha256: str | None = None,
+) -> FeeFacts:
+    """Load one canonical, offline fee-facts document.
+
+    Optional expected hashes bind a research run to authority values held
+    outside the facts file.  They are equality checks, never replacements.
+    """
+
+    facts_path = Path(path)
+    if facts_path.is_symlink():
+        raise FeeFactsIntegrityError("fee facts path may not be a symlink")
+    try:
+        raw_bytes = facts_path.read_bytes()
+    except OSError as exc:
+        raise FeeFactsIntegrityError(
+            f"cannot read fee facts: {exc}"
+        ) from exc
+    return _load_fee_facts_bytes(
+        raw_bytes,
+        expected_facts_sha256=expected_facts_sha256,
+        expected_series_history_snapshot_sha256=(
+            expected_series_history_snapshot_sha256
+        ),
+        expected_private_actual_fee_aggregate_receipt_sha256=(
+            expected_private_actual_fee_aggregate_receipt_sha256
+        ),
     )

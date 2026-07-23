@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -36,6 +37,7 @@ from .contracts import (
     Side,
     canonical_json_bytes,
     canonical_sha256,
+    exact_trade_notional_e6,
 )
 from .experiments import (
     AdapterContractError,
@@ -51,6 +53,11 @@ from .fees import (
     FeeRule,
     FeeSchedule,
     FeeTruthUnavailable,
+)
+from .fee_facts import (
+    FeeFacts,
+    FeeFactsUnavailable,
+    parse_fee_facts_document,
 )
 from .fills import (
     FillBatch,
@@ -76,11 +83,18 @@ from .provenance import (
     RunBinding,
     atomic_write_receipt,
 )
+from .risk import (
+    RiskInvariantError,
+    RiskLedger,
+    RiskLimitExceeded,
+    RiskLimits,
+    RiskRequest,
+)
 from .terminal import SettlementRecord, SettlementStatus
 
 
-FIXTURE_SCHEMA = "pnl-spine-run-fixture-v1"
-RECEIPT_SCHEMA = "pnl-spine-run-receipt-v1"
+FIXTURE_SCHEMA = "pnl-spine-run-fixture-v2"
+RECEIPT_SCHEMA = "pnl-spine-run-receipt-v2"
 MAX_FIXTURE_BYTES = 16 * 1024 * 1024
 NET_COMPLETE = "NET_PNL_COMPLETE"
 PNL_BLOCKED = "PNL_BLOCKED"
@@ -89,6 +103,7 @@ C1_CLASSIFICATION = (
     "GROSS_ENGINEERING_ONLY_NOT_NET_PNL:"
     "PUBLIC_STRICT_FILL_WITHOUT_COMPLETE_FEE_REAL_LATENCY_AND_CLOSURE_TRUTH"
 )
+TRUSTED_AUTHORITY_SCHEMA = "pnl-spine-trusted-authority-v1"
 
 
 class RunnerContractError(ValueError):
@@ -126,12 +141,6 @@ def _list(name: str, value: object) -> list[Any]:
     if not isinstance(value, list):
         raise RunnerContractError(f"{name} must be an array")
     return value
-
-
-def _optional_int(name: str, value: object) -> int | None:
-    if value is None:
-        return None
-    return _plain_int(name, value)
 
 
 def _strict_keys(
@@ -191,67 +200,225 @@ def _document_sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _parse_fee_schedule(rows: object) -> FeeSchedule:
-    result: list[FeeRule] = []
+def _utc_date_from_ns(name: str, value: object) -> str:
+    timestamp_ns = _plain_int(name, value, minimum=0)
+    try:
+        return datetime.fromtimestamp(
+            timestamp_ns // 1_000_000_000,
+            tz=timezone.utc,
+        ).date().isoformat()
+    except (OverflowError, OSError, ValueError) as exc:
+        raise RunnerContractError(f"{name} is outside UTC timestamp range") from exc
+
+
+def _utc_date_from_us(name: str, value: object) -> str:
+    timestamp_us = _plain_int(name, value, minimum=0)
+    return _utc_date_from_ns(name, timestamp_us * 1_000)
+
+
+def _parse_risk_policy(
+    value: object,
+    *,
+    expected_sha256: str,
+) -> RiskLimits:
+    policy = _mapping("risk_policy", value)
     allowed = {
-        "rule_id",
-        "liquidity_role",
-        "rate_e4",
-        "multiplier_e4",
-        "precision",
-        "effective_from_ns",
-        "effective_until_ns",
-        "source_sha256",
-        "market_ticker",
-        "series_prefix",
+        "schema_version",
+        "max_market_e6",
+        "max_event_e6",
+        "max_factor_e6",
+        "max_total_e6",
+        "max_daily_loss_e6",
+        "policy_sha256",
     }
-    required = allowed - {
-        "effective_until_ns",
-        "market_ticker",
-        "series_prefix",
-    }
-    for index, raw in enumerate(_list("fee_rules", rows)):
-        row = _mapping(f"fee_rules[{index}]", raw)
+    _strict_keys("risk_policy", policy, allowed, required=allowed)
+    if policy.get("schema_version") != "pnl-spine-risk-policy-v1":
+        raise RunnerContractError("unknown risk policy schema")
+    payload = dict(policy)
+    supplied = _text("policy_sha256", payload.pop("policy_sha256"))
+    calculated = canonical_sha256(payload)
+    if supplied != calculated or supplied != expected_sha256:
+        raise RunnerContractError(
+            "risk policy SHA does not match provenance authority"
+        )
+    return RiskLimits(
+        max_market_e6=_plain_int(
+            "max_market_e6", policy.get("max_market_e6"), minimum=0
+        ),
+        max_event_e6=_plain_int(
+            "max_event_e6", policy.get("max_event_e6"), minimum=0
+        ),
+        max_factor_e6=_plain_int(
+            "max_factor_e6", policy.get("max_factor_e6"), minimum=0
+        ),
+        max_total_e6=_plain_int(
+            "max_total_e6", policy.get("max_total_e6"), minimum=0
+        ),
+        max_daily_loss_e6=_plain_int(
+            "max_daily_loss_e6",
+            policy.get("max_daily_loss_e6"),
+            minimum=0,
+        ),
+    )
+
+
+def _parse_fee_contexts(
+    value: object,
+) -> dict[str, tuple[str, str]]:
+    contexts: dict[str, tuple[str, str]] = {}
+    allowed = {"market_ticker", "series_ticker", "event_ticker"}
+    for index, raw in enumerate(_list("fee_contexts", value)):
+        row = _mapping(f"fee_contexts[{index}]", raw)
         _strict_keys(
-            f"fee_rules[{index}]",
+            f"fee_contexts[{index}]",
             row,
             allowed,
-            required=required,
+            required=allowed,
         )
-        result.append(
-            FeeRule(
-                rule_id=_text("rule_id", row.get("rule_id")),
-                liquidity_role=LiquidityRole(
-                    _text("liquidity_role", row.get("liquidity_role"))
-                ),
-                rate_e4=_plain_int(
-                    "rate_e4", row.get("rate_e4"), minimum=0
-                ),
-                multiplier_e4=_plain_int(
-                    "multiplier_e4",
-                    row.get("multiplier_e4"),
-                    minimum=0,
-                ),
-                precision=FeePrecision(
-                    _text("precision", row.get("precision"))
-                ),
-                effective_from_ns=_plain_int(
-                    "effective_from_ns",
-                    row.get("effective_from_ns"),
-                    minimum=0,
-                ),
-                effective_until_ns=_optional_int(
-                    "effective_until_ns",
-                    row.get("effective_until_ns"),
-                ),
-                source_sha256=_text(
-                    "source_sha256", row.get("source_sha256")
-                ),
-                market_ticker=row.get("market_ticker"),
-                series_prefix=row.get("series_prefix"),
+        market = _text("market_ticker", row.get("market_ticker"))
+        if market in contexts:
+            raise RunnerContractError("duplicate fee context market")
+        contexts[market] = (
+            _text("series_ticker", row.get("series_ticker")),
+            _text("event_ticker", row.get("event_ticker")),
+        )
+    if not contexts:
+        raise RunnerContractError("fee_contexts cannot be empty")
+    return contexts
+
+
+def _materialize_fee_schedule(
+    facts: FeeFacts,
+    contexts: Mapping[str, tuple[str, str]],
+    *,
+    public_trades: Sequence[PublicTrade],
+    closure_points: Sequence[tuple[str, int]],
+) -> FeeSchedule:
+    """Materialize only authority-resolved exact timestamp fee rules."""
+
+    points = {
+        (trade.market_ticker, trade.timestamp_us * 1_000)
+        for trade in public_trades
+    }
+    points.update(closure_points)
+    rules: dict[str, FeeRule] = {}
+    for index, (market_ticker, executed_at_ns) in enumerate(sorted(points)):
+        try:
+            series_ticker, event_ticker = contexts[market_ticker]
+        except KeyError as exc:
+            raise FeeFactsUnavailable(
+                f"missing fee context for {market_ticker}"
+            ) from exc
+        probe = FillRecord(
+            fill_id=f"fee-authority-probe-{index}",
+            order_id=f"fee-authority-probe-{index}",
+            path_id="fee-authority-materialization",
+            market_ticker=market_ticker,
+            outcome=Outcome.YES,
+            side=Side.BUY,
+            purpose=FillPurpose.ENTRY,
+            liquidity_role=LiquidityRole.MAKER,
+            quantity_e4=10_000,
+            price_e4=5_000,
+            executed_at_ns=executed_at_ns,
+            source_sha256=facts.facts_sha256,
+        )
+        schedule = facts.schedule_for_fill(
+            probe,
+            series_ticker=series_ticker,
+            event_ticker=event_ticker,
+        )
+        for rule in schedule.rules:
+            existing = rules.get(rule.rule_id)
+            if existing is not None and existing != rule:
+                raise FeeFactsUnavailable("fee authority rule-id collision")
+            rules[rule.rule_id] = rule
+    return FeeSchedule(rules.values())
+
+
+def _validate_trusted_authority(
+    fixture: Mapping[str, Any],
+    authority: object,
+    *,
+    expected_sha256: object,
+) -> str:
+    """Verify hashes supplied outside the self-describing run fixture."""
+
+    trusted = _mapping("trusted_authority", authority)
+    expected_keys = {
+        "schema_version",
+        "code_sha256",
+        "fee_facts_sha256",
+        "fee_contexts_sha256",
+        "release_set_sha256",
+        "evidence_manifest_sha256",
+        "closure_manifest_sha256",
+        "risk_policy_sha256",
+        "terminal_receipt_sha256",
+    }
+    _strict_keys(
+        "trusted_authority",
+        trusted,
+        expected_keys,
+        required=expected_keys,
+    )
+    if trusted.get("schema_version") != TRUSTED_AUTHORITY_SCHEMA:
+        raise ProvenanceError("unknown trusted authority schema")
+    supplied_pin = _text(
+        "expected_trusted_authority_sha256", expected_sha256
+    )
+    calculated_authority_sha256 = canonical_sha256(trusted)
+    if supplied_pin != calculated_authority_sha256:
+        raise ProvenanceError(
+            "trusted authority canonical SHA does not match external pin"
+        )
+    provenance = _mapping("provenance", fixture.get("provenance"))
+    preflight_inputs = _mapping(
+        "preflight_inputs", fixture.get("preflight_inputs")
+    )
+    expected = {
+        "code_sha256": _text("code_sha256", fixture.get("code_sha256")),
+        "fee_facts_sha256": canonical_sha256(
+            _mapping(
+                "fee_facts_authority",
+                fixture.get("fee_facts_authority"),
             )
-        )
-    return FeeSchedule(result)
+        ),
+        "fee_contexts_sha256": canonical_sha256(
+            _list("fee_contexts", fixture.get("fee_contexts"))
+        ),
+        "release_set_sha256": canonical_sha256(
+            _list("provenance.releases", provenance.get("releases"))
+        ),
+        "evidence_manifest_sha256": canonical_sha256(
+            _list(
+                "evidence_bindings",
+                fixture.get("evidence_bindings"),
+            )
+        ),
+        "closure_manifest_sha256": canonical_sha256(
+            _list("closures", fixture.get("closures"))
+        ),
+        "risk_policy_sha256": _text(
+            "risk_policy_sha256",
+            _mapping("risk_policy", fixture.get("risk_policy")).get(
+                "policy_sha256"
+            ),
+        ),
+        "terminal_receipt_sha256": _document_sha256(
+            _mapping(
+                "terminal_coverage",
+                preflight_inputs.get("terminal_coverage"),
+            )
+        ),
+    }
+    for field, calculated in expected.items():
+        supplied = trusted.get(field)
+        if supplied != calculated:
+            raise ProvenanceError(
+                f"trusted authority mismatch for {field}"
+            )
+    return calculated_authority_sha256
 
 
 def _parse_rows(rows: object) -> tuple[NormalizedStateRow, ...]:
@@ -445,8 +612,49 @@ def _parse_closures(rows: object) -> dict[str, Mapping[str, Any]]:
     return closures
 
 
+def _latest_qualified_snapshot(
+    snapshots: Mapping[str, L2Snapshot],
+    *,
+    market_ticker: str,
+    effective_timestamp_us: int,
+    maximum_snapshot_age_us: int,
+) -> L2Snapshot:
+    eligible = [
+        snapshot
+        for snapshot in snapshots.values()
+        if (
+            snapshot.market_ticker == market_ticker
+            and snapshot.book_valid
+            and snapshot.gap_free
+            and snapshot.receive_timestamp_us <= effective_timestamp_us
+            and (
+                effective_timestamp_us - snapshot.receive_timestamp_us
+                <= maximum_snapshot_age_us
+            )
+        )
+    ]
+    if not eligible:
+        raise FillError(
+            "no qualified L2 snapshot exists at IOC effective time"
+        )
+    latest_timestamp = max(
+        snapshot.receive_timestamp_us for snapshot in eligible
+    )
+    latest = [
+        snapshot
+        for snapshot in eligible
+        if snapshot.receive_timestamp_us == latest_timestamp
+    ]
+    if len(latest) != 1:
+        raise FillError(
+            "latest qualified L2 snapshot is ambiguous at effective time"
+        )
+    return latest[0]
+
+
 def _parse_settlements(rows: object) -> dict[str, Mapping[str, Any]]:
     settlements: dict[str, Mapping[str, Any]] = {}
+    finalized_market: dict[str, str] = {}
     allowed = {
         "settlement_id",
         "market_ticker",
@@ -470,6 +678,18 @@ def _parse_settlements(rows: object) -> dict[str, Mapping[str, Any]]:
         )
         if settlement_id in settlements:
             raise RunnerContractError("duplicate settlement_id")
+        market_ticker = _text(
+            "market_ticker", row.get("market_ticker")
+        )
+        if (
+            row.get("status") == SettlementStatus.FINALIZED.value
+            and row.get("finalized") is True
+        ):
+            if market_ticker in finalized_market:
+                raise RunnerContractError(
+                    "multiple finalized settlement authorities for one market"
+                )
+            finalized_market[market_ticker] = settlement_id
         settlements[settlement_id] = row
     return settlements
 
@@ -531,10 +751,185 @@ def _parse_release_binding(row: Mapping[str, Any]) -> ExactReleaseBinding:
     )
 
 
+def _validate_evidence_bindings(
+    fixture: Mapping[str, Any],
+    *,
+    releases: Sequence[ExactReleaseBinding],
+) -> dict[tuple[str, str], ExactSourceObject]:
+    """Bind every runtime record to one exact-version source object.
+
+    The binding covers the canonical record bytes, exact release/object
+    identity, object digest, source channel and the UTC date implied by the
+    record's causal timestamp.  This rejects cross-era fixtures such as 1970
+    rows presented under a 2026 release.
+    """
+
+    records: dict[
+        tuple[str, str],
+        tuple[Mapping[str, Any], str, str | None, frozenset[str]],
+    ] = {}
+
+    def add(
+        kind: str,
+        record_id: str,
+        record: Mapping[str, Any],
+        date: str,
+        source_sha256: str | None,
+        channels: frozenset[str],
+    ) -> None:
+        key = (kind, record_id)
+        if key in records:
+            raise ProvenanceError(f"duplicate evidence record {kind}/{record_id}")
+        records[key] = (record, date, source_sha256, channels)
+
+    for index, raw in enumerate(_list("rows", fixture.get("rows"))):
+        row = _mapping(f"rows[{index}]", raw)
+        add(
+            "NORMALIZED_ROW",
+            _text("row_id", row.get("row_id")),
+            row,
+            _utc_date_from_ns("decision_ts_ns", row.get("decision_ts_ns")),
+            None,
+            frozenset({"L1", "L2", "CATALOG"}),
+        )
+    for index, raw in enumerate(
+        _list("public_trades", fixture.get("public_trades"))
+    ):
+        row = _mapping(f"public_trades[{index}]", raw)
+        add(
+            "PUBLIC_TRADE",
+            _text("trade_id", row.get("trade_id")),
+            row,
+            _utc_date_from_us("timestamp_us", row.get("timestamp_us")),
+            _text("source_sha256", row.get("source_sha256")),
+            frozenset({"TRADES"}),
+        )
+    for index, raw in enumerate(
+        _list("exit_snapshots", fixture.get("exit_snapshots"))
+    ):
+        row = _mapping(f"exit_snapshots[{index}]", raw)
+        add(
+            "L2_SNAPSHOT",
+            _text("snapshot_id", row.get("snapshot_id")),
+            row,
+            _utc_date_from_us(
+                "receive_timestamp_us", row.get("receive_timestamp_us")
+            ),
+            _text("source_sha256", row.get("source_sha256")),
+            frozenset({"L2"}),
+        )
+    for index, raw in enumerate(
+        _list("settlements", fixture.get("settlements"))
+    ):
+        row = _mapping(f"settlements[{index}]", raw)
+        add(
+            "SETTLEMENT",
+            _text("settlement_id", row.get("settlement_id")),
+            row,
+            _utc_date_from_ns("observed_at_ns", row.get("observed_at_ns")),
+            _text("source_sha256", row.get("source_sha256")),
+            frozenset({"SETTLEMENT"}),
+        )
+
+    release_by_id = {release.release_id: release for release in releases}
+    object_index: dict[
+        tuple[str, str, str], ExactSourceObject
+    ] = {}
+    for release in releases:
+        for source in release.objects:
+            object_index[
+                (release.release_id, source.logical_key, source.version_id)
+            ] = source
+
+    bound: dict[tuple[str, str], ExactSourceObject] = {}
+    allowed = {
+        "kind",
+        "record_id",
+        "record_sha256",
+        "release_id",
+        "source_object_logical_key",
+        "source_object_version_id",
+        "source_object_sha256",
+    }
+    for index, raw in enumerate(
+        _list("evidence_bindings", fixture.get("evidence_bindings"))
+    ):
+        binding = _mapping(f"evidence_bindings[{index}]", raw)
+        _strict_keys(
+            f"evidence_bindings[{index}]",
+            binding,
+            allowed,
+            required=allowed,
+        )
+        key = (
+            _text("kind", binding.get("kind")),
+            _text("record_id", binding.get("record_id")),
+        )
+        if key in bound:
+            raise ProvenanceError(
+                f"duplicate evidence binding {key[0]}/{key[1]}"
+            )
+        try:
+            record, record_date, embedded_source, channels = records[key]
+        except KeyError as exc:
+            raise ProvenanceError(
+                f"binding references unknown evidence {key[0]}/{key[1]}"
+            ) from exc
+        if binding.get("record_sha256") != canonical_sha256(record):
+            raise ProvenanceError(
+                f"record SHA mismatch for {key[0]}/{key[1]}"
+            )
+        release_id = _text("release_id", binding.get("release_id"))
+        try:
+            release = release_by_id[release_id]
+            source = object_index[
+                (
+                    release_id,
+                    _text(
+                        "source_object_logical_key",
+                        binding.get("source_object_logical_key"),
+                    ),
+                    _text(
+                        "source_object_version_id",
+                        binding.get("source_object_version_id"),
+                    ),
+                )
+            ]
+        except KeyError as exc:
+            raise ProvenanceError(
+                f"binding source is absent from exact release {release_id}"
+            ) from exc
+        if release.date != record_date or source.date != record_date:
+            raise ProvenanceError(
+                f"{key[0]}/{key[1]} timestamp date escaped exact release"
+            )
+        if source.channel not in channels:
+            raise ProvenanceError(
+                f"{key[0]}/{key[1]} bound to wrong source channel"
+            )
+        if binding.get("source_object_sha256") != source.sha256:
+            raise ProvenanceError(
+                f"{key[0]}/{key[1]} source-object SHA mismatch"
+            )
+        if embedded_source is not None and embedded_source != source.sha256:
+            raise ProvenanceError(
+                f"{key[0]}/{key[1]} embedded source SHA is not exact object"
+            )
+        bound[key] = source
+
+    if set(bound) != set(records):
+        missing = sorted(set(records) - set(bound))
+        extra = sorted(set(bound) - set(records))
+        raise ProvenanceError(
+            f"evidence bindings are not exhaustive; missing={missing}, extra={extra}"
+        )
+    return bound
+
+
 def _make_run_binding(
     fixture: Mapping[str, Any],
     *,
-    fee_schedule: FeeSchedule,
+    fee_facts_sha256: str,
     latency_receipt_sha256: str,
     terminal_receipt_sha256: str,
 ) -> RunBinding:
@@ -563,7 +958,7 @@ def _make_run_binding(
         frozen_experiment_sha256=_text(
             "freeze_sha256", freeze.get("freeze_sha256")
         ),
-        fee_facts_sha256=fee_schedule.deterministic_sha256,
+        fee_facts_sha256=fee_facts_sha256,
         latency_receipt_sha256=latency_receipt_sha256,
         risk_policy_sha256=_text(
             "risk_policy_sha256",
@@ -829,6 +1224,8 @@ def _receipt(
     path_rows: Sequence[Mapping[str, Any]],
     blockers: Iterable[Mapping[str, str]],
     conservation: Mapping[str, int],
+    risk_ledger_sha256: str | None = None,
+    trusted_authority_sha256: str | None = None,
 ) -> dict[str, Any]:
     complete_results = [
         row["result"]
@@ -864,6 +1261,8 @@ def _receipt(
         "preflight": dict(preflight),
         "path_rows": list(path_rows),
         "conservation": dict(conservation),
+        "risk_ledger_sha256": risk_ledger_sha256,
+        "trusted_authority_sha256": trusted_authority_sha256,
         "totals": totals,
         "blockers": _sorted_blockers(blockers),
         "c1_prior_artifact_classification": C1_CLASSIFICATION,
@@ -872,7 +1271,12 @@ def _receipt(
     return payload
 
 
-def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
+def run_fixture(
+    fixture: Mapping[str, Any],
+    *,
+    trusted_authority: Mapping[str, Any] | None = None,
+    expected_trusted_authority_sha256: str | None = None,
+) -> dict[str, Any]:
     """Run one small canonical fixture and return a canonicalizable receipt."""
 
     top = _mapping("fixture", fixture)
@@ -885,7 +1289,10 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
         "card_parameter_artifact_sha256",
         "preflight_inputs",
         "provenance",
-        "fee_rules",
+        "fee_facts_authority",
+        "fee_contexts",
+        "risk_policy",
+        "evidence_bindings",
         "rows",
         "public_trades",
         "exit_snapshots",
@@ -981,20 +1388,103 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
         )
         for row in preflight["net_pnl"]["blockers"]
     ]
-
-    fee_schedule = _parse_fee_schedule(top.get("fee_rules"))
-    fee_binding = fee_document.get("bindings")
-    if (
-        not isinstance(fee_binding, Mapping)
-        or fee_binding.get("fee_facts_sha256")
-        != fee_schedule.deterministic_sha256
-    ):
+    trusted_authority_sha256: str | None = None
+    try:
+        trusted_authority_sha256 = _validate_trusted_authority(
+            top,
+            trusted_authority,
+            expected_sha256=expected_trusted_authority_sha256,
+        )
+    except (ProvenanceError, RunnerContractError, ValueError) as exc:
         blockers.append(
             _blocker(
-                "FEE_SCHEDULE_BINDING_MISMATCH",
-                "FEE",
-                "runtime FeeSchedule is not the verified fee-facts object",
+                "EXTERNAL_AUTHORITY_INVALID",
+                "PROVENANCE",
+                str(exc),
             )
+        )
+
+    fee_binding = fee_document.get("bindings")
+    fee_facts: FeeFacts | None = None
+    try:
+        if not isinstance(fee_binding, Mapping):
+            raise FeeFactsUnavailable("verified fee receipt bindings missing")
+        expected_fee_sha = _text(
+            "fee_facts_sha256",
+            fee_binding.get("fee_facts_sha256"),
+        )
+        authority = _mapping(
+            "fee_facts_authority", top.get("fee_facts_authority")
+        )
+        fee_facts = parse_fee_facts_document(
+            authority,
+            expected_facts_sha256=expected_fee_sha,
+        )
+        expected_precision_digits = (
+            4
+            if fee_facts.account_precision
+            is FeePrecision.DIRECT_CENTICENT
+            else 2
+        )
+        expected_account_class = (
+            "DIRECT_MEMBER"
+            if fee_facts.account_precision
+            is FeePrecision.DIRECT_CENTICENT
+            else "NON_DIRECT_MEMBER"
+        )
+        required_receipt_values = {
+            "maker_fee_formula_id": (
+                "OFFICIAL_QUADRATIC_MAKER_0.0175_C_P_1MP"
+            ),
+            "taker_fee_formula_id": (
+                "OFFICIAL_QUADRATIC_TAKER_0.07_C_P_1MP"
+            ),
+            "account_class": expected_account_class,
+            "target_balance_precision": expected_precision_digits,
+            "fee_rounding_accumulator_version": (
+                "OFFICIAL_PER_ORDER_ACCUMULATOR_CENTICENT_V1"
+            ),
+            "rebate_and_event_override_version": (
+                "OFFICIAL_EFFECTIVE_DATED_SERIES_EVENT_WAIVER_V1"
+            ),
+        }
+        for field, expected in required_receipt_values.items():
+            if fee_binding.get(field) != expected:
+                raise FeeFactsUnavailable(
+                    f"fee receipt {field} is not official authority {expected}"
+                )
+        if (
+            fee_document.get("source_sha256")
+            != fee_facts.sources.fee_schedule_pdf_sha256
+        ):
+            raise FeeFactsUnavailable(
+                "fee receipt does not bind the official schedule source"
+            )
+    except (FeeFactsUnavailable, RunnerContractError, ValueError) as exc:
+        blockers.append(
+            _blocker(
+                "FEE_AUTHORITY_INVALID",
+                "FEE",
+                str(exc),
+            )
+        )
+    fee_schedule = FeeSchedule(())
+
+    provenance_document = _mapping(
+        "provenance", top.get("provenance")
+    )
+    risk_limits: RiskLimits | None = None
+    try:
+        risk_limits = _parse_risk_policy(
+            top.get("risk_policy"),
+            expected_sha256=_text(
+                "risk_policy_sha256",
+                provenance_document.get("risk_policy_sha256"),
+            ),
+        )
+    except (RunnerContractError, RiskInvariantError, ValueError) as exc:
+        blockers.append(
+            _blocker("RISK_POLICY_INVALID", "RISK", str(exc))
         )
 
     run_binding: RunBinding | None = None
@@ -1006,9 +1496,11 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
             raise ProvenanceError(
                 "latency and terminal receipts are required by RunBinding"
             )
+        if fee_facts is None:
+            raise ProvenanceError("verified fee authority is required")
         run_binding = _make_run_binding(
             top,
-            fee_schedule=fee_schedule,
+            fee_facts_sha256=fee_facts.facts_sha256,
             latency_receipt_sha256=input_hashes["measured_latency"],
             terminal_receipt_sha256=input_hashes["terminal_coverage"],
         )
@@ -1050,13 +1542,18 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
         "card_parameter_artifact_sha256",
         top.get("card_parameter_artifact_sha256"),
     )
+    fee_binding_ready = (
+        fee_facts is not None
+        and not any(
+            row["stage"].startswith("PREFLIGHT_FEE")
+            or row["stage"] == "FEE"
+            for row in blockers
+        )
+    )
     bindings = RuntimeBindings(
         fee_facts_sha256=(
-            fee_schedule.deterministic_sha256
-            if not any(
-                row["stage"].startswith("PREFLIGHT_FEE")
-                for row in blockers
-            )
+            fee_facts.facts_sha256
+            if fee_binding_ready
             else None
         ),
         latency_receipt_sha256=(
@@ -1126,9 +1623,11 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
                 "exit_filled_quantity_e4": 0,
                 "residual_quantity_e4": 0,
             },
+            trusted_authority_sha256=trusted_authority_sha256,
         )
 
     row_by_id = {row.row_id: row for row in rows}
+    fee_contexts: dict[str, tuple[str, str]] = {}
     try:
         public_trades, trade_sources = _parse_public_trades(
             top.get("public_trades")
@@ -1138,9 +1637,24 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
         )
         closures = _parse_closures(top.get("closures"))
         settlements = _parse_settlements(top.get("settlements"))
-    except (RunnerContractError, FillError, ValueError) as exc:
+        fee_contexts = _parse_fee_contexts(top.get("fee_contexts"))
+        if run_binding is None:
+            raise ProvenanceError(
+                "evidence cannot bind without an exact RunBinding"
+            )
+        _validate_evidence_bindings(
+            top,
+            releases=run_binding.releases,
+        )
+    except (
+        RunnerContractError,
+        FillError,
+        FeeFactsUnavailable,
+        ProvenanceError,
+        ValueError,
+    ) as exc:
         blockers.append(
-            _blocker("EVIDENCE_PARSE_FAILED", "EXECUTION", str(exc))
+            _blocker("EVIDENCE_AUTHORITY_INVALID", "PROVENANCE", str(exc))
         )
         public_trades = ()
         trade_sources = {}
@@ -1152,12 +1666,86 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
 
     passive_orders: list[PassiveOrder] = []
     intent_context: dict[str, tuple[StrategyDecision, NormalizedStateRow, Any]] = {}
-    for decision in decisions:
-        row = row_by_id[decision.row_id]
-        for intent in decision.intents:
+    risk_ledger = RiskLedger(risk_limits) if risk_limits is not None else None
+    risk_rejected_intents: set[str] = set()
+    root_quantity: dict[str, int] = {}
+    intent_rows = sorted(
+        (
+            (decision, row_by_id[decision.row_id], intent)
+            for decision in decisions
+            for intent in decision.intents
+        ),
+        key=lambda item: (
+            item[1].decision_ts_ns,
+            item[1].row_id,
+            item[2].intent_id,
+        ),
+    )
+    for decision, row, intent in intent_rows:
+            intent_context[intent.intent_id] = (
+                decision,
+                row,
+                intent,
+            )
             outcome_side, price_e4 = _intent_outcome_and_price(
                 intent.side, intent.price_e4
             )
+            path_id = _path_id(run_id, row.row_id, intent.intent_id)
+            date = _utc_date_from_ns("decision_ts_ns", row.decision_ts_ns)
+            prospective_root_quantity = (
+                root_quantity.get(row.root_event_id, 0)
+                + intent.quantity_e4
+            )
+            if prospective_root_quantity > intent.root_entry_quantity_cap_e4:
+                risk_rejected_intents.add(intent.intent_id)
+                blockers.append(
+                    _blocker(
+                        "FROZEN_ROOT_CAP_EXCEEDED",
+                        "RISK",
+                        (
+                            f"{date}/{row.root_event_id} "
+                            f"quantity_e4={prospective_root_quantity} "
+                            f"cap_e4={intent.root_entry_quantity_cap_e4}"
+                        ),
+                    )
+                )
+                continue
+            if risk_ledger is None:
+                risk_rejected_intents.add(intent.intent_id)
+                continue
+            try:
+                risk_ledger.reserve(
+                    RiskRequest(
+                        reservation_id=intent.intent_id,
+                        path_id=path_id,
+                        market_ticker=row.market_ticker,
+                        event_ticker=row.root_event_id,
+                        factor_key=f"{row.sport}:{row.root_event_id}",
+                        quantity_e4=intent.quantity_e4,
+                        worst_case_loss_e6=exact_trade_notional_e6(
+                            price_e4,
+                            intent.quantity_e4,
+                        ),
+                        requested_at_ns=row.decision_ts_ns,
+                        source_sha256=decision.sha256,
+                    ),
+                    event_id=f"reserve:{intent.intent_id}",
+                )
+            except (
+                RiskInvariantError,
+                RiskLimitExceeded,
+                ValueError,
+            ) as exc:
+                risk_rejected_intents.add(intent.intent_id)
+                blockers.append(
+                    _blocker(
+                        "RISK_LEDGER_RESERVATION_REJECTED",
+                        "RISK",
+                        f"{intent.intent_id}: {exc}",
+                    )
+                )
+                continue
+            root_quantity[row.root_event_id] = prospective_root_quantity
             passive_orders.append(
                 PassiveOrder(
                     order_id=intent.intent_id,
@@ -1177,11 +1765,40 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
                     ),
                 )
             )
-            intent_context[intent.intent_id] = (
-                decision,
-                row,
-                intent,
+
+    closure_points: list[tuple[str, int]] = []
+    for intent_id, (_, row, _) in intent_context.items():
+        closure = closures.get(intent_id)
+        if closure is None or closure.get("exit_decision_ts_ns") is None:
+            continue
+        closure_points.append(
+            (
+                row.market_ticker,
+                _ceil_ns_to_us(
+                    _plain_int(
+                        "exit_decision_ts_ns",
+                        closure.get("exit_decision_ts_ns"),
+                        minimum=0,
+                    )
+                    + latency["IOC_EXIT"]
+                )
+                * 1_000,
             )
+        )
+    try:
+        if fee_facts is None:
+            raise FeeFactsUnavailable("verified fee facts are unavailable")
+        fee_schedule = _materialize_fee_schedule(
+            fee_facts,
+            fee_contexts,
+            public_trades=public_trades,
+            closure_points=closure_points,
+        )
+    except (FeeFactsUnavailable, RunnerContractError, ValueError) as exc:
+        fee_schedule = FeeSchedule(())
+        blockers.append(
+            _blocker("FEE_MATERIALIZATION_FAILED", "FEE", str(exc))
+        )
 
     try:
         entry_batch = allocate_passive_strict_fills(
@@ -1287,6 +1904,17 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
             intent.side, intent.price_e4
         )
         path_id = _path_id(run_id, row.row_id, intent_id)
+        if intent_id in risk_rejected_intents:
+            path_rows.append(
+                _blocked_row(
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    path_id=path_id,
+                    decision_status=decision.status.value,
+                    reason_codes=("BLOCK_RISK_ADMISSION_FAILED",),
+                )
+            )
+            continue
         ledger = PnLLedger(
             _path_spec(
                 path_id=path_id,
@@ -1373,15 +2001,41 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
             "exit_snapshot_id", closure.get("exit_snapshot_id")
         )
         try:
-            snapshot = snapshots[snapshot_id]
-            effective_us = _ceil_ns_to_us(
-                _plain_int(
-                    "exit_decision_ts_ns",
-                    closure.get("exit_decision_ts_ns"),
-                    minimum=0,
-                )
-                + latency["IOC_EXIT"]
+            exit_decision_ns = _plain_int(
+                "exit_decision_ts_ns",
+                closure.get("exit_decision_ts_ns"),
+                minimum=0,
             )
+            if intent.max_hold_ms is not None:
+                first_entry_ns = min(
+                    fill.timestamp_us
+                    for fill in entry_by_order[intent.intent_id]
+                ) * 1_000
+                if (
+                    exit_decision_ns
+                    > first_entry_ns + intent.max_hold_ms * 1_000_000
+                ):
+                    raise FillError(
+                        "exit decision exceeded frozen max_hold_ms"
+                    )
+            effective_us = _ceil_ns_to_us(
+                exit_decision_ns + latency["IOC_EXIT"]
+            )
+            maximum_snapshot_age_us = _plain_int(
+                "maximum_snapshot_age_us",
+                closure.get("maximum_snapshot_age_us"),
+                minimum=0,
+            )
+            snapshot = _latest_qualified_snapshot(
+                snapshots,
+                market_ticker=row.market_ticker,
+                effective_timestamp_us=effective_us,
+                maximum_snapshot_age_us=maximum_snapshot_age_us,
+            )
+            if snapshot.snapshot_id != snapshot_id:
+                raise FillError(
+                    "closure did not select the latest qualified L2 snapshot"
+                )
             order = MarketableOrder(
                 order_id=f"{intent.intent_id}:exit",
                 experiment_id=experiment_id,
@@ -1399,11 +2053,7 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
             batch = walk_exact_l2_ioc(
                 order,
                 snapshot,
-                maximum_snapshot_age_us=_plain_int(
-                    "maximum_snapshot_age_us",
-                    closure.get("maximum_snapshot_age_us"),
-                    minimum=0,
-                ),
+                maximum_snapshot_age_us=maximum_snapshot_age_us,
             )
             exit_batches[path_id] = batch
             # The fill engine numbers the selected side from zero.  Give
@@ -1656,6 +2306,12 @@ def run_fixture(fixture: Mapping[str, Any]) -> dict[str, Any]:
         path_rows=path_rows,
         blockers=blockers,
         conservation=conservation,
+        risk_ledger_sha256=(
+            risk_ledger.deterministic_sha256
+            if risk_ledger is not None
+            else None
+        ),
+        trusted_authority_sha256=trusted_authority_sha256,
     )
 
 
@@ -1670,7 +2326,11 @@ def _reject_duplicate_keys(
     return result
 
 
-def _read_fixture(path: Path) -> Mapping[str, Any]:
+def _read_json_once(
+    path: Path,
+    *,
+    name: str,
+) -> tuple[Mapping[str, Any], str]:
     flags = os.O_RDONLY
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
@@ -1680,14 +2340,22 @@ def _read_fixture(path: Path) -> Mapping[str, Any]:
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
-            raise RunnerContractError("fixture must be a regular file")
+            raise RunnerContractError(f"{name} must be a regular file")
         if metadata.st_size > MAX_FIXTURE_BYTES:
-            raise RunnerContractError("fixture exceeds 16 MiB")
-        raw = os.read(descriptor, MAX_FIXTURE_BYTES + 1)
+            raise RunnerContractError(f"{name} exceeds 16 MiB")
+        chunks: list[bytes] = []
+        remaining = MAX_FIXTURE_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
     finally:
         os.close(descriptor)
     if len(raw) > MAX_FIXTURE_BYTES:
-        raise RunnerContractError("fixture exceeds 16 MiB")
+        raise RunnerContractError(f"{name} exceeds 16 MiB")
     try:
         value = json.loads(
             raw.decode("utf-8"),
@@ -1699,8 +2367,15 @@ def _read_fixture(path: Path) -> Mapping[str, Any]:
             ),
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RunnerContractError("fixture is not strict UTF-8 JSON") from exc
-    return _mapping("fixture", value)
+        raise RunnerContractError(
+            f"{name} is not strict UTF-8 JSON"
+        ) from exc
+    return _mapping(name, value), hashlib.sha256(raw).hexdigest()
+
+
+def _read_fixture(path: Path) -> Mapping[str, Any]:
+    value, _ = _read_json_once(path, name="fixture")
+    return value
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1708,13 +2383,30 @@ def _parser() -> argparse.ArgumentParser:
         description="offline frozen-experiment PnL-spine runner"
     )
     parser.add_argument("--fixture", required=True)
+    parser.add_argument("--trusted-authority", required=True)
+    parser.add_argument("--trusted-authority-sha256", required=True)
     parser.add_argument("--output")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    receipt = run_fixture(_read_fixture(Path(args.fixture)))
+    authority_path = Path(args.trusted_authority)
+    authority, authority_raw_sha256 = _read_json_once(
+        authority_path,
+        name="trusted_authority",
+    )
+    if authority_raw_sha256 != args.trusted_authority_sha256:
+        raise RunnerContractError(
+            "trusted authority file SHA-256 does not match external pin"
+        )
+    receipt = run_fixture(
+        _read_fixture(Path(args.fixture)),
+        trusted_authority=authority,
+        expected_trusted_authority_sha256=(
+            args.trusted_authority_sha256
+        ),
+    )
     if args.output:
         atomic_write_receipt(Path(args.output), receipt)
     else:
