@@ -352,6 +352,8 @@ OFFLINE_TESTS := $(BUILD)/test_account_limits $(BUILD)/test_endpoint_costs \
 # ignore it — so no test litters the repo root.
 check: gate $(PURE_TESTS) $(OFFLINE_TESTS) | $(SCRATCH)
 	@set -e; for t in $(PURE_TESTS) $(OFFLINE_TESTS); do echo "== $$t"; $$t $(SCRATCH) | tail -1; done
+	@python3 tests/test_experiment_registry.py | tail -1
+	@python3 tools/experiment_registry.py --check
 
 test: $(BUILD)/test_signing
 	$(BUILD)/test_signing
