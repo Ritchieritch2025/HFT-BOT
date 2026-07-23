@@ -167,10 +167,21 @@ int main(int argc, char** argv) {
   }
 
   // --- wire the engine -------------------------------------------------------
+  // Recorder ring capacity: the SPSC buffer between the WS read thread and the
+  // writer thread.  Overflow => dropped frames + a "loss" marker (the genuine,
+  // non-maintenance frame-loss seen on 2026-07-14: 11,420 frames lost when a
+  // 1,188-market subscription burst outran the old 8,192-slot ring).  The N=50
+  // target cap now bounds the frame rate, but a market-open flurry can still
+  // burst; a larger ring absorbs it.  Env-tunable so ops can size it without a
+  // rebuild; floored so a bad value can never shrink below the historic default.
+  std::size_t ring_cap = static_cast<std::size_t>(
+      env_int("KALSHI_SHADOW_RING_CAPACITY", 65536));
+  if (ring_cap < 8192) ring_cap = 8192;
   IxWebSocketTransport transport;
   OrderBookManager books;  // mutated only on the transport thread
   ShadowSink sink;
-  WsRecorder recorder(capture);  // records EVERY frame + gap/loss/epoch markers
+  WsRecorder recorder(capture, ring_cap);  // records EVERY frame + gap/loss/epoch markers
+  std::fprintf(stderr, "[ws_shadow] recorder ring_capacity=%zu\n", ring_cap);
   KalshiExecutionEngine exec(rt);  // never fed intents here; asserted transmitted==0
   exec.set_book_manager(&books);
 

@@ -93,6 +93,41 @@ int main(int argc, char** argv) {
     check(loss == 1 && lost_count == 8, "a loss marker records the 8 dropped frames");
   }
 
+  // --- burst absorption: a ring larger than the burst drops nothing, where the
+  // historic 8192-slot default would have (the 2026-07-14 overload fix). ---
+  {
+    const std::string path = dir + "/rec_burst.ndjson";
+    const int burst = 20000;  // > 8192 old default, < 65536 new default
+    // Old default (8192): the same pre-writer burst overflows and drops.
+    std::uint64_t small_dropped = 0;
+    {
+      std::remove(path.c_str());
+      WsRecorder rec(path, /*ring_capacity*/ 8192);
+      for (int i = 1; i <= burst; ++i) rec.record(mk(i, "x"));  // writer not started
+      small_dropped = rec.dropped();
+      rec.start();
+      rec.stop();
+    }
+    check(small_dropped > 0, "8192-slot ring drops on a 20k burst (the old failure mode)");
+    // Enlarged ring (65536 = new ws_shadow default): absorbs the whole burst.
+    std::uint64_t big_dropped = 0, big_recorded = 0;
+    {
+      std::remove(path.c_str());
+      WsRecorder rec(path, /*ring_capacity*/ 65536);
+      for (int i = 1; i <= burst; ++i) rec.record(mk(i, "x"));  // writer not started
+      big_dropped = rec.dropped();
+      big_recorded = rec.recorded();
+      rec.start();
+      rec.stop();
+    }
+    check(big_dropped == 0 && big_recorded == static_cast<std::uint64_t>(burst),
+          "65536-slot ring absorbs the full 20k burst with 0 drops");
+    auto recs = read_all(path);
+    long data = 0, loss = 0;
+    for (auto& r : recs) (r.marker && *r.marker == "loss") ? ++loss : ++data;
+    check(data == burst && loss == 0, "all 20k frames written, no loss marker");
+  }
+
   std::cout << (g_failures == 0 ? "ALL PASS\n" : "FAILURES\n");
   return g_failures == 0 ? 0 : 1;
 }
