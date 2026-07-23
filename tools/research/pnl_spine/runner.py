@@ -350,7 +350,10 @@ def _validate_trusted_authority(
         "code_sha256",
         "fee_facts_sha256",
         "fee_contexts_sha256",
+        "fee_receipt_sha256",
+        "measured_latency_receipt_sha256",
         "release_set_sha256",
+        "release_dq_receipt_sha256",
         "evidence_manifest_sha256",
         "closure_manifest_sha256",
         "risk_policy_sha256",
@@ -387,8 +390,26 @@ def _validate_trusted_authority(
         "fee_contexts_sha256": canonical_sha256(
             _list("fee_contexts", fixture.get("fee_contexts"))
         ),
+        "fee_receipt_sha256": _document_sha256(
+            _mapping(
+                "fee_facts",
+                preflight_inputs.get("fee_facts"),
+            )
+        ),
+        "measured_latency_receipt_sha256": _document_sha256(
+            _mapping(
+                "measured_latency",
+                preflight_inputs.get("measured_latency"),
+            )
+        ),
         "release_set_sha256": canonical_sha256(
             _list("provenance.releases", provenance.get("releases"))
+        ),
+        "release_dq_receipt_sha256": _document_sha256(
+            _mapping(
+                "release_dq",
+                preflight_inputs.get("release_dq"),
+            )
         ),
         "evidence_manifest_sha256": canonical_sha256(
             _list(

@@ -493,8 +493,17 @@ def authority_for(fixture: dict[str, Any]) -> dict[str, Any]:
         "fee_contexts_sha256": canonical_sha256(
             fixture["fee_contexts"]
         ),
+        "fee_receipt_sha256": canonical_sha256(
+            fixture["preflight_inputs"]["fee_facts"]
+        ),
+        "measured_latency_receipt_sha256": canonical_sha256(
+            fixture["preflight_inputs"]["measured_latency"]
+        ),
         "release_set_sha256": canonical_sha256(
             fixture["provenance"]["releases"]
+        ),
+        "release_dq_receipt_sha256": canonical_sha256(
+            fixture["preflight_inputs"]["release_dq"]
         ),
         "evidence_manifest_sha256": canonical_sha256(
             fixture["evidence_bindings"]
@@ -729,6 +738,28 @@ def test_missing_real_ioc_exit_latency_blocks_net_pnl_not_defaults_to_zero():
     assert receipt["totals"] is None
     assert "LATENCY_IOC_EXIT_SAMPLES_MISSING" in blocker_codes(receipt)
     assert "NET_PREFLIGHT_NOT_READY" in blocker_codes(receipt)
+
+
+def test_self_signed_real_latency_replacement_cannot_escape_external_pin():
+    fixture = base_fixture()
+    trusted = authority_for(fixture)
+    latency = fixture["preflight_inputs"]["measured_latency"]
+    latency["samples"][0]["effective_ns"] += 50_000
+    fixture["preflight_inputs"]["measured_latency"] = seal(latency)
+
+    receipt = run_fixture(
+        fixture,
+        trusted_authority=trusted,
+        expected_trusted_authority_sha256=canonical_sha256(trusted),
+    )
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "EXTERNAL_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert any(
+        "measured_latency_receipt_sha256" in blocker["detail"]
+        for blocker in receipt["blockers"]
+    )
 
 
 @pytest.mark.parametrize(
