@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+installed_python=/opt/w09/venv/bin/python
+installed_preflight=/opt/w09/research/tools/research/pnl_spine/preflight.py
+
+if [ -x "$installed_python" ] && [ -f "$installed_preflight" ]; then
+    exec "$installed_python" -I -B "$installed_preflight" "$@"
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_preflight="$script_dir/../../tools/research/pnl_spine/preflight.py"
+exec python3 -I -B "$repo_preflight" "$@"
