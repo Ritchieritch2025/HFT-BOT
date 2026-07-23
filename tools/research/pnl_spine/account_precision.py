@@ -8,9 +8,12 @@ The input pair is deliberately private and read-only:
 * the production portfolio monitor state containing the corresponding order
   action and outcome side.
 
-The output contains no order, fill, market, event, or series identifier.  It
-only proves which documented balance precision is consistent with the exact
-signed cash change on each joined actual fill.
+The output contains no order, fill, market, event, or series identifier.
+Principal and ``fee_cost`` arithmetic alone is explicitly diagnostic: it does
+not reveal the exchange's subsequently posted balance delta.  A precision
+claim is emitted only for rows that also carry a separately captured actual
+``observed_balance_change_e6``.  Without that field the receipt is
+``INCONCLUSIVE`` rather than guessing an account class.
 """
 
 from __future__ import annotations
@@ -145,8 +148,11 @@ def derive_account_precision(
         order_by_ref[order_ref] = raw_order
 
     matched = 0
-    centicent_aligned = 0
-    cent_aligned = 0
+    derived_centicent_aligned = 0
+    derived_cent_aligned = 0
+    observed_balance_change_count = 0
+    observed_centicent_aligned = 0
+    observed_cent_aligned = 0
     buy_count = 0
     sell_count = 0
     maker_count = 0
@@ -203,20 +209,37 @@ def derive_account_precision(
             raise AccountPrecisionError("is_taker must be boolean")
         taker_count += is_taker
         maker_count += not is_taker
-        centicent_aligned += signed_balance_change_e6 % CENTICENT_E6 == 0
-        cent_aligned += signed_balance_change_e6 % CENT_E6 == 0
+        derived_centicent_aligned += (
+            signed_balance_change_e6 % CENTICENT_E6 == 0
+        )
+        derived_cent_aligned += signed_balance_change_e6 % CENT_E6 == 0
+        observed = raw_fill.get("observed_balance_change_e6")
+        if observed is not None:
+            if type(observed) is not int:
+                raise AccountPrecisionError(
+                    "observed_balance_change_e6 must be a plain integer"
+                )
+            observed_balance_change_count += 1
+            observed_centicent_aligned += observed % CENTICENT_E6 == 0
+            observed_cent_aligned += observed % CENT_E6 == 0
 
     if matched == 0:
         raise AccountPrecisionError("no actual fills joined to canonical orders")
     direct_confirmed = (
-        centicent_aligned == matched and cent_aligned < matched
+        observed_balance_change_count == matched
+        and observed_centicent_aligned == matched
+        and observed_cent_aligned < matched
     )
     state = "PASS" if direct_confirmed else "INCONCLUSIVE"
     precision = "DIRECT_CENTICENT" if direct_confirmed else None
     return {
         "schema_version": SCHEMA_VERSION,
         "state": state,
-        "claim_tier": "EMPIRICAL_ACCOUNT_BALANCE_PRECISION",
+        "claim_tier": (
+            "EMPIRICAL_ACCOUNT_BALANCE_PRECISION"
+            if direct_confirmed
+            else "ARITHMETIC_DIAGNOSTIC_NOT_ACCOUNT_AUTHORITY"
+        ),
         "account_balance_precision": precision,
         "account_class_interpretation": (
             "DIRECT_MEMBER_PER_OFFICIAL_FEE_ROUNDING_TERMINOLOGY"
@@ -225,7 +248,8 @@ def derive_account_precision(
         ),
         "method": (
             "SHA256_JOIN_REDACTED_AUTHENTICATED_FILL_TO_CANONICAL_ORDER;"
-            "SIGNED_PRINCIPAL_MINUS_ACTUAL_FEE_COST_BALANCE_ALIGNMENT"
+            "DERIVED_SIGNED_PRINCIPAL_MINUS_ACTUAL_FEE_COST;"
+            "PRECISION_REQUIRES_SEPARATE_OBSERVED_BALANCE_CHANGE"
         ),
         "official_rule_url": (
             "https://docs.kalshi.com/getting_started/fee_rounding"
@@ -244,9 +268,20 @@ def derive_account_precision(
         "sell_fill_count": sell_count,
         "maker_fill_count": maker_count,
         "taker_fill_count": taker_count,
-        "centicent_aligned_fill_count": centicent_aligned,
-        "cent_aligned_fill_count": cent_aligned,
-        "cent_alignment_disproving_fill_count": matched - cent_aligned,
+        "derived_centicent_aligned_fill_count": derived_centicent_aligned,
+        "derived_cent_aligned_fill_count": derived_cent_aligned,
+        "observed_balance_change_fill_count": (
+            observed_balance_change_count
+        ),
+        "observed_centicent_aligned_fill_count": (
+            observed_centicent_aligned
+        ),
+        "observed_cent_aligned_fill_count": observed_cent_aligned,
+        "precision_blocker": (
+            None
+            if direct_confirmed
+            else "MISSING_ACTUAL_POSTED_BALANCE_DELTA_OR_OFFICIAL_ACCOUNT_CLASS"
+        ),
         "identifiers_serialized": False,
         "credentials_serialized": False,
     }
