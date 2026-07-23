@@ -1,0 +1,910 @@
+{
+  "schema_version": "pnl-spine-experiment-freeze-v1",
+  "freeze_id": "PNL-SPINE-EXPERIMENTS-V1",
+  "freeze_sha256": "57c1045a3f33aa1a22e9d2e0862fd152db1761d1b9cad683e024de3478f53029",
+  "registry_binding": {
+    "path": "Deepresearch V3/registry/EXPERIMENT_REGISTRY_V1.json",
+    "registry_id": "DEEP03-ALL-ANGLES-MONETIZATION-V1",
+    "registry_sha256": "6253beeb1934c1310611cb470a560b0c3dee8487922b1fa7f8d4718493ceea16"
+  },
+  "claim_contract": {
+    "claim_tier": "ENGINEERING_ONLY",
+    "execution_authority": "NONE",
+    "live_order_authority": "NONE",
+    "promotion_allowed": false,
+    "pnl_basis": "PATHWISE_AFTER_COST",
+    "pnl_formula": "NetPnL = executed_cash_in - executed_cash_out - exact_venue_fees - realized_variable_costs + terminal_value(residual_inventory)",
+    "incremental_formula": "DeltaPnL = NetPnL_strategy - NetPnL_registered_baseline",
+    "aggregation_unit": "ROOT_EVENT_AND_UTC_DAY",
+    "zero_treatment": "eligible no-trigger/no-fill/no-accept roots and UTC days contribute zero",
+    "markout_policy": "MID_MARKOUT_IS_DIAGNOSTIC_NEVER_CASH_PNL",
+    "capacity_policy": "NO_LINEAR_EXTRAPOLATION_BEYOND_EXECUTABLE_DEPTH_AND_TESTED_SIZE"
+  },
+  "cohorts": {
+    "engineering_acceptance": {
+      "cohort_id": "L2-CLEAN-ENGINEERING-20260712-15-17",
+      "dates_utc": [
+        "2026-07-12",
+        "2026-07-15",
+        "2026-07-17"
+      ],
+      "selection_status": "PRIOR_EXPOSED_L2_CLEAN_DATES",
+      "purpose": "PIPELINE_CONSERVATION_AND_CARD_LOGIC_ACCEPTANCE_ONLY",
+      "claim_tier": "ENGINEERING_ONLY",
+      "inference_allowed": false,
+      "promotion_allowed": false
+    },
+    "untouched_confirmation": {
+      "cohort_id": null,
+      "dates_utc": [],
+      "status": "NOT_ALLOCATED",
+      "allocation_receipt_sha256": null,
+      "claim_tier": "NONE",
+      "read_allowed": false,
+      "promotion_allowed": false
+    }
+  },
+  "execution_contract": {
+    "stage": "OFFLINE_ENGINEERING_REPLAY",
+    "fill_authority": "STRICT_THROUGH_PUBLIC_EVIDENCE_OR_SEPARATELY_AUTHORIZED_ACTUAL_FILL",
+    "at_price_fill": false,
+    "same_timestamp_ordering": "ADVERSE_EVENT_FIRST",
+    "public_volume_allocation": "ALLOCATE_EACH_PUBLIC_PRINT_ONCE_GLOBALLY_ACROSS_ALL_ORDERS",
+    "private_event_dedupe": "EXACT_EVENT_ID_OR_CANONICAL_PAYLOAD_HASH",
+    "cancel_before_replace": true,
+    "partial_cancel_reconcile": "STATEFUL_CONSERVATION_REQUIRED",
+    "passive_order_tif": "GTC",
+    "passive_post_only": true,
+    "forced_exit_tif": "IOC",
+    "forced_exit_post_only": false,
+    "forced_exit_reduce_only": true,
+    "exit_price": "EFFECTIVE_TIME_EXACT_L2_WALK",
+    "midpoint_exit_allowed": false,
+    "price_quantity_precision": "E4_OR_WIDER",
+    "cash_precision": "MONEY_E6_OR_WIDER",
+    "size_per_side_contracts": 1,
+    "max_abs_root_inventory_contracts": 1,
+    "max_active_markets_per_root": 1,
+    "collateral_reserve_mode": "SLICE_AWARE_WORST_SEQUENCE",
+    "conservation_invariants": [
+      "ORDER_QUANTITY_EQUALS_OPEN_PLUS_FILLED_PLUS_CANCELED_PLUS_REJECTED",
+      "PUBLIC_EXECUTED_QUANTITY_NEVER_EXCEEDS_AUTHORITATIVE_PUBLIC_VOLUME",
+      "CASH_POSITION_FEE_AND_COLLATERAL_LEDGERS_RECONCILE_PATHWISE",
+      "UNKNOWN_OR_UNRECONCILED_STATE_BLOCKS_RUN_COMPLETION"
+    ]
+  },
+  "required_bindings": {
+    "fees": [
+      {
+        "field": "fee_facts_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "maker_fee_formula_id",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "taker_fee_formula_id",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "account_class",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "target_balance_precision",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "fee_rounding_accumulator_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "rebate_and_event_override_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ],
+    "latency": [
+      {
+        "field": "placement_manifest_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "cancel_effective_manifest_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "ioc_exit_manifest_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "hedge_manifest_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "baseline_quantile",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ],
+    "root_and_start": [
+      {
+        "field": "root_map_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "scheduled_start_source",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "scheduled_start_asof_semantics",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "tick_table_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "lifecycle_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ],
+    "risk": [
+      {
+        "field": "root_loss_cap_money_e6",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "day_loss_cap_money_e6",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "factor_loss_cap_money_e6",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "write_budget",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "reserved_cancel_exit_tokens",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "commercial_pnl_threshold_money_e6",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "peak_capital_return_threshold",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ],
+    "terminal": [
+      {
+        "field": "terminal_contract_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "legal_exception_state_table_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "ioc_round_cap",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "ioc_time_cap_ms",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "residual_policy_version",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "realized_outcome_requirement",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ],
+    "execution": [
+      {
+        "field": "strict_fill_evidence_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "fill_authority_by_stage_sha256",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "execution_environment_fingerprint",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "reconcile_timeout_ms",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      },
+      {
+        "field": "action_retry_cap",
+        "value": null,
+        "status": "NOT_BOUND",
+        "unknown_value_policy": "BLOCK_NOT_ZERO"
+      }
+    ]
+  },
+  "revisions": [
+    {
+      "revision_id": "A01-SPREAD-CAPTURE__PNL-SPINE-FREEZE-V1",
+      "revision_version": 1,
+      "source_card": {
+        "registry_id": "DEEP03-ALL-ANGLES-MONETIZATION-V1",
+        "registry_sha256": "6253beeb1934c1310611cb470a560b0c3dee8487922b1fa7f8d4718493ceea16",
+        "experiment_id": "A01-SPREAD-CAPTURE",
+        "card_definition_sha256": "d0a426775e71969141ec96db9fac7a5d38e53fb4d294d1d6027dd37bfc4cb9d4"
+      },
+      "state": "FROZEN_ENGINEERING_BLOCKED_REQUIRED_BINDINGS",
+      "claim_tier": "ENGINEERING_ONLY",
+      "required_bindings_ref": "#/required_bindings",
+      "card_required_bindings": [
+        {
+          "field": "a01_train_parameter_artifact_sha256",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        },
+        {
+          "field": "a01_activity_stratum_definition_sha256",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        }
+      ],
+      "engineering_cohort_ref": "#/cohorts/engineering_acceptance",
+      "confirmation_cohort_ref": "#/cohorts/untouched_confirmation",
+      "baseline": {
+        "baseline_id": "NO_TRADE_SAME_OPPORTUNITIES",
+        "baseline_type": "NO_TRADE",
+        "policy": "record every eligible root and opportunity with zero cash flow",
+        "comparability": "same roots, clock, capital availability and data exclusions",
+        "secondary_baselines": [],
+        "excluded_alternatives": [],
+        "status": "FROZEN"
+      },
+      "parameter_freeze": {
+        "source_plan": "/Users/ritcardo/HFT-BOT-c1-real-fill-01/docs/research_reports/DEEP03_GRANULAR_STRATEGY_TEST_PLAN_CANDIDATE_2026-07-17.md",
+        "source_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
+        "policy_lineage": "DR3-PM-TS-01",
+        "book_ttl_ms": {
+          "source": "section 8.6 PM_STEP_01",
+          "proposed": [
+            250,
+            1000,
+            5000
+          ],
+          "frozen": 250
+        },
+        "minimum_raw_spread_ticks": {
+          "source": "section 8.6 PM_STEP_02",
+          "proposed": [
+            4,
+            3,
+            2
+          ],
+          "frozen": 4
+        },
+        "spread_dwell_ms": {
+          "source": "section 8.6 PM_STEP_03",
+          "proposed": [
+            5000,
+            1000,
+            0
+          ],
+          "frozen": 5000
+        },
+        "max_quote_aggressiveness": {
+          "source": "section 8.6 PM_STEP_04",
+          "proposed": [
+            "BEHIND_1",
+            "TOUCH",
+            "IMPROVE_1",
+            "IMPROVE_2"
+          ],
+          "frozen": "BEHIND_1"
+        },
+        "cost_buffer_ticks": {
+          "source": "section 8.6 PM_STEP_05",
+          "proposed": [
+            2,
+            1,
+            0
+          ],
+          "frozen": 2
+        },
+        "toxicity_gate": {
+          "source": "section 8.6 PM_STEP_06",
+          "proposed": [
+            "TRAIN_P90",
+            "TRAIN_P95",
+            "OFF"
+          ],
+          "frozen": "TRAIN_P90"
+        },
+        "adverse_width_bound": {
+          "source": "section 8.6 PM_STEP_07",
+          "proposed": [
+            "CONDITIONAL_TRAIN_P90",
+            "CONDITIONAL_TRAIN_P75",
+            "TRAIN_MEAN"
+          ],
+          "frozen": "CONDITIONAL_TRAIN_P90"
+        },
+        "fair_model": {
+          "source": "section 8.6 PM_STEP_08",
+          "proposed": [
+            "LOGODDS_MIDPOINT",
+            "LOGODDS_MICROPRICE",
+            "MICROPRICE_PLUS_PAST_FLOW"
+          ],
+          "frozen": "LOGODDS_MIDPOINT"
+        },
+        "inventory_skew_gamma_ticks_per_contract": {
+          "source": "section 8.6 PM_STEP_09",
+          "proposed": [
+            0,
+            0.5,
+            1.0
+          ],
+          "frozen": 0
+        },
+        "requote_policy": {
+          "source": "section 8.6 PM_STEP_10",
+          "proposed": [
+            "R0_SAFETY_ONLY",
+            "R1_3TICKS_30S_5S",
+            "R2_2TICKS_10S_2S",
+            "R3_1TICK_2S_500MS"
+          ],
+          "frozen": "R0_SAFETY_ONLY"
+        },
+        "warmup_ms": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            120000
+          ],
+          "frozen": 120000
+        },
+        "activity_gate": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            "TRAILING_60S_UPDATE_COUNT_GE_TRAIN_STRATUM_P75"
+          ],
+          "frozen": "TRAILING_60S_UPDATE_COUNT_GE_TRAIN_STRATUM_P75"
+        },
+        "normal_quote_age_ms": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            5000
+          ],
+          "frozen": 5000
+        },
+        "normal_requote_cooldown_ms": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            1000
+          ],
+          "frozen": 1000
+        },
+        "stop_new_risk_tts_ms": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            900000
+          ],
+          "frozen": 900000
+        },
+        "force_unwind_tts_ms": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            300000
+          ],
+          "frozen": 300000
+        },
+        "quantity_contracts_per_active_side": {
+          "source": "sections 8.1 and 8.4",
+          "proposed": [
+            1
+          ],
+          "frozen": 1
+        },
+        "fill_response": {
+          "source": "section 8.4 baseline policy",
+          "proposed": [
+            "STOP_NEW_RISK_CANCEL_SIBLINGS_RECONCILE_REDUCE_ONLY_IOC"
+          ],
+          "frozen": "STOP_NEW_RISK_CANCEL_SIBLINGS_RECONCILE_REDUCE_ONLY_IOC"
+        }
+      },
+      "validation_contract": {
+        "engineering_acceptance_purpose": "prove deterministic card logic, strict-fill conservation, exact fee plumbing, measured-latency plumbing and complete exit accounting",
+        "primary_estimand": "root-event and UTC-day pathwise DeltaPnL versus frozen no-trade baseline",
+        "required_invariants": [
+          "ONE_CONTRACT_PER_ACTIVE_SIDE",
+          "NON_ATOMIC_PAIR_USES_WORST_SEQUENCE_RESERVE",
+          "ANY_FILL_STOPS_NEW_RISK_AND_CANCELS_SIBLINGS",
+          "EXIT_USES_RECONCILED_EXACT_POSITION_AND_EFFECTIVE_TIME_L2",
+          "ZERO_TRIGGER_AND_ZERO_FILL_ROOTS_RETAINED"
+        ],
+        "failure_conditions": [
+          "NO_PESSIMISTICALLY_VALID_STRICT_FILLS",
+          "ANY_REQUIRED_ENGINEERING_DATE_HAS_NONPOSITIVE_ROOT_EVENT_FEE_AFTER_PNL",
+          "PATHWISE_CASH_POSITION_FEE_OR_COLLATERAL_CONSERVATION_FAILS",
+          "ONLY_QUEUE_OR_OPTIMISTIC_TRACK_IS_POSITIVE",
+          "DETERMINISTIC_LIQUIDATION_OR_TERMINAL_RESIDUAL_REMOVES_ECONOMICS",
+          "FIRST_TESTED_SIZE_STEP_REMOVES_POSITIVE_ECONOMICS"
+        ],
+        "promotion_rule": "ENGINEERING_ACCEPTANCE_CANNOT_PROMOTE; requires a separately allocated untouched confirmation cohort and a new immutable claim revision"
+      },
+      "revision_definition_sha256": "5bd151125869bd4bb1173be6914be9cf57f9256f2252a979e02245aa101a2680"
+    },
+    {
+      "revision_id": "A11-ONE-SIDED-PROVISION__OS0__PNL-SPINE-FREEZE-V1",
+      "revision_version": 1,
+      "source_card": {
+        "registry_id": "DEEP03-ALL-ANGLES-MONETIZATION-V1",
+        "registry_sha256": "6253beeb1934c1310611cb470a560b0c3dee8487922b1fa7f8d4718493ceea16",
+        "experiment_id": "A11-ONE-SIDED-PROVISION",
+        "card_definition_sha256": "4258bbe91636b0e1798a733e9c58d958bf51ae5548156b5813d47f374ebf6d2c"
+      },
+      "state": "FROZEN_ENGINEERING_BLOCKED_REQUIRED_BINDINGS",
+      "claim_tier": "ENGINEERING_ONLY",
+      "required_bindings_ref": "#/required_bindings",
+      "card_required_bindings": [
+        {
+          "field": "a11_activity_burst_cancel_threshold",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        },
+        {
+          "field": "a11_max_worst_state_residual_share",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        },
+        {
+          "field": "a11_max_forced_exit_share_of_gross_capture",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        }
+      ],
+      "engineering_cohort_ref": "#/cohorts/engineering_acceptance",
+      "confirmation_cohort_ref": "#/cohorts/untouched_confirmation",
+      "baseline": {
+        "baseline_id": "NO_TRADE_SAME_OPPORTUNITIES",
+        "baseline_type": "NO_TRADE",
+        "policy": "record every eligible root and opportunity with zero cash flow",
+        "comparability": "same roots, clock, capital availability and data exclusions",
+        "secondary_baselines": [],
+        "excluded_alternatives": [
+          "PM_PARENT_PAIRED_ABLATION"
+        ],
+        "status": "FROZEN"
+      },
+      "parameter_freeze": {
+        "source_plan": "/Users/ritcardo/HFT-BOT-c1-real-fill-01/docs/research_reports/DEEP03_GRANULAR_STRATEGY_TEST_PLAN_CANDIDATE_2026-07-17.md",
+        "source_plan_sha256": "ded84065dec179ce713377b53607b04adad342ae77e5c3c2b894247bc07b5d36",
+        "policy_lineage": "DR3-PM-OS-01::OS0",
+        "tts_window_ms": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            {
+              "lower_inclusive": 900000,
+              "upper_inclusive": 14400000
+            }
+          ],
+          "frozen": {
+            "lower_inclusive": 900000,
+            "upper_inclusive": 14400000
+          }
+        },
+        "normalized_price_e4": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            {
+              "lower_inclusive": 1000,
+              "upper_exclusive": 9000
+            }
+          ],
+          "frozen": {
+            "lower_inclusive": 1000,
+            "upper_exclusive": 9000
+          }
+        },
+        "one_sided_persistence_ms": {
+          "source": "sections 9.2 and 9.4 OS0/OS1",
+          "proposed": [
+            30000,
+            5000
+          ],
+          "frozen": 30000
+        },
+        "surviving_side_book_age_max_ms": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            1000
+          ],
+          "frozen": 1000
+        },
+        "minimum_updates_trailing_60s": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            5
+          ],
+          "frozen": 5
+        },
+        "minimum_trades_trailing_5m": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            1
+          ],
+          "frozen": 1
+        },
+        "reference_mid_onset_age_max_ms": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            1000
+          ],
+          "frozen": 1000
+        },
+        "surviving_side_max_move_ticks": {
+          "source": "section 9.2 proposed population",
+          "proposed": [
+            1
+          ],
+          "frozen": 1
+        },
+        "missing_side_offset_k_ticks": {
+          "source": "sections 9.3 and 9.4 OS0/OS2",
+          "proposed": [
+            2,
+            1
+          ],
+          "frozen": 2
+        },
+        "quantity_contracts": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            1
+          ],
+          "frozen": 1
+        },
+        "max_fills_per_root": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            1
+          ],
+          "frozen": 1
+        },
+        "replenish": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            false
+          ],
+          "frozen": false
+        },
+        "quote_age_ms": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            30000
+          ],
+          "frozen": 30000
+        },
+        "max_hold_ms": {
+          "source": "sections 9.3 and 9.4 OS0/OS3",
+          "proposed": [
+            120000,
+            30000
+          ],
+          "frozen": 120000
+        },
+        "quote_rule": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            "MISSING_ASK_MAX_SURVIVING_BID_PLUS_K_OR_REFERENCE_MID_PLUS_1_TICK__MISSING_BID_MIN_SURVIVING_ASK_MINUS_K_OR_REFERENCE_MID_MINUS_1_TICK"
+          ],
+          "frozen": "MISSING_ASK_MAX_SURVIVING_BID_PLUS_K_OR_REFERENCE_MID_PLUS_1_TICK__MISSING_BID_MIN_SURVIVING_ASK_MINUS_K_OR_REFERENCE_MID_MINUS_1_TICK"
+        },
+        "cancel_rule": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            "CANCEL_ON_SIDE_RETURN_MOVE_GT_1_TICK_ACTIVITY_BURST_UNKNOWN_RULE_GAP_PAUSE_OR_TTS_15M"
+          ],
+          "frozen": "CANCEL_ON_SIDE_RETURN_MOVE_GT_1_TICK_ACTIVITY_BURST_UNKNOWN_RULE_GAP_PAUSE_OR_TTS_15M"
+        },
+        "timeout_exit": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            "RECONCILE_THEN_REDUCE_ONLY_IOC_AT_EFFECTIVE_TIME_EXACT_L2_WITH_TAKER_FEE"
+          ],
+          "frozen": "RECONCILE_THEN_REDUCE_ONLY_IOC_AT_EFFECTIVE_TIME_EXACT_L2_WITH_TAKER_FEE"
+        },
+        "residual_valuation": {
+          "source": "section 9.3 quote rules",
+          "proposed": [
+            "EXPLICIT_LEGAL_JOINT_WORST_STATE"
+          ],
+          "frozen": "EXPLICIT_LEGAL_JOINT_WORST_STATE"
+        }
+      },
+      "validation_contract": {
+        "engineering_acceptance_purpose": "prove OS0 eligibility is nonempty on a synthetic fixture, then prove strict-fill and forced-exit accounting on clean engineering dates",
+        "primary_estimand": "root-event and UTC-day pathwise DeltaPnL versus frozen no-trade baseline",
+        "required_invariants": [
+          "SYNTHETIC_FIXTURE_PROVES_NONEMPTY_OS0_ELIGIBILITY",
+          "REFERENCE_MID_IS_FROZEN_AT_ONE_SIDED_ONSET",
+          "ONE_FILL_MAXIMUM_PER_ROOT_AND_NO_REPLENISH",
+          "TOPOLOGY_RECOVERY_OR_KILL_CANCELS_AND_RECONCILES",
+          "TIMEOUT_EXIT_USES_EFFECTIVE_TIME_L2_AND_TAKER_FEE",
+          "PM_PARENT_PAIRED_GATE_IS_NOT_USED_BY_THIS_REVISION"
+        ],
+        "failure_conditions": [
+          "NO_MISSING_SIDE_PESSIMISTIC_STRICT_FILLS",
+          "ADVERSE_AND_EXIT_LOSS_IS_GREATER_THAN_OR_EQUAL_TO_CAPTURED_SPREAD",
+          "RESIDUAL_OR_FORCED_EXIT_SHARE_EXCEEDS_A_FUTURE_FROZEN_LIMIT",
+          "PATHWISE_CASH_POSITION_FEE_OR_COLLATERAL_CONSERVATION_FAILS",
+          "FIRST_TESTED_SIZE_STEP_REMOVES_POSITIVE_ECONOMICS"
+        ],
+        "promotion_rule": "ENGINEERING_ACCEPTANCE_CANNOT_PROMOTE; requires a separately allocated untouched confirmation cohort and a new immutable claim revision"
+      },
+      "revision_definition_sha256": "c5e205243d71ff458cac91b2d69ebe2ac60a08590044c32fba0240ab52c5d2f8"
+    },
+    {
+      "revision_id": "B09-LISTING-TO-START-DRIFT__BLIND-TRAIN-V1",
+      "revision_version": 1,
+      "source_card": {
+        "registry_id": "DEEP03-ALL-ANGLES-MONETIZATION-V1",
+        "registry_sha256": "6253beeb1934c1310611cb470a560b0c3dee8487922b1fa7f8d4718493ceea16",
+        "experiment_id": "B09-LISTING-TO-START-DRIFT",
+        "card_definition_sha256": "d2c4c9765c141713bf1d10d1147dc7edd8a35cd2a70a587a7620223081c28023"
+      },
+      "state": "BLOCKED_PARAMETER_TRAINING",
+      "claim_tier": "ENGINEERING_ONLY",
+      "required_bindings_ref": "#/required_bindings",
+      "card_required_bindings": [
+        {
+          "field": "b09_train_artifact_sha256",
+          "value": null,
+          "status": "NOT_BOUND",
+          "unknown_value_policy": "BLOCK_NOT_ZERO"
+        }
+      ],
+      "engineering_cohort_ref": "#/cohorts/engineering_acceptance",
+      "confirmation_cohort_ref": "#/cohorts/untouched_confirmation",
+      "baseline": {
+        "baseline_id": "NO_TRADE_SAME_OPPORTUNITIES",
+        "baseline_type": "NO_TRADE",
+        "policy": "record every eligible root and opportunity with zero cash flow",
+        "comparability": "same roots, clock, capital availability and data exclusions",
+        "secondary_baselines": [],
+        "excluded_alternatives": [],
+        "status": "FROZEN"
+      },
+      "parameter_freeze": {
+        "source": "Registry B09 plus deep03 section 4.6.3 independent time axes",
+        "candidate_taxonomy": {
+          "listing_age": [
+            "AGE_0_TO_5M",
+            "AGE_5M_TO_1H",
+            "AGE_1_TO_6H",
+            "AGE_6_TO_24H",
+            "AGE_24H_PLUS"
+          ],
+          "scheduled_phase": [
+            "PRE_24H_PLUS",
+            "PRE_6_TO_24H",
+            "PRE_1_TO_6H",
+            "PRE_15_TO_60M",
+            "PRE_0_TO_15M",
+            "POST_0_TO_5M",
+            "POST_5_TO_30M",
+            "POST_30_TO_120M",
+            "POST_120M_PLUS"
+          ],
+          "interval_semantics": "LEFT_CLOSED_RIGHT_OPEN",
+          "unknown_bucket_policy": "RETAIN_FOR_COVERAGE_AND_EXCLUDE_FROM_ACTION"
+        },
+        "training_validation_protocol": {
+          "protocol_id": "B09-DATA-BLIND-TRAIN-VALIDATE-V1",
+          "status": "FROZEN_PROTOCOL_AWAITING_TRAIN_ARTIFACT",
+          "allocation_basis": "SIGNED_IMMUTABLE_DATE_LIST_RECEIPT_CREATED_BEFORE_ANY_B09_SIGNAL_OR_PNL_READ",
+          "allocation_constraints": [
+            "TRAIN_AND_VALIDATION_DATES_ARE_DISJOINT",
+            "EVERY_VALIDATION_DATE_IS_STRICTLY_AFTER_EVERY_TRAIN_DATE",
+            "DATE_ELIGIBILITY_USES_ONLY_PREDECLARED_DATA_QUALITY_AND_RELEASE_READINESS",
+            "ENGINEERING_ACCEPTANCE_DATES_CANNOT_SELECT_CELLS_OR_DIRECTIONS",
+            "VALIDATION_REMAINS_UNREADABLE_UNTIL_TRAIN_ARTIFACT_IS_HASH_BOUND"
+          ],
+          "train_only_steps": [
+            "ENUMERATE_EVERY_NONUNKNOWN_LISTING_AGE_X_SCHEDULED_PHASE_CELL",
+            "COMPUTE_CELL_SUPPORT_AND_SIGNED_DRIFT_USING_TRAIN_ONLY",
+            "APPLY_PREBOUND_SUPPORT_STABILITY_HORIZON_AND_COST_GATES",
+            "EMIT_ADMITTED_CELL_AND_BUY_YES_OR_BUY_NO_DIRECTION_FOR_EACH_SURVIVOR",
+            "HASH_AND_SEAL_THE_COMPLETE_TRAIN_ARTIFACT_INCLUDING_REJECTED_AND_ZERO_SUPPORT_CELLS"
+          ],
+          "train_artifact_required_fields": [
+            "protocol_id",
+            "allocation_receipt_sha256",
+            "training_release_manifest_sha256",
+            "candidate_taxonomy_sha256",
+            "pretraining_parameter_bindings_sha256",
+            "all_candidate_cells_with_zero_support_retained",
+            "admitted_cells",
+            "direction_by_cell",
+            "entry_exit_horizon_by_cell",
+            "reversal_rule",
+            "slippage_cap_e4",
+            "quantity_rule",
+            "train_only_diagnostics",
+            "artifact_sha256"
+          ],
+          "train_artifact_sha256": null,
+          "validation_lock": "NO_CELL_DIRECTION_THRESHOLD_HORIZON_OR_SIZE_MAY_CHANGE_AFTER_TRAIN_ARTIFACT_SEAL",
+          "retraining_policy": "ANY_RETRAINING_CREATES_A_NEW_IMMUTABLE_REVISION_AND_NEW_UNTOUCHED_VALIDATION_ALLOCATION"
+        },
+        "unresolved_training_outputs": {
+          "admitted_cells": {
+            "source": "TRAIN_ARTIFACT_ONLY",
+            "proposed": null,
+            "frozen": null,
+            "status": "NOT_TRAINED",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          "direction_by_cell": {
+            "source": "TRAIN_ARTIFACT_ONLY",
+            "proposed": null,
+            "frozen": null,
+            "status": "NOT_TRAINED",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          }
+        },
+        "pretraining_required_bindings": [
+          {
+            "field": "training_validation_allocation_receipt_sha256",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "minimum_roots_per_cell",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "minimum_independent_days_per_cell",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "leave_day_out_sign_stability_rule",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "entry_exit_horizon_registry",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "reversal_rule",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "slippage_cap_e4",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          },
+          {
+            "field": "quantity_rule",
+            "value": null,
+            "status": "NOT_BOUND",
+            "unknown_value_policy": "BLOCK_NOT_ZERO"
+          }
+        ]
+      },
+      "validation_contract": {
+        "engineering_acceptance_purpose": "prove taxonomy assignment, no-lookahead split enforcement, executable L2 walking and complete exit accounting without selecting a direction or admitted cell",
+        "primary_estimand": "after TRAIN artifact seal only, root-event and UTC-day pathwise DeltaPnL versus frozen no-trade baseline",
+        "required_invariants": [
+          "NO_DIRECTION_OR_ADMITTED_CELL_EXISTS_BEFORE_TRAIN_ARTIFACT",
+          "ENGINEERING_DATES_NEVER_SELECT_DIRECTION_OR_CELL",
+          "VALIDATION_DATES_ARE_CHRONOLOGICALLY_LATER_AND_UNREAD_BEFORE_SEAL",
+          "ENTRY_AND_EXIT_USE_EFFECTIVE_TIME_EXACT_L2_WITH_EXACT_TAKER_FEES",
+          "TIME_OR_REVERSAL_EXIT_IS_REQUIRED_AND_SETTLEMENT_HOLD_IS_FORBIDDEN",
+          "ZERO_SUPPORT_ZERO_TRIGGER_AND_ZERO_FILL_CELLS_RETAINED"
+        ],
+        "failure_conditions": [
+          "TRAIN_ARTIFACT_IS_ABSENT_OR_HASH_MISMATCHED",
+          "LEAVE_DAY_OUT_DRIFT_SIGN_FLIPS_UNDER_THE_FROZEN_TRAIN_RULE",
+          "NO_EXECUTABLE_DEPTH_AT_ENTRY_OR_EXIT",
+          "EXECUTABLE_FEE_AFTER_PATHWISE_PNL_IS_NONPOSITIVE",
+          "PATHWISE_CASH_POSITION_FEE_OR_COLLATERAL_CONSERVATION_FAILS",
+          "ANY_VALIDATION_READ_CHANGES_CELL_DIRECTION_THRESHOLD_HORIZON_OR_SIZE"
+        ],
+        "promotion_rule": "ENGINEERING_ACCEPTANCE_CANNOT_PROMOTE; B09 remains BLOCKED_PARAMETER_TRAINING until a valid TRAIN artifact exists, then still requires separately allocated untouched validation and confirmation revisions"
+      },
+      "revision_definition_sha256": "fae965d16a0c6f61cbbeaf9d0ce9b40af4582c7c408c62f79af8732dd4d87873"
+    }
+  ]
+}
