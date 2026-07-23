@@ -38,6 +38,8 @@ from tools.research.pnl_spine.fills import (  # noqa: E402
 from tools.research.pnl_spine.risk import RiskLimits  # noqa: E402
 from tools.research.pnl_spine.runner import (  # noqa: E402
     C1_CLASSIFICATION,
+    LINEAGE_RECEIPT_SCHEMA,
+    LINEAGE_RECORD_SCHEMA_SHA256,
     NET_COMPLETE,
     PNL_BLOCKED,
     RunnerContractError,
@@ -68,6 +70,8 @@ H_B = "b" * 64
 H_C = "c" * 64
 H_D = "d" * 64
 H_E = "e" * 64
+H_F = "f" * 64
+H_0 = "0" * 64
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -533,9 +537,132 @@ def refresh_evidence_bindings(fixture: dict[str, Any]) -> None:
     fixture["evidence_bindings"] = bindings
 
 
-def authority_for(fixture: dict[str, Any]) -> dict[str, Any]:
+def lineage_for(fixture: dict[str, Any]) -> dict[str, Any]:
+    release_by_id = {
+        release["release_id"]: release
+        for release in fixture["provenance"]["releases"]
+    }
+    record_groups = {
+        "NORMALIZED_ROW": (
+            fixture["rows"],
+            "row_id",
+        ),
+        "PUBLIC_TRADE": (
+            fixture["public_trades"],
+            "trade_id",
+        ),
+        "L2_SNAPSHOT": (
+            fixture["exit_snapshots"],
+            "snapshot_id",
+        ),
+        "SETTLEMENT": (
+            fixture["settlements"],
+            "settlement_id",
+        ),
+    }
+    runtime_records = {
+        (kind, row[id_field]): row
+        for kind, (rows, id_field) in record_groups.items()
+        for row in rows
+    }
+    object_reads: dict[
+        tuple[str, str, str], dict[str, Any]
+    ] = {}
+    records: list[dict[str, Any]] = []
+    for binding in sorted(
+        fixture["evidence_bindings"],
+        key=lambda row: (row["kind"], row["record_id"]),
+    ):
+        release = release_by_id[binding["release_id"]]
+        source = next(
+            row
+            for row in release["objects"]
+            if (
+                row["logical_key"]
+                == binding["source_object_logical_key"]
+                and row["version_id"]
+                == binding["source_object_version_id"]
+            )
+        )
+        object_key = (
+            release["release_id"],
+            source["logical_key"],
+            source["version_id"],
+        )
+        object_reads[object_key] = {
+            "release_id": release["release_id"],
+            "date": source["date"],
+            "logical_key": source["logical_key"],
+            "version_id": source["version_id"],
+            "channel": source["channel"],
+            "source_object_sha256": source["sha256"],
+            "size_bytes": source["size_bytes"],
+            "bytes_verified": source["size_bytes"],
+        }
+        key = (binding["kind"], binding["record_id"])
+        record = runtime_records[key]
+        member = {
+            "release_id": release["release_id"],
+            "date": source["date"],
+            "logical_key": source["logical_key"],
+            "version_id": source["version_id"],
+            "channel": source["channel"],
+            "source_object_sha256": source["sha256"],
+            "size_bytes": source["size_bytes"],
+            "locator_schema": "fixture-record-locator-v1",
+            "locator": f"{binding['kind']}/{binding['record_id']}",
+            "source_record_sha256": canonical_sha256(record),
+        }
+        members = [member]
+        records.append(
+            {
+                "kind": binding["kind"],
+                "record_id": binding["record_id"],
+                "record_sha256": canonical_sha256(record),
+                "record_date_utc": source["date"],
+                "mode": (
+                    "DERIVED"
+                    if binding["kind"]
+                    in {"NORMALIZED_ROW", "L2_SNAPSHOT"}
+                    else "DIRECT"
+                ),
+                "source_members": members,
+                "transform_code_sha256": H_F,
+                "transform_config_sha256": H_0,
+                "input_set_sha256": canonical_sha256(members),
+            }
+        )
+    records.sort(key=lambda row: (row["kind"], row["record_id"]))
+    payload = {
+        "schema_version": LINEAGE_RECEIPT_SCHEMA,
+        "run_id": fixture["run_id"],
+        "release_set_sha256": canonical_sha256(
+            fixture["provenance"]["releases"]
+        ),
+        "extractor_code_sha256": H_F,
+        "extractor_config_sha256": H_0,
+        "record_schema_sha256": LINEAGE_RECORD_SCHEMA_SHA256,
+        "object_reads": [
+            object_reads[key] for key in sorted(object_reads)
+        ],
+        "records": records,
+        "records_sha256": canonical_sha256(records),
+    }
+    return seal(payload)
+
+
+def reseal_lineage(value: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(value)
+    result["records_sha256"] = canonical_sha256(result["records"])
+    return seal(result)
+
+
+def authority_for(
+    fixture: dict[str, Any],
+    lineage: dict[str, Any],
+) -> dict[str, Any]:
     return {
-        "schema_version": "pnl-spine-trusted-authority-v1",
+        "schema_version": "pnl-spine-trusted-authority-v2",
         "code_sha256": fixture["code_sha256"],
         "fee_facts_sha256": canonical_sha256(
             fixture["fee_facts_authority"]
@@ -565,15 +692,36 @@ def authority_for(fixture: dict[str, Any]) -> dict[str, Any]:
         "terminal_receipt_sha256": canonical_sha256(
             fixture["preflight_inputs"]["terminal_coverage"]
         ),
+        "lineage_receipt_sha256": canonical_sha256(lineage),
+        "extractor_code_sha256": lineage["extractor_code_sha256"],
+        "extractor_config_sha256": (
+            lineage["extractor_config_sha256"]
+        ),
     }
 
 
 def execute(fixture: dict[str, Any]) -> dict[str, Any]:
-    authority = authority_for(fixture)
+    lineage = lineage_for(fixture)
+    return execute_with_lineage(fixture, lineage)
+
+
+def execute_with_lineage(
+    fixture: dict[str, Any],
+    lineage: dict[str, Any],
+    *,
+    expected_lineage_sha256: str | None = None,
+) -> dict[str, Any]:
+    authority = authority_for(fixture, lineage)
     return run_fixture(
         fixture,
         trusted_authority=authority,
         expected_trusted_authority_sha256=canonical_sha256(authority),
+        trusted_lineage_receipt=lineage,
+        expected_trusted_lineage_receipt_sha256=(
+            expected_lineage_sha256
+            if expected_lineage_sha256 is not None
+            else canonical_sha256(lineage)
+        ),
     )
 
 
@@ -695,7 +843,9 @@ def blocker_codes(receipt: dict[str, Any]) -> set[str]:
 
 
 def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
-    receipt = execute(base_fixture())
+    fixture = base_fixture()
+    lineage = lineage_for(fixture)
+    receipt = execute_with_lineage(fixture, lineage)
 
     assert receipt["state"] == NET_COMPLETE
     assert receipt["blockers"] == []
@@ -727,6 +877,9 @@ def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
         "residual_quantity_e4": 0,
     }
     assert receipt["c1_prior_artifact_classification"] == C1_CLASSIFICATION
+    assert receipt["trusted_lineage_receipt_sha256"] == canonical_sha256(
+        lineage
+    )
 
 
 @pytest.mark.parametrize(
@@ -792,7 +945,8 @@ def test_missing_real_ioc_exit_latency_blocks_net_pnl_not_defaults_to_zero():
 
 def test_self_signed_real_latency_replacement_cannot_escape_external_pin():
     fixture = base_fixture()
-    trusted = authority_for(fixture)
+    lineage = lineage_for(fixture)
+    trusted = authority_for(fixture, lineage)
     latency = fixture["preflight_inputs"]["measured_latency"]
     latency["samples"][0]["effective_ns"] += 50_000
     fixture["preflight_inputs"]["measured_latency"] = seal(latency)
@@ -801,6 +955,10 @@ def test_self_signed_real_latency_replacement_cannot_escape_external_pin():
         fixture,
         trusted_authority=trusted,
         expected_trusted_authority_sha256=canonical_sha256(trusted),
+        trusted_lineage_receipt=lineage,
+        expected_trusted_lineage_receipt_sha256=(
+            canonical_sha256(lineage)
+        ),
     )
 
     assert receipt["state"] == PNL_BLOCKED
@@ -912,7 +1070,8 @@ def test_nonfinal_settlement_is_censored_and_cannot_close_a_position():
 
 def test_self_signed_zero_fee_authority_cannot_complete_net_pnl():
     fixture = base_fixture()
-    trusted = authority_for(fixture)
+    lineage = lineage_for(fixture)
+    trusted = authority_for(fixture, lineage)
     fixture["fee_facts_authority"]["formula"]["taker_rate_e4"] = 0
     fixture["fee_facts_authority"]["formula"]["maker_rate_e4"] = 0
     fixture["preflight_inputs"]["fee_facts"] = fee_receipt(
@@ -923,6 +1082,10 @@ def test_self_signed_zero_fee_authority_cannot_complete_net_pnl():
         fixture,
         trusted_authority=trusted,
         expected_trusted_authority_sha256=canonical_sha256(trusted),
+        trusted_lineage_receipt=lineage,
+        expected_trusted_lineage_receipt_sha256=(
+            canonical_sha256(lineage)
+        ),
     )
 
     assert receipt["state"] == PNL_BLOCKED
@@ -953,11 +1116,16 @@ def test_same_fixture_cannot_self_sign_1970_rows_as_2026_release_data():
     )
     row_binding["record_sha256"] = canonical_sha256(row)
 
-    authority = authority_for(fixture)
+    lineage = lineage_for(fixture)
+    authority = authority_for(fixture, lineage)
     receipt = run_fixture(
         fixture,
         trusted_authority=authority,
         expected_trusted_authority_sha256=canonical_sha256(authority),
+        trusted_lineage_receipt=lineage,
+        expected_trusted_lineage_receipt_sha256=(
+            canonical_sha256(lineage)
+        ),
     )
 
     assert receipt["state"] == PNL_BLOCKED
@@ -968,11 +1136,211 @@ def test_same_fixture_cannot_self_sign_1970_rows_as_2026_release_data():
     )
 
 
+def test_resigned_fixture_authority_cannot_forge_exact_object_l2_membership():
+    fixture = base_fixture()
+    root_pinned_lineage = lineage_for(fixture)
+    fixture["exit_snapshots"][0]["yes_bids"][0][
+        "yes_price_e4"
+    ] = 9_000
+    fixture["exit_snapshots"][0]["yes_asks"][0][
+        "yes_price_e4"
+    ] = 9_100
+    refresh_evidence_bindings(fixture)
+
+    # This re-signs every ordinary fixture-derived authority field, including
+    # the evidence manifest, while retaining the independently pinned lineage.
+    receipt = execute_with_lineage(fixture, root_pinned_lineage)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RECORD_LINEAGE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert "EXTERNAL_AUTHORITY_INVALID" not in blocker_codes(receipt)
+    assert "EVIDENCE_AUTHORITY_INVALID" not in blocker_codes(receipt)
+
+
+def test_forged_lineage_receipt_cannot_escape_old_external_root_pin():
+    fixture = base_fixture()
+    original_lineage = lineage_for(fixture)
+    original_pin = canonical_sha256(original_lineage)
+    fixture["exit_snapshots"][0]["yes_bids"][0][
+        "yes_price_e4"
+    ] = 9_000
+    fixture["exit_snapshots"][0]["yes_asks"][0][
+        "yes_price_e4"
+    ] = 9_100
+    refresh_evidence_bindings(fixture)
+    forged_lineage = lineage_for(fixture)
+
+    receipt = execute_with_lineage(
+        fixture,
+        forged_lineage,
+        expected_lineage_sha256=original_pin,
+    )
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RECORD_LINEAGE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert "EXTERNAL_AUTHORITY_INVALID" not in blocker_codes(receipt)
+    assert any(
+        "does not match external pin" in blocker["detail"]
+        for blocker in receipt["blockers"]
+        if blocker["code"] == "RECORD_LINEAGE_AUTHORITY_INVALID"
+    )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    (
+        "MISSING_RECORD",
+        "EXTRA_RECORD",
+        "DUPLICATE_RECORD",
+        "WRONG_OBJECT",
+        "WRONG_DATE",
+        "WRONG_CHANNEL",
+        "RECORD_HASH_DRIFT",
+        "TRANSFORM_DRIFT",
+        "INPUT_SET_DRIFT",
+        "EMPTY_SOURCE_MEMBERS",
+        "DUPLICATE_SOURCE_MEMBER",
+        "NORMALIZED_ROW_DIRECT",
+        "EXTRA_OBJECT_READ",
+        "DUPLICATE_OBJECT_READ",
+    ),
+)
+def test_lineage_contract_attacks_fail_closed_even_when_ordinary_authority_resigned(
+    attack: str,
+):
+    fixture = base_fixture()
+    lineage = lineage_for(fixture)
+    target = next(
+        row
+        for row in lineage["records"]
+        if row["kind"] == "L2_SNAPSHOT"
+    )
+    if attack == "MISSING_RECORD":
+        lineage["records"].remove(target)
+    elif attack == "EXTRA_RECORD":
+        extra = copy.deepcopy(target)
+        extra["record_id"] = "extra-l2-record"
+        extra["source_members"][0]["locator"] = (
+            "L2_SNAPSHOT/extra-l2-record"
+        )
+        extra["input_set_sha256"] = canonical_sha256(
+            extra["source_members"]
+        )
+        lineage["records"].append(extra)
+    elif attack == "DUPLICATE_RECORD":
+        lineage["records"].append(copy.deepcopy(target))
+    elif attack == "WRONG_OBJECT":
+        release = fixture["provenance"]["releases"][0]
+        wrong = next(
+            row
+            for row in release["objects"]
+            if row["channel"] == "L2" and row["sha256"] == H_D
+        )
+        member = target["source_members"][0]
+        member.update(
+            {
+                "logical_key": wrong["logical_key"],
+                "version_id": wrong["version_id"],
+                "source_object_sha256": wrong["sha256"],
+                "size_bytes": wrong["size_bytes"],
+            }
+        )
+        target["input_set_sha256"] = canonical_sha256(
+            target["source_members"]
+        )
+        lineage["object_reads"].append(
+            {
+                "release_id": release["release_id"],
+                "date": wrong["date"],
+                "logical_key": wrong["logical_key"],
+                "version_id": wrong["version_id"],
+                "channel": wrong["channel"],
+                "source_object_sha256": wrong["sha256"],
+                "size_bytes": wrong["size_bytes"],
+                "bytes_verified": wrong["size_bytes"],
+            }
+        )
+    elif attack == "WRONG_DATE":
+        target["record_date_utc"] = "2026-07-15"
+    elif attack == "WRONG_CHANNEL":
+        target["source_members"][0]["channel"] = "TRADES"
+    elif attack == "RECORD_HASH_DRIFT":
+        target["record_sha256"] = H_D
+    elif attack == "TRANSFORM_DRIFT":
+        target["transform_code_sha256"] = H_E
+    elif attack == "INPUT_SET_DRIFT":
+        target["input_set_sha256"] = H_E
+    elif attack == "EMPTY_SOURCE_MEMBERS":
+        target["source_members"] = []
+        target["input_set_sha256"] = canonical_sha256([])
+    elif attack == "DUPLICATE_SOURCE_MEMBER":
+        target["source_members"].append(
+            copy.deepcopy(target["source_members"][0])
+        )
+        target["input_set_sha256"] = canonical_sha256(
+            target["source_members"]
+        )
+    elif attack == "NORMALIZED_ROW_DIRECT":
+        normalized = next(
+            row
+            for row in lineage["records"]
+            if row["kind"] == "NORMALIZED_ROW"
+        )
+        normalized["mode"] = "DIRECT"
+    elif attack == "EXTRA_OBJECT_READ":
+        release = fixture["provenance"]["releases"][0]
+        extra = next(
+            row
+            for row in release["objects"]
+            if row["channel"] == "L2" and row["sha256"] == H_D
+        )
+        lineage["object_reads"].append(
+            {
+                "release_id": release["release_id"],
+                "date": extra["date"],
+                "logical_key": extra["logical_key"],
+                "version_id": extra["version_id"],
+                "channel": extra["channel"],
+                "source_object_sha256": extra["sha256"],
+                "size_bytes": extra["size_bytes"],
+                "bytes_verified": extra["size_bytes"],
+            }
+        )
+    elif attack == "DUPLICATE_OBJECT_READ":
+        lineage["object_reads"].append(
+            copy.deepcopy(lineage["object_reads"][0])
+        )
+    else:
+        raise AssertionError(f"unhandled lineage attack {attack}")
+    lineage["records"].sort(
+        key=lambda row: (row["kind"], row["record_id"])
+    )
+    lineage["object_reads"].sort(
+        key=lambda row: (
+            row["release_id"],
+            row["logical_key"],
+            row["version_id"],
+        )
+    )
+    lineage = reseal_lineage(lineage)
+
+    receipt = execute_with_lineage(fixture, lineage)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RECORD_LINEAGE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert "EXTERNAL_AUTHORITY_INVALID" not in blocker_codes(receipt)
+
+
 def test_missing_external_authority_pin_can_never_complete():
     receipt = run_fixture(base_fixture())
     assert receipt["state"] == PNL_BLOCKED
     assert "EXTERNAL_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert "RECORD_LINEAGE_AUTHORITY_INVALID" in blocker_codes(receipt)
     assert receipt["trusted_authority_sha256"] is None
+    assert receipt["trusted_lineage_receipt_sha256"] is None
 
 
 def test_frozen_root_cap_and_risk_ledger_reject_duplicate_root_intents():
@@ -1712,6 +2080,7 @@ def test_runner_rejects_unknown_fixture_fields_and_never_interprets_midpoint():
 
 def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
     fixture = base_fixture()
+    lineage = lineage_for(fixture)
     fixture["preflight_inputs"]["measured_latency"]["measurement_mode"] = (
         "SCENARIO_ASSUMPTION"
     )
@@ -1726,14 +2095,24 @@ def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
     authority_path = tmp_path / "authority.json"
     authority_path.write_text(
         json.dumps(
-            authority_for(fixture),
+            authority_for(fixture, lineage),
             sort_keys=True,
             separators=(",", ":"),
-        ),
+        )
+        + "\n",
         encoding="utf-8",
     )
     authority_sha256 = hashlib.sha256(
         authority_path.read_bytes()
+    ).hexdigest()
+    lineage_path = tmp_path / "lineage.json"
+    lineage_path.write_text(
+        json.dumps(lineage, sort_keys=True, separators=(",", ":"))
+        + "\n",
+        encoding="utf-8",
+    )
+    lineage_sha256 = hashlib.sha256(
+        lineage_path.read_bytes()
     ).hexdigest()
     completed = subprocess.run(
         [
@@ -1746,6 +2125,10 @@ def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
             str(authority_path),
             "--trusted-authority-sha256",
             authority_sha256,
+            "--trusted-lineage-receipt",
+            str(lineage_path),
+            "--trusted-lineage-receipt-sha256",
+            lineage_sha256,
         ],
         cwd=ROOT,
         check=False,
@@ -1756,6 +2139,8 @@ def test_cli_emits_canonical_receipt_and_nonzero_on_block(tmp_path: Path):
     assert completed.returncode == 2
     receipt = json.loads(completed.stdout)
     assert receipt["state"] == PNL_BLOCKED
+    assert "EXTERNAL_AUTHORITY_INVALID" not in blocker_codes(receipt)
+    assert "RECORD_LINEAGE_AUTHORITY_INVALID" not in blocker_codes(receipt)
     assert completed.stdout == json.dumps(
         receipt,
         ensure_ascii=False,

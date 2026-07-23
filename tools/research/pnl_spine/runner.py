@@ -7,6 +7,7 @@ The runner is deliberately a pure research boundary:
 * frozen adapters create the order intents;
 * public maker fills require strict-through evidence and are allocated once;
 * every exit is an exact receive-clock L2 IOC or a finalized exact payout;
+* every runtime record requires a separately root-pinned extraction lineage;
 * fees, real PLACE/CANCEL/IOC_EXIT latency, exact releases, and terminal
   coverage must all be bound before ``NET_PNL_COMPLETE`` can be emitted.
 
@@ -108,7 +109,31 @@ C1_CLASSIFICATION = (
     "GROSS_ENGINEERING_ONLY_NOT_NET_PNL:"
     "PUBLIC_STRICT_FILL_WITHOUT_COMPLETE_FEE_REAL_LATENCY_AND_CLOSURE_TRUTH"
 )
-TRUSTED_AUTHORITY_SCHEMA = "pnl-spine-trusted-authority-v1"
+TRUSTED_AUTHORITY_SCHEMA = "pnl-spine-trusted-authority-v2"
+LINEAGE_RECEIPT_SCHEMA = "pnl-spine-lineage-receipt-v1"
+LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
+    {
+        "object_read_key": [
+            "release_id",
+            "logical_key",
+            "version_id",
+        ],
+        "record_key": ["kind", "record_id"],
+        "record_kinds": [
+            "L2_SNAPSHOT",
+            "NORMALIZED_ROW",
+            "PUBLIC_TRADE",
+            "SETTLEMENT",
+        ],
+        "source_member_key": [
+            "release_id",
+            "logical_key",
+            "version_id",
+            "locator_schema",
+            "locator",
+        ],
+    }
+)
 
 
 class RunnerContractError(ValueError):
@@ -132,6 +157,16 @@ def _text(name: str, value: object) -> str:
     if not isinstance(value, str) or not value:
         raise RunnerContractError(f"{name} must be a non-empty string")
     return value
+
+
+def _sha256_text(name: str, value: object) -> str:
+    text_value = _text(name, value)
+    if (
+        len(text_value) != 64
+        or any(character not in "0123456789abcdef" for character in text_value)
+    ):
+        raise RunnerContractError(f"{name} must be lowercase SHA-256")
+    return text_value
 
 
 def _mapping(name: str, value: object) -> Mapping[str, Any]:
@@ -346,6 +381,7 @@ def _validate_trusted_authority(
     authority: object,
     *,
     expected_sha256: object,
+    trusted_lineage_receipt: object,
 ) -> str:
     """Verify hashes supplied outside the self-describing run fixture."""
 
@@ -363,6 +399,9 @@ def _validate_trusted_authority(
         "closure_manifest_sha256",
         "risk_policy_sha256",
         "terminal_receipt_sha256",
+        "lineage_receipt_sha256",
+        "extractor_code_sha256",
+        "extractor_config_sha256",
     }
     _strict_keys(
         "trusted_authority",
@@ -383,6 +422,9 @@ def _validate_trusted_authority(
     provenance = _mapping("provenance", fixture.get("provenance"))
     preflight_inputs = _mapping(
         "preflight_inputs", fixture.get("preflight_inputs")
+    )
+    lineage_receipt = _mapping(
+        "trusted_lineage_receipt", trusted_lineage_receipt
     )
     expected = {
         "code_sha256": _text("code_sha256", fixture.get("code_sha256")),
@@ -436,6 +478,15 @@ def _validate_trusted_authority(
                 "terminal_coverage",
                 preflight_inputs.get("terminal_coverage"),
             )
+        ),
+        "lineage_receipt_sha256": canonical_sha256(lineage_receipt),
+        "extractor_code_sha256": _sha256_text(
+            "lineage extractor_code_sha256",
+            lineage_receipt.get("extractor_code_sha256"),
+        ),
+        "extractor_config_sha256": _sha256_text(
+            "lineage extractor_config_sha256",
+            lineage_receipt.get("extractor_config_sha256"),
         ),
     }
     for field, calculated in expected.items():
@@ -789,19 +840,12 @@ def _parse_release_binding(row: Mapping[str, Any]) -> ExactReleaseBinding:
     )
 
 
-def _validate_evidence_bindings(
+def _collect_evidence_records(
     fixture: Mapping[str, Any],
-    *,
-    releases: Sequence[ExactReleaseBinding],
-) -> dict[tuple[str, str], ExactSourceObject]:
-    """Bind every runtime record to one exact-version source object.
-
-    The binding covers the canonical record bytes, exact release/object
-    identity, object digest, source channel and the UTC date implied by the
-    record's causal timestamp.  This rejects cross-era fixtures such as 1970
-    rows presented under a 2026 release.
-    """
-
+) -> dict[
+    tuple[str, str],
+    tuple[Mapping[str, Any], str, str | None, frozenset[str]],
+]:
     records: dict[
         tuple[str, str],
         tuple[Mapping[str, Any], str, str | None, frozenset[str]],
@@ -868,7 +912,23 @@ def _validate_evidence_bindings(
             _text("source_sha256", row.get("source_sha256")),
             frozenset({"SETTLEMENT"}),
         )
+    return records
 
+
+def _validate_evidence_bindings(
+    fixture: Mapping[str, Any],
+    *,
+    releases: Sequence[ExactReleaseBinding],
+) -> dict[tuple[str, str], ExactSourceObject]:
+    """Bind every runtime record to one exact-version source object.
+
+    The binding covers the canonical record bytes, exact release/object
+    identity, object digest, source channel and the UTC date implied by the
+    record's causal timestamp.  The separately root-pinned lineage receipt
+    proves that these fixture claims were extracted from the exact objects.
+    """
+
+    records = _collect_evidence_records(fixture)
     release_by_id = {release.release_id: release for release in releases}
     object_index: dict[
         tuple[str, str, str], ExactSourceObject
@@ -962,6 +1022,460 @@ def _validate_evidence_bindings(
             f"evidence bindings are not exhaustive; missing={missing}, extra={extra}"
         )
     return bound
+
+
+def _validate_lineage_receipt(
+    fixture: Mapping[str, Any],
+    receipt: object,
+    *,
+    expected_sha256: object,
+) -> str:
+    """Validate externally pinned record membership and derivation authority."""
+
+    lineage = _mapping("trusted_lineage_receipt", receipt)
+    top_allowed = {
+        "schema_version",
+        "run_id",
+        "release_set_sha256",
+        "extractor_code_sha256",
+        "extractor_config_sha256",
+        "record_schema_sha256",
+        "object_reads",
+        "records",
+        "records_sha256",
+        "payload_sha256",
+    }
+    _strict_keys(
+        "trusted_lineage_receipt",
+        lineage,
+        top_allowed,
+        required=top_allowed,
+    )
+    if lineage.get("schema_version") != LINEAGE_RECEIPT_SCHEMA:
+        raise ProvenanceError("unknown lineage receipt schema")
+    calculated_receipt_sha256 = canonical_sha256(lineage)
+    if (
+        _sha256_text(
+            "expected_trusted_lineage_receipt_sha256",
+            expected_sha256,
+        )
+        != calculated_receipt_sha256
+    ):
+        raise ProvenanceError(
+            "lineage receipt canonical SHA does not match external pin"
+        )
+    payload = dict(lineage)
+    supplied_payload_sha256 = _sha256_text(
+        "lineage payload_sha256",
+        payload.pop("payload_sha256"),
+    )
+    if supplied_payload_sha256 != canonical_sha256(payload):
+        raise ProvenanceError("lineage receipt self hash mismatch")
+
+    run_id = _text("lineage run_id", lineage.get("run_id"))
+    if run_id != _text("fixture run_id", fixture.get("run_id")):
+        raise ProvenanceError("lineage receipt run_id mismatch")
+    extractor_code_sha256 = _sha256_text(
+        "extractor_code_sha256",
+        lineage.get("extractor_code_sha256"),
+    )
+    extractor_config_sha256 = _sha256_text(
+        "extractor_config_sha256",
+        lineage.get("extractor_config_sha256"),
+    )
+    if (
+        _sha256_text(
+            "record_schema_sha256",
+            lineage.get("record_schema_sha256"),
+        )
+        != LINEAGE_RECORD_SCHEMA_SHA256
+    ):
+        raise ProvenanceError("lineage record schema contract drift")
+
+    provenance = _mapping("provenance", fixture.get("provenance"))
+    release_rows = _list(
+        "provenance.releases", provenance.get("releases")
+    )
+    releases = tuple(
+        _parse_release_binding(
+            _mapping(f"provenance.releases[{index}]", raw)
+        )
+        for index, raw in enumerate(release_rows)
+    )
+    release_set_sha256 = canonical_sha256(release_rows)
+    if (
+        _sha256_text(
+            "lineage release_set_sha256",
+            lineage.get("release_set_sha256"),
+        )
+        != release_set_sha256
+    ):
+        raise ProvenanceError("lineage release set mismatch")
+    exact_objects: dict[
+        tuple[str, str, str], ExactSourceObject
+    ] = {}
+    for release in releases:
+        for source in release.objects:
+            exact_objects[
+                (release.release_id, source.logical_key, source.version_id)
+            ] = source
+
+    object_allowed = {
+        "release_id",
+        "date",
+        "logical_key",
+        "version_id",
+        "channel",
+        "source_object_sha256",
+        "size_bytes",
+        "bytes_verified",
+    }
+    object_reads: dict[
+        tuple[str, str, str], Mapping[str, Any]
+    ] = {}
+    object_order: list[tuple[str, str, str]] = []
+    for index, raw in enumerate(
+        _list("lineage object_reads", lineage.get("object_reads"))
+    ):
+        row = _mapping(f"lineage object_reads[{index}]", raw)
+        _strict_keys(
+            f"lineage object_reads[{index}]",
+            row,
+            object_allowed,
+            required=object_allowed,
+        )
+        key = (
+            _text("release_id", row.get("release_id")),
+            _text("logical_key", row.get("logical_key")),
+            _text("version_id", row.get("version_id")),
+        )
+        if key in object_reads:
+            raise ProvenanceError("duplicate lineage object read")
+        try:
+            source = exact_objects[key]
+        except KeyError as exc:
+            raise ProvenanceError(
+                "lineage object read is absent from exact release"
+            ) from exc
+        expected_fields: dict[str, object] = {
+            "date": source.date,
+            "channel": source.channel,
+            "source_object_sha256": source.sha256,
+            "size_bytes": source.size_bytes,
+            "bytes_verified": source.size_bytes,
+        }
+        for field, expected in expected_fields.items():
+            value = row.get(field)
+            if field in {"size_bytes", "bytes_verified"}:
+                value = _plain_int(field, value, minimum=0)
+            elif field == "source_object_sha256":
+                value = _sha256_text(field, value)
+            else:
+                value = _text(field, value)
+            if value != expected:
+                raise ProvenanceError(
+                    f"lineage object read mismatch for {field}"
+                )
+        object_reads[key] = row
+        object_order.append(key)
+    if not object_reads:
+        raise ProvenanceError("lineage object_reads cannot be empty")
+    if object_order != sorted(object_order):
+        raise ProvenanceError("lineage object_reads must be sorted")
+
+    record_rows = _list("lineage records", lineage.get("records"))
+    if (
+        _sha256_text(
+            "lineage records_sha256",
+            lineage.get("records_sha256"),
+        )
+        != canonical_sha256(record_rows)
+    ):
+        raise ProvenanceError("lineage records manifest hash mismatch")
+    expected_records = _collect_evidence_records(fixture)
+    channel_policy = {
+        "NORMALIZED_ROW": frozenset({"L1", "L2", "CATALOG"}),
+        "PUBLIC_TRADE": frozenset({"TRADES"}),
+        "L2_SNAPSHOT": frozenset({"L2"}),
+        "SETTLEMENT": frozenset({"SETTLEMENT"}),
+    }
+    record_allowed = {
+        "kind",
+        "record_id",
+        "record_sha256",
+        "record_date_utc",
+        "mode",
+        "source_members",
+        "transform_code_sha256",
+        "transform_config_sha256",
+        "input_set_sha256",
+    }
+    member_allowed = {
+        "release_id",
+        "date",
+        "logical_key",
+        "version_id",
+        "channel",
+        "source_object_sha256",
+        "size_bytes",
+        "locator_schema",
+        "locator",
+        "source_record_sha256",
+    }
+    lineage_records: dict[
+        tuple[str, str], Mapping[str, Any]
+    ] = {}
+    lineage_members: dict[
+        tuple[str, str], frozenset[tuple[str, str, str, str]]
+    ] = {}
+    record_order: list[tuple[str, str]] = []
+    referenced_objects: set[tuple[str, str, str]] = set()
+    for index, raw in enumerate(record_rows):
+        row = _mapping(f"lineage records[{index}]", raw)
+        _strict_keys(
+            f"lineage records[{index}]",
+            row,
+            record_allowed,
+            required=record_allowed,
+        )
+        kind = _text("kind", row.get("kind"))
+        if kind not in channel_policy:
+            raise ProvenanceError("unknown lineage record kind")
+        key = (kind, _text("record_id", row.get("record_id")))
+        if key in lineage_records:
+            raise ProvenanceError("duplicate lineage record")
+        record_sha256 = _sha256_text(
+            "record_sha256", row.get("record_sha256")
+        )
+        record_date = _text(
+            "record_date_utc", row.get("record_date_utc")
+        )
+        mode = _text("mode", row.get("mode"))
+        if mode not in {"DIRECT", "DERIVED"}:
+            raise ProvenanceError("unknown lineage record mode")
+        if kind == "NORMALIZED_ROW" and mode != "DERIVED":
+            raise ProvenanceError(
+                "NORMALIZED_ROW lineage must be DERIVED"
+            )
+        if (
+            _sha256_text(
+                "transform_code_sha256",
+                row.get("transform_code_sha256"),
+            )
+            != extractor_code_sha256
+            or _sha256_text(
+                "transform_config_sha256",
+                row.get("transform_config_sha256"),
+            )
+            != extractor_config_sha256
+        ):
+            raise ProvenanceError("lineage transform authority drift")
+
+        raw_members = _list(
+            f"lineage records[{index}].source_members",
+            row.get("source_members"),
+        )
+        if not raw_members:
+            raise ProvenanceError("lineage source_members cannot be empty")
+        member_order: list[tuple[str, str, str, str, str]] = []
+        membership: set[tuple[str, str, str, str]] = set()
+        for member_index, member_raw in enumerate(raw_members):
+            member = _mapping(
+                (
+                    f"lineage records[{index}]."
+                    f"source_members[{member_index}]"
+                ),
+                member_raw,
+            )
+            _strict_keys(
+                (
+                    f"lineage records[{index}]."
+                    f"source_members[{member_index}]"
+                ),
+                member,
+                member_allowed,
+                required=member_allowed,
+            )
+            object_key = (
+                _text("release_id", member.get("release_id")),
+                _text("logical_key", member.get("logical_key")),
+                _text("version_id", member.get("version_id")),
+            )
+            try:
+                object_read = object_reads[object_key]
+            except KeyError as exc:
+                raise ProvenanceError(
+                    "lineage source member lacks verified object read"
+                ) from exc
+            member_expected = {
+                "date": object_read["date"],
+                "channel": object_read["channel"],
+                "source_object_sha256": object_read[
+                    "source_object_sha256"
+                ],
+                "size_bytes": object_read["size_bytes"],
+            }
+            for field, expected in member_expected.items():
+                value = member.get(field)
+                if field == "size_bytes":
+                    value = _plain_int(field, value, minimum=0)
+                elif field == "source_object_sha256":
+                    value = _sha256_text(field, value)
+                else:
+                    value = _text(field, value)
+                if value != expected:
+                    raise ProvenanceError(
+                        f"lineage source member mismatch for {field}"
+                    )
+            if member["date"] != record_date:
+                raise ProvenanceError(
+                    "lineage record date escaped exact source object"
+                )
+            if member["channel"] not in channel_policy[kind]:
+                raise ProvenanceError(
+                    "lineage source member has wrong channel"
+                )
+            locator_schema = _text(
+                "locator_schema", member.get("locator_schema")
+            )
+            locator = _text("locator", member.get("locator"))
+            source_record_sha256 = _sha256_text(
+                "source_record_sha256",
+                member.get("source_record_sha256"),
+            )
+            member_key = (
+                *object_key,
+                locator_schema,
+                locator,
+            )
+            if member_key in member_order:
+                raise ProvenanceError(
+                    "duplicate lineage source member"
+                )
+            member_order.append(member_key)
+            membership.add(
+                (
+                    object_key[0],
+                    object_key[1],
+                    object_key[2],
+                    _sha256_text(
+                        "source_object_sha256",
+                        member.get("source_object_sha256"),
+                    ),
+                )
+            )
+            referenced_objects.add(object_key)
+            if mode == "DIRECT" and source_record_sha256 != record_sha256:
+                raise ProvenanceError(
+                    "DIRECT lineage source record hash mismatch"
+                )
+        if member_order != sorted(member_order):
+            raise ProvenanceError(
+                "lineage source_members must be sorted"
+            )
+        if mode == "DIRECT" and len(raw_members) != 1:
+            raise ProvenanceError(
+                "DIRECT lineage requires exactly one source member"
+            )
+        if (
+            _sha256_text(
+                "input_set_sha256", row.get("input_set_sha256")
+            )
+            != canonical_sha256(raw_members)
+        ):
+            raise ProvenanceError("lineage input set hash mismatch")
+        try:
+            runtime_record, runtime_date, _, _ = expected_records[key]
+        except KeyError as exc:
+            raise ProvenanceError(
+                "lineage receipt contains an extra runtime record"
+            ) from exc
+        if record_sha256 != canonical_sha256(runtime_record):
+            raise ProvenanceError("lineage runtime record hash mismatch")
+        if record_date != runtime_date:
+            raise ProvenanceError("lineage runtime record date mismatch")
+        lineage_records[key] = row
+        lineage_members[key] = frozenset(membership)
+        record_order.append(key)
+
+    if record_order != sorted(record_order):
+        raise ProvenanceError("lineage records must be sorted")
+    if set(lineage_records) != set(expected_records):
+        missing = sorted(set(expected_records) - set(lineage_records))
+        extra = sorted(set(lineage_records) - set(expected_records))
+        raise ProvenanceError(
+            "lineage record set is not exhaustive; "
+            f"missing={missing}, extra={extra}"
+        )
+    if referenced_objects != set(object_reads):
+        missing = sorted(referenced_objects - set(object_reads))
+        extra = sorted(set(object_reads) - referenced_objects)
+        raise ProvenanceError(
+            "lineage object read set is not exact; "
+            f"missing={missing}, extra={extra}"
+        )
+
+    binding_allowed = {
+        "kind",
+        "record_id",
+        "record_sha256",
+        "release_id",
+        "source_object_logical_key",
+        "source_object_version_id",
+        "source_object_sha256",
+    }
+    seen_bindings: set[tuple[str, str]] = set()
+    for index, raw in enumerate(
+        _list("evidence_bindings", fixture.get("evidence_bindings"))
+    ):
+        binding = _mapping(f"evidence_bindings[{index}]", raw)
+        _strict_keys(
+            f"evidence_bindings[{index}]",
+            binding,
+            binding_allowed,
+            required=binding_allowed,
+        )
+        key = (
+            _text("kind", binding.get("kind")),
+            _text("record_id", binding.get("record_id")),
+        )
+        if key in seen_bindings:
+            raise ProvenanceError("duplicate fixture evidence binding")
+        try:
+            lineage_record = lineage_records[key]
+        except KeyError as exc:
+            raise ProvenanceError(
+                "fixture evidence binding is absent from lineage"
+            ) from exc
+        if binding.get("record_sha256") != lineage_record["record_sha256"]:
+            raise ProvenanceError(
+                "fixture evidence record SHA disagrees with lineage"
+            )
+        source_identity = (
+            _text("release_id", binding.get("release_id")),
+            _text(
+                "source_object_logical_key",
+                binding.get("source_object_logical_key"),
+            ),
+            _text(
+                "source_object_version_id",
+                binding.get("source_object_version_id"),
+            ),
+            _sha256_text(
+                "source_object_sha256",
+                binding.get("source_object_sha256"),
+            ),
+        )
+        if source_identity not in lineage_members[key]:
+            raise ProvenanceError(
+                "fixture evidence source disagrees with lineage"
+            )
+        seen_bindings.add(key)
+    if seen_bindings != set(lineage_records):
+        raise ProvenanceError(
+            "fixture evidence bindings are not exhaustive against lineage"
+        )
+    return calculated_receipt_sha256
 
 
 def _make_run_binding(
@@ -1815,6 +2329,7 @@ def _receipt(
     conservation: Mapping[str, int],
     risk_ledger_sha256: str | None = None,
     trusted_authority_sha256: str | None = None,
+    trusted_lineage_receipt_sha256: str | None = None,
 ) -> dict[str, Any]:
     complete_results = [
         row["result"]
@@ -1852,6 +2367,9 @@ def _receipt(
         "conservation": dict(conservation),
         "risk_ledger_sha256": risk_ledger_sha256,
         "trusted_authority_sha256": trusted_authority_sha256,
+        "trusted_lineage_receipt_sha256": (
+            trusted_lineage_receipt_sha256
+        ),
         "totals": totals,
         "blockers": _sorted_blockers(blockers),
         "c1_prior_artifact_classification": C1_CLASSIFICATION,
@@ -1865,8 +2383,15 @@ def run_fixture(
     *,
     trusted_authority: Mapping[str, Any] | None = None,
     expected_trusted_authority_sha256: str | None = None,
+    trusted_lineage_receipt: Mapping[str, Any] | None = None,
+    expected_trusted_lineage_receipt_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Run one small canonical fixture and return a canonicalizable receipt."""
+    """Run one fixture with two independently pinned canonical authorities.
+
+    ``expected_*_sha256`` values bind the parsed canonical documents.  The CLI
+    separately verifies the raw bytes of each authority file before passing
+    those canonical pins here.
+    """
 
     top = _mapping("fixture", fixture)
     allowed = {
@@ -1989,12 +2514,31 @@ def run_fixture(
                 ),
             )
         )
+    trusted_lineage_receipt_sha256: str | None = None
+    try:
+        trusted_lineage_receipt_sha256 = _validate_lineage_receipt(
+            top,
+            trusted_lineage_receipt,
+            expected_sha256=(
+                expected_trusted_lineage_receipt_sha256
+            ),
+        )
+    except (ProvenanceError, RunnerContractError, ValueError) as exc:
+        blockers.append(
+            _blocker(
+                "RECORD_LINEAGE_AUTHORITY_INVALID",
+                "PROVENANCE",
+                str(exc),
+            )
+        )
+
     trusted_authority_sha256: str | None = None
     try:
         trusted_authority_sha256 = _validate_trusted_authority(
             top,
             trusted_authority,
             expected_sha256=expected_trusted_authority_sha256,
+            trusted_lineage_receipt=trusted_lineage_receipt,
         )
     except (ProvenanceError, RunnerContractError, ValueError) as exc:
         blockers.append(
@@ -2225,6 +2769,9 @@ def run_fixture(
                 "residual_quantity_e4": 0,
             },
             trusted_authority_sha256=trusted_authority_sha256,
+            trusted_lineage_receipt_sha256=(
+                trusted_lineage_receipt_sha256
+            ),
         )
 
     row_by_id = {row.row_id: row for row in rows}
@@ -2923,6 +3470,9 @@ def run_fixture(
             else None
         ),
         trusted_authority_sha256=trusted_authority_sha256,
+        trusted_lineage_receipt_sha256=(
+            trusted_lineage_receipt_sha256
+        ),
     )
 
 
@@ -2995,7 +3545,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--fixture", required=True)
     parser.add_argument("--trusted-authority", required=True)
-    parser.add_argument("--trusted-authority-sha256", required=True)
+    parser.add_argument(
+        "--trusted-authority-sha256",
+        required=True,
+        help="SHA-256 of the raw trusted-authority file bytes",
+    )
+    parser.add_argument("--trusted-lineage-receipt", required=True)
+    parser.add_argument(
+        "--trusted-lineage-receipt-sha256",
+        required=True,
+        help="SHA-256 of the raw trusted-lineage file bytes",
+    )
     parser.add_argument("--output")
     return parser
 
@@ -3011,11 +3571,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RunnerContractError(
             "trusted authority file SHA-256 does not match external pin"
         )
+    lineage_path = Path(args.trusted_lineage_receipt)
+    lineage, lineage_raw_sha256 = _read_json_once(
+        lineage_path,
+        name="trusted_lineage_receipt",
+    )
+    if (
+        lineage_raw_sha256
+        != args.trusted_lineage_receipt_sha256
+    ):
+        raise RunnerContractError(
+            "trusted lineage receipt file SHA-256 does not match external pin"
+        )
     receipt = run_fixture(
         _read_fixture(Path(args.fixture)),
         trusted_authority=authority,
         expected_trusted_authority_sha256=(
-            args.trusted_authority_sha256
+            canonical_sha256(authority)
+        ),
+        trusted_lineage_receipt=lineage,
+        expected_trusted_lineage_receipt_sha256=(
+            canonical_sha256(lineage)
         ),
     )
     if args.output:
@@ -3032,6 +3608,8 @@ if __name__ == "__main__":
 __all__ = [
     "C1_CLASSIFICATION",
     "FIXTURE_SCHEMA",
+    "LINEAGE_RECEIPT_SCHEMA",
+    "LINEAGE_RECORD_SCHEMA_SHA256",
     "NET_COMPLETE",
     "PATH_COMPLETE",
     "PNL_BLOCKED",
