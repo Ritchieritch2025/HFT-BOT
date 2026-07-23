@@ -10,13 +10,12 @@
 // Env: KALSHI_ENV (demo|prod), KALSHI_ALLOW_PROD=1 for prod, KALSHI_API_KEY_ID,
 //      KALSHI_PRIVATE_KEY_PATH, optional KALSHI_BASE_URL.
 
-#include "daemon_util.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/rest_api.hpp"
+#include "tool_util.hpp"
 
 #include <cstdio>
-#include <ctime>
 #include <limits>
 #include <string>
 
@@ -30,37 +29,17 @@ void print_limits(const char* when, const AccountLimits& lim) {
               static_cast<long long>(lim.write.refill_rate),
               static_cast<long long>(lim.write.bucket_capacity), lim.grants.size());
   for (const auto& g : lim.grants) {
-    std::string exp = "permanent";
-    if (g.expires_ts) {
-      const std::time_t t = static_cast<std::time_t>(*g.expires_ts);
-      char buf[32];
-      std::strftime(buf, sizeof(buf), "%Y-%m-%d", std::gmtime(&t));
-      exp = std::string("expires ") + buf;
-    }
     std::printf("        grant: instance=%s level=%s source=%s (%s)\n",
-                to_string(g.exchange_instance), g.level.c_str(), g.source.c_str(), exp.c_str());
+                to_string(g.exchange_instance), g.level.c_str(), g.source.c_str(),
+                tool::grant_expiry(g).c_str());
   }
 }
 }  // namespace
 
 int main() {
   Runtime rt;
-  try {
-    rt = resolve_runtime();
-  } catch (const SafetyViolation& e) {
-    std::fprintf(stderr, "refused: %s\n", e.what());
-    return 2;
-  }
-  const std::string key_id = daemon::env_or("KALSHI_API_KEY_ID", "");
-  const std::string key_path = daemon::env_or("KALSHI_PRIVATE_KEY_PATH", "");
-  if (key_id.empty() || key_path.empty()) {
-    std::fprintf(stderr, "set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH\n");
-    return 2;
-  }
   Config cfg;
-  cfg.api_key_id = key_id;
-  cfg.private_key_pem = read_file(key_path);
-  cfg.base_url = rt.rest_base_url;
+  if (const int rc = tool::preamble(rt, cfg)) return rc;
   KalshiClient client(std::move(cfg));
   RestApi api(client, rt);
   std::printf("host: %s\n", rt.rest_base_url.c_str());

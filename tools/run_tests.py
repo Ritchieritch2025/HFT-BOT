@@ -81,27 +81,29 @@ class Mocks:
         return p
 
     def build_cmd(self, tool):
-        """Return the argv list to run, starting any mocks the tool needs."""
+        """Return the argv list to run, starting EVERY mock the tool needs (in
+        declared order — args are appended in the same order). A tool that
+        manages its own mocks (run_pipeline) must declare needs=["make"] only."""
         cmd = tool["cmd"].split()
-        needs = tool.get("needs", [])
-        if "mini_redis" in needs:
-            port = free_port(); self._spawn("mini_redis.py", port)
-            cmd += [str(port)]
-        elif "mock_rest" in needs:
-            port = free_port(); self._spawn("mock_rest.py", port)
-            cmd += ["http://127.0.0.1:%d" % port]
-        elif "mock_server" in needs:
-            port = free_port()
-            self._spawn("mock_server.py", port, os.path.join(WORK, "mock_capture.jsonl"))
-            key = os.path.join(ROOT, "build", "scratch", "console_key.pem")
-            if not os.path.exists(key):
-                os.makedirs(os.path.dirname(key), exist_ok=True)
-                subprocess.run(["openssl", "genrsa", "-out", key, "2048"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            cmd += ["http://127.0.0.1:%d" % port, key, "3", "50"]
-        elif "mock_ws" in needs:
-            port = free_port(); self._spawn("mock_ws_exchange.py", port)
-            cmd += ["ws://127.0.0.1:%d/trade-api/ws/v2" % port]
+        for need in tool.get("needs", []):
+            if need == "mini_redis":
+                port = free_port(); self._spawn("mini_redis.py", port)
+                cmd += [str(port)]
+            elif need == "mock_rest":
+                port = free_port(); self._spawn("mock_rest.py", port)
+                cmd += ["http://127.0.0.1:%d" % port]
+            elif need == "mock_server":
+                port = free_port()
+                self._spawn("mock_server.py", port, os.path.join(WORK, "mock_capture.jsonl"))
+                key = os.path.join(ROOT, "build", "scratch", "console_key.pem")
+                if not os.path.exists(key):
+                    os.makedirs(os.path.dirname(key), exist_ok=True)
+                    subprocess.run(["openssl", "genrsa", "-out", key, "2048"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd += ["http://127.0.0.1:%d" % port, key, "3", "50"]
+            elif need == "mock_ws":
+                port = free_port(); self._spawn("mock_ws_exchange.py", port)
+                cmd += ["ws://127.0.0.1:%d/trade-api/ws/v2" % port]
         return cmd
 
     def stop(self):
@@ -139,12 +141,16 @@ def run_tool(tool, allow_network=False):
     with open(logpath, "w") as f:
         f.write(out)
     passed, failed, token_ok = parse_output(out, tool.get("pass_token"))
+    # Fail-closed: rc==0 without the expected token still fails — a truncated
+    # or hijacked log must not read as green (exit codes alone can't catch it).
     status = "pass" if (rc == 0 and token_ok) else "fail"
     return {"suite": name, "status": status, "passed": passed, "failed": failed,
             "duration_ms": dur, "log": os.path.relpath(logpath, ROOT)}
 
 
 def record(rec):
+    if rec.get("status") == "refused":
+        return  # refusals are policy outcomes, not test results
     os.makedirs(WORK, exist_ok=True)
     rec = dict(rec)
     rec["type"] = "test_suite"
@@ -164,9 +170,12 @@ def record(rec):
 
 def runnable_test_set(tools):
     # The console "Run all" set: test + check kinds that are pure/offline.
+    # run_pipeline would re-run the whole sweep; run_tests is this runner itself.
+    # The dashboard JS consumes this via the in_run_all flag on /api/tools —
+    # this function is the ONLY place the set is defined.
     return [t for t in tools if t.get("kind") in ("test", "check")
             and t.get("safety") in ("pure", "offline")
-            and t.get("name") != "run_pipeline"]  # avoid recursive full-sweep
+            and t.get("name") not in ("run_pipeline", "run_tests")]
 
 
 def main():
@@ -194,8 +203,7 @@ def main():
             print("unknown tool: %s" % args.tool, file=sys.stderr)
             return 2
         rec = run_tool(by_name[args.tool], args.allow_network)
-        if rec["status"] != "refused":
-            record(rec)
+        record(rec)
         print(json.dumps(rec) if args.json else
               "%s: %s (%sms, +%s/-%s) %s" % (rec["suite"], rec["status"],
               rec["duration_ms"], rec["passed"], rec["failed"], rec.get("reason", "")))

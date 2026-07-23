@@ -3,15 +3,15 @@
 // whether the SERVER pushes back (429 = rate limited, F9). Tallies status codes.
 // Never places an order.
 //
-//   rate_probe [num_calls=40]
+//   rate_probe [seconds=8] [threads=24]
 //
 // Env: KALSHI_ENV (demo|prod), KALSHI_ALLOW_PROD=1 for prod, KALSHI_API_KEY_ID,
 //      KALSHI_PRIVATE_KEY_PATH, optional KALSHI_BASE_URL.
 
-#include "daemon_util.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/rest_api.hpp"
+#include "tool_util.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -28,22 +28,8 @@ int main(int argc, char** argv) {
   const int threads = argc > 2 ? std::atoi(argv[2]) : 24;
 
   Runtime rt;
-  try {
-    rt = resolve_runtime();
-  } catch (const SafetyViolation& e) {
-    std::fprintf(stderr, "refused: %s\n", e.what());
-    return 2;
-  }
-  const std::string key_id = daemon::env_or("KALSHI_API_KEY_ID", "");
-  const std::string key_path = daemon::env_or("KALSHI_PRIVATE_KEY_PATH", "");
-  if (key_id.empty() || key_path.empty()) {
-    std::fprintf(stderr, "set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH\n");
-    return 2;
-  }
   Config cfg;
-  cfg.api_key_id = key_id;
-  cfg.private_key_pem = read_file(key_path);
-  cfg.base_url = rt.rest_base_url;
+  if (const int rc = tool::preamble(rt, cfg)) return rc;
   cfg.pool_size = threads + 4;  // enough warm connections for the concurrent burst
   KalshiClient client(std::move(cfg));
   std::printf("host: %s\n", rt.rest_base_url.c_str());

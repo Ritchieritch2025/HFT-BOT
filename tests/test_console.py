@@ -6,7 +6,6 @@ Run: python3 tests/test_console.py
 """
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -16,14 +15,6 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import run_tests  # noqa: E402
-
-
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
 
 
 def _req(method, url, obj=None):
@@ -111,7 +102,7 @@ class TestDashboardServerPolicy(unittest.TestCase):
     in the UI (guardrail 2)."""
     @classmethod
     def setUpClass(cls):
-        cls.port = _free_port()
+        cls.port = run_tests.free_port()
         # Start WITHOUT --allow-network so network_read is also refused.
         cls.proc = subprocess.Popen(
             [sys.executable, os.path.join(ROOT, "dashboard_server.py"),

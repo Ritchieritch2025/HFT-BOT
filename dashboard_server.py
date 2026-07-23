@@ -97,7 +97,56 @@ def stream_new_lines(path, start_pos):
 # ------------------------------------------------------------------ handler
 
 
-def make_handler(metrics_path, backfill_default, allow_network=False):
+# ------------------------------------------------------- shadow research tab
+SHADOW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "sandbox", "expt_bo2026")
+
+
+def follow_data():
+    try:
+        import sys as _sys
+        if SHADOW_DIR not in _sys.path:
+            _sys.path.insert(0, SHADOW_DIR)
+        from watchtower import follow_labels as _fl
+        return _fl.build_follow_view()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def ops_data():
+    try:
+        import sys as _sys
+        if SHADOW_DIR not in _sys.path:
+            _sys.path.insert(0, SHADOW_DIR)
+        from watchtower import ops as _ops
+        return _ops.build_ops()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def shadow_data(allow_network):
+    """Shadow-trading books/gauges from the sandbox watchtower (fail-soft:
+    console keeps working if the experiment dir is absent). Price marks need
+    network; the refresher thread starts only under --allow-network."""
+    try:
+        import sys as _sys
+        import threading as _threading
+        if SHADOW_DIR not in _sys.path:
+            _sys.path.insert(0, SHADOW_DIR)
+        from watchtower import dashboard as _wt
+        if allow_network and not getattr(_wt, "_refresher_started", False):
+            _threading.Thread(target=_wt.price_refresher, daemon=True).start()
+            _wt._refresher_started = True
+        d = _wt.build_data()
+        d["marks_live"] = bool(allow_network)
+        return d
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def make_handler(metrics_path, backfill_default, allow_network=False,
+                 results_latest=None):
+    results_latest = results_latest or run_tests.LATEST
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -130,21 +179,32 @@ def make_handler(metrics_path, backfill_default, allow_network=False):
                 self.handle_stream()
             elif path == "/api/tools":
                 # Never expose a run affordance the server won't honor: annotate
-                # each tool with whether THIS server instance would run it.
+                # each tool with whether THIS server instance would run it, and
+                # whether it belongs to the "Run all" set (defined once, in
+                # run_tests.runnable_test_set — the UI must not re-derive it).
+                reg = run_tests.load_registry()
+                run_all = {t["name"] for t in run_tests.runnable_test_set(reg)}
                 out = []
-                for t in run_tests.load_registry():
+                for t in reg:
                     ok, reason = run_tests.may_run(t, allow_network)
                     e = dict(t); e["runnable"] = ok; e["run_reason"] = reason
+                    e["in_run_all"] = t["name"] in run_all
                     out.append(e)
                 self._json(200, {"allow_network": allow_network, "tools": out})
             elif path == "/api/results":
                 latest = {}
-                if os.path.exists(run_tests.LATEST):
+                if os.path.exists(results_latest):
                     try:
-                        latest = json.load(open(run_tests.LATEST))
+                        latest = json.load(open(results_latest))
                     except Exception:
                         latest = {}
                 self._json(200, latest)
+            elif path == "/api/shadow":
+                self._json(200, shadow_data(allow_network))
+            elif path == "/api/ops":
+                self._json(200, ops_data())
+            elif path == "/api/follow":
+                self._json(200, follow_data())
             else:
                 self._send(404, "not found")
 
@@ -172,8 +232,7 @@ def make_handler(metrics_path, backfill_default, allow_network=False):
                 self._json(403, {"error": "refused", "name": name, "reason": reason})
                 return
             rec = run_tests.run_tool(tool, allow_network)
-            if rec["status"] != "refused":
-                run_tests.record(rec)
+            run_tests.record(rec)
             self._json(200, rec)
 
         def handle_stream(self):
@@ -315,6 +374,9 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
   <button data-tab="live" class="tabbtn active">Live</button>
   <button data-tab="tests" class="tabbtn">Tests</button>
   <button data-tab="tools" class="tabbtn">Tools</button>
+  <button data-tab="ops" class="tabbtn">Ops</button>
+  <button data-tab="follow" class="tabbtn">跟单观测</button>
+  <button data-tab="shadow" class="tabbtn">Shadow</button>
   <span id="tab-note" style="margin-left:auto;color:#888;font-size:12px"></span>
 </nav>
 
@@ -411,6 +473,21 @@ pre.json{margin:4px 0 0;padding:7px;background:var(--bg);border:1px solid var(--
 
 <section id="tab-tools" class="tabview" hidden style="padding:12px">
   <div id="tools-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px"></div>
+</section>
+
+<section id="tab-follow" class="tabview" hidden style="padding:12px">
+  <div id="follow-head" style="font-size:14px;margin-bottom:10px">loading…</div>
+  <div id="follow-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px"></div>
+</section>
+
+<section id="tab-ops" class="tabview" hidden style="padding:12px">
+  <div id="ops-head" style="font-size:13px;margin-bottom:10px">loading…</div>
+  <div id="ops-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px"></div>
+</section>
+
+<section id="tab-shadow" class="tabview" hidden style="padding:12px">
+  <div id="shadow-meta" style="color:#888;font-size:12px;margin-bottom:8px">loading shadow data…</div>
+  <div id="shadow-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:10px"></div>
 </section>
 
 <script>
@@ -677,6 +754,131 @@ function showTab(name){
 }
 document.querySelectorAll('.tabbtn[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
+// ---- Shadow tab (research books; data from /api/shadow) ----
+async function refreshShadow(){
+  const meta=document.getElementById('shadow-meta'), grid=document.getElementById('shadow-grid');
+  if(!meta) return;
+  try{
+    const d=await (await fetch('/api/shadow')).json();
+    if(d.error){ meta.textContent='shadow data unavailable: '+d.error; return; }
+    const sys=d.sys||{};
+    meta.innerHTML=`更新 ${d.ts} · 监控进程 ${sys.daemon?'<span style="color:#3fb950">在线</span>':'<span style="color:#f85149">掉线!</span>'} · 案例进程 ${sys.casebot?'在线':'掉线'} · 数据流 ${sys.feed_age_s!=null?sys.feed_age_s+'s前':'?'} · 闸门 ${sys.gate_open?'开':'关'} · 今日告警 ${Object.entries(d.alerts_today||{}).map(([k,v])=>k+':'+v).join(' ')||'-'}`;
+    const P=v=>`<span style="color:${v>=0?'#3fb950':'#f85149'}">${(v>=0?'+':'')+v.toFixed(2)}</span>`;
+    let h='';
+    for(const b of d.books){
+      h+=`<section><h2>${b.name}${b.cash!=null?` · 现金$${b.cash}`:''}</h2>
+      <div style="padding:8px 11px;font-size:15px;font-weight:600">合计 ${P(b.total)} $
+      <span style="font-size:12px;font-weight:400;color:#8b949e"> 落袋 ${P(b.realized)}(${b.wins}赢/${b.losses}输)· 浮动 ${P(b.floating)} · 押金$${b.collateral} · ${b.n_open_mkts}市场${b.open_contracts}手 · 今日${b.fills_today}笔</span></div>
+      <div style="max-height:250px;overflow:auto"><table>
+      <thead><tr><th>市场</th><th>手</th><th>卖价¢</th><th>现价/果</th><th>押金$</th><th>盈亏$</th></tr></thead><tbody>`+
+      b.rows.map(r=>`<tr><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis">${r.tk}</td><td>${r.q}</td><td>${r.avg}</td><td>${r.mark}</td><td>${r.coll||''}</td><td>${P(r.pnl)}</td></tr>`).join('')+
+      `</tbody></table></div></section>`;
+    }
+    h+=`<section><h2>健康仪表(单名)</h2><div style="padding:8px 11px;font-size:12px">
+      <div style="color:#8b949e">买"会"的人比实际多付的程度(日度 pp)</div>
+      <div style="display:flex;gap:3px;align-items:flex-end;height:44px;margin:6px 0 10px">`+
+      (d.gap_daily||[]).map(g=>`<div title="${g.day} ${g.gap_pp}pp" style="width:20px;border-radius:2px 2px 0 0;background:${g.gap_pp>=0?'#3fb950':'#f85149'};height:${Math.min(44,Math.abs(g.gap_pp)*2.2)}px"></div>`).join('')+
+      `</div><table><thead><tr><th>日</th><th>常赢小钱¢</th><th>偶亏大钱¢</th><th>净¢</th></tr></thead><tbody>`+
+      (d.freq_mag||[]).map(f=>`<tr><td>${f.day.slice(5)}</td><td>${f.freq_edge_c}</td><td>${f.mag_edge_c}</td><td>${f.net_c}</td></tr>`).join('')+
+      `</tbody></table></div></section>`;
+    h+=`<section style="grid-column:1/-1"><h2>进单流水(何时·哪单·为什么)</h2>
+      <div style="max-height:320px;overflow:auto"><table>
+      <thead><tr><th>时间</th><th>策略</th><th>动作</th><th>市场</th><th>为什么</th></tr></thead><tbody>`+
+      (d.trades||[]).map(t=>{const dt=new Date(t.ts*1000);
+        return `<tr><td>${dt.toTimeString().slice(0,8)}</td><td>${t.who}</td>
+        <td style="text-align:left">${t.act}</td>
+        <td style="text-align:left;max-width:240px;overflow:hidden;text-overflow:ellipsis">${t.tk}</td>
+        <td style="text-align:left;color:#8b949e">${t.why}</td></tr>`}).join('')+
+      `</tbody></table></div></section>`;
+    if(d.backtest&&d.backtest.h7){
+      const bt=d.backtest;
+      const tbl=(title,obj)=>{if(!obj)return '';
+        return `<div style="margin-bottom:10px"><div style="color:#8b949e;margin:4px 0">${title}</div>
+        <table><thead><tr>`+obj.cols.map(c=>`<th>${c}</th>`).join('')+`</tr></thead><tbody>`+
+        obj.rows.slice(0,24).map(r=>`<tr>`+r.map(x=>`<td>${x==null?'':(typeof x==='number'?x.toLocaleString():x)}</td>`).join('')+`</tr>`).join('')+
+        `</tbody></table></div>`;};
+      h+=`<section style="grid-column:1/-1"><h2>回测数据区(11天历史,策略依据)</h2>
+        <div style="padding:8px 11px;font-size:11.5px;max-height:420px;overflow:auto">`+
+        tbl('跟单策略:各价位段命中率与净利(H7)',bt.h7)+
+        tbl('摆摊:各组每合约盈亏与频率/幅度分解(H3)',bt.h3)+
+        tbl('按天稳定性(daily)',bt.daily)+
+        `</div></section>`;}
+    h+=`<section><h2>动态(成交/开奖/案例)</h2><div style="padding:6px 11px;font-size:12px;max-height:420px;overflow:auto">`+
+      (d.feed||[]).map(e=>`<div style="border-bottom:1px solid #2a3139;padding:4px 0"><span style="color:${e.icon==='settle'?'#3fb950':e.icon==='case'?'#e3b341':'#8b949e'}">[${e.who}]</span> ${e.text}</div>`).join('')+
+      `</div></section>`;
+    grid.innerHTML=h;
+  }catch(e){ meta.textContent='shadow fetch failed: '+e; }
+}
+setInterval(refreshShadow, 10000); refreshShadow();
+
+// ---- Ops tab (strategy control panel; /api/ops) ----
+async function refreshOps(){
+  const head=document.getElementById('ops-head'), grid=document.getElementById('ops-cards');
+  if(!head) return;
+  try{
+    const d=await (await fetch('/api/ops')).json();
+    if(d.error){ head.textContent='ops unavailable: '+d.error; return; }
+    const H=d.health, T=d.totals;
+    const dot=(ok)=>`<span style="color:${ok?'#3fb950':'#f85149'}">●</span>`;
+    const P=v=>`<span style="color:${v>=0?'#3fb950':'#f85149'}">${(v>=0?'+':'')+v.toFixed(2)}</span>`;
+    head.innerHTML=`更新 ${d.ts} &nbsp; ${dot(H.daemon)}监控进程 &nbsp; ${dot(H.casebot)}案例进程 &nbsp;`+
+      `数据流 ${H.feed_age_s!=null?H.feed_age_s+'秒前':'?'} ${dot(H.feed_age_s!=null&&H.feed_age_s<60)} &nbsp;`+
+      `| 策略 <b>${T.n_running}/${T.n_strategies}</b> 运行中 · 合计已结算 ${P(T.realized)} $ · 占用押金 $${T.collateral}`+
+      (H.marks_live?'':' <span style="color:#d29922">(现价未加载)</span>');
+    let h='';
+    for(const s of d.strategies){
+      const tot=s.wins+s.losses;
+      const wr=tot? (100*s.wins/tot).toFixed(0)+'%':'—';
+      h+=`<section><h2>${dot(s.live)} ${s.name} <span style="font-size:10px;color:#8b949e">${s.kind}</span></h2>
+      <div style="padding:9px 12px;font-size:12px">
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">已结算 ${P(s.realized)} $</div>
+        <table style="font-size:11.5px">
+        <tr><td style="text-align:left;color:#8b949e">已跑</td><td>${s.age}</td>
+            <td style="text-align:left;color:#8b949e">最近事件</td><td>${s.last_age_s!=null?s.last_age_s+'秒前':'—'}</td></tr>
+        <tr><td style="text-align:left;color:#8b949e">胜/负</td><td>${s.wins}/${s.losses}(${wr})</td>
+            <td style="text-align:left;color:#8b949e">成交笔</td><td>${s.fills}</td></tr>
+        <tr><td style="text-align:left;color:#8b949e">持仓中</td><td>${s.open_mkts}市场</td>
+            <td style="text-align:left;color:#8b949e">押金</td><td>$${s.collateral}</td></tr>
+        </table>
+        <div style="color:#8b949e;margin-top:5px">${s.note}</div>
+        <details style="margin-top:6px"><summary style="cursor:pointer;color:#58a6ff">查看具体市场 (${s.rows.length})</summary>
+        <div style="max-height:280px;overflow:auto;margin-top:5px"><table style="font-size:10.5px">
+        <thead><tr><th>市场(点击核对)</th><th>手</th><th>价¢</th><th>状态</th><th>盈亏$</th></tr></thead><tbody>`+
+        s.rows.map(r=>`<tr><td style="text-align:left;max-width:230px;overflow:hidden;text-overflow:ellipsis">
+          <a href="${r.url}" target="_blank" style="color:#58a6ff;text-decoration:none" title="Kalshi官方数据(结算/价格核对)">${r.tk}</a></td>
+          <td>${r.q}</td><td>${r.px}</td>
+          <td>${r.mark}</td><td style="color:${r.pnl>=0?'#3fb950':'#f85149'}">${r.pnl.toFixed(2)}</td></tr>`).join('')+
+        `</tbody></table></div></details>
+      </div></section>`;
+    }
+    grid.innerHTML=h || '<div style="color:#8b949e">no strategies found</div>';
+  }catch(e){ head.textContent='ops fetch failed: '+e; }
+}
+setInterval(refreshOps, 10000); refreshOps();
+
+// ---- 跟单观测 tab (/api/follow) ----
+async function refreshFollow(){
+  const head=document.getElementById('follow-head'), body=document.getElementById('follow-body');
+  if(!head) return;
+  try{
+    const d=await (await fetch('/api/follow')).json();
+    if(d.error){ head.textContent='follow unavailable: '+d.error; return; }
+    const P=v=>`<span style="color:${v>=0?'#3fb950':'#f85149'}">${(v>=0?'+':'')+v.toFixed(1)}</span>`;
+    head.innerHTML=`跟单 · 已结算 <b>${d.n_settled}</b> 笔(样本量,越多越可信)· 待结算 ${d.n_open} · 总赢率 <b>${d.win_rate}%</b> · 落袋 ${P(d.total_pnl)} $
+      <div style="color:#8b949e;font-size:12px;margin-top:4px">观测仪表,不下结论。看赢率随样本变多怎么走。会价90+段=机械收敛(假脚印),80-89=真脚印区。</div>`;
+    const tbl=(title,rows,note)=>`<section><h2>${title}</h2>
+      <div style="color:#8b949e;font-size:11.5px;padding:2px 11px">${note||''}</div>
+      <table><thead><tr><th>${title.includes('会价')?'会价段':'距结算'}</th><th>赢</th><th>输</th><th>赢率</th><th>落袋$</th></tr></thead><tbody>`+
+      rows.map(g=>`<tr><td style="text-align:left">${g.k}</td><td>${g.w}</td><td>${g.l}</td>
+        <td>${g.n?Math.round(100*g.w/g.n)+'%':'—'}</td><td style="color:${g.pnl>=0?'#3fb950':'#f85149'}">${g.pnl.toFixed(1)}</td></tr>`).join('')+
+      `</tbody></table></section>`;
+    body.innerHTML=
+      tbl('按触发时会价段',d.by_price,'会价越高越可能是机械收敛;90+段目前几乎全输')+
+      tbl('按距结算时长',d.by_ttc,'区分"直播中真信息"vs"临近结算机械收敛"。旧单无此数据(?),新单开始累积');
+  }catch(e){ head.textContent='follow fetch failed: '+e; }
+}
+setInterval(refreshFollow, 15000); refreshFollow();
+
 function stbadge(s){ const c = s==='pass'?'green':(s==='fail'?'red':'gray'); return badge(s||'—', c); }
 async function loadTests(){
   let m={}; try{ m = await (await fetch('/api/results')).json(); }catch(_){}
@@ -700,7 +902,7 @@ async function runTool(name){
 $('run-all').onclick = async ()=>{
   $('run-all').disabled=true; $('tests-summary').textContent='running…';
   const tj = await (await fetch('/api/tools')).json();
-  const runnable = tj.tools.filter(t=>(t.kind==='test'||t.kind==='check') && t.runnable && t.name!=='run_pipeline' && t.name!=='run_tests');
+  const runnable = tj.tools.filter(t=>t.in_run_all && t.runnable); // set defined server-side (runnable_test_set)
   for(const t of runnable){ await runTool(t.name); await loadTests(); }
   $('run-all').disabled=false;
 };
@@ -756,7 +958,12 @@ def main():
     args = ap.parse_args()
 
     metrics_path = os.path.abspath(args.metrics)
-    handler = make_handler(metrics_path, args.backfill, args.allow_network)
+    # --results names the NDJSON history; the per-suite "latest" JSON the API
+    # serves lives next to it (both are written by run_tests.record).
+    results_latest = os.path.join(os.path.dirname(os.path.abspath(args.results)),
+                                  "test_results_latest.json")
+    handler = make_handler(metrics_path, args.backfill, args.allow_network,
+                           results_latest)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
     httpd.daemon_threads = True
 
