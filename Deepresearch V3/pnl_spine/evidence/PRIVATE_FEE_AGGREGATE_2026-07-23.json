@@ -1,0 +1,23 @@
+{
+  "schema_version": "pnl-spine-private-fee-aggregate-v1",
+  "state": "PASS",
+  "claim_tier": "ACTUAL_HISTORICAL_FEE_COST_AGGREGATE",
+  "actual_fee_field": "fee_cost",
+  "capture_method": "AUTHENTICATED_GET_ONLY",
+  "source_endpoint": "/trade-api/v2/portfolio/fills",
+  "source_private_fill_receipt_sha256": "fc6fbbc94e80abd86ffc36a351883c8901db7a6e682b7b57c64a80622d17994d",
+  "source_private_fill_content_sha256": "1bc5cfbe3fa7bf3d73a6fd0bd71570325aef92b000d131ac3355191a214ab966",
+  "private_aggregate_sha256": "4a9bae89e6600d9a9217e7cd9103c72dd4f1598f81328e93c30d5adabe829a72",
+  "first_created_time_utc": "2026-07-10T00:47:05.522638Z",
+  "last_created_time_utc": "2026-07-23T20:13:21.156598Z",
+  "fill_count": 372,
+  "maker_fill_count": 15,
+  "taker_fill_count": 357,
+  "nonzero_fee_fill_count": 360,
+  "zero_fee_fill_count": 12,
+  "total_actual_fee_cost_e6": 953982830,
+  "identifiers_serialized": false,
+  "market_tickers_serialized": false,
+  "series_tickers_serialized": false,
+  "credentials_serialized": false
+}
