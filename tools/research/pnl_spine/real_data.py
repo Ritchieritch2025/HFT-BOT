@@ -20,16 +20,19 @@ verified.  This module performs no network, AWS, credential, or write action.
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict, dataclass
 import hashlib
 import json
 from pathlib import Path
 import re
 import stat
+import sys
 from typing import Any, Iterable, Mapping, Sequence
 
 from .contracts import canonical_sha256
 from .experiments import AdapterContractError, NormalizedStateRow
+from .provenance import atomic_write_receipt
 
 
 SCHEMA_VERSION = "pnl-spine-real-data-audit-v1"
@@ -640,6 +643,18 @@ def audit_real_data(
             "AND track='STRICT_THROUGH'",
             checked["markouts"],
         )
+        all_strict_fills = _scalar_int(
+            connection,
+            "SELECT count(*)::BIGINT FROM read_parquet(?) "
+            "WHERE track='STRICT_THROUGH'",
+            checked["fill_slices"],
+        )
+        all_strict_marks = _scalar_int(
+            connection,
+            "SELECT count(*)::BIGINT FROM read_parquet(?) "
+            "WHERE track='STRICT_THROUGH'",
+            checked["markouts"],
+        )
     finally:
         connection.close()
 
@@ -659,13 +674,13 @@ def audit_real_data(
     }
     a01 = _status(
         experiment_id="A01-SPREAD-CAPTURE",
-        # C1 rows begin at a depletion episode.  They are not A01 spread
-        # dwell opportunities, so even the precursor count is honestly zero.
-        source_candidate_rows=0,
+        # Raw rows are inventoried for coverage.  normalized_state_rows stays
+        # zero because C1 depletion is not an A01 spread-dwell opportunity.
+        source_candidate_rows=campaign_count,
         source_candidate_opportunities=0,
         normalized_state_rows=0,
-        strict_fill_rows=0,
-        gross_markout_rows=0,
+        strict_fill_rows=all_strict_fills,
+        gross_markout_rows=all_strict_marks,
         blockers=common_blocks
         | {
             "BLOCK_A01_C1_DEPLETION_ROWS_ARE_NOT_SPREAD_DWELL_ROWS",
@@ -780,3 +795,116 @@ def audit_real_data(
         experiments=(a01, a11, b09),
         classification="ENGINEERING_INPUT_ONLY_NOT_NET_PNL",
     )
+
+
+def evidence_payload(audit: RealDataAudit) -> dict[str, Any]:
+    """Return a self-identifying receipt without changing the audit hash."""
+
+    payload = audit.to_dict()
+    payload["audit_sha256"] = audit.sha256
+    payload["experiment_status_sha256"] = {
+        row.experiment_id: canonical_sha256(asdict(row))
+        for row in audit.experiments
+    }
+    payload["source_binding_sha256"] = canonical_sha256(
+        [
+            {
+                "source_id": row.source_id,
+                "sha256": row.sha256,
+                "size_bytes": row.size_bytes,
+            }
+            for row in audit.source_inventory
+        ]
+    )
+    return payload
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Audit six explicit, hash-pinned C1/Deep03 files and write a "
+            "canonical machine-readable engineering-evidence receipt."
+        )
+    )
+    parser.add_argument("--analysis-ledger", required=True, type=Path)
+    parser.add_argument("--campaigns", required=True, type=Path)
+    parser.add_argument("--fill-slices", required=True, type=Path)
+    parser.add_argument("--markouts", required=True, type=Path)
+    parser.add_argument("--deep03-data-quality", required=True, type=Path)
+    parser.add_argument("--deep03-l2-audit", required=True, type=Path)
+    parser.add_argument(
+        "--known-20260722-pins",
+        "--known-pins",
+        action="store_true",
+        dest="known_pins",
+        help="use the inspected 2026-07-22 artifact SHA set",
+    )
+    parser.add_argument("--analysis-ledger-sha256")
+    parser.add_argument("--campaigns-sha256")
+    parser.add_argument("--fill-slices-sha256")
+    parser.add_argument("--markouts-sha256")
+    parser.add_argument("--deep03-data-quality-sha256")
+    parser.add_argument("--deep03-l2-audit-sha256")
+    parser.add_argument("--output", required=True, type=Path)
+    return parser
+
+
+def _pins_from_args(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> RealInputPins:
+    explicit = {
+        "analysis_ledger": args.analysis_ledger_sha256,
+        "campaigns": args.campaigns_sha256,
+        "fill_slices": args.fill_slices_sha256,
+        "markouts": args.markouts_sha256,
+        "deep03_data_quality": args.deep03_data_quality_sha256,
+        "deep03_l2_audit": args.deep03_l2_audit_sha256,
+    }
+    supplied = [name for name, value in explicit.items() if value is not None]
+    if args.known_pins:
+        if supplied:
+            parser.error(
+                "--known-20260722-pins cannot be mixed with explicit SHA pins"
+            )
+        return RealInputPins.known_20260722()
+    if len(supplied) != len(explicit):
+        missing = sorted(set(explicit) - set(supplied))
+        parser.error(
+            "use --known-20260722-pins or provide every explicit SHA pin; "
+            f"missing: {','.join(missing)}"
+        )
+    try:
+        return RealInputPins(**explicit)
+    except RealDataError as exc:
+        parser.error(str(exc))
+        raise AssertionError("argparse.error must terminate") from exc
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _parser()
+    args = parser.parse_args(argv)
+    pins = _pins_from_args(parser, args)
+    paths = RealInputPaths(
+        analysis_ledger=args.analysis_ledger,
+        campaigns=args.campaigns,
+        fill_slices=args.fill_slices,
+        markouts=args.markouts,
+        deep03_data_quality=args.deep03_data_quality,
+        deep03_l2_audit=args.deep03_l2_audit,
+    )
+    try:
+        result = audit_real_data(paths, pins)
+        receipt_sha256 = atomic_write_receipt(
+            args.output, evidence_payload(result)
+        )
+    except RealDataError as exc:
+        parser.error(str(exc))
+        raise AssertionError("argparse.error must terminate") from exc
+    print(f"audit_sha256={result.sha256}")
+    print(f"receipt_sha256={receipt_sha256}")
+    print(f"output={args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

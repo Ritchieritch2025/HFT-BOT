@@ -19,7 +19,12 @@ from tools.research.pnl_spine.real_data import (  # noqa: E402
     RealInputPaths,
     RealInputPins,
     audit_real_data,
+    evidence_payload,
     load_a11_normalized_rows,
+    main,
+)
+from tools.research.pnl_spine.provenance import (  # noqa: E402
+    canonical_json_bytes,
 )
 
 
@@ -220,7 +225,7 @@ def test_current_c1_shape_is_counted_but_not_promoted_to_net_pnl(
     assert result.classification == "ENGINEERING_INPUT_ONLY_NOT_NET_PNL"
     assert result.artifact_dates_utc == ("2026-07-12",)
     assert result.deep03_claim_tier == "DESCRIPTIVE_ONLY_NO_PNL"
-    assert statuses["A01-SPREAD-CAPTURE"].source_candidate_rows == 0
+    assert statuses["A01-SPREAD-CAPTURE"].source_candidate_rows == 3
     a11 = statuses["A11-ONE-SIDED-PROVISION"]
     assert a11.source_candidate_rows == 2
     assert a11.source_candidate_opportunities == 1
@@ -322,6 +327,74 @@ def test_a11_enriched_direct_fields_map_without_inference(tmp_path: Path):
     assert rows[0].best_yes_ask_e4 is None
 
 
+def test_cli_requires_all_six_pins_and_writes_canonical_atomic_receipt(
+    bounded_real_fixture: tuple[RealInputPaths, RealInputPins],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    paths, pins = bounded_real_fixture
+    output = tmp_path / "evidence" / "REAL_DATA_AUDIT.json"
+    argv = [
+        "--analysis-ledger",
+        str(paths.analysis_ledger),
+        "--campaigns",
+        str(paths.campaigns),
+        "--fill-slices",
+        str(paths.fill_slices),
+        "--markouts",
+        str(paths.markouts),
+        "--deep03-data-quality",
+        str(paths.deep03_data_quality),
+        "--deep03-l2-audit",
+        str(paths.deep03_l2_audit),
+        "--analysis-ledger-sha256",
+        pins.analysis_ledger,
+        "--campaigns-sha256",
+        pins.campaigns,
+        "--fill-slices-sha256",
+        pins.fill_slices,
+        "--markouts-sha256",
+        pins.markouts,
+        "--deep03-data-quality-sha256",
+        pins.deep03_data_quality,
+        "--deep03-l2-audit-sha256",
+        pins.deep03_l2_audit,
+        "--output",
+        str(output),
+    ]
+    assert main(argv) == 0
+    result = audit_real_data(paths, pins)
+    assert output.read_bytes() == canonical_json_bytes(
+        evidence_payload(result)
+    )
+    stdout = capsys.readouterr().out
+    assert f"audit_sha256={result.sha256}" in stdout
+    assert f"receipt_sha256={sha(output)}" in stdout
+    assert list(output.parent.glob(".REAL_DATA_AUDIT.json.*.tmp")) == []
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "--analysis-ledger",
+                str(paths.analysis_ledger),
+                "--campaigns",
+                str(paths.campaigns),
+                "--fill-slices",
+                str(paths.fill_slices),
+                "--markouts",
+                str(paths.markouts),
+                "--deep03-data-quality",
+                str(paths.deep03_data_quality),
+                "--deep03-l2-audit",
+                str(paths.deep03_l2_audit),
+                "--campaigns-sha256",
+                pins.campaigns,
+                "--output",
+                str(output),
+            ]
+        )
+
+
 def test_exact_20260722_artifacts_remain_inventory_only():
     c1 = Path(
         "/Users/ritcardo/HFT-BOT-c1-real-fill-01/tmp/c1_real_fill_run/"
@@ -347,7 +420,7 @@ def test_exact_20260722_artifacts_remain_inventory_only():
     )
     inventory = {row.source_id: row for row in result.source_inventory}
     assert inventory["C1_CAMPAIGNS"].row_count == 1_116_054
-    assert status["A01-SPREAD-CAPTURE"].source_candidate_rows == 0
+    assert status["A01-SPREAD-CAPTURE"].source_candidate_rows == 1_116_054
     assert (
         status["A11-ONE-SIDED-PROVISION"].source_candidate_opportunities
         == 164_295
