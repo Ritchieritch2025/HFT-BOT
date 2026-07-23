@@ -8,6 +8,7 @@ unfilled quantity, an executed exit, or a source-finalized settlement.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 
 from .contracts import (
@@ -26,6 +27,19 @@ class RiskInvariantError(RuntimeError):
 
 class RiskLimitExceeded(RiskInvariantError):
     """A prospective reservation exceeds a configured cap."""
+
+
+def _utc_date_from_ns(value: int) -> str:
+    require_int("occurred_at_ns", value, minimum=0)
+    try:
+        return datetime.fromtimestamp(
+            value // 1_000_000_000,
+            tz=timezone.utc,
+        ).date().isoformat()
+    except (OverflowError, OSError, ValueError) as exc:
+        raise RiskInvariantError(
+            "risk event timestamp is outside UTC date range"
+        ) from exc
 
 
 class RiskEventKind(str, Enum):
@@ -195,7 +209,8 @@ class RiskLedger:
         self._events: list[RiskEvent] = []
         self._event_ids: set[str] = set()
         self._last_occurred_at_ns = -1
-        self._daily_realized_pnl_e6 = 0
+        self._realized_pnl_by_utc_date_e6: dict[str, int] = {}
+        self._daily_loss_breached_utc_dates: set[str] = set()
 
     @property
     def events(self) -> tuple[RiskEvent, ...]:
@@ -203,7 +218,15 @@ class RiskLedger:
 
     @property
     def daily_realized_pnl_e6(self) -> int:
-        return self._daily_realized_pnl_e6
+        return sum(self._realized_pnl_by_utc_date_e6.values())
+
+    @property
+    def realized_pnl_by_utc_date_e6(self) -> dict[str, int]:
+        return dict(self._realized_pnl_by_utc_date_e6)
+
+    @property
+    def daily_loss_breached_utc_dates(self) -> frozenset[str]:
+        return frozenset(self._daily_loss_breached_utc_dates)
 
     @property
     def deterministic_sha256(self) -> str:
@@ -211,7 +234,12 @@ class RiskLedger:
             {
                 "limits": self._limits,
                 "events": self.events,
-                "daily_realized_pnl_e6": self._daily_realized_pnl_e6,
+                "realized_pnl_by_utc_date_e6": (
+                    self._realized_pnl_by_utc_date_e6
+                ),
+                "daily_loss_breached_utc_dates": sorted(
+                    self._daily_loss_breached_utc_dates
+                ),
             }
         )
 
@@ -313,11 +341,8 @@ class RiskLedger:
             occurred_at_ns=request.requested_at_ns,
             source_sha256=request.source_sha256,
         )
-        realized_loss_e6 = max(0, -self._daily_realized_pnl_e6)
-        if (
-            realized_loss_e6 > 0
-            and realized_loss_e6 >= self._limits.max_daily_loss_e6
-        ):
+        request_date = _utc_date_from_ns(request.requested_at_ns)
+        if request_date in self._daily_loss_breached_utc_dates:
             raise RiskLimitExceeded("daily realized loss gate is closed")
         prospective = {
             "market": self._current_exposure(
@@ -520,7 +545,17 @@ class RiskLedger:
             occurred_at_ns=occurred_at_ns,
             source_sha256=source_sha256,
         )
-        self._daily_realized_pnl_e6 += pnl_e6
+        event_date = _utc_date_from_ns(occurred_at_ns)
+        self._realized_pnl_by_utc_date_e6[event_date] = (
+            self._realized_pnl_by_utc_date_e6.get(event_date, 0)
+            + pnl_e6
+        )
+        daily_pnl_e6 = self._realized_pnl_by_utc_date_e6[event_date]
+        if (
+            daily_pnl_e6 < 0
+            and -daily_pnl_e6 >= self._limits.max_daily_loss_e6
+        ):
+            self._daily_loss_breached_utc_dates.add(event_date)
         self._append(
             event_id=event_id,
             kind=RiskEventKind.REALIZED_PNL,

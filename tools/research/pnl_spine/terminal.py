@@ -29,8 +29,11 @@ class SettlementRecord:
     """A source-bound terminal observation.
 
     A non-final record may never carry a payout used by the PnL spine.
-    Finalized VOID/CANCELED/RETIRED records can close a path only when the
-    source supplies an exact payout value rather than requiring an assumption.
+    The research boundary accepts only the normalized official
+    ``FINALIZED`` state as settlement authority.  VOID/CANCELED/RETIRED are
+    source lifecycle reasons, not payout rules; a trusted adapter must map a
+    genuinely paid terminal record to ``FINALIZED`` while preserving the raw
+    reason in its source evidence.
     """
 
     settlement_id: str
@@ -52,10 +55,10 @@ class SettlementRecord:
         require_int("observed_at_ns", self.observed_at_ns, minimum=0)
         require_int("revision", self.revision, minimum=0)
         require_sha256("source_sha256", self.source_sha256)
-        if self.status is SettlementStatus.UNKNOWN and self.finalized:
-            raise ValueError("UNKNOWN settlement can never be finalized")
-        if self.status is SettlementStatus.FINALIZED and not self.finalized:
-            raise ValueError("FINALIZED status requires finalized=True")
+        if self.finalized != (self.status is SettlementStatus.FINALIZED):
+            raise ValueError(
+                "finalized must be true exactly for FINALIZED status"
+            )
         if self.finalized:
             require_int(
                 "settlement_value_e4",
@@ -81,7 +84,7 @@ class TerminalDecision:
 
 
 def classify_settlement(record: SettlementRecord) -> TerminalDecision:
-    if record.finalized and record.status is not SettlementStatus.UNKNOWN:
+    if record.finalized and record.status is SettlementStatus.FINALIZED:
         return TerminalDecision(
             state=ClosureState.CLOSED_BY_SETTLEMENT,
             reason="SOURCE_FINALIZED_WITH_EXACT_PAYOUT",

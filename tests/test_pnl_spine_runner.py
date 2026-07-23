@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any
 from datetime import datetime, timezone
 
@@ -17,17 +18,31 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.research.pnl_spine.contracts import canonical_sha256  # noqa: E402
+from tools.research.pnl_spine.contracts import (  # noqa: E402
+    CashFlow,
+    CashFlowKind,
+    LiquidityRole,
+    canonical_sha256,
+)
 from tools.research.pnl_spine.experiments import (  # noqa: E402
     FrozenExperimentAdapters,
     NormalizedStateRow,
     RuntimeBindings,
 )
+from tools.research.pnl_spine.fills import (  # noqa: E402
+    FillBatch,
+    FillSlice,
+    OrderAction,
+    OutcomeSide,
+)
+from tools.research.pnl_spine.risk import RiskLimits  # noqa: E402
 from tools.research.pnl_spine.runner import (  # noqa: E402
     C1_CLASSIFICATION,
     NET_COMPLETE,
     PNL_BLOCKED,
     RunnerContractError,
+    _path_id,
+    _replay_risk_lifecycle,
     run_fixture,
 )
 
@@ -1045,6 +1060,565 @@ def test_conflicting_final_settlements_for_same_market_fail_globally():
     assert "EVIDENCE_AUTHORITY_INVALID" in blocker_codes(receipt)
     assert any(
         "multiple finalized settlement authorities" in blocker["detail"]
+        for blocker in receipt["blockers"]
+    )
+
+
+@pytest.mark.parametrize(
+    "conflicting_status",
+    ("VOID", "CANCELED", "RETIRED"),
+)
+def test_all_final_terminal_statuses_share_one_market_authority(
+    conflicting_status: str,
+):
+    fixture = base_fixture()
+    for closure in fixture["closures"]:
+        closure.update(
+            {
+                "exit_snapshot_id": None,
+                "exit_decision_ts_ns": None,
+                "exit_limit_price_e4": None,
+                "maximum_snapshot_age_us": None,
+            }
+        )
+    fixture["closures"][0]["settlement_id"] = "terminal-finalized"
+    fixture["closures"][1]["settlement_id"] = "terminal-conflict"
+    fixture["settlements"] = [
+        {
+            "settlement_id": "terminal-finalized",
+            "market_ticker": "KXTEST-EVENT-MARKET",
+            "status": "FINALIZED",
+            "finalized": True,
+            "yes_settlement_value_e4": 10_000,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        },
+        {
+            "settlement_id": "terminal-conflict",
+            "market_ticker": "KXTEST-EVENT-MARKET",
+            "status": conflicting_status,
+            "finalized": True,
+            "yes_settlement_value_e4": 0,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        },
+    ]
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "EVIDENCE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert any(
+        (
+            "only FINALIZED status may be finalized settlement authority"
+            in blocker["detail"]
+        )
+        for blocker in receipt["blockers"]
+    )
+
+
+@pytest.mark.parametrize(
+    "nonfinal_status",
+    ("PROVISIONAL", "POSTPONED", "VOID", "CANCELED", "RETIRED"),
+)
+def test_nonfinal_status_cannot_self_declare_finalized_payout(
+    nonfinal_status: str,
+):
+    fixture = base_fixture()
+    shared_id = "caller-declared-final"
+    for closure in fixture["closures"]:
+        closure.update(
+            {
+                "exit_snapshot_id": None,
+                "exit_decision_ts_ns": None,
+                "exit_limit_price_e4": None,
+                "maximum_snapshot_age_us": None,
+                "settlement_id": shared_id,
+            }
+        )
+    fixture["settlements"] = [
+        {
+            "settlement_id": shared_id,
+            "market_ticker": "KXTEST-EVENT-MARKET",
+            "status": nonfinal_status,
+            "finalized": True,
+            "yes_settlement_value_e4": 10_000,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        }
+    ]
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "EVIDENCE_AUTHORITY_INVALID" in blocker_codes(receipt)
+    assert any(
+        (
+            "only FINALIZED status may be finalized settlement authority"
+            in blocker["detail"]
+        )
+        for blocker in receipt["blockers"]
+    )
+
+
+def test_risk_replay_orders_equal_timestamp_closure_before_new_fill():
+    new_raw = a01_row()
+    old_raw = copy.deepcopy(new_raw)
+    old_raw.update(
+        {
+            "row_id": "a01-row-old",
+            "root_event_id": "KXTEST-EVENT-OLD",
+            "market_ticker": "KXTEST-EVENT-MARKET-OLD",
+        }
+    )
+    for field in (
+        "decision_ts_ns",
+        "features_asof_ns",
+        "book_observed_at_ns",
+        "scheduled_start_ts_ns",
+        "scheduled_start_asof_ns",
+        "state_started_at_ns",
+        "warmup_started_at_ns",
+    ):
+        old_raw[field] -= 10 * SECOND
+
+    adapters = FrozenExperimentAdapters(freeze())
+    old_row = NormalizedStateRow(**old_raw)
+    new_row = NormalizedStateRow(**new_raw)
+    old_decision = adapters.evaluate_a01(old_row, complete_bindings())
+    new_decision = adapters.evaluate_a01(new_row, complete_bindings())
+    old_intent = old_decision.intents[0]
+    new_intent = new_decision.intents[0]
+    run_id = "equal-timestamp-risk-order"
+    old_path = _path_id(run_id, old_row.row_id, old_intent.intent_id)
+    new_path = _path_id(run_id, new_row.row_id, new_intent.intent_id)
+
+    def risk_fill(
+        *,
+        fill_id: str,
+        intent_id: str,
+        row: NormalizedStateRow,
+        action: OrderAction,
+        timestamp_us: int,
+        source_id: str,
+    ) -> FillSlice:
+        return FillSlice(
+            fill_id=fill_id,
+            order_id=intent_id,
+            experiment_id="A01-SPREAD-CAPTURE",
+            root_id=row.root_event_id,
+            market_ticker=row.market_ticker,
+            side=OutcomeSide.YES,
+            action=action,
+            liquidity_role=(
+                LiquidityRole.MAKER
+                if action is OrderAction.BUY
+                else LiquidityRole.TAKER
+            ),
+            price_e4=4_000,
+            quantity_e4=10_000,
+            timestamp_us=timestamp_us,
+            source_id=source_id,
+            reason="risk-replay-ordering-test",
+        )
+
+    old_entry = risk_fill(
+        fill_id="old-entry",
+        intent_id=old_intent.intent_id,
+        row=old_row,
+        action=OrderAction.BUY,
+        timestamp_us=old_row.decision_ts_ns // 1_000,
+        source_id="old-trade",
+    )
+    new_entry = risk_fill(
+        fill_id="new-entry",
+        intent_id=new_intent.intent_id,
+        row=new_row,
+        action=OrderAction.BUY,
+        timestamp_us=NOW // 1_000,
+        source_id="new-trade",
+    )
+    old_exit = risk_fill(
+        fill_id="old-exit",
+        intent_id=f"{old_intent.intent_id}:exit",
+        row=old_row,
+        action=OrderAction.SELL,
+        timestamp_us=NOW // 1_000,
+        source_id="old-book|bid-level=0",
+    )
+    new_exit = risk_fill(
+        fill_id="new-exit",
+        intent_id=f"{new_intent.intent_id}:exit",
+        row=new_row,
+        action=OrderAction.SELL,
+        timestamp_us=NOW // 1_000 + 1,
+        source_id="new-book|bid-level=0",
+    )
+
+    def batch(fill: FillSlice) -> FillBatch:
+        return FillBatch(
+            fills=(fill,),
+            ordered_e4=10_000,
+            filled_e4=10_000,
+            unfilled_e4=0,
+            source_quantity_e4=10_000,
+            consumed_source_quantity_e4=10_000,
+            duplicate_source_allocations=0,
+        )
+
+    def pnl_cashflows(
+        *,
+        path_id: str,
+        entry: FillSlice,
+        exit_fill: FillSlice,
+        entry_cash_e6: int,
+        exit_cash_e6: int,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            cashflows=(
+                CashFlow(
+                    event_id=f"{entry.fill_id}:principal",
+                    path_id=path_id,
+                    sequence=0,
+                    occurred_at_ns=entry.timestamp_us * 1_000,
+                    kind=CashFlowKind.TRADE_PRINCIPAL,
+                    amount_e6=entry_cash_e6,
+                    position_delta_e4=entry.quantity_e4,
+                    source_sha256=H_A,
+                    fill_id=entry.fill_id,
+                ),
+                CashFlow(
+                    event_id=f"{exit_fill.fill_id}:principal",
+                    path_id=path_id,
+                    sequence=1,
+                    occurred_at_ns=exit_fill.timestamp_us * 1_000,
+                    kind=CashFlowKind.TRADE_PRINCIPAL,
+                    amount_e6=exit_cash_e6,
+                    position_delta_e4=-exit_fill.quantity_e4,
+                    source_sha256=H_B,
+                    fill_id=exit_fill.fill_id,
+                ),
+            )
+        )
+
+    risk_ledger, replay_blockers = _replay_risk_lifecycle(
+        limits=RiskLimits(
+            max_market_e6=10_000_000,
+            max_event_e6=10_000_000,
+            max_factor_e6=10_000_000,
+            max_total_e6=20_000_000,
+            max_daily_loss_e6=1_000_000,
+        ),
+        run_id=run_id,
+        intent_context={
+            old_intent.intent_id: (old_decision, old_row, old_intent),
+            new_intent.intent_id: (new_decision, new_row, new_intent),
+        },
+        excluded_intents=set(),
+        entry_by_order={
+            old_intent.intent_id: (old_entry,),
+            new_intent.intent_id: (new_entry,),
+        },
+        trade_sources={"old-trade": H_A, "new-trade": H_B},
+        exit_batches={old_path: batch(old_exit), new_path: batch(new_exit)},
+        snapshot_sources={"old-book": H_C, "new-book": H_D},
+        closures={
+            old_intent.intent_id: {"exit_snapshot_id": "old-book"},
+            new_intent.intent_id: {"exit_snapshot_id": "new-book"},
+        },
+        settlements={},
+        pnl_ledgers={
+            old_path: pnl_cashflows(
+                path_id=old_path,
+                entry=old_entry,
+                exit_fill=old_exit,
+                entry_cash_e6=-400_000,
+                exit_cash_e6=300_000,
+            ),
+            new_path: pnl_cashflows(
+                path_id=new_path,
+                entry=new_entry,
+                exit_fill=new_exit,
+                entry_cash_e6=-400_000,
+                exit_cash_e6=400_000,
+            ),
+        },
+        result_by_path={
+            old_path: {"net_pnl_e6": -100_000, "result_sha256": H_D},
+            new_path: {"net_pnl_e6": 0, "result_sha256": H_E},
+        },
+        latency={"CANCEL": 0},
+    )
+
+    assert replay_blockers == []
+    assert [
+        event.kind.value
+        for event in risk_ledger.events
+        if event.occurred_at_ns == NOW
+    ] == ["EXIT", "REALIZED_PNL", "RESERVE", "FILL"]
+    assert risk_ledger.total_exposure_e6 == 0
+
+
+def test_partial_exit_realizes_loss_before_later_settlement():
+    raw = a01_row()
+    row = NormalizedStateRow(**raw)
+    decision = FrozenExperimentAdapters(freeze()).evaluate_a01(
+        row,
+        complete_bindings(),
+    )
+    intent = decision.intents[0]
+    run_id = "mixed-exit-settlement-risk"
+    path_id = _path_id(run_id, row.row_id, intent.intent_id)
+    entry = FillSlice(
+        fill_id="mixed-entry",
+        order_id=intent.intent_id,
+        experiment_id="A01-SPREAD-CAPTURE",
+        root_id=row.root_event_id,
+        market_ticker=row.market_ticker,
+        side=OutcomeSide.YES,
+        action=OrderAction.BUY,
+        liquidity_role=LiquidityRole.MAKER,
+        price_e4=4_000,
+        quantity_e4=10_000,
+        timestamp_us=NOW // 1_000 + 1,
+        source_id="mixed-trade",
+        reason="mixed-closure-test",
+    )
+    partial_exit = FillSlice(
+        fill_id="mixed-partial-exit",
+        order_id=f"{intent.intent_id}:exit",
+        experiment_id="A01-SPREAD-CAPTURE",
+        root_id=row.root_event_id,
+        market_ticker=row.market_ticker,
+        side=OutcomeSide.YES,
+        action=OrderAction.SELL,
+        liquidity_role=LiquidityRole.TAKER,
+        price_e4=3_000,
+        quantity_e4=5_000,
+        timestamp_us=NOW // 1_000 + 2,
+        source_id="mixed-book|bid-level=0",
+        reason="mixed-closure-test",
+    )
+    exit_batch = FillBatch(
+        fills=(partial_exit,),
+        ordered_e4=10_000,
+        filled_e4=5_000,
+        unfilled_e4=5_000,
+        source_quantity_e4=5_000,
+        consumed_source_quantity_e4=5_000,
+        duplicate_source_allocations=0,
+    )
+    settlement = {
+        "settlement_id": "mixed-final",
+        "market_ticker": row.market_ticker,
+        "status": "FINALIZED",
+        "finalized": True,
+        "yes_settlement_value_e4": 10_000,
+        "observed_at_ns": NOW + 20 * SECOND,
+        "revision": 1,
+        "source_sha256": H_D,
+    }
+
+    pnl_ledger = SimpleNamespace(
+        cashflows=(
+            CashFlow(
+                event_id="mixed-entry:principal",
+                path_id=path_id,
+                sequence=0,
+                occurred_at_ns=entry.timestamp_us * 1_000,
+                kind=CashFlowKind.TRADE_PRINCIPAL,
+                amount_e6=-400_000,
+                position_delta_e4=10_000,
+                source_sha256=H_A,
+                fill_id=entry.fill_id,
+            ),
+            CashFlow(
+                event_id="mixed-partial-exit:principal",
+                path_id=path_id,
+                sequence=1,
+                occurred_at_ns=partial_exit.timestamp_us * 1_000,
+                kind=CashFlowKind.TRADE_PRINCIPAL,
+                amount_e6=100_000,
+                position_delta_e4=-5_000,
+                source_sha256=H_C,
+                fill_id=partial_exit.fill_id,
+            ),
+            CashFlow(
+                event_id="mixed-final:settlement",
+                path_id=path_id,
+                sequence=2,
+                occurred_at_ns=settlement["observed_at_ns"],
+                kind=CashFlowKind.SETTLEMENT,
+                amount_e6=500_000,
+                position_delta_e4=-5_000,
+                source_sha256=H_D,
+                fill_id=None,
+            ),
+        )
+    )
+
+    risk_ledger, replay_blockers = _replay_risk_lifecycle(
+        limits=RiskLimits(
+            max_market_e6=10_000_000,
+            max_event_e6=10_000_000,
+            max_factor_e6=10_000_000,
+            max_total_e6=10_000_000,
+            max_daily_loss_e6=50_000,
+        ),
+        run_id=run_id,
+        intent_context={
+            intent.intent_id: (decision, row, intent),
+        },
+        excluded_intents=set(),
+        entry_by_order={intent.intent_id: (entry,)},
+        trade_sources={"mixed-trade": H_A},
+        exit_batches={path_id: exit_batch},
+        snapshot_sources={"mixed-book": H_C},
+        closures={
+            intent.intent_id: {
+                "exit_snapshot_id": "mixed-book",
+                "settlement_id": "mixed-final",
+            }
+        },
+        settlements={"mixed-final": settlement},
+        pnl_ledgers={path_id: pnl_ledger},
+        result_by_path={
+            path_id: {
+                "net_pnl_e6": 200_000,
+                "result_sha256": H_E,
+            }
+        },
+        latency={"CANCEL": 0},
+    )
+
+    assert replay_blockers == []
+    assert [
+        (event.kind.value, event.realized_pnl_e6)
+        for event in risk_ledger.events
+        if event.occurred_at_ns == partial_exit.timestamp_us * 1_000
+    ] == [("EXIT", 0), ("REALIZED_PNL", -100_000)]
+    assert [
+        (event.kind.value, event.realized_pnl_e6)
+        for event in risk_ledger.events
+        if event.occurred_at_ns == settlement["observed_at_ns"]
+    ] == [("SETTLEMENT", 0), ("REALIZED_PNL", 300_000)]
+    assert risk_ledger.total_exposure_e6 == 0
+    assert risk_ledger.daily_loss_breached_utc_dates == {
+        "2026-07-12"
+    }
+
+
+def test_realized_daily_loss_blocks_later_opportunity_admission():
+    fixture = base_fixture(path_count=6)
+    first_snapshot = fixture["exit_snapshots"][0]
+    first_snapshot["yes_bids"][0]["yes_price_e4"] = 1_000
+    first_snapshot["yes_asks"][0]["yes_price_e4"] = 9_000
+
+    shift_ns = 20 * SECOND
+    second = copy.deepcopy(fixture["rows"][0])
+    second.update(
+        {
+            "row_id": "a01-row-after-realized-loss",
+            "root_event_id": "KXTEST-EVENT-2",
+            "market_ticker": "KXTEST-EVENT-MARKET-2",
+        }
+    )
+    for field in (
+        "decision_ts_ns",
+        "features_asof_ns",
+        "book_observed_at_ns",
+        "scheduled_start_ts_ns",
+        "scheduled_start_asof_ns",
+        "state_started_at_ns",
+        "warmup_started_at_ns",
+    ):
+        second[field] += shift_ns
+    fixture["rows"].append(second)
+
+    second_activation_us = (
+        second["decision_ts_ns"] + 300 + 999
+    ) // 1_000
+    fixture["public_trades"].extend(
+        [
+            {
+                "trade_id": "trade-buy-yes-after-loss",
+                "market_ticker": second["market_ticker"],
+                "timestamp_us": second_activation_us + 1,
+                "yes_price_e4": 3_800,
+                "quantity_e4": 10_000,
+                "taker_side": "NO",
+                "source_sha256": H_A,
+            },
+            {
+                "trade_id": "trade-buy-no-after-loss",
+                "market_ticker": second["market_ticker"],
+                "timestamp_us": second_activation_us + 2,
+                "yes_price_e4": 4_600,
+                "quantity_e4": 10_000,
+                "taker_side": "YES",
+                "source_sha256": H_B,
+            },
+        ]
+    )
+    second_exit_decision_ns = second["decision_ts_ns"] + 10 * SECOND
+    fixture["exit_snapshots"].append(
+        {
+            "snapshot_id": "exit-book-after-loss",
+            "market_ticker": second["market_ticker"],
+            "receive_timestamp_us": second_exit_decision_ns // 1_000,
+            "yes_bids": [
+                {"yes_price_e4": 4_200, "quantity_e4": 10_000}
+            ],
+            "yes_asks": [
+                {"yes_price_e4": 4_300, "quantity_e4": 10_000}
+            ],
+            "book_valid": True,
+            "gap_free": True,
+            "source_sha256": H_C,
+        }
+    )
+    for intent_id in a01_intent_ids(second):
+        fixture["closures"].append(
+            {
+                "intent_id": intent_id,
+                "exit_snapshot_id": "exit-book-after-loss",
+                "exit_decision_ts_ns": second_exit_decision_ns,
+                "exit_limit_price_e4": 1,
+                "maximum_snapshot_age_us": 10,
+                "settlement_id": None,
+            }
+        )
+    fixture["fee_contexts"].append(
+        {
+            "market_ticker": second["market_ticker"],
+            "series_ticker": "KXTEST",
+            "event_ticker": "KXTEST-EVENT",
+        }
+    )
+    policy = risk_policy(max_daily_loss_e6=100_000)
+    fixture["risk_policy"] = policy
+    fixture["provenance"]["risk_policy_sha256"] = policy["policy_sha256"]
+    terminal = terminal_receipt(6)
+    fixture["preflight_inputs"]["terminal_coverage"] = terminal
+    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
+        terminal
+    )
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RISK_DAILY_LOSS_CHANGED_ADMISSION" in blocker_codes(receipt)
+    assert any(
+        "daily realized loss gate is closed" in blocker["detail"]
         for blocker in receipt["blockers"]
     )
 

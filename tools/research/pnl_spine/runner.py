@@ -29,6 +29,7 @@ import sys
 from typing import Any, Iterable, Mapping, Sequence
 
 from .contracts import (
+    CashFlowKind,
     FillPurpose,
     FillRecord,
     LiquidityRole,
@@ -90,7 +91,11 @@ from .risk import (
     RiskLimits,
     RiskRequest,
 )
-from .terminal import SettlementRecord, SettlementStatus
+from .terminal import (
+    SettlementRecord,
+    SettlementStatus,
+    classify_settlement,
+)
 
 
 FIXTURE_SCHEMA = "pnl-spine-run-fixture-v2"
@@ -702,10 +707,22 @@ def _parse_settlements(rows: object) -> dict[str, Mapping[str, Any]]:
         market_ticker = _text(
             "market_ticker", row.get("market_ticker")
         )
-        if (
-            row.get("status") == SettlementStatus.FINALIZED.value
-            and row.get("finalized") is True
-        ):
+        try:
+            status = SettlementStatus(
+                _text("status", row.get("status"))
+            )
+        except ValueError as exc:
+            raise RunnerContractError(
+                "unknown settlement status"
+            ) from exc
+        finalized = row.get("finalized")
+        if not isinstance(finalized, bool):
+            raise RunnerContractError("settlement finalized must be bool")
+        if finalized != (status is SettlementStatus.FINALIZED):
+            raise RunnerContractError(
+                "only FINALIZED status may be finalized settlement authority"
+            )
+        if finalized:
             if market_ticker in finalized_market:
                 raise RunnerContractError(
                     "multiple finalized settlement authorities for one market"
@@ -1235,6 +1252,557 @@ def _blocked_row(
     }
 
 
+def _lot_matched_realized_pnl(
+    *,
+    pnl_ledger: PnLLedger,
+    entry_fills: Sequence[FillSlice],
+    exit_fills: Sequence[FillSlice],
+    terminal_decision: Any,
+    result: Mapping[str, Any],
+) -> tuple[tuple[int, int, str, str], ...]:
+    """Attribute realized NetPnL to exact exit/settlement times.
+
+    Entry principal and entry fees are matched FIFO to closing quantity.
+    A partial-lot allocation must be exactly representable in MoneyE6; the
+    runner refuses to invent a rounding convention.  Slice totals must
+    reconcile exactly to the finalized path result.
+    """
+
+    cash_by_fill: dict[str, int] = {}
+    settlement_cashflows: list[Any] = []
+    for cashflow in pnl_ledger.cashflows:
+        if cashflow.kind in {
+            CashFlowKind.TRADE_PRINCIPAL,
+            CashFlowKind.FEE,
+        }:
+            if cashflow.fill_id is None:
+                raise RiskInvariantError(
+                    "trade/fee cashflow lacks fill identity"
+                )
+            cash_by_fill[cashflow.fill_id] = (
+                cash_by_fill.get(cashflow.fill_id, 0)
+                + cashflow.amount_e6
+            )
+        elif cashflow.kind is CashFlowKind.SETTLEMENT:
+            settlement_cashflows.append(cashflow)
+        elif cashflow.kind is CashFlowKind.VARIABLE_COST:
+            raise RiskInvariantError(
+                "variable-cost realized-time attribution is unavailable"
+            )
+        elif cashflow.kind is not CashFlowKind.NO_POSITION_CLOSE:
+            raise RiskInvariantError(
+                f"unsupported cashflow kind {cashflow.kind.value}"
+            )
+
+    entry_ids = {fill.fill_id for fill in entry_fills}
+    exit_ids = {fill.fill_id for fill in exit_fills}
+    if set(cash_by_fill) != entry_ids | exit_ids:
+        raise RiskInvariantError(
+            "cashflow fill identities do not match entry/exit evidence"
+        )
+    lots = [
+        {
+            "remaining_quantity_e4": fill.quantity_e4,
+            "remaining_cash_e6": cash_by_fill[fill.fill_id],
+        }
+        for fill in sorted(
+            entry_fills,
+            key=lambda fill: (
+                fill.timestamp_us,
+                fill.fill_id,
+            ),
+        )
+    ]
+
+    def consume_entry_basis(quantity_e4: int) -> int:
+        remaining = quantity_e4
+        allocated_cash_e6 = 0
+        for lot in lots:
+            if remaining == 0:
+                break
+            lot_quantity = lot["remaining_quantity_e4"]
+            if lot_quantity == 0:
+                continue
+            take = min(remaining, lot_quantity)
+            if take == lot_quantity:
+                allocation = lot["remaining_cash_e6"]
+            else:
+                numerator = lot["remaining_cash_e6"] * take
+                if numerator % lot_quantity:
+                    raise RiskInvariantError(
+                        "partial entry basis is not exactly MoneyE6 representable"
+                    )
+                allocation = numerator // lot_quantity
+            lot["remaining_quantity_e4"] -= take
+            lot["remaining_cash_e6"] -= allocation
+            allocated_cash_e6 += allocation
+            remaining -= take
+        if remaining:
+            raise RiskInvariantError(
+                "closing quantity exceeds FIFO entry basis"
+            )
+        return allocated_cash_e6
+
+    result_sha256 = _text(
+        "result_sha256",
+        result.get("result_sha256"),
+    )
+    slices: list[tuple[int, int, str, str]] = []
+    for fill in sorted(
+        exit_fills,
+        key=lambda fill: (
+            fill.timestamp_us,
+            fill.fill_id,
+        ),
+    ):
+        pnl_e6 = (
+            consume_entry_basis(fill.quantity_e4)
+            + cash_by_fill[fill.fill_id]
+        )
+        occurred_at_ns = fill.timestamp_us * 1_000
+        source_sha256 = canonical_sha256(
+            {
+                "result_sha256": result_sha256,
+                "closure_kind": "EXIT",
+                "closure_id": fill.fill_id,
+                "occurred_at_ns": occurred_at_ns,
+                "realized_pnl_e6": pnl_e6,
+            }
+        )
+        slices.append(
+            (
+                occurred_at_ns,
+                pnl_e6,
+                source_sha256,
+                f"exit:{fill.fill_id}",
+            )
+        )
+
+    remaining_quantity_e4 = sum(
+        lot["remaining_quantity_e4"] for lot in lots
+    )
+    if remaining_quantity_e4:
+        if terminal_decision is None or not terminal_decision.closes_position:
+            raise RiskInvariantError(
+                "remaining entry basis lacks finalized settlement"
+            )
+        if len(settlement_cashflows) != 1:
+            raise RiskInvariantError(
+                "settled path must contain one settlement cashflow"
+            )
+        remaining_basis_e6 = consume_entry_basis(
+            remaining_quantity_e4
+        )
+        settlement_cashflow = settlement_cashflows[0]
+        pnl_e6 = remaining_basis_e6 + settlement_cashflow.amount_e6
+        occurred_at_ns = terminal_decision.record.observed_at_ns
+        source_sha256 = canonical_sha256(
+            {
+                "result_sha256": result_sha256,
+                "closure_kind": "SETTLEMENT",
+                "closure_id": terminal_decision.record.settlement_id,
+                "occurred_at_ns": occurred_at_ns,
+                "realized_pnl_e6": pnl_e6,
+            }
+        )
+        slices.append(
+            (
+                occurred_at_ns,
+                pnl_e6,
+                source_sha256,
+                (
+                    "settlement:"
+                    f"{terminal_decision.record.settlement_id}"
+                ),
+            )
+        )
+    elif settlement_cashflows:
+        raise RiskInvariantError(
+            "flat exit path contains an unused settlement cashflow"
+        )
+
+    if any(
+        lot["remaining_quantity_e4"] or lot["remaining_cash_e6"]
+        for lot in lots
+    ):
+        raise RiskInvariantError("FIFO entry basis did not fully reconcile")
+    expected_net_pnl_e6 = _plain_int(
+        "net_pnl_e6",
+        result.get("net_pnl_e6"),
+    )
+    if sum(row[1] for row in slices) != expected_net_pnl_e6:
+        raise RiskInvariantError(
+            "timed realized PnL slices do not reconcile to path result"
+        )
+    return tuple(slices)
+
+
+def _replay_risk_lifecycle(
+    *,
+    limits: RiskLimits,
+    run_id: str,
+    intent_context: Mapping[
+        str,
+        tuple[StrategyDecision, NormalizedStateRow, Any],
+    ],
+    excluded_intents: set[str],
+    entry_by_order: Mapping[str, Sequence[FillSlice]],
+    trade_sources: Mapping[str, str],
+    exit_batches: Mapping[str, FillBatch],
+    snapshot_sources: Mapping[str, str],
+    closures: Mapping[str, Mapping[str, Any]],
+    settlements: Mapping[str, Mapping[str, Any]],
+    pnl_ledgers: Mapping[str, PnLLedger],
+    result_by_path: Mapping[str, Mapping[str, Any]],
+    latency: Mapping[str, int],
+) -> tuple[RiskLedger, list[dict[str, str]]]:
+    """Replay exact risk events in causal time order.
+
+    Fill allocation is computed before this replay.  If replay says an order
+    should not have been admitted, the allocation would have to be recomputed.
+    The runner therefore blocks the whole run instead of assuming the same
+    public trade or L2 allocation remains available.
+    """
+
+    ledger = RiskLedger(limits)
+    blockers: list[dict[str, str]] = []
+    events: list[
+        tuple[int, int, str, str, str, Mapping[str, Any]]
+    ] = []
+    expected_reservations: set[str] = set()
+
+    def add(
+        occurred_at_ns: int,
+        priority: int,
+        event_id: str,
+        kind: str,
+        reservation_id: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        events.append(
+            (
+                occurred_at_ns,
+                priority,
+                event_id,
+                kind,
+                reservation_id,
+                payload,
+            )
+        )
+
+    for intent_id, (decision, row, intent) in intent_context.items():
+        if intent_id in excluded_intents:
+            continue
+        path_id = _path_id(run_id, row.row_id, intent_id)
+        _, price_e4 = _intent_outcome_and_price(
+            intent.side,
+            intent.price_e4,
+        )
+        request = RiskRequest(
+            reservation_id=intent_id,
+            path_id=path_id,
+            market_ticker=row.market_ticker,
+            event_ticker=row.root_event_id,
+            factor_key=f"{row.sport}:{row.root_event_id}",
+            quantity_e4=intent.quantity_e4,
+            worst_case_loss_e6=exact_trade_notional_e6(
+                price_e4,
+                intent.quantity_e4,
+            ),
+            requested_at_ns=row.decision_ts_ns,
+            source_sha256=decision.sha256,
+        )
+        expected_reservations.add(intent_id)
+        # Effective closure and realized loss at an equal timestamp must be
+        # known before a new decision is admitted.
+        add(
+            row.decision_ts_ns,
+            30,
+            f"reserve:{intent_id}",
+            "RESERVE",
+            intent_id,
+            {"request": request},
+        )
+
+        entry_fills = tuple(entry_by_order.get(intent_id, ()))
+        entry_quantity_e4 = sum(fill.quantity_e4 for fill in entry_fills)
+        for fill in entry_fills:
+            add(
+                fill.timestamp_us * 1_000,
+                40,
+                f"risk-entry:{fill.fill_id}",
+                "FILL",
+                intent_id,
+                {
+                    "quantity_e4": fill.quantity_e4,
+                    "source_sha256": trade_sources[fill.source_id],
+                },
+            )
+        unfilled_quantity_e4 = intent.quantity_e4 - entry_quantity_e4
+        if unfilled_quantity_e4 < 0:
+            blockers.append(
+                _blocker(
+                    "RISK_LIFECYCLE_REPLAY_FAILED",
+                    "RISK",
+                    f"{intent_id}: entry fills exceed reserved quantity",
+                )
+            )
+            continue
+        if unfilled_quantity_e4:
+            add(
+                (
+                    row.decision_ts_ns
+                    + intent.expire_after_ms * 1_000_000
+                    + latency["CANCEL"]
+                ),
+                50,
+                f"risk-cancel-unfilled:{intent_id}",
+                "CANCEL",
+                intent_id,
+                {
+                    "quantity_e4": unfilled_quantity_e4,
+                    "source_sha256": decision.sha256,
+                },
+            )
+
+        batch = exit_batches.get(path_id)
+        exit_fills = tuple(batch.fills) if batch is not None else ()
+        exit_quantity_e4 = sum(fill.quantity_e4 for fill in exit_fills)
+        closure = closures.get(intent_id)
+        for fill in exit_fills:
+            if closure is None:
+                blockers.append(
+                    _blocker(
+                        "RISK_LIFECYCLE_REPLAY_FAILED",
+                        "RISK",
+                        f"{intent_id}: exit fill has no closure authority",
+                    )
+                )
+                continue
+            snapshot_id = _text(
+                "exit_snapshot_id",
+                closure.get("exit_snapshot_id"),
+            )
+            add(
+                fill.timestamp_us * 1_000,
+                10,
+                f"risk-exit:{fill.fill_id}",
+                "EXIT",
+                intent_id,
+                {
+                    "quantity_e4": fill.quantity_e4,
+                    "source_sha256": snapshot_sources[snapshot_id],
+                },
+            )
+
+        residual_quantity_e4 = entry_quantity_e4 - exit_quantity_e4
+        terminal_decision = None
+        if (
+            residual_quantity_e4 > 0
+            and closure is not None
+            and closure.get("settlement_id") is not None
+        ):
+            settlement_id = _text(
+                "settlement_id",
+                closure.get("settlement_id"),
+            )
+            outcome_side, _ = _intent_outcome_and_price(
+                intent.side,
+                intent.price_e4,
+            )
+            record = _settlement_record(
+                settlements[settlement_id],
+                outcome=Outcome(outcome_side.value),
+            )
+            terminal_decision = classify_settlement(record)
+            add(
+                record.observed_at_ns,
+                10,
+                f"risk-settlement:{intent_id}:{settlement_id}",
+                "SETTLEMENT",
+                intent_id,
+                {"decision": terminal_decision},
+            )
+
+        result = result_by_path.get(path_id)
+        if result is not None and entry_quantity_e4 > 0:
+            try:
+                pnl_ledger = pnl_ledgers[path_id]
+                realized_slices = _lot_matched_realized_pnl(
+                    pnl_ledger=pnl_ledger,
+                    entry_fills=entry_fills,
+                    exit_fills=exit_fills,
+                    terminal_decision=terminal_decision,
+                    result=result,
+                )
+            except (
+                KeyError,
+                RiskInvariantError,
+                RunnerContractError,
+                ValueError,
+            ) as exc:
+                blockers.append(
+                    _blocker(
+                        "RISK_REALIZED_PNL_ATTRIBUTION_FAILED",
+                        "RISK",
+                        f"{intent_id}: {exc}",
+                    )
+                )
+                continue
+            for (
+                realized_at_ns,
+                pnl_e6,
+                source_sha256,
+                slice_id,
+            ) in realized_slices:
+                add(
+                    realized_at_ns,
+                    20,
+                    f"risk-realized:{path_id}:{slice_id}",
+                    "REALIZED_PNL",
+                    intent_id,
+                    {
+                        "path_id": path_id,
+                        "pnl_e6": pnl_e6,
+                        "source_sha256": source_sha256,
+                    },
+                )
+
+    rejected_reservations: set[str] = set()
+    admitted_reservations: set[str] = set()
+    for (
+        occurred_at_ns,
+        _,
+        event_id,
+        kind,
+        reservation_id,
+        payload,
+    ) in sorted(events, key=lambda event: event[:3]):
+        if reservation_id in rejected_reservations:
+            continue
+        try:
+            if kind == "RESERVE":
+                ledger.reserve(
+                    payload["request"],
+                    event_id=event_id,
+                )
+                admitted_reservations.add(reservation_id)
+            elif kind == "FILL":
+                ledger.record_fill(
+                    reservation_id,
+                    quantity_e4=payload["quantity_e4"],
+                    event_id=event_id,
+                    occurred_at_ns=occurred_at_ns,
+                    source_sha256=payload["source_sha256"],
+                )
+            elif kind == "CANCEL":
+                ledger.record_cancel(
+                    reservation_id,
+                    quantity_e4=payload["quantity_e4"],
+                    event_id=event_id,
+                    occurred_at_ns=occurred_at_ns,
+                    source_sha256=payload["source_sha256"],
+                )
+            elif kind == "EXIT":
+                ledger.record_exit(
+                    reservation_id,
+                    quantity_e4=payload["quantity_e4"],
+                    event_id=event_id,
+                    occurred_at_ns=occurred_at_ns,
+                    source_sha256=payload["source_sha256"],
+                )
+            elif kind == "SETTLEMENT":
+                ledger.record_settlement(
+                    reservation_id,
+                    decision=payload["decision"],
+                    event_id=event_id,
+                )
+            elif kind == "REALIZED_PNL":
+                ledger.record_realized_pnl(
+                    path_id=payload["path_id"],
+                    pnl_e6=payload["pnl_e6"],
+                    event_id=event_id,
+                    occurred_at_ns=occurred_at_ns,
+                    source_sha256=payload["source_sha256"],
+                )
+            else:
+                raise RiskInvariantError(
+                    f"unknown risk replay event {kind}"
+                )
+        except RiskLimitExceeded as exc:
+            rejected_reservations.add(reservation_id)
+            code = (
+                "RISK_DAILY_LOSS_CHANGED_ADMISSION"
+                if "daily realized loss gate" in str(exc)
+                else "RISK_LIMIT_CHANGED_ADMISSION"
+            )
+            blockers.append(
+                _blocker(
+                    code,
+                    "RISK",
+                    (
+                        f"{reservation_id}: {exc}; preallocated fills "
+                        "cannot be safely reused"
+                    ),
+                )
+            )
+        except (
+            KeyError,
+            RiskInvariantError,
+            RunnerContractError,
+            ValueError,
+        ) as exc:
+            blockers.append(
+                _blocker(
+                    "RISK_LIFECYCLE_REPLAY_FAILED",
+                    "RISK",
+                    f"{reservation_id}/{event_id}: {exc}",
+                )
+            )
+            rejected_reservations.add(reservation_id)
+
+    missing_reservations = (
+        expected_reservations
+        - admitted_reservations
+        - rejected_reservations
+    )
+    if missing_reservations:
+        blockers.append(
+            _blocker(
+                "RISK_LIFECYCLE_REPLAY_FAILED",
+                "RISK",
+                "unreplayed reservations: "
+                + ",".join(sorted(missing_reservations)),
+            )
+        )
+    for reservation_id in sorted(admitted_reservations):
+        if reservation_id in rejected_reservations:
+            continue
+        try:
+            snapshot = ledger.reservation(reservation_id)
+        except RiskInvariantError as exc:
+            blockers.append(
+                _blocker(
+                    "RISK_LIFECYCLE_REPLAY_FAILED",
+                    "RISK",
+                    f"{reservation_id}: {exc}",
+                )
+            )
+            continue
+        if snapshot.held_risk_e6 != 0:
+            blockers.append(
+                _blocker(
+                    "RISK_LIFECYCLE_OPEN_EXPOSURE",
+                    "RISK",
+                    (
+                        f"{reservation_id}: held_risk_e6="
+                        f"{snapshot.held_risk_e6}"
+                    ),
+                )
+            )
+    return ledger, blockers
+
+
 def _receipt(
     *,
     run_id: str,
@@ -1699,7 +2267,7 @@ def run_fixture(
 
     passive_orders: list[PassiveOrder] = []
     intent_context: dict[str, tuple[StrategyDecision, NormalizedStateRow, Any]] = {}
-    risk_ledger = RiskLedger(risk_limits) if risk_limits is not None else None
+    risk_ledger: RiskLedger | None = None
     risk_rejected_intents: set[str] = set()
     root_quantity: dict[str, int] = {}
     intent_rows = sorted(
@@ -1743,40 +2311,8 @@ def run_fixture(
                     )
                 )
                 continue
-            if risk_ledger is None:
+            if risk_limits is None:
                 risk_rejected_intents.add(intent.intent_id)
-                continue
-            try:
-                risk_ledger.reserve(
-                    RiskRequest(
-                        reservation_id=intent.intent_id,
-                        path_id=path_id,
-                        market_ticker=row.market_ticker,
-                        event_ticker=row.root_event_id,
-                        factor_key=f"{row.sport}:{row.root_event_id}",
-                        quantity_e4=intent.quantity_e4,
-                        worst_case_loss_e6=exact_trade_notional_e6(
-                            price_e4,
-                            intent.quantity_e4,
-                        ),
-                        requested_at_ns=row.decision_ts_ns,
-                        source_sha256=decision.sha256,
-                    ),
-                    event_id=f"reserve:{intent.intent_id}",
-                )
-            except (
-                RiskInvariantError,
-                RiskLimitExceeded,
-                ValueError,
-            ) as exc:
-                risk_rejected_intents.add(intent.intent_id)
-                blockers.append(
-                    _blocker(
-                        "RISK_LEDGER_RESERVATION_REJECTED",
-                        "RISK",
-                        f"{intent.intent_id}: {exc}",
-                    )
-                )
                 continue
             root_quantity[row.root_event_id] = prospective_root_quantity
             passive_orders.append(
@@ -2258,6 +2794,48 @@ def run_fixture(
                     diagnostic={
                         "ledger_sha256": ledger.deterministic_sha256,
                     },
+                )
+            )
+
+    if risk_limits is not None:
+        result_by_path = {
+            row["path_id"]: row["result"]
+            for row in path_rows
+            if (
+                row.get("kind") == "STRATEGY"
+                and row.get("state") == PATH_COMPLETE
+                and isinstance(row.get("result"), Mapping)
+            )
+        }
+        try:
+            risk_ledger, risk_replay_blockers = _replay_risk_lifecycle(
+                limits=risk_limits,
+                run_id=run_id,
+                intent_context=intent_context,
+                excluded_intents=risk_rejected_intents,
+                entry_by_order=entry_by_order,
+                trade_sources=trade_sources,
+                exit_batches=exit_batches,
+                snapshot_sources=snapshot_sources,
+                closures=closures,
+                settlements=settlements,
+                pnl_ledgers=ledgers,
+                result_by_path=result_by_path,
+                latency=latency,
+            )
+            blockers.extend(risk_replay_blockers)
+        except (
+            KeyError,
+            RiskInvariantError,
+            RunnerContractError,
+            ValueError,
+        ) as exc:
+            risk_ledger = RiskLedger(risk_limits)
+            blockers.append(
+                _blocker(
+                    "RISK_LIFECYCLE_REPLAY_FAILED",
+                    "RISK",
+                    str(exc),
                 )
             )
 

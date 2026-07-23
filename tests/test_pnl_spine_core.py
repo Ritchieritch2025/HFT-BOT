@@ -630,6 +630,31 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(4_200, result.fee_cost_e6)
         self.assertEqual(395_800, result.net_pnl_e6)
 
+    def test_nonfinal_status_cannot_self_declare_finalized_payout(self) -> None:
+        for status in (
+            SettlementStatus.PROVISIONAL,
+            SettlementStatus.POSTPONED,
+            SettlementStatus.VOID,
+            SettlementStatus.CANCELED,
+            SettlementStatus.RETIRED,
+            SettlementStatus.UNKNOWN,
+        ):
+            with self.subTest(status=status.value):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "exactly for FINALIZED status",
+                ):
+                    SettlementRecord(
+                        settlement_id=f"caller-finalized-{status.value}",
+                        market_ticker="KXSPORTS-GAME-YES",
+                        status=status,
+                        finalized=True,
+                        settlement_value_e4=10_000,
+                        observed_at_ns=30,
+                        revision=1,
+                        source_sha256=SHA_C,
+                    )
+
     def test_explicit_no_fill_path_retains_zero(self) -> None:
         ledger = PnLLedger(path_spec(), FeeSchedule(()))
         ledger.close_no_position(
@@ -754,6 +779,107 @@ class RiskLedgerTests(unittest.TestCase):
             ledger.reserve(self.request(), event_id="reserve")
         self.assertEqual(0, ledger.total_exposure_e6)
         self.assertEqual(before, ledger.deterministic_sha256)
+
+    def test_daily_loss_gate_resets_by_utc_date(self) -> None:
+        day_ns = 86_400 * 1_000_000_000
+        ledger = RiskLedger(self.limits())
+        ledger.record_realized_pnl(
+            path_id="closed-loss",
+            pnl_e6=-500_000,
+            event_id="loss-day-one",
+            occurred_at_ns=day_ns + 1,
+            source_sha256=SHA_A,
+        )
+        same_day = replace(
+            self.request("same-day"),
+            requested_at_ns=day_ns + 2,
+        )
+        with self.assertRaisesRegex(
+            RiskLimitExceeded,
+            "daily realized loss gate is closed",
+        ):
+            ledger.reserve(same_day, event_id="reserve-same-day")
+
+        next_day = replace(
+            self.request("next-day"),
+            requested_at_ns=2 * day_ns,
+        )
+        ledger.reserve(next_day, event_id="reserve-next-day")
+        self.assertEqual(100_000, ledger.total_exposure_e6)
+        self.assertEqual(
+            {"1970-01-02": -500_000},
+            ledger.realized_pnl_by_utc_date_e6,
+        )
+
+    def test_open_exposure_survives_utc_day_rollover(self) -> None:
+        day_ns = 86_400 * 1_000_000_000
+        ledger = RiskLedger(self.limits(max_total_e6=150_000))
+        first = replace(
+            self.request("cross-midnight"),
+            requested_at_ns=day_ns - 1,
+        )
+        ledger.reserve(first, event_id="reserve-before-midnight")
+        next_day = replace(
+            self.request("new-day"),
+            requested_at_ns=day_ns,
+        )
+        with self.assertRaisesRegex(
+            RiskLimitExceeded,
+            "risk limits exceeded: total",
+        ):
+            ledger.reserve(next_day, event_id="reserve-after-midnight")
+        self.assertEqual(100_000, ledger.total_exposure_e6)
+
+    def test_daily_loss_breach_latches_after_later_profit_recovery(self) -> None:
+        day_ns = 86_400 * 1_000_000_000
+        ledger = RiskLedger(self.limits())
+        ledger.reserve(
+            replace(
+                self.request("loss-path"),
+                requested_at_ns=day_ns + 1,
+            ),
+            event_id="reserve-loss-path",
+        )
+        ledger.reserve(
+            replace(
+                self.request("profit-path"),
+                requested_at_ns=day_ns + 2,
+            ),
+            event_id="reserve-profit-path",
+        )
+        ledger.record_realized_pnl(
+            path_id="loss-path",
+            pnl_e6=-600_000,
+            event_id="realize-loss",
+            occurred_at_ns=day_ns + 3,
+            source_sha256=SHA_A,
+        )
+        ledger.record_realized_pnl(
+            path_id="profit-path",
+            pnl_e6=200_000,
+            event_id="realize-profit",
+            occurred_at_ns=day_ns + 4,
+            source_sha256=SHA_B,
+        )
+        self.assertEqual(
+            {"1970-01-02": -400_000},
+            ledger.realized_pnl_by_utc_date_e6,
+        )
+        self.assertEqual(
+            frozenset({"1970-01-02"}),
+            ledger.daily_loss_breached_utc_dates,
+        )
+        with self.assertRaisesRegex(
+            RiskLimitExceeded,
+            "daily realized loss gate is closed",
+        ):
+            ledger.reserve(
+                replace(
+                    self.request("later-path"),
+                    requested_at_ns=day_ns + 5,
+                ),
+                event_id="reserve-after-recovery",
+            )
 
 
 if __name__ == "__main__":
