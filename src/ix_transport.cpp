@@ -3,7 +3,25 @@
 #include "ixwebsocket/IXWebSocket.h"
 #include "ixwebsocket/IXWebSocketHttpHeaders.h"
 
+#include <cstdlib>
+
 namespace kalshi {
+
+namespace {
+// B3 (opt-in): client-side keepalive ping interval, in whole seconds.
+//   0 (default) = OFF = the historic behaviour (Kalshi pings us; we only pong).
+//   >0          = the client also sends WS pings every N seconds, so a dead
+//                 connection is detected fast and NAT/idle drops are held off.
+// Transport-layer only: pings/pongs are never recorded and change no data
+// structure or output field.  Independently toggleable + rollback-able by env,
+// orthogonal to B2 (KALSHI_SHADOW_RING_CAPACITY).
+int client_ping_interval_secs() {
+  const char* v = std::getenv("KALSHI_WS_PING_INTERVAL_SECS");
+  if (!v || !*v) return 0;
+  const int secs = std::atoi(v);
+  return secs > 0 ? secs : 0;  // any non-positive / unparsable => OFF
+}
+}  // namespace
 
 IxWebSocketTransport::IxWebSocketTransport() : ws_(std::make_unique<ix::WebSocket>()) {
   ws_->disablePerMessageDeflate();  // deflate off at runtime (compiled out too)
@@ -11,7 +29,8 @@ IxWebSocketTransport::IxWebSocketTransport() : ws_(std::make_unique<ix::WebSocke
   ws_->enableAutomaticReconnection();
   ws_->setMinWaitBetweenReconnectionRetries(1000);    // 1s
   ws_->setMaxWaitBetweenReconnectionRetries(30000);   // 30s cap
-  ws_->setPingInterval(0);  // Kalshi pings us; we only pong (auto) + watch silence
+  // B3: default 0 keeps the historic "pong-only" behaviour; opt in via env.
+  ws_->setPingInterval(client_ping_interval_secs());
 }
 
 IxWebSocketTransport::~IxWebSocketTransport() {
