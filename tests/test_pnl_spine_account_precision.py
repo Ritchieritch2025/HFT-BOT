@@ -32,6 +32,7 @@ def _fixture(
     *,
     discriminating: bool = True,
     include_observed_balance: bool = True,
+    include_direct_account_field: bool = False,
 ):
     order_1 = "order-1"
     order_2 = "order-2"
@@ -83,6 +84,9 @@ def _fixture(
             },
         }
     }
+    if include_direct_account_field:
+        monitor["orders"][order_1]["subaccount_number"] = 0
+        monitor["orders"][order_2]["subaccount_number"] = 0
     private_path = tmp_path / "private.json"
     monitor_path = tmp_path / "monitor.json"
     return (
@@ -143,6 +147,29 @@ def test_fee_principal_arithmetic_without_posted_balance_is_inconclusive(
     assert receipt["precision_blocker"].startswith(
         "MISSING_ACTUAL_POSTED_BALANCE_DELTA"
     )
+
+
+def test_official_direct_order_field_proves_direct_precision(
+    tmp_path: Path,
+):
+    private, private_sha, monitor, monitor_sha = _fixture(
+        tmp_path,
+        include_observed_balance=False,
+        include_direct_account_field=True,
+    )
+    receipt = derive_account_precision(
+        private_fill_receipt=private,
+        private_fill_receipt_sha256=private_sha,
+        production_monitor_state=monitor,
+        production_monitor_state_sha256=monitor_sha,
+    )
+    assert receipt["state"] == "PASS"
+    assert receipt["account_balance_precision"] == "DIRECT_CENTICENT"
+    assert receipt["account_class_authority"] == (
+        "AUTHENTICATED_ORDER_SUBACCOUNT_FIELD_OFFICIAL_CONTRACT"
+    )
+    assert receipt["valid_direct_subaccount_field_order_count"] == 2
+    assert receipt["observed_balance_change_fill_count"] == 0
 
 
 def test_sha_drift_and_symlink_fail_closed(tmp_path: Path):

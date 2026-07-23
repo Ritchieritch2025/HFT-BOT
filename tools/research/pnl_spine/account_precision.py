@@ -10,10 +10,14 @@ The input pair is deliberately private and read-only:
 
 The output contains no order, fill, market, event, or series identifier.
 Principal and ``fee_cost`` arithmetic alone is explicitly diagnostic: it does
-not reveal the exchange's subsequently posted balance delta.  A precision
-claim is emitted only for rows that also carry a separately captured actual
-``observed_balance_change_e6``.  Without that field the receipt is
-``INCONCLUSIVE`` rather than guessing an account class.
+not reveal the exchange's subsequently posted balance delta.  A direct-member
+precision claim requires either:
+
+* an actual posted ``observed_balance_change_e6`` on every joined fill; or
+* the authenticated order response's documented ``subaccount_number`` field
+  on every observed order.  Kalshi's API changelog identifies that field as
+  the direct-user order-response field, and the fee-rounding documentation
+  maps direct members to the centicent target precision.
 """
 
 from __future__ import annotations
@@ -136,6 +140,7 @@ def derive_account_precision(
         raise AccountPrecisionError("private fill_count contradicts rows")
 
     order_by_ref: dict[str, Mapping[str, Any]] = {}
+    valid_direct_subaccount_orders = 0
     for raw_order in orders.values():
         if not isinstance(raw_order, Mapping):
             raise AccountPrecisionError("monitor order is malformed")
@@ -146,6 +151,12 @@ def derive_account_precision(
         if order_ref in order_by_ref:
             raise AccountPrecisionError("duplicate monitor order reference")
         order_by_ref[order_ref] = raw_order
+        subaccount_number = raw_order.get("subaccount_number")
+        if (
+            type(subaccount_number) is int
+            and 0 <= subaccount_number <= 32
+        ):
+            valid_direct_subaccount_orders += 1
 
     matched = 0
     derived_centicent_aligned = 0
@@ -225,10 +236,17 @@ def derive_account_precision(
 
     if matched == 0:
         raise AccountPrecisionError("no actual fills joined to canonical orders")
-    direct_confirmed = (
+    posted_balance_confirmed = (
         observed_balance_change_count == matched
         and observed_centicent_aligned == matched
         and observed_cent_aligned < matched
+    )
+    order_contract_confirmed = (
+        len(order_by_ref) > 0
+        and valid_direct_subaccount_orders == len(order_by_ref)
+    )
+    direct_confirmed = (
+        posted_balance_confirmed or order_contract_confirmed
     )
     state = "PASS" if direct_confirmed else "INCONCLUSIVE"
     precision = "DIRECT_CENTICENT" if direct_confirmed else None
@@ -246,6 +264,15 @@ def derive_account_precision(
             if direct_confirmed
             else None
         ),
+        "account_class_authority": (
+            "AUTHENTICATED_ORDER_SUBACCOUNT_FIELD_OFFICIAL_CONTRACT"
+            if order_contract_confirmed
+            else (
+                "ACTUAL_POSTED_BALANCE_CHANGE"
+                if posted_balance_confirmed
+                else None
+            )
+        ),
         "method": (
             "SHA256_JOIN_REDACTED_AUTHENTICATED_FILL_TO_CANONICAL_ORDER;"
             "DERIVED_SIGNED_PRINCIPAL_MINUS_ACTUAL_FEE_COST;"
@@ -253,6 +280,9 @@ def derive_account_precision(
         ),
         "official_rule_url": (
             "https://docs.kalshi.com/getting_started/fee_rounding"
+        ),
+        "official_account_contract_url": (
+            "https://docs.kalshi.com/changelog"
         ),
         "source_bindings": {
             "private_fill_receipt_sha256": private_fill_receipt_sha256,
@@ -263,6 +293,9 @@ def derive_account_precision(
         },
         "private_fill_count": len(fills),
         "monitor_order_count": len(order_by_ref),
+        "valid_direct_subaccount_field_order_count": (
+            valid_direct_subaccount_orders
+        ),
         "matched_actual_fill_count": matched,
         "buy_fill_count": buy_count,
         "sell_fill_count": sell_count,
@@ -280,7 +313,10 @@ def derive_account_precision(
         "precision_blocker": (
             None
             if direct_confirmed
-            else "MISSING_ACTUAL_POSTED_BALANCE_DELTA_OR_OFFICIAL_ACCOUNT_CLASS"
+            else (
+                "MISSING_ACTUAL_POSTED_BALANCE_DELTA_OR_"
+                "OFFICIAL_DIRECT_ACCOUNT_FIELD"
+            )
         ),
         "identifiers_serialized": False,
         "credentials_serialized": False,
