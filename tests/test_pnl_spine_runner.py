@@ -369,6 +369,33 @@ def a01_row(**changes: Any) -> dict[str, Any]:
     return row
 
 
+def a11_row(**changes: Any) -> dict[str, Any]:
+    onset = NOW - 30 * SECOND
+    row: dict[str, Any] = {
+        "row_id": "a11-row",
+        "root_event_id": "KXTEST-EVENT",
+        "market_ticker": "KXTEST-EVENT-MARKET",
+        "sport": "Tennis",
+        "decision_ts_ns": NOW,
+        "features_asof_ns": NOW - SECOND,
+        "book_observed_at_ns": NOW - SECOND,
+        "tick_size_e4": 100,
+        "scheduled_start_ts_ns": NOW + 60 * MINUTE,
+        "scheduled_start_asof_ns": NOW - SECOND,
+        "best_yes_bid_e4": 4_000,
+        "best_yes_ask_e4": None,
+        "state_started_at_ns": onset,
+        "reference_mid_onset_e4": 4_200,
+        "reference_mid_onset_observed_at_ns": onset - SECOND,
+        "surviving_side_onset_e4": 4_000,
+        "update_count_60s": 5,
+        "trade_count_300s": 1,
+        "activity_burst": False,
+    }
+    row.update(changes)
+    return row
+
+
 def complete_bindings() -> RuntimeBindings:
     return RuntimeBindings(
         fee_facts_sha256=H_A,
@@ -384,6 +411,14 @@ def complete_bindings() -> RuntimeBindings:
 
 def a01_intent_ids(row: dict[str, Any]) -> tuple[str, ...]:
     decision = FrozenExperimentAdapters(freeze()).evaluate_a01(
+        NormalizedStateRow(**row),
+        complete_bindings(),
+    )
+    return tuple(intent.intent_id for intent in decision.intents)
+
+
+def a11_intent_ids(row: dict[str, Any]) -> tuple[str, ...]:
+    decision = FrozenExperimentAdapters(freeze()).evaluate_a11(
         NormalizedStateRow(**row),
         complete_bindings(),
     )
@@ -1039,6 +1074,43 @@ def test_b09_untrained_is_retained_and_explicitly_blocked():
     )
     assert any(
         row["kind"] == "STRATEGY" and row["state"] == PNL_BLOCKED
+        for row in receipt["path_rows"]
+    )
+
+
+def test_a11_cannot_complete_without_exact_post_decision_cancel_stream():
+    fixture = base_fixture(path_count=2)
+    row = a11_row()
+    (intent_id,) = a11_intent_ids(row)
+    fixture["experiment_id"] = "A11-ONE-SIDED-PROVISION"
+    fixture["rows"] = [row]
+    fixture["public_trades"] = [fixture["public_trades"][1]]
+    fixture["closures"] = [
+        {
+            "intent_id": intent_id,
+            "exit_snapshot_id": "exit-book",
+            "exit_decision_ts_ns": NOW + 10 * SECOND,
+            "exit_limit_price_e4": 1,
+            "maximum_snapshot_age_us": 10,
+            "settlement_id": None,
+        }
+    ]
+    terminal = terminal_receipt(2)
+    fixture["preflight_inputs"]["terminal_coverage"] = terminal
+    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
+        terminal
+    )
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert blocker_codes(receipt) == {
+        "A11_POST_DECISION_CANCEL_STREAM_UNAVAILABLE"
+    }
+    assert all(
+        row["state"] == "PATH_COMPLETE"
         for row in receipt["path_rows"]
     )
 

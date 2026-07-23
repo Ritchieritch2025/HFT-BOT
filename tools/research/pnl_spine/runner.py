@@ -1409,6 +1409,18 @@ def run_fixture(
         )
         for row in preflight["net_pnl"]["blockers"]
     ]
+    if experiment_id == "A11-ONE-SIDED-PROVISION":
+        blockers.append(
+            _blocker(
+                "A11_POST_DECISION_CANCEL_STREAM_UNAVAILABLE",
+                "EXECUTION",
+                (
+                    "frozen A11 requires an exact-bound post-decision "
+                    "lifecycle/cancel-event stream; no reviewed schema and "
+                    "event engine is installed"
+                ),
+            )
+        )
     trusted_authority_sha256: str | None = None
     try:
         trusted_authority_sha256 = _validate_trusted_authority(
