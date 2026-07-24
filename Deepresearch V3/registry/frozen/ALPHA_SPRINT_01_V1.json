@@ -1,0 +1,163 @@
+{
+  "schema_version": "deep03-alpha-sprint-v1",
+  "sprint_id": "ALPHA-SPRINT-01",
+  "decision_date": "2026-07-24",
+  "objective": "Prioritize monetizable information-edge models over standalone spread capture.",
+  "authority": {
+    "read_only_research": true,
+    "shadow_evaluation": true,
+    "external_public_market_data_capture": true,
+    "financial_actions": false,
+    "live_orders": false,
+    "production_mutations": false
+  },
+  "a01_role": {
+    "classification": "SHARED_PNL_EXECUTION_ACCEPTANCE_ONLY",
+    "continue": [
+      "exact_fee_binding",
+      "measured_latency",
+      "strict_fill",
+      "complete_exit",
+      "cash_conservation",
+      "zero_opportunity_denominator"
+    ],
+    "stop": [
+      "standalone_alpha_optimization",
+      "extended_proof_that_displayed_spread_exists"
+    ]
+  },
+  "shared_pnl_contract": {
+    "baseline": "NO_TRADE_SAME_OPPORTUNITIES",
+    "net_pnl": "cash_in-cash_out-exact_fees-variable_costs+terminal_value",
+    "incremental_pnl": "net_pnl_strategy-net_pnl_baseline",
+    "markout_is_cash_pnl": false,
+    "retain_zero_trigger": true,
+    "retain_zero_fill": true,
+    "unknown_value_policy": "BLOCK_NOT_ZERO"
+  },
+  "experiments": [
+    {
+      "priority": 1,
+      "experiment_id": "AS01-ORDER-FLOW-CONTINUATION",
+      "registry_lineage": [
+        "B01-MOMENTUM-CONTINUATION",
+        "A15-FAIR-MICROPRICE-PAST-FLOW"
+      ],
+      "edge_source": "Past-only signed trades, quote velocity, depth depletion and refill imbalance lead the next executable Kalshi price.",
+      "inputs_available_now": [
+        "KALSHI_TRADES",
+        "KALSHI_L1",
+        "KALSHI_L2_CLEAN_DATES"
+      ],
+      "inputs_missing": [
+        "EXACT_FEE_BINDING",
+        "MEASURED_ENTRY_EXIT_LATENCY"
+      ],
+      "signal": "signed_flow_score implies a same-direction executable move above round-trip costs and safety buffer",
+      "action": "one-contract BUY_YES or BUY_NO marketable limit; exit at frozen horizon or reversal",
+      "fastest_validation": "TRAIN 2026-07-12 and 2026-07-15; sprint-held-out validation 2026-07-17 (not a globally untouched confirmation set); simple regularized baseline before complex models",
+      "failure": "validation instability or nonpositive executable fee-after pathwise PnL",
+      "first_receipt_deadline_hours": 8
+    },
+    {
+      "priority": 2,
+      "experiment_id": "AS02-CROSS-MARKET-DEVIATION",
+      "registry_lineage": [
+        "A10-CROSS-MARKET-QUOTE-SPILLOVER",
+        "C04-SAME-EVENT-FAMILY-COHERENCE",
+        "C06-WITHIN-EVENT-LEADLAG",
+        "C07-STALE-LEG"
+      ],
+      "edge_source": "Mapped same-event leaders and payout-linked siblings update asynchronously or violate a statewise executable constraint.",
+      "inputs_available_now": [
+        "KALSHI_L1",
+        "KALSHI_L2_CLEAN_DATES",
+        "PARTIAL_CANONICAL_EVENT_MARKET_GRAPH"
+      ],
+      "inputs_missing": [
+        "EXHAUSTIVE_PAYOUT_MAPPING_FOR_ALL_CASH_ACTIONS",
+        "MULTI_LEG_EXECUTION_ENGINE",
+        "EXACT_FEE_BINDING",
+        "MEASURED_MULTI_LEG_LATENCY"
+      ],
+      "signal": "mapped leader-follower lag or payout residual remains above all-leg cost and orphan-risk buffer",
+      "action": "first revision defensive cancel/reprice only; cash trade requires complete payout-verified vector",
+      "fastest_validation": "lead-lag event study on verified same-event subset with time-reversal and unrelated-root placebos",
+      "failure": "placebos match, mapping is incomplete, or executable residual is nonpositive",
+      "first_receipt_deadline_hours": 12
+    },
+    {
+      "priority": 3,
+      "experiment_id": "AS03-CRYPTO-EXTERNAL-ANCHOR",
+      "registry_lineage": [
+        "NEW_NON_SPORTS_PROGRAM",
+        "F17-CRYPTO-SPOT-ANCHOR-OUT-OF-SCOPE"
+      ],
+      "edge_source": "Settlement index and liquid external spot move before mapped Kalshi crypto contracts or imply a different digital probability.",
+      "inputs_available_now": [
+        "PUBLIC_COINBASE_MARKET_DATA",
+        "PUBLIC_KRAKEN_MARKET_DATA",
+        "PUBLIC_KALSHI_MARKET_DATA"
+      ],
+      "inputs_missing": [
+        "EXACT_CRYPTO_CONTRACT_MAPPING",
+        "CF_BENCHMARKS_FEED_AUTHORITY",
+        "PROSPECTIVE_CLOCKED_CAPTURE"
+      ],
+      "signal": "conservative index-and-volatility fair interval differs from executable Kalshi price beyond all costs and basis uncertainty",
+      "action": "one-contract Kalshi outcome only; no spot hedge or leverage in revision one; exit on convergence, reversal or timeout",
+      "fastest_validation": "24-72 hour prospective BTC/ETH capture using transparent digital-probability and naive baselines",
+      "failure": "clock-aligned lead vanishes, basis risk dominates, or fee-after executable PnL is nonpositive",
+      "first_receipt_deadline_hours": 30
+    },
+    {
+      "priority": 4,
+      "experiment_id": "AS04-EVENT-REACTION-LAG",
+      "registry_lineage": [
+        "F12-EXTERNAL-ODDS-LEADLAG",
+        "F13-EXTERNAL-SPORT-STATE",
+        "F14-PROVIDER-PRICE-LATENCY-TIER"
+      ],
+      "edge_source": "Verified external state or odds shocks reach mapped Kalshi quotes with an actionable delay.",
+      "inputs_available_now": [
+        "KALSHI_L1",
+        "KALSHI_L2_CLEAN_DATES"
+      ],
+      "inputs_missing": [
+        "LICENSED_EXTERNAL_EVENT_OR_ODDS_STREAM",
+        "PROVIDER_PUBLICATION_TIMESTAMP",
+        "VERSIONED_EXTERNAL_TO_KALSHI_MAPPING"
+      ],
+      "signal": "external probability shock remains absent from Kalshi executable price at realistic action time by more than total cost",
+      "action": "cancel stale quote first; directional one-contract entry only with exhaustive mapping; exit on catch-up, reversal or timeout",
+      "fastest_validation": "no-ML event study at 10ms through 5s with time-reversal, unrelated-event and delayed-source placebos",
+      "failure": "timing cannot be proven, placebos match, or post-latency discrepancy is nonpositive",
+      "first_receipt_deadline_hours": 48
+    },
+    {
+      "priority": 5,
+      "experiment_id": "AS05-SPORTS-REALTIME-FAIR-VALUE",
+      "registry_lineage": [
+        "F13-EXTERNAL-SPORT-STATE",
+        "F12-EXTERNAL-ODDS-LEADLAG",
+        "C05-SOCCER-POISSON"
+      ],
+      "edge_source": "Authoritative live state or consensus odds changes conditional payout probability before Kalshi fully reprices.",
+      "inputs_available_now": [
+        "KALSHI_L1",
+        "KALSHI_L2_CLEAN_DATES",
+        "KALSHI_TRADES"
+      ],
+      "inputs_missing": [
+        "LICENSED_POINT_IN_TIME_SPORTS_STATE_OR_ODDS",
+        "SPORT_SPECIFIC_CALIBRATION_HISTORY",
+        "VERSIONED_EXTERNAL_TO_KALSHI_MAPPING"
+      ],
+      "signal": "calibrated fair-value interval lies beyond executable Kalshi price after fees, impact, latency, model uncertainty and safety buffer",
+      "action": "one-contract Kalshi marketable limit; exit on fair reversal or frozen horizon; no settlement hold in revision one",
+      "fastest_validation": "single mapped market class using consensus odds fair first; direct state model second",
+      "failure": "out-of-sample calibration fails or executable fee-after edge is nonpositive",
+      "first_receipt_deadline_hours": 72
+    }
+  ]
+}
