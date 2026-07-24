@@ -616,7 +616,7 @@ def test_duplicate_json_keys_and_numeric_dollars_are_rejected() -> None:
         _parse_final_market_response(raw, expected_ticker=TICKER_A)
 
 
-@pytest.mark.parametrize("literal", [b"1.5", b"7.5"])
+@pytest.mark.parametrize("literal", [b"0.5", b"1.5", b"3.5", b"7.5"])
 def test_production_floor_strike_float_is_exact_raw_evidence(
     tmp_path: Path,
     literal: bytes,
@@ -660,27 +660,62 @@ def test_production_floor_strike_float_is_exact_raw_evidence(
     assert output["terminal_records"][0]["market_ticker"] == TICKER_A
 
 
-def test_source_numbers_are_exact_but_cannot_enter_canonical_receipts() -> None:
+def test_source_numbers_are_bounded_exact_and_cannot_enter_receipts() -> None:
     parsed = adapter.parse_strict_json(
         (
-            b'{"floor_strike":1.5,"long_decimal":'
-            b"0.10000000000000000000000000000000000001,"
-            b'"large_finite":1e309,"signed_zero":-0.0}'
+            b'{"floor_strike":1.5,'
+            b'"bounded_decimal":0.123456789012345678,'
+            b'"bounded_integer":9223372036854775807}'
         ),
         label="official response fixture",
         allow_finite_numbers=True,
     )
     assert parsed == {
         "floor_strike": Decimal("1.5"),
-        "long_decimal": Decimal(
-            "0.10000000000000000000000000000000000001"
-        ),
-        "large_finite": Decimal("1e309"),
-        "signed_zero": Decimal("-0.0"),
+        "bounded_decimal": Decimal("0.123456789012345678"),
+        "bounded_integer": 9223372036854775807,
     }
-    assert parsed["signed_zero"].is_signed()
-    with pytest.raises(TypeError, match="floats are forbidden"):
+    assert type(parsed["floor_strike"]) is Decimal
+    assert type(parsed["bounded_decimal"]) is Decimal
+    assert type(parsed["bounded_integer"]) is int
+    with pytest.raises(TypeError, match="forbidden in canonical"):
         canonical_json_bytes(parsed)
+    with pytest.raises(TypeError, match="forbidden in canonical"):
+        canonical_json_bytes({"nested": [{"binary_float": 0.5}]})
+
+
+def test_config_binds_numeric_limits_and_exact_boundary_values() -> None:
+    policy = adapter.ADAPTER_CONFIG["official_response_numeric_policy"]
+    assert policy == {
+        "sample_basis": (
+            "RETAINED_W09_666_RESPONSES_FLOATS_0.5_1.5_3.5_7.5"
+            "_WITH_SIGNED_INT64_HEADROOM"
+        ),
+        "integer_parser": "BOUNDED_PLAIN_INTEGER",
+        "noninteger_parser": "BOUNDED_EXACT_DECIMAL_NO_ROUNDING",
+        "negative_zero": "FORBIDDEN_ALL_LEXICAL_FORMS",
+        "maximum_token_length": 32,
+        "maximum_total_digits": 21,
+        "maximum_decimal_precision": 19,
+        "maximum_absolute_exponent": 18,
+        "maximum_absolute_magnitude": "9223372036854775807",
+        "promotion_to_control_or_receipt": "FORBIDDEN",
+    }
+    parsed = adapter.parse_strict_json(
+        (
+            b'{"max_integer":9223372036854775807,'
+            b'"min_symmetric_integer":-9223372036854775807,'
+            b'"max_exponent":1e18,"min_exponent":1e-18}'
+        ),
+        label="official response boundary fixture",
+        allow_finite_numbers=True,
+    )
+    assert parsed == {
+        "max_integer": 9223372036854775807,
+        "min_symmetric_integer": -9223372036854775807,
+        "max_exponent": Decimal("1e18"),
+        "min_exponent": Decimal("1e-18"),
+    }
 
 
 @pytest.mark.parametrize(
@@ -700,12 +735,88 @@ def test_nonfinite_official_numeric_values_are_rejected(raw: bytes) -> None:
         )
 
 
-def test_float_compatibility_does_not_weaken_control_json_or_duplicates() -> None:
+@pytest.mark.parametrize(
+    ("case_id", "literal"),
+    [
+        ("negative_zero_integer", b"-0"),
+        ("negative_zero_decimal", b"-0.0"),
+        ("negative_zero_decimal_long", b"-0.000"),
+        ("negative_zero_exp_zero", b"-0e0"),
+        ("negative_zero_exp_huge", b"-0e999999999"),
+        ("large_finite", b"1e309"),
+        ("huge_positive_exp", b"1e999999999"),
+        ("huge_negative_exp", b"1e-999999999"),
+        ("huge_explicit_plus_exp", b"1e+999999999"),
+        ("decimal_5000_digits", b"9" * 5000 + b".0"),
+        ("integer_4000_digits", b"9" * 4000),
+        ("integer_5000_digits", b"9" * 5000),
+    ],
+)
+def test_hostile_additive_numbers_fail_before_capture_receipt(
+    tmp_path: Path,
+    case_id: str,
+    literal: bytes,
+) -> None:
+    response = market_response(TICKER_A).replace(
+        b'"market":{',
+        b'"market":{"floor_strike":' + literal + b",",
+        1,
+    )
+    auth, auth_sha = authority()
+    url = _market_url(TICKER_A, source_tier="current")
+    output_dir = tmp_path / case_id
+    with pytest.raises(OfficialMarketAdapterError):
+        capture_markets(
+            auth,
+            authority_raw_sha256=auth_sha,
+            expected_code_sha256=adapter_code_sha256(),
+            output_dir=output_dir,
+            transport=FakeTransport({url: (200, response)}),
+            clock=FakeClock(),
+        )
+    raw_path = output_dir / "0000.0000.current.response.json"
+    assert raw_path.read_bytes() == response
+    assert not (output_dir / "CAPTURE_RECEIPT.json").exists()
+
+
+@pytest.mark.parametrize(
+    "literal",
+    [
+        b"9223372036854775808",
+        b"-9223372036854775808",
+        b"1e19",
+        b"1e-19",
+        b"0.1234567890123456789",
+        b"12345678901234567890.0",
+    ],
+)
+def test_official_numeric_envelope_boundaries_reject(literal: bytes) -> None:
+    with pytest.raises(OfficialMarketAdapterError):
+        adapter.parse_strict_json(
+            b'{"value":' + literal + b"}",
+            label="official response fixture",
+            allow_finite_numbers=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"value":0.5}',
+        b'{"value":-0.0}',
+        b'{"value":1e2}',
+        b'{"nested":{"value":1.5}}',
+    ],
+)
+def test_float_compatibility_does_not_weaken_control_json(raw: bytes) -> None:
     with pytest.raises(OfficialMarketAdapterError, match="floating-point"):
         adapter.parse_strict_json(
-            b'{"expires_at_utc":1.5}',
+            raw,
             label="authority fixture",
         )
+
+
+def test_float_compatibility_does_not_weaken_duplicate_rejection() -> None:
     with pytest.raises(OfficialMarketAdapterError, match="duplicate"):
         adapter.parse_strict_json(
             b'{"floor_strike":1.5,"floor_strike":7.5}',

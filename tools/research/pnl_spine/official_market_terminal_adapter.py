@@ -65,6 +65,14 @@ MIN_REQUEST_INTERVAL_NS = 250_000_000
 MAX_429_RETRIES_PER_ENDPOINT = 2
 MIN_RETRY_AFTER_SECONDS = 1
 MAX_RETRY_AFTER_SECONDS = 30
+OFFICIAL_NUMBER_MAX_TOKEN_LENGTH = 32
+OFFICIAL_NUMBER_MAX_TOTAL_DIGITS = 21
+OFFICIAL_NUMBER_MAX_PRECISION = 19
+OFFICIAL_NUMBER_MAX_ABSOLUTE_EXPONENT = 18
+OFFICIAL_NUMBER_MAX_ABSOLUTE_MAGNITUDE_TEXT = "9223372036854775807"
+OFFICIAL_NUMBER_MAX_ABSOLUTE_MAGNITUDE = Decimal(
+    OFFICIAL_NUMBER_MAX_ABSOLUTE_MAGNITUDE_TEXT
+)
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,199}$")
@@ -75,6 +83,9 @@ UTC_RE = re.compile(
 DOLLARS_4_RE = re.compile(r"^(?:0|1)\.\d{4}$")
 SAFE_RAW_NAME_RE = re.compile(
     r"^\d{4}\.\d{4}\.(?:current|historical)\.response\.json$"
+)
+NEGATIVE_ZERO_NUMBER_RE = re.compile(
+    r"^-0(?:\.0*)?(?:[eE][+-]?[0-9]+)?$"
 )
 
 ADAPTER_CONFIG = {
@@ -109,9 +120,25 @@ ADAPTER_CONFIG = {
     "metadata_temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
     "scheduled_start_mapping": "FORBIDDEN",
     "control_receipt_noninteger_numbers": "FORBIDDEN",
-    "official_response_noninteger_numbers": (
-        "FINITE_EXACT_DECIMAL_SOURCE_ONLY_NOT_PROMOTED"
-    ),
+    "official_response_numeric_policy": {
+        "sample_basis": (
+            "RETAINED_W09_666_RESPONSES_FLOATS_0.5_1.5_3.5_7.5"
+            "_WITH_SIGNED_INT64_HEADROOM"
+        ),
+        "integer_parser": "BOUNDED_PLAIN_INTEGER",
+        "noninteger_parser": "BOUNDED_EXACT_DECIMAL_NO_ROUNDING",
+        "negative_zero": "FORBIDDEN_ALL_LEXICAL_FORMS",
+        "maximum_token_length": OFFICIAL_NUMBER_MAX_TOKEN_LENGTH,
+        "maximum_total_digits": OFFICIAL_NUMBER_MAX_TOTAL_DIGITS,
+        "maximum_decimal_precision": OFFICIAL_NUMBER_MAX_PRECISION,
+        "maximum_absolute_exponent": (
+            OFFICIAL_NUMBER_MAX_ABSOLUTE_EXPONENT
+        ),
+        "maximum_absolute_magnitude": (
+            OFFICIAL_NUMBER_MAX_ABSOLUTE_MAGNITUDE_TEXT
+        ),
+        "promotion_to_control_or_receipt": "FORBIDDEN",
+    },
 }
 
 
@@ -122,6 +149,11 @@ class OfficialMarketAdapterError(ValueError):
 def _canonical_value(value: object) -> object:
     if value is None or isinstance(value, (str, bool)) or type(value) is int:
         return value
+    if isinstance(value, (float, Decimal)):
+        raise TypeError(
+            "floating or Decimal source numbers are forbidden in canonical "
+            "control and receipt values"
+        )
     if isinstance(value, Mapping) and all(
         isinstance(key, str) for key in value
     ):
@@ -131,10 +163,7 @@ def _canonical_value(value: object) -> object:
         }
     if isinstance(value, (list, tuple)):
         return [_canonical_value(item) for item in value]
-    raise TypeError(
-        f"unsupported canonical value {type(value).__name__}; "
-        "floats are forbidden"
-    )
+    raise TypeError(f"unsupported canonical value {type(value).__name__}")
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -221,16 +250,29 @@ def _reject_float(value: str) -> None:
     )
 
 
-def _parse_exact_finite_number(value: str) -> Decimal:
-    """Parse one JSON non-integer number without binary-float coercion.
+def _validate_bounded_official_number(value: str) -> Decimal:
+    """Validate one official-response JSON number inside the config envelope.
 
-    Official market responses contain additive numeric fields such as
-    ``floor_strike: 1.5``.  They are retained as exact ``Decimal`` values only
-    while validating the raw response.  Canonical control/receipt documents
-    continue to reject Decimal values, so an unconsumed source field cannot
-    silently cross the evidence boundary.
+    The retained W09 corpus contains additive ``floor_strike`` values
+    0.5/1.5/3.5/7.5.  The wider signed-int64 decimal envelope is deliberately
+    bounded in ``ADAPTER_CONFIG``.  Validation happens on the lexical token
+    before any Python integer conversion, binary float, rounding, or Decimal
+    context operation.
     """
 
+    if NEGATIVE_ZERO_NUMBER_RE.fullmatch(value) is not None:
+        raise OfficialMarketAdapterError(
+            f"negative-zero JSON numeric value is forbidden: {value}"
+        )
+    if len(value) > OFFICIAL_NUMBER_MAX_TOKEN_LENGTH:
+        raise OfficialMarketAdapterError(
+            "official JSON numeric token exceeds configured length"
+        )
+    total_digits = sum(character.isdigit() for character in value)
+    if total_digits > OFFICIAL_NUMBER_MAX_TOTAL_DIGITS:
+        raise OfficialMarketAdapterError(
+            "official JSON numeric token exceeds configured total digits"
+        )
     try:
         parsed = Decimal(value)
     except InvalidOperation as exc:
@@ -241,7 +283,38 @@ def _parse_exact_finite_number(value: str) -> Decimal:
         raise OfficialMarketAdapterError(
             f"non-finite JSON numeric value is forbidden: {value}"
         )
+    if parsed.is_zero() and parsed.is_signed():
+        raise OfficialMarketAdapterError(
+            f"negative-zero JSON numeric value is forbidden: {value}"
+        )
+    sign, digits, exponent = parsed.as_tuple()
+    del sign
+    if len(digits) > OFFICIAL_NUMBER_MAX_PRECISION:
+        raise OfficialMarketAdapterError(
+            "official JSON numeric token exceeds configured precision"
+        )
+    if abs(exponent) > OFFICIAL_NUMBER_MAX_ABSOLUTE_EXPONENT:
+        raise OfficialMarketAdapterError(
+            "official JSON numeric token exceeds configured exponent"
+        )
+    if abs(parsed) > OFFICIAL_NUMBER_MAX_ABSOLUTE_MAGNITUDE:
+        raise OfficialMarketAdapterError(
+            "official JSON numeric token exceeds configured magnitude"
+        )
     return parsed
+
+
+def _parse_bounded_official_integer(value: str) -> int:
+    parsed = _validate_bounded_official_number(value)
+    if parsed != parsed.to_integral_value():
+        raise OfficialMarketAdapterError(
+            "official JSON integer token is not integral"
+        )
+    return int(value)
+
+
+def _parse_bounded_official_decimal(value: str) -> Decimal:
+    return _validate_bounded_official_number(value)
 
 
 def parse_strict_json(
@@ -257,15 +330,16 @@ def parse_strict_json(
             f"{label} is not UTF-8"
         ) from exc
     try:
-        parse_float = (
-            _parse_exact_finite_number
-            if allow_finite_numbers
-            else _reject_float
-        )
+        parse_float = _reject_float
+        parse_int = int
+        if allow_finite_numbers:
+            parse_float = _parse_bounded_official_decimal
+            parse_int = _parse_bounded_official_integer
         return json.loads(
             text,
             object_pairs_hook=_strict_object,
             parse_float=parse_float,
+            parse_int=parse_int,
             parse_constant=_reject_float,
         )
     except (json.JSONDecodeError, OfficialMarketAdapterError) as exc:
