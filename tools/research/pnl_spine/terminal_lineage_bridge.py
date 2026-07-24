@@ -23,6 +23,7 @@ metadata, a scheduled start, or lifecycle intervals.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import datetime as dt
 import hashlib
 import json
 import os
@@ -32,8 +33,8 @@ import stat
 from typing import Any, Mapping, Sequence
 
 
-SPEC_SCHEMA = "pnl-spine-official-terminal-root-spec-v1"
-ROOT_RECEIPT_SCHEMA = "pnl-spine-official-terminal-root-receipt-v1"
+SPEC_SCHEMA = "pnl-spine-official-terminal-root-spec-v2"
+ROOT_RECEIPT_SCHEMA = "pnl-spine-official-terminal-root-receipt-v2"
 AUTHORITY_SCHEMA = "a01-official-market-authority-v1"
 CAPTURE_RECEIPT_SCHEMA = "a01-official-market-capture-receipt-v1"
 RAW_PINS_SCHEMA = "a01-official-market-raw-pins-v1"
@@ -54,6 +55,20 @@ SHARD_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 SAFE_RAW_NAME_RE = re.compile(
     r"^\d{4}\.\d{4}\.(?:current|historical)\.response\.json$"
 )
+UTC_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+    r"(?:\.(\d{1,9}))?Z$"
+)
+OFFICIAL_ORIGIN = "https://api.elections.kalshi.com"
+CURRENT_MARKET_PATH = "/trade-api/v2/markets/"
+HISTORICAL_MARKET_PATH = "/trade-api/v2/historical/markets/"
+MIN_REQUEST_INTERVAL_NS = 250_000_000
+MAX_429_RETRIES_PER_ENDPOINT = 2
+MIN_RETRY_AFTER_SECONDS = 1
+MAX_RETRY_AFTER_SECONDS = 30
+STANDARD_PRICE_RANGES = [
+    {"start": "0.0000", "end": "1.0000", "step": "0.0100"}
+]
 
 REQUIRED_REMAINING_BLOCKERS = (
     "BLOCK_A01_HISTORICAL_POINT_IN_TIME_METADATA_INTERVALS_MISSING",
@@ -225,6 +240,41 @@ def _plain_int(
             f"{label} must be <= {maximum}"
         )
     return value
+
+
+def _utc_timestamp_ns(label: str, value: object) -> tuple[str, int]:
+    """Validate an RFC3339 UTC timestamp and convert it to exact nanoseconds."""
+
+    text = _text(label, value)
+    match = UTC_RE.fullmatch(text)
+    if match is None:
+        raise TerminalLineageBridgeError(
+            f"{label} must be an RFC3339 UTC timestamp ending in Z"
+        )
+    base, fraction = match.groups()
+    try:
+        parsed = dt.datetime.strptime(
+            base, "%Y-%m-%dT%H:%M:%S"
+        ).replace(tzinfo=dt.timezone.utc)
+    except ValueError as exc:
+        raise TerminalLineageBridgeError(
+            f"{label} is not a valid calendar timestamp"
+        ) from exc
+    epoch = dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc)
+    delta = parsed - epoch
+    seconds = delta.days * 86_400 + delta.seconds
+    nanos = int((fraction or "").ljust(9, "0"))
+    return text, seconds * 1_000_000_000 + nanos
+
+
+def _market_url(ticker: str, source_tier: str) -> str:
+    if source_tier == "current":
+        path = CURRENT_MARKET_PATH
+    elif source_tier == "historical":
+        path = HISTORICAL_MARKET_PATH
+    else:
+        raise TerminalLineageBridgeError("unknown market source tier")
+    return f"{OFFICIAL_ORIGIN}{path}{_ticker('market URL ticker', ticker)}"
 
 
 def _ticker(label: str, value: object) -> str:
@@ -432,6 +482,46 @@ def _validate_adapter_config(
         raise TerminalLineageBridgeError(
             "adapter config weakens the read-only transport boundary"
         )
+    required_transport = {
+        "origin": OFFICIAL_ORIGIN,
+        "current_market_path": CURRENT_MARKET_PATH,
+        "historical_market_path": HISTORICAL_MARKET_PATH,
+        "selection_rule": (
+            "CURRENT_THEN_HISTORICAL_ONLY_ON_CURRENT_404"
+        ),
+        "request_method": "GET",
+        "timeout_seconds": 15,
+        "max_response_bytes": MAX_RAW_RESPONSE_BYTES,
+    }
+    for field, expected in required_transport.items():
+        if config.get(field) != expected:
+            raise TerminalLineageBridgeError(
+                f"adapter config has noncanonical {field}"
+            )
+    headers = _mapping(
+        "adapter config request_headers", config.get("request_headers")
+    )
+    if headers.get("Accept") != "application/json":
+        raise TerminalLineageBridgeError(
+            "adapter config does not require official JSON"
+        )
+    rate = _mapping(
+        "adapter config rate_limit_policy",
+        config.get("rate_limit_policy"),
+    )
+    expected_rate = {
+        "minimum_request_interval_ns": MIN_REQUEST_INTERVAL_NS,
+        "max_429_retries_per_endpoint": MAX_429_RETRIES_PER_ENDPOINT,
+        "min_retry_after_seconds": MIN_RETRY_AFTER_SECONDS,
+        "max_retry_after_seconds": MAX_RETRY_AFTER_SECONDS,
+        "historical_fallback_on_429": "FORBIDDEN",
+        "every_http_attempt_raw_capture": "CREATE_ONCE",
+    }
+    for field, expected in expected_rate.items():
+        if rate.get(field) != expected:
+            raise TerminalLineageBridgeError(
+                f"adapter config weakens rate policy field {field}"
+            )
     return config
 
 
@@ -529,6 +619,7 @@ def _validate_spec(value: object) -> dict[str, Any]:
     previous = ""
     required_fields = {
         "shard_id",
+        "adapter_code_path",
         "authority_path",
         "authority_raw_sha256",
         "capture_receipt_path",
@@ -563,6 +654,7 @@ def _validate_spec(value: object) -> dict[str, Any]:
         ):
             normalized[field] = _sha(field, row[field])
         for field in (
+            "adapter_code_path",
             "authority_path",
             "capture_receipt_path",
             "raw_pins_path",
@@ -601,8 +693,13 @@ def _validate_spec(value: object) -> dict[str, Any]:
     exclusion_required = {
         "ticker",
         "reason_code",
+        "adapter_code_path",
         "authority_path",
         "authority_raw_sha256",
+        "capture_receipt_path",
+        "capture_receipt_raw_sha256",
+        "raw_pins_path",
+        "raw_pins_raw_sha256",
         "raw_response_path",
         "raw_response_raw_sha256",
         "raw_response_size_bytes",
@@ -654,12 +751,32 @@ def _validate_spec(value: object) -> dict[str, Any]:
             {
                 "ticker": ticker,
                 "reason_code": row["reason_code"],
+                "adapter_code_path": _text(
+                    "exclusion adapter_code_path",
+                    row["adapter_code_path"],
+                ),
                 "authority_path": _text(
                     "exclusion authority_path", row["authority_path"]
                 ),
                 "authority_raw_sha256": _sha(
                     "exclusion authority SHA",
                     row["authority_raw_sha256"],
+                ),
+                "capture_receipt_path": _text(
+                    "exclusion capture_receipt_path",
+                    row["capture_receipt_path"],
+                ),
+                "capture_receipt_raw_sha256": _sha(
+                    "exclusion capture receipt SHA",
+                    row["capture_receipt_raw_sha256"],
+                ),
+                "raw_pins_path": _text(
+                    "exclusion raw_pins_path",
+                    row["raw_pins_path"],
+                ),
+                "raw_pins_raw_sha256": _sha(
+                    "exclusion raw pins SHA",
+                    row["raw_pins_raw_sha256"],
                 ),
                 "raw_response_path": _text(
                     "exclusion raw_response_path",
@@ -707,7 +824,7 @@ def _validate_authority(
     expected_raw_sha256: str,
     expected_code_sha256: str,
     expected_config_sha256: str,
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], int, int]:
     authority = _mapping("terminal authority", value)
     _strict_keys(
         "terminal authority",
@@ -742,15 +859,22 @@ def _validate_authority(
             "authority adapter config SHA mismatch"
         )
     _text("authority_id", authority["authority_id"])
-    issued = _text("authority issued_at_utc", authority["issued_at_utc"])
-    expires = _text("authority expires_at_utc", authority["expires_at_utc"])
-    if issued >= expires:
+    issued, issued_ns = _utc_timestamp_ns(
+        "authority issued_at_utc", authority["issued_at_utc"]
+    )
+    expires, expires_ns = _utc_timestamp_ns(
+        "authority expires_at_utc", authority["expires_at_utc"]
+    )
+    if issued_ns >= expires_ns:
         raise TerminalLineageBridgeError(
             "terminal authority expiry is not after issue"
         )
     _sha("authority raw SHA", expected_raw_sha256)
-    return dict(authority), _sorted_unique_tickers(
-        "authority.tickers", authority["tickers"]
+    return (
+        dict(authority),
+        _sorted_unique_tickers("authority.tickers", authority["tickers"]),
+        issued_ns,
+        expires_ns,
     )
 
 
@@ -913,6 +1037,21 @@ def _validate_capture_receipt(
         raise TerminalLineageBridgeError(
             "capture authority time binding mismatch"
         )
+    _, issued_wall_ns = _utc_timestamp_ns(
+        "capture authority issued_at_utc",
+        authority["issued_at_utc"],
+    )
+    _, expires_wall_ns = _utc_timestamp_ns(
+        "capture authority expires_at_utc",
+        authority["expires_at_utc"],
+    )
+    if (
+        receipt.get("authority_issued_wall_ns") != issued_wall_ns
+        or receipt.get("authority_expires_wall_ns") != expires_wall_ns
+    ):
+        raise TerminalLineageBridgeError(
+            "capture authority text/nanosecond bounds mismatch"
+        )
     if receipt.get("adapter_code_sha256") != expected_code_sha256:
         raise TerminalLineageBridgeError(
             "capture adapter code SHA mismatch"
@@ -943,6 +1082,7 @@ def _validate_capture_receipt(
     selected_by_ticker: dict[str, dict[str, Any]] = {}
     seen_raw_names: set[str] = set()
     expected_batch_attempt_index = 0
+    previous_attempt: Mapping[str, Any] | None = None
     for index, raw in enumerate(captures):
         capture = _mapping(f"captures[{index}]", raw)
         _strict_keys(
@@ -966,7 +1106,12 @@ def _validate_capture_receipt(
             )
             for raw_attempt in raw_attempts
         ]
-        for attempt in projected:
+        maximum_attempts = 2 * (MAX_429_RETRIES_PER_ENDPOINT + 1)
+        if len(projected) > maximum_attempts:
+            raise TerminalLineageBridgeError(
+                "capture attempt count exceeds bounded endpoint policy"
+            )
+        for attempt_index, attempt in enumerate(projected):
             if (
                 attempt["adapter_code_sha256"] != expected_code_sha256
                 or attempt["adapter_config_sha256"]
@@ -980,11 +1125,86 @@ def _validate_capture_receipt(
                     "capture batch attempt indexes are not contiguous"
                 )
             expected_batch_attempt_index += 1
+            canonical_url = _market_url(ticker, attempt["source_tier"])
+            if attempt["request_url"] != canonical_url:
+                raise TerminalLineageBridgeError(
+                    "capture request URL is not canonical"
+                )
+            if not (
+                issued_wall_ns
+                <= attempt["fetch_wall_ns_before"]
+                <= attempt["fetch_wall_ns_after"]
+                <= expires_wall_ns
+            ):
+                raise TerminalLineageBridgeError(
+                    "capture attempt is outside authority validity window"
+                )
+            expected_delay_ns = 0
+            if previous_attempt is not None:
+                if (
+                    attempt["fetch_wall_ns_before"]
+                    < previous_attempt["fetch_wall_ns_after"]
+                    or attempt["fetch_monotonic_ns_before"]
+                    < previous_attempt["fetch_monotonic_ns_after"]
+                ):
+                    raise TerminalLineageBridgeError(
+                        "capture clocks regressed across HTTP attempts"
+                    )
+                expected_delay_ns = MIN_REQUEST_INTERVAL_NS
+                if previous_attempt["http_status"] == 429:
+                    retry_after = previous_attempt[
+                        "retry_after_seconds"
+                    ]
+                    if type(retry_after) is not int:
+                        raise TerminalLineageBridgeError(
+                            "prior HTTP 429 lacks retry delay"
+                        )
+                    expected_delay_ns = max(
+                        expected_delay_ns,
+                        retry_after * 1_000_000_000,
+                    )
+                if (
+                    attempt["fetch_monotonic_ns_before"]
+                    - previous_attempt["fetch_monotonic_ns_after"]
+                    < expected_delay_ns
+                ):
+                    raise TerminalLineageBridgeError(
+                        "capture does not prove required request throttle"
+                    )
+            if (
+                attempt["required_delay_from_prior_attempt_ns"]
+                != expected_delay_ns
+            ):
+                raise TerminalLineageBridgeError(
+                    "capture declared request delay is inconsistent"
+                )
+            retry_after = attempt["retry_after_seconds"]
+            if attempt["http_status"] == 429:
+                _plain_int(
+                    "retry_after_seconds",
+                    retry_after,
+                    minimum=MIN_RETRY_AFTER_SECONDS,
+                    maximum=MAX_RETRY_AFTER_SECONDS,
+                )
+            elif retry_after is not None:
+                raise TerminalLineageBridgeError(
+                    "non-429 capture must not carry Retry-After"
+                )
+            expected_raw_name = (
+                f"{index:04d}."
+                f"{attempt['batch_attempt_index']:04d}."
+                f"{attempt['source_tier']}.response.json"
+            )
+            if attempt["raw_relative_path"] != expected_raw_name:
+                raise TerminalLineageBridgeError(
+                    "capture raw response path is noncanonical"
+                )
             if attempt["raw_relative_path"] in seen_raw_names:
                 raise TerminalLineageBridgeError(
                     "capture reuses a raw response path"
                 )
             seen_raw_names.add(attempt["raw_relative_path"])
+            previous_attempt = attempt
         selected_index = _plain_int(
             "selected_attempt_index",
             capture["selected_attempt_index"],
@@ -1002,6 +1222,77 @@ def _validate_capture_receipt(
         ):
             raise TerminalLineageBridgeError(
                 "selected capture adapter version drifted"
+            )
+        current_attempts: list[Mapping[str, Any]] = []
+        historical_attempts: list[Mapping[str, Any]] = []
+        saw_historical = False
+        for attempt in projected:
+            if attempt["source_tier"] == "historical":
+                saw_historical = True
+                historical_attempts.append(attempt)
+            elif saw_historical:
+                raise TerminalLineageBridgeError(
+                    "current endpoint cannot resume after historical"
+                )
+            else:
+                current_attempts.append(attempt)
+        if not current_attempts:
+            raise TerminalLineageBridgeError(
+                "capture must begin with current endpoint"
+            )
+        for endpoint_index, attempt in enumerate(current_attempts):
+            if attempt["endpoint_attempt_index"] != endpoint_index:
+                raise TerminalLineageBridgeError(
+                    "current endpoint retry indexes are not contiguous"
+                )
+        for endpoint_index, attempt in enumerate(historical_attempts):
+            if attempt["endpoint_attempt_index"] != endpoint_index:
+                raise TerminalLineageBridgeError(
+                    "historical endpoint retry indexes are not contiguous"
+                )
+        if (
+            len(current_attempts) > MAX_429_RETRIES_PER_ENDPOINT + 1
+            or len(historical_attempts)
+            > MAX_429_RETRIES_PER_ENDPOINT + 1
+        ):
+            raise TerminalLineageBridgeError(
+                "capture retry count exceeds bounded policy"
+            )
+        if any(
+            attempt["http_status"] != 429
+            for attempt in current_attempts[:-1]
+        ):
+            raise TerminalLineageBridgeError(
+                "only HTTP 429 may precede a current endpoint retry"
+            )
+        current_status = current_attempts[-1]["http_status"]
+        if current_status == 200:
+            if historical_attempts or selected_index != len(projected) - 1:
+                raise TerminalLineageBridgeError(
+                    "current HTTP 200 must be the selected final attempt"
+                )
+        elif current_status == 404:
+            if not historical_attempts:
+                raise TerminalLineageBridgeError(
+                    "current HTTP 404 requires historical fallback"
+                )
+            if any(
+                attempt["http_status"] != 429
+                for attempt in historical_attempts[:-1]
+            ):
+                raise TerminalLineageBridgeError(
+                    "only HTTP 429 may precede a historical retry"
+                )
+            if (
+                historical_attempts[-1]["http_status"] != 200
+                or selected_index != len(projected) - 1
+            ):
+                raise TerminalLineageBridgeError(
+                    "historical fallback must end in selected HTTP 200"
+                )
+        else:
+            raise TerminalLineageBridgeError(
+                "current endpoint must terminate in HTTP 200 or 404"
             )
         attempts.extend(projected)
         selected_by_ticker[ticker] = selected
@@ -1100,11 +1391,128 @@ def _validate_raw_pins(
         )
 
 
+def _parse_eligible_terminal_response(
+    raw: bytes,
+    *,
+    ticker: str,
+) -> dict[str, Any]:
+    """Independently rebuild every PnL-bearing field from official raw JSON."""
+
+    envelope = _strict_official_json(
+        raw, f"selected official response {ticker}"
+    )
+    _strict_keys(
+        f"selected official response {ticker}",
+        envelope,
+        required={"market"},
+    )
+    market = _mapping(
+        f"selected official market {ticker}", envelope["market"]
+    )
+    required = {
+        "ticker",
+        "status",
+        "result",
+        "settlement_value_dollars",
+        "settlement_ts",
+        "price_level_structure",
+        "price_ranges",
+        "open_time",
+        "close_time",
+        "expected_expiration_time",
+        "occurrence_datetime",
+    }
+    missing = sorted(required - set(market))
+    if missing:
+        raise TerminalLineageBridgeError(
+            "selected official response is missing terminal fields: "
+            + ",".join(missing)
+        )
+    if _ticker("official market ticker", market["ticker"]) != ticker:
+        raise TerminalLineageBridgeError(
+            "selected official response ticker mismatch"
+        )
+    status = _text("official market status", market["status"])
+    if status != "finalized":
+        raise TerminalLineageBridgeError(
+            "selected official market is not finalized"
+        )
+    result = _text("official market result", market["result"])
+    if result not in {"yes", "no"}:
+        raise TerminalLineageBridgeError(
+            "selected official result is not exact yes/no"
+        )
+    payout_text = _text(
+        "official settlement_value_dollars",
+        market["settlement_value_dollars"],
+    )
+    expected_payout_text = "1.0000" if result == "yes" else "0.0000"
+    if payout_text != expected_payout_text:
+        raise TerminalLineageBridgeError(
+            "selected official result/payout disagree"
+        )
+    settlement_ts, _ = _utc_timestamp_ns(
+        "official settlement_ts", market["settlement_ts"]
+    )
+    lifecycle: dict[str, str] = {}
+    for field in (
+        "open_time",
+        "close_time",
+        "expected_expiration_time",
+        "occurrence_datetime",
+    ):
+        lifecycle[field], _ = _utc_timestamp_ns(
+            f"official {field}", market[field]
+        )
+    structure = _text(
+        "official price_level_structure",
+        market["price_level_structure"],
+    )
+    if structure != "linear_cent":
+        raise TerminalLineageBridgeError(
+            "non-standard price level structure is not A01 eligible"
+        )
+    ranges = _list("official price_ranges", market["price_ranges"])
+    if len(ranges) != 1:
+        raise TerminalLineageBridgeError(
+            "A01 requires one standard full-range cent interval"
+        )
+    interval = _mapping("official price_ranges[0]", ranges[0])
+    _strict_keys(
+        "official price_ranges[0]",
+        interval,
+        required={"start", "end", "step"},
+    )
+    normalized_ranges = [
+        {
+            "start": _text("official price range start", interval["start"]),
+            "end": _text("official price range end", interval["end"]),
+            "step": _text("official price range step", interval["step"]),
+        }
+    ]
+    if normalized_ranges != STANDARD_PRICE_RANGES:
+        raise TerminalLineageBridgeError(
+            "non-standard tick table is not A01 eligible"
+        )
+    return {
+        "ticker": ticker,
+        "status": status,
+        "result": result,
+        "yes_settlement_value_e4": 10_000 if result == "yes" else 0,
+        "settlement_ts": settlement_ts,
+        "price_level_structure": structure,
+        "price_ranges": normalized_ranges,
+        "tick_size_e4": 100,
+        **lifecycle,
+    }
+
+
 def _validate_terminal_record(
     value: object,
     *,
     ticker: str,
     selected: Mapping[str, Any],
+    parsed: Mapping[str, Any],
 ) -> dict[str, Any]:
     record = _mapping(f"terminal record {ticker}", value)
     required = {
@@ -1130,6 +1538,13 @@ def _validate_terminal_record(
         raise TerminalLineageBridgeError(
             "terminal record payout is not exact binary E4"
         )
+    if (
+        record["yes_settlement_value_e4"]
+        != parsed["yes_settlement_value_e4"]
+    ):
+        raise TerminalLineageBridgeError(
+            "terminal record payout differs from selected official response"
+        )
     if record["observed_at_ns"] != selected["fetch_wall_ns_after"]:
         raise TerminalLineageBridgeError(
             "terminal observation clock differs from selected response"
@@ -1143,9 +1558,13 @@ def _validate_terminal_record(
             "terminal source SHA differs from selected raw response"
         )
     settlement_id = _text("settlement_id", record["settlement_id"])
-    if not settlement_id.startswith(f"kalshi-official:{ticker}:"):
+    expected_settlement_id = (
+        f"kalshi-official:{ticker}:{parsed['settlement_ts']}:"
+        f"{selected['raw_sha256'][:16]}"
+    )
+    if settlement_id != expected_settlement_id:
         raise TerminalLineageBridgeError(
-            "terminal settlement_id is not official/ticker-bound"
+            "terminal settlement_id differs from selected official response"
         )
     return dict(record)
 
@@ -1155,8 +1574,39 @@ def _validate_metadata(
     *,
     ticker: str,
     selected: Mapping[str, Any],
+    parsed: Mapping[str, Any],
 ) -> None:
     metadata = _mapping(f"metadata evidence {ticker}", value)
+    required = {
+        "market_ticker",
+        "source_tier",
+        "request_url",
+        "raw_response_sha256",
+        "observed_wall_ns_before",
+        "observed_wall_ns_after",
+        "observed_monotonic_ns_before",
+        "observed_monotonic_ns_after",
+        "market_status",
+        "official_result",
+        "yes_settlement_value_e4",
+        "settlement_ts",
+        "price_level_structure",
+        "price_ranges",
+        "tick_size_e4",
+        "open_time",
+        "close_time",
+        "expected_expiration_time",
+        "occurrence_datetime",
+        "metadata_asof_semantics",
+        "historical_asof_utc",
+        "scheduled_start_ts_ns",
+        "scheduled_start_field_mapping",
+        "point_in_time_lifecycle_interval",
+        "point_in_time_tick_interval",
+    }
+    _strict_keys(
+        f"metadata evidence {ticker}", metadata, required=required
+    )
     if metadata.get("market_ticker") != ticker:
         raise TerminalLineageBridgeError(
             "metadata evidence ticker mismatch"
@@ -1165,6 +1615,36 @@ def _validate_metadata(
         raise TerminalLineageBridgeError(
             "metadata evidence raw SHA mismatch"
         )
+    selected_bindings = {
+        "source_tier": selected["source_tier"],
+        "request_url": selected["request_url"],
+        "observed_wall_ns_before": selected["fetch_wall_ns_before"],
+        "observed_wall_ns_after": selected["fetch_wall_ns_after"],
+        "observed_monotonic_ns_before": selected[
+            "fetch_monotonic_ns_before"
+        ],
+        "observed_monotonic_ns_after": selected[
+            "fetch_monotonic_ns_after"
+        ],
+    }
+    parsed_bindings = {
+        "market_status": parsed["status"],
+        "official_result": parsed["result"],
+        "yes_settlement_value_e4": parsed["yes_settlement_value_e4"],
+        "settlement_ts": parsed["settlement_ts"],
+        "price_level_structure": parsed["price_level_structure"],
+        "price_ranges": parsed["price_ranges"],
+        "tick_size_e4": parsed["tick_size_e4"],
+        "open_time": parsed["open_time"],
+        "close_time": parsed["close_time"],
+        "expected_expiration_time": parsed["expected_expiration_time"],
+        "occurrence_datetime": parsed["occurrence_datetime"],
+    }
+    for field, expected in {**selected_bindings, **parsed_bindings}.items():
+        if metadata.get(field) != expected:
+            raise TerminalLineageBridgeError(
+                f"metadata evidence differs from selected raw: {field}"
+            )
     if metadata.get("metadata_asof_semantics") != TEMPORALITY:
         raise TerminalLineageBridgeError(
             "metadata evidence claims historical as-of semantics"
@@ -1204,6 +1684,7 @@ def _validate_normalized_output(
     authority_tickers: Sequence[str],
     attempts: Sequence[Mapping[str, Any]],
     selected_by_ticker: Mapping[str, Mapping[str, Any]],
+    parsed_by_ticker: Mapping[str, Mapping[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     output = _mapping("normalized terminal output", value)
     required_top = {
@@ -1272,11 +1753,13 @@ def _validate_normalized_output(
             records[index],
             ticker=ticker,
             selected=selected_by_ticker[ticker],
+            parsed=parsed_by_ticker[ticker],
         )
         _validate_metadata(
             metadata_rows[index],
             ticker=ticker,
             selected=selected_by_ticker[ticker],
+            parsed=parsed_by_ticker[ticker],
         )
         record_tickers.append(record["market_ticker"])
         metadata_tickers.append(
@@ -1391,10 +1874,22 @@ def build_terminal_root_bundle(
     spec: Mapping[str, Any],
     *,
     require_root_read_only: bool,
+    source_root_spec_raw_sha256: str | None = None,
 ) -> TerminalLineageBundle:
     """Verify all shards and return one exact, observation-only root receipt."""
 
     validated = _validate_spec(spec)
+    if source_root_spec_raw_sha256 is None:
+        if require_root_read_only:
+            raise TerminalLineageBridgeError(
+                "production terminal root requires its external raw SHA pin"
+            )
+        source_spec_sha256 = canonical_sha256(validated)
+    else:
+        source_spec_sha256 = _sha(
+            "source terminal root spec raw SHA-256",
+            source_root_spec_raw_sha256,
+        )
     all_tickers: list[str] = []
     all_records: dict[str, Mapping[str, Any]] = {}
     all_record_rows: list[dict[str, Any]] = []
@@ -1404,6 +1899,13 @@ def build_terminal_root_bundle(
 
     for shard in validated["shards"]:
         shard_id = shard["shard_id"]
+        _, adapter_code_fact = _read_pinned_file(
+            shard["adapter_code_path"],
+            shard["adapter_code_sha256"],
+            label=f"{shard_id} adapter code",
+            maximum_bytes=MAX_CONTROL_BYTES,
+            require_root_read_only=require_root_read_only,
+        )
         authority_raw, authority_fact = _read_pinned_file(
             shard["authority_path"],
             shard["authority_raw_sha256"],
@@ -1436,7 +1938,7 @@ def build_terminal_root_bundle(
         capture = _strict_json(capture_raw, f"{shard_id} capture receipt")
         pins = _strict_json(pins_raw, f"{shard_id} raw pins")
         output = _strict_json(output_raw, f"{shard_id} normalized output")
-        authority, authority_tickers = _validate_authority(
+        authority, authority_tickers, _, _ = _validate_authority(
             authority,
             expected_raw_sha256=shard["authority_raw_sha256"],
             expected_code_sha256=shard["adapter_code_sha256"],
@@ -1462,10 +1964,11 @@ def build_terminal_root_bundle(
         )
 
         raw_facts: list[dict[str, Any]] = []
+        parsed_by_ticker: dict[str, dict[str, Any]] = {}
         capture_directory = Path(shard["capture_receipt_path"]).parent
         for attempt in attempts:
             raw_path = capture_directory / attempt["raw_relative_path"]
-            _, fact = _read_pinned_file(
+            raw_response, fact = _read_pinned_file(
                 os.fspath(raw_path),
                 attempt["raw_sha256"],
                 label=(
@@ -1493,6 +1996,25 @@ def build_terminal_root_bundle(
                     "filesystem": fact,
                 }
             )
+            selected = selected_by_ticker[attempt["ticker"]]
+            if (
+                attempt["batch_attempt_index"]
+                == selected["batch_attempt_index"]
+            ):
+                if attempt["ticker"] in parsed_by_ticker:
+                    raise TerminalLineageBridgeError(
+                        "capture has multiple selected responses per ticker"
+                    )
+                parsed_by_ticker[attempt["ticker"]] = (
+                    _parse_eligible_terminal_response(
+                        raw_response,
+                        ticker=attempt["ticker"],
+                    )
+                )
+        if sorted(parsed_by_ticker) != list(authority_tickers):
+            raise TerminalLineageBridgeError(
+                "selected raw response coverage is incomplete"
+            )
 
         records, metadata_rows = _validate_normalized_output(
             output,
@@ -1506,6 +2028,7 @@ def build_terminal_root_bundle(
             authority_tickers=authority_tickers,
             attempts=attempts,
             selected_by_ticker=selected_by_ticker,
+            parsed_by_ticker=parsed_by_ticker,
         )
         for ticker in authority_tickers:
             if ticker in all_records:
@@ -1578,6 +2101,7 @@ def build_terminal_root_bundle(
                 ),
                 "raw_responses": raw_facts,
                 "filesystem_controls": {
+                    "adapter_code": adapter_code_fact,
                     "authority": authority_fact,
                     "capture_receipt": capture_fact,
                     "raw_pins": pins_fact,
@@ -1588,21 +2112,15 @@ def build_terminal_root_bundle(
 
     exclusion_receipts: list[dict[str, Any]] = []
     exclusion_tickers: list[str] = []
-    shard_version_pairs = {
-        (shard["adapter_code_sha256"], shard["adapter_config_sha256"])
-        for shard in validated["shards"]
-    }
     for exclusion in validated["eligibility_exclusions"]:
         ticker = exclusion["ticker"]
-        pair = (
+        _, adapter_code_fact = _read_pinned_file(
+            exclusion["adapter_code_path"],
             exclusion["adapter_code_sha256"],
-            exclusion["adapter_config_sha256"],
+            label=f"eligibility exclusion adapter code {ticker}",
+            maximum_bytes=MAX_CONTROL_BYTES,
+            require_root_read_only=require_root_read_only,
         )
-        if pair not in shard_version_pairs:
-            raise TerminalLineageBridgeError(
-                "eligibility exclusion adapter version is not approved by "
-                "a terminal shard"
-            )
         authority_raw, authority_fact = _read_pinned_file(
             exclusion["authority_path"],
             exclusion["authority_raw_sha256"],
@@ -1610,7 +2128,7 @@ def build_terminal_root_bundle(
             maximum_bytes=MAX_CONTROL_BYTES,
             require_root_read_only=require_root_read_only,
         )
-        authority, authority_tickers = _validate_authority(
+        authority, authority_tickers, _, _ = _validate_authority(
             _strict_json(
                 authority_raw,
                 f"eligibility exclusion authority {ticker}",
@@ -1619,24 +2137,119 @@ def build_terminal_root_bundle(
             expected_code_sha256=exclusion["adapter_code_sha256"],
             expected_config_sha256=exclusion["adapter_config_sha256"],
         )
-        del authority
         if authority_tickers != [ticker]:
             raise TerminalLineageBridgeError(
                 "eligibility exclusion authority must bind one exact ticker"
             )
-        raw, raw_fact = _read_pinned_file(
-            exclusion["raw_response_path"],
-            exclusion["raw_response_raw_sha256"],
-            label=f"eligibility exclusion raw response {ticker}",
-            maximum_bytes=MAX_RAW_RESPONSE_BYTES,
+        capture_raw, capture_fact = _read_pinned_file(
+            exclusion["capture_receipt_path"],
+            exclusion["capture_receipt_raw_sha256"],
+            label=f"eligibility exclusion capture receipt {ticker}",
+            maximum_bytes=MAX_CONTROL_BYTES,
             require_root_read_only=require_root_read_only,
         )
-        if len(raw) != exclusion["raw_response_size_bytes"]:
+        pins_raw, pins_fact = _read_pinned_file(
+            exclusion["raw_pins_path"],
+            exclusion["raw_pins_raw_sha256"],
+            label=f"eligibility exclusion raw pins {ticker}",
+            maximum_bytes=MAX_CONTROL_BYTES,
+            require_root_read_only=require_root_read_only,
+        )
+        attempts, selected_by_ticker = _validate_capture_receipt(
+            _strict_json(
+                capture_raw,
+                f"eligibility exclusion capture receipt {ticker}",
+            ),
+            authority_raw_sha256=exclusion["authority_raw_sha256"],
+            authority=authority,
+            authority_tickers=authority_tickers,
+            expected_code_sha256=exclusion["adapter_code_sha256"],
+            expected_config_sha256=exclusion[
+                "adapter_config_sha256"
+            ],
+        )
+        _validate_raw_pins(
+            _strict_json(
+                pins_raw,
+                f"eligibility exclusion raw pins {ticker}",
+            ),
+            authority_raw_sha256=exclusion["authority_raw_sha256"],
+            capture_receipt_raw_sha256=exclusion[
+                "capture_receipt_raw_sha256"
+            ],
+            expected_code_sha256=exclusion["adapter_code_sha256"],
+            expected_config_sha256=exclusion[
+                "adapter_config_sha256"
+            ],
+            selected_by_ticker=selected_by_ticker,
+        )
+        selected = selected_by_ticker[ticker]
+        expected_selected = {
+            "source_tier": exclusion["source_tier"],
+            "http_status": exclusion["http_status"],
+            "raw_size": exclusion["raw_response_size_bytes"],
+            "raw_sha256": exclusion["raw_response_raw_sha256"],
+        }
+        if any(
+            selected[field] != expected
+            for field, expected in expected_selected.items()
+        ):
             raise TerminalLineageBridgeError(
-                "eligibility exclusion raw response size mismatch"
+                "eligibility exclusion pin differs from selected capture"
+            )
+        capture_directory = Path(
+            exclusion["capture_receipt_path"]
+        ).parent
+        selected_path = capture_directory / selected["raw_relative_path"]
+        if Path(os.path.abspath(exclusion["raw_response_path"])) != Path(
+            os.path.abspath(selected_path)
+        ):
+            raise TerminalLineageBridgeError(
+                "eligibility exclusion raw path is not selected capture"
+            )
+        raw_facts: list[dict[str, Any]] = []
+        selected_raw: bytes | None = None
+        for attempt in attempts:
+            raw_path = capture_directory / attempt["raw_relative_path"]
+            raw, raw_fact = _read_pinned_file(
+                os.fspath(raw_path),
+                attempt["raw_sha256"],
+                label=(
+                    "eligibility exclusion raw response "
+                    f"{ticker}/{attempt['batch_attempt_index']}"
+                ),
+                maximum_bytes=MAX_RAW_RESPONSE_BYTES,
+                require_root_read_only=require_root_read_only,
+            )
+            if len(raw) != attempt["raw_size"]:
+                raise TerminalLineageBridgeError(
+                    "eligibility exclusion raw response size mismatch"
+                )
+            if (
+                attempt["batch_attempt_index"]
+                == selected["batch_attempt_index"]
+            ):
+                selected_raw = raw
+            raw_facts.append(
+                {
+                    "ticker": ticker,
+                    "batch_attempt_index": attempt[
+                        "batch_attempt_index"
+                    ],
+                    "raw_relative_path": attempt["raw_relative_path"],
+                    "raw_size": attempt["raw_size"],
+                    "raw_sha256": attempt["raw_sha256"],
+                    "source_tier": attempt["source_tier"],
+                    "http_status": attempt["http_status"],
+                    "filesystem": raw_fact,
+                }
+            )
+        if selected_raw is None:
+            raise TerminalLineageBridgeError(
+                "eligibility exclusion selected raw response is absent"
             )
         parsed = _validate_eligibility_exclusion_response(
-            raw,
+            selected_raw,
             ticker=ticker,
             expected_price_level_structure=exclusion[
                 "observed_price_level_structure"
@@ -1650,6 +2263,19 @@ def build_terminal_root_bundle(
                 "temporality": TEMPORALITY,
                 "source_tier": exclusion["source_tier"],
                 "http_status": exclusion["http_status"],
+                "request_url": selected["request_url"],
+                "observed_wall_ns_before": selected[
+                    "fetch_wall_ns_before"
+                ],
+                "observed_wall_ns_after": selected[
+                    "fetch_wall_ns_after"
+                ],
+                "observed_monotonic_ns_before": selected[
+                    "fetch_monotonic_ns_before"
+                ],
+                "observed_monotonic_ns_after": selected[
+                    "fetch_monotonic_ns_after"
+                ],
                 "adapter_code_sha256": exclusion[
                     "adapter_code_sha256"
                 ],
@@ -1658,6 +2284,12 @@ def build_terminal_root_bundle(
                 ],
                 "authority_raw_sha256": exclusion[
                     "authority_raw_sha256"
+                ],
+                "capture_receipt_raw_sha256": exclusion[
+                    "capture_receipt_raw_sha256"
+                ],
+                "raw_pins_raw_sha256": exclusion[
+                    "raw_pins_raw_sha256"
                 ],
                 "raw_response_raw_sha256": exclusion[
                     "raw_response_raw_sha256"
@@ -1670,9 +2302,13 @@ def build_terminal_root_bundle(
                 ],
                 "economic_record_admitted": False,
                 "terminal_fact": parsed,
+                "raw_responses": raw_facts,
                 "filesystem_controls": {
+                    "adapter_code": adapter_code_fact,
                     "authority": authority_fact,
-                    "raw_response": raw_fact,
+                    "capture_receipt": capture_fact,
+                    "raw_pins": pins_fact,
+                    "raw_response": raw_facts[-1]["filesystem"],
                 },
             }
         )
@@ -1708,6 +2344,7 @@ def build_terminal_root_bundle(
 
     payload: dict[str, Any] = {
         "schema_version": ROOT_RECEIPT_SCHEMA,
+        "source_root_spec_raw_sha256": source_spec_sha256,
         "temporality": TEMPORALITY,
         "coverage_policy": COVERAGE_POLICY,
         "required_tickers": required_tickers,
@@ -1721,11 +2358,13 @@ def build_terminal_root_bundle(
         "adapter_version_policy": validated["adapter_version_policy"],
         "shards": shard_receipts,
         "shards_sha256": canonical_sha256(shard_receipts),
+        "terminal_records": all_record_rows,
         "terminal_records_sha256": canonical_sha256(all_record_rows),
         "terminal_record_index": terminal_record_index,
         "terminal_record_index_sha256": canonical_sha256(
             terminal_record_index
         ),
+        "metadata_evidence": all_metadata_rows,
         "metadata_evidence_sha256": canonical_sha256(all_metadata_rows),
         "resolved_capabilities": list(RESOLVED_CAPABILITIES),
         "remaining_blockers": list(REQUIRED_REMAINING_BLOCKERS),

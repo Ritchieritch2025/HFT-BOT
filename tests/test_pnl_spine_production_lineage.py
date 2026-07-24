@@ -36,6 +36,7 @@ from tools.research.pnl_spine.production_lineage import (
     _open_fixed_url,
     _materialize_verified_objects,
     _sha256_regular_file,
+    _validate_terminal_root_bundle_for_hybrid,
     _validate_parquet_runtime_receipt_shape,
     build_parquet_runtime_receipt,
     main,
@@ -49,6 +50,8 @@ from tools.research.pnl_spine.production_lineage import (
     write_receipt_create_once,
 )
 from tools.research.pnl_spine.terminal_lineage_bridge import (
+    RESOLVED_CAPABILITIES,
+    ROOT_RECEIPT_SCHEMA,
     TerminalLineageBundle,
 )
 from tools.research.pnl_spine.provenance import ProvenanceError
@@ -593,14 +596,17 @@ def _root_terminal_bundle(
     output_raw_sha = "f" * 64
     output_canonical_sha = "1" * 64
     source_sha = settlement["source_sha256"]
-    root_fact = {
-        "path": "/etc/w09/pnl-terminal/test.json",
-        "raw_sha256": "2" * 64,
-        "size_bytes": 1,
-        "uid": 0,
-        "mode_octal": "0444",
-        "root_read_only_verified": True,
-    }
+
+    def root_fact(name: str, raw_sha256: str) -> dict[str, Any]:
+        return {
+            "path": f"/etc/w09/pnl-terminal/{name}",
+            "raw_sha256": raw_sha256,
+            "size_bytes": 1,
+            "uid": 0,
+            "mode_octal": "0444",
+            "root_read_only_verified": True,
+        }
+
     raw_fact = {
         "ticker": ticker,
         "batch_attempt_index": 0,
@@ -609,14 +615,9 @@ def _root_terminal_bundle(
         "raw_sha256": source_sha,
         "source_tier": "current",
         "http_status": 200,
-        "filesystem": {
-            **root_fact,
-            "path": (
-                "/etc/w09/pnl-terminal/"
-                "0000.0000.current.response.json"
-            ),
-            "raw_sha256": source_sha,
-        },
+        "filesystem": root_fact(
+            "0000.0000.current.response.json", source_sha
+        ),
     }
     shard = {
         "shard_id": "batch-00",
@@ -634,10 +635,15 @@ def _root_terminal_bundle(
         "raw_response_evidence_sha256": "4" * 64,
         "raw_responses": [raw_fact],
         "filesystem_controls": {
-            "authority": root_fact,
-            "capture_receipt": root_fact,
-            "raw_pins": root_fact,
-            "normalized_output": root_fact,
+            "adapter_code": root_fact("adapter.py", code_sha),
+            "authority": root_fact("AUTHORITY.json", authority_sha),
+            "capture_receipt": root_fact(
+                "CAPTURE_RECEIPT.json", capture_sha
+            ),
+            "raw_pins": root_fact("RAW_PINS.json", pins_sha),
+            "normalized_output": root_fact(
+                "NORMALIZED.json", output_raw_sha
+            ),
         },
     }
     index = {
@@ -655,10 +661,13 @@ def _root_terminal_bundle(
         "normalized_output_raw_sha256": output_raw_sha,
         "normalized_output_canonical_sha256": output_canonical_sha,
     }
+    metadata = {
+        "market_ticker": ticker,
+        "source_sha256": source_sha,
+    }
     payload = {
-        "schema_version": (
-            "pnl-spine-official-terminal-root-receipt-v1"
-        ),
+        "schema_version": ROOT_RECEIPT_SCHEMA,
+        "source_root_spec_raw_sha256": "2" * 64,
         "temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
         "coverage_policy": "EXACT_REQUIRED_TICKER_SET",
         "required_tickers": [ticker],
@@ -673,13 +682,13 @@ def _root_terminal_bundle(
         },
         "shards": [shard],
         "shards_sha256": canonical_sha256([shard]),
+        "terminal_records": [dict(settlement)],
         "terminal_records_sha256": canonical_sha256([settlement]),
         "terminal_record_index": [index],
         "terminal_record_index_sha256": canonical_sha256([index]),
-        "metadata_evidence_sha256": "5" * 64,
-        "resolved_capabilities": [
-            "OFFICIAL_FINALIZED_YES_NO_RESULT",
-        ],
+        "metadata_evidence": [metadata],
+        "metadata_evidence_sha256": canonical_sha256([metadata]),
+        "resolved_capabilities": list(RESOLVED_CAPABILITIES),
         "remaining_blockers": [
             "BLOCK_A01_HISTORICAL_POINT_IN_TIME_METADATA_INTERVALS_MISSING",
             "BLOCK_A01_SCHEDULED_START_AUTHORITY_MISSING",
@@ -699,7 +708,7 @@ def _root_terminal_bundle(
     )
 
 
-def test_hybrid_receipt_binds_exact_sources_and_external_terminal_root():
+def _hybrid_production_case():
     fixture, pins, spec, reader = production_case()
     selected_raw_sha = "9" * 64
     settlement = {
@@ -739,6 +748,11 @@ def test_hybrid_receipt_binds_exact_sources_and_external_terminal_root():
         }
     )
     bundle = _root_terminal_bundle(settlement)
+    return fixture, pins, spec, reader, bundle
+
+
+def test_hybrid_receipt_binds_exact_sources_and_external_terminal_root():
+    fixture, pins, spec, reader, bundle = _hybrid_production_case()
 
     receipt = produce_hybrid_lineage_receipt(
         fixture=fixture,
@@ -784,6 +798,106 @@ def test_hybrid_receipt_binds_exact_sources_and_external_terminal_root():
             fixture,
             forged,
             expected_sha256=canonical_sha256(forged),
+        )
+
+
+def _rehash_terminal_root(receipt: dict[str, Any]) -> None:
+    payload = dict(receipt)
+    payload.pop("payload_sha256", None)
+    receipt["payload_sha256"] = canonical_sha256(payload)
+
+
+def _tamper_terminal_root(
+    receipt: dict[str, Any],
+    case: str,
+) -> None:
+    if case == "terminal_records":
+        receipt["terminal_records"][0]["yes_settlement_value_e4"] = 0
+        receipt["terminal_records_sha256"] = canonical_sha256(
+            receipt["terminal_records"]
+        )
+    elif case == "terminal_records_sha256":
+        receipt["terminal_records_sha256"] = "0" * 64
+    elif case == "metadata_evidence":
+        receipt["metadata_evidence"][0]["market_ticker"] = "ZZ-TAMPERED"
+        receipt["metadata_evidence_sha256"] = canonical_sha256(
+            receipt["metadata_evidence"]
+        )
+    elif case == "metadata_evidence_sha256":
+        receipt["metadata_evidence_sha256"] = "0" * 64
+    elif case == "resolved_capabilities":
+        receipt["resolved_capabilities"].append("FORGED_CAPABILITY")
+    elif case == "source_root_spec_raw_sha256":
+        receipt["source_root_spec_raw_sha256"] = "not-a-sha"
+    else:  # pragma: no cover - test helper misuse
+        raise AssertionError(case)
+    _rehash_terminal_root(receipt)
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("terminal_records", "embedded root records"),
+        ("terminal_records_sha256", "record set or coverage mismatch"),
+        ("metadata_evidence", "metadata evidence set or coverage mismatch"),
+        (
+            "metadata_evidence_sha256",
+            "metadata evidence set or coverage mismatch",
+        ),
+        ("resolved_capabilities", "capability set drifted"),
+        ("source_root_spec_raw_sha256", "must be lowercase SHA-256"),
+    ],
+)
+def test_hybrid_producer_revalidates_full_terminal_root(
+    case: str,
+    message: str,
+):
+    _, _, _, _, original = _hybrid_production_case()
+    receipt = copy.deepcopy(dict(original.receipt))
+    _tamper_terminal_root(receipt, case)
+    forged = TerminalLineageBundle(
+        receipt=receipt,
+        terminal_records_by_ticker=original.terminal_records_by_ticker,
+    )
+
+    with pytest.raises(ProductionLineageError, match=message):
+        _validate_terminal_root_bundle_for_hybrid(forged)
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("terminal_records", "index differs from embedded record"),
+        ("terminal_records_sha256", "record set or coverage mismatch"),
+        ("metadata_evidence", "metadata set or coverage mismatch"),
+        ("metadata_evidence_sha256", "metadata set or coverage mismatch"),
+        ("resolved_capabilities", "capability set drifted"),
+        ("source_root_spec_raw_sha256", "must be lowercase SHA-256"),
+    ],
+)
+def test_runner_revalidates_full_terminal_root(
+    case: str,
+    message: str,
+):
+    fixture, pins, spec, reader, bundle = _hybrid_production_case()
+    receipt = produce_hybrid_lineage_receipt(
+        fixture=fixture,
+        manifest_pins=pins,
+        record_spec=spec,
+        terminal_bundle=bundle,
+        reader=reader,
+    )
+    root = receipt["external_terminal_evidence"]
+    _tamper_terminal_root(root, case)
+    outer_payload = dict(receipt)
+    outer_payload.pop("payload_sha256")
+    receipt["payload_sha256"] = canonical_sha256(outer_payload)
+
+    with pytest.raises(ValueError, match=message):
+        _validate_lineage_receipt(
+            fixture,
+            receipt,
+            expected_sha256=canonical_sha256(receipt),
         )
 
 

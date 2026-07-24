@@ -40,9 +40,30 @@ def _write_json(path: Path, value: object) -> str:
 def _adapter_config() -> dict[str, Any]:
     return {
         "schema_version": "test-adapter-config-v1",
+        "origin": "https://api.elections.kalshi.com",
+        "current_market_path": "/trade-api/v2/markets/",
+        "historical_market_path": "/trade-api/v2/historical/markets/",
+        "selection_rule": (
+            "CURRENT_THEN_HISTORICAL_ONLY_ON_CURRENT_404"
+        ),
+        "request_method": "GET",
+        "request_headers": {
+            "Accept": "application/json",
+            "User-Agent": "test-terminal-adapter/1",
+        },
         "authentication": "FORBIDDEN",
         "proxy": "FORBIDDEN",
         "redirect": "FORBIDDEN",
+        "timeout_seconds": 15,
+        "max_response_bytes": 8 * 1024 * 1024,
+        "rate_limit_policy": {
+            "minimum_request_interval_ns": 250_000_000,
+            "max_429_retries_per_endpoint": 2,
+            "min_retry_after_seconds": 1,
+            "max_retry_after_seconds": 30,
+            "historical_fallback_on_429": "FORBIDDEN",
+            "every_http_attempt_raw_capture": "CREATE_ONCE",
+        },
         "terminal_rule": "FINALIZED_YES_NO_EXACT_PAYOUT_ONLY",
         "metadata_temporality": TEMPORALITY,
         "scheduled_start_mapping": "FORBIDDEN",
@@ -104,6 +125,13 @@ def _make_shard(
 ) -> dict[str, Any]:
     shard = root / shard_id
     shard.mkdir(parents=True)
+    adapter_code_path = shard / "official_market_terminal_adapter.py"
+    adapter_code_raw = (
+        b"#!/usr/bin/env python3\n# test adapter marker " + code_sha.encode()
+    )
+    adapter_code_path.write_bytes(adapter_code_raw)
+    adapter_code_path.chmod(0o444)
+    code_sha = hashlib.sha256(adapter_code_raw).hexdigest()
     config = _adapter_config()
     config_sha = canonical_sha256(config)
     authority = {
@@ -133,16 +161,40 @@ def _make_shard(
                     "ticker": ticker,
                     "status": "finalized",
                     "result": "yes",
+                    "settlement_value_dollars": "1.0000",
+                    "settlement_ts": "2026-07-23T00:00:00Z",
+                    "price_level_structure": "linear_cent",
+                    "price_ranges": [
+                        {
+                            "start": "0.0000",
+                            "end": "1.0000",
+                            "step": "0.0100",
+                        }
+                    ],
+                    "open_time": "2026-07-01T00:00:00Z",
+                    "close_time": "2026-07-22T00:00:00Z",
+                    "expected_expiration_time": (
+                        "2026-07-22T00:00:00Z"
+                    ),
+                    "occurrence_datetime": "2026-07-21T00:00:00Z",
                 }
             }
         )
         raw_path.write_bytes(raw)
         raw_path.chmod(0o444)
         raw_sha = hashlib.sha256(raw).hexdigest()
-        wall_before = 1_700_000_000_000_000_000 + sequence * 1_000 + index * 10
-        wall_after = wall_before + 5
-        mono_before = 10_000 + sequence * 1_000 + index * 10
-        mono_after = mono_before + 5
+        wall_before = (
+            1_784_764_801_000_000_000
+            + sequence * 10_000_000_000
+            + index * 1_000_000_000
+        )
+        wall_after = wall_before + 1_000_000
+        mono_before = (
+            1_000_000_000
+            + sequence * 10_000_000_000
+            + index * 1_000_000_000
+        )
+        mono_after = mono_before + 1_000_000
         attempt = {
             "ticker": ticker,
             "source_tier": "current",
@@ -222,8 +274,8 @@ def _make_shard(
         "authority_id": authority["authority_id"],
         "authority_issued_at_utc": authority["issued_at_utc"],
         "authority_expires_at_utc": authority["expires_at_utc"],
-        "authority_issued_wall_ns": 1,
-        "authority_expires_wall_ns": 2,
+        "authority_issued_wall_ns": 1_784_764_800_000_000_000,
+        "authority_expires_wall_ns": 1_784_851_200_000_000_000,
         "adapter_code_sha256": code_sha,
         "adapter_config_sha256": config_sha,
         "adapter_config": config,
@@ -283,6 +335,7 @@ def _make_shard(
     normalized_sha = _write_json(normalized_path, normalized)
     return {
         "shard_id": shard_id,
+        "adapter_code_path": str(adapter_code_path),
         "authority_path": str(authority_path),
         "authority_raw_sha256": authority_sha,
         "capture_receipt_path": str(capture_path),
@@ -361,6 +414,86 @@ def _add_pga_exclusion(
     ).encode("utf-8")
     raw_path.write_bytes(raw)
     raw_path.chmod(0o444)
+    raw_sha = hashlib.sha256(raw).hexdigest()
+    config = _adapter_config()
+    capture = {
+        "schema_version": "a01-official-market-capture-receipt-v1",
+        "authority_raw_sha256": authority_sha,
+        "authority_id": authority["authority_id"],
+        "authority_issued_at_utc": authority["issued_at_utc"],
+        "authority_expires_at_utc": authority["expires_at_utc"],
+        "authority_issued_wall_ns": 1_784_764_800_000_000_000,
+        "authority_expires_wall_ns": 1_784_851_200_000_000_000,
+        "adapter_code_sha256": shard["adapter_code_sha256"],
+        "adapter_config_sha256": shard["adapter_config_sha256"],
+        "adapter_config": config,
+        "request_authentication": "NONE",
+        "proxy_policy": "DISABLED",
+        "redirect_policy": "REJECT",
+        "temporality": TEMPORALITY,
+        "captures": [
+            {
+                "ticker": ticker,
+                "attempts": [
+                    {
+                        "ticker": ticker,
+                        "source_tier": "current",
+                        "endpoint_attempt_index": 0,
+                        "batch_attempt_index": 0,
+                        "request_url": (
+                            "https://api.elections.kalshi.com"
+                            f"/trade-api/v2/markets/{ticker}"
+                        ),
+                        "http_status": 200,
+                        "required_delay_from_prior_attempt_ns": 0,
+                        "retry_after_seconds": None,
+                        "fetch_wall_ns_before": (
+                            1_784_764_801_000_000_000
+                        ),
+                        "fetch_wall_ns_after": (
+                            1_784_764_801_001_000_000
+                        ),
+                        "fetch_monotonic_ns_before": 1_000_000_000,
+                        "fetch_monotonic_ns_after": 1_001_000_000,
+                        "raw_relative_path": raw_path.name,
+                        "raw_size": len(raw),
+                        "raw_sha256": raw_sha,
+                        "adapter_code_sha256": shard[
+                            "adapter_code_sha256"
+                        ],
+                        "adapter_config_sha256": shard[
+                            "adapter_config_sha256"
+                        ],
+                    }
+                ],
+                "selected_attempt_index": 0,
+            }
+        ],
+    }
+    capture_path = root / "pga" / "CAPTURE_RECEIPT.json"
+    capture_sha = _write_json(capture_path, capture)
+    pins = {
+        "schema_version": "a01-official-market-raw-pins-v1",
+        "authority_raw_sha256": authority_sha,
+        "capture_receipt_raw_sha256": capture_sha,
+        "adapter_code_sha256": shard["adapter_code_sha256"],
+        "adapter_config_sha256": shard["adapter_config_sha256"],
+        "selected_responses": [
+            {
+                "ticker": ticker,
+                "source_tier": "current",
+                "request_url": (
+                    "https://api.elections.kalshi.com"
+                    f"/trade-api/v2/markets/{ticker}"
+                ),
+                "http_status": 200,
+                "raw_size": len(raw),
+                "raw_sha256": raw_sha,
+            }
+        ],
+    }
+    pins_path = root / "pga" / "RAW_PINS.json"
+    pins_sha = _write_json(pins_path, pins)
     spec["required_tickers"] = sorted(
         [*spec["required_tickers"], ticker]
     )
@@ -368,10 +501,15 @@ def _add_pga_exclusion(
         {
             "ticker": ticker,
             "reason_code": "NON_STANDARD_PRICE_LEVEL_STRUCTURE",
+            "adapter_code_path": shard["adapter_code_path"],
             "authority_path": str(authority_path),
             "authority_raw_sha256": authority_sha,
+            "capture_receipt_path": str(capture_path),
+            "capture_receipt_raw_sha256": capture_sha,
+            "raw_pins_path": str(pins_path),
+            "raw_pins_raw_sha256": pins_sha,
             "raw_response_path": str(raw_path),
-            "raw_response_raw_sha256": hashlib.sha256(raw).hexdigest(),
+            "raw_response_raw_sha256": raw_sha,
             "raw_response_size_bytes": len(raw),
             "adapter_code_sha256": shard["adapter_code_sha256"],
             "adapter_config_sha256": shard[
@@ -394,6 +532,51 @@ def _load(path: str) -> dict[str, Any]:
     return json.loads(Path(path).read_text())
 
 
+def _repin_shard_after_capture_change(
+    shard: dict[str, Any],
+    capture: dict[str, Any],
+) -> None:
+    """Make all downstream test pins self-consistent after a receipt edit."""
+
+    capture_sha = _rewrite(shard["capture_receipt_path"], capture)
+    shard["capture_receipt_raw_sha256"] = capture_sha
+    pins = _load(shard["raw_pins_path"])
+    pins["capture_receipt_raw_sha256"] = capture_sha
+    selected_by_ticker = {
+        capture_row["ticker"]: capture_row["attempts"][
+            capture_row["selected_attempt_index"]
+        ]
+        for capture_row in capture["captures"]
+    }
+    for pin in pins["selected_responses"]:
+        selected = selected_by_ticker[pin["ticker"]]
+        for field in (
+            "source_tier",
+            "request_url",
+            "http_status",
+            "raw_size",
+            "raw_sha256",
+        ):
+            pin[field] = selected[field]
+    pins_sha = _rewrite(shard["raw_pins_path"], pins)
+    shard["raw_pins_raw_sha256"] = pins_sha
+    output = _load(shard["normalized_output_path"])
+    output["capture_receipt_raw_sha256"] = capture_sha
+    output["raw_pins_raw_sha256"] = pins_sha
+    output["raw_response_evidence"] = [
+        {**attempt, "raw_reverified_sha256": attempt["raw_sha256"]}
+        for capture_row in capture["captures"]
+        for attempt in capture_row["attempts"]
+    ]
+    for row in output["metadata_evidence"]:
+        selected = selected_by_ticker[row["market_ticker"]]
+        row["source_tier"] = selected["source_tier"]
+        row["request_url"] = selected["request_url"]
+    shard["normalized_output_raw_sha256"] = _rewrite(
+        shard["normalized_output_path"], output
+    )
+
+
 def test_builds_exact_observation_only_terminal_root(tmp_path: Path) -> None:
     spec = _case(tmp_path)
     bundle = build_terminal_root_bundle(
@@ -413,6 +596,13 @@ def test_builds_exact_observation_only_terminal_root(tmp_path: Path) -> None:
     assert receipt["scheduled_start_authority_satisfied"] is False
     assert receipt["historical_lifecycle_intervals_satisfied"] is False
     assert receipt["s3_writes"] == 0
+    assert receipt["source_root_spec_raw_sha256"] == canonical_sha256(spec)
+    assert receipt["terminal_records_sha256"] == canonical_sha256(
+        receipt["terminal_records"]
+    )
+    assert receipt["metadata_evidence_sha256"] == canonical_sha256(
+        receipt["metadata_evidence"]
+    )
     payload = dict(receipt)
     assert payload.pop("payload_sha256") == canonical_sha256(payload)
 
@@ -447,6 +637,81 @@ def test_tampered_raw_response_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(
         TerminalLineageBridgeError, match="raw SHA-256 mismatch"
+    ):
+        build_terminal_root_bundle(
+            spec, require_root_read_only=False
+        )
+
+
+def test_self_consistent_forged_origin_is_rejected(tmp_path: Path) -> None:
+    spec = _case(tmp_path)
+    shard = spec["shards"][0]
+    capture = _load(shard["capture_receipt_path"])
+    capture["captures"][0]["attempts"][0]["request_url"] = (
+        "https://attacker.invalid/trade-api/v2/markets/KX-A"
+    )
+    _repin_shard_after_capture_change(shard, capture)
+
+    with pytest.raises(
+        TerminalLineageBridgeError, match="URL is not canonical"
+    ):
+        build_terminal_root_bundle(
+            spec, require_root_read_only=False
+        )
+
+
+def test_self_consistent_out_of_authority_capture_is_rejected(
+    tmp_path: Path,
+) -> None:
+    spec = _case(tmp_path)
+    shard = spec["shards"][0]
+    capture = _load(shard["capture_receipt_path"])
+    attempt = capture["captures"][0]["attempts"][0]
+    attempt["fetch_wall_ns_before"] = 1
+    attempt["fetch_wall_ns_after"] = 2
+    _repin_shard_after_capture_change(shard, capture)
+
+    with pytest.raises(
+        TerminalLineageBridgeError, match="outside authority"
+    ):
+        build_terminal_root_bundle(
+            spec, require_root_read_only=False
+        )
+
+
+def test_selected_raw_yes_cannot_be_normalized_to_no(
+    tmp_path: Path,
+) -> None:
+    spec = _case(tmp_path)
+    shard = spec["shards"][0]
+    output = _load(shard["normalized_output_path"])
+    output["terminal_records"][0]["yes_settlement_value_e4"] = 0
+    output["metadata_evidence"][0]["official_result"] = "no"
+    output["metadata_evidence"][0]["yes_settlement_value_e4"] = 0
+    shard["normalized_output_raw_sha256"] = _rewrite(
+        shard["normalized_output_path"], output
+    )
+
+    with pytest.raises(
+        TerminalLineageBridgeError,
+        match="payout differs from selected official response",
+    ):
+        build_terminal_root_bundle(
+            spec, require_root_read_only=False
+        )
+
+
+def test_declared_adapter_sha_must_match_exact_code_bytes(
+    tmp_path: Path,
+) -> None:
+    spec = _case(tmp_path)
+    shard = spec["shards"][0]
+    path = Path(shard["adapter_code_path"])
+    path.chmod(0o644)
+    path.write_bytes(path.read_bytes() + b"\\n# tampered\\n")
+
+    with pytest.raises(
+        TerminalLineageBridgeError, match="adapter code raw SHA-256 mismatch"
     ):
         build_terminal_root_bundle(
             spec, require_root_read_only=False

@@ -174,9 +174,17 @@ HYBRID_LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
     }
 )
 TERMINAL_ROOT_RECEIPT_SCHEMA = (
-    "pnl-spine-official-terminal-root-receipt-v1"
+    "pnl-spine-official-terminal-root-receipt-v2"
 )
 TERMINAL_TEMPORALITY = "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF"
+TERMINAL_RESOLVED_CAPABILITIES = (
+    "OFFICIAL_FINALIZED_YES_NO_RESULT",
+    "EXACT_YES_PAYOUT_E4",
+    "OFFICIAL_SETTLEMENT_TIMESTAMP",
+    "TERMINAL_OBSERVATION_CLOCK_BRACKET",
+    "TERMINAL_OBSERVED_TICK_TABLE",
+    "TERMINAL_OBSERVED_LIFECYCLE_TIMESTAMPS",
+)
 
 
 class RunnerContractError(ValueError):
@@ -1114,6 +1122,7 @@ def _validate_terminal_root_receipt_for_lineage(
     receipt = _mapping("external_terminal_evidence", value)
     allowed = {
         "schema_version",
+        "source_root_spec_raw_sha256",
         "temporality",
         "coverage_policy",
         "required_tickers",
@@ -1125,9 +1134,11 @@ def _validate_terminal_root_receipt_for_lineage(
         "adapter_version_policy",
         "shards",
         "shards_sha256",
+        "terminal_records",
         "terminal_records_sha256",
         "terminal_record_index",
         "terminal_record_index_sha256",
+        "metadata_evidence",
         "metadata_evidence_sha256",
         "resolved_capabilities",
         "remaining_blockers",
@@ -1154,6 +1165,10 @@ def _validate_terminal_root_receipt_for_lineage(
     )
     if payload_sha != canonical_sha256(payload):
         raise ProvenanceError("external terminal root self hash mismatch")
+    _sha256_text(
+        "external terminal source_root_spec_raw_sha256",
+        receipt.get("source_root_spec_raw_sha256"),
+    )
     if (
         receipt.get("temporality") != TERMINAL_TEMPORALITY
         or receipt.get("coverage_policy") != "EXACT_REQUIRED_TICKER_SET"
@@ -1191,6 +1206,12 @@ def _validate_terminal_root_receipt_for_lineage(
     if receipt.get("remaining_blockers") != required_blockers:
         raise ProvenanceError(
             "external terminal root removed a mandatory blocker"
+        )
+    if receipt.get("resolved_capabilities") != list(
+        TERMINAL_RESOLVED_CAPABILITIES
+    ):
+        raise ProvenanceError(
+            "external terminal root capability set drifted"
         )
     tickers = [
         _text(f"external terminal ticker[{index}]", ticker)
@@ -1236,6 +1257,63 @@ def _validate_terminal_root_receipt_for_lineage(
         raise ProvenanceError(
             "external terminal eligible ticker coverage is invalid"
         )
+    terminal_rows = [
+        _mapping(f"external terminal record[{index}]", raw)
+        for index, raw in enumerate(
+            _list(
+                "external terminal records",
+                receipt.get("terminal_records"),
+            )
+        )
+    ]
+    terminal_row_tickers = [
+        _text(
+            f"external terminal record[{index}].market_ticker",
+            row.get("market_ticker"),
+        )
+        for index, row in enumerate(terminal_rows)
+    ]
+    if (
+        terminal_row_tickers != eligible_tickers
+        or _sha256_text(
+            "external terminal terminal_records_sha256",
+            receipt.get("terminal_records_sha256"),
+        )
+        != canonical_sha256(terminal_rows)
+    ):
+        raise ProvenanceError(
+            "external terminal record set or coverage mismatch"
+        )
+    terminal_records_by_ticker = dict(
+        zip(terminal_row_tickers, terminal_rows)
+    )
+    metadata_rows = [
+        _mapping(f"external terminal metadata[{index}]", raw)
+        for index, raw in enumerate(
+            _list(
+                "external terminal metadata_evidence",
+                receipt.get("metadata_evidence"),
+            )
+        )
+    ]
+    metadata_tickers = [
+        _text(
+            f"external terminal metadata[{index}].market_ticker",
+            row.get("market_ticker"),
+        )
+        for index, row in enumerate(metadata_rows)
+    ]
+    if (
+        metadata_tickers != eligible_tickers
+        or _sha256_text(
+            "external terminal metadata_evidence_sha256",
+            receipt.get("metadata_evidence_sha256"),
+        )
+        != canonical_sha256(metadata_rows)
+    ):
+        raise ProvenanceError(
+            "external terminal metadata set or coverage mismatch"
+        )
     exclusion_rows = _list(
         "external terminal eligibility_exclusions",
         receipt.get("eligibility_exclusions"),
@@ -1271,15 +1349,35 @@ def _validate_terminal_root_receipt_for_lineage(
             "external terminal eligibility exclusion controls",
             exclusion.get("filesystem_controls"),
         )
-        for name in ("authority", "raw_response"):
+        exclusion_control_sha_fields = {
+            "adapter_code": "adapter_code_sha256",
+            "authority": "authority_raw_sha256",
+            "capture_receipt": "capture_receipt_raw_sha256",
+            "raw_pins": "raw_pins_raw_sha256",
+            "raw_response": "raw_response_raw_sha256",
+        }
+        _strict_keys(
+            "external terminal eligibility exclusion controls",
+            controls,
+            exclusion_control_sha_fields,
+            required=exclusion_control_sha_fields,
+        )
+        for name, sha_field in exclusion_control_sha_fields.items():
             fact = _mapping(
                 f"external terminal eligibility exclusion {name}",
                 controls.get(name),
             )
-            if fact.get("root_read_only_verified") is not True:
+            expected_sha = _sha256_text(
+                f"external terminal eligibility exclusion {sha_field}",
+                exclusion.get(sha_field),
+            )
+            if (
+                fact.get("root_read_only_verified") is not True
+                or fact.get("raw_sha256") != expected_sha
+            ):
                 raise ProvenanceError(
                     "external terminal eligibility exclusion was not "
-                    "root/read-only verified"
+                    "root/read-only verified against its exact SHA"
                 )
         exclusion_tickers.append(ticker)
     if (
@@ -1335,19 +1433,35 @@ def _validate_terminal_root_receipt_for_lineage(
             "external terminal filesystem_controls",
             shard.get("filesystem_controls"),
         )
-        for name in (
-            "authority",
-            "capture_receipt",
-            "raw_pins",
-            "normalized_output",
-        ):
+        shard_control_sha_fields = {
+            "adapter_code": "adapter_code_sha256",
+            "authority": "authority_raw_sha256",
+            "capture_receipt": "capture_receipt_raw_sha256",
+            "raw_pins": "raw_pins_raw_sha256",
+            "normalized_output": "normalized_output_raw_sha256",
+        }
+        _strict_keys(
+            "external terminal filesystem_controls",
+            controls,
+            shard_control_sha_fields,
+            required=shard_control_sha_fields,
+        )
+        for name, sha_field in shard_control_sha_fields.items():
             fact = _mapping(
                 f"external terminal filesystem_controls.{name}",
                 controls.get(name),
             )
-            if fact.get("root_read_only_verified") is not True:
+            expected_sha = _sha256_text(
+                f"external terminal {sha_field}",
+                shard.get(sha_field),
+            )
+            if (
+                fact.get("root_read_only_verified") is not True
+                or fact.get("raw_sha256") != expected_sha
+            ):
                 raise ProvenanceError(
-                    "external terminal control was not root/read-only verified"
+                    "external terminal control was not root/read-only "
+                    "verified against its exact SHA"
                 )
         for raw_index, raw_fact in enumerate(
             _list(
@@ -1362,7 +1476,14 @@ def _validate_terminal_root_receipt_for_lineage(
                 "external terminal raw response filesystem",
                 response.get("filesystem"),
             )
-            if filesystem.get("root_read_only_verified") is not True:
+            if (
+                filesystem.get("root_read_only_verified") is not True
+                or filesystem.get("raw_sha256")
+                != _sha256_text(
+                    "external terminal raw response SHA",
+                    response.get("raw_sha256"),
+                )
+            ):
                 raise ProvenanceError(
                     "external terminal raw response was not root/read-only "
                     "verified"
@@ -1468,6 +1589,21 @@ def _validate_terminal_root_receipt_for_lineage(
             row.get("observed_at_ns"),
             minimum=0,
         )
+        record = terminal_records_by_ticker.get(ticker)
+        if record is None:
+            raise ProvenanceError(
+                "external terminal index ticker has no embedded record"
+            )
+        if (
+            row.get("record_sha256") != canonical_sha256(record)
+            or row.get("settlement_id") != record.get("settlement_id")
+            or row.get("observed_at_ns") != record.get("observed_at_ns")
+            or row.get("selected_raw_response_sha256")
+            != record.get("source_sha256")
+        ):
+            raise ProvenanceError(
+                "external terminal index differs from embedded record"
+            )
         index_by_ticker[ticker] = row
     if list(index_by_ticker) != eligible_tickers:
         raise ProvenanceError(

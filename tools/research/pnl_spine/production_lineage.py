@@ -3115,6 +3115,7 @@ def _validate_terminal_root_bundle_for_hybrid(
     receipt = _mapping("terminal root receipt", bundle.receipt)
     required = {
         "schema_version",
+        "source_root_spec_raw_sha256",
         "temporality",
         "coverage_policy",
         "required_tickers",
@@ -3126,9 +3127,11 @@ def _validate_terminal_root_bundle_for_hybrid(
         "adapter_version_policy",
         "shards",
         "shards_sha256",
+        "terminal_records",
         "terminal_records_sha256",
         "terminal_record_index",
         "terminal_record_index_sha256",
+        "metadata_evidence",
         "metadata_evidence_sha256",
         "resolved_capabilities",
         "remaining_blockers",
@@ -3151,6 +3154,10 @@ def _validate_terminal_root_bundle_for_hybrid(
         payload, "terminal root receipt payload"
     ):
         raise ProductionLineageError("terminal root receipt self hash mismatch")
+    _sha(
+        "terminal root source spec raw SHA",
+        receipt["source_root_spec_raw_sha256"],
+    )
     if (
         receipt["temporality"] != _terminal_bridge.TEMPORALITY
         or receipt["coverage_policy"] != _terminal_bridge.COVERAGE_POLICY
@@ -3174,6 +3181,12 @@ def _validate_terminal_root_bundle_for_hybrid(
     ):
         raise ProductionLineageError(
             "terminal root receipt removed a mandatory blocker"
+        )
+    if receipt["resolved_capabilities"] != list(
+        _terminal_bridge.RESOLVED_CAPABILITIES
+    ):
+        raise ProductionLineageError(
+            "terminal root receipt capability set drifted"
         )
     if any(
         receipt[field] != 0
@@ -3230,6 +3243,58 @@ def _validate_terminal_root_bundle_for_hybrid(
         raise ProductionLineageError(
             "terminal eligible ticker coverage is invalid"
         )
+    terminal_rows = [
+        _mapping(f"terminal record {index}", raw)
+        for index, raw in enumerate(
+            _list("terminal records", receipt["terminal_records"])
+        )
+    ]
+    terminal_row_tickers = [
+        _text(
+            f"terminal record {index} market_ticker",
+            row.get("market_ticker"),
+        )
+        for index, row in enumerate(terminal_rows)
+    ]
+    if (
+        terminal_row_tickers != eligible_tickers
+        or _sha(
+            "terminal records SHA",
+            receipt["terminal_records_sha256"],
+        )
+        != _canonical_hash(terminal_rows, "terminal normalized records")
+    ):
+        raise ProductionLineageError(
+            "terminal normalized record set or coverage mismatch"
+        )
+    root_records_by_ticker = dict(zip(terminal_row_tickers, terminal_rows))
+    metadata_rows = [
+        _mapping(f"terminal metadata evidence {index}", raw)
+        for index, raw in enumerate(
+            _list(
+                "terminal metadata evidence",
+                receipt["metadata_evidence"],
+            )
+        )
+    ]
+    metadata_tickers = [
+        _text(
+            f"terminal metadata evidence {index} market_ticker",
+            row.get("market_ticker"),
+        )
+        for index, row in enumerate(metadata_rows)
+    ]
+    if (
+        metadata_tickers != eligible_tickers
+        or _sha(
+            "terminal metadata evidence SHA",
+            receipt["metadata_evidence_sha256"],
+        )
+        != _canonical_hash(metadata_rows, "terminal metadata evidence")
+    ):
+        raise ProductionLineageError(
+            "terminal metadata evidence set or coverage mismatch"
+        )
     exclusion_rows = _list(
         "terminal eligibility_exclusions",
         receipt["eligibility_exclusions"],
@@ -3267,14 +3332,33 @@ def _validate_terminal_root_bundle_for_hybrid(
             "terminal eligibility exclusion filesystem_controls",
             exclusion.get("filesystem_controls"),
         )
-        for name in ("authority", "raw_response"):
+        exclusion_control_sha_fields = {
+            "adapter_code": "adapter_code_sha256",
+            "authority": "authority_raw_sha256",
+            "capture_receipt": "capture_receipt_raw_sha256",
+            "raw_pins": "raw_pins_raw_sha256",
+            "raw_response": "raw_response_raw_sha256",
+        }
+        _strict_keys(
+            "terminal eligibility exclusion filesystem_controls",
+            controls,
+            required=set(exclusion_control_sha_fields),
+        )
+        for name, sha_field in exclusion_control_sha_fields.items():
             fact = _mapping(
                 f"terminal eligibility exclusion {name}", controls.get(name)
             )
-            if fact.get("root_read_only_verified") is not True:
+            expected_sha = _sha(
+                f"terminal eligibility exclusion {sha_field}",
+                exclusion.get(sha_field),
+            )
+            if (
+                fact.get("root_read_only_verified") is not True
+                or fact.get("raw_sha256") != expected_sha
+            ):
                 raise ProductionLineageError(
                     "terminal eligibility exclusion was not root/read-only "
-                    "verified"
+                    "verified against its exact SHA"
                 )
         exclusion_tickers.append(ticker)
     if (
@@ -3292,28 +3376,46 @@ def _validate_terminal_root_bundle_for_hybrid(
     ) != _canonical_hash(shards, "terminal root shards"):
         raise ProductionLineageError("terminal shard set hash mismatch")
     shard_by_id: dict[str, Mapping[str, Any]] = {}
+    previous_shard_id = ""
     for index, raw in enumerate(shards):
         shard = _mapping(f"terminal shard {index}", raw)
         shard_id = _text("terminal shard_id", shard.get("shard_id"))
-        if shard_id in shard_by_id:
-            raise ProductionLineageError("duplicate terminal shard_id")
+        if previous_shard_id and shard_id <= previous_shard_id:
+            raise ProductionLineageError(
+                "terminal shards must be sorted and unique"
+            )
+        previous_shard_id = shard_id
         controls = _mapping(
             "terminal shard filesystem_controls",
             shard.get("filesystem_controls"),
         )
-        for name in (
-            "authority",
-            "capture_receipt",
-            "raw_pins",
-            "normalized_output",
-        ):
+        shard_control_sha_fields = {
+            "adapter_code": "adapter_code_sha256",
+            "authority": "authority_raw_sha256",
+            "capture_receipt": "capture_receipt_raw_sha256",
+            "raw_pins": "raw_pins_raw_sha256",
+            "normalized_output": "normalized_output_raw_sha256",
+        }
+        _strict_keys(
+            "terminal shard filesystem_controls",
+            controls,
+            required=set(shard_control_sha_fields),
+        )
+        for name, sha_field in shard_control_sha_fields.items():
             fact = _mapping(
                 f"terminal shard filesystem_controls.{name}",
                 controls.get(name),
             )
-            if fact.get("root_read_only_verified") is not True:
+            expected_sha = _sha(
+                f"terminal shard {sha_field}", shard.get(sha_field)
+            )
+            if (
+                fact.get("root_read_only_verified") is not True
+                or fact.get("raw_sha256") != expected_sha
+            ):
                 raise ProductionLineageError(
-                    "terminal control was not root/read-only verified"
+                    "terminal control was not root/read-only verified "
+                    "against its exact SHA"
                 )
         raw_responses = _list(
             "terminal shard raw_responses",
@@ -3331,7 +3433,14 @@ def _validate_terminal_root_bundle_for_hybrid(
                 "terminal raw response filesystem",
                 response.get("filesystem"),
             )
-            if filesystem.get("root_read_only_verified") is not True:
+            if (
+                filesystem.get("root_read_only_verified") is not True
+                or filesystem.get("raw_sha256")
+                != _sha(
+                    "terminal raw response SHA",
+                    response.get("raw_sha256"),
+                )
+            ):
                 raise ProductionLineageError(
                     "terminal raw response was not root/read-only verified"
                 )
@@ -3354,6 +3463,10 @@ def _validate_terminal_root_bundle_for_hybrid(
     if sorted(records_by_ticker) != eligible_tickers:
         raise ProductionLineageError(
             "terminal bundle record coverage differs from root receipt"
+        )
+    if records_by_ticker != root_records_by_ticker:
+        raise ProductionLineageError(
+            "terminal bundle records differ from embedded root records"
         )
     index_by_ticker: dict[str, Mapping[str, Any]] = {}
     for index, raw in enumerate(index_rows):
@@ -3419,15 +3532,6 @@ def _validate_terminal_root_bundle_for_hybrid(
     if list(index_by_ticker) != eligible_tickers:
         raise ProductionLineageError(
             "terminal record index is not exact, sorted ticker coverage"
-        )
-    if _sha(
-        "terminal records SHA", receipt["terminal_records_sha256"]
-    ) != _canonical_hash(
-        [records_by_ticker[ticker] for ticker in eligible_tickers],
-        "terminal normalized records",
-    ):
-        raise ProductionLineageError(
-            "terminal normalized record set hash mismatch"
         )
     return receipt, records_by_ticker, index_by_ticker
 
@@ -4002,6 +4106,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             terminal_bundle = _terminal_bridge.build_terminal_root_bundle(
                 terminal_spec,
+                source_root_spec_raw_sha256=_sha(
+                    "terminal root spec raw SHA-256",
+                    terminal_spec_sha256,
+                ),
                 require_root_read_only=True,
             )
         except _terminal_bridge.TerminalLineageBridgeError as exc:
