@@ -118,6 +118,7 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             authority_path = root / "authority.json"
             output_path = root / "trace.json"
             ledger_path = root / "consumed.json"
+            terminal_path = root / "terminal.json"
             config_path = root / "config.json"
             environment_path = root / "environment.json"
             host_path = root / "host.json"
@@ -152,6 +153,8 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
                 str(output_path),
                 "--consumption-ledger",
                 str(ledger_path),
+                "--terminal-consumption-receipt",
+                str(terminal_path),
             )
             first = self.run_probe(
                 *arguments,
@@ -169,6 +172,31 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             self.assertNotIn("private key", first.stderr.lower())
             self.assertFalse(output_path.exists())
             self.assertFalse(ledger_path.exists())
+            self.assertFalse(terminal_path.exists())
+
+    def test_authority_wall_and_monotonic_deadlines_fail_closed(self) -> None:
+        completed = self.run_probe("--self-test-authority-deadline")
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(
+            "AUTHORITY DEADLINE SELF-TEST PASS", completed.stdout.strip()
+        )
+
+    def test_proxy_and_ca_override_environment_is_scrubbed(self) -> None:
+        completed = self.run_probe(
+            "--self-test-network-environment",
+            extra_env={
+                "HTTP_PROXY": "http://attacker.invalid:8080",
+                "https_proxy": "http://attacker.invalid:8081",
+                "ALL_PROXY": "socks5://attacker.invalid:1080",
+                "CURL_CA_BUNDLE": "/attacker/ca.pem",
+                "SSL_CERT_FILE": "/attacker/cert.pem",
+                "AWS_CA_BUNDLE": "/attacker/aws-ca.pem",
+            },
+        )
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(
+            "NETWORK ENVIRONMENT SELF-TEST PASS", completed.stdout.strip()
+        )
 
     def test_cli_cannot_supply_self_reported_runtime_hashes(self) -> None:
         completed = self.run_probe(
@@ -192,6 +220,10 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         execute_body = source[source.index("int execute_place_cancel") :]
         self.assertLess(
             execute_body.index("ledger_reservation.finish"),
+            execute_body.index("drop_execution_privileges"),
+        )
+        self.assertLess(
+            execute_body.index("drop_execution_privileges"),
             execute_body.index('std::getenv("KALSHI_API_KEY_ID")'),
         )
         self.assertLess(
@@ -210,6 +242,20 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             "kMaximumClockReceiptAgeMs",
             "kMaximumClockErrorNs",
             "validate_clock_quality_receipt",
+            "monotonic_deadline_ns",
+            "authority_allows_new_risk",
+            "cancel_risk_reduction_after_expiry",
+            "BLOCKED_AMBIGUOUS_PLACE_OUTCOME_NO_RETRY",
+            "scrub_ambient_network_environment",
+            "network_boundary_still_valid",
+            "default_curl_ca_path",
+            "drop_execution_privileges",
+            "::setgroups(0, nullptr)",
+            "::setgid(",
+            "::setuid(",
+            "PR_SET_NO_NEW_PRIVS",
+            "terminal_consumption_receipt",
+            "transaction_id",
             "facts->producer_code_sha256",
             "facts->producer_config_sha256",
             "facts->execution_host_fingerprint_sha256",
@@ -224,6 +270,72 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             'argument == "--measured-on"',
         ):
             self.assertNotIn(forbidden, source)
+
+        place_section = execute_body[
+            execute_body.index("CausalSample place;") :
+            execute_body.index("CausalSample cancel;")
+        ]
+        self.assertLess(
+            place_section.index("authority_allows_new_risk"),
+            place_section.index("client.sign_request"),
+        )
+        self.assertLess(
+            place_section.rindex("authority_allows_new_risk"),
+            place_section.index("lane.send(*place_request)"),
+        )
+        self.assertLess(
+            place_section.rindex("network_boundary_still_valid"),
+            place_section.index("lane.send(*place_request)"),
+        )
+        order_parser = source[
+            source.index("std::optional<OrderSnapshot> parse_order_snapshot") :
+            source.index("std::optional<std::string> parse_order_id")
+        ]
+        self.assertNotIn('"status"', order_parser)
+        self.assertNotIn('"order_status"', order_parser)
+
+    def test_root_broker_files_are_not_execution_deletable(self) -> None:
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        reservation = source[
+            source.index("class OutputReservation") :
+            source.index("struct PositionSnapshot")
+        ]
+        self.assertIn("create_flags, 0400", reservation)
+        self.assertIn("info.st_uid != 0", reservation)
+        execute = source[source.index("int execute_place_cancel") :]
+        for reservation_name in (
+            "ledger_reservation",
+            "output_reservation",
+            "terminal_reservation",
+        ):
+            self.assertLess(
+                execute.index(reservation_name),
+                execute.index("drop_execution_privileges"),
+            )
+        self.assertIn(
+            "This root preamble is the single-use broker", execute
+        )
+        self.assertIn(
+            "PLACE/CANCEL authority already consumed", execute
+        )
+        consumption = execute[
+            execute.index("std::ostringstream consumption;") :
+            execute.index("ledger_reservation.finish")
+        ]
+        self.assertLess(
+            consumption.index("nonce_sha256"),
+            consumption.index("producer_code_sha256"),
+        )
+        self.assertLess(
+            consumption.index("producer_config_sha256"),
+            consumption.index("receipt_id"),
+        )
+        self.assertLess(
+            consumption.index("receipt_id"),
+            consumption.index("schema_version"),
+        )
 
     def test_ioc_exit_cannot_be_counted_as_complete_three_path(self) -> None:
         source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(

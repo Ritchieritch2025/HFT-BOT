@@ -17,6 +17,7 @@
 #include "kalshi/wire.hpp"
 #include "simdjson.h"
 
+#include <curl/curl.h>
 #include <openssl/evp.h>
 
 #include <algorithm>
@@ -31,6 +32,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <grp.h>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -43,6 +45,10 @@
 #include <unistd.h>
 #include <vector>
 
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -53,11 +59,11 @@ using kalshi::daemon::steady_now_ns;
 namespace {
 
 constexpr std::string_view kAuthoritySchema =
-    "pnl-spine-latency-probe-authority-v1";
+    "pnl-spine-latency-probe-authority-v2";
 constexpr std::string_view kPrivateTraceSchema =
     "pnl-spine-private-causal-latency-trace-v1";
 constexpr std::string_view kProducerConfigSchema =
-    "pnl-spine-latency-probe-config-v1";
+    "pnl-spine-latency-probe-config-v2";
 constexpr std::string_view kEnvironmentReceiptSchema =
     "pnl-spine-execution-environment-receipt-v1";
 constexpr std::string_view kExecutionHostReceiptSchema =
@@ -82,6 +88,8 @@ struct Options {
   bool ioc_exit_preflight = false;
   bool execute_ioc_exit = false;
   bool self_test_v2 = false;
+  bool self_test_authority_deadline = false;
+  bool self_test_network_environment = false;
   std::string ticker;
   std::string authority_file;
   std::string expected_authority_sha256;
@@ -92,6 +100,7 @@ struct Options {
   std::string receipt_id;
   std::string output;
   std::string consumption_ledger;
+  std::string terminal_consumption_receipt;
 };
 
 struct Authority {
@@ -100,6 +109,9 @@ struct Authority {
   bool allow_place_cancel = false;
   bool allow_ioc_exit = false;
   std::string nonce_sha256;
+  std::string transaction_id;
+  std::uint64_t accepted_at_steady_ns = 0;
+  std::uint64_t monotonic_deadline_ns = 0;
 };
 
 struct RuntimeFacts {
@@ -111,6 +123,17 @@ struct RuntimeFacts {
   std::string hostname;
   std::string instance_id;
   std::string machine_id_sha256;
+  std::string ca_bundle_path;
+  std::string ca_bundle_sha256;
+  uid_t execution_uid = 0;
+  gid_t execution_gid = 0;
+};
+
+struct ProducerDeploymentConfig {
+  std::string ca_bundle_path;
+  std::string ca_bundle_sha256;
+  uid_t execution_uid = 0;
+  gid_t execution_gid = 0;
 };
 
 std::optional<std::filesystem::path> secure_new_output_path(
@@ -136,11 +159,11 @@ class OutputReservation {
     create_flags |= O_NOFOLLOW;
 #endif
     fd_ = ::openat(
-        directory_fd_, path_.filename().c_str(), create_flags, 0600);
+        directory_fd_, path_.filename().c_str(), create_flags, 0400);
     if (fd_ < 0) return;
     struct stat info {};
     if (::fstat(fd_, &info) != 0 || !S_ISREG(info.st_mode) ||
-        info.st_nlink != 1 || info.st_uid != ::geteuid()) {
+        info.st_nlink != 1 || info.st_uid != 0) {
       ::close(fd_);
       fd_ = -1;
     }
@@ -165,8 +188,7 @@ class OutputReservation {
       if (written <= 0) return false;
       offset += static_cast<std::size_t>(written);
     }
-    if (::fchmod(fd_, 0400) != 0 || ::fsync(fd_) != 0 ||
-        ::close(fd_) != 0) {
+    if (::fsync(fd_) != 0 || ::close(fd_) != 0) {
       fd_ = -1;
       return false;
     }
@@ -187,7 +209,6 @@ struct PositionSnapshot {
 };
 
 struct OrderSnapshot {
-  std::string status;
   std::int64_t requested_e4 = 0;
   std::int64_t filled_e4 = 0;
   std::int64_t remaining_e4 = 0;
@@ -242,14 +263,6 @@ struct CausalSample {
   std::int64_t position_after_e4 = 0;
   std::string order_status;
 };
-
-std::string upper(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) {
-                   return static_cast<char>(std::toupper(c));
-                 });
-  return value;
-}
 
 bool is_sha256(std::string_view value) {
   return value.size() == 64 &&
@@ -339,7 +352,7 @@ std::optional<std::filesystem::path> secure_new_output_path(
     const std::string& raw_path) {
   const auto path = strict_absolute_path(raw_path);
   if (!path || !root_owned_components(
-                   *path, false, true)) {
+                   *path, false, false)) {
     return std::nullopt;
   }
   struct stat existing {};
@@ -690,13 +703,31 @@ std::optional<std::string> local_instance_id() {
   return std::nullopt;
 }
 
-bool validate_producer_config(std::string_view bytes) {
+std::optional<std::string> default_curl_ca_path() {
+  CURL* handle = ::curl_easy_init();
+  if (!handle) return std::nullopt;
+  char* ca_path = nullptr;
+  const CURLcode result =
+      ::curl_easy_getinfo(handle, CURLINFO_CAINFO, &ca_path);
+  std::optional<std::string> value;
+  if (result == CURLE_OK && ca_path && *ca_path)
+    value = std::string(ca_path);
+  ::curl_easy_cleanup(handle);
+  return value;
+}
+
+std::optional<ProducerDeploymentConfig> validate_producer_config(
+    std::string_view bytes) {
   try {
     simdjson::dom::parser parser;
     auto result = parser.parse(bytes);
-    if (result.error()) return false;
+    if (result.error()) return std::nullopt;
     auto root = result.value();
     const std::set<std::string> expected = {
+        "ca_bundle_path",
+        "ca_bundle_sha256",
+        "execution_gid",
+        "execution_uid",
         "max_cash_loss_e6",
         "max_fee_e6",
         "place_post_only",
@@ -706,8 +737,11 @@ bool validate_producer_config(std::string_view bytes) {
         "quantity_e4",
         "schema_version",
     };
-    if (!has_exact_keys(root, expected)) return false;
+    if (!has_exact_keys(root, expected)) return std::nullopt;
     const auto schema = string_field(root, {"schema_version"});
+    const auto ca_bundle_path = string_field(root, {"ca_bundle_path"});
+    const auto ca_bundle_sha =
+        string_field(root, {"ca_bundle_sha256"});
     const auto place_side = string_field(root, {"place_side"});
     const auto time_in_force =
         string_field(root, {"place_time_in_force"});
@@ -715,23 +749,40 @@ bool validate_producer_config(std::string_view bytes) {
     std::int64_t price_cap = 0;
     std::int64_t maximum_loss = 0;
     std::int64_t maximum_fee = 0;
+    std::int64_t execution_uid = 0;
+    std::int64_t execution_gid = 0;
     bool post_only = false;
-    return schema && *schema == kProducerConfigSchema && place_side &&
-           *place_side == "BID" && time_in_force &&
-           *time_in_force == "GOOD_TILL_CANCELED" &&
-           root["quantity_e4"].get(quantity) == simdjson::SUCCESS &&
-           quantity == kQuantityE4 &&
-           root["price_cap_e4"].get(price_cap) == simdjson::SUCCESS &&
-           price_cap == kPriceCapE4 &&
-           root["max_cash_loss_e6"].get(maximum_loss) ==
-               simdjson::SUCCESS &&
-           maximum_loss == kMaximumCashLossE6 &&
-           root["max_fee_e6"].get(maximum_fee) == simdjson::SUCCESS &&
-           maximum_fee == kMaximumFeeE6 &&
-           root["place_post_only"].get(post_only) == simdjson::SUCCESS &&
-           post_only;
+    if (!schema || *schema != kProducerConfigSchema || !ca_bundle_path ||
+        !strict_absolute_path(*ca_bundle_path) || !ca_bundle_sha ||
+        !is_sha256(*ca_bundle_sha) || !place_side ||
+        *place_side != "BID" || !time_in_force ||
+        *time_in_force != "GOOD_TILL_CANCELED" ||
+        root["quantity_e4"].get(quantity) != simdjson::SUCCESS ||
+        quantity != kQuantityE4 ||
+        root["price_cap_e4"].get(price_cap) != simdjson::SUCCESS ||
+        price_cap != kPriceCapE4 ||
+        root["max_cash_loss_e6"].get(maximum_loss) !=
+            simdjson::SUCCESS ||
+        maximum_loss != kMaximumCashLossE6 ||
+        root["max_fee_e6"].get(maximum_fee) != simdjson::SUCCESS ||
+        maximum_fee != kMaximumFeeE6 ||
+        root["execution_uid"].get(execution_uid) != simdjson::SUCCESS ||
+        root["execution_gid"].get(execution_gid) != simdjson::SUCCESS ||
+        execution_uid <= 0 ||
+        execution_uid > std::numeric_limits<uid_t>::max() ||
+        execution_gid <= 0 ||
+        execution_gid > std::numeric_limits<gid_t>::max() ||
+        root["place_post_only"].get(post_only) != simdjson::SUCCESS ||
+        !post_only)
+      return std::nullopt;
+    return ProducerDeploymentConfig{
+        *ca_bundle_path,
+        *ca_bundle_sha,
+        static_cast<uid_t>(execution_uid),
+        static_cast<gid_t>(execution_gid),
+    };
   } catch (...) {
-    return false;
+    return std::nullopt;
   }
 }
 
@@ -747,6 +798,7 @@ bool validate_environment_receipt(
         "instance_id",
         "kalshi_environment",
         "kalshi_mode",
+        "ca_bundle_sha256",
         "machine_id_sha256",
         "producer_code_sha256",
         "producer_config_sha256",
@@ -761,13 +813,15 @@ bool validate_environment_receipt(
     const auto config = string_field(root, {"producer_config_sha256"});
     const auto environment = string_field(root, {"kalshi_environment"});
     const auto mode = string_field(root, {"kalshi_mode"});
+    const auto ca_bundle = string_field(root, {"ca_bundle_sha256"});
     return schema && *schema == kEnvironmentReceiptSchema && hostname &&
            *hostname == facts.hostname && instance_id &&
            *instance_id == facts.instance_id && machine_id &&
            *machine_id == facts.machine_id_sha256 && code &&
            *code == facts.producer_code_sha256 && config &&
            *config == facts.producer_config_sha256 && environment &&
-           *environment == "prod" && mode && *mode == "live";
+           *environment == "prod" && mode && *mode == "live" &&
+           ca_bundle && *ca_bundle == facts.ca_bundle_sha256;
   } catch (...) {
     return false;
   }
@@ -870,7 +924,7 @@ bool validate_clock_quality_receipt(
 
 std::optional<RuntimeFacts> collect_runtime_facts(
     const Options& options) {
-  if (::geteuid() == 0) return std::nullopt;
+  if (::geteuid() != 0 || ::getuid() != 0) return std::nullopt;
   const auto executable = running_executable_path();
   if (!executable) return std::nullopt;
   const auto code_sha = hash_root_read_only_file(*executable);
@@ -882,13 +936,29 @@ std::optional<RuntimeFacts> collect_runtime_facts(
 
   const auto config =
       read_root_control_file(options.producer_config_file);
-  if (!config || !validate_producer_config(*config)) return std::nullopt;
+  if (!config) return std::nullopt;
+  const auto deployment_config = validate_producer_config(*config);
+  if (!deployment_config) return std::nullopt;
+  const auto default_ca = default_curl_ca_path();
+  if (!default_ca ||
+      std::filesystem::path(*default_ca).lexically_normal() !=
+          std::filesystem::path(deployment_config->ca_bundle_path))
+    return std::nullopt;
+  const auto ca_bundle_sha = hash_root_read_only_file(
+      std::filesystem::path(deployment_config->ca_bundle_path));
+  if (!ca_bundle_sha ||
+      *ca_bundle_sha != deployment_config->ca_bundle_sha256)
+    return std::nullopt;
   RuntimeFacts facts;
   facts.producer_code_sha256 = *code_sha;
   facts.producer_config_sha256 = sha256_hex(*config);
   facts.hostname = *hostname;
   facts.machine_id_sha256 = *machine_id_sha;
   facts.instance_id = *instance_id;
+  facts.ca_bundle_path = deployment_config->ca_bundle_path;
+  facts.ca_bundle_sha256 = *ca_bundle_sha;
+  facts.execution_uid = deployment_config->execution_uid;
+  facts.execution_gid = deployment_config->execution_gid;
 
   const auto environment =
       read_root_control_file(options.environment_receipt_file);
@@ -919,7 +989,6 @@ std::optional<OrderSnapshot> parse_order_snapshot(
     auto root_result = parser.parse(body);
     if (root_result.error()) return std::nullopt;
     auto order = order_object(root_result.value());
-    auto status = string_field(order, {"status", "order_status"});
     auto requested = count_field(
         order, {"initial_count_fp", "count_fp"}, {"initial_count", "count"});
     auto filled = count_field(
@@ -927,11 +996,10 @@ std::optional<OrderSnapshot> parse_order_snapshot(
         {"fill_count", "filled_count"});
     auto remaining = count_field(
         order, {"remaining_count_fp"}, {"remaining_count"});
-    if (!status || !requested || !filled || !remaining)
+    if (!requested || !filled || !remaining)
       return std::nullopt;
     return OrderSnapshot{
-        upper(*status), *requested, *filled, *remaining,
-        sha256_hex(body)};
+        *requested, *filled, *remaining, sha256_hex(body)};
   } catch (...) {
     return std::nullopt;
   }
@@ -1047,6 +1115,7 @@ std::optional<Authority> parse_authority(
     const std::set<std::string> expected_keys = {
         "allow_ioc_exit",
         "allow_place_cancel",
+        "ca_bundle_sha256",
         "clock_quality_receipt_sha256",
         "consumption_ledger_path_sha256",
         "environment_fingerprint_sha256",
@@ -1066,6 +1135,7 @@ std::optional<Authority> parse_authority(
         "schema_version",
         "single_use",
         "ticker",
+        "terminal_consumption_receipt_path_sha256",
         "trace_output_path_sha256",
         "price_cap_e4",
         "quantity_e4",
@@ -1081,12 +1151,16 @@ std::optional<Authority> parse_authority(
         string_field(root, {"execution_host_fingerprint_sha256"});
     auto clock_quality_sha =
         string_field(root, {"clock_quality_receipt_sha256"});
+    auto ca_bundle_sha =
+        string_field(root, {"ca_bundle_sha256"});
     auto receipt_id = string_field(root, {"receipt_id"});
     auto measured_on = string_field(root, {"measured_on"});
     auto output_path_sha =
         string_field(root, {"trace_output_path_sha256"});
     auto ledger_path_sha =
         string_field(root, {"consumption_ledger_path_sha256"});
+    auto terminal_path_sha = string_field(
+        root, {"terminal_consumption_receipt_path_sha256"});
     auto nonce = string_field(root, {"nonce_sha256"});
     std::int64_t issued = 0;
     std::int64_t expires = 0;
@@ -1103,7 +1177,11 @@ std::optional<Authority> parse_authority(
     const auto output_path = strict_absolute_path(options.output);
     const auto ledger_path =
         strict_absolute_path(options.consumption_ledger);
-    if (!output_path || !ledger_path || output_path == ledger_path)
+    const auto terminal_path =
+        strict_absolute_path(options.terminal_consumption_receipt);
+    if (!output_path || !ledger_path || !terminal_path ||
+        output_path == ledger_path || output_path == terminal_path ||
+        ledger_path == terminal_path)
       return std::nullopt;
     if (!schema || *schema != kAuthoritySchema || !ticker ||
         *ticker != options.ticker || !code_sha ||
@@ -1115,12 +1193,15 @@ std::optional<Authority> parse_authority(
         *execution_host_sha != facts.execution_host_fingerprint_sha256 ||
         !clock_quality_sha ||
         *clock_quality_sha != facts.clock_quality_receipt_sha256 ||
+        !ca_bundle_sha || *ca_bundle_sha != facts.ca_bundle_sha256 ||
         !receipt_id || *receipt_id != options.receipt_id ||
         !measured_on || *measured_on != facts.hostname ||
         !output_path_sha ||
         *output_path_sha != sha256_hex(output_path->string()) ||
         !ledger_path_sha ||
         *ledger_path_sha != sha256_hex(ledger_path->string()) ||
+        !terminal_path_sha ||
+        *terminal_path_sha != sha256_hex(terminal_path->string()) ||
         !nonce || !is_sha256(*nonce) ||
         root["issued_at_unix_s"].get(issued) != simdjson::SUCCESS ||
         root["expires_at_unix_s"].get(expires) != simdjson::SUCCESS ||
@@ -1150,11 +1231,101 @@ std::optional<Authority> parse_authority(
         max_cash_loss_e6 != kMaximumCashLossE6 ||
         max_fee_e6 != kMaximumFeeE6)
       return std::nullopt;
+    const auto accepted_at_steady_ns = steady_now_ns();
+    const auto remaining_seconds =
+        static_cast<std::uint64_t>(expires - now);
+    if (remaining_seconds >
+        (std::numeric_limits<std::uint64_t>::max() -
+         accepted_at_steady_ns) /
+            1'000'000'000ULL)
+      return std::nullopt;
+    const std::string transaction_id = sha256_hex(
+        authority_sha256 + *nonce + options.receipt_id);
     return Authority{
-        issued, expires, allow_place_cancel, allow_ioc_exit, *nonce};
+        issued,
+        expires,
+        allow_place_cancel,
+        allow_ioc_exit,
+        *nonce,
+        transaction_id,
+        accepted_at_steady_ns,
+        accepted_at_steady_ns + remaining_seconds * 1'000'000'000ULL,
+    };
   } catch (...) {
     return std::nullopt;
   }
+}
+
+bool authority_allows_new_risk(const Authority& authority) {
+  const auto wall_now = std::chrono::system_clock::to_time_t(
+      std::chrono::system_clock::now());
+  const auto steady_now = steady_now_ns();
+  return wall_now >= authority.issued_at_unix_s &&
+         wall_now < authority.expires_at_unix_s &&
+         steady_now >= authority.accepted_at_steady_ns &&
+         steady_now < authority.monotonic_deadline_ns;
+}
+
+constexpr std::array<std::string_view, 18> kAmbientNetworkVariables = {
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "CURL_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "AWS_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+    "GIT_PROXY_COMMAND",
+    "SOCKS_PROXY",
+    "socks_proxy",
+    "CURL_HOME",
+};
+
+bool scrub_ambient_network_environment() {
+  for (const auto name : kAmbientNetworkVariables) {
+    if (::unsetenv(std::string(name).c_str()) != 0) return false;
+  }
+  for (const auto name : kAmbientNetworkVariables) {
+    if (::getenv(std::string(name).c_str()) != nullptr) return false;
+  }
+  return true;
+}
+
+bool network_boundary_still_valid(const RuntimeFacts& facts) {
+  for (const auto name : kAmbientNetworkVariables) {
+    if (::getenv(std::string(name).c_str()) != nullptr) return false;
+  }
+  const auto default_ca = default_curl_ca_path();
+  if (!default_ca ||
+      std::filesystem::path(*default_ca).lexically_normal() !=
+          std::filesystem::path(facts.ca_bundle_path))
+    return false;
+  const auto ca_sha = hash_root_read_only_file(
+      std::filesystem::path(facts.ca_bundle_path));
+  return ca_sha && *ca_sha == facts.ca_bundle_sha256;
+}
+
+bool drop_execution_privileges(const RuntimeFacts& facts) {
+  if (::geteuid() != 0 || facts.execution_uid == 0 ||
+      facts.execution_gid == 0)
+    return false;
+  if (::setgroups(0, nullptr) != 0 ||
+      ::setgid(facts.execution_gid) != 0 ||
+      ::setuid(facts.execution_uid) != 0)
+    return false;
+#if defined(__linux__)
+  if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return false;
+#endif
+  return ::getuid() == facts.execution_uid &&
+         ::geteuid() == facts.execution_uid &&
+         ::getgid() == facts.execution_gid &&
+         ::getegid() == facts.execution_gid;
 }
 
 bool valid_ticker(std::string_view ticker) {
@@ -1254,6 +1425,60 @@ std::string sample_json(const CausalSample& sample) {
   return output.str();
 }
 
+struct MutationAccounting {
+  std::int64_t place_post_attempts = 0;
+  std::int64_t cancel_delete_attempts = 0;
+  std::string client_order_id_sha256;
+  bool cancel_risk_reduction_after_expiry = false;
+};
+
+bool publish_terminal_consumption(
+    OutputReservation& reservation, const Authority& authority,
+    std::string_view authority_sha256,
+    const MutationAccounting& accounting, std::string_view terminal_state,
+    const std::optional<std::string>& trace_source_sha256) {
+  if (!valid_ascii_label(terminal_state) ||
+      accounting.place_post_attempts < 0 ||
+      accounting.place_post_attempts > 1 ||
+      accounting.cancel_delete_attempts < 0 ||
+      accounting.cancel_delete_attempts > 1 ||
+      (!accounting.client_order_id_sha256.empty() &&
+       !is_sha256(accounting.client_order_id_sha256)) ||
+      (trace_source_sha256 && !is_sha256(*trace_source_sha256)))
+    return false;
+  const auto finished_at_wall_utc_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  std::ostringstream document;
+  document
+      << "{\"authority_sha256\":\"" << authority_sha256
+      << "\",\"cancel_delete_attempts\":"
+      << accounting.cancel_delete_attempts
+      << ",\"cancel_risk_reduction_after_expiry\":"
+      << (accounting.cancel_risk_reduction_after_expiry ? "true" : "false")
+      << ",\"client_order_id_sha256\":";
+  if (accounting.client_order_id_sha256.empty()) {
+    document << "null";
+  } else {
+    document << "\"" << accounting.client_order_id_sha256 << "\"";
+  }
+  document
+      << ",\"finished_at_wall_utc_ms\":" << finished_at_wall_utc_ms
+      << ",\"place_post_attempts\":" << accounting.place_post_attempts
+      << ",\"schema_version\":\"pnl-spine-latency-authority-terminal-v2\""
+      << ",\"terminal_state\":\"" << terminal_state
+      << "\",\"trace_source_sha256\":";
+  if (trace_source_sha256) {
+    document << "\"" << *trace_source_sha256 << "\"";
+  } else {
+    document << "null";
+  }
+  document << ",\"transaction_id\":\"" << authority.transaction_id
+           << "\"}";
+  return reservation.finish(document.str());
+}
+
 std::optional<PositionSnapshot> fetch_position(
     KalshiClient& client, const std::string& ticker) {
   auto response = client.request(
@@ -1270,13 +1495,23 @@ std::optional<OrderSnapshot> fetch_order(
   return parse_order_snapshot(response->body);
 }
 
-void best_effort_cancel(
+bool best_effort_cancel(
     KalshiClient& client, KalshiClient::Lane& lane,
-    const std::string& order_id) {
+    const std::string& order_id, const RuntimeFacts& facts,
+    const Authority& authority, MutationAccounting& accounting) {
+  if (accounting.cancel_delete_attempts != 0 ||
+      !network_boundary_still_valid(facts))
+    return false;
+  const bool live_before_sign = authority_allows_new_risk(authority);
   const std::string path =
       std::string(kEventOrderPath) + "/" + order_id;
   auto request = client.sign_request(Method::Delete, path);
-  if (request) (void)lane.send(*request);
+  if (!request || !network_boundary_still_valid(facts)) return false;
+  accounting.cancel_risk_reduction_after_expiry =
+      !live_before_sign || !authority_allows_new_risk(authority);
+  ++accounting.cancel_delete_attempts;
+  auto response = lane.send(*request);
+  return response && response->ok();
 }
 
 bool require_common_options(const Options& options) {
@@ -1307,6 +1542,10 @@ std::optional<Options> parse_options(int argc, char** argv) {
       options.execute_ioc_exit = true;
     } else if (argument == "--self-test-v2") {
       options.self_test_v2 = true;
+    } else if (argument == "--self-test-authority-deadline") {
+      options.self_test_authority_deadline = true;
+    } else if (argument == "--self-test-network-environment") {
+      options.self_test_network_environment = true;
     } else {
       auto value = next_value(index, argc, argv);
       if (!value) return std::nullopt;
@@ -1326,6 +1565,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
       else if (argument == "--out") options.output = *value;
       else if (argument == "--consumption-ledger")
         options.consumption_ledger = *value;
+      else if (argument == "--terminal-consumption-receipt")
+        options.terminal_consumption_receipt = *value;
       else return std::nullopt;
     }
   }
@@ -1355,8 +1596,7 @@ int self_test_v2_contract() {
   constexpr std::string_view order_response =
       "{\"order\":{\"fill_count_fp\":\"0.00\","
       "\"initial_count_fp\":\"1.00\","
-      "\"order_id\":\"o\",\"remaining_count_fp\":\"1.00\","
-      "\"status\":\"resting\"}}";
+      "\"order_id\":\"o\",\"remaining_count_fp\":\"1.00\"}}";
   constexpr std::string_view position_response =
       "{\"market_positions\":[{\"market_ticker\":\"T\","
       "\"position_fp\":\"-2.00\"}]}";
@@ -1374,12 +1614,51 @@ int self_test_v2_contract() {
       cancel && cancel->order_id == "o" &&
       cancel->reduced_by_e4 == 10'000 &&
       cancel->matching_engine_ts_ms == 1'800'000'000'001LL &&
-      order && order->status == "RESTING" &&
-      order->requested_e4 == 10'000 && order->filled_e4 == 0 &&
+      order && order->requested_e4 == 10'000 && order->filled_e4 == 0 &&
       order->remaining_e4 == 10'000 && position &&
       position->position_e4 == -20'000;
   std::puts(ok ? "V2 CONTRACT SELF-TEST PASS"
                : "V2 CONTRACT SELF-TEST FAIL");
+  return ok ? 0 : 1;
+}
+
+int self_test_authority_deadline_contract() {
+  const auto steady = steady_now_ns();
+  const auto wall = std::chrono::system_clock::to_time_t(
+      std::chrono::system_clock::now());
+  Authority active{
+      wall - 1,
+      wall + 60,
+      true,
+      false,
+      std::string(64, '1'),
+      std::string(64, '2'),
+      steady - 1,
+      steady + 60'000'000'000ULL,
+  };
+  Authority expired_wall = active;
+  expired_wall.expires_at_unix_s = wall;
+  Authority expired_monotonic = active;
+  expired_monotonic.monotonic_deadline_ns = steady;
+  const bool ok =
+      authority_allows_new_risk(active) &&
+      !authority_allows_new_risk(expired_wall) &&
+      !authority_allows_new_risk(expired_monotonic);
+  std::puts(ok ? "AUTHORITY DEADLINE SELF-TEST PASS"
+               : "AUTHORITY DEADLINE SELF-TEST FAIL");
+  return ok ? 0 : 1;
+}
+
+int self_test_network_environment_contract() {
+  const bool ok = scrub_ambient_network_environment() &&
+                  std::all_of(
+                      kAmbientNetworkVariables.begin(),
+                      kAmbientNetworkVariables.end(),
+                      [](std::string_view name) {
+                        return ::getenv(std::string(name).c_str()) == nullptr;
+                      });
+  std::puts(ok ? "NETWORK ENVIRONMENT SELF-TEST PASS"
+               : "NETWORK ENVIRONMENT SELF-TEST FAIL");
   return ok ? 0 : 1;
 }
 
@@ -1440,6 +1719,7 @@ int ioc_preflight(const Options& options) {
 int execute_place_cancel(const Options& options) {
   if (!require_common_options(options) || options.authority_file.empty() ||
       options.output.empty() || options.consumption_ledger.empty() ||
+      options.terminal_consumption_receipt.empty() ||
       options.clock_quality_receipt_file.empty()) {
     std::fprintf(stderr, "PLACE/CANCEL probe options incomplete\n");
     return 2;
@@ -1458,17 +1738,30 @@ int execute_place_cancel(const Options& options) {
     std::fprintf(stderr, "PLACE/CANCEL authority refused\n");
     return 2;
   }
-  // Reserve the authority-bound output before loading credentials or opening
-  // a socket.  A crash or any later failure leaves the zero-length reservation
-  // in place, consuming the single-use path instead of silently retrying.
-  OutputReservation output_reservation(options.output);
-  if (!output_reservation.valid()) {
-    std::fprintf(stderr, "PLACE/CANCEL output reservation refused\n");
-    return 2;
-  }
+  // This root preamble is the single-use broker.  The durable nonce record is
+  // created in a root-only directory before the execution uid can obtain
+  // credentials.  The root-owned output descriptors remain usable after
+  // privilege drop, but the execution uid cannot unlink or reopen them.
   OutputReservation ledger_reservation(options.consumption_ledger);
   if (!ledger_reservation.valid()) {
     std::fprintf(stderr, "PLACE/CANCEL authority already consumed\n");
+    return 2;
+  }
+  OutputReservation output_reservation(options.output);
+  if (!output_reservation.valid()) {
+    std::fprintf(
+        stderr,
+        "PLACE/CANCEL output reservation refused; authority remains "
+        "consumed\n");
+    return 2;
+  }
+  OutputReservation terminal_reservation(
+      options.terminal_consumption_receipt);
+  if (!terminal_reservation.valid()) {
+    std::fprintf(
+        stderr,
+        "PLACE/CANCEL terminal reservation refused; authority remains "
+        "consumed\n");
     return 2;
   }
   const auto consumed_at_wall_utc_ms =
@@ -1478,21 +1771,52 @@ int execute_place_cancel(const Options& options) {
   std::ostringstream consumption;
   consumption
       << "{\"authority_sha256\":\"" << authority_sha256
+      << "\",\"ca_bundle_sha256\":\"" << facts->ca_bundle_sha256
+      << "\",\"clock_quality_receipt_sha256\":\""
+      << facts->clock_quality_receipt_sha256
       << "\",\"consumed_at_wall_utc_ms\":" << consumed_at_wall_utc_ms
       << ",\"environment_fingerprint_sha256\":\""
       << facts->environment_fingerprint_sha256
       << "\",\"execution_host_fingerprint_sha256\":\""
       << facts->execution_host_fingerprint_sha256
-      << "\",\"max_attempts\":1,\"nonce_sha256\":\""
-      << authority->nonce_sha256 << "\",\"receipt_id\":\""
-      << json_escape(options.receipt_id)
+      << "\",\"max_attempts\":1,\"max_cancel_delete_attempts\":1"
+      << ",\"max_place_post_attempts\":1,\"nonce_sha256\":\""
+      << authority->nonce_sha256 << "\",\"producer_code_sha256\":\""
+      << facts->producer_code_sha256
+      << "\",\"producer_config_sha256\":\""
+      << facts->producer_config_sha256
+      << "\",\"receipt_id\":\"" << json_escape(options.receipt_id)
       << "\",\"schema_version\":\"pnl-spine-latency-authority-"
-      << "consumption-v1\",\"trace_output_path_sha256\":\""
-      << sha256_hex(strict_absolute_path(options.output)->string()) << "\"}";
+      << "consumption-v2\","
+      << "\"terminal_consumption_receipt_path_sha256\":\""
+      << sha256_hex(
+             strict_absolute_path(options.terminal_consumption_receipt)
+                 ->string())
+      << "\",\"trace_output_path_sha256\":\""
+      << sha256_hex(strict_absolute_path(options.output)->string())
+      << "\",\"transaction_id\":\"" << authority->transaction_id
+      << "\"}";
   if (!ledger_reservation.finish(consumption.str())) {
     std::fprintf(stderr, "PLACE/CANCEL authority consumption failed\n");
     return 2;
   }
+  if (!scrub_ambient_network_environment() ||
+      !network_boundary_still_valid(*facts)) {
+    std::fprintf(stderr, "PLACE/CANCEL proxy/CA boundary refused\n");
+    return 2;
+  }
+  if (!drop_execution_privileges(*facts)) {
+    std::fprintf(stderr, "PLACE/CANCEL privilege drop refused\n");
+    return 2;
+  }
+
+  MutationAccounting accounting;
+  const auto terminate = [&](std::string_view state, int code) {
+    (void)publish_terminal_consumption(
+        terminal_reservation, *authority, authority_sha256, accounting,
+        state, std::nullopt);
+    return code;
+  };
 
   Runtime runtime;
   try {
@@ -1500,30 +1824,44 @@ int execute_place_cancel(const Options& options) {
     require_orders_allowed(runtime);
   } catch (const SafetyViolation& error) {
     std::fprintf(stderr, "PLACE/CANCEL probe refused: %s\n", error.what());
-    return 2;
+    return terminate("BLOCKED_RUNTIME_SAFETY_GATE", 2);
   }
+  if (!network_boundary_still_valid(*facts))
+    return terminate("BLOCKED_PROXY_OR_CA_DRIFT", 2);
   const char* key_id = std::getenv("KALSHI_API_KEY_ID");
   const char* key_path = std::getenv("KALSHI_PRIVATE_KEY_PATH");
   if (!key_id || !*key_id || !key_path || !*key_path) {
     std::fprintf(stderr, "PLACE/CANCEL probe requires credentials\n");
-    return 2;
+    return terminate("BLOCKED_CREDENTIALS_UNAVAILABLE", 2);
   }
   Config config;
   config.api_key_id = key_id;
-  config.private_key_pem = read_file(key_path);
+  try {
+    config.private_key_pem = read_file(key_path);
+  } catch (...) {
+    std::fprintf(stderr, "PLACE/CANCEL private key read refused\n");
+    return terminate("BLOCKED_PRIVATE_KEY_READ", 2);
+  }
   config.base_url = runtime.rest_base_url;
   config.pool_size = 1;
-  KalshiClient client(std::move(config));
+  std::optional<KalshiClient> client_storage;
+  try {
+    client_storage.emplace(std::move(config));
+  } catch (...) {
+    std::fprintf(stderr, "PLACE/CANCEL client construction refused\n");
+    return terminate("BLOCKED_CLIENT_CONSTRUCTION", 2);
+  }
+  KalshiClient& client = *client_storage;
   auto lane = client.make_lane();
   auto warm = lane.ping();
   if (!warm || !warm->ok()) {
     std::fprintf(stderr, "PLACE/CANCEL warm lane failed\n");
-    return 3;
+    return terminate("BLOCKED_WARMUP_FAILED", 3);
   }
   auto position_before = fetch_position(client, options.ticker);
   if (!position_before) {
     std::fprintf(stderr, "PLACE/CANCEL baseline position unavailable\n");
-    return 3;
+    return terminate("BLOCKED_BASELINE_POSITION", 3);
   }
 
   wire::ExecPayload payload;
@@ -1537,6 +1875,7 @@ int execute_place_cancel(const Options& options) {
   payload.ts_ns = daemon::now_ns();
   payload.set_ticker(options.ticker);
   const std::string client_order_id = wire::client_order_id(payload);
+  accounting.client_order_id_sha256 = sha256_hex(client_order_id);
   const std::string body =
       "{\"cancel_order_on_pause\":true,\"client_order_id\":\"" +
       client_order_id +
@@ -1553,18 +1892,28 @@ int execute_place_cancel(const Options& options) {
   place.path = "PLACE";
   place.action_semantics = "NEW_ORDER_PLACE";
   place.decision_ns = steady_now_ns();
+  if (!authority_allows_new_risk(*authority))
+    return terminate("BLOCKED_AUTHORITY_EXPIRED_BEFORE_PLACE_SIGN", 2);
   auto place_request =
       client.sign_request(Method::Post, kEventOrderPath, body);
   if (!place_request) {
     std::fprintf(stderr, "PLACE signing failed\n");
-    return 3;
+    return terminate("BLOCKED_PLACE_SIGNING", 3);
   }
+  if (!authority_allows_new_risk(*authority) ||
+      !network_boundary_still_valid(*facts))
+    return terminate(
+        "BLOCKED_AUTHORITY_OR_NETWORK_BOUNDARY_BEFORE_PLACE_SEND", 2);
   place.sent_ns = steady_now_ns();
+  ++accounting.place_post_attempts;
   auto place_response = lane.send(*place_request);
   place.acknowledged_ns = steady_now_ns();
   if (!place_response || place_response->status != 201) {
-    std::fprintf(stderr, "PLACE mutation failed\n");
-    return 3;
+    std::fprintf(
+        stderr,
+        "PLACE outcome ambiguous or rejected; authority consumed, no retry, "
+        "manual reconciliation by deterministic client_order_id required\n");
+    return terminate("BLOCKED_AMBIGUOUS_PLACE_OUTCOME_NO_RETRY", 6);
   }
   auto create_ack = parse_create_ack(place_response->body);
   if (!create_ack || create_ack->fill_count_e4 != 0 ||
@@ -1573,18 +1922,19 @@ int execute_place_cancel(const Options& options) {
       create_ack->average_fill_price_e4.has_value()) {
     auto cleanup_order_id = parse_order_id(place_response->body);
     if (cleanup_order_id)
-      best_effort_cancel(client, lane, *cleanup_order_id);
+      (void)best_effort_cancel(
+          client, lane, *cleanup_order_id, *facts, *authority,
+          accounting);
     std::fprintf(
         stderr,
         "PLACE V2 ack failed zero-fill/remaining/engine-ts validation\n");
-    return 3;
+    return terminate("BLOCKED_PLACE_ACK_INVALID_CLEANUP_ATTEMPTED", 5);
   }
   const std::string& order_id = create_ack->order_id;
   auto resting = fetch_order(client, order_id);
   auto position_after_place = fetch_position(client, options.ticker);
   place.effective_ns = steady_now_ns();
   if (!resting || !position_after_place ||
-      resting->status != "RESTING" ||
       resting->requested_e4 != kQuantityE4 ||
       resting->filled_e4 != 0 ||
       resting->remaining_e4 != kQuantityE4 ||
@@ -1592,12 +1942,14 @@ int execute_place_cancel(const Options& options) {
     // Never intentionally leave the probe's remaining quantity resting after
     // a failed reconciliation.  This cleanup cannot turn the sample into a
     // success; the process still returns a hard failure.
-    best_effort_cancel(client, lane, order_id);
+    (void)best_effort_cancel(
+        client, lane, order_id, *facts, *authority, accounting);
     std::fprintf(
         stderr,
         "PLACE reconciliation failed; operator must inspect/cancel account "
         "orders manually\n");
-    return 5;
+    return terminate(
+        "BLOCKED_PLACE_READBACK_INVALID_CLEANUP_ATTEMPTED", 5);
   }
   place.order_ref_sha256 = sha256_hex(order_id);
   place.request_sha256 = sha256_hex(place_material);
@@ -1641,33 +1993,48 @@ int execute_place_cancel(const Options& options) {
   cancel.path = "CANCEL";
   cancel.action_semantics = "RESTING_ORDER_CANCEL";
   cancel.decision_ns = steady_now_ns();
+  const bool cancel_authority_live_before_sign =
+      authority_allows_new_risk(*authority);
+  if (!network_boundary_still_valid(*facts))
+    return terminate("BLOCKED_NETWORK_BOUNDARY_BEFORE_CANCEL_SIGN", 5);
   auto cancel_request =
       client.sign_request(Method::Delete, cancel_path);
   if (!cancel_request) {
     std::fprintf(
         stderr, "CANCEL signing failed; manual cancellation required\n");
-    return 5;
+    return terminate("BLOCKED_CANCEL_SIGNING_MANUAL_RECONCILIATION", 5);
   }
+  // Expiry is re-evaluated at every mutation boundary.  Once PLACE is
+  // acknowledged, this exact DELETE is permitted after expiry solely as a
+  // bounded risk-reduction cleanup; it cannot create or increase exposure.
+  const bool cancel_after_expiry =
+      !cancel_authority_live_before_sign ||
+      !authority_allows_new_risk(*authority);
+  accounting.cancel_risk_reduction_after_expiry = cancel_after_expiry;
+  if (!network_boundary_still_valid(*facts))
+    return terminate("BLOCKED_NETWORK_BOUNDARY_BEFORE_CANCEL", 5);
+  if (accounting.cancel_delete_attempts != 0)
+    return terminate("BLOCKED_CANCEL_CARDINALITY", 5);
   cancel.sent_ns = steady_now_ns();
+  ++accounting.cancel_delete_attempts;
   auto cancel_response = lane.send(*cancel_request);
   cancel.acknowledged_ns = steady_now_ns();
   if (!cancel_response || cancel_response->status != 200) {
     std::fprintf(
         stderr, "CANCEL mutation failed; manual cancellation required\n");
-    return 5;
+    return terminate("BLOCKED_AMBIGUOUS_CANCEL_OUTCOME", 5);
   }
   auto cancel_ack = parse_cancel_ack(cancel_response->body);
   if (!cancel_ack || cancel_ack->order_id != order_id ||
       cancel_ack->reduced_by_e4 != kQuantityE4) {
     std::fprintf(
         stderr, "CANCEL V2 ack failed reduced_by/engine-ts validation\n");
-    return 5;
+    return terminate("BLOCKED_CANCEL_ACK_INVALID", 5);
   }
   auto canceled = fetch_order(client, order_id);
   auto position_after_cancel = fetch_position(client, options.ticker);
   cancel.effective_ns = steady_now_ns();
   if (!canceled || !position_after_cancel ||
-      canceled->status != "CANCELED" ||
       canceled->requested_e4 != kQuantityE4 ||
       canceled->filled_e4 != 0 || canceled->remaining_e4 != 0 ||
       position_after_cancel->position_e4 !=
@@ -1676,7 +2043,7 @@ int execute_place_cancel(const Options& options) {
         stderr,
         "CANCEL reconciliation failed; sample is not successful and "
         "operator inspection is required\n");
-    return 5;
+    return terminate("BLOCKED_CANCEL_READBACK_INVALID", 5);
   }
   cancel.order_ref_sha256 = place.order_ref_sha256;
   cancel.request_sha256 = sha256_hex(cancel_material);
@@ -1741,6 +2108,13 @@ int execute_place_cancel(const Options& options) {
     std::fprintf(
         stderr, "private trace output write failed: %s\n",
         std::strerror(errno));
+    return terminate("BLOCKED_PRIVATE_TRACE_WRITE", 3);
+  }
+  const std::string trace_sha256 = sha256_hex(trace.str());
+  if (!publish_terminal_consumption(
+          terminal_reservation, *authority, authority_sha256, accounting,
+          "PLACE_CANCEL_RECONCILED", trace_sha256)) {
+    std::fprintf(stderr, "terminal consumption receipt write failed\n");
     return 3;
   }
   std::printf(
@@ -1749,7 +2123,7 @@ int execute_place_cancel(const Options& options) {
       "\"place_cancel_trace_sha256\":\"%s\","
       "\"private_trace_path\":\"%s\","
       "\"state\":\"PLACE_CANCEL_RECONCILED_IOC_EXIT_MISSING\"}\n",
-      sha256_hex(trace.str()).c_str(), json_escape(options.output).c_str());
+      trace_sha256.c_str(), json_escape(options.output).c_str());
   return 4;
 }
 
@@ -1765,7 +2139,8 @@ int main(int argc, char** argv) {
         "--expected-authority-sha256 H --producer-config-file P "
         "--environment-receipt-file P --execution-host-receipt-file P "
         "--clock-quality-receipt-file P --receipt-id ID "
-        "--out P --consumption-ledger P]\n");
+        "--out P --consumption-ledger P "
+        "--terminal-consumption-receipt P]\n");
     return 2;
   }
   const Options& options = *parsed;
@@ -1777,6 +2152,10 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (options.self_test_v2) return self_test_v2_contract();
+  if (options.self_test_authority_deadline)
+    return self_test_authority_deadline_contract();
+  if (options.self_test_network_environment)
+    return self_test_network_environment_contract();
   if (options.execute_place_cancel && options.ioc_exit_preflight) {
     std::fprintf(stderr, "choose exactly one probe mode\n");
     return 2;
