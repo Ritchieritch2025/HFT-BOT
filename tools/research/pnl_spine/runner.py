@@ -1953,6 +1953,252 @@ def _lot_matched_realized_pnl(
     return tuple(slices)
 
 
+def _a01_cashflow_realized_pnl_slices(
+    *,
+    pnl_ledger: PnLLedger,
+    result: Any,
+    exit_fill_ids: set[str],
+) -> tuple[dict[str, Any], ...]:
+    """Attribute A01 PnL at each causal cashflow instead of final closure.
+
+    Principal that opens exposure becomes FIFO basis and realizes zero at that
+    instant.  Opposing principal realizes its allocated basis immediately.
+    Fees and variable costs realize at their own cashflow timestamps, while a
+    later exact settlement realizes only the still-open basis.  Every partial
+    allocation must be exactly representable in MoneyE6.
+    """
+
+    lots: list[dict[str, int]] = []
+    slices: list[dict[str, Any]] = []
+
+    def append_slice(
+        cashflow: Any,
+        *,
+        kind: str,
+        fill_phase: str | None,
+        basis_consumed_e6: int,
+        basis_deferred_e6: int,
+        realized_pnl_e6: int,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "slice_id": f"realized:{cashflow.event_id}",
+            "path_id": pnl_ledger.path.path_id,
+            "cashflow_event_id": cashflow.event_id,
+            "occurred_at_ns": cashflow.occurred_at_ns,
+            # Existing RiskLedger ordering is EXIT/SETTLEMENT=10,
+            # REALIZED_PNL=20, RESERVE=30, FILL=40.
+            "causal_priority": 20,
+            "kind": kind,
+            "fill_phase": fill_phase,
+            "cashflow_amount_e6": cashflow.amount_e6,
+            "basis_consumed_e6": basis_consumed_e6,
+            "basis_deferred_e6": basis_deferred_e6,
+            "realized_pnl_e6": realized_pnl_e6,
+            "source_sha256": cashflow.source_sha256,
+        }
+        payload["slice_sha256"] = canonical_sha256(payload)
+        slices.append(payload)
+
+    def consume_basis(quantity_e4: int, sign: int) -> int:
+        remaining = quantity_e4
+        basis_e6 = 0
+        for lot in lots:
+            lot_quantity_e4 = lot["quantity_e4"]
+            if lot_quantity_e4 == 0:
+                continue
+            if (1 if lot_quantity_e4 > 0 else -1) != sign:
+                continue
+            available_e4 = abs(lot_quantity_e4)
+            take_e4 = min(remaining, available_e4)
+            if take_e4 == available_e4:
+                allocation_e6 = lot["cash_e6"]
+            else:
+                numerator = lot["cash_e6"] * take_e4
+                if numerator % available_e4:
+                    raise RiskInvariantError(
+                        "A01 partial FIFO basis is not exactly MoneyE6 "
+                        "representable"
+                    )
+                allocation_e6 = numerator // available_e4
+            lot["quantity_e4"] -= sign * take_e4
+            lot["cash_e6"] -= allocation_e6
+            basis_e6 += allocation_e6
+            remaining -= take_e4
+            if remaining == 0:
+                break
+        if remaining:
+            raise RiskInvariantError(
+                "A01 closing cashflow exceeds FIFO position basis"
+            )
+        return basis_e6
+
+    for cashflow in pnl_ledger.cashflows:
+        if cashflow.kind is CashFlowKind.TRADE_PRINCIPAL:
+            if cashflow.fill_id is None:
+                raise RiskInvariantError(
+                    "A01 principal cashflow lacks fill identity"
+                )
+            delta_e4 = cashflow.position_delta_e4
+            if delta_e4 == 0:
+                raise RiskInvariantError(
+                    "A01 principal cashflow has zero position delta"
+                )
+            net_before_e4 = sum(
+                lot["quantity_e4"] for lot in lots
+            )
+            delta_sign = 1 if delta_e4 > 0 else -1
+            fill_phase = (
+                "EXIT"
+                if cashflow.fill_id in exit_fill_ids
+                else "ENTRY"
+            )
+            if net_before_e4 == 0 or (
+                (1 if net_before_e4 > 0 else -1) == delta_sign
+            ):
+                lots.append(
+                    {
+                        "quantity_e4": delta_e4,
+                        "cash_e6": cashflow.amount_e6,
+                    }
+                )
+                append_slice(
+                    cashflow,
+                    kind="TRADE_PRINCIPAL",
+                    fill_phase=fill_phase,
+                    basis_consumed_e6=0,
+                    basis_deferred_e6=cashflow.amount_e6,
+                    realized_pnl_e6=0,
+                )
+                continue
+
+            closing_e4 = min(abs(delta_e4), abs(net_before_e4))
+            if closing_e4 == abs(delta_e4):
+                closing_cash_e6 = cashflow.amount_e6
+            else:
+                numerator = cashflow.amount_e6 * closing_e4
+                if numerator % abs(delta_e4):
+                    raise RiskInvariantError(
+                        "A01 partial closing principal is not exactly "
+                        "MoneyE6 representable"
+                    )
+                closing_cash_e6 = numerator // abs(delta_e4)
+            basis_e6 = consume_basis(
+                closing_e4,
+                1 if net_before_e4 > 0 else -1,
+            )
+            remaining_e4 = abs(delta_e4) - closing_e4
+            deferred_e6 = cashflow.amount_e6 - closing_cash_e6
+            if remaining_e4:
+                lots.append(
+                    {
+                        "quantity_e4": delta_sign * remaining_e4,
+                        "cash_e6": deferred_e6,
+                    }
+                )
+            elif deferred_e6:
+                raise RiskInvariantError(
+                    "A01 flat principal retains unallocated cash basis"
+                )
+            append_slice(
+                cashflow,
+                kind="TRADE_PRINCIPAL",
+                fill_phase=fill_phase,
+                basis_consumed_e6=basis_e6,
+                basis_deferred_e6=deferred_e6,
+                realized_pnl_e6=closing_cash_e6 + basis_e6,
+            )
+        elif cashflow.kind is CashFlowKind.FEE:
+            append_slice(
+                cashflow,
+                kind="FEE",
+                fill_phase=(
+                    "EXIT"
+                    if cashflow.fill_id in exit_fill_ids
+                    else "ENTRY"
+                ),
+                basis_consumed_e6=0,
+                basis_deferred_e6=0,
+                realized_pnl_e6=cashflow.amount_e6,
+            )
+        elif cashflow.kind is CashFlowKind.VARIABLE_COST:
+            append_slice(
+                cashflow,
+                kind="VARIABLE_COST",
+                fill_phase=None,
+                basis_consumed_e6=0,
+                basis_deferred_e6=0,
+                realized_pnl_e6=cashflow.amount_e6,
+            )
+        elif cashflow.kind is CashFlowKind.SETTLEMENT:
+            open_quantity_e4 = sum(
+                lot["quantity_e4"] for lot in lots
+            )
+            if open_quantity_e4 == 0:
+                raise RiskInvariantError(
+                    "A01 settlement has no FIFO position basis"
+                )
+            basis_e6 = consume_basis(
+                abs(open_quantity_e4),
+                1 if open_quantity_e4 > 0 else -1,
+            )
+            append_slice(
+                cashflow,
+                kind="SETTLEMENT",
+                fill_phase=None,
+                basis_consumed_e6=basis_e6,
+                basis_deferred_e6=0,
+                realized_pnl_e6=cashflow.amount_e6 + basis_e6,
+            )
+        elif cashflow.kind is CashFlowKind.NO_POSITION_CLOSE:
+            if cashflow.amount_e6 or cashflow.position_delta_e4:
+                raise RiskInvariantError(
+                    "A01 no-position close is not a zero receipt"
+                )
+        else:
+            raise RiskInvariantError(
+                f"unsupported A01 cashflow kind {cashflow.kind.value}"
+            )
+
+    if any(lot["quantity_e4"] or lot["cash_e6"] for lot in lots):
+        raise RiskInvariantError(
+            "A01 realized-PnL replay retains FIFO basis"
+        )
+    if sum(
+        int(slice_row["realized_pnl_e6"]) for slice_row in slices
+    ) != result.net_pnl_e6:
+        raise RiskInvariantError(
+            "A01 realized-PnL slices do not reconcile to final net PnL"
+        )
+    fee_realized_e6 = sum(
+        int(slice_row["realized_pnl_e6"])
+        for slice_row in slices
+        if slice_row["kind"] == "FEE"
+    )
+    if fee_realized_e6 != -result.fee_cost_e6:
+        raise RiskInvariantError(
+            "A01 fee slices do not reconcile at cashflow time"
+        )
+    variable_realized_e6 = sum(
+        int(slice_row["realized_pnl_e6"])
+        for slice_row in slices
+        if slice_row["kind"] == "VARIABLE_COST"
+    )
+    if variable_realized_e6 != -result.variable_cost_e6:
+        raise RiskInvariantError(
+            "A01 variable-cost slices do not reconcile at cashflow time"
+        )
+    gross_realized_e6 = sum(
+        int(slice_row["realized_pnl_e6"])
+        for slice_row in slices
+        if slice_row["kind"] in {"TRADE_PRINCIPAL", "SETTLEMENT"}
+    )
+    if gross_realized_e6 != result.gross_pnl_e6:
+        raise RiskInvariantError(
+            "A01 principal/settlement slices do not reconcile gross PnL"
+        )
+    return tuple(slices)
+
+
 def _replay_risk_lifecycle(
     *,
     limits: RiskLimits,
@@ -2723,6 +2969,7 @@ def _execute_a01_strategy_path(
             source_sha256=decision.sha256,
             reason_codes=("TRIGGERED_NO_STRICT_FILL",),
         )
+        path_row["realized_pnl_slices"] = []
         return (
             path_row,
             None,
@@ -3007,6 +3254,16 @@ def _execute_a01_strategy_path(
                 )
 
     result = ledger.finalize()
+    realized_pnl_slices = _a01_cashflow_realized_pnl_slices(
+        pnl_ledger=ledger,
+        result=result,
+        exit_fill_ids={
+            fill.fill_id
+            for fill in (
+                exit_batch.fills if exit_batch is not None else ()
+            )
+        },
+    )
     canceled_by_order = dict(paired.canceled_quantity_by_order_e4)
     ordered_by_id = {
         intent.intent_id: intent.quantity_e4 for intent in intents
@@ -3098,6 +3355,9 @@ def _execute_a01_strategy_path(
         "first_fill_us": paired.first_fill_us,
         "cancel_effective_us": paired.cancel_effective_us,
         "cash_position_fee_ledger_sha256": result.ledger_sha256,
+        "realized_pnl_slices_sha256": canonical_sha256(
+            realized_pnl_slices
+        ),
         "realized_at_ns": max(
             cashflow.occurred_at_ns for cashflow in ledger.cashflows
         ),
@@ -3110,6 +3370,7 @@ def _execute_a01_strategy_path(
         "reason_codes": list(decision.reason_codes),
         "state": PATH_COMPLETE,
         "result": _result_mapping(result),
+        "realized_pnl_slices": list(realized_pnl_slices),
         "residual_quantity_e4": 0,
         "diagnostic": {
             "first_fill_us": paired.first_fill_us,
@@ -3378,6 +3639,10 @@ def _run_a01_paths(
                 )
             )
 
+    for path_row in path_rows:
+        if path_row.get("state") == PATH_COMPLETE:
+            path_row.setdefault("realized_pnl_slices", [])
+
     aliased_batches: list[FillBatch] = []
     for batch in exit_batches.values():
         fills = tuple(
@@ -3419,6 +3684,7 @@ def _run_a01_paths(
             )
         )
 
+    risk_event_trace: list[dict[str, Any]] = []
     if risk_limits is None:
         blockers.append(
             _blocker(
@@ -3434,6 +3700,7 @@ def _run_a01_paths(
             if "reserved_at_risk_e6" in collateral
         }
         admitted_rows: list[Mapping[str, Any]] = []
+        pre_rejected_rows: set[str] = set()
         for decision in sorted(
             decisions,
             key=lambda item: (
@@ -3521,6 +3788,7 @@ def _run_a01_paths(
                 if amount > limit_by_name[name]
             )
             if exceeded:
+                pre_rejected_rows.add(decision.row_id)
                 blockers.append(
                     _blocker(
                         "RISK_LIMIT_CHANGED_ADMISSION",
@@ -3535,60 +3803,185 @@ def _run_a01_paths(
                 continue
             admitted_rows.append(current)
 
-        realized_losses: list[tuple[int, int, str]] = []
+        risk_events: list[
+            tuple[int, int, str, str, str, int]
+        ] = []
         for path_row in path_rows:
             if (
                 path_row.get("kind") != "STRATEGY"
                 or path_row.get("state") != PATH_COMPLETE
                 or not isinstance(path_row.get("result"), Mapping)
-                or not isinstance(path_row.get("diagnostic"), Mapping)
             ):
                 continue
             result = path_row["result"]
-            diagnostic = path_row["diagnostic"]
-            realized_at_ns = diagnostic.get("realized_at_ns")
-            if type(realized_at_ns) is not int:
-                continue
-            realized_losses.append(
-                (
-                    realized_at_ns,
-                    _plain_int("net_pnl_e6", result.get("net_pnl_e6")),
-                    _text("row_id", path_row.get("row_id")),
+            row_id = _text("row_id", path_row.get("row_id"))
+            raw_slices = path_row.get("realized_pnl_slices")
+            if not isinstance(raw_slices, list):
+                blockers.append(
+                    _blocker(
+                        "RISK_REALIZED_PNL_ATTRIBUTION_FAILED",
+                        "RISK",
+                        f"{row_id}: realized-PnL slice array is missing",
+                    )
                 )
-            )
-        for decision in decisions:
-            if decision.status is not DecisionStatus.ORDER_INTENTS:
                 continue
-            row = row_by_id[decision.row_id]
-            prior_pnl_e6 = sum(
-                pnl_e6
-                for realized_at_ns, pnl_e6, _ in realized_losses
+            slice_total_e6 = 0
+            for index, raw_slice in enumerate(raw_slices):
+                slice_row = _mapping(
+                    f"realized_pnl_slices[{index}]",
+                    raw_slice,
+                )
+                supplied_slice_sha = _sha256_text(
+                    "slice_sha256",
+                    slice_row.get("slice_sha256"),
+                )
+                slice_payload = dict(slice_row)
+                slice_payload.pop("slice_sha256", None)
+                if canonical_sha256(slice_payload) != supplied_slice_sha:
+                    raise RiskInvariantError(
+                        "A01 realized-PnL slice SHA mismatch"
+                    )
+                occurred_at_ns = _plain_int(
+                    "occurred_at_ns",
+                    slice_row.get("occurred_at_ns"),
+                    minimum=0,
+                )
+                priority = _plain_int(
+                    "causal_priority",
+                    slice_row.get("causal_priority"),
+                    minimum=0,
+                )
+                if priority != 20:
+                    raise RiskInvariantError(
+                        "A01 realized-PnL priority must be 20"
+                    )
+                pnl_e6 = _plain_int(
+                    "realized_pnl_e6",
+                    slice_row.get("realized_pnl_e6"),
+                )
+                slice_id = _text(
+                    "slice_id",
+                    slice_row.get("slice_id"),
+                )
+                kind = _text("kind", slice_row.get("kind"))
+                fill_phase = slice_row.get("fill_phase")
                 if (
-                    realized_at_ns < row.decision_ts_ns
-                    and _utc_date_from_ns(
-                        "realized_at_ns",
-                        realized_at_ns,
+                    kind == "TRADE_PRINCIPAL"
+                    and fill_phase == "EXIT"
+                ) or kind == "SETTLEMENT":
+                    risk_events.append(
+                        (
+                            occurred_at_ns,
+                            10,
+                            f"lifecycle:{slice_id}",
+                            (
+                                "SETTLEMENT"
+                                if kind == "SETTLEMENT"
+                                else "EXIT"
+                            ),
+                            row_id,
+                            0,
+                        )
                     )
-                    == _utc_date_from_ns(
-                        "decision_ts_ns",
-                        row.decision_ts_ns,
+                risk_events.append(
+                    (
+                        occurred_at_ns,
+                        priority,
+                        f"realized:{slice_id}",
+                        "REALIZED_PNL",
+                        row_id,
+                        pnl_e6,
                     )
                 )
-            )
-            if (
-                prior_pnl_e6 < 0
-                and -prior_pnl_e6 >= risk_limits.max_daily_loss_e6
+                slice_total_e6 += pnl_e6
+            if slice_total_e6 != _plain_int(
+                "net_pnl_e6",
+                result.get("net_pnl_e6"),
             ):
                 blockers.append(
                     _blocker(
-                        "RISK_DAILY_LOSS_CHANGED_ADMISSION",
+                        "RISK_REALIZED_PNL_ATTRIBUTION_FAILED",
                         "RISK",
                         (
-                            f"{row.row_id}: daily realized loss gate is "
-                            "closed; preallocated fills cannot be safely reused"
+                            f"{row_id}: cashflow slices do not reconcile "
+                            "to final path PnL"
                         ),
                     )
                 )
+        for decision in decisions:
+            if decision.status is DecisionStatus.ORDER_INTENTS:
+                row = row_by_id[decision.row_id]
+                risk_events.append(
+                    (
+                        row.decision_ts_ns,
+                        30,
+                        f"reserve:{row.row_id}",
+                        "RESERVE",
+                        row.row_id,
+                        0,
+                    )
+                )
+
+        realized_by_date_e6: dict[str, int] = {}
+        breached_dates: set[str] = set()
+        rejected_rows = set(pre_rejected_rows)
+        daily_gate_reported_rows: set[str] = set()
+        for (
+            occurred_at_ns,
+            priority,
+            event_id,
+            kind,
+            row_id,
+            pnl_e6,
+        ) in sorted(risk_events, key=lambda event: event[:3]):
+            event_date = _utc_date_from_ns(
+                "risk_event.occurred_at_ns",
+                occurred_at_ns,
+            )
+            ignored = row_id in rejected_rows and kind != "RESERVE"
+            risk_event_trace.append(
+                {
+                    "occurred_at_ns": occurred_at_ns,
+                    "priority": priority,
+                    "event_id": event_id,
+                    "kind": kind,
+                    "row_id": row_id,
+                    "realized_pnl_e6": pnl_e6,
+                    "ignored_after_rejection": ignored,
+                }
+            )
+            if ignored:
+                continue
+            if kind == "REALIZED_PNL":
+                realized_by_date_e6[event_date] = (
+                    realized_by_date_e6.get(event_date, 0) + pnl_e6
+                )
+                daily_pnl_e6 = realized_by_date_e6[event_date]
+                if (
+                    daily_pnl_e6 < 0
+                    and -daily_pnl_e6
+                    >= risk_limits.max_daily_loss_e6
+                ):
+                    breached_dates.add(event_date)
+            elif kind == "RESERVE":
+                if row_id in pre_rejected_rows:
+                    rejected_rows.add(row_id)
+                    continue
+                if event_date in breached_dates:
+                    rejected_rows.add(row_id)
+                    if row_id not in daily_gate_reported_rows:
+                        daily_gate_reported_rows.add(row_id)
+                        blockers.append(
+                            _blocker(
+                                "RISK_DAILY_LOSS_CHANGED_ADMISSION",
+                                "RISK",
+                                (
+                                    f"{row_id}: daily realized loss gate is "
+                                    "closed; preallocated fills cannot be "
+                                    "safely reused"
+                                ),
+                            )
+                        )
 
     path_rows.sort(
         key=lambda row: (
@@ -3743,8 +4136,9 @@ def _run_a01_paths(
         conservation=conservation,
         risk_ledger_sha256=canonical_sha256(
             {
-                "schema_version": "a01-collateral-ledger-v1",
+                "schema_version": "a01-collateral-risk-replay-v2",
                 "rows": collateral_rows,
+                "event_trace": risk_event_trace,
             }
         ),
         trusted_authority_sha256=trusted_authority_sha256,

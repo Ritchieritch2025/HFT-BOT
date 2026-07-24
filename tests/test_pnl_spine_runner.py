@@ -848,6 +848,95 @@ def base_fixture(
     return fixture
 
 
+def append_later_a01_opportunity(
+    fixture: dict[str, Any],
+    *,
+    decision_ts_ns: int,
+    suffix: str,
+) -> dict[str, Any]:
+    """Add a fully executable second A01 decision to an existing fixture."""
+
+    first = fixture["rows"][0]
+    shift_ns = decision_ts_ns - first["decision_ts_ns"]
+    second = copy.deepcopy(first)
+    second.update(
+        {
+            "row_id": f"a01-row-{suffix}",
+            "root_event_id": f"KXTEST-EVENT-{suffix.upper()}",
+            "market_ticker": (
+                f"KXTEST-EVENT-MARKET-{suffix.upper()}"
+            ),
+        }
+    )
+    for field in (
+        "decision_ts_ns",
+        "features_asof_ns",
+        "book_observed_at_ns",
+        "scheduled_start_ts_ns",
+        "scheduled_start_asof_ns",
+        "state_started_at_ns",
+        "warmup_started_at_ns",
+    ):
+        second[field] += shift_ns
+    fixture["rows"].append(second)
+
+    activation_us = (decision_ts_ns + 300 + 999) // 1_000
+    trade = {
+        "trade_id": f"trade-buy-yes-{suffix}",
+        "market_ticker": second["market_ticker"],
+        "timestamp_us": activation_us + 1,
+        "yes_price_e4": 3_800,
+        "quantity_e4": 10_000,
+        "taker_side": "NO",
+        "source_sha256": H_A,
+    }
+    fixture["public_trades"].append(trade)
+    cancel_effective_us = (
+        (trade["timestamp_us"] * 1_000 + 300 + 999) // 1_000
+    )
+    snapshot_id = f"exit-book-{suffix}"
+    fixture["exit_snapshots"].append(
+        {
+            "snapshot_id": snapshot_id,
+            "market_ticker": second["market_ticker"],
+            "receive_timestamp_us": cancel_effective_us,
+            "yes_bids": [
+                {"yes_price_e4": 4_200, "quantity_e4": 10_000}
+            ],
+            "yes_asks": [
+                {"yes_price_e4": 4_300, "quantity_e4": 10_000}
+            ],
+            "book_valid": True,
+            "gap_free": True,
+            "source_sha256": H_C,
+        }
+    )
+    for intent_id in a01_intent_ids(second):
+        fixture["closures"].append(
+            {
+                "intent_id": intent_id,
+                "exit_snapshot_id": snapshot_id,
+                "exit_decision_ts_ns": cancel_effective_us * 1_000,
+                "exit_limit_price_e4": 1,
+                "maximum_snapshot_age_us": 10,
+                "settlement_id": None,
+            }
+        )
+    fixture["fee_contexts"].append(
+        {
+            "market_ticker": second["market_ticker"],
+            "series_ticker": "KXTEST",
+            "event_ticker": "KXTEST-EVENT",
+        }
+    )
+    terminal = terminal_receipt(2 * len(fixture["rows"]))
+    fixture["preflight_inputs"]["terminal_coverage"] = terminal
+    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
+        terminal
+    )
+    return second
+
+
 def blocker_codes(receipt: dict[str, Any]) -> set[str]:
     return {row["code"] for row in receipt["blockers"]}
 
@@ -2069,6 +2158,120 @@ def test_realized_daily_loss_blocks_later_opportunity_admission():
         "daily realized loss gate is closed" in blocker["detail"]
         for blocker in receipt["blockers"]
     )
+
+
+def test_partial_ioc_loss_blocks_before_later_profitable_settlement():
+    fixture = base_fixture(path_count=4)
+    first_snapshot = fixture["exit_snapshots"][0]
+    first_snapshot["yes_bids"][0].update(
+        {"yes_price_e4": 1_000, "quantity_e4": 5_000}
+    )
+    first_snapshot["yes_asks"][0]["yes_price_e4"] = 9_000
+    for closure in fixture["closures"]:
+        closure["settlement_id"] = "first-final"
+    fixture["settlements"] = [
+        {
+            "settlement_id": "first-final",
+            "market_ticker": fixture["rows"][0]["market_ticker"],
+            "status": "FINALIZED",
+            "finalized": True,
+            "yes_settlement_value_e4": 10_000,
+            "observed_at_ns": NOW + 20 * SECOND,
+            "revision": 1,
+            "source_sha256": H_D,
+        }
+    ]
+    second = append_later_a01_opportunity(
+        fixture,
+        decision_ts_ns=NOW + 10 * SECOND,
+        suffix="after-partial-loss",
+    )
+    policy = risk_policy(max_daily_loss_e6=100_000)
+    fixture["risk_policy"] = policy
+    fixture["provenance"]["risk_policy_sha256"] = policy["policy_sha256"]
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RISK_DAILY_LOSS_CHANGED_ADMISSION" in blocker_codes(receipt)
+    first_strategy = next(
+        row
+        for row in receipt["path_rows"]
+        if row["row_id"] == "a01-row" and row["kind"] == "STRATEGY"
+    )
+    exit_principal = next(
+        row
+        for row in first_strategy["realized_pnl_slices"]
+        if row["kind"] == "TRADE_PRINCIPAL"
+        and row["fill_phase"] == "EXIT"
+    )
+    exit_fee = next(
+        row
+        for row in first_strategy["realized_pnl_slices"]
+        if row["kind"] == "FEE" and row["fill_phase"] == "EXIT"
+    )
+    settlement = next(
+        row
+        for row in first_strategy["realized_pnl_slices"]
+        if row["kind"] == "SETTLEMENT"
+    )
+    assert exit_principal["realized_pnl_e6"] <= -100_000
+    assert exit_principal["occurred_at_ns"] < second["decision_ts_ns"]
+    assert exit_fee["occurred_at_ns"] == exit_principal["occurred_at_ns"]
+    assert exit_fee["realized_pnl_e6"] < 0
+    assert settlement["occurred_at_ns"] > second["decision_ts_ns"]
+    assert settlement["realized_pnl_e6"] > 0
+    assert sum(
+        row["realized_pnl_e6"]
+        for row in first_strategy["realized_pnl_slices"]
+    ) == first_strategy["result"]["net_pnl_e6"]
+
+
+def test_equal_timestamp_ioc_loss_precedes_next_reserve_admission():
+    fixture = base_fixture(path_count=4)
+    first_snapshot = fixture["exit_snapshots"][0]
+    first_snapshot["yes_bids"][0]["yes_price_e4"] = 1_000
+    first_snapshot["yes_asks"][0]["yes_price_e4"] = 9_000
+    first_ioc_fill_us = (
+        fixture["closures"][0]["exit_decision_ts_ns"] + 300 + 999
+    ) // 1_000
+    second = append_later_a01_opportunity(
+        fixture,
+        decision_ts_ns=first_ioc_fill_us * 1_000,
+        suffix="at-loss-boundary",
+    )
+    policy = risk_policy(max_daily_loss_e6=100_000)
+    fixture["risk_policy"] = policy
+    fixture["provenance"]["risk_policy_sha256"] = policy["policy_sha256"]
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert receipt["totals"] is None
+    assert "RISK_DAILY_LOSS_CHANGED_ADMISSION" in blocker_codes(receipt)
+    first_strategy = next(
+        row
+        for row in receipt["path_rows"]
+        if row["row_id"] == "a01-row" and row["kind"] == "STRATEGY"
+    )
+    exit_principal = next(
+        row
+        for row in first_strategy["realized_pnl_slices"]
+        if row["kind"] == "TRADE_PRINCIPAL"
+        and row["fill_phase"] == "EXIT"
+    )
+    exit_fee = next(
+        row
+        for row in first_strategy["realized_pnl_slices"]
+        if row["kind"] == "FEE" and row["fill_phase"] == "EXIT"
+    )
+    assert exit_principal["occurred_at_ns"] == second["decision_ts_ns"]
+    assert exit_principal["realized_pnl_e6"] <= -100_000
+    assert exit_fee["occurred_at_ns"] == second["decision_ts_ns"]
+    assert exit_fee["realized_pnl_e6"] < 0
 
 
 def test_b09_untrained_is_retained_and_explicitly_blocked():
