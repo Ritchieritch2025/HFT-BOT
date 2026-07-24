@@ -50,15 +50,15 @@ ENVIRONMENT_SCHEMA_VERSION = "pnl-spine-execution-environment-receipt-v1"
 HOST_SCHEMA_VERSION = "pnl-spine-execution-host-receipt-v1"
 CLOCK_SCHEMA_VERSION = "pnl-spine-clock-quality-receipt-v1"
 PLACE_AUTHORITY_SCHEMA_VERSION = "pnl-spine-latency-probe-authority-v2"
-IOC_AUTHORITY_SCHEMA_VERSION = "pnl-spine-ioc-exit-authority-v1"
+IOC_AUTHORITY_SCHEMA_VERSION = "pnl-spine-ioc-exit-authority-v2"
 PLACE_CONSUMPTION_SCHEMA_VERSION = (
     "pnl-spine-latency-authority-consumption-v2"
 )
 PLACE_TERMINAL_SCHEMA_VERSION = "pnl-spine-latency-authority-terminal-v2"
 IOC_CONSUMPTION_SCHEMA_VERSION = (
-    "pnl-spine-ioc-exit-authority-consumption-v1"
+    "pnl-spine-ioc-exit-authority-consumption-v2"
 )
-IOC_TERMINAL_SCHEMA_VERSION = "pnl-spine-ioc-exit-authority-terminal-v1"
+IOC_TERMINAL_SCHEMA_VERSION = "pnl-spine-ioc-exit-authority-terminal-v2"
 PROMOTION_SCHEMA_VERSION = "pnl-spine-root-promotion-receipt-v1"
 PROBE_CLOCK_ID = "STD_STEADY_CLOCK:probe-process"
 MAX_CLOCK_AGE_MS = 5 * 60 * 1_000
@@ -157,8 +157,13 @@ class TrustedPublicationContext:
     ioc_finished_at_ms: int
     place_quantity_e4: int
     place_price_cap_e4: int
+    ioc_expected_position_before_e4: int
+    ioc_book_side: str
+    ioc_outcome_side: str
+    ioc_price_limit_semantics: str
+    ioc_subaccount: int
     ioc_quantity_e4: int
-    ioc_price_cap_e4: int
+    ioc_price_limit_e4: int
     cancel_risk_reduction_after_expiry: bool
     promoted_trace_sha256: str
 
@@ -898,10 +903,12 @@ def _load_trusted_publication_context(
     ioc_keys = frozenset(
         {
             "allow_ioc_exit",
+            "book_side",
             "ca_bundle_sha256",
             "clock_quality_receipt_sha256",
             "consumption_ledger_path_sha256",
             "environment_fingerprint_sha256",
+            "expected_position_before_e4",
             "execution_host_fingerprint_sha256",
             "expires_at_unix_s",
             "issued_at_unix_s",
@@ -911,19 +918,49 @@ def _load_trusted_publication_context(
             "max_ioc_exit_orders",
             "measured_on",
             "nonce_sha256",
-            "price_cap_e4",
+            "outcome_side",
+            "price_limit_e4",
+            "price_limit_semantics",
             "producer_code_sha256",
             "producer_config_sha256",
             "quantity_e4",
             "receipt_id",
             "schema_version",
             "single_use",
+            "subaccount",
             "terminal_consumption_receipt_path_sha256",
             "ticker",
             "trace_output_path_sha256",
         }
     )
     _exact_keys("IOC_EXIT authority", ioc_authority, ioc_keys)
+    expected_position = ioc_authority["expected_position_before_e4"]
+    if type(expected_position) is not int or expected_position == 0:
+        raise MeasuredLatencyError(
+            "IOC_EXIT authority signed position is invalid"
+        )
+    ioc_quantity = _integer(
+        "ioc.quantity_e4",
+        ioc_authority["quantity_e4"],
+        minimum=1,
+    )
+    required_ioc_book_side = "bid" if expected_position < 0 else "ask"
+    required_ioc_outcome_side = "yes" if expected_position < 0 else "no"
+    required_limit_semantics = (
+        "MAXIMUM_BUY_YES_PRICE_CAP"
+        if expected_position < 0
+        else "MINIMUM_SELL_YES_PRICE_FLOOR"
+    )
+    ioc_maximum_cash_loss_e6 = _integer(
+        "ioc.max_cash_loss_e6",
+        ioc_authority["max_cash_loss_e6"],
+        minimum=0,
+    )
+    ioc_maximum_fee_e6 = _integer(
+        "ioc.max_fee_e6",
+        ioc_authority["max_fee_e6"],
+        minimum=0,
+    )
     if (
         ioc_authority["schema_version"] != IOC_AUTHORITY_SCHEMA_VERSION
         or ioc_authority["allow_ioc_exit"] is not True
@@ -933,30 +970,25 @@ def _load_trusted_publication_context(
             minimum=1,
         )
         != 1
+        or abs(expected_position) != ioc_quantity
+        or ioc_quantity % 100 != 0
         or _integer(
-            "ioc.quantity_e4",
-            ioc_authority["quantity_e4"],
-            minimum=1,
-        )
-        <= 0
-        or _integer(
-            "ioc.price_cap_e4",
-            ioc_authority["price_cap_e4"],
+            "ioc.price_limit_e4",
+            ioc_authority["price_limit_e4"],
             minimum=1,
         )
         >= 10_000
+        or ioc_maximum_cash_loss_e6 <= 0
+        or ioc_maximum_fee_e6 <= 0
+        or ioc_maximum_fee_e6 > ioc_maximum_cash_loss_e6
+        or ioc_authority["book_side"] != required_ioc_book_side
+        or ioc_authority["outcome_side"] != required_ioc_outcome_side
+        or ioc_authority["price_limit_semantics"]
+        != required_limit_semantics
         or _integer(
-            "ioc.max_cash_loss_e6",
-            ioc_authority["max_cash_loss_e6"],
-            minimum=0,
+            "ioc.subaccount", ioc_authority["subaccount"]
         )
-        <= 0
-        or _integer(
-            "ioc.max_fee_e6",
-            ioc_authority["max_fee_e6"],
-            minimum=0,
-        )
-        <= 0
+        != 0
     ):
         raise MeasuredLatencyError("IOC_EXIT authority action differs")
     ioc_issued_ms, ioc_expires_ms = _validate_authority_window(
@@ -993,14 +1025,17 @@ def _load_trusted_publication_context(
                     f"{label} authority {field} differs"
                 )
         _sha(f"{label}.nonce_sha256", authority["nonce_sha256"])
+        price_field = (
+            "price_limit_e4" if label == "ioc" else "price_cap_e4"
+        )
         if (
             _integer(
                 f"{label}.quantity_e4", authority["quantity_e4"], minimum=1
             )
             <= 0
             or _integer(
-                f"{label}.price_cap_e4",
-                authority["price_cap_e4"],
+                f"{label}.{price_field}",
+                authority[price_field],
                 minimum=1,
             )
             >= 10_000
@@ -1129,7 +1164,11 @@ def _load_trusted_publication_context(
                 "max_place_post_attempts",
             }
         else:
-            base_keys |= {"max_ioc_exit_post_attempts"}
+            base_keys |= {
+                "expected_position_before_e4",
+                "max_ioc_exit_post_attempts",
+                "subaccount",
+            }
         _exact_keys(
             f"{label} consumption",
             consumption,
@@ -1195,6 +1234,14 @@ def _load_trusted_publication_context(
                 )
         elif consumption["max_ioc_exit_post_attempts"] != 1:
             raise MeasuredLatencyError("IOC consumption maxima differ")
+        elif (
+            consumption["expected_position_before_e4"]
+            != authority["expected_position_before_e4"]
+            or consumption["subaccount"] != authority["subaccount"]
+        ):
+            raise MeasuredLatencyError(
+                "IOC consumption signed position/subaccount differs"
+            )
         consumed_ms = _integer(
             f"{label}.consumed_at_wall_utc_ms",
             consumption["consumed_at_wall_utc_ms"],
@@ -1383,8 +1430,15 @@ def _load_trusted_publication_context(
         ioc_finished_at_ms=ioc_finished_ms,
         place_quantity_e4=place_authority["quantity_e4"],
         place_price_cap_e4=place_authority["price_cap_e4"],
+        ioc_expected_position_before_e4=expected_position,
+        ioc_book_side=ioc_authority["book_side"],
+        ioc_outcome_side=ioc_authority["outcome_side"],
+        ioc_price_limit_semantics=ioc_authority[
+            "price_limit_semantics"
+        ],
+        ioc_subaccount=ioc_authority["subaccount"],
         ioc_quantity_e4=ioc_authority["quantity_e4"],
-        ioc_price_cap_e4=ioc_authority["price_cap_e4"],
+        ioc_price_limit_e4=ioc_authority["price_limit_e4"],
         cancel_risk_reduction_after_expiry=cancel_after_expiry,
         promoted_trace_sha256=trace_sha,
     )
@@ -1762,16 +1816,32 @@ def load_private_trace(
                 )
         else:
             before = sample["fill_reconciliation"]["position_before_e4"]
-            required_side = "ASK" if before > 0 else "BID"
+            authority_book_side = context.ioc_book_side.upper()
+            if context.ioc_price_limit_semantics == (
+                "MAXIMUM_BUY_YES_PRICE_CAP"
+            ):
+                price_within_authority = (
+                    requested_price_e4 <= context.ioc_price_limit_e4
+                )
+            elif context.ioc_price_limit_semantics == (
+                "MINIMUM_SELL_YES_PRICE_FLOOR"
+            ):
+                price_within_authority = (
+                    requested_price_e4 >= context.ioc_price_limit_e4
+                )
+            else:
+                price_within_authority = False
             if (
                 time_in_force != "IMMEDIATE_OR_CANCEL"
                 or sample["request_reduce_only"] is not True
-                or book_side != required_side
+                or before != context.ioc_expected_position_before_e4
+                or book_side != authority_book_side
+                or subaccount != context.ioc_subaccount
                 or sample["fill_reconciliation"][
                     "requested_quantity_e4"
                 ]
                 != context.ioc_quantity_e4
-                or requested_price_e4 > context.ioc_price_cap_e4
+                or not price_within_authority
             ):
                 raise MeasuredLatencyError(
                     f"{name} IOC_EXIT differs from authority or does not "

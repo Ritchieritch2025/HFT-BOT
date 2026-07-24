@@ -68,6 +68,9 @@ inline constexpr std::string_view state_name(ExitState state) {
 struct ExitPlan {
   std::string ticker;
   std::string client_order_id;
+  std::string book_side;
+  std::string outcome_side;
+  std::string price_limit_semantics;
   std::int64_t expected_position_before_e4 = 0;
   std::int64_t quantity_e4 = 0;
   std::int64_t limit_price_e4 = 0;
@@ -96,6 +99,8 @@ struct CreateEvidence {
   std::int64_t matching_engine_ts_ms = 0;
   std::optional<std::int64_t> average_fee_paid_e6;
   std::optional<std::int64_t> average_fill_price_e4;
+  int average_fee_precision_digits = 0;
+  int average_fill_price_precision_digits = 0;
   std::string response_sha256;
 };
 
@@ -104,14 +109,19 @@ struct OrderEvidence {
   std::string order_id;
   std::string client_order_id;
   std::string ticker;
+  std::string book_side;
+  std::string outcome_side;
+  std::string status;
   std::int64_t subaccount = -1;
   std::int64_t requested_e4 = 0;
   std::int64_t filled_e4 = 0;
   std::int64_t remaining_e4 = 0;
-  std::int64_t total_fill_cost_e6 = 0;
-  std::int64_t total_fee_e6 = 0;
+  std::int64_t taker_fill_cost_e6 = 0;
   std::int64_t maker_fill_cost_e6 = 0;
+  std::int64_t total_fill_cost_e6 = 0;
+  std::int64_t taker_fee_e6 = 0;
   std::int64_t maker_fee_e6 = 0;
+  std::int64_t total_fee_e6 = 0;
   std::string response_sha256;
 };
 
@@ -165,20 +175,67 @@ inline bool checked_product_div(
   return true;
 }
 
+inline bool checked_product(
+    std::int64_t left, std::int64_t right, std::int64_t& result) {
+  if (left < 0 || right < 0) return false;
+  if (left != 0 &&
+      right > std::numeric_limits<std::int64_t>::max() / left)
+    return false;
+  result = left * right;
+  return true;
+}
+
+inline bool average_within_official_rounding_interval(
+    std::int64_t reported_average_e6, int precision_digits,
+    std::int64_t quantity_e4, std::int64_t aggregate_e6) {
+  if (reported_average_e6 < 0 || precision_digits < 1 ||
+      precision_digits > 6 || quantity_e4 <= 0 || aggregate_e6 < 0)
+    return false;
+  static constexpr std::int64_t powers_of_ten[] = {
+      1'000'000, 100'000, 10'000, 1'000, 100, 10, 1};
+  const std::int64_t unit_e6 = powers_of_ten[precision_digits];
+  std::int64_t aggregate_scaled = 0;
+  std::int64_t average_scaled = 0;
+  std::int64_t tolerance_scaled = 0;
+  if (!checked_product(aggregate_e6, 10'000, aggregate_scaled) ||
+      !checked_product(
+          reported_average_e6, quantity_e4, average_scaled) ||
+      !checked_product(unit_e6, quantity_e4, tolerance_scaled))
+    return false;
+  const std::int64_t difference =
+      aggregate_scaled >= average_scaled
+          ? aggregate_scaled - average_scaled
+          : average_scaled - aggregate_scaled;
+  // Compare 2*error <= one displayed unit, avoiding a floating midpoint.
+  return difference <= tolerance_scaled / 2;
+}
+
 inline bool exact_plan(const ExitPlan& plan) {
   std::int64_t absolute_position = 0;
   if (plan.ticker.empty() || plan.client_order_id.empty() ||
+      (plan.book_side != "bid" && plan.book_side != "ask") ||
+      (plan.outcome_side != "yes" && plan.outcome_side != "no") ||
       plan.expected_position_before_e4 == 0 ||
       !checked_abs(plan.expected_position_before_e4, absolute_position) ||
       absolute_position != plan.quantity_e4 || plan.quantity_e4 <= 0 ||
+      plan.quantity_e4 % 100 != 0 ||
       plan.limit_price_e4 <= 0 || plan.limit_price_e4 >= 10'000 ||
       plan.maximum_cash_loss_e6 <= 0 || plan.maximum_fee_e6 <= 0 ||
       !plan.exact_pretrade_fee_bound ||
       plan.pretrade_maximum_fee_e6 < 0 ||
       plan.pretrade_maximum_fee_e6 > plan.maximum_fee_e6 ||
-      plan.subaccount < 0 || plan.subaccount > 63 ||
+      plan.subaccount != 0 ||
       plan.maximum_fee_e6 > plan.maximum_cash_loss_e6)
     return false;
+  if (plan.expected_position_before_e4 < 0) {
+    if (plan.book_side != "bid" || plan.outcome_side != "yes" ||
+        plan.price_limit_semantics != "MAXIMUM_BUY_YES_PRICE_CAP")
+      return false;
+  } else if (
+      plan.book_side != "ask" || plan.outcome_side != "no" ||
+      plan.price_limit_semantics != "MINIMUM_SELL_YES_PRICE_FLOOR") {
+    return false;
+  }
   if (plan.expected_position_before_e4 < 0) {
     std::int64_t maximum_fill_cost_e6 = 0;
     if (!checked_product_div(
@@ -203,6 +260,9 @@ inline bool exact_create_ack(
          create.matching_engine_ts_ms > 0 &&
          create.average_fee_paid_e6.has_value() &&
          create.average_fill_price_e4.has_value() &&
+         create.average_fee_precision_digits >= 1 &&
+         create.average_fee_precision_digits <= 6 &&
+         create.average_fill_price_precision_digits == 4 &&
          *create.average_fee_paid_e6 >= 0 &&
          *create.average_fill_price_e4 > 0 &&
          *create.average_fill_price_e4 < 10'000;
@@ -214,6 +274,8 @@ inline bool exact_order_identity(
   return order.exact && order.order_id == known_order_id &&
          order.client_order_id == plan.client_order_id &&
          order.ticker == plan.ticker &&
+         order.book_side == plan.book_side &&
+         order.outcome_side == plan.outcome_side &&
          order.subaccount == plan.subaccount;
 }
 
@@ -223,7 +285,11 @@ inline bool exact_full_fill_binding(
   if (order.requested_e4 != plan.quantity_e4 ||
       order.filled_e4 != plan.quantity_e4 ||
       order.remaining_e4 != 0 ||
+      order.status != "executed" ||
+      order.taker_fill_cost_e6 < 0 ||
+      order.maker_fill_cost_e6 < 0 ||
       order.total_fill_cost_e6 < 0 || order.total_fee_e6 < 0 ||
+      order.taker_fee_e6 < 0 || order.maker_fee_e6 < 0 ||
       order.maker_fill_cost_e6 != 0 || order.maker_fee_e6 != 0 ||
       !create.average_fill_price_e4 ||
       !create.average_fee_paid_e6 ||
@@ -231,28 +297,45 @@ inline bool exact_full_fill_binding(
       order.total_fee_e6 > plan.pretrade_maximum_fee_e6)
     return false;
 
-  // V2 create returns per-contract averages.  Get Order returns aggregate
-  // dollar totals.  Requiring exact fixed-point equality binds the two
-  // independently obtained responses and rejects rounding ambiguity.
-  std::int64_t expected_cost_e6 = 0;
-  std::int64_t expected_fee_e6 = 0;
-  if (!checked_product_div(
-          *create.average_fill_price_e4, plan.quantity_e4, 100,
-          expected_cost_e6) ||
-      !checked_product_div(
-          *create.average_fee_paid_e6, plan.quantity_e4, 10'000,
-          expected_fee_e6) ||
-      expected_cost_e6 != order.total_fill_cost_e6 ||
-      expected_fee_e6 != order.total_fee_e6)
+  if (order.taker_fill_cost_e6 >
+          std::numeric_limits<std::int64_t>::max() -
+              order.maker_fill_cost_e6 ||
+      order.taker_fill_cost_e6 + order.maker_fill_cost_e6 !=
+          order.total_fill_cost_e6 ||
+      order.taker_fee_e6 >
+          std::numeric_limits<std::int64_t>::max() -
+              order.maker_fee_e6 ||
+      order.taker_fee_e6 + order.maker_fee_e6 != order.total_fee_e6)
     return false;
 
+  // Get Order aggregates are cash truth.  Create returns a displayed
+  // per-contract average; bind it to the aggregate using half of one unit at
+  // the response field's official display precision.
+  if (!average_within_official_rounding_interval(
+          *create.average_fill_price_e4 * 100,
+          create.average_fill_price_precision_digits,
+          plan.quantity_e4, order.total_fill_cost_e6) ||
+      !average_within_official_rounding_interval(
+          *create.average_fee_paid_e6,
+          create.average_fee_precision_digits,
+          plan.quantity_e4, order.total_fee_e6))
+    return false;
+
+  std::int64_t aggregate_scaled = 0;
+  std::int64_t limit_scaled = 0;
+  if (!checked_product(
+          order.total_fill_cost_e6, 100, aggregate_scaled) ||
+      !checked_product(plan.limit_price_e4, plan.quantity_e4, limit_scaled))
+    return false;
   const bool bid_exit = plan.expected_position_before_e4 < 0;
   if (bid_exit) {
-    if (*create.average_fill_price_e4 > plan.limit_price_e4 ||
-        expected_cost_e6 >
-            plan.maximum_cash_loss_e6 - expected_fee_e6)
+    if (aggregate_scaled > limit_scaled ||
+        order.total_fill_cost_e6 >
+            plan.maximum_cash_loss_e6 - order.total_fee_e6)
       return false;
-  } else if (*create.average_fill_price_e4 < plan.limit_price_e4) {
+  } else if (
+      aggregate_scaled < limit_scaled ||
+      order.total_fee_e6 > plan.maximum_cash_loss_e6) {
     return false;
   }
   return true;

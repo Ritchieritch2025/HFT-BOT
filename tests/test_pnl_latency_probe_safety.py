@@ -547,11 +547,53 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             '\\"post_only\\":false',
             '\\"self_trade_prevention_type\\":\\"taker_at_cross\\"',
             '\\"cancel_order_on_pause\\":true',
-            '\\"subaccount\\":0',
             '\\"exchange_index\\":-1',
         ):
             self.assertIn(exact_field, body)
+        self.assertIn("fixed_count_e2(plan.quantity_e4)", body)
+        self.assertIn('\\"subaccount\\":', body)
+        self.assertIn("std::to_string(plan.subaccount)", body)
         self.assertNotIn("expiration_time", body)
+
+    def test_ioc_repair_01_protocol_authority_and_cash_truth_are_bound(
+        self,
+    ) -> None:
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        header = (ROOT / "apps" / "pnl_ioc_exit_state.hpp").read_text(
+            encoding="utf-8"
+        )
+        for authority_field in (
+            '"expected_position_before_e4"',
+            '"book_side"',
+            '"outcome_side"',
+            '"price_limit_semantics"',
+            '"subaccount"',
+            "MAXIMUM_BUY_YES_PRICE_CAP",
+            "MINIMUM_SELL_YES_PRICE_FLOOR",
+        ):
+            self.assertIn(authority_field, source)
+        self.assertIn("plan.quantity_e4 % 100 != 0", header)
+        self.assertIn("plan.subaccount != 0", header)
+        self.assertIn(
+            "average_within_official_rounding_interval", header
+        )
+        self.assertIn("json_has_recursive_unique_keys", source)
+        self.assertIn("json_has_negative_zero_number", source)
+        self.assertIn("canonical_count_e4", source)
+        for cash_field in (
+            '\\"taker_fill_cost_e6\\"',
+            '\\"maker_fill_cost_e6\\"',
+            '\\"total_fill_cost_e6\\"',
+            '\\"taker_fee_e6\\"',
+            '\\"maker_fee_e6\\"',
+            '\\"total_fee_e6\\"',
+            '\\"cash_truth_receipt_binding_sha256\\"',
+            '\\"create_response_sha256\\"',
+            '\\"get_order_response_sha256\\"',
+        ):
+            self.assertIn(cash_field, source)
 
 
 if __name__ == "__main__":

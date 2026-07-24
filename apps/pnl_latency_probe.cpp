@@ -87,9 +87,9 @@ constexpr std::int64_t kMaximumClockErrorNs = 10 * 1'000'000;
 constexpr std::string_view kProbeClockId =
     "STD_STEADY_CLOCK:probe-process";
 constexpr std::string_view kIocAuthoritySchema =
-    "pnl-spine-ioc-exit-authority-v1";
+    "pnl-spine-ioc-exit-authority-v2";
 constexpr std::string_view kIocPrivateFragmentSchema =
-    "pnl-spine-private-ioc-exit-fragment-v1";
+    "pnl-spine-private-ioc-exit-fragment-v2";
 constexpr std::string_view kAccountMutationLockPath =
     "/var/lib/w09-pnl/account-mutation.lock";
 // The complete executor and its offline state machine live below this gate.
@@ -145,10 +145,15 @@ struct Authority {
 struct IocAuthority {
   std::int64_t issued_at_unix_s = 0;
   std::int64_t expires_at_unix_s = 0;
+  std::int64_t expected_position_before_e4 = 0;
   std::int64_t quantity_e4 = 0;
   std::int64_t price_limit_e4 = 0;
   std::int64_t maximum_cash_loss_e6 = 0;
   std::int64_t maximum_fee_e6 = 0;
+  std::int64_t subaccount = 0;
+  std::string book_side;
+  std::string outcome_side;
+  std::string price_limit_semantics;
   std::string nonce_sha256;
   std::string transaction_id;
   std::uint64_t accepted_at_steady_ns = 0;
@@ -264,20 +269,27 @@ struct CreateAck {
   std::int64_t matching_engine_ts_ms = 0;
   std::optional<std::int64_t> average_fee_paid_e6;
   std::optional<std::int64_t> average_fill_price_e4;
+  int average_fee_precision_digits = 0;
+  int average_fill_price_precision_digits = 0;
 };
 
 struct IocOrderSnapshot {
   std::string order_id;
   std::string client_order_id;
   std::string ticker;
+  std::string book_side;
+  std::string outcome_side;
+  std::string status;
   std::int64_t subaccount = -1;
   std::int64_t requested_e4 = 0;
   std::int64_t filled_e4 = 0;
   std::int64_t remaining_e4 = 0;
-  std::int64_t total_fill_cost_e6 = 0;
-  std::int64_t total_fee_e6 = 0;
+  std::int64_t taker_fill_cost_e6 = 0;
   std::int64_t maker_fill_cost_e6 = 0;
+  std::int64_t total_fill_cost_e6 = 0;
+  std::int64_t taker_fee_e6 = 0;
   std::int64_t maker_fee_e6 = 0;
+  std::int64_t total_fee_e6 = 0;
   std::string response_sha256;
 };
 
@@ -654,6 +666,199 @@ std::optional<std::int64_t> decimal_e6(simdjson::dom::element element) {
     return std::nullopt;
   const std::int64_t result = whole * 1'000'000 + fraction;
   return negative ? -result : result;
+}
+
+struct CanonicalDecimal {
+  std::int64_t value_e6 = 0;
+  int precision_digits = 0;
+};
+
+bool json_has_recursive_unique_keys(simdjson::dom::element element) {
+  switch (element.type()) {
+    case simdjson::dom::element_type::OBJECT: {
+      simdjson::dom::object object;
+      if (element.get(object) != simdjson::SUCCESS) return false;
+      std::set<std::string> keys;
+      for (auto field : object) {
+        if (!keys.emplace(field.key).second ||
+            !json_has_recursive_unique_keys(field.value))
+          return false;
+      }
+      return true;
+    }
+    case simdjson::dom::element_type::ARRAY: {
+      simdjson::dom::array array;
+      if (element.get(array) != simdjson::SUCCESS) return false;
+      for (auto child : array) {
+        if (!json_has_recursive_unique_keys(child)) return false;
+      }
+      return true;
+    }
+    default:
+      return true;
+  }
+}
+
+bool json_has_negative_zero_number(std::string_view body) {
+  bool in_string = false;
+  bool escaped = false;
+  for (std::size_t index = 0; index < body.size(); ++index) {
+    const char character = body[index];
+    if (in_string) {
+      if (escaped) {
+        escaped = false;
+      } else if (character == '\\') {
+        escaped = true;
+      } else if (character == '"') {
+        in_string = false;
+      }
+      continue;
+    }
+    if (character == '"') {
+      in_string = true;
+      continue;
+    }
+    if (character != '-') continue;
+    std::size_t end = index + 1;
+    while (end < body.size() &&
+           body[end] != ',' && body[end] != ']' && body[end] != '}' &&
+           !std::isspace(static_cast<unsigned char>(body[end])))
+      ++end;
+    if (end == index + 1) continue;
+    bool saw_digit = false;
+    bool all_mantissa_digits_zero = true;
+    for (std::size_t cursor = index + 1; cursor < end; ++cursor) {
+      const char token = body[cursor];
+      if (token == 'e' || token == 'E') break;
+      if (std::isdigit(static_cast<unsigned char>(token))) {
+        saw_digit = true;
+        if (token != '0') all_mantissa_digits_zero = false;
+      }
+    }
+    if (saw_digit && all_mantissa_digits_zero) return true;
+    index = end - 1;
+  }
+  return false;
+}
+
+bool strict_ioc_json_document(
+    simdjson::dom::element root, std::string_view body) {
+  return !json_has_negative_zero_number(body) &&
+         json_has_recursive_unique_keys(root);
+}
+
+std::optional<CanonicalDecimal> canonical_decimal_string_e6(
+    simdjson::dom::element element, int minimum_precision_digits,
+    int maximum_precision_digits, bool allow_negative) {
+  if (minimum_precision_digits < 1 ||
+      maximum_precision_digits < minimum_precision_digits ||
+      maximum_precision_digits > 6)
+    return std::nullopt;
+  std::string_view text;
+  if (element.type() != simdjson::dom::element_type::STRING ||
+      element.get(text) != simdjson::SUCCESS || text.empty())
+    return std::nullopt;
+  bool negative = false;
+  std::size_t index = 0;
+  if (text[index] == '-') {
+    if (!allow_negative) return std::nullopt;
+    negative = true;
+    ++index;
+  }
+  if (index >= text.size()) return std::nullopt;
+  const std::size_t whole_begin = index;
+  while (index < text.size() &&
+         std::isdigit(static_cast<unsigned char>(text[index])))
+    ++index;
+  const std::size_t whole_digits = index - whole_begin;
+  if (whole_digits == 0 ||
+      (whole_digits > 1 && text[whole_begin] == '0') ||
+      index >= text.size() || text[index] != '.')
+    return std::nullopt;
+  ++index;
+  const std::size_t fraction_begin = index;
+  while (index < text.size() &&
+         std::isdigit(static_cast<unsigned char>(text[index])))
+    ++index;
+  const int precision = static_cast<int>(index - fraction_begin);
+  if (index != text.size() ||
+      precision < minimum_precision_digits ||
+      precision > maximum_precision_digits)
+    return std::nullopt;
+
+  std::int64_t whole = 0;
+  for (std::size_t cursor = whole_begin;
+       cursor < whole_begin + whole_digits; ++cursor) {
+    const int digit = text[cursor] - '0';
+    if (whole >
+        (std::numeric_limits<std::int64_t>::max() - digit) / 10)
+      return std::nullopt;
+    whole = whole * 10 + digit;
+  }
+  std::int64_t fraction = 0;
+  for (std::size_t cursor = fraction_begin; cursor < text.size(); ++cursor)
+    fraction = fraction * 10 + (text[cursor] - '0');
+  for (int digits = precision; digits < 6; ++digits) fraction *= 10;
+  if (whole >
+      (std::numeric_limits<std::int64_t>::max() - fraction) / 1'000'000)
+    return std::nullopt;
+  const std::int64_t magnitude = whole * 1'000'000 + fraction;
+  if (negative && magnitude == 0) return std::nullopt;
+  return CanonicalDecimal{
+      negative ? -magnitude : magnitude, precision};
+}
+
+std::optional<std::int64_t> canonical_count_e4(
+    simdjson::dom::element element, bool allow_negative) {
+  const auto decimal =
+      canonical_decimal_string_e6(element, 2, 2, allow_negative);
+  if (!decimal || decimal->value_e6 % 100 != 0) return std::nullopt;
+  return decimal->value_e6 / 100;
+}
+
+std::optional<std::int64_t> canonical_price_e4(
+    simdjson::dom::element element) {
+  const auto decimal =
+      canonical_decimal_string_e6(element, 4, 4, false);
+  if (!decimal || decimal->value_e6 % 100 != 0) return std::nullopt;
+  return decimal->value_e6 / 100;
+}
+
+std::optional<std::int64_t> canonical_integer(
+    simdjson::dom::element element) {
+  if (element.type() == simdjson::dom::element_type::INT64) {
+    std::int64_t value = 0;
+    if (element.get(value) != simdjson::SUCCESS)
+      return std::nullopt;
+    return value;
+  }
+  if (element.type() == simdjson::dom::element_type::UINT64) {
+    std::uint64_t value = 0;
+    if (element.get(value) != simdjson::SUCCESS ||
+        value > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()))
+      return std::nullopt;
+    return static_cast<std::int64_t>(value);
+  }
+  return std::nullopt;
+}
+
+std::optional<std::int64_t> canonical_nonnegative_integer(
+    simdjson::dom::element element) {
+  const auto value = canonical_integer(element);
+  if (!value || *value < 0) return std::nullopt;
+  return value;
+}
+
+std::optional<std::string> canonical_nonempty_string_field(
+    simdjson::dom::element object, const char* name) {
+  simdjson::dom::element element;
+  std::string_view value;
+  if (object[name].get(element) != simdjson::SUCCESS ||
+      element.type() != simdjson::dom::element_type::STRING ||
+      element.get(value) != simdjson::SUCCESS || value.empty())
+    return std::nullopt;
+  return std::string(value);
 }
 
 simdjson::dom::element order_object(simdjson::dom::element root) {
@@ -1106,7 +1311,87 @@ std::optional<CreateAck> parse_create_ack(std::string_view body) {
     }
     return CreateAck{
         *order_id, *client_order_id, *filled, *remaining, ts_ms, average_fee,
-        average_fill_price};
+        average_fill_price, 0, 0};
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::optional<std::string> parse_ioc_known_order_id(
+    std::string_view body) {
+  try {
+    simdjson::dom::parser parser;
+    auto root_result = parser.parse(body);
+    if (root_result.error()) return std::nullopt;
+    auto root = root_result.value();
+    if (!strict_ioc_json_document(root, body)) return std::nullopt;
+    return canonical_nonempty_string_field(root, "order_id");
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::optional<CreateAck> parse_ioc_create_ack(std::string_view body) {
+  try {
+    simdjson::dom::parser parser;
+    auto root_result = parser.parse(body);
+    if (root_result.error()) return std::nullopt;
+    auto root = root_result.value();
+    if (!strict_ioc_json_document(root, body)) return std::nullopt;
+    const auto order_id =
+        canonical_nonempty_string_field(root, "order_id");
+    const auto client_order_id =
+        canonical_nonempty_string_field(root, "client_order_id");
+    simdjson::dom::element filled_element;
+    simdjson::dom::element remaining_element;
+    simdjson::dom::element ts_element;
+    if (root["fill_count"].get(filled_element) != simdjson::SUCCESS ||
+        root["remaining_count"].get(remaining_element) !=
+            simdjson::SUCCESS ||
+        root["ts_ms"].get(ts_element) != simdjson::SUCCESS)
+      return std::nullopt;
+    const auto filled = canonical_count_e4(filled_element, false);
+    const auto remaining =
+        canonical_count_e4(remaining_element, false);
+    const auto ts_ms = canonical_nonnegative_integer(ts_element);
+    if (!order_id || !client_order_id || !filled || !remaining ||
+        !ts_ms || *ts_ms <= 0)
+      return std::nullopt;
+
+    std::optional<std::int64_t> average_fee;
+    int average_fee_precision = 0;
+    simdjson::dom::element average_fee_element;
+    if (root["average_fee_paid"].get(average_fee_element) ==
+        simdjson::SUCCESS) {
+      const auto parsed = canonical_decimal_string_e6(
+          average_fee_element, 4, 6, false);
+      if (!parsed) return std::nullopt;
+      average_fee = parsed->value_e6;
+      average_fee_precision = parsed->precision_digits;
+    }
+    std::optional<std::int64_t> average_fill_price;
+    int average_fill_price_precision = 0;
+    simdjson::dom::element average_fill_price_element;
+    if (root["average_fill_price"].get(average_fill_price_element) ==
+        simdjson::SUCCESS) {
+      average_fill_price = canonical_price_e4(
+          average_fill_price_element);
+      if (!average_fill_price || *average_fill_price <= 0 ||
+          *average_fill_price >= 10'000)
+        return std::nullopt;
+      average_fill_price_precision = 4;
+    }
+    return CreateAck{
+        *order_id,
+        *client_order_id,
+        *filled,
+        *remaining,
+        *ts_ms,
+        average_fee,
+        average_fill_price,
+        average_fee_precision,
+        average_fill_price_precision,
+    };
   } catch (...) {
     return std::nullopt;
   }
@@ -1163,22 +1448,29 @@ std::optional<PositionSnapshot> parse_exact_ioc_position_snapshot(
     auto root_result = parser.parse(body);
     if (root_result.error()) return std::nullopt;
     auto root = root_result.value();
+    if (!strict_ioc_json_document(root, body)) return std::nullopt;
     simdjson::dom::array positions;
     if (root["market_positions"].get(positions) != simdjson::SUCCESS)
       return std::nullopt;
-    std::string_view cursor;
-    if (root["cursor"].get(cursor) != simdjson::SUCCESS ||
-        !cursor.empty())
+    simdjson::dom::element cursor_element;
+    std::string_view cursor_text;
+    if (root["cursor"].get(cursor_element) != simdjson::SUCCESS ||
+        cursor_element.type() != simdjson::dom::element_type::STRING ||
+        cursor_element.get(cursor_text) != simdjson::SUCCESS ||
+        !cursor_text.empty())
       return std::nullopt;
     bool found = false;
     std::int64_t exact_position = 0;
     for (auto position : positions) {
       const auto found_ticker =
-          string_field(position, {"ticker", "market_ticker"});
+          canonical_nonempty_string_field(position, "ticker");
       if (!found_ticker || *found_ticker != ticker || found)
         return std::nullopt;
-      const auto value =
-          count_field(position, {"position_fp"}, {"position"});
+      simdjson::dom::element position_element;
+      if (position["position_fp"].get(position_element) !=
+          simdjson::SUCCESS)
+        return std::nullopt;
+      const auto value = canonical_count_e4(position_element, true);
       if (!value) return std::nullopt;
       found = true;
       exact_position = *value;
@@ -1198,23 +1490,48 @@ std::optional<IocOrderSnapshot> parse_ioc_order_snapshot(
     simdjson::dom::parser parser;
     auto root_result = parser.parse(body);
     if (root_result.error()) return std::nullopt;
-    auto order = order_object(root_result.value());
-    const auto order_id = string_field(order, {"order_id"});
+    auto root = root_result.value();
+    if (!strict_ioc_json_document(root, body)) return std::nullopt;
+    simdjson::dom::element order;
+    if (root["order"].get(order) != simdjson::SUCCESS ||
+        order.type() != simdjson::dom::element_type::OBJECT)
+      return std::nullopt;
+    const auto order_id =
+        canonical_nonempty_string_field(order, "order_id");
     const auto client_order_id =
-        string_field(order, {"client_order_id"});
-    const auto ticker = string_field(order, {"ticker"});
-    const auto requested = count_field(
-        order, {"initial_count_fp"}, {"initial_count"});
-    const auto filled = count_field(
-        order, {"fill_count_fp"}, {"fill_count"});
-    const auto remaining = count_field(
-        order, {"remaining_count_fp"}, {"remaining_count"});
-    std::int64_t subaccount = -1;
+        canonical_nonempty_string_field(order, "client_order_id");
+    const auto ticker = canonical_nonempty_string_field(order, "ticker");
+    const auto book_side =
+        canonical_nonempty_string_field(order, "book_side");
+    const auto outcome_side =
+        canonical_nonempty_string_field(order, "outcome_side");
+    const auto status = canonical_nonempty_string_field(order, "status");
+    simdjson::dom::element requested_element;
+    simdjson::dom::element filled_element;
+    simdjson::dom::element remaining_element;
+    simdjson::dom::element subaccount_element;
+    if (order["initial_count_fp"].get(requested_element) !=
+            simdjson::SUCCESS ||
+        order["fill_count_fp"].get(filled_element) != simdjson::SUCCESS ||
+        order["remaining_count_fp"].get(remaining_element) !=
+            simdjson::SUCCESS ||
+        order["subaccount_number"].get(subaccount_element) !=
+            simdjson::SUCCESS)
+      return std::nullopt;
+    const auto requested = canonical_count_e4(requested_element, false);
+    const auto filled = canonical_count_e4(filled_element, false);
+    const auto remaining = canonical_count_e4(remaining_element, false);
+    const auto subaccount =
+        canonical_nonnegative_integer(subaccount_element);
     if (!order_id || order_id->empty() || !client_order_id ||
         client_order_id->empty() || !ticker || ticker->empty() ||
-        !requested || !filled || !remaining ||
-        order["subaccount_number"].get(subaccount) != simdjson::SUCCESS ||
-        subaccount < 0 || subaccount > 63 ||
+        !book_side || !outcome_side || !status ||
+        !requested || !filled || !remaining || !subaccount ||
+        *subaccount != 0 ||
+        !((*book_side == "bid" && *outcome_side == "yes") ||
+          (*book_side == "ask" && *outcome_side == "no")) ||
+        (*status != "resting" && *status != "canceled" &&
+         *status != "executed") ||
         *requested <= 0 || *filled < 0 || *remaining < 0)
       return std::nullopt;
 
@@ -1223,9 +1540,10 @@ std::optional<IocOrderSnapshot> parse_ioc_order_snapshot(
       simdjson::dom::element value;
       if (order[field].get(value) != simdjson::SUCCESS)
         return std::nullopt;
-      const auto parsed = decimal_e6(value);
-      if (!parsed || *parsed < 0) return std::nullopt;
-      return parsed;
+      const auto parsed =
+          canonical_decimal_string_e6(value, 4, 6, false);
+      if (!parsed) return std::nullopt;
+      return parsed->value_e6;
     };
     const auto taker_cost = exact_dollars("taker_fill_cost_dollars");
     const auto maker_cost = exact_dollars("maker_fill_cost_dollars");
@@ -1241,14 +1559,19 @@ std::optional<IocOrderSnapshot> parse_ioc_order_snapshot(
         *order_id,
         *client_order_id,
         *ticker,
-        subaccount,
+        *book_side,
+        *outcome_side,
+        *status,
+        *subaccount,
         *requested,
         *filled,
         *remaining,
-        *taker_cost + *maker_cost,
-        *taker_fee + *maker_fee,
+        *taker_cost,
         *maker_cost,
+        *taker_cost + *maker_cost,
+        *taker_fee,
         *maker_fee,
+        *taker_fee + *maker_fee,
         sha256_hex(body),
     };
   } catch (...) {
@@ -1429,12 +1752,15 @@ std::optional<IocAuthority> parse_ioc_authority(
     auto root_result = parser.parse(*bytes);
     if (root_result.error()) return std::nullopt;
     auto root = root_result.value();
+    if (!strict_ioc_json_document(root, *bytes)) return std::nullopt;
     const std::set<std::string> expected_keys = {
         "allow_ioc_exit",
+        "book_side",
         "ca_bundle_sha256",
         "clock_quality_receipt_sha256",
         "consumption_ledger_path_sha256",
         "environment_fingerprint_sha256",
+        "expected_position_before_e4",
         "execution_host_fingerprint_sha256",
         "expires_at_unix_s",
         "issued_at_unix_s",
@@ -1444,13 +1770,16 @@ std::optional<IocAuthority> parse_ioc_authority(
         "max_ioc_exit_orders",
         "measured_on",
         "nonce_sha256",
-        "price_cap_e4",
+        "outcome_side",
+        "price_limit_e4",
+        "price_limit_semantics",
         "producer_code_sha256",
         "producer_config_sha256",
         "quantity_e4",
         "receipt_id",
         "schema_version",
         "single_use",
+        "subaccount",
         "terminal_consumption_receipt_path_sha256",
         "ticker",
         "trace_output_path_sha256",
@@ -1479,14 +1808,20 @@ std::optional<IocAuthority> parse_ioc_authority(
     const auto terminal_path_sha = string_field(
         root, {"terminal_consumption_receipt_path_sha256"});
     const auto nonce = string_field(root, {"nonce_sha256"});
+    const auto book_side = string_field(root, {"book_side"});
+    const auto outcome_side = string_field(root, {"outcome_side"});
+    const auto price_limit_semantics =
+        string_field(root, {"price_limit_semantics"});
     std::int64_t issued = 0;
     std::int64_t expires = 0;
+    std::int64_t expected_position_before_e4 = 0;
     std::int64_t maximum_attempts = 0;
     std::int64_t maximum_ioc_orders = 0;
     std::int64_t quantity_e4 = 0;
     std::int64_t price_limit_e4 = 0;
     std::int64_t maximum_cash_loss_e6 = 0;
     std::int64_t maximum_fee_e6 = 0;
+    std::int64_t subaccount = -1;
     bool allow_ioc_exit = false;
     bool single_use = false;
     const auto output_path = strict_absolute_path(options.output);
@@ -1524,25 +1859,44 @@ std::optional<IocAuthority> parse_ioc_authority(
             simdjson::SUCCESS ||
         root["max_ioc_exit_orders"].get(maximum_ioc_orders) !=
             simdjson::SUCCESS ||
+        root["expected_position_before_e4"].get(
+            expected_position_before_e4) != simdjson::SUCCESS ||
         root["quantity_e4"].get(quantity_e4) != simdjson::SUCCESS ||
-        root["price_cap_e4"].get(price_limit_e4) != simdjson::SUCCESS ||
+        root["price_limit_e4"].get(price_limit_e4) !=
+            simdjson::SUCCESS ||
         root["max_cash_loss_e6"].get(maximum_cash_loss_e6) !=
             simdjson::SUCCESS ||
         root["max_fee_e6"].get(maximum_fee_e6) != simdjson::SUCCESS ||
+        root["subaccount"].get(subaccount) != simdjson::SUCCESS ||
         root["allow_ioc_exit"].get(allow_ioc_exit) !=
             simdjson::SUCCESS ||
         root["single_use"].get(single_use) != simdjson::SUCCESS)
       return std::nullopt;
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
+    std::int64_t absolute_position = 0;
+    const bool is_bid_exit = expected_position_before_e4 < 0;
     if (issued <= 0 || issued > now || expires <= now ||
         expires <= issued ||
         expires - issued > 15 * 60 || !allow_ioc_exit || !single_use ||
         maximum_attempts != 1 || maximum_ioc_orders != 1 ||
-        quantity_e4 <= 0 || price_limit_e4 <= 0 ||
+        expected_position_before_e4 == 0 ||
+        !pnl_ioc::checked_abs(
+            expected_position_before_e4, absolute_position) ||
+        absolute_position != quantity_e4 ||
+        quantity_e4 <= 0 || quantity_e4 % 100 != 0 ||
+        price_limit_e4 <= 0 ||
         price_limit_e4 >= 10'000 || maximum_cash_loss_e6 <= 0 ||
         maximum_fee_e6 <= 0 ||
-        maximum_fee_e6 > maximum_cash_loss_e6)
+        maximum_fee_e6 > maximum_cash_loss_e6 ||
+        subaccount != 0 || !book_side || !outcome_side ||
+        !price_limit_semantics ||
+        (is_bid_exit &&
+         (*book_side != "bid" || *outcome_side != "yes" ||
+          *price_limit_semantics != "MAXIMUM_BUY_YES_PRICE_CAP")) ||
+        (!is_bid_exit &&
+         (*book_side != "ask" || *outcome_side != "no" ||
+          *price_limit_semantics != "MINIMUM_SELL_YES_PRICE_FLOOR")))
       return std::nullopt;
     const auto accepted_at_steady_ns = steady_now_ns();
     const auto remaining_seconds =
@@ -1555,10 +1909,15 @@ std::optional<IocAuthority> parse_ioc_authority(
     return IocAuthority{
         issued,
         expires,
+        expected_position_before_e4,
         quantity_e4,
         price_limit_e4,
         maximum_cash_loss_e6,
         maximum_fee_e6,
+        subaccount,
+        *book_side,
+        *outcome_side,
+        *price_limit_semantics,
         *nonce,
         sha256_hex(authority_sha256 + *nonce + options.receipt_id),
         accepted_at_steady_ns,
@@ -1715,11 +2074,24 @@ std::string fixed_e4(std::int64_t value) {
   return buffer;
 }
 
+std::string fixed_count_e2(std::int64_t value_e4) {
+  if (value_e4 < 0 || value_e4 % 100 != 0)
+    throw std::runtime_error("noncanonical contract quantity");
+  char buffer[64];
+  std::snprintf(
+      buffer, sizeof(buffer), "%lld.%02lld",
+      static_cast<long long>(value_e4 / 10'000),
+      static_cast<long long>((value_e4 / 100) % 100));
+  return buffer;
+}
+
 std::string immutable_ioc_client_order_id(
-    std::string_view transaction_id, std::string_view ticker) {
+    std::string_view transaction_id, std::string_view ticker,
+    std::int64_t subaccount) {
   std::string identity = sha256_hex(
       std::string(transaction_id) + "\nIOC_EXIT\n" +
-      std::string(ticker) + "\nsubaccount=0");
+      std::string(ticker) + "\nsubaccount=" +
+      std::to_string(subaccount));
   // Set the UUID version/variant bits without introducing randomness.  The
   // source material is the immutable one-shot transaction identity.
   identity[12] = '4';
@@ -1730,18 +2102,17 @@ std::string immutable_ioc_client_order_id(
 }
 
 std::string ioc_order_body(const pnl_ioc::ExitPlan& plan) {
-  const char* side =
-      plan.expected_position_before_e4 > 0 ? "ask" : "bid";
   return "{\"cancel_order_on_pause\":true,\"client_order_id\":\"" +
          plan.client_order_id + "\",\"count\":\"" +
-         fixed_e4(plan.quantity_e4) +
+         fixed_count_e2(plan.quantity_e4) +
          "\",\"exchange_index\":-1,\"post_only\":false,\"price\":\"" +
          fixed_e4(plan.limit_price_e4) +
          "\",\"reduce_only\":true,"
          "\"self_trade_prevention_type\":\"taker_at_cross\","
          "\"side\":\"" +
-         side +
-         "\",\"subaccount\":0,\"ticker\":\"" + plan.ticker +
+         plan.book_side +
+         "\",\"subaccount\":" + std::to_string(plan.subaccount) +
+         ",\"ticker\":\"" + plan.ticker +
          "\",\"time_in_force\":\"immediate_or_cancel\"}";
 }
 
@@ -1939,7 +2310,7 @@ bool publish_ioc_terminal_consumption(
       << ",\"finished_at_wall_utc_ms\":" << finished_at_wall_utc_ms
       << ",\"ioc_exit_post_attempts\":"
       << accounting.ioc_exit_post_attempts
-      << ",\"schema_version\":\"pnl-spine-ioc-exit-authority-terminal-v1\""
+      << ",\"schema_version\":\"pnl-spine-ioc-exit-authority-terminal-v2\""
       << ",\"terminal_state\":\"" << terminal_state
       << "\",\"trace_source_sha256\":";
   if (trace_source_sha256) {
@@ -2030,12 +2401,13 @@ class KalshiIocTransport final : public pnl_ioc::Transport {
     }
     evidence.http_status = response->status;
     evidence.response_sha256 = sha256_hex(response->body);
-    const auto parsed_order_id = parse_order_id(response->body);
+    const auto parsed_order_id =
+        parse_ioc_known_order_id(response->body);
     if (parsed_order_id && valid_uuid_identity(*parsed_order_id))
       evidence.order_id = *parsed_order_id;
     if (response->status == 201) {
       evidence.disposition = pnl_ioc::PostDisposition::Created201;
-      const auto ack = parse_create_ack(response->body);
+      const auto ack = parse_ioc_create_ack(response->body);
       if (ack && valid_uuid_identity(ack->order_id) &&
           valid_uuid_identity(ack->client_order_id)) {
         evidence.exact_ack = true;
@@ -2048,6 +2420,10 @@ class KalshiIocTransport final : public pnl_ioc::Transport {
         evidence.average_fee_paid_e6 = ack->average_fee_paid_e6;
         evidence.average_fill_price_e4 =
             ack->average_fill_price_e4;
+        evidence.average_fee_precision_digits =
+            ack->average_fee_precision_digits;
+        evidence.average_fill_price_precision_digits =
+            ack->average_fill_price_precision_digits;
       }
     } else if (
         response->status == 400 || response->status == 401 ||
@@ -2083,14 +2459,19 @@ class KalshiIocTransport final : public pnl_ioc::Transport {
             parsed->order_id,
             parsed->client_order_id,
             parsed->ticker,
+            parsed->book_side,
+            parsed->outcome_side,
+            parsed->status,
             parsed->subaccount,
             parsed->requested_e4,
             parsed->filled_e4,
             parsed->remaining_e4,
-            parsed->total_fill_cost_e6,
-            parsed->total_fee_e6,
+            parsed->taker_fill_cost_e6,
             parsed->maker_fill_cost_e6,
+            parsed->total_fill_cost_e6,
+            parsed->taker_fee_e6,
             parsed->maker_fee_e6,
+            parsed->total_fee_e6,
             parsed->response_sha256,
         };
       }
@@ -2350,6 +2731,11 @@ int self_test_ioc_exit_executor_contract() {
     return ExitPlan{
         "TEST-TICKER",
         "11111111-2222-3333-4444-555555555555",
+        position_e4 < 0 ? "bid" : "ask",
+        position_e4 < 0 ? "yes" : "no",
+        position_e4 < 0
+            ? "MAXIMUM_BUY_YES_PRICE_CAP"
+            : "MINIMUM_SELL_YES_PRICE_FLOOR",
         position_e4,
         position_e4 < 0 ? -position_e4 : position_e4,
         position_e4 < 0 ? 5'500 : 4'500,
@@ -2373,6 +2759,8 @@ int self_test_ioc_exit_executor_contract() {
         1'800'000'000'000LL,
         12'300,
         plan.expected_position_before_e4 < 0 ? 5'500 : 4'600,
+        6,
+        4,
         std::string(64, '1'),
     };
   };
@@ -2393,14 +2781,19 @@ int self_test_ioc_exit_executor_contract() {
         create.order_id,
         plan.client_order_id,
         plan.ticker,
+        plan.book_side,
+        plan.outcome_side,
+        "executed",
         plan.subaccount,
         plan.quantity_e4,
         plan.quantity_e4,
         0,
         total_cost_e6,
+        0,
+        total_cost_e6,
         total_fee_e6,
         0,
-        0,
+        total_fee_e6,
         std::string(64, '2'),
     };
   };
@@ -2426,25 +2819,36 @@ int self_test_ioc_exit_executor_contract() {
           assertion_index);
     ok = ok && condition;
   };
+  const auto replace_once = [](
+                                std::string value,
+                                std::string_view needle,
+                                std::string_view replacement) {
+    const auto offset = value.find(needle);
+    if (offset == std::string::npos) return std::string{};
+    value.replace(offset, needle.size(), replacement);
+    return value;
+  };
 
   // Exact official V2 fixture decoding and payload semantics are exercised
   // separately from the pure state transition matrix.
   {
     constexpr std::string_view order_json =
         "{\"order\":{\"client_order_id\":\"11111111-2222-3333-4444-"
-        "555555555555\",\"fill_count_fp\":\"2.0000\","
-        "\"initial_count_fp\":\"2.0000\","
+        "555555555555\",\"book_side\":\"bid\","
+        "\"fill_count_fp\":\"2.00\","
+        "\"initial_count_fp\":\"2.00\","
         "\"maker_fees_dollars\":\"0.000000\","
         "\"maker_fill_cost_dollars\":\"0.000000\","
         "\"order_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\","
-        "\"remaining_count_fp\":\"0.0000\","
+        "\"outcome_side\":\"yes\",\"remaining_count_fp\":\"0.00\","
+        "\"status\":\"executed\","
         "\"subaccount_number\":0,"
         "\"taker_fees_dollars\":\"0.024600\","
         "\"taker_fill_cost_dollars\":\"1.100000\","
         "\"ticker\":\"TEST-TICKER\"}}";
     constexpr std::string_view position_json =
         "{\"cursor\":\"\",\"event_positions\":[],"
-        "\"market_positions\":[{\"position_fp\":\"-2.0000\","
+        "\"market_positions\":[{\"position_fp\":\"-2.00\","
         "\"ticker\":\"TEST-TICKER\"}]}";
     const auto order = parse_ioc_order_snapshot(order_json);
     const auto position =
@@ -2462,8 +2866,8 @@ int self_test_ioc_exit_executor_contract() {
         "TEST-TICKER"));
     expect(!parse_exact_ioc_position_snapshot(
         "{\"cursor\":\"\",\"market_positions\":["
-        "{\"position_fp\":\"1.0000\",\"ticker\":\"TEST-TICKER\"},"
-        "{\"position_fp\":\"1.0000\",\"ticker\":\"TEST-TICKER\"}]}",
+        "{\"position_fp\":\"1.00\",\"ticker\":\"TEST-TICKER\"},"
+        "{\"position_fp\":\"1.00\",\"ticker\":\"TEST-TICKER\"}]}",
         "TEST-TICKER"));
     expect(!parse_ioc_order_snapshot(
         "{\"order\":{\"order_id\":\"missing-required-fields\"}}"));
@@ -2484,8 +2888,66 @@ int self_test_ioc_exit_executor_contract() {
     }
     expect(bid_body.find("\"side\":\"bid\"") != std::string::npos);
     expect(ask_body.find("\"side\":\"ask\"") != std::string::npos);
+    expect(bid_body.find("\"count\":\"2.00\"") != std::string::npos);
+    expect(bid_body.find("\"count\":\"2.0000\"") == std::string::npos);
     expect(bid_body.find("expiration_time") == std::string::npos);
     expect(ask_body.find("expiration_time") == std::string::npos);
+
+    constexpr std::string_view create_json =
+        "{\"average_fee_paid\":\"0.011667\","
+        "\"average_fill_price\":\"0.5500\","
+        "\"client_order_id\":\"11111111-2222-3333-4444-"
+        "555555555555\",\"fill_count\":\"3.00\","
+        "\"order_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\","
+        "\"remaining_count\":\"0.00\",\"ts_ms\":1800000000000}";
+    const auto create = parse_ioc_create_ack(create_json);
+    expect(create && create->fill_count_e4 == 30'000 &&
+           create->average_fee_paid_e6 == 11'667 &&
+           create->average_fee_precision_digits == 6 &&
+           create->average_fill_price_e4 == 5'500 &&
+           create->average_fill_price_precision_digits == 4);
+
+    const std::string order_fixture(order_json);
+    const std::string position_fixture(position_json);
+    const std::string create_fixture(create_json);
+    expect(!parse_ioc_create_ack(replace_once(
+        create_fixture, "\"fill_count\":\"3.00\"",
+        "\"fill_count\":\"3.00\",\"fill_count\":\"0.00\"")));
+    expect(!parse_ioc_create_ack(replace_once(
+        create_fixture, "\"fill_count\":\"3.00\"",
+        "\"fill_count\":\"3.00\",\"\\u0066ill_count\":\"0.00\"")));
+    expect(!parse_exact_ioc_position_snapshot(
+        replace_once(
+            position_fixture, "\"event_positions\":[]",
+            "\"event_positions\":[{\"x\":1,\"x\":2}]"),
+        "TEST-TICKER"));
+    expect(!parse_ioc_order_snapshot(replace_once(
+        order_fixture, "\"taker_fees_dollars\":\"0.024600\"",
+        "\"taker_fees_dollars\":\"0.024600\","
+        "\"taker_fees_dollars\":\"9.000000\"")));
+    expect(!parse_ioc_create_ack(replace_once(
+        create_fixture, "\"fill_count\":\"3.00\"",
+        "\"fill_count\":3")));
+    expect(!parse_ioc_create_ack(replace_once(
+        create_fixture, "\"fill_count\":\"3.00\"",
+        "\"fill_count\":\"3.0000\"")));
+    expect(!parse_ioc_create_ack(replace_once(
+        create_fixture, "\"ts_ms\":1800000000000",
+        "\"ts_ms\":-0")));
+    expect(!parse_exact_ioc_position_snapshot(
+        replace_once(
+            position_fixture, "\"position_fp\":\"-2.00\"",
+            "\"position_fp\":\"-0.00\""),
+        "TEST-TICKER"));
+    expect(!parse_ioc_order_snapshot(replace_once(
+        order_fixture, "\"fill_count_fp\":\"2.00\"",
+        "\"fill_count_fp\":\"bad\",\"fill_count\":\"2.00\"")));
+    expect(!parse_ioc_order_snapshot(replace_once(
+        order_fixture, "\"subaccount_number\":0",
+        "\"subaccount_number\":0.0")));
+    expect(!parse_ioc_order_snapshot(replace_once(
+        order_fixture, "\"subaccount_number\":0",
+        "\"subaccount_number\":-0")));
   }
 
   // Both signed position directions must map to a single fully reconciled
@@ -2524,6 +2986,26 @@ int self_test_ioc_exit_executor_contract() {
     }
   }
 
+  // Signed position, normalized direction, explicit floor/cap semantics,
+  // two-decimal quantity granularity, and primary subaccount are a single
+  // authority/request contract.  Any substitution refuses before a read or
+  // mutation.
+  for (int mutation = 0; mutation < 7; ++mutation) {
+    ExitPlan plan = plan_for(-20'000);
+    if (mutation == 0) plan.book_side = "ask";
+    if (mutation == 1) plan.outcome_side = "no";
+    if (mutation == 2)
+      plan.price_limit_semantics = "MINIMUM_SELL_YES_PRICE_FLOOR";
+    if (mutation == 3) plan.expected_position_before_e4 = 20'000;
+    if (mutation == 4) plan.quantity_e4 = 20'001;
+    if (mutation == 5) plan.subaccount = 1;
+    if (mutation == 6) plan.book_side = "BID";
+    auto transport = success_transport(plan);
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedPrePositionUnproven);
+    expect(transport.position_reads == 0 && transport.post_calls == 0);
+  }
+
   // Transport ambiguity without an exchange-assigned order_id is never
   // "recovered" by list absence and never retries POST.
   {
@@ -2541,6 +3023,8 @@ int self_test_ioc_exit_executor_contract() {
         0,
         std::nullopt,
         std::nullopt,
+        0,
+        0,
         {}};
     transport.recovery.clear();
     const auto result = pnl_ioc::run(transport, plan);
@@ -2593,8 +3077,9 @@ int self_test_ioc_exit_executor_contract() {
     expect(transport.post_calls == 1);
   }
 
-  // Every identity component is independently binding.
-  for (int mutation = 0; mutation < 4; ++mutation) {
+  // Every identity and normalized-direction component is independently
+  // binding.
+  for (int mutation = 0; mutation < 6; ++mutation) {
     const ExitPlan plan = plan_for(-20'000);
     auto transport = success_transport(plan);
     auto& order = *transport.recovery.front().order;
@@ -2602,6 +3087,8 @@ int self_test_ioc_exit_executor_contract() {
     if (mutation == 1) order.client_order_id = "wrong-client";
     if (mutation == 2) order.ticker = "WRONG-TICKER";
     if (mutation == 3) order.subaccount = 1;
+    if (mutation == 4) order.book_side = "ask";
+    if (mutation == 5) order.outcome_side = "no";
     const auto result = pnl_ioc::run(transport, plan);
     expect(result.state == ExitState::BlockedOrderIdentityMismatch);
     expect(!result.publishable_latency_sample);
@@ -2638,7 +3125,7 @@ int self_test_ioc_exit_executor_contract() {
 
   // Ack/order fill totals, aggregate cost, aggregate fee, price protection,
   // and fee/cash budgets are exact fixed-point gates.
-  for (int mutation = 0; mutation < 7; ++mutation) {
+  for (int mutation = 0; mutation < 8; ++mutation) {
     ExitPlan plan = plan_for(-20'000);
     auto transport = success_transport(plan);
     auto& order = *transport.recovery.front().order;
@@ -2649,12 +3136,65 @@ int self_test_ioc_exit_executor_contract() {
     if (mutation == 4) transport.create.client_order_id = "wrong-client";
     if (mutation == 5) order.maker_fill_cost_e6 = 1;
     if (mutation == 6) order.maker_fee_e6 = 1;
+    if (mutation == 7) order.status = "canceled";
     const auto result = pnl_ioc::run(transport, plan);
     expect(
         result.state == ExitState::BlockedFillOrFeeBinding ||
         result.state == ExitState::BlockedCreateAckInvalid);
     expect(!result.publishable_latency_sample);
   }
+
+  // Get Order aggregates are cash truth.  A displayed six-decimal average
+  // fee and four-decimal VWAP may differ from aggregate/quantity by at most
+  // half of one displayed unit; legal rounding passes and the next micro-step
+  // outside the interval fails closed.
+  {
+    ExitPlan plan = plan_for(-30'000);
+    auto transport = success_transport(plan);
+    transport.create.average_fee_paid_e6 = 11'667;
+    transport.create.average_fee_precision_digits = 6;
+    auto& order = *transport.recovery.front().order;
+    order.taker_fee_e6 = 35'000;
+    order.total_fee_e6 = 35'000;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::ReadyTrace);
+    expect(result.terminal_order &&
+           result.terminal_order->total_fee_e6 == 35'000);
+  }
+  {
+    ExitPlan plan = plan_for(-30'000);
+    auto transport = success_transport(plan);
+    transport.create.average_fee_paid_e6 = 11'667;
+    transport.create.average_fee_precision_digits = 6;
+    auto& order = *transport.recovery.front().order;
+    order.taker_fee_e6 = 34'999;
+    order.total_fee_e6 = 34'999;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedFillOrFeeBinding);
+  }
+  {
+    ExitPlan plan = plan_for(-30'000);
+    auto transport = success_transport(plan);
+    transport.create.average_fill_price_e4 = 5'499;
+    auto& order = *transport.recovery.front().order;
+    order.taker_fill_cost_e6 = 1'649'750;
+    order.total_fill_cost_e6 = 1'649'750;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::ReadyTrace);
+    expect(result.terminal_order &&
+           result.terminal_order->total_fill_cost_e6 == 1'649'750);
+  }
+  {
+    ExitPlan plan = plan_for(-30'000);
+    auto transport = success_transport(plan);
+    transport.create.average_fill_price_e4 = 5'499;
+    auto& order = *transport.recovery.front().order;
+    order.taker_fill_cost_e6 = 1'649'900;
+    order.total_fill_cost_e6 = 1'649'900;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedFillOrFeeBinding);
+  }
+
   for (int mutation = 0; mutation < 2; ++mutation) {
     ExitPlan plan = plan_for(-20'000);
     if (mutation == 0) plan.maximum_fee_e6 = 1;
@@ -2712,6 +3252,8 @@ int self_test_ioc_exit_executor_contract() {
         0,
         std::nullopt,
         std::nullopt,
+        0,
+        0,
         {}};
     transport.recovery.clear();
     const auto result = pnl_ioc::run(transport, plan);
@@ -2850,20 +3392,32 @@ int execute_ioc_exit(const Options& options) {
       << "{\"account_scope\":\"DEDICATED_LATENCY_PROBE_CREDENTIAL\","
       << "\"acquired_at_wall_utc_ms\":" << consumed_at_wall_utc_ms
       << ",\"authority_sha256\":\"" << authority_sha256
+      << "\",\"book_side\":\"" << authority->book_side
       << "\",\"credential_broker_must_refuse_while_present\":true,"
-      << "\"producer_code_sha256\":\""
+      << "\"expected_position_before_e4\":"
+      << authority->expected_position_before_e4
+      << ",\"outcome_side\":\"" << authority->outcome_side
+      << "\",\"price_limit_e4\":" << authority->price_limit_e4
+      << ",\"price_limit_semantics\":\""
+      << authority->price_limit_semantics
+      << "\",\"producer_code_sha256\":\""
       << facts->producer_code_sha256
-      << "\",\"release_policy\":\"ROOT_ONLY_AFTER_TERMINAL_RECEIPT_"
+      << "\",\"quantity_e4\":" << authority->quantity_e4
+      << ",\"release_policy\":\"ROOT_ONLY_AFTER_TERMINAL_RECEIPT_"
       << "RECONCILIATION\",\"schema_version\":\"pnl-spine-account-"
-      << "mutation-lock-v1\",\"state\":\"ACCOUNT_MUTATIONS_LOCKED\","
+      << "mutation-lock-v2\",\"state\":\"ACCOUNT_MUTATIONS_LOCKED\","
+      << "\"subaccount\":" << authority->subaccount << ","
       << "\"ticker_sha256\":\"" << sha256_hex(options.ticker)
       << "\",\"transaction_id\":\"" << authority->transaction_id
       << "\"}";
-  if (!account_lock.finish(lock_document.str())) {
+  const std::string lock_bytes = lock_document.str();
+  if (!account_lock.finish(lock_bytes)) {
     std::fprintf(
         stderr, "IOC_EXIT account mutation lock durability failed\n");
     return 2;
   }
+  const std::string account_lock_receipt_sha256 =
+      sha256_hex(lock_bytes);
 
   std::ostringstream consumption;
   consumption
@@ -2876,7 +3430,9 @@ int execute_ioc_exit(const Options& options) {
       << facts->environment_fingerprint_sha256
       << "\",\"execution_host_fingerprint_sha256\":\""
       << facts->execution_host_fingerprint_sha256
-      << "\",\"max_attempts\":1,\"max_ioc_exit_post_attempts\":1,"
+      << "\",\"expected_position_before_e4\":"
+      << authority->expected_position_before_e4
+      << ",\"max_attempts\":1,\"max_ioc_exit_post_attempts\":1,"
       << "\"nonce_sha256\":\"" << authority->nonce_sha256
       << "\",\"producer_code_sha256\":\""
       << facts->producer_code_sha256
@@ -2884,7 +3440,8 @@ int execute_ioc_exit(const Options& options) {
       << facts->producer_config_sha256
       << "\",\"receipt_id\":\"" << json_escape(options.receipt_id)
       << "\",\"schema_version\":\"pnl-spine-ioc-exit-authority-"
-      << "consumption-v1\","
+      << "consumption-v2\",\"subaccount\":" << authority->subaccount
+      << ","
       << "\"terminal_consumption_receipt_path_sha256\":\""
       << sha256_hex(
              strict_absolute_path(options.terminal_consumption_receipt)
@@ -2893,17 +3450,20 @@ int execute_ioc_exit(const Options& options) {
       << sha256_hex(strict_absolute_path(options.output)->string())
       << "\",\"transaction_id\":\"" << authority->transaction_id
       << "\"}";
-  if (!ledger_reservation.finish(consumption.str())) {
+  const std::string consumption_bytes = consumption.str();
+  if (!ledger_reservation.finish(consumption_bytes)) {
     std::fprintf(
         stderr,
         "IOC_EXIT authority consumption durability failed; account lock "
         "remains held\n");
     return 2;
   }
+  const std::string authority_consumption_receipt_sha256 =
+      sha256_hex(consumption_bytes);
 
   IocMutationAccounting accounting;
   const std::string client_order_id = immutable_ioc_client_order_id(
-      authority->transaction_id, options.ticker);
+      authority->transaction_id, options.ticker, authority->subaccount);
   accounting.client_order_id_sha256 = sha256_hex(client_order_id);
   bool output_finished = false;
   const auto publish_failure_receipt = [&](
@@ -2939,7 +3499,7 @@ int execute_ioc_exit(const Options& options) {
         << ",\"order_transmitted\":"
         << (accounting.ioc_exit_post_attempts == 1 ? "true" : "false")
         << ",\"publishable_latency_sample\":false,"
-        << "\"schema_version\":\"pnl-spine-ioc-exit-attempt-receipt-v1\","
+        << "\"schema_version\":\"pnl-spine-ioc-exit-attempt-receipt-v2\","
         << "\"state\":\"" << state
         << "\",\"ticker_sha256\":\"" << sha256_hex(options.ticker)
         << "\",\"transaction_id\":\"" << authority->transaction_id
@@ -3004,26 +3564,27 @@ int execute_ioc_exit(const Options& options) {
   KalshiIocTransport transport(
       client, lane, *facts, *authority);
   const auto planning_position =
-      transport.get_exact_position(options.ticker, 0);
-  std::int64_t absolute_position = 0;
+      transport.get_exact_position(
+          options.ticker, authority->subaccount);
   if (!planning_position || !planning_position->exact ||
-      planning_position->position_e4 == 0 ||
-      !pnl_ioc::checked_abs(
-          planning_position->position_e4, absolute_position) ||
-      absolute_position != authority->quantity_e4)
+      planning_position->position_e4 !=
+          authority->expected_position_before_e4)
     return terminate("BLOCKED_EXACT_PRE_POSITION_UNPROVEN", 3);
 
   const pnl_ioc::ExitPlan plan{
       options.ticker,
       client_order_id,
-      planning_position->position_e4,
+      authority->book_side,
+      authority->outcome_side,
+      authority->price_limit_semantics,
+      authority->expected_position_before_e4,
       authority->quantity_e4,
       authority->price_limit_e4,
       authority->maximum_cash_loss_e6,
       authority->maximum_fee_e6,
       false,
       0,
-      0,
+      authority->subaccount,
   };
   const pnl_ioc::ExitResult result = pnl_ioc::run(transport, plan);
   accounting.ioc_exit_post_attempts = result.ioc_post_attempts;
@@ -3084,8 +3645,7 @@ int execute_ioc_exit(const Options& options) {
       result.create.average_fee_paid_e6;
   sample.average_fill_price_e4 =
       result.create.average_fill_price_e4;
-  sample.book_side =
-      plan.expected_position_before_e4 > 0 ? "ASK" : "BID";
+  sample.book_side = plan.book_side == "bid" ? "BID" : "ASK";
   sample.clock_quality_receipt_sha256 =
       facts->clock_quality_receipt_sha256;
   sample.environment_fingerprint_sha256 =
@@ -3104,18 +3664,66 @@ int execute_ioc_exit(const Options& options) {
   sample.position_before_e4 = plan.expected_position_before_e4;
   sample.position_after_e4 =
       result.terminal_position->position_e4;
-  sample.order_status = "EXECUTED";
+  sample.order_status =
+      result.terminal_order->status == "executed"
+          ? "EXECUTED"
+          : "INVALID";
 
   const auto created_at_ns = steady_now_ns();
   const auto created_at_wall_utc_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch())
           .count();
+  const std::string cash_truth_receipt_binding_sha256 = sha256_hex(
+      authority_sha256 + "\n" + account_lock_receipt_sha256 + "\n" +
+      authority_consumption_receipt_sha256 + "\n" +
+      result.create.response_sha256 + "\n" +
+      result.terminal_order->response_sha256 + "\n" +
+      transport.initial_position_->response_sha256 + "\n" +
+      result.terminal_position->response_sha256 + "\n" +
+      std::to_string(result.terminal_order->taker_fill_cost_e6) + "\n" +
+      std::to_string(result.terminal_order->maker_fill_cost_e6) + "\n" +
+      std::to_string(result.terminal_order->total_fill_cost_e6) + "\n" +
+      std::to_string(result.terminal_order->taker_fee_e6) + "\n" +
+      std::to_string(result.terminal_order->maker_fee_e6) + "\n" +
+      std::to_string(result.terminal_order->total_fee_e6) + "\n" +
+      std::to_string(plan.quantity_e4));
   std::ostringstream fragment;
   fragment
       << "{\"account_mutation_lock_path_sha256\":\""
       << sha256_hex(std::string(kAccountMutationLockPath))
       << "\",\"account_mutations_locked\":true,"
+      << "\"cash_truth\":{\"account_lock_receipt_sha256\":\""
+      << account_lock_receipt_sha256
+      << "\",\"authority_consumption_receipt_sha256\":\""
+      << authority_consumption_receipt_sha256
+      << "\",\"book_side\":\"" << plan.book_side
+      << "\",\"cash_truth_receipt_binding_sha256\":\""
+      << cash_truth_receipt_binding_sha256
+      << "\",\"create_response_sha256\":\""
+      << result.create.response_sha256
+      << "\",\"get_order_response_sha256\":\""
+      << result.terminal_order->response_sha256
+      << "\",\"maker_fee_e6\":"
+      << result.terminal_order->maker_fee_e6
+      << ",\"maker_fill_cost_e6\":"
+      << result.terminal_order->maker_fill_cost_e6
+      << ",\"outcome_side\":\"" << plan.outcome_side
+      << "\",\"post_position_response_sha256\":\""
+      << result.terminal_position->response_sha256
+      << "\",\"pre_position_response_sha256\":\""
+      << transport.initial_position_->response_sha256
+      << "\",\"quantity_e4\":" << plan.quantity_e4
+      << ",\"subaccount\":" << plan.subaccount
+      << ",\"taker_fee_e6\":"
+      << result.terminal_order->taker_fee_e6
+      << ",\"taker_fill_cost_e6\":"
+      << result.terminal_order->taker_fill_cost_e6
+      << ",\"total_fee_e6\":"
+      << result.terminal_order->total_fee_e6
+      << ",\"total_fill_cost_e6\":"
+      << result.terminal_order->total_fill_cost_e6
+      << "},"
       << "\"clock_id\":\"" << kProbeClockId << "\","
       << "\"clock_quality_receipt_sha256\":\""
       << facts->clock_quality_receipt_sha256

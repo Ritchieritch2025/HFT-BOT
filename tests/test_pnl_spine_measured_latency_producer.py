@@ -294,16 +294,21 @@ class EvidenceBundle:
         self.ioc_authority = {
             **common,
             "allow_ioc_exit": True,
+            "book_side": "bid",
             "consumption_ledger_path_sha256": _path_sha(
                 self.ioc_consumption_path
             ),
+            "expected_position_before_e4": -20_000,
             "max_cash_loss_e6": 1_000_000,
             "max_fee_e6": 100_000,
             "max_ioc_exit_orders": 1,
             "nonce_sha256": ioc_nonce,
-            "price_cap_e4": 5_500,
+            "outcome_side": "yes",
+            "price_limit_e4": 5_500,
+            "price_limit_semantics": "MAXIMUM_BUY_YES_PRICE_CAP",
             "quantity_e4": 20_000,
-            "schema_version": "pnl-spine-ioc-exit-authority-v1",
+            "schema_version": "pnl-spine-ioc-exit-authority-v2",
+            "subaccount": 0,
             "terminal_consumption_receipt_path_sha256": _path_sha(
                 self.ioc_terminal_path
             ),
@@ -400,11 +405,15 @@ class EvidenceBundle:
         self.ioc_consumption = {
             **common_consumption,
             "authority_sha256": self.ioc_authority_sha,
+            "expected_position_before_e4": (
+                self.ioc_authority["expected_position_before_e4"]
+            ),
             "max_ioc_exit_post_attempts": 1,
             "nonce_sha256": self.ioc_authority["nonce_sha256"],
             "schema_version": (
-                "pnl-spine-ioc-exit-authority-consumption-v1"
+                "pnl-spine-ioc-exit-authority-consumption-v2"
             ),
+            "subaccount": self.ioc_authority["subaccount"],
             "terminal_consumption_receipt_path_sha256": _path_sha(
                 self.ioc_terminal_path
             ),
@@ -427,7 +436,7 @@ class EvidenceBundle:
             "client_order_id_sha256": _sha("ioc-client-order-id"),
             "finished_at_wall_utc_ms": finished_ms,
             "ioc_exit_post_attempts": 1,
-            "schema_version": "pnl-spine-ioc-exit-authority-terminal-v1",
+            "schema_version": "pnl-spine-ioc-exit-authority-terminal-v2",
             "terminal_state": "IOC_EXIT_RECONCILED",
             "trace_source_sha256": self.trace_sha,
             "transaction_id": self.ioc_transaction_id,
@@ -509,6 +518,60 @@ class EvidenceBundle:
         value = json.loads(path.read_text(encoding="utf-8"))
         mutation(value)
         self._write_json(path, value)
+
+    def rewrite_ioc_authority(
+        self,
+        mutation: Callable[[dict[str, Any]], None],
+        *,
+        trace_mutation: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        authority = json.loads(
+            self.ioc_authority_path.read_text(encoding="utf-8")
+        )
+        mutation(authority)
+        self._write_json(self.ioc_authority_path, authority)
+        self.ioc_authority = authority
+        self.ioc_authority_sha = _sha(
+            self.ioc_authority_path.read_bytes()
+        )
+        self.ioc_transaction_id = _transaction_id(
+            self.ioc_authority_sha,
+            authority["nonce_sha256"],
+            self.receipt_id,
+        )
+
+        def bind_trace(trace: dict[str, Any]) -> None:
+            for item in trace["samples"]:
+                if item["path"] == "IOC_EXIT":
+                    item["live_authority_sha256"] = (
+                        self.ioc_authority_sha
+                    )
+            if trace_mutation is not None:
+                trace_mutation(trace)
+
+        self.rewrite_trace(bind_trace)
+        consumption = json.loads(
+            self.ioc_consumption_path.read_text(encoding="utf-8")
+        )
+        consumption.update(
+            authority_sha256=self.ioc_authority_sha,
+            expected_position_before_e4=authority[
+                "expected_position_before_e4"
+            ],
+            nonce_sha256=authority["nonce_sha256"],
+            subaccount=authority["subaccount"],
+            transaction_id=self.ioc_transaction_id,
+        )
+        self._write_json(self.ioc_consumption_path, consumption)
+        terminal = json.loads(
+            self.ioc_terminal_path.read_text(encoding="utf-8")
+        )
+        terminal.update(
+            authority_sha256=self.ioc_authority_sha,
+            trace_source_sha256=self.trace_sha,
+            transaction_id=self.ioc_transaction_id,
+        )
+        self._write_json(self.ioc_terminal_path, terminal)
 
     def close(self) -> None:
         self.temp.cleanup()
@@ -858,6 +921,74 @@ class MeasuredLatencyProducerTests(unittest.TestCase):
             "--expected-place-cancel-live-authority-sha256",
         ):
             self.assertNotIn(forbidden, source)
+
+    def test_ioc_authority_direction_floor_cap_and_subaccount_are_bound(
+        self,
+    ) -> None:
+        reversed_position = EvidenceBundle()
+        self.addCleanup(reversed_position.close)
+        reversed_position.rewrite_ioc_authority(
+            lambda value: value.update(
+                expected_position_before_e4=20_000,
+                book_side="ask",
+                outcome_side="no",
+                price_limit_semantics="MINIMUM_SELL_YES_PRICE_FLOOR",
+            )
+        )
+        with self.assertRaisesRegex(
+            MeasuredLatencyError, "differs from authority"
+        ):
+            reversed_position.load()
+
+        floor_violation = EvidenceBundle()
+        self.addCleanup(floor_violation.close)
+        floor_violation.rewrite_ioc_authority(
+            lambda value: value.update(
+                expected_position_before_e4=20_000,
+                book_side="ask",
+                outcome_side="no",
+                price_limit_e4=5_500,
+                price_limit_semantics="MINIMUM_SELL_YES_PRICE_FLOOR",
+            ),
+            trace_mutation=lambda trace: trace["samples"][2].update(
+                book_side="ASK",
+                requested_price_e4=5_499,
+                fill_reconciliation={
+                    **trace["samples"][2]["fill_reconciliation"],
+                    "position_before_e4": 20_000,
+                },
+            ),
+        )
+        with self.assertRaisesRegex(
+            MeasuredLatencyError, "differs from authority"
+        ):
+            floor_violation.load()
+
+        nonprimary = EvidenceBundle()
+        self.addCleanup(nonprimary.close)
+        nonprimary.rewrite_ioc_authority(
+            lambda value: value.update(subaccount=1),
+            trace_mutation=lambda trace: trace["samples"][2].update(
+                subaccount=1
+            ),
+        )
+        with self.assertRaisesRegex(
+            MeasuredLatencyError, "authority action differs"
+        ):
+            nonprimary.load()
+
+        unbounded_fee = EvidenceBundle()
+        self.addCleanup(unbounded_fee.close)
+        unbounded_fee.rewrite_ioc_authority(
+            lambda value: value.update(
+                max_cash_loss_e6=10_000,
+                max_fee_e6=10_001,
+            )
+        )
+        with self.assertRaisesRegex(
+            MeasuredLatencyError, "authority action differs"
+        ):
+            unbounded_fee.load()
 
     def test_code_context_clock_and_promotion_are_independently_verified(
         self,

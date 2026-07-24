@@ -9,7 +9,7 @@ Kalshi exchange/account API calls made by this work unit: **0**
 ## Outcome
 
 `apps/pnl_latency_probe.cpp` now contains a production-shaped Kalshi V2
-reduce-only full-flatten IOC executor.  Its release gate remains compile-time
+reduce-only full-flatten IOC executor. Its release gates remain compile-time
 `false`:
 
 ```text
@@ -26,6 +26,10 @@ The pure transition system is isolated in
 `apps/pnl_ioc_exit_state.hpp`.  It can be exhaustively tested without a socket,
 credential, AWS resource, or exchange account.
 
+Repair-01 closes the first independent audit's seven protocol/evidence
+findings.  It does not change either release gate and is itself subject to a
+fresh independent audit.
+
 ## Exact execution contract
 
 The executor follows the official Kalshi V2 contracts:
@@ -39,7 +43,9 @@ The executor follows the official Kalshi V2 contracts:
 - `post_only=false`;
 - `cancel_order_on_pause=true`;
 - `self_trade_prevention_type=taker_at_cross`;
-- exact authority-bound fixed-point count and limit price;
+- an exact authority-bound quantity serialized with two decimal places and
+  restricted to the official `0.01`-contract granularity;
+- price remains a four-decimal dollar string;
 - a separate exact pre-trade maximum-fee fact no greater than the authority
   cap; the dormant production adapter deliberately supplies this as unbound;
 - primary subaccount `0`, exchange index `-1` so the official ticker selects
@@ -50,6 +56,9 @@ References:
 - https://docs.kalshi.com/api-reference/orders/create-order-v2
 - https://docs.kalshi.com/api-reference/orders/get-order
 - https://docs.kalshi.com/api-reference/portfolio/get-positions
+- https://docs.kalshi.com/getting_started/fixed_point_migration
+- https://docs.kalshi.com/getting_started/order_direction
+- https://docs.kalshi.com/getting_started/fee_rounding
 
 The client order ID is deterministic and immutable.  It is a UUID-shaped
 encoding derived from the one-shot transaction identity, ticker, action, and
@@ -61,8 +70,8 @@ never retries the POST.
 The successful path requires every one of the following:
 
 1. A fresh exact-position GET for the authority ticker and subaccount.
-2. A nonzero signed position whose absolute fixed-point count equals the
-   authority quantity.
+2. A nonzero signed position equal to the authority's signed
+   `expected_position_before_e4`, not merely the same absolute quantity.
 3. A second exact-position GET immediately before the only POST.
 4. A valid 201 create ack containing the exact client identity, a valid known
    order ID, full `fill_count`, zero `remaining_count`, matching-engine time,
@@ -70,10 +79,13 @@ The successful path requires every one of the following:
 5. A bounded GET by that exact known order ID.  There is no GetOrders list
    fallback and list absence is never evidence.
 6. Exact order identity binding: order ID, client order ID, ticker,
-   subaccount, requested count, filled count, and remaining count.
-7. Exact fixed-point cross-recalculation between create-ack averages and
-   Get Order aggregate fill cost and fees; IOC maker cost and maker fee must
-   both be zero.
+   subaccount, canonical `book_side`, canonical `outcome_side`, executed
+   status, requested count, filled count, and remaining count.
+7. Get Order taker/maker aggregate fill cost and fee fields are the cash
+   truth. Create-ack averages are secondary evidence and must fall inside
+   half of one unit at their official displayed precision; no exact
+   micro-dollar multiplication equality is assumed. IOC maker cost and maker
+   fee must both be zero.
 8. Authority price, fee, and cash bounds plus a separately bound pre-trade
    fee maximum; absence of that fact refuses before the state machine's
    immediate pre-position GET and, critically, before the IOC POST.
@@ -128,20 +140,44 @@ gate is therefore the correct fail-closed deployment state.
 ## One-shot authority and immutable receipts
 
 The executor accepts only
-`pnl-spine-ioc-exit-authority-v1`, bound to:
+`pnl-spine-ioc-exit-authority-v2`, bound to:
 
 - exact binary/config/environment/host/clock/CA hashes;
-- exact ticker, receipt ID, quantity, price, cash, and fee limits;
+- exact ticker, receipt ID, signed pre-position, quantity, primary
+  subaccount, `book_side`, `outcome_side`, cash, and fee limits;
+- explicit `MAXIMUM_BUY_YES_PRICE_CAP` or
+  `MINIMUM_SELL_YES_PRICE_FLOOR` semantics;
 - a maximum 15-minute wall and monotonic deadline;
 - `single_use=true`, `allow_ioc_exit=true`;
 - exactly one allowed attempt and one IOC order;
 - exact output, consumption-ledger, and terminal-receipt paths.
 
 Before any credential or network access it persists the root-only
-`pnl-spine-ioc-exit-authority-consumption-v1` ledger.  Every exit then produces
+`pnl-spine-ioc-exit-authority-consumption-v2` ledger.  Every exit then produces
 an explicit immutable attempt receipt and
-`pnl-spine-ioc-exit-authority-terminal-v1`.  Failure receipts contain hashes,
+`pnl-spine-ioc-exit-authority-terminal-v2`.  Failure receipts contain hashes,
 not raw order IDs, request bodies, or response bodies.
+
+The successful private fragment publishes exact quantity, taker/maker/total
+fill cost, taker/maker/total fee, all four create/order/pre-position/
+post-position response hashes, and hashes of the root-only account-lock and
+authority-consumption receipts. A derived receipt-binding hash covers those
+cash values and sources.
+
+## Strict response parsing
+
+Create Order, Get Order, and Get Positions evidence uses an IOC-specific
+parser that:
+
+- recursively rejects duplicate keys, including duplicates in nested,
+  otherwise unused objects;
+- requires canonical string-valued two-decimal contract counts;
+- requires canonical string-valued dollar fields at their supported
+  precision;
+- never falls back to a legacy alias after a canonical field is present but
+  invalid;
+- rejects negative zero, numeric count substitution, float/inexact integer
+  substitution, noncanonical leading zeros, and wrong JSON types.
 
 ## Offline attack coverage
 
@@ -153,12 +189,16 @@ not raw order IDs, request bodies, or response bodies.
 - unambiguous rejection;
 - temporary and permanent known-order GET failures;
 - exact three-attempt recovery bound;
-- order ID, client ID, ticker, and subaccount substitution;
+- order ID, client ID, ticker, subaccount, book side, outcome side, and
+  status substitution;
 - partial fills, remaining quantity, residual position, and position flip;
-- fill-cost, fee, average price, fee-limit, and cash-limit mismatch;
+- aggregate fill-cost/fee tampering, average rounding just inside and just
+  outside the official precision interval, fee-limit, and cash-limit mismatch;
 - missing or authority-exceeding pre-trade fee bounds, before POST;
 - signed-absolute-value and fixed-point multiplication overflow;
-- malformed order JSON, pagination ambiguity, and duplicate positions;
+- recursive duplicate-key JSON, malformed canonical fields, forbidden alias
+  fallback, negative zero, numeric count substitution, pagination ambiguity,
+  and duplicate positions;
 - exact V2 body safety fields;
 - one POST only and no list-order recovery.
 
