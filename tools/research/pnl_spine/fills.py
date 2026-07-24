@@ -243,6 +243,48 @@ class FillBatch:
             raise FillError("fill-slice quantity does not match batch")
 
 
+@dataclass(frozen=True)
+class PairedPassiveFillBatch:
+    """One two-sided decision after first-fill safety cancellation.
+
+    ``first_fill_us`` is the safety-cancel decision when a fill exists.
+    ``cancel_effective_us`` is the adverse, rounded-up microsecond boundary
+    after measured CANCEL p99.  A print stamped exactly at that boundary
+    remains eligible because the source clock cannot prove that cancellation
+    won within the same microsecond.
+    """
+
+    batch: FillBatch
+    group_id: str
+    order_ids: tuple[str, str]
+    first_fill_us: int | None
+    cancel_effective_us: int
+    canceled_quantity_by_order_e4: tuple[tuple[str, int], ...]
+
+    def __post_init__(self) -> None:
+        _nonempty("group_id", self.group_id)
+        if len(self.order_ids) != 2 or len(set(self.order_ids)) != 2:
+            raise FillError("paired decision requires two unique order ids")
+        if self.first_fill_us is not None:
+            _plain_int("first_fill_us", self.first_fill_us, minimum=0)
+        _plain_int("cancel_effective_us", self.cancel_effective_us, minimum=0)
+        if (
+            self.first_fill_us is not None
+            and self.cancel_effective_us < self.first_fill_us
+        ):
+            raise FillError("paired cancel effective time precedes first fill")
+        canceled = dict(self.canceled_quantity_by_order_e4)
+        if set(canceled) != set(self.order_ids):
+            raise FillError("paired canceled quantities do not cover both orders")
+        for order_id, quantity_e4 in canceled.items():
+            _nonempty("canceled order_id", order_id)
+            _plain_int(
+                f"canceled_quantity_by_order_e4[{order_id}]",
+                quantity_e4,
+                minimum=0,
+            )
+
+
 def _strict_match(order: PassiveOrder, trade: PublicTrade) -> bool:
     """Whether a public print proves a passive fill strictly through price."""
     if order.side is OutcomeSide.YES:
@@ -366,6 +408,164 @@ def allocate_passive_strict_fills(
         source_quantity_e4=sum(source_by_id.values()),
         consumed_source_quantity_e4=sum(consumed.values()),
         duplicate_source_allocations=0,
+    )
+
+
+def allocate_paired_passive_strict_fills(
+    orders: Iterable[PassiveOrder],
+    trades: Iterable[PublicTrade],
+    *,
+    group_id: str,
+    cancel_latency_ns: int,
+) -> PairedPassiveFillBatch:
+    """Allocate one A01 two-sided GTC decision with first-fill cancellation.
+
+    Both legs must activate simultaneously.  Before the first fill their
+    ordinary safety timeout is authoritative.  The first strict-through fill,
+    including a partial fill, stops new risk and sends safety cancellation for
+    both the filled order's remainder and its sibling.  Public prints through
+    the measured CANCEL-p99 boundary are still allocated adversarially.
+
+    This function owns only one decision.  Portfolio-wide print uniqueness is
+    enforced by the caller by passing each public trade to at most one decision
+    and by the final portfolio conservation check.
+    """
+
+    _nonempty("group_id", group_id)
+    _plain_int("cancel_latency_ns", cancel_latency_ns, minimum=1)
+    order_rows = tuple(orders)
+    trade_rows = tuple(trades)
+    if len(order_rows) != 2:
+        raise FillError("paired decision requires exactly two passive orders")
+    if any(not isinstance(row, PassiveOrder) for row in order_rows):
+        raise FillError("orders must contain PassiveOrder rows only")
+    if any(not isinstance(row, PublicTrade) for row in trade_rows):
+        raise FillError("trades must contain PublicTrade rows only")
+    if len({row.order_id for row in order_rows}) != 2:
+        raise FillError("duplicate order_id")
+    if {row.side for row in order_rows} != {
+        OutcomeSide.YES,
+        OutcomeSide.NO,
+    }:
+        raise FillError("paired decision requires one YES and one NO order")
+    if len({row.market_ticker for row in order_rows}) != 1:
+        raise FillError("paired orders must share one market")
+    if len({row.root_id for row in order_rows}) != 1:
+        raise FillError("paired orders must share one root")
+    if len({row.activation_us for row in order_rows}) != 1:
+        raise FillError("paired GTC legs must activate simultaneously")
+    if len({row.cancel_effective_us for row in order_rows}) != 1:
+        raise FillError("paired GTC legs must share one safety timeout")
+
+    trade_ids = [row.trade_id for row in trade_rows]
+    if len(trade_ids) != len(set(trade_ids)):
+        raise FillError("duplicate trade_id")
+    canonical_trades = tuple(
+        sorted(
+            trade_rows,
+            key=lambda row: (
+                row.market_ticker,
+                row.timestamp_us,
+                row.trade_id,
+            ),
+        )
+    )
+    if canonical_trades != trade_rows:
+        raise FillError("public trade tape is not canonically ordered")
+
+    ordered = tuple(sorted(order_rows, key=lambda row: row.order_id))
+    market_ticker = ordered[0].market_ticker
+    activation_us = ordered[0].activation_us
+    safety_cancel_effective_us = ordered[0].cancel_effective_us
+    remaining = {row.order_id: row.quantity_e4 for row in ordered}
+    allocated: set[str] = set()
+    consumed: Counter[str] = Counter()
+    fills: list[FillSlice] = []
+    first_fill_us: int | None = None
+    dynamic_cancel_effective_us = safety_cancel_effective_us
+
+    for trade in trade_rows:
+        if trade.market_ticker != market_ticker:
+            continue
+        if trade.timestamp_us <= activation_us:
+            continue
+        if trade.timestamp_us > dynamic_cancel_effective_us:
+            continue
+        if trade.trade_id in allocated:
+            continue
+        for order in ordered:
+            if remaining[order.order_id] == 0:
+                continue
+            if not _strict_match(order, trade):
+                continue
+            quantity = min(remaining[order.order_id], trade.quantity_e4)
+            remaining[order.order_id] -= quantity
+            allocated.add(trade.trade_id)
+            consumed[trade.trade_id] += quantity
+            fills.append(
+                FillSlice(
+                    fill_id=(
+                        f"{order.order_id}|STRICT|{trade.trade_id}|"
+                        f"{len(fills)}"
+                    ),
+                    order_id=order.order_id,
+                    experiment_id=order.experiment_id,
+                    root_id=order.root_id,
+                    market_ticker=order.market_ticker,
+                    side=order.side,
+                    action=OrderAction.BUY,
+                    liquidity_role=LiquidityRole.MAKER,
+                    price_e4=order.price_e4,
+                    quantity_e4=quantity,
+                    timestamp_us=trade.timestamp_us,
+                    source_id=trade.trade_id,
+                    reason="PUBLIC_STRICT_THROUGH",
+                )
+            )
+            if first_fill_us is None:
+                first_fill_us = trade.timestamp_us
+                cancel_effective_ns = (
+                    first_fill_us * 1_000 + cancel_latency_ns
+                )
+                dynamic_cancel_effective_us = min(
+                    safety_cancel_effective_us,
+                    (cancel_effective_ns + 999) // 1_000,
+                )
+            break
+
+    source_by_id = {row.trade_id: row.quantity_e4 for row in trade_rows}
+    for source_id, quantity_e4 in consumed.items():
+        if quantity_e4 > source_by_id[source_id]:
+            raise FillError("allocated fill exceeds public trade quantity")
+    if len({fill.source_id for fill in fills}) != len(fills):
+        raise FillError("one public trade was allocated to multiple fill slices")
+
+    ordered_e4 = sum(row.quantity_e4 for row in ordered)
+    filled_e4 = sum(fill.quantity_e4 for fill in fills)
+    cancel_effective_us = (
+        dynamic_cancel_effective_us
+        if first_fill_us is not None
+        else safety_cancel_effective_us
+    )
+    batch = FillBatch(
+        fills=tuple(fills),
+        ordered_e4=ordered_e4,
+        filled_e4=filled_e4,
+        unfilled_e4=ordered_e4 - filled_e4,
+        source_quantity_e4=sum(source_by_id.values()),
+        consumed_source_quantity_e4=sum(consumed.values()),
+        duplicate_source_allocations=0,
+    )
+    return PairedPassiveFillBatch(
+        batch=batch,
+        group_id=group_id,
+        order_ids=tuple(row.order_id for row in ordered),
+        first_fill_us=first_fill_us,
+        cancel_effective_us=cancel_effective_us,
+        canceled_quantity_by_order_e4=tuple(
+            (row.order_id, remaining[row.order_id])
+            for row in ordered
+        ),
     )
 
 

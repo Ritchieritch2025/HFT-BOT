@@ -70,8 +70,10 @@ from .fills import (
     MarketableOrder,
     OrderAction,
     OutcomeSide,
+    PairedPassiveFillBatch,
     PassiveOrder,
     PublicTrade,
+    allocate_paired_passive_strict_fills,
     allocate_passive_strict_fills,
     assert_portfolio_fill_conservation,
     walk_exact_l2_ioc,
@@ -2378,6 +2380,1380 @@ def _receipt(
     return payload
 
 
+def _a01_strategy_path_id(
+    run_id: str,
+    row: NormalizedStateRow,
+) -> str:
+    return _path_id(run_id, row.row_id, "STRATEGY")
+
+
+def _a01_fill_response_contract(
+    frozen_experiment: Mapping[str, Any],
+) -> None:
+    """Require the exact frozen semantics before interpreting paired fills."""
+
+    revisions = _list(
+        "frozen_experiment.revisions",
+        frozen_experiment.get("revisions"),
+    )
+    matches = [
+        _mapping("A01 revision", row)
+        for row in revisions
+        if (
+            isinstance(row, Mapping)
+            and isinstance(row.get("source_card"), Mapping)
+            and row["source_card"].get("experiment_id")
+            == "A01-SPREAD-CAPTURE"
+        )
+    ]
+    if len(matches) != 1:
+        raise RunnerContractError(
+            "A01 requires exactly one frozen revision"
+        )
+    revision = matches[0]
+    params = _mapping(
+        "A01 parameter_freeze",
+        revision.get("parameter_freeze"),
+    )
+    fill_response = _mapping(
+        "A01 fill_response",
+        params.get("fill_response"),
+    )
+    if fill_response.get("frozen") != (
+        "STOP_NEW_RISK_CANCEL_SIBLINGS_RECONCILE_REDUCE_ONLY_IOC"
+    ):
+        raise RunnerContractError(
+            "A01 fill_response is absent or semantically ambiguous"
+        )
+    validation = _mapping(
+        "A01 validation_contract",
+        revision.get("validation_contract"),
+    )
+    invariants = _list(
+        "A01 required_invariants",
+        validation.get("required_invariants"),
+    )
+    if set(invariants) != {
+        "ONE_CONTRACT_PER_ACTIVE_SIDE",
+        "NON_ATOMIC_PAIR_USES_WORST_SEQUENCE_RESERVE",
+        "ANY_FILL_STOPS_NEW_RISK_AND_CANCELS_SIBLINGS",
+        "EXIT_USES_RECONCILED_EXACT_POSITION_AND_EFFECTIVE_TIME_L2",
+        "ZERO_TRIGGER_AND_ZERO_FILL_ROOTS_RETAINED",
+    }:
+        raise RunnerContractError(
+            "A01 validation invariants are incomplete or drifted"
+        )
+    execution = _mapping(
+        "execution_contract",
+        frozen_experiment.get("execution_contract"),
+    )
+    expected_execution = {
+        "same_timestamp_ordering": "ADVERSE_EVENT_FIRST",
+        "public_volume_allocation": (
+            "ALLOCATE_EACH_PUBLIC_PRINT_ONCE_GLOBALLY_ACROSS_ALL_ORDERS"
+        ),
+        "passive_order_tif": "GTC",
+        "passive_post_only": True,
+        "forced_exit_tif": "IOC",
+        "forced_exit_post_only": False,
+        "forced_exit_reduce_only": True,
+        "exit_price": "EFFECTIVE_TIME_EXACT_L2_WALK",
+        "collateral_reserve_mode": "SLICE_AWARE_WORST_SEQUENCE",
+    }
+    for field, expected_value in expected_execution.items():
+        if execution.get(field) != expected_value:
+            raise RunnerContractError(
+                f"A01 execution contract drifted: {field}"
+            )
+
+
+def _a01_yes_equivalent_fill(
+    fill: FillSlice,
+    *,
+    path_id: str,
+    purpose: FillPurpose,
+    source_sha256: str,
+) -> FillRecord:
+    """Map a complementary NO purchase to its exact SELL-YES equivalent."""
+
+    if fill.side is OutcomeSide.YES:
+        side = Side.BUY if fill.action is OrderAction.BUY else Side.SELL
+        price_e4 = fill.price_e4
+    elif fill.action is OrderAction.BUY:
+        side = Side.SELL
+        price_e4 = 10_000 - fill.price_e4
+    else:
+        side = Side.BUY
+        price_e4 = 10_000 - fill.price_e4
+    return FillRecord(
+        fill_id=fill.fill_id,
+        order_id=fill.order_id,
+        path_id=path_id,
+        market_ticker=fill.market_ticker,
+        outcome=Outcome.YES,
+        side=side,
+        purpose=purpose,
+        liquidity_role=LiquidityRole(fill.liquidity_role.value),
+        quantity_e4=fill.quantity_e4,
+        price_e4=price_e4,
+        executed_at_ns=fill.timestamp_us * 1_000,
+        source_sha256=source_sha256,
+    )
+
+
+def _a01_common_closure(
+    intents: Sequence[Any],
+    closures: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    rows = [
+        closures[intent.intent_id]
+        for intent in intents
+        if intent.intent_id in closures
+    ]
+    if not rows:
+        return None
+    if len(rows) != len(intents):
+        raise RunnerContractError(
+            "A01 nonzero path requires identical closure authority for both legs"
+        )
+    payloads = [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "intent_id"
+        }
+        for row in rows
+    ]
+    if any(payload != payloads[0] for payload in payloads[1:]):
+        raise RunnerContractError(
+            "A01 paired legs carry conflicting closure authority"
+        )
+    return rows[0]
+
+
+def _a01_actionable_closure(
+    intents: Sequence[Any],
+    closures: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    return any(
+        value is not None
+        for intent in intents
+        for key, value in closures.get(intent.intent_id, {}).items()
+        if key != "intent_id"
+    )
+
+
+def _allocate_a01_groups(
+    *,
+    decisions: Sequence[StrategyDecision],
+    row_by_id: Mapping[str, NormalizedStateRow],
+    passive_orders: Sequence[PassiveOrder],
+    risk_rejected_intents: set[str],
+    public_trades: Sequence[PublicTrade],
+    cancel_latency_ns: int,
+    blockers: list[dict[str, str]],
+) -> tuple[dict[str, PairedPassiveFillBatch], FillBatch]:
+    canonical_trades = tuple(
+        sorted(
+            public_trades,
+            key=lambda row: (
+                row.market_ticker,
+                row.timestamp_us,
+                row.trade_id,
+            ),
+        )
+    )
+    if canonical_trades != tuple(public_trades):
+        raise FillError("public trade tape is not canonically ordered")
+    order_by_id = {order.order_id: order for order in passive_orders}
+    paired_by_row: dict[str, PairedPassiveFillBatch] = {}
+    allocated_source_ids: set[str] = set()
+    all_fills: list[FillSlice] = []
+    ordered_total_e4 = 0
+    for decision in sorted(
+        decisions,
+        key=lambda item: (
+            row_by_id[item.row_id].decision_ts_ns,
+            item.row_id,
+        ),
+    ):
+        if decision.status is not DecisionStatus.ORDER_INTENTS:
+            continue
+        row = row_by_id[decision.row_id]
+        intents = tuple(decision.intents)
+        if (
+            len(intents) != 2
+            or {intent.side for intent in intents}
+            != {IntentSide.BUY, IntentSide.SELL}
+            or any(intent.time_in_force != "GTC" for intent in intents)
+            or any(not intent.post_only for intent in intents)
+            or any(intent.reduce_only for intent in intents)
+            or len({intent.quantity_e4 for intent in intents}) != 1
+            or len({intent.expire_after_ms for intent in intents}) != 1
+        ):
+            blockers.append(
+                _blocker(
+                    "A01_PAIRED_INTENT_CONTRACT_INVALID",
+                    "EXECUTION",
+                    row.row_id,
+                )
+            )
+            continue
+        if any(
+            intent.intent_id in risk_rejected_intents
+            for intent in intents
+        ):
+            continue
+        try:
+            orders = tuple(order_by_id[intent.intent_id] for intent in intents)
+            available = tuple(
+                trade
+                for trade in public_trades
+                if trade.trade_id not in allocated_source_ids
+            )
+            paired = allocate_paired_passive_strict_fills(
+                orders,
+                available,
+                group_id=row.row_id,
+                cancel_latency_ns=cancel_latency_ns,
+            )
+        except (FillError, KeyError, ValueError) as exc:
+            blockers.append(
+                _blocker(
+                    "ENTRY_FILL_AUTHORITY_FAILED",
+                    "FILL",
+                    f"{row.row_id}: {exc}",
+                )
+            )
+            continue
+        paired_by_row[row.row_id] = paired
+        ordered_total_e4 += paired.batch.ordered_e4
+        for fill in paired.batch.fills:
+            allocated_source_ids.add(fill.source_id)
+            all_fills.append(fill)
+
+    filled_total_e4 = sum(fill.quantity_e4 for fill in all_fills)
+    batch = FillBatch(
+        fills=tuple(
+            sorted(
+                all_fills,
+                key=lambda fill: (
+                    fill.timestamp_us,
+                    fill.source_id,
+                    fill.order_id,
+                ),
+            )
+        ),
+        ordered_e4=ordered_total_e4,
+        filled_e4=filled_total_e4,
+        unfilled_e4=ordered_total_e4 - filled_total_e4,
+        source_quantity_e4=sum(
+            trade.quantity_e4 for trade in public_trades
+        ),
+        consumed_source_quantity_e4=filled_total_e4,
+        duplicate_source_allocations=0,
+    )
+    assert_portfolio_fill_conservation(
+        (batch,),
+        authoritative_source_quantity={
+            trade.trade_id: trade.quantity_e4 for trade in public_trades
+        },
+    )
+    return paired_by_row, batch
+
+
+def _execute_a01_strategy_path(
+    *,
+    run_id: str,
+    decision: StrategyDecision,
+    row: NormalizedStateRow,
+    paired: PairedPassiveFillBatch,
+    trade_sources: Mapping[str, str],
+    snapshots: Mapping[str, L2Snapshot],
+    snapshot_sources: Mapping[str, str],
+    closures: Mapping[str, Mapping[str, Any]],
+    settlements: Mapping[str, Mapping[str, Any]],
+    fee_schedule: FeeSchedule,
+    ioc_exit_latency_ns: int,
+    run_binding_sha256: str,
+) -> tuple[
+    dict[str, Any],
+    FillBatch | None,
+    dict[str, str],
+    dict[str, Any],
+]:
+    intents = tuple(decision.intents)
+    path_id = _a01_strategy_path_id(run_id, row)
+    ledger = PnLLedger(
+        _path_spec(
+            path_id=path_id,
+            decision=decision,
+            row=row,
+            outcome=Outcome.YES,
+            run_binding_sha256=run_binding_sha256,
+        ),
+        fee_schedule,
+    )
+    outcome_price_by_intent: dict[str, int] = {}
+    for intent in intents:
+        _, outcome_price_e4 = _intent_outcome_and_price(
+            intent.side,
+            intent.price_e4,
+        )
+        outcome_price_by_intent[intent.intent_id] = outcome_price_e4
+    reserved_at_risk_e6 = sum(
+        exact_trade_notional_e6(
+            outcome_price_by_intent[intent.intent_id],
+            intent.quantity_e4,
+        )
+        for intent in intents
+    )
+    cancel_effective_ns = paired.cancel_effective_us * 1_000
+    if not paired.batch.fills:
+        if _a01_actionable_closure(intents, closures):
+            raise RunnerContractError(
+                "no-fill A01 path must not manufacture closure activity"
+            )
+        path_row = _zero_result_row(
+            ledger=ledger,
+            row_id=row.row_id,
+            kind="STRATEGY",
+            decision=decision,
+            occurred_at_ns=cancel_effective_ns,
+            source_sha256=decision.sha256,
+            reason_codes=("TRIGGERED_NO_STRICT_FILL",),
+        )
+        return (
+            path_row,
+            None,
+            {},
+            {
+                "row_id": row.row_id,
+                "decision_ts_ns": row.decision_ts_ns,
+                "market_ticker": row.market_ticker,
+                "event_ticker": row.root_event_id,
+                "factor_key": f"{row.sport}:{row.root_event_id}",
+                "ordered_quantity_e4": paired.batch.ordered_e4,
+                "filled_quantity_e4": 0,
+                "canceled_quantity_e4": paired.batch.ordered_e4,
+                "paired_reconciled_quantity_e4": 0,
+                "net_before_exit_e4": 0,
+                "ioc_exit_quantity_e4": 0,
+                "settled_quantity_e4": 0,
+                "held_quantity_e4": 0,
+                "reserved_at_risk_e6": reserved_at_risk_e6,
+                "canceled_reserve_release_e6": reserved_at_risk_e6,
+                "raw_filled_acquisition_e6": 0,
+                "yes_equivalent_collateral_release_e6": 0,
+                "yes_equivalent_entry_principal_e6": 0,
+                "held_at_risk_e6": 0,
+                "first_fill_us": None,
+                "cancel_effective_us": paired.cancel_effective_us,
+                "realized_at_ns": cancel_effective_ns,
+            },
+        )
+
+    fills = tuple(
+        sorted(
+            paired.batch.fills,
+            key=lambda fill: (
+                fill.timestamp_us,
+                fill.source_id,
+                fill.order_id,
+            ),
+        )
+    )
+    for fill in fills:
+        ledger.record_fill(
+            _a01_yes_equivalent_fill(
+                fill,
+                path_id=path_id,
+                purpose=FillPurpose.ENTRY,
+                source_sha256=trade_sources[fill.source_id],
+            ),
+            allow_paired_entry_netting=True,
+        )
+    yes_filled_e4 = sum(
+        fill.quantity_e4
+        for fill in fills
+        if fill.side is OutcomeSide.YES
+    )
+    no_filled_e4 = sum(
+        fill.quantity_e4
+        for fill in fills
+        if fill.side is OutcomeSide.NO
+    )
+    net_before_exit_e4 = ledger.position_e4
+    if net_before_exit_e4 != yes_filled_e4 - no_filled_e4:
+        raise LedgerInvariantError(
+            "YES-equivalent entry reconciliation failed"
+        )
+
+    exit_batch: FillBatch | None = None
+    exit_alias: dict[str, str] = {}
+    selected_snapshot_id: str | None = None
+    exit_filled_e4 = 0
+    settled_e4 = 0
+    if net_before_exit_e4 == 0:
+        if _a01_actionable_closure(intents, closures):
+            raise RunnerContractError(
+                "flat A01 path must not manufacture IOC or settlement"
+            )
+        ledger.close_reconciled_flat(
+            reconciliation_id=f"a01-flat:{row.row_id}",
+            occurred_at_ns=cancel_effective_ns,
+            source_sha256=canonical_sha256(
+                {
+                    "decision_sha256": decision.sha256,
+                    "fill_ids": [fill.fill_id for fill in fills],
+                    "cancel_effective_ns": cancel_effective_ns,
+                    "net_position_e4": 0,
+                }
+            ),
+        )
+    else:
+        closure = _a01_common_closure(intents, closures)
+        if closure is None:
+            raise RunnerContractError(
+                "nonzero A01 path requires post-reconcile IOC authority"
+            )
+        exit_decision_ns = _plain_int(
+            "exit_decision_ts_ns",
+            closure.get("exit_decision_ts_ns"),
+            minimum=0,
+        )
+        if exit_decision_ns != cancel_effective_ns:
+            raise RunnerContractError(
+                "A01 exit decision must equal safety-cancel effective time"
+            )
+        maximum_snapshot_age_us = _plain_int(
+            "maximum_snapshot_age_us",
+            closure.get("maximum_snapshot_age_us"),
+            minimum=0,
+        )
+        effective_us = _ceil_ns_to_us(
+            exit_decision_ns + ioc_exit_latency_ns
+        )
+        selected_snapshot_id = _text(
+            "exit_snapshot_id",
+            closure.get("exit_snapshot_id"),
+        )
+        snapshot = _latest_qualified_snapshot(
+            snapshots,
+            market_ticker=row.market_ticker,
+            effective_timestamp_us=effective_us,
+            maximum_snapshot_age_us=maximum_snapshot_age_us,
+        )
+        if snapshot.snapshot_id != selected_snapshot_id:
+            raise FillError(
+                "closure did not select the latest qualified L2 snapshot"
+            )
+        exit_order = MarketableOrder(
+            order_id=f"a01:{row.row_id}:reduce-only-exit",
+            experiment_id="A01-SPREAD-CAPTURE",
+            root_id=row.root_event_id,
+            market_ticker=row.market_ticker,
+            side=OutcomeSide.YES,
+            action=(
+                OrderAction.SELL
+                if net_before_exit_e4 > 0
+                else OrderAction.BUY
+            ),
+            limit_price_e4=_plain_int(
+                "exit_limit_price_e4",
+                closure.get("exit_limit_price_e4"),
+            ),
+            quantity_e4=abs(net_before_exit_e4),
+            effective_timestamp_us=effective_us,
+        )
+        exit_batch = walk_exact_l2_ioc(
+            exit_order,
+            snapshot,
+            maximum_snapshot_age_us=maximum_snapshot_age_us,
+        )
+        for fill in exit_batch.fills:
+            level_number = fill.source_id.rsplit("=", 1)[1]
+            exit_alias[fill.fill_id] = (
+                f"{selected_snapshot_id}|ask-level={level_number}"
+                if exit_order.action is OrderAction.BUY
+                else fill.source_id
+            )
+            ledger.record_fill(
+                _a01_yes_equivalent_fill(
+                    fill,
+                    path_id=path_id,
+                    purpose=FillPurpose.EXIT,
+                    source_sha256=snapshot_sources[
+                        selected_snapshot_id
+                    ],
+                )
+            )
+        exit_filled_e4 = exit_batch.filled_e4
+        if ledger.position_e4 != 0:
+            settlement_id = closure.get("settlement_id")
+            if settlement_id is None:
+                residual_e4 = abs(ledger.position_e4)
+                return (
+                    _blocked_row(
+                        row_id=row.row_id,
+                        kind="STRATEGY",
+                        path_id=path_id,
+                        decision_status=decision.status.value,
+                        reason_codes=("BLOCK_RESIDUAL_POSITION",),
+                        residual_quantity_e4=residual_e4,
+                        diagnostic={
+                            "first_fill_us": paired.first_fill_us,
+                            "cancel_effective_us": (
+                                paired.cancel_effective_us
+                            ),
+                            "yes_equivalent_net_before_exit_e4": (
+                                net_before_exit_e4
+                            ),
+                            "ioc_exit_fill_count": len(
+                                exit_batch.fills
+                            ),
+                            "selected_exit_snapshot_id": (
+                                selected_snapshot_id
+                            ),
+                            "ledger_sha256": (
+                                ledger.deterministic_sha256
+                            ),
+                        },
+                    ),
+                    exit_batch,
+                    exit_alias,
+                    {
+                        "row_id": row.row_id,
+                        "ordered_quantity_e4": paired.batch.ordered_e4,
+                        "filled_quantity_e4": paired.batch.filled_e4,
+                        "canceled_quantity_e4": paired.batch.unfilled_e4,
+                        "paired_reconciled_quantity_e4": min(
+                            yes_filled_e4,
+                            no_filled_e4,
+                        ),
+                        "net_before_exit_e4": net_before_exit_e4,
+                        "ioc_exit_quantity_e4": exit_filled_e4,
+                        "settled_quantity_e4": 0,
+                        "held_quantity_e4": residual_e4,
+                        "first_fill_us": paired.first_fill_us,
+                        "cancel_effective_us": (
+                            paired.cancel_effective_us
+                        ),
+                        "cash_position_fee_ledger_sha256": (
+                            ledger.deterministic_sha256
+                        ),
+                    },
+                )
+            residual_before_settlement = abs(ledger.position_e4)
+            ledger.observe_settlement(
+                _settlement_record(
+                    settlements[_text("settlement_id", settlement_id)],
+                    outcome=Outcome.YES,
+                )
+            )
+            settled_e4 = residual_before_settlement
+            if ledger.position_e4 != 0:
+                residual_e4 = abs(ledger.position_e4)
+                return (
+                    _blocked_row(
+                        row_id=row.row_id,
+                        kind="STRATEGY",
+                        path_id=path_id,
+                        decision_status=decision.status.value,
+                        reason_codes=("BLOCK_RESIDUAL_POSITION",),
+                        residual_quantity_e4=residual_e4,
+                        diagnostic={
+                            "first_fill_us": paired.first_fill_us,
+                            "cancel_effective_us": (
+                                paired.cancel_effective_us
+                            ),
+                            "yes_equivalent_net_before_exit_e4": (
+                                net_before_exit_e4
+                            ),
+                            "ioc_exit_fill_count": len(
+                                exit_batch.fills
+                            ),
+                            "selected_exit_snapshot_id": (
+                                selected_snapshot_id
+                            ),
+                            "ledger_sha256": (
+                                ledger.deterministic_sha256
+                            ),
+                        },
+                    ),
+                    exit_batch,
+                    exit_alias,
+                    {
+                        "row_id": row.row_id,
+                        "ordered_quantity_e4": paired.batch.ordered_e4,
+                        "filled_quantity_e4": paired.batch.filled_e4,
+                        "canceled_quantity_e4": paired.batch.unfilled_e4,
+                        "paired_reconciled_quantity_e4": min(
+                            yes_filled_e4,
+                            no_filled_e4,
+                        ),
+                        "net_before_exit_e4": net_before_exit_e4,
+                        "ioc_exit_quantity_e4": exit_filled_e4,
+                        "settled_quantity_e4": 0,
+                        "held_quantity_e4": residual_e4,
+                        "first_fill_us": paired.first_fill_us,
+                        "cancel_effective_us": (
+                            paired.cancel_effective_us
+                        ),
+                        "cash_position_fee_ledger_sha256": (
+                            ledger.deterministic_sha256
+                        ),
+                    },
+                )
+
+    result = ledger.finalize()
+    canceled_by_order = dict(paired.canceled_quantity_by_order_e4)
+    ordered_by_id = {
+        intent.intent_id: intent.quantity_e4 for intent in intents
+    }
+    filled_by_id = {
+        intent.intent_id: sum(
+            fill.quantity_e4
+            for fill in fills
+            if fill.order_id == intent.intent_id
+        )
+        for intent in intents
+    }
+    if any(
+        ordered_by_id[intent_id]
+        != filled_by_id[intent_id] + canceled_by_order[intent_id]
+        for intent_id in ordered_by_id
+    ):
+        raise LedgerInvariantError(
+            "A01 order fill/cancel conservation failed"
+        )
+    if abs(net_before_exit_e4) != exit_filled_e4 + settled_e4:
+        raise LedgerInvariantError(
+            "A01 net position exit/settlement conservation failed"
+        )
+    paired_quantity_e4 = min(yes_filled_e4, no_filled_e4)
+    canceled_reserve_release_e6 = sum(
+        exact_trade_notional_e6(
+            outcome_price_by_intent[intent_id],
+            canceled_quantity_e4,
+        )
+        for intent_id, canceled_quantity_e4 in canceled_by_order.items()
+        if canceled_quantity_e4
+    )
+    raw_filled_acquisition_e6 = sum(
+        exact_trade_notional_e6(fill.price_e4, fill.quantity_e4)
+        for fill in fills
+    )
+    if reserved_at_risk_e6 != (
+        canceled_reserve_release_e6 + raw_filled_acquisition_e6
+    ):
+        raise LedgerInvariantError(
+            "A01 collateral reserve/fill/cancel cash identity failed"
+        )
+    yes_equivalent_collateral_release_e6 = no_filled_e4 * 100
+    entry_fill_ids = {fill.fill_id for fill in fills}
+    yes_equivalent_entry_principal_e6 = sum(
+        cashflow.amount_e6
+        for cashflow in ledger.cashflows
+        if (
+            cashflow.kind is CashFlowKind.TRADE_PRINCIPAL
+            and cashflow.fill_id in entry_fill_ids
+        )
+    )
+    if yes_equivalent_entry_principal_e6 != (
+        -raw_filled_acquisition_e6
+        + yes_equivalent_collateral_release_e6
+    ):
+        raise LedgerInvariantError(
+            "A01 NO-to-SELL-YES cash/collateral identity failed"
+        )
+    collateral = {
+        "row_id": row.row_id,
+        "decision_ts_ns": row.decision_ts_ns,
+        "market_ticker": row.market_ticker,
+        "event_ticker": row.root_event_id,
+        "factor_key": f"{row.sport}:{row.root_event_id}",
+        "ordered_quantity_e4": paired.batch.ordered_e4,
+        "filled_quantity_e4": paired.batch.filled_e4,
+        "canceled_quantity_e4": paired.batch.unfilled_e4,
+        "paired_reconciled_quantity_e4": paired_quantity_e4,
+        "net_before_exit_e4": net_before_exit_e4,
+        "ioc_exit_quantity_e4": exit_filled_e4,
+        "settled_quantity_e4": settled_e4,
+        "held_quantity_e4": abs(ledger.position_e4),
+        "reserved_at_risk_e6": reserved_at_risk_e6,
+        "canceled_reserve_release_e6": (
+            canceled_reserve_release_e6
+        ),
+        "raw_filled_acquisition_e6": raw_filled_acquisition_e6,
+        "yes_equivalent_collateral_release_e6": (
+            yes_equivalent_collateral_release_e6
+        ),
+        "yes_equivalent_entry_principal_e6": (
+            yes_equivalent_entry_principal_e6
+        ),
+        "held_at_risk_e6": 0,
+        "fee_cost_e6": result.fee_cost_e6,
+        "net_pnl_e6": result.net_pnl_e6,
+        "first_fill_us": paired.first_fill_us,
+        "cancel_effective_us": paired.cancel_effective_us,
+        "cash_position_fee_ledger_sha256": result.ledger_sha256,
+        "realized_at_ns": max(
+            cashflow.occurred_at_ns for cashflow in ledger.cashflows
+        ),
+    }
+    path_row = {
+        "row_id": row.row_id,
+        "kind": "STRATEGY",
+        "path_id": path_id,
+        "decision_status": decision.status.value,
+        "reason_codes": list(decision.reason_codes),
+        "state": PATH_COMPLETE,
+        "result": _result_mapping(result),
+        "residual_quantity_e4": 0,
+        "diagnostic": {
+            "first_fill_us": paired.first_fill_us,
+            "cancel_effective_us": paired.cancel_effective_us,
+            "yes_entry_filled_e4": yes_filled_e4,
+            "no_entry_filled_e4": no_filled_e4,
+            "yes_equivalent_net_before_exit_e4": net_before_exit_e4,
+            "ioc_exit_fill_count": (
+                len(exit_batch.fills) if exit_batch is not None else 0
+            ),
+            "selected_exit_snapshot_id": selected_snapshot_id,
+            "realized_at_ns": max(
+                cashflow.occurred_at_ns for cashflow in ledger.cashflows
+            ),
+        },
+    }
+    return path_row, exit_batch, exit_alias, collateral
+
+
+def _run_a01_paths(
+    *,
+    run_id: str,
+    frozen_experiment: Mapping[str, Any],
+    decisions: Sequence[StrategyDecision],
+    row_by_id: Mapping[str, NormalizedStateRow],
+    passive_orders: Sequence[PassiveOrder],
+    risk_rejected_intents: set[str],
+    public_trades: Sequence[PublicTrade],
+    trade_sources: Mapping[str, str],
+    snapshots: Mapping[str, L2Snapshot],
+    snapshot_sources: Mapping[str, str],
+    exit_authority: Mapping[str, int],
+    closures: Mapping[str, Mapping[str, Any]],
+    settlements: Mapping[str, Mapping[str, Any]],
+    fee_schedule: FeeSchedule,
+    risk_limits: RiskLimits | None,
+    latency: Mapping[str, int],
+    run_binding: RunBinding | None,
+    preflight: Mapping[str, Any],
+    terminal_document: Mapping[str, Any],
+    blockers: list[dict[str, str]],
+    trusted_authority_sha256: str | None,
+    trusted_lineage_receipt_sha256: str | None,
+) -> dict[str, Any]:
+    try:
+        _a01_fill_response_contract(frozen_experiment)
+    except RunnerContractError as exc:
+        blockers.append(
+            _blocker(
+                "A01_FILL_RESPONSE_CONTRACT_AMBIGUOUS",
+                "EXECUTION",
+                str(exc),
+            )
+        )
+    try:
+        paired_by_row, entry_batch = _allocate_a01_groups(
+            decisions=decisions,
+            row_by_id=row_by_id,
+            passive_orders=passive_orders,
+            risk_rejected_intents=risk_rejected_intents,
+            public_trades=public_trades,
+            cancel_latency_ns=_plain_int(
+                "CANCEL latency",
+                latency.get("CANCEL"),
+                minimum=1,
+            ),
+            blockers=blockers,
+        )
+    except (FillError, RunnerContractError, ValueError) as exc:
+        paired_by_row = {}
+        entry_batch = FillBatch(
+            fills=(),
+            ordered_e4=sum(
+                order.quantity_e4 for order in passive_orders
+            ),
+            filled_e4=0,
+            unfilled_e4=sum(
+                order.quantity_e4 for order in passive_orders
+            ),
+            source_quantity_e4=sum(
+                trade.quantity_e4 for trade in public_trades
+            ),
+            consumed_source_quantity_e4=0,
+            duplicate_source_allocations=0,
+        )
+        blockers.append(
+            _blocker(
+                "ENTRY_FILL_AUTHORITY_FAILED",
+                "FILL",
+                str(exc),
+            )
+        )
+
+    run_binding_sha = (
+        run_binding.sha256 if run_binding is not None else "0" * 64
+    )
+    path_rows: list[dict[str, Any]] = []
+    exit_batches: dict[str, FillBatch] = {}
+    exit_aliases: dict[str, str] = {}
+    collateral_rows: list[dict[str, Any]] = []
+    for decision in decisions:
+        row = row_by_id[decision.row_id]
+        baseline = PnLLedger(
+            _path_spec(
+                path_id=_path_id(run_id, row.row_id, "BASELINE"),
+                decision=decision,
+                row=row,
+                outcome=Outcome.YES,
+                run_binding_sha256=run_binding_sha,
+            ),
+            fee_schedule,
+        )
+        path_rows.append(
+            _zero_result_row(
+                ledger=baseline,
+                row_id=row.row_id,
+                kind="BASELINE",
+                decision=decision,
+                occurred_at_ns=row.decision_ts_ns,
+                source_sha256=decision.sha256,
+                reason_codes=("NO_TRADE_SAME_OPPORTUNITIES",),
+            )
+        )
+        strategy_path_id = _a01_strategy_path_id(run_id, row)
+        if decision.status is DecisionStatus.BLOCKED:
+            path_rows.append(
+                _blocked_row(
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    path_id=strategy_path_id,
+                    decision_status=decision.status.value,
+                    reason_codes=decision.reason_codes,
+                )
+            )
+            blockers.extend(
+                _blocker(reason, "DECISION", row.row_id)
+                for reason in decision.reason_codes
+            )
+            continue
+        if decision.status is DecisionStatus.ABSTAIN:
+            strategy = PnLLedger(
+                _path_spec(
+                    path_id=strategy_path_id,
+                    decision=decision,
+                    row=row,
+                    outcome=Outcome.YES,
+                    run_binding_sha256=run_binding_sha,
+                ),
+                fee_schedule,
+            )
+            path_rows.append(
+                _zero_result_row(
+                    ledger=strategy,
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    decision=decision,
+                    occurred_at_ns=row.decision_ts_ns,
+                    source_sha256=decision.sha256,
+                    reason_codes=decision.reason_codes,
+                )
+            )
+            continue
+        if any(
+            intent.intent_id in risk_rejected_intents
+            for intent in decision.intents
+        ):
+            path_rows.append(
+                _blocked_row(
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    path_id=strategy_path_id,
+                    decision_status=decision.status.value,
+                    reason_codes=("BLOCK_RISK_ADMISSION_FAILED",),
+                )
+            )
+            continue
+        paired = paired_by_row.get(row.row_id)
+        if paired is None:
+            path_rows.append(
+                _blocked_row(
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    path_id=strategy_path_id,
+                    decision_status=decision.status.value,
+                    reason_codes=("BLOCK_A01_PAIRED_ALLOCATION_MISSING",),
+                )
+            )
+            continue
+        try:
+            (
+                path_row,
+                exit_batch,
+                aliases,
+                collateral,
+            ) = _execute_a01_strategy_path(
+                run_id=run_id,
+                decision=decision,
+                row=row,
+                paired=paired,
+                trade_sources=trade_sources,
+                snapshots=snapshots,
+                snapshot_sources=snapshot_sources,
+                closures=closures,
+                settlements=settlements,
+                fee_schedule=fee_schedule,
+                ioc_exit_latency_ns=_plain_int(
+                    "IOC_EXIT latency",
+                    latency.get("IOC_EXIT"),
+                    minimum=1,
+                ),
+                run_binding_sha256=run_binding_sha,
+            )
+            path_rows.append(path_row)
+            collateral_rows.append(collateral)
+            if path_row["state"] != PATH_COMPLETE:
+                blockers.append(
+                    _blocker(
+                        "RESIDUAL_POSITION_OPEN",
+                        "CLOSURE",
+                        (
+                            f"{strategy_path_id} residual_e4="
+                            f"{path_row['residual_quantity_e4']}"
+                        ),
+                    )
+                )
+            if exit_batch is not None:
+                exit_batches[strategy_path_id] = exit_batch
+                exit_aliases.update(aliases)
+        except (
+            FeeTruthUnavailable,
+            FillError,
+            IncompletePnL,
+            LedgerInvariantError,
+            RunnerContractError,
+            KeyError,
+            ValueError,
+        ) as exc:
+            paired_net = sum(
+                (
+                    fill.quantity_e4
+                    if fill.side is OutcomeSide.YES
+                    else -fill.quantity_e4
+                )
+                for fill in paired.batch.fills
+            )
+            blockers.append(
+                _blocker(
+                    "A01_PATH_STATE_MACHINE_FAILED",
+                    "CLOSURE",
+                    f"{row.row_id}: {exc}",
+                )
+            )
+            path_rows.append(
+                _blocked_row(
+                    row_id=row.row_id,
+                    kind="STRATEGY",
+                    path_id=strategy_path_id,
+                    decision_status=decision.status.value,
+                    reason_codes=("BLOCK_A01_PATH_STATE_MACHINE_FAILED",),
+                    residual_quantity_e4=abs(paired_net),
+                    diagnostic={
+                        "first_fill_us": paired.first_fill_us,
+                        "cancel_effective_us": paired.cancel_effective_us,
+                        "yes_equivalent_net_before_exit_e4": paired_net,
+                    },
+                )
+            )
+
+    aliased_batches: list[FillBatch] = []
+    for batch in exit_batches.values():
+        fills = tuple(
+            FillSlice(
+                **{
+                    **asdict(fill),
+                    "side": fill.side,
+                    "action": fill.action,
+                    "liquidity_role": fill.liquidity_role,
+                    "source_id": exit_aliases[fill.fill_id],
+                }
+            )
+            for fill in batch.fills
+        )
+        aliased_batches.append(
+            FillBatch(
+                fills=fills,
+                ordered_e4=batch.ordered_e4,
+                filled_e4=batch.filled_e4,
+                unfilled_e4=batch.unfilled_e4,
+                source_quantity_e4=batch.source_quantity_e4,
+                consumed_source_quantity_e4=(
+                    batch.consumed_source_quantity_e4
+                ),
+                duplicate_source_allocations=0,
+            )
+        )
+    try:
+        assert_portfolio_fill_conservation(
+            aliased_batches,
+            authoritative_source_quantity=exit_authority,
+        )
+    except FillError as exc:
+        blockers.append(
+            _blocker(
+                "EXIT_PUBLIC_DEPTH_REUSED",
+                "CONSERVATION",
+                str(exc),
+            )
+        )
+
+    if risk_limits is None:
+        blockers.append(
+            _blocker(
+                "RISK_LIFECYCLE_REPLAY_FAILED",
+                "RISK",
+                "A01 risk limits are unavailable",
+            )
+        )
+    else:
+        collateral_by_row = {
+            _text("row_id", collateral.get("row_id")): collateral
+            for collateral in collateral_rows
+            if "reserved_at_risk_e6" in collateral
+        }
+        admitted_rows: list[Mapping[str, Any]] = []
+        for decision in sorted(
+            decisions,
+            key=lambda item: (
+                row_by_id[item.row_id].decision_ts_ns,
+                item.row_id,
+            ),
+        ):
+            if decision.status is not DecisionStatus.ORDER_INTENTS:
+                continue
+            current = collateral_by_row.get(decision.row_id)
+            if current is None:
+                continue
+            decision_ns = _plain_int(
+                "decision_ts_ns",
+                current.get("decision_ts_ns"),
+                minimum=0,
+            )
+            exposure = {
+                "market": 0,
+                "event": 0,
+                "factor": 0,
+                "total": 0,
+            }
+            for prior in admitted_rows:
+                cancel_ns = (
+                    _plain_int(
+                        "cancel_effective_us",
+                        prior.get("cancel_effective_us"),
+                        minimum=0,
+                    )
+                    * 1_000
+                )
+                realized_at_ns = _plain_int(
+                    "realized_at_ns",
+                    prior.get("realized_at_ns"),
+                    minimum=0,
+                )
+                if decision_ns < cancel_ns:
+                    held_e6 = _plain_int(
+                        "reserved_at_risk_e6",
+                        prior.get("reserved_at_risk_e6"),
+                        minimum=0,
+                    )
+                elif decision_ns < realized_at_ns:
+                    held_e6 = _plain_int(
+                        "raw_filled_acquisition_e6",
+                        prior.get("raw_filled_acquisition_e6"),
+                        minimum=0,
+                    )
+                else:
+                    held_e6 = 0
+                if held_e6 == 0:
+                    continue
+                exposure["total"] += held_e6
+                if (
+                    prior.get("market_ticker")
+                    == current.get("market_ticker")
+                ):
+                    exposure["market"] += held_e6
+                if (
+                    prior.get("event_ticker")
+                    == current.get("event_ticker")
+                ):
+                    exposure["event"] += held_e6
+                if prior.get("factor_key") == current.get("factor_key"):
+                    exposure["factor"] += held_e6
+            requested_e6 = _plain_int(
+                "reserved_at_risk_e6",
+                current.get("reserved_at_risk_e6"),
+                minimum=0,
+            )
+            prospective = {
+                name: amount + requested_e6
+                for name, amount in exposure.items()
+            }
+            limit_by_name = {
+                "market": risk_limits.max_market_e6,
+                "event": risk_limits.max_event_e6,
+                "factor": risk_limits.max_factor_e6,
+                "total": risk_limits.max_total_e6,
+            }
+            exceeded = sorted(
+                name
+                for name, amount in prospective.items()
+                if amount > limit_by_name[name]
+            )
+            if exceeded:
+                blockers.append(
+                    _blocker(
+                        "RISK_LIMIT_CHANGED_ADMISSION",
+                        "RISK",
+                        (
+                            f"{decision.row_id}: risk limits exceeded: "
+                            f"{','.join(exceeded)}; preallocated fills "
+                            "cannot be safely reused"
+                        ),
+                    )
+                )
+                continue
+            admitted_rows.append(current)
+
+        realized_losses: list[tuple[int, int, str]] = []
+        for path_row in path_rows:
+            if (
+                path_row.get("kind") != "STRATEGY"
+                or path_row.get("state") != PATH_COMPLETE
+                or not isinstance(path_row.get("result"), Mapping)
+                or not isinstance(path_row.get("diagnostic"), Mapping)
+            ):
+                continue
+            result = path_row["result"]
+            diagnostic = path_row["diagnostic"]
+            realized_at_ns = diagnostic.get("realized_at_ns")
+            if type(realized_at_ns) is not int:
+                continue
+            realized_losses.append(
+                (
+                    realized_at_ns,
+                    _plain_int("net_pnl_e6", result.get("net_pnl_e6")),
+                    _text("row_id", path_row.get("row_id")),
+                )
+            )
+        for decision in decisions:
+            if decision.status is not DecisionStatus.ORDER_INTENTS:
+                continue
+            row = row_by_id[decision.row_id]
+            prior_pnl_e6 = sum(
+                pnl_e6
+                for realized_at_ns, pnl_e6, _ in realized_losses
+                if (
+                    realized_at_ns < row.decision_ts_ns
+                    and _utc_date_from_ns(
+                        "realized_at_ns",
+                        realized_at_ns,
+                    )
+                    == _utc_date_from_ns(
+                        "decision_ts_ns",
+                        row.decision_ts_ns,
+                    )
+                )
+            )
+            if (
+                prior_pnl_e6 < 0
+                and -prior_pnl_e6 >= risk_limits.max_daily_loss_e6
+            ):
+                blockers.append(
+                    _blocker(
+                        "RISK_DAILY_LOSS_CHANGED_ADMISSION",
+                        "RISK",
+                        (
+                            f"{row.row_id}: daily realized loss gate is "
+                            "closed; preallocated fills cannot be safely reused"
+                        ),
+                    )
+                )
+
+    path_rows.sort(
+        key=lambda row: (
+            row["row_id"],
+            row["kind"],
+            row["path_id"],
+        )
+    )
+    actual_residual = sum(
+        int(row.get("residual_quantity_e4", 0))
+        for row in path_rows
+    )
+    if terminal_document.get("path_count") != len(path_rows):
+        blockers.append(
+            _blocker(
+                "TERMINAL_PATH_COUNT_RUNTIME_MISMATCH",
+                "CLOSURE",
+                (
+                    f"receipt={terminal_document.get('path_count')} "
+                    f"runtime={len(path_rows)}"
+                ),
+            )
+        )
+    if terminal_document.get("residual_quantity_e4") != actual_residual:
+        blockers.append(
+            _blocker(
+                "TERMINAL_RESIDUAL_RUNTIME_MISMATCH",
+                "CLOSURE",
+                "terminal receipt residual does not match runtime ledger",
+            )
+        )
+    if run_binding is None:
+        blockers.append(
+            _blocker(
+                "RUN_BINDING_MISSING",
+                "PROVENANCE",
+                "no exact immutable run binding was established",
+            )
+        )
+    if preflight["net_pnl"]["state"] != NET_READY:
+        blockers.append(
+            _blocker(
+                "NET_PREFLIGHT_NOT_READY",
+                "PREFLIGHT",
+                "fee, real latency, data, closure, or training gate failed",
+            )
+        )
+    if any(row["state"] != PATH_COMPLETE for row in path_rows):
+        blockers.append(
+            _blocker(
+                "NOT_ALL_PATHS_COMPLETE",
+                "CLOSURE",
+                "every strategy and baseline path must close",
+            )
+        )
+    conservation = {
+        "public_source_quantity_e4": sum(
+            trade.quantity_e4 for trade in public_trades
+        ),
+        "public_consumed_quantity_e4": (
+            entry_batch.consumed_source_quantity_e4
+        ),
+        "entry_ordered_quantity_e4": entry_batch.ordered_e4,
+        "entry_filled_quantity_e4": entry_batch.filled_e4,
+        "entry_canceled_quantity_e4": entry_batch.unfilled_e4,
+        "paired_reconciled_quantity_e4": sum(
+            int(row["paired_reconciled_quantity_e4"])
+            for row in collateral_rows
+        ),
+        "exit_filled_quantity_e4": sum(
+            batch.filled_e4 for batch in exit_batches.values()
+        ),
+        "settled_quantity_e4": sum(
+            int(row["settled_quantity_e4"])
+            for row in collateral_rows
+        ),
+        "reserved_at_risk_e6": sum(
+            int(row.get("reserved_at_risk_e6", 0))
+            for row in collateral_rows
+        ),
+        "canceled_reserve_release_e6": sum(
+            int(row.get("canceled_reserve_release_e6", 0))
+            for row in collateral_rows
+        ),
+        "raw_filled_acquisition_e6": sum(
+            int(row.get("raw_filled_acquisition_e6", 0))
+            for row in collateral_rows
+        ),
+        "yes_equivalent_collateral_release_e6": sum(
+            int(
+                row.get(
+                    "yes_equivalent_collateral_release_e6",
+                    0,
+                )
+            )
+            for row in collateral_rows
+        ),
+        "held_at_risk_e6": sum(
+            int(row.get("held_at_risk_e6", 0))
+            for row in collateral_rows
+        ),
+        "residual_quantity_e4": actual_residual,
+    }
+    if conservation["entry_ordered_quantity_e4"] != (
+        conservation["entry_filled_quantity_e4"]
+        + conservation["entry_canceled_quantity_e4"]
+    ):
+        blockers.append(
+            _blocker(
+                "A01_ORDER_QUANTITY_CONSERVATION_FAILED",
+                "CONSERVATION",
+                "ordered quantity does not equal filled plus canceled",
+            )
+        )
+    if conservation["entry_filled_quantity_e4"] != (
+        2 * conservation["paired_reconciled_quantity_e4"]
+        + conservation["exit_filled_quantity_e4"]
+        + conservation["settled_quantity_e4"]
+        + conservation["residual_quantity_e4"]
+    ):
+        blockers.append(
+            _blocker(
+                "A01_POSITION_CONSERVATION_FAILED",
+                "CONSERVATION",
+                (
+                    "entry fills do not reconcile to paired, IOC, "
+                    "settlement, and residual quantities"
+                ),
+            )
+        )
+    if (
+        conservation["residual_quantity_e4"] == 0
+        and conservation["held_at_risk_e6"] != 0
+    ):
+        blockers.append(
+            _blocker(
+                "A01_COLLATERAL_CONSERVATION_FAILED",
+                "CONSERVATION",
+                "flat paths retain at-risk collateral",
+            )
+        )
+    return _receipt(
+        run_id=run_id,
+        experiment_id="A01-SPREAD-CAPTURE",
+        state=NET_COMPLETE if not blockers else PNL_BLOCKED,
+        run_binding_sha256=(
+            run_binding.sha256 if run_binding is not None else None
+        ),
+        preflight=preflight,
+        path_rows=path_rows,
+        blockers=blockers,
+        conservation=conservation,
+        risk_ledger_sha256=canonical_sha256(
+            {
+                "schema_version": "a01-collateral-ledger-v1",
+                "rows": collateral_rows,
+            }
+        ),
+        trusted_authority_sha256=trusted_authority_sha256,
+        trusted_lineage_receipt_sha256=(
+            trusted_lineage_receipt_sha256
+        ),
+    )
+
+
 def run_fixture(
     fixture: Mapping[str, Any],
     *,
@@ -2914,6 +4290,34 @@ def run_fixture(
         fee_schedule = FeeSchedule(())
         blockers.append(
             _blocker("FEE_MATERIALIZATION_FAILED", "FEE", str(exc))
+        )
+
+    if experiment_id == "A01-SPREAD-CAPTURE":
+        return _run_a01_paths(
+            run_id=run_id,
+            frozen_experiment=freeze,
+            decisions=decisions,
+            row_by_id=row_by_id,
+            passive_orders=passive_orders,
+            risk_rejected_intents=risk_rejected_intents,
+            public_trades=public_trades,
+            trade_sources=trade_sources,
+            snapshots=snapshots,
+            snapshot_sources=snapshot_sources,
+            exit_authority=exit_authority,
+            closures=closures,
+            settlements=settlements,
+            fee_schedule=fee_schedule,
+            risk_limits=risk_limits,
+            latency=latency,
+            run_binding=run_binding,
+            preflight=preflight,
+            terminal_document=terminal_document,
+            blockers=blockers,
+            trusted_authority_sha256=trusted_authority_sha256,
+            trusted_lineage_receipt_sha256=(
+                trusted_lineage_receipt_sha256
+            ),
         )
 
     try:

@@ -728,8 +728,9 @@ def execute_with_lineage(
 def base_fixture(
     *,
     row: dict[str, Any] | None = None,
-    path_count: int = 3,
+    path_count: int = 2,
     with_trades: bool = True,
+    both_sides: bool = False,
 ) -> dict[str, Any]:
     row = a01_row() if row is None else row
     authority = fee_authority()
@@ -739,8 +740,6 @@ def base_fixture(
     release = release_receipt()
     intent_ids = a01_intent_ids(row)
     activation_us = (row["decision_ts_ns"] + 300 + 999) // 1_000
-    exit_decision_ns = row["decision_ts_ns"] + 10 * SECOND
-    exit_snapshot_us = exit_decision_ns // 1_000
     trades: list[dict[str, Any]] = []
     if with_trades:
         trades = [
@@ -752,8 +751,10 @@ def base_fixture(
                 "quantity_e4": 10_000,
                 "taker_side": "NO",
                 "source_sha256": H_A,
-            },
-            {
+            }
+        ]
+        if both_sides:
+            trades.append({
                 "trade_id": "trade-buy-no",
                 "market_ticker": row["market_ticker"],
                 "timestamp_us": activation_us + 2,
@@ -761,8 +762,17 @@ def base_fixture(
                 "quantity_e4": 10_000,
                 "taker_side": "YES",
                 "source_sha256": H_B,
-            },
-        ]
+            })
+    cancel_effective_us = (
+        (trades[0]["timestamp_us"] * 1_000 + 300 + 999) // 1_000
+        if trades
+        else (
+            row["decision_ts_ns"] + 5_000_000_000 + 300 + 999
+        )
+        // 1_000
+    )
+    exit_decision_ns = cancel_effective_us * 1_000
+    exit_snapshot_us = cancel_effective_us
     snapshots = [
         {
             "snapshot_id": "exit-book",
@@ -780,7 +790,7 @@ def base_fixture(
         }
     ]
     closures: list[dict[str, Any]] = []
-    if len(intent_ids) == 2:
+    if len(intent_ids) == 2 and with_trades and not both_sides:
         intent_buy, intent_sell = intent_ids
         closures = [
             {
@@ -849,7 +859,7 @@ def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
 
     assert receipt["state"] == NET_COMPLETE
     assert receipt["blockers"] == []
-    assert len(receipt["path_rows"]) == 3
+    assert len(receipt["path_rows"]) == 2
     baseline = [
         row for row in receipt["path_rows"] if row["kind"] == "BASELINE"
     ]
@@ -859,27 +869,84 @@ def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
     assert len(baseline) == 1
     assert baseline[0]["result"]["net_pnl_e6"] == 0
     assert baseline[0]["result"]["closure_state"] == "CLOSED_NO_POSITION"
-    assert len(strategy) == 2
+    assert len(strategy) == 1
     assert {
         row["result"]["closure_state"] for row in strategy
     } == {"CLOSED_BY_EXIT"}
-    assert receipt["totals"]["gross_pnl_e6"] == 50_000
+    assert receipt["totals"]["gross_pnl_e6"] == 30_000
     assert receipt["totals"]["fee_cost_e6"] > 0
     assert receipt["totals"]["net_pnl_e6"] == (
         receipt["totals"]["gross_pnl_e6"]
         - receipt["totals"]["fee_cost_e6"]
     )
     assert receipt["conservation"] == {
-        "public_source_quantity_e4": 20_000,
-        "public_consumed_quantity_e4": 20_000,
-        "entry_filled_quantity_e4": 20_000,
-        "exit_filled_quantity_e4": 20_000,
+        "public_source_quantity_e4": 10_000,
+        "public_consumed_quantity_e4": 10_000,
+        "entry_ordered_quantity_e4": 20_000,
+        "entry_filled_quantity_e4": 10_000,
+        "entry_canceled_quantity_e4": 10_000,
+        "paired_reconciled_quantity_e4": 0,
+        "exit_filled_quantity_e4": 10_000,
+        "settled_quantity_e4": 0,
+        "reserved_at_risk_e6": 940_000,
+        "canceled_reserve_release_e6": 550_000,
+        "raw_filled_acquisition_e6": 390_000,
+        "yes_equivalent_collateral_release_e6": 0,
+        "held_at_risk_e6": 0,
         "residual_quantity_e4": 0,
     }
     assert receipt["c1_prior_artifact_classification"] == C1_CLASSIFICATION
     assert receipt["trusted_lineage_receipt_sha256"] == canonical_sha256(
         lineage
     )
+
+
+def test_a01_two_legs_flat_reconciles_once_and_never_fabricates_ioc():
+    fixture = base_fixture(both_sides=True)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == NET_COMPLETE
+    assert len(receipt["path_rows"]) == 2
+    strategy = next(
+        row
+        for row in receipt["path_rows"]
+        if row["kind"] == "STRATEGY"
+    )
+    assert strategy["result"]["closure_state"] == "CLOSED_NO_POSITION"
+    assert strategy["result"]["gross_pnl_e6"] == 60_000
+    assert strategy["diagnostic"][
+        "yes_equivalent_net_before_exit_e4"
+    ] == 0
+    assert strategy["diagnostic"]["ioc_exit_fill_count"] == 0
+    assert receipt["conservation"]["paired_reconciled_quantity_e4"] == 10_000
+    assert receipt["conservation"]["exit_filled_quantity_e4"] == 0
+
+
+def test_a01_every_decision_has_exactly_one_baseline_and_strategy_denominator():
+    fixture = base_fixture(with_trades=False)
+    second = a01_row(
+        row_id="a01-row-2",
+        root_event_id="KXTEST-EVENT-2",
+        market_ticker="KXTEST-EVENT-MARKET-2",
+    )
+    fixture["rows"].append(second)
+    terminal = terminal_receipt(4)
+    fixture["preflight_inputs"]["terminal_coverage"] = terminal
+    fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
+        terminal
+    )
+    refresh_evidence_bindings(fixture)
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == NET_COMPLETE
+    assert len(receipt["path_rows"]) == 4
+    for row_id in ("a01-row", "a01-row-2"):
+        rows = [
+            row for row in receipt["path_rows"] if row["row_id"] == row_id
+        ]
+        assert [row["kind"] for row in rows] == ["BASELINE", "STRATEGY"]
 
 
 @pytest.mark.parametrize(
@@ -894,7 +961,7 @@ def test_a01_exact_fills_fees_latency_and_ioc_exits_complete_end_to_end():
         (
             a01_row(),
             False,
-            3,
+            2,
             "TRIGGERED_NO_STRICT_FILL",
         ),
     ],
@@ -1008,7 +1075,8 @@ def test_partial_ioc_exit_leaves_residual_and_blocks_complete_pnl():
 def test_partial_ioc_plus_final_exact_settlement_closes_every_residual():
     fixture = base_fixture()
     fixture["exit_snapshots"][0]["yes_bids"][0]["quantity_e4"] = 5_000
-    fixture["closures"][0]["settlement_id"] = "settlement-final"
+    for closure in fixture["closures"]:
+        closure["settlement_id"] = "settlement-final"
     fixture["settlements"] = [
         {
             "settlement_id": "settlement-final",
@@ -1034,20 +1102,14 @@ def test_partial_ioc_plus_final_exact_settlement_closes_every_residual():
     ]
     assert {
         row["result"]["closure_state"] for row in strategy
-    } == {"CLOSED_BY_EXIT", "CLOSED_BY_SETTLEMENT"}
+    } == {"CLOSED_BY_SETTLEMENT"}
 
 
 def test_nonfinal_settlement_is_censored_and_cannot_close_a_position():
     fixture = base_fixture()
-    intent_id = fixture["closures"][0]["intent_id"]
-    fixture["closures"][0] = {
-        "intent_id": intent_id,
-        "exit_snapshot_id": None,
-        "exit_decision_ts_ns": None,
-        "exit_limit_price_e4": None,
-        "maximum_snapshot_age_us": None,
-        "settlement_id": "settlement-provisional",
-    }
+    fixture["exit_snapshots"][0]["yes_bids"][0]["quantity_e4"] = 5_000
+    for closure in fixture["closures"]:
+        closure["settlement_id"] = "settlement-provisional"
     fixture["settlements"] = [
         {
             "settlement_id": "settlement-provisional",
@@ -1344,10 +1406,10 @@ def test_missing_external_authority_pin_can_never_complete():
 
 
 def test_frozen_root_cap_and_risk_ledger_reject_duplicate_root_intents():
-    fixture = base_fixture(path_count=6)
+    fixture = base_fixture(path_count=4)
     second = a01_row(row_id="a01-row-duplicate-root")
     fixture["rows"].append(second)
-    terminal = terminal_receipt(6)
+    terminal = terminal_receipt(4)
     fixture["preflight_inputs"]["terminal_coverage"] = terminal
     fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
         terminal
@@ -1365,6 +1427,25 @@ def test_frozen_root_cap_and_risk_ledger_reject_duplicate_root_intents():
     )
 
 
+def test_a01_paired_worst_sequence_collateral_is_admitted_as_one_decision():
+    fixture = base_fixture()
+    policy = risk_policy(
+        max_market_e6=939_999,
+        max_event_e6=10_000_000,
+        max_factor_e6=10_000_000,
+        max_total_e6=20_000_000,
+    )
+    fixture["risk_policy"] = policy
+    fixture["provenance"]["risk_policy_sha256"] = policy["policy_sha256"]
+
+    receipt = execute(fixture)
+
+    assert receipt["state"] == PNL_BLOCKED
+    assert "RISK_LIMIT_CHANGED_ADMISSION" in blocker_codes(receipt)
+    assert receipt["conservation"]["reserved_at_risk_e6"] == 940_000
+    assert receipt["totals"] is None
+
+
 def test_closure_cannot_select_an_older_better_l2_snapshot():
     fixture = base_fixture()
     latest = copy.deepcopy(fixture["exit_snapshots"][0])
@@ -1378,7 +1459,7 @@ def test_closure_cannot_select_an_older_better_l2_snapshot():
     receipt = execute(fixture)
 
     assert receipt["state"] == PNL_BLOCKED
-    assert "EXIT_IOC_FAILED" in blocker_codes(receipt)
+    assert "A01_PATH_STATE_MACHINE_FAILED" in blocker_codes(receipt)
     assert any(
         "did not select the latest qualified" in blocker["detail"]
         for blocker in receipt["blockers"]
@@ -1884,7 +1965,7 @@ def test_partial_exit_realizes_loss_before_later_settlement():
 
 
 def test_realized_daily_loss_blocks_later_opportunity_admission():
-    fixture = base_fixture(path_count=6)
+    fixture = base_fixture(path_count=4)
     first_snapshot = fixture["exit_snapshots"][0]
     first_snapshot["yes_bids"][0]["yes_price_e4"] = 1_000
     first_snapshot["yes_asks"][0]["yes_price_e4"] = 9_000
@@ -1923,24 +2004,23 @@ def test_realized_daily_loss_blocks_later_opportunity_admission():
                 "quantity_e4": 10_000,
                 "taker_side": "NO",
                 "source_sha256": H_A,
-            },
-            {
-                "trade_id": "trade-buy-no-after-loss",
-                "market_ticker": second["market_ticker"],
-                "timestamp_us": second_activation_us + 2,
-                "yes_price_e4": 4_600,
-                "quantity_e4": 10_000,
-                "taker_side": "YES",
-                "source_sha256": H_B,
-            },
+            }
         ]
     )
-    second_exit_decision_ns = second["decision_ts_ns"] + 10 * SECOND
+    second_cancel_effective_us = (
+        (
+            fixture["public_trades"][-1]["timestamp_us"] * 1_000
+            + 300
+            + 999
+        )
+        // 1_000
+    )
+    second_exit_decision_ns = second_cancel_effective_us * 1_000
     fixture["exit_snapshots"].append(
         {
             "snapshot_id": "exit-book-after-loss",
             "market_ticker": second["market_ticker"],
-            "receive_timestamp_us": second_exit_decision_ns // 1_000,
+            "receive_timestamp_us": second_cancel_effective_us,
             "yes_bids": [
                 {"yes_price_e4": 4_200, "quantity_e4": 10_000}
             ],
@@ -1973,7 +2053,7 @@ def test_realized_daily_loss_blocks_later_opportunity_admission():
     policy = risk_policy(max_daily_loss_e6=100_000)
     fixture["risk_policy"] = policy
     fixture["provenance"]["risk_policy_sha256"] = policy["policy_sha256"]
-    terminal = terminal_receipt(6)
+    terminal = terminal_receipt(4)
     fixture["preflight_inputs"]["terminal_coverage"] = terminal
     fixture["provenance"]["terminal_contract_sha256"] = canonical_sha256(
         terminal
@@ -2021,12 +2101,15 @@ def test_b09_untrained_is_retained_and_explicitly_blocked():
 
 
 def test_a11_cannot_complete_without_exact_post_decision_cancel_stream():
-    fixture = base_fixture(path_count=2)
+    fixture = base_fixture(path_count=2, both_sides=True)
     row = a11_row()
     (intent_id,) = a11_intent_ids(row)
     fixture["experiment_id"] = "A11-ONE-SIDED-PROVISION"
     fixture["rows"] = [row]
     fixture["public_trades"] = [fixture["public_trades"][1]]
+    fixture["exit_snapshots"][0]["receive_timestamp_us"] = (
+        NOW + 10 * SECOND
+    ) // 1_000
     fixture["closures"] = [
         {
             "intent_id": intent_id,

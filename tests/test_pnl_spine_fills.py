@@ -20,6 +20,7 @@ from tools.research.pnl_spine.fills import (  # noqa: E402
     OutcomeSide,
     PassiveOrder,
     PublicTrade,
+    allocate_paired_passive_strict_fills,
     allocate_passive_strict_fills,
     assert_portfolio_fill_conservation,
     walk_exact_l2_ioc,
@@ -94,6 +95,67 @@ def test_public_trade_is_never_reused_across_overlapping_orders():
     assert batch.filled_e4 == 10_000
     assert {row.order_id for row in batch.fills} == {"o1"}
     assert batch.duplicate_source_allocations == 0
+
+
+def test_paired_same_microsecond_legs_both_fill_before_cancel_wins():
+    result = allocate_paired_passive_strict_fills(
+        [
+            passive("yes", side=OutcomeSide.YES, price=4_000),
+            passive("no", side=OutcomeSide.NO, price=5_500),
+        ],
+        [
+            trade(
+                "a-yes",
+                1_500,
+                3_999,
+                side=OutcomeSide.NO,
+            ),
+            trade(
+                "b-no",
+                1_500,
+                4_501,
+                side=OutcomeSide.YES,
+            ),
+        ],
+        group_id="decision-1",
+        cancel_latency_ns=1,
+    )
+
+    assert result.first_fill_us == 1_500
+    assert result.cancel_effective_us == 1_501
+    assert result.batch.filled_e4 == 20_000
+    assert {fill.order_id for fill in result.batch.fills} == {"yes", "no"}
+    assert dict(result.canceled_quantity_by_order_e4) == {
+        "no": 0,
+        "yes": 0,
+    }
+
+
+def test_paired_partial_first_fill_counts_cancel_boundary_race_and_cancels_rest():
+    result = allocate_paired_passive_strict_fills(
+        [
+            passive("yes", side=OutcomeSide.YES, price=4_000),
+            passive("no", side=OutcomeSide.NO, price=5_500),
+        ],
+        [
+            trade("first", 1_500, 3_999, 3_000, OutcomeSide.NO),
+            trade("boundary", 1_501, 3_998, 2_000, OutcomeSide.NO),
+            trade("too-late", 1_502, 3_997, 10_000, OutcomeSide.NO),
+        ],
+        group_id="decision-1",
+        cancel_latency_ns=1,
+    )
+
+    assert [fill.source_id for fill in result.batch.fills] == [
+        "first",
+        "boundary",
+    ]
+    assert result.batch.filled_e4 == 5_000
+    assert result.batch.unfilled_e4 == 15_000
+    assert dict(result.canceled_quantity_by_order_e4) == {
+        "no": 10_000,
+        "yes": 5_000,
+    }
 
 
 def test_duplicate_trade_id_fails_closed():

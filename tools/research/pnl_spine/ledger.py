@@ -223,8 +223,38 @@ class PnLLedger:
                 raise FeeTruthUnavailable("scheduled fee lacks rule binding")
         return assessment
 
-    def record_fill(self, fill: FillRecord) -> FeeAssessment:
+    def record_fill(
+        self,
+        fill: FillRecord,
+        *,
+        allow_paired_entry_netting: bool = False,
+    ) -> FeeAssessment:
+        """Append one exact fill.
+
+        ``allow_paired_entry_netting`` is a narrow execution-accounting mode
+        for a pre-authorized two-sided decision.  The complementary leg is
+        represented in one YES-equivalent ledger, so a second ENTRY may reduce
+        or cross the first leg's directional position.  The ledger deliberately
+        remains OPEN at temporary flat until the caller explicitly reconciles
+        the complete cancel-race fill set with :meth:`close_reconciled_flat`.
+        """
+
         self._require_mutable()
+        if type(allow_paired_entry_netting) is not bool:
+            raise LedgerInvariantError(
+                "allow_paired_entry_netting must be bool"
+            )
+        if allow_paired_entry_netting and fill.purpose is not FillPurpose.ENTRY:
+            raise LedgerInvariantError(
+                "paired entry netting is valid for ENTRY fills only"
+            )
+        if (
+            allow_paired_entry_netting
+            and self._path.experiment_id != "A01-SPREAD-CAPTURE"
+        ):
+            raise LedgerInvariantError(
+                "paired entry netting is restricted to frozen A01"
+            )
         if self._closure_state in {
             ClosureState.CLOSED_NO_POSITION,
             ClosureState.CLOSED_BY_EXIT,
@@ -255,17 +285,18 @@ class PnLLedger:
         )
         position_after_e4 = self._position_e4 + delta_e4
         if fill.purpose is FillPurpose.ENTRY:
-            if (
-                self._position_e4 != 0
-                and self._position_e4 * delta_e4 < 0
-            ):
-                raise LedgerInvariantError(
-                    "ENTRY cannot offset an existing position"
-                )
-            if abs(position_after_e4) <= abs(self._position_e4):
-                raise LedgerInvariantError(
-                    "ENTRY must strictly increase absolute exposure"
-                )
+            if not allow_paired_entry_netting:
+                if (
+                    self._position_e4 != 0
+                    and self._position_e4 * delta_e4 < 0
+                ):
+                    raise LedgerInvariantError(
+                        "ENTRY cannot offset an existing position"
+                    )
+                if abs(position_after_e4) <= abs(self._position_e4):
+                    raise LedgerInvariantError(
+                        "ENTRY must strictly increase absolute exposure"
+                    )
         else:
             if self._position_e4 == 0:
                 raise LedgerInvariantError("EXIT requires an open position")
@@ -326,9 +357,57 @@ class PnLLedger:
         self._fill_ids.add(fill.fill_id)
         self._position_e4 = position_after_e4
         self._last_observed_at_ns = fill.executed_at_ns
-        if self._position_e4 == 0:
+        if self._position_e4 == 0 and not allow_paired_entry_netting:
             self._closure_state = ClosureState.CLOSED_BY_EXIT
         return assessment
+
+    def close_reconciled_flat(
+        self,
+        *,
+        reconciliation_id: str,
+        occurred_at_ns: int,
+        source_sha256: str,
+    ) -> None:
+        """Close a traded path proven flat after paired-entry reconciliation.
+
+        This is not an IOC and creates no synthetic fill.  The zero-amount
+        closure receipt merely seals the already-recorded principals and fees
+        after every fill through the safety-cancel boundary is known.
+        """
+
+        self._require_mutable()
+        require_nonempty("reconciliation_id", reconciliation_id)
+        require_sha256("source_sha256", source_sha256)
+        if self._path.experiment_id != "A01-SPREAD-CAPTURE":
+            raise LedgerInvariantError(
+                "paired flat reconciliation is restricted to frozen A01"
+            )
+        if self._closure_state is not ClosureState.OPEN:
+            raise LedgerInvariantError(
+                "paired reconciliation requires an open ledger"
+            )
+        if self._position_e4 != 0:
+            raise LedgerInvariantError(
+                "paired reconciliation cannot close nonzero position"
+            )
+        if not self._fill_ids:
+            raise LedgerInvariantError(
+                "paired reconciliation requires actual fills"
+            )
+        self._validate_observed_at(occurred_at_ns)
+        cashflow = CashFlow(
+            event_id=f"reconciliation:{reconciliation_id}",
+            path_id=self._path.path_id,
+            sequence=len(self._cashflows),
+            occurred_at_ns=occurred_at_ns,
+            kind=CashFlowKind.NO_POSITION_CLOSE,
+            amount_e6=0,
+            position_delta_e4=0,
+            source_sha256=source_sha256,
+            note="YES_EQUIVALENT_FLAT_NO_IOC",
+        )
+        self._append_cashflows((cashflow,))
+        self._closure_state = ClosureState.CLOSED_NO_POSITION
 
     def record_variable_cost(
         self,
