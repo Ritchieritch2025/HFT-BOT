@@ -1,20 +1,22 @@
 # PnL Spine 三路径真实延迟：非下单实现报告
 
 日期：2026-07-23
-状态：独立审计 P0/P1 修复已完成，等待对修复提交复审；没有联网，没有读取
-真实凭据，没有发送订单，没有执行 IOC_EXIT。
+状态：repair-02 已按独立复审 `a5b092b` 的唯一剩余 B-2 收口；真实
+PLACE/CANCEL 在任何 authority、凭据、网络或输出之前硬拒绝。没有联网，
+没有读取真实凭据，没有发送订单，没有执行 IOC_EXIT。
 
 ## 交付结论
 
 本次把“延迟采集”和“延迟证据接纳”拆成两个严格边界：
 
-1. C++ probe 默认是无凭据、无 socket 的 dry-run。PLACE/CANCEL 的真实发送
-   分支必须同时通过现有 live 环境安全门，以及外部 SHA-256 固定、未过期、
-   ticker/构建/配置完全匹配的一次性 authority。代码、配置、环境与主机
-   指纹不再接受 CLI 自报：实际运行二进制会自哈希，并读取 root 固定的配置、
-   环境、主机和时钟收据。进程以 root 执行一次性消费前导段，原子创建
-   root-owned `0400` 的消费、trace 与 terminal 三个对象后，清除 proxy/CA
-   覆盖环境并永久降权到专职执行 UID，之后才允许读取凭据。
+1. C++ probe 默认是无凭据、无 socket 的 dry-run。复审确认当前官方
+   GetOrders 没有按 `client_order_id` 精确查询参数；ticker/时间窗列表可能
+   超时、延迟可见或返回空，CANCEL 也可能超时，而 partial fill 又需要尚未
+   实现的 IOC flatten。因此无法证明所有 ambiguous POST 结果都不残留挂单
+   或仓位。`kAmbiguousPlaceRecoveryProven=false` 是编译期发布门，
+   `--execute-place-cancel` 现在在解析 authority、创建 ledger、读取凭据或
+   建立 socket 前直接退出 2。旧真实发送实现仅保留为不可达的待审 scaffold，
+   不能部署或授权。
 2. Python producer 只接纳完整的 PLACE、CANCEL、IOC_EXIT 三路径私有因果
    trace，而且必须精确为每条路径各一份。它不再接受调用方自报 SHA；会自己
    打开并哈希二进制、配置、CA、环境、主机、时钟、两份 raw authority、
@@ -29,9 +31,10 @@
    - 聚合、不泄露订单标识和原始 trace 的
      `pnl-spine-latency-audit-receipt-v1`。
 
-当前没有伪造完整三路径证据。C++ 真实写路径只实现了 PLACE/CANCEL；
-IOC_EXIT 只实现只读预检，完整 measured receipt 必须等待另行授权和审计的
-真实 IOC_EXIT executor 产生合格样本。
+当前没有伪造完整三路径证据。C++ 的 PLACE/CANCEL 与 IOC_EXIT 两条真实
+mutation 路径都不可达；IOC_EXIT 只保留只读预检。完整 measured receipt
+必须等待带官方可证明 ambiguous recovery、账户级交易阻断、partial-fill
+flatten 的新执行器另行授权和审计。
 
 ## 文件
 
@@ -61,7 +64,14 @@ IOC_EXIT 只实现只读预检，完整 measured receipt 必须等待另行授�
     先全部 `O_EXCL|O_NOFOLLOW` 预留，再统一写入、`fsync` 和改为 `0444`；
     任一路径冲突都不会留下半套 receipt。
 - `apps/pnl_latency_probe.cpp`
-  - 默认 dry-run；
+  - 默认 dry-run；`--execute-place-cancel` 与 `--execute-ioc-exit` 均在
+    runtime、authority、凭据、网络和输出前硬拒；
+  - 内置纯函数 ambiguous recovery 判定与五类攻击 fixture：
+    exact order found + clean cancel + terminal flat 是唯一可证明安全结果；
+    order not found、query timeout、cancel timeout、partial fill 全部不安全。
+    因为真实请求可能进入任一不安全分支，发布常量保持 false；
+  - 以下 PLACE/CANCEL 发送、broker、到期和收据逻辑是为未来修复保留的
+    不可达 scaffold，不能据此宣称当前具备真实下单能力；
   - PLACE/CANCEL 记录 decision、sent、acknowledged、effective；
   - mutation 使用当前 V2 event-order endpoint：
     `POST/DELETE /portfolio/events/orders[/order_id]`，不使用已进入弃用窗口
@@ -174,7 +184,37 @@ trace 必须精确包含三个样本：PLACE、CANCEL、IOC_EXIT 各一个，不
 仅包含单向 `order_ref_sha256`。测试确认公开 measured/inventory/aggregate
 中不会出现 raw order ID、请求正文或响应正文。
 
+## Repair-02：为什么没有“假装恢复”
+
+独立复审 `a5b092b` 证明首轮修复只做到了 evidence fail-closed，没有做到
+order-risk fail-closed。对丢失 POST response 的真实 create：
+
+- GetOrders 只支持 ticker/status/min_ts/max_ts/cursor 等列表过滤，不支持
+  精确 `client_order_id` 查询；
+- “列表里没找到”不能证明订单不存在，可能是可见性延迟；
+- query timeout 不能证明订单不存在；
+- cancel timeout 不能证明 remaining 已归零；
+- partial fill 即使撤掉剩余量，仍会留下仓位，而本 binary 的 IOC transmitter
+  明确未实现；
+- 仓库当前也没有由该 probe 能原子触发并被所有执行器强制遵守的账户级
+  trading block。
+
+因此 repair-02 没有采用盲重发 POST，也没有把“没查到”包装成安全结果。
+真实 PLACE 在函数入口即由编译期 false gate 拒绝。该 gate 位于
+`require_common_options`、`collect_runtime_facts`、root ledger reservation、
+credential `getenv` 和 `lane.send` 全部之前。要重新开放，必须同时具备并
+独立审计：
+
+1. 官方支持的确定性订单身份恢复；
+2. query/cancel 模糊结果下的账户级强制交易阻断；
+3. cancel 后 exact order + position terminal readback；
+4. partial fill 的授权、限次、可证明归零 flatten；
+5. 对上述五类 transport/state 攻击的真实 mock transport 测试。
+
 ## Authority 一次性消费边界
+
+下述格式仍由 publisher 验证并保留为未来实现基础，但当前 live gate 在读取
+authority 前已拒绝，因此不会消费或执行任何真实 authority。
 
 PLACE/CANCEL authority schema 是
 `pnl-spine-latency-probe-authority-v2`，必须精确包含：
@@ -231,7 +271,7 @@ python3 tools/check_registry.py
 - C++ probe：编译通过，无 warning；
 - 内置官方 V2 fixed-point create/cancel/get-order/position fixture：
   `V2 CONTRACT SELF-TEST PASS`；
-- C++ safety、producer 与既有 latency evidence 联合专项：35/35 通过；
+- C++ safety、producer 与既有 latency evidence 联合专项：36/36 通过；
 - 全部 `test_pnl_spine*.py` 联合回归：65/65 通过；
 - 本轮专项测试以当前代码重新执行并通过；旧版报告中的 30/30 与 66/66
   计数已被代码并发演进淘汰，不再作为当前收据；
@@ -241,11 +281,12 @@ python3 tools/check_registry.py
 
 以下事项不在本次实现和测试中，也没有被隐式授权：
 
-1. 在生产执行 PLACE/CANCEL probe；
-2. 创建、签发或安装当次 live authority；
+1. 实现并审计可证明的 PLACE ambiguous-recovery 及 partial-fill flatten，
+   然后才可能重新开放生产 probe；
+2. 创建、签发或安装当次 live authority；当前 binary 即使收到 authority
+   也会在读取前拒绝；
 3. 实现、独立审计或执行 IOC_EXIT；当前 `--execute-ioc-exit` 明确
-   fail-closed，PLACE/CANCEL 输出也明确标为
-   `PLACE_CANCEL_RECONCILED_IOC_EXIT_MISSING`；
+   fail-closed；当前也不会产生新的 PLACE/CANCEL 输出；
 4. 使用真实凭据、真实订单、真实仓位；
 5. 将任何真实私有 trace 发布到公共仓库。
 
@@ -255,9 +296,13 @@ python3 tools/check_registry.py
 [Cancel Order (V2)](https://docs.kalshi.com/api-reference/orders/cancel-order-v2)
 契约。
 
-独立审计 `8cf9517` 已对首版判 FAIL；本报告记录的是针对其全部 P0/P1 的
-修复。下一道门是由独立审计代理在修复 commit 上重放原攻击矩阵。只有复审
-PASS 后，才能在明确的当次 live authority 下采 PLACE/CANCEL。IOC_EXIT
-必须另立执行器、完成同等级审计和当次授权；只有真实完全退出且
-fill/position 守恒、两份消费链与 promotion 链都完整时，producer 才会生成
-三路径 runner-ready receipt。
+独立审计 `8cf9517` 对首版判 FAIL；复审 `a5b092b` 确认除 ambiguous POST
+风险外的修复全部闭合。本报告继续记录 repair-02 的最终裁决：在缺少可证明
+恢复链时，真实 PLACE 必须保持硬关闭。下一道门是独立代理在 repair-02
+commit 上确认该 gate 不可绕过并重放五类 ambiguous 攻击。即使复审 PASS，
+其含义也只是“当前 binary 不可能遗留新挂单”，不是授权真实采样。
+
+要真正采 PLACE/CANCEL，必须提交新的、具备完整恢复/账户阻断/partial-fill
+flatten 的实现并再次审计。IOC_EXIT 也必须另立执行器、完成同等级审计和
+当次授权；只有真实完全退出且 fill/position 守恒、两份消费链与 promotion
+链都完整时，producer 才会生成三路径 runner-ready receipt。

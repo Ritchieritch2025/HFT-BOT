@@ -82,6 +82,13 @@ constexpr std::int64_t kMaximumClockFutureSkewMs = 5 * 1'000;
 constexpr std::int64_t kMaximumClockErrorNs = 10 * 1'000'000;
 constexpr std::string_view kProbeClockId =
     "STD_STEADY_CLOCK:probe-process";
+// GetOrders has no direct client_order_id query, a bounded list query can time
+// out or be eventually consistent, and this binary has neither an audited
+// account-level trading block nor a position-flattening IOC transmitter.
+// Therefore every possible ambiguous create outcome cannot yet be made safe.
+// This compile-time release gate must remain false until all of those controls
+// are implemented and independently audited.
+constexpr bool kAmbiguousPlaceRecoveryProven = false;
 
 struct Options {
   bool execute_place_cancel = false;
@@ -90,6 +97,7 @@ struct Options {
   bool self_test_v2 = false;
   bool self_test_authority_deadline = false;
   bool self_test_network_environment = false;
+  bool self_test_ambiguous_post_recovery = false;
   std::string ticker;
   std::string authority_file;
   std::string expected_authority_sha256;
@@ -1432,6 +1440,53 @@ struct MutationAccounting {
   bool cancel_risk_reduction_after_expiry = false;
 };
 
+enum class AmbiguousLookupOutcome {
+  ExactClientOrderFound,
+  NoMatchingOrder,
+  QueryTimeout,
+};
+
+enum class AmbiguousCancelOutcome {
+  Confirmed,
+  TimeoutOrUnknown,
+  NotAttempted,
+};
+
+struct AmbiguousRecoveryEvidence {
+  AmbiguousLookupOutcome lookup =
+      AmbiguousLookupOutcome::QueryTimeout;
+  AmbiguousCancelOutcome cancel =
+      AmbiguousCancelOutcome::NotAttempted;
+  bool terminal_readback_complete = false;
+  std::int64_t requested_before_e4 = 0;
+  std::int64_t filled_before_e4 = 0;
+  std::int64_t remaining_before_e4 = 0;
+  std::int64_t requested_after_e4 = 0;
+  std::int64_t filled_after_e4 = 0;
+  std::int64_t remaining_after_e4 = 0;
+  std::int64_t position_before_e4 = 0;
+  std::int64_t position_after_e4 = 0;
+};
+
+// A missing list result is not proof of non-existence: the create may have
+// committed but not yet appeared in a bounded/eventually-consistent read.
+// Likewise, a cancel timeout or any fill requires an external account block
+// and position-flattening path which this binary deliberately does not have.
+bool ambiguous_recovery_proves_no_residual_risk(
+    const AmbiguousRecoveryEvidence& evidence) {
+  return evidence.lookup ==
+             AmbiguousLookupOutcome::ExactClientOrderFound &&
+         evidence.cancel == AmbiguousCancelOutcome::Confirmed &&
+         evidence.terminal_readback_complete &&
+         evidence.requested_before_e4 == kQuantityE4 &&
+         evidence.filled_before_e4 == 0 &&
+         evidence.remaining_before_e4 == kQuantityE4 &&
+         evidence.requested_after_e4 == kQuantityE4 &&
+         evidence.filled_after_e4 == 0 &&
+         evidence.remaining_after_e4 == 0 &&
+         evidence.position_after_e4 == evidence.position_before_e4;
+}
+
 bool publish_terminal_consumption(
     OutputReservation& reservation, const Authority& authority,
     std::string_view authority_sha256,
@@ -1546,6 +1601,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
       options.self_test_authority_deadline = true;
     } else if (argument == "--self-test-network-environment") {
       options.self_test_network_environment = true;
+    } else if (argument == "--self-test-ambiguous-post-recovery") {
+      options.self_test_ambiguous_post_recovery = true;
     } else {
       auto value = next_value(index, argc, argv);
       if (!value) return std::nullopt;
@@ -1577,7 +1634,7 @@ int dry_run() {
   std::puts(
       "{\"default_mode\":\"DRY_RUN\",\"network_io\":false,"
       "\"order_transmitted\":false,\"place_cancel_gate\":"
-      "\"CURRENT_SHA_PINNED_LIVE_AUTHORITY_REQUIRED\","
+      "\"FAIL_CLOSED_AMBIGUOUS_POST_RECOVERY_UNPROVEN\","
       "\"ioc_exit_gate\":\"FAIL_CLOSED_EXECUTOR_NOT_IMPLEMENTED\","
       "\"three_path_latency_ready\":false,"
       "\"schema_version\":\"pnl-spine-causal-latency-probe-plan-v1\"}");
@@ -1662,6 +1719,51 @@ int self_test_network_environment_contract() {
   return ok ? 0 : 1;
 }
 
+int self_test_ambiguous_post_recovery_contract() {
+  const AmbiguousRecoveryEvidence order_exists_cleanly_canceled{
+      AmbiguousLookupOutcome::ExactClientOrderFound,
+      AmbiguousCancelOutcome::Confirmed,
+      true,
+      kQuantityE4,
+      0,
+      kQuantityE4,
+      kQuantityE4,
+      0,
+      0,
+      0,
+      0,
+  };
+  AmbiguousRecoveryEvidence order_not_found =
+      order_exists_cleanly_canceled;
+  order_not_found.lookup = AmbiguousLookupOutcome::NoMatchingOrder;
+  order_not_found.cancel = AmbiguousCancelOutcome::NotAttempted;
+  order_not_found.terminal_readback_complete = false;
+  AmbiguousRecoveryEvidence query_timeout = order_not_found;
+  query_timeout.lookup = AmbiguousLookupOutcome::QueryTimeout;
+  AmbiguousRecoveryEvidence cancel_timeout =
+      order_exists_cleanly_canceled;
+  cancel_timeout.cancel = AmbiguousCancelOutcome::TimeoutOrUnknown;
+  cancel_timeout.terminal_readback_complete = false;
+  AmbiguousRecoveryEvidence partial_fill =
+      order_exists_cleanly_canceled;
+  partial_fill.filled_before_e4 = 1;
+  partial_fill.remaining_before_e4 = kQuantityE4 - 1;
+  partial_fill.filled_after_e4 = 1;
+  partial_fill.position_after_e4 = 1;
+
+  const bool ok =
+      ambiguous_recovery_proves_no_residual_risk(
+          order_exists_cleanly_canceled) &&
+      !ambiguous_recovery_proves_no_residual_risk(order_not_found) &&
+      !ambiguous_recovery_proves_no_residual_risk(query_timeout) &&
+      !ambiguous_recovery_proves_no_residual_risk(cancel_timeout) &&
+      !ambiguous_recovery_proves_no_residual_risk(partial_fill) &&
+      !kAmbiguousPlaceRecoveryProven;
+  std::puts(ok ? "AMBIGUOUS POST RECOVERY SELF-TEST PASS"
+               : "AMBIGUOUS POST RECOVERY SELF-TEST FAIL");
+  return ok ? 0 : 1;
+}
+
 int ioc_preflight(const Options& options) {
   if (!valid_ticker(options.ticker)) {
     std::fprintf(stderr, "IOC_EXIT preflight requires --ticker\n");
@@ -1717,6 +1819,16 @@ int ioc_preflight(const Options& options) {
 }
 
 int execute_place_cancel(const Options& options) {
+  if constexpr (!kAmbiguousPlaceRecoveryProven) {
+    (void)options;
+    std::fprintf(
+        stderr,
+        "PLACE/CANCEL LIVE TRANSMISSION IS DISABLED AND FAILS CLOSED: "
+        "ambiguous create recovery cannot yet prove no resting order or "
+        "residual position; no authority, credential, network, or output "
+        "artifact was touched\n");
+    return 2;
+  }
   if (!require_common_options(options) || options.authority_file.empty() ||
       options.output.empty() || options.consumption_ledger.empty() ||
       options.terminal_consumption_receipt.empty() ||
@@ -2156,6 +2268,8 @@ int main(int argc, char** argv) {
     return self_test_authority_deadline_contract();
   if (options.self_test_network_environment)
     return self_test_network_environment_contract();
+  if (options.self_test_ambiguous_post_recovery)
+    return self_test_ambiguous_post_recovery_contract();
   if (options.execute_place_cancel && options.ioc_exit_preflight) {
     std::fprintf(stderr, "choose exactly one probe mode\n");
     return 2;

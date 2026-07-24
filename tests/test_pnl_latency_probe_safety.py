@@ -61,6 +61,10 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         self.assertFalse(payload["order_transmitted"])
         self.assertFalse(payload["three_path_latency_ready"])
         self.assertEqual(
+            "FAIL_CLOSED_AMBIGUOUS_POST_RECOVERY_UNPROVEN",
+            payload["place_cancel_gate"],
+        )
+        self.assertEqual(
             "FAIL_CLOSED_EXECUTOR_NOT_IMPLEMENTED",
             payload["ioc_exit_gate"],
         )
@@ -88,14 +92,17 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         self.assertIn("NOT IMPLEMENTED AND FAILS CLOSED", completed.stderr)
         self.assertNotIn("private key", completed.stderr.lower())
 
-    def test_place_cancel_cannot_reach_runtime_without_all_pins(self) -> None:
+    def test_place_cancel_live_path_is_disabled_before_all_inputs(self) -> None:
         completed = self.run_probe(
             "--execute-place-cancel",
             "--ticker",
             "TEST-TICKER",
         )
         self.assertEqual(2, completed.returncode)
-        self.assertIn("options incomplete", completed.stderr)
+        self.assertIn(
+            "LIVE TRANSMISSION IS DISABLED AND FAILS CLOSED",
+            completed.stderr,
+        )
 
     def test_ioc_preflight_is_read_only_but_needs_read_credentials(self) -> None:
         completed = self.run_probe(
@@ -110,7 +117,7 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         self.assertEqual(2, completed.returncode)
         self.assertIn("read credentials", completed.stderr)
 
-    def test_untrusted_control_files_refuse_before_credentials_or_output(
+    def test_disabled_live_path_touches_no_control_credentials_or_output(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -168,11 +175,36 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
                 },
             )
             self.assertEqual(2, first.returncode)
-            self.assertIn("immutable code/config/environment/host/clock", first.stderr)
+            self.assertIn("LIVE TRANSMISSION IS DISABLED", first.stderr)
             self.assertNotIn("private key", first.stderr.lower())
             self.assertFalse(output_path.exists())
             self.assertFalse(ledger_path.exists())
             self.assertFalse(terminal_path.exists())
+
+    def test_ambiguous_post_attack_matrix_is_fail_closed(self) -> None:
+        completed = self.run_probe(
+            "--self-test-ambiguous-post-recovery"
+        )
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(
+            "AMBIGUOUS POST RECOVERY SELF-TEST PASS",
+            completed.stdout.strip(),
+        )
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        for attack_case in (
+            "order_exists_cleanly_canceled",
+            "order_not_found",
+            "query_timeout",
+            "cancel_timeout",
+            "partial_fill",
+        ):
+            self.assertIn(attack_case, source)
+        self.assertIn(
+            "constexpr bool kAmbiguousPlaceRecoveryProven = false",
+            source,
+        )
 
     def test_authority_wall_and_monotonic_deadlines_fail_closed(self) -> None:
         completed = self.run_probe("--self-test-authority-deadline")
@@ -211,13 +243,26 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         self.assertEqual(2, completed.returncode)
         self.assertIn("usage:", completed.stderr)
 
-    def test_mutation_source_orders_safety_gates_before_credentials_and_post(
+    def test_dormant_mutation_scaffold_retains_prior_safety_ordering(
         self,
     ) -> None:
         source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
             encoding="utf-8"
         )
         execute_body = source[source.index("int execute_place_cancel") :]
+        hard_gate = execute_body.index(
+            "if constexpr (!kAmbiguousPlaceRecoveryProven)"
+        )
+        for prohibited_before_gate in (
+            "require_common_options",
+            "collect_runtime_facts",
+            'std::getenv("KALSHI_API_KEY_ID")',
+            "ledger_reservation",
+            "lane.send(*place_request)",
+        ):
+            self.assertLess(
+                hard_gate, execute_body.index(prohibited_before_gate)
+            )
         self.assertLess(
             execute_body.index("ledger_reservation.finish"),
             execute_body.index("drop_execution_privileges"),
@@ -294,7 +339,9 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         self.assertNotIn('"status"', order_parser)
         self.assertNotIn('"order_status"', order_parser)
 
-    def test_root_broker_files_are_not_execution_deletable(self) -> None:
+    def test_dormant_root_broker_files_remain_execution_non_deletable(
+        self,
+    ) -> None:
         source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
             encoding="utf-8"
         )
