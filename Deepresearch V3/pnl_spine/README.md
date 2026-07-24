@@ -30,10 +30,11 @@ code-bundle SHA pin（它不是 `production_lineage.py` 的 raw file SHA）。
 
 producer 必须从独立的 root-owned 部署树加载。其源文件必须无任何 write
 bit，沿途父目录必须 root-owned 且不可由 group/other 写入，路径中不得有
-symlink；运行服务使用非 root 身份。producer 不再导入任何仓库内模块，
-canonical JSON 与 lineage schema 常量均在同一个受审文件中；当前
+symlink；运行服务使用非 root 身份。producer 的受审 code bundle 由
+`production_lineage.py` 与 `terminal_lineage_bridge.py` 两个文件组成；
+当前
 extractor code-bundle SHA 是
-`99a67637cf4e411246e578fe29ca4c8279091a9f4852c6b73126cee91a57787c`，
+`657f10f9191b56a846ea5ee330f3fb72aa83d6b011c57e3b57a07c5ec3bd3d76`，
 最终仍以独立审计确认的 SHA 为准。
 
 ### Parquet runtime receipt
@@ -74,7 +75,7 @@ sudo chmod -R a-w /opt/w09-pnl-parquet-runtime
 sudo -u w09-research /opt/w09-pnl-parquet-runtime/bin/python3 -I -B \
   /opt/w09-pnl-spine/tools/research/pnl_spine/production_lineage.py \
   runtime-receipt \
-  --expected-extractor-code-sha256 99a67637cf4e411246e578fe29ca4c8279091a9f4852c6b73126cee91a57787c \
+  --expected-extractor-code-sha256 657f10f9191b56a846ea5ee330f3fb72aa83d6b011c57e3b57a07c5ec3bd3d76 \
   --output /srv/w09-research/runtime-staging/PARQUET_RUNTIME_RECEIPT.json
 ```
 
@@ -108,7 +109,7 @@ sudo -u w09-research /opt/w09-pnl-parquet-runtime/bin/python3 -I -B \
   --manifest-pins-sha256 eef0c38ff454da87a713d825ed18b665bb1b8fd87aa55e1a3b68807168b7e8f6 \
   --record-spec /etc/w09/pnl-spine/FINAL_RECORD_EXTRACTION_SPEC.json \
   --record-spec-sha256 APPROVED_RECORD_SPEC_RAW_SHA256 \
-  --expected-extractor-code-sha256 99a67637cf4e411246e578fe29ca4c8279091a9f4852c6b73126cee91a57787c \
+  --expected-extractor-code-sha256 657f10f9191b56a846ea5ee330f3fb72aa83d6b011c57e3b57a07c5ec3bd3d76 \
   --parquet-runtime-receipt /etc/w09/pnl-spine/PARQUET_RUNTIME_RECEIPT.json \
   --parquet-runtime-receipt-sha256 APPROVED_RUNTIME_RECEIPT_RAW_SHA256 \
   --region us-east-2 \
@@ -157,3 +158,96 @@ reader 之前 fail closed。
 
 这两个 SHA 必须被移到 producer 进程之外保存/批准，然后才能交给
 `tools.research.pnl_spine.runner`。producer 自己的输出不能自我授权。
+
+## Official terminal external-root channel
+
+原始 8 个 V3 release 继续作为 L1/L2/trades 的唯一 exact-version
+lineage。若它们的 settlement catalog 对目标 ticker 为零覆盖，可额外使用
+`pnl-spine-record-extraction-spec-v3` 和
+`pnl-spine-official-terminal-root-spec-v1`。这条通道不复制或写入 S3；
+它只离线读取 W09 上 root-owned、无 write bit、全路径无 symlink 的：
+
+- 每个 shard 的只读 authority；
+- `CAPTURE_RECEIPT.json`；
+- `RAW_PINS_XX.json`；
+- receipt 声明的每一份原始 HTTP response；
+- normalized terminal output。
+
+spec 必须列出完整、排序、唯一且非空的 `required_tickers`。所有 shard 的
+authority/capture/raw-pins/normalized ticker 集合必须逐项等于它；少一个、
+多一个、重复一个或零覆盖都会拒绝。唯一例外是已由官方 raw response
+证明不符合冻结 A01 资格的 ticker：它必须逐个进入
+`eligibility_exclusions[]`，绑定 singleton authority、root-owned raw
+response、exact code/config/SHA/size，并明确：
+
+```json
+{
+  "reason_code": "NON_STANDARD_PRICE_LEVEL_STRUCTURE",
+  "observed_price_level_structure": "tapered_deci_cent",
+  "http_status": 200
+}
+```
+
+这类 ticker 计入完整 denominator，但不得进入 `terminal_record_index` 或
+任何经济/PnL row。`eligible_tickers + eligibility_exclusions` 的无重叠并集
+必须逐项等于 `required_tickers`。默认
+`SINGLE_VERSION_REQUIRED` 禁止混用 adapter。647 个旧版成功 ticker 与
+200 个新版重采 ticker 这类混合只能显式使用：
+
+```json
+{
+  "mode": "EXPLICIT_PER_SHARD",
+  "approved_shards": [
+    {
+      "shard_id": "batch-00",
+      "adapter_code_sha256": "EXACT_CODE_SHA",
+      "adapter_config_sha256": "EXACT_CONFIG_SHA"
+    }
+  ]
+}
+```
+
+`approved_shards` 必须按 shard_id 排序，并与 `shards[]` 的每个
+code/config pin 完全相等；它不是通配许可。v3 的 settlement source 只能是：
+
+```json
+{
+  "kind": "SETTLEMENT",
+  "record_id": "EXACT_SETTLEMENT_ID",
+  "mode": "DIRECT",
+  "sources": [
+    {
+      "alias": "official_terminal",
+      "source_class": "OFFICIAL_TERMINAL_CAPTURE",
+      "ticker": "EXACT_MARKET_TICKER"
+    }
+  ],
+  "transform": {"schema_version": "identity-v1"}
+}
+```
+
+对应 fixture evidence binding 使用
+`source_class/market_ticker/source_raw_response_sha256`，不能伪装成一个 V3
+release object。成功输出是 `pnl-spine-lineage-receipt-v2`：保留原始
+release-set SHA 和 exact object reads，同时把 terminal root receipt、每个
+shard 的 adapter code/config、control/raw/normalized SHA、完整 ticker
+coverage 和 normalized record hash 纳入同一个外部 pin。
+
+该通道的 temporality 永远是
+`OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF`。它只解除 finalized YES/NO 与
+exact payout 的 settlement 覆盖，不会解除以下门：
+
+- historical point-in-time metadata；
+- authoritative scheduled start；
+- historical lifecycle/tick intervals；
+- exchange settlement revision sequence。
+
+生产 CLI 额外传入：
+
+```bash
+  --terminal-root-spec /etc/w09/pnl-terminal/TERMINAL_ROOT_SPEC.json \
+  --terminal-root-spec-sha256 APPROVED_TERMINAL_ROOT_SPEC_RAW_SHA256
+```
+
+所有 external-root 文件在构造 S3 reader 之前完成本地重哈希和权限验证；
+bridge 本身记录 network reads = 0、S3 writes = 0、financial mutations = 0。

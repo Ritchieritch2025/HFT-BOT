@@ -20,6 +20,7 @@ only after an operator-controlled external SHA pin is supplied to that runner.
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 from decimal import Decimal
 import hashlib
@@ -39,9 +40,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    from . import terminal_lineage_bridge as _terminal_bridge
+except ImportError:  # pragma: no cover - direct root-owned script execution
+    import terminal_lineage_bridge as _terminal_bridge
+
 
 MANIFEST_PINS_SCHEMA = "pnl-spine-exact-manifest-pins-v1"
 RECORD_SPEC_SCHEMA = "pnl-spine-record-extraction-spec-v2"
+HYBRID_RECORD_SPEC_SCHEMA = "pnl-spine-record-extraction-spec-v3"
 LEGACY_RECORD_SPEC_SCHEMA = "pnl-spine-record-extraction-spec-v1"
 EXPECTED_MANIFEST_COUNT = 8
 TRUSTED_BUCKET = "kalshi-vault-ritcardo"
@@ -154,6 +161,7 @@ def canonical_sha256(value: object) -> str:
 
 
 LINEAGE_RECEIPT_SCHEMA = "pnl-spine-lineage-receipt-v1"
+HYBRID_LINEAGE_RECEIPT_SCHEMA = "pnl-spine-lineage-receipt-v2"
 LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
     {
         "object_read_key": [
@@ -177,9 +185,46 @@ LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
         ],
     }
 )
+HYBRID_LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
+    {
+        "exact_object_read_key": [
+            "release_id",
+            "logical_key",
+            "version_id",
+        ],
+        "record_key": ["kind", "record_id"],
+        "record_kinds": [
+            "L2_SNAPSHOT",
+            "NORMALIZED_ROW",
+            "PUBLIC_TRADE",
+            "SETTLEMENT",
+        ],
+        "source_member_variants": {
+            "EXACT_RELEASE_OBJECT": [
+                "release_id",
+                "logical_key",
+                "version_id",
+                "locator_schema",
+                "locator",
+            ],
+            "OFFICIAL_TERMINAL_CAPTURE": [
+                "shard_id",
+                "ticker",
+                "capture_receipt_raw_sha256",
+                "raw_pins_raw_sha256",
+                "normalized_output_raw_sha256",
+                "selected_raw_response_sha256",
+            ],
+        },
+        "terminal_temporality": (
+            "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF"
+        ),
+    }
+)
 EXTRACTOR_CODE_BUNDLE_SCHEMA = "pnl-spine-extractor-code-bundle-v1"
 EXTRACTOR_CODE_BUNDLE_MEMBERS = (
     "production_lineage.py",
+    "terminal_lineage_bridge.py",
 )
 
 RECORD_KINDS = frozenset(
@@ -2309,6 +2354,86 @@ def require_production_record_spec_v2(value: object) -> str | None:
     return next(iter(runtime_pins), None)
 
 
+def require_production_hybrid_record_spec_v3(
+    value: object,
+) -> str | None:
+    """Preflight production locators in the exact+terminal v3 contract."""
+
+    root = _mapping("record spec", value)
+    if root.get("schema_version") != HYBRID_RECORD_SPEC_SCHEMA:
+        raise ProductionLineageError(
+            "terminal root evidence requires "
+            "pnl-spine-record-extraction-spec-v3"
+        )
+    runtime_pins: set[str] = set()
+    for record_index, raw_record in enumerate(
+        _list("record spec.records", root.get("records"))
+    ):
+        record = _mapping(
+            f"record spec row {record_index}", raw_record
+        )
+        kind = _text(
+            f"record spec row {record_index}.kind", record.get("kind")
+        )
+        for source_index, raw_source in enumerate(
+            _list(
+                f"record spec row {record_index}.sources",
+                record.get("sources"),
+            )
+        ):
+            source = _mapping(
+                (
+                    f"record spec row {record_index}.sources"
+                    f"[{source_index}]"
+                ),
+                raw_source,
+            )
+            if "source_class" in source:
+                if (
+                    kind != "SETTLEMENT"
+                    or source.get("source_class")
+                    != "OFFICIAL_TERMINAL_CAPTURE"
+                ):
+                    raise ProductionLineageError(
+                        "external source_class is valid only for "
+                        "official SETTLEMENT"
+                    )
+                if "locator" in source:
+                    raise ProductionLineageError(
+                        "official terminal source forbids an object locator"
+                    )
+                continue
+            locator = _mapping(
+                (
+                    f"record spec row {record_index}.sources"
+                    f"[{source_index}].locator"
+                ),
+                source.get("locator"),
+            )
+            schema = _text(
+                "production locator schema_version",
+                locator.get("schema_version"),
+            )
+            if schema == "parquet-key-v1":
+                raise ProductionLineageError(
+                    "production forbids unpinned parquet-key-v1; "
+                    "use parquet-key-v2 with a runtime receipt"
+                )
+            _validate_locator(locator)
+            if schema == "parquet-key-v2":
+                runtime_pins.add(
+                    _sha(
+                        "parquet-key-v2 runtime_receipt_raw_sha256",
+                        locator.get("runtime_receipt_raw_sha256"),
+                    )
+                )
+    if len(runtime_pins) > 1:
+        raise ProductionLineageError(
+            "one production run cannot mix Parquet runtime receipts"
+        )
+    return next(iter(runtime_pins), None)
+
+
 def _validate_locator(locator: Mapping[str, Any]) -> None:
     schema = _text("locator schema_version", locator.get("schema_version"))
     if schema == "json-pointer-v1":
@@ -2978,6 +3103,688 @@ def produce_lineage_receipt(
     return payload
 
 
+def _validate_terminal_root_bundle_for_hybrid(
+    bundle: _terminal_bridge.TerminalLineageBundle,
+) -> tuple[
+    Mapping[str, Any],
+    dict[str, Mapping[str, Any]],
+    dict[str, Mapping[str, Any]],
+]:
+    """Revalidate the critical in-memory bridge facts before S3 I/O."""
+
+    receipt = _mapping("terminal root receipt", bundle.receipt)
+    required = {
+        "schema_version",
+        "temporality",
+        "coverage_policy",
+        "required_tickers",
+        "required_tickers_sha256",
+        "eligible_tickers",
+        "eligible_tickers_sha256",
+        "eligibility_exclusions",
+        "eligibility_exclusions_sha256",
+        "adapter_version_policy",
+        "shards",
+        "shards_sha256",
+        "terminal_records_sha256",
+        "terminal_record_index",
+        "terminal_record_index_sha256",
+        "metadata_evidence_sha256",
+        "resolved_capabilities",
+        "remaining_blockers",
+        "historical_point_in_time_metadata_satisfied",
+        "scheduled_start_authority_satisfied",
+        "historical_lifecycle_intervals_satisfied",
+        "network_reads_performed_by_bridge",
+        "s3_writes",
+        "financial_mutations",
+        "payload_sha256",
+    }
+    _strict_keys("terminal root receipt", receipt, required=required)
+    if receipt["schema_version"] != _terminal_bridge.ROOT_RECEIPT_SCHEMA:
+        raise ProductionLineageError("unknown terminal root receipt schema")
+    payload = dict(receipt)
+    supplied_payload_sha = _sha(
+        "terminal root payload SHA", payload.pop("payload_sha256")
+    )
+    if supplied_payload_sha != _canonical_hash(
+        payload, "terminal root receipt payload"
+    ):
+        raise ProductionLineageError("terminal root receipt self hash mismatch")
+    if (
+        receipt["temporality"] != _terminal_bridge.TEMPORALITY
+        or receipt["coverage_policy"] != _terminal_bridge.COVERAGE_POLICY
+    ):
+        raise ProductionLineageError(
+            "terminal root receipt weakens temporality or exact coverage"
+        )
+    if any(
+        receipt[field] is not False
+        for field in (
+            "historical_point_in_time_metadata_satisfied",
+            "scheduled_start_authority_satisfied",
+            "historical_lifecycle_intervals_satisfied",
+        )
+    ):
+        raise ProductionLineageError(
+            "terminal root receipt cannot satisfy historical metadata gates"
+        )
+    if receipt["remaining_blockers"] != list(
+        _terminal_bridge.REQUIRED_REMAINING_BLOCKERS
+    ):
+        raise ProductionLineageError(
+            "terminal root receipt removed a mandatory blocker"
+        )
+    if any(
+        receipt[field] != 0
+        for field in (
+            "network_reads_performed_by_bridge",
+            "s3_writes",
+            "financial_mutations",
+        )
+    ):
+        raise ProductionLineageError(
+            "terminal root receipt is not an offline read-only bridge"
+        )
+    tickers = [
+        _text(f"terminal required_tickers[{index}]", value)
+        for index, value in enumerate(
+            _list(
+                "terminal root required_tickers",
+                receipt["required_tickers"],
+            )
+        )
+    ]
+    if (
+        not tickers
+        or tickers != sorted(tickers)
+        or len(tickers) != len(set(tickers))
+    ):
+        raise ProductionLineageError(
+            "terminal root tickers must be nonempty, sorted and unique"
+        )
+    if _sha(
+        "terminal required tickers SHA",
+        receipt["required_tickers_sha256"],
+    ) != _canonical_hash(tickers, "terminal required tickers"):
+        raise ProductionLineageError("terminal required ticker hash mismatch")
+    eligible_tickers = [
+        _text(f"terminal eligible_tickers[{index}]", value)
+        for index, value in enumerate(
+            _list(
+                "terminal root eligible_tickers",
+                receipt["eligible_tickers"],
+            )
+        )
+    ]
+    if (
+        not eligible_tickers
+        or eligible_tickers != sorted(eligible_tickers)
+        or len(eligible_tickers) != len(set(eligible_tickers))
+        or _sha(
+            "terminal eligible tickers SHA",
+            receipt["eligible_tickers_sha256"],
+        )
+        != _canonical_hash(eligible_tickers, "terminal eligible tickers")
+    ):
+        raise ProductionLineageError(
+            "terminal eligible ticker coverage is invalid"
+        )
+    exclusion_rows = _list(
+        "terminal eligibility_exclusions",
+        receipt["eligibility_exclusions"],
+    )
+    if _sha(
+        "terminal eligibility exclusions SHA",
+        receipt["eligibility_exclusions_sha256"],
+    ) != _canonical_hash(
+        exclusion_rows, "terminal eligibility exclusions"
+    ):
+        raise ProductionLineageError(
+            "terminal eligibility exclusion hash mismatch"
+        )
+    exclusion_tickers: list[str] = []
+    for index, raw in enumerate(exclusion_rows):
+        exclusion = _mapping(
+            f"terminal eligibility exclusion {index}", raw
+        )
+        ticker = _text(
+            "terminal eligibility exclusion ticker",
+            exclusion.get("ticker"),
+        )
+        if (
+            exclusion.get("reason_code")
+            != "NON_STANDARD_PRICE_LEVEL_STRUCTURE"
+            or exclusion.get("observed_price_level_structure")
+            != "tapered_deci_cent"
+            or exclusion.get("economic_record_admitted") is not False
+            or exclusion.get("temporality") != _terminal_bridge.TEMPORALITY
+        ):
+            raise ProductionLineageError(
+                "terminal eligibility exclusion semantics drifted"
+            )
+        controls = _mapping(
+            "terminal eligibility exclusion filesystem_controls",
+            exclusion.get("filesystem_controls"),
+        )
+        for name in ("authority", "raw_response"):
+            fact = _mapping(
+                f"terminal eligibility exclusion {name}", controls.get(name)
+            )
+            if fact.get("root_read_only_verified") is not True:
+                raise ProductionLineageError(
+                    "terminal eligibility exclusion was not root/read-only "
+                    "verified"
+                )
+        exclusion_tickers.append(ticker)
+    if (
+        exclusion_tickers != sorted(exclusion_tickers)
+        or len(exclusion_tickers) != len(set(exclusion_tickers))
+        or sorted(eligible_tickers + exclusion_tickers) != tickers
+        or set(eligible_tickers) & set(exclusion_tickers)
+    ):
+        raise ProductionLineageError(
+            "eligible plus excluded terminal tickers are not exact coverage"
+        )
+    shards = _list("terminal root shards", receipt["shards"])
+    if not shards or _sha(
+        "terminal shards SHA", receipt["shards_sha256"]
+    ) != _canonical_hash(shards, "terminal root shards"):
+        raise ProductionLineageError("terminal shard set hash mismatch")
+    shard_by_id: dict[str, Mapping[str, Any]] = {}
+    for index, raw in enumerate(shards):
+        shard = _mapping(f"terminal shard {index}", raw)
+        shard_id = _text("terminal shard_id", shard.get("shard_id"))
+        if shard_id in shard_by_id:
+            raise ProductionLineageError("duplicate terminal shard_id")
+        controls = _mapping(
+            "terminal shard filesystem_controls",
+            shard.get("filesystem_controls"),
+        )
+        for name in (
+            "authority",
+            "capture_receipt",
+            "raw_pins",
+            "normalized_output",
+        ):
+            fact = _mapping(
+                f"terminal shard filesystem_controls.{name}",
+                controls.get(name),
+            )
+            if fact.get("root_read_only_verified") is not True:
+                raise ProductionLineageError(
+                    "terminal control was not root/read-only verified"
+                )
+        raw_responses = _list(
+            "terminal shard raw_responses",
+            shard.get("raw_responses"),
+        )
+        if not raw_responses:
+            raise ProductionLineageError(
+                "terminal shard contains no verified raw responses"
+            )
+        for response_index, response_raw in enumerate(raw_responses):
+            response = _mapping(
+                f"terminal raw response {response_index}", response_raw
+            )
+            filesystem = _mapping(
+                "terminal raw response filesystem",
+                response.get("filesystem"),
+            )
+            if filesystem.get("root_read_only_verified") is not True:
+                raise ProductionLineageError(
+                    "terminal raw response was not root/read-only verified"
+                )
+        shard_by_id[shard_id] = shard
+
+    index_rows = _list(
+        "terminal record index", receipt["terminal_record_index"]
+    )
+    if _sha(
+        "terminal record index SHA",
+        receipt["terminal_record_index_sha256"],
+    ) != _canonical_hash(index_rows, "terminal record index"):
+        raise ProductionLineageError("terminal record index hash mismatch")
+    records_by_ticker = {
+        _text("terminal bundle ticker", ticker): _mapping(
+            f"terminal bundle record {ticker}", record
+        )
+        for ticker, record in bundle.terminal_records_by_ticker.items()
+    }
+    if sorted(records_by_ticker) != eligible_tickers:
+        raise ProductionLineageError(
+            "terminal bundle record coverage differs from root receipt"
+        )
+    index_by_ticker: dict[str, Mapping[str, Any]] = {}
+    for index, raw in enumerate(index_rows):
+        row = _mapping(f"terminal record index {index}", raw)
+        required_index = {
+            "ticker",
+            "shard_id",
+            "settlement_id",
+            "record_sha256",
+            "observed_at_ns",
+            "selected_raw_response_sha256",
+            "adapter_code_sha256",
+            "adapter_config_sha256",
+            "authority_raw_sha256",
+            "capture_receipt_raw_sha256",
+            "raw_pins_raw_sha256",
+            "normalized_output_raw_sha256",
+            "normalized_output_canonical_sha256",
+        }
+        _strict_keys(
+            f"terminal record index {index}",
+            row,
+            required=required_index,
+        )
+        ticker = _text("terminal record index ticker", row["ticker"])
+        if ticker in index_by_ticker:
+            raise ProductionLineageError(
+                "duplicate ticker in terminal record index"
+            )
+        try:
+            record = records_by_ticker[ticker]
+            shard = shard_by_id[_text("shard_id", row["shard_id"])]
+        except KeyError as exc:
+            raise ProductionLineageError(
+                "terminal record index references an absent ticker or shard"
+            ) from exc
+        expected = {
+            "settlement_id": record.get("settlement_id"),
+            "record_sha256": _canonical_hash(
+                record, "terminal normalized record"
+            ),
+            "observed_at_ns": record.get("observed_at_ns"),
+            "selected_raw_response_sha256": record.get("source_sha256"),
+            "adapter_code_sha256": shard.get("adapter_code_sha256"),
+            "adapter_config_sha256": shard.get("adapter_config_sha256"),
+            "authority_raw_sha256": shard.get("authority_raw_sha256"),
+            "capture_receipt_raw_sha256": shard.get(
+                "capture_receipt_raw_sha256"
+            ),
+            "raw_pins_raw_sha256": shard.get("raw_pins_raw_sha256"),
+            "normalized_output_raw_sha256": shard.get(
+                "normalized_output_raw_sha256"
+            ),
+            "normalized_output_canonical_sha256": shard.get(
+                "normalized_output_canonical_sha256"
+            ),
+        }
+        if any(row.get(field) != value for field, value in expected.items()):
+            raise ProductionLineageError(
+                f"terminal record index drifted for {ticker}"
+            )
+        index_by_ticker[ticker] = row
+    if list(index_by_ticker) != eligible_tickers:
+        raise ProductionLineageError(
+            "terminal record index is not exact, sorted ticker coverage"
+        )
+    if _sha(
+        "terminal records SHA", receipt["terminal_records_sha256"]
+    ) != _canonical_hash(
+        [records_by_ticker[ticker] for ticker in eligible_tickers],
+        "terminal normalized records",
+    ):
+        raise ProductionLineageError(
+            "terminal normalized record set hash mismatch"
+        )
+    return receipt, records_by_ticker, index_by_ticker
+
+
+def _split_hybrid_inputs(
+    *,
+    fixture: Mapping[str, Any],
+    record_spec: Mapping[str, Any],
+    records_by_ticker: Mapping[str, Mapping[str, Any]],
+    index_by_ticker: Mapping[str, Mapping[str, Any]],
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+]:
+    """Validate v3 and split its exact rows from external settlements."""
+
+    root = _mapping("hybrid record spec", record_spec)
+    _strict_keys(
+        "hybrid record spec",
+        root,
+        required={"schema_version", "run_id", "records"},
+    )
+    if root["schema_version"] != HYBRID_RECORD_SPEC_SCHEMA:
+        raise ProductionLineageError(
+            "external terminal evidence requires record-extraction-spec-v3"
+        )
+    if _text("hybrid record spec run_id", root["run_id"]) != _text(
+        "fixture run_id", fixture.get("run_id")
+    ):
+        raise ProductionLineageError(
+            "hybrid record spec run_id differs from fixture"
+        )
+    runtime = _runtime_records(fixture)
+    binding_rows = _list(
+        "fixture evidence_bindings", fixture.get("evidence_bindings")
+    )
+    binding_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for index, raw in enumerate(binding_rows):
+        binding = _mapping(f"fixture evidence_binding {index}", raw)
+        key = (
+            _text("evidence kind", binding.get("kind")),
+            _text("evidence record_id", binding.get("record_id")),
+        )
+        if key in binding_by_key:
+            raise ProductionLineageError(
+                "duplicate fixture evidence binding"
+            )
+        binding_by_key[key] = binding
+    if set(binding_by_key) != set(runtime):
+        raise ProductionLineageError(
+            "fixture evidence bindings are not exhaustive"
+        )
+
+    exact_spec_rows: list[dict[str, Any]] = []
+    exact_binding_rows: list[dict[str, Any]] = []
+    external_records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    spec_rows = _list("hybrid record spec.records", root["records"])
+    for index, raw in enumerate(spec_rows):
+        row = _mapping(f"hybrid record spec row {index}", raw)
+        kind = _text("hybrid record kind", row.get("kind"))
+        record_id = _text("hybrid record_id", row.get("record_id"))
+        key = (kind, record_id)
+        if key in seen:
+            raise ProductionLineageError(
+                "hybrid record spec contains a duplicate record"
+            )
+        seen.add(key)
+        if key not in runtime:
+            raise ProductionLineageError(
+                "hybrid record spec contains an extra record"
+            )
+        if kind != "SETTLEMENT":
+            exact_row = dict(row)
+            _strict_keys(
+                f"hybrid exact row {index}",
+                exact_row,
+                required={
+                    "kind",
+                    "record_id",
+                    "mode",
+                    "sources",
+                    "transform",
+                },
+            )
+            for source_raw in _list(
+                f"hybrid exact row {index}.sources",
+                exact_row["sources"],
+            ):
+                source = _mapping("hybrid exact source", source_raw)
+                if "source_class" in source:
+                    raise ProductionLineageError(
+                        "external source_class is SETTLEMENT-only"
+                    )
+            exact_spec_rows.append(copy.deepcopy(exact_row))
+            exact_binding_rows.append(
+                copy.deepcopy(dict(binding_by_key[key]))
+            )
+            continue
+
+        _strict_keys(
+            f"hybrid settlement row {index}",
+            row,
+            required={
+                "kind",
+                "record_id",
+                "mode",
+                "sources",
+                "transform",
+            },
+        )
+        if row["mode"] != "DIRECT":
+            raise ProductionLineageError(
+                "external SETTLEMENT must use DIRECT mode"
+            )
+        transform = _mapping(
+            "external settlement transform", row["transform"]
+        )
+        _strict_keys(
+            "external settlement transform",
+            transform,
+            required={"schema_version"},
+        )
+        if transform["schema_version"] != "identity-v1":
+            raise ProductionLineageError(
+                "external SETTLEMENT requires identity-v1"
+            )
+        sources = _list(
+            "external settlement sources", row["sources"]
+        )
+        if len(sources) != 1:
+            raise ProductionLineageError(
+                "external SETTLEMENT requires exactly one source"
+            )
+        source = _mapping("external settlement source", sources[0])
+        _strict_keys(
+            "external settlement source",
+            source,
+            required={"alias", "source_class", "ticker"},
+        )
+        alias = _text("external source alias", source["alias"])
+        if SOURCE_ALIAS_RE.fullmatch(alias) is None:
+            raise ProductionLineageError(
+                "external source alias is malformed"
+            )
+        if source["source_class"] != "OFFICIAL_TERMINAL_CAPTURE":
+            raise ProductionLineageError(
+                "unknown external SETTLEMENT source class"
+            )
+        ticker = _text("external terminal ticker", source["ticker"])
+        try:
+            terminal_record = records_by_ticker[ticker]
+            index_row = index_by_ticker[ticker]
+        except KeyError as exc:
+            raise ProductionLineageError(
+                "external SETTLEMENT ticker is absent from terminal root"
+            ) from exc
+        runtime_record, record_date = runtime[key]
+        if _canonical_hash(
+            runtime_record, "fixture settlement"
+        ) != _canonical_hash(terminal_record, "terminal settlement"):
+            raise ProductionLineageError(
+                f"fixture SETTLEMENT differs from terminal root: {ticker}"
+            )
+        binding = binding_by_key[key]
+        external_binding_required = {
+            "kind",
+            "record_id",
+            "record_sha256",
+            "source_class",
+            "market_ticker",
+            "source_raw_response_sha256",
+        }
+        _strict_keys(
+            "external settlement evidence binding",
+            binding,
+            required=external_binding_required,
+        )
+        if (
+            binding["source_class"] != "OFFICIAL_TERMINAL_CAPTURE"
+            or binding["market_ticker"] != ticker
+            or binding["record_sha256"]
+            != _canonical_hash(runtime_record, "runtime settlement")
+            or binding["source_raw_response_sha256"]
+            != terminal_record.get("source_sha256")
+        ):
+            raise ProductionLineageError(
+                "external settlement evidence binding drifted"
+            )
+        external_records.append(
+            {
+                "kind": "SETTLEMENT",
+                "record_id": record_id,
+                "runtime_record": runtime_record,
+                "record_date_utc": record_date,
+                "ticker": ticker,
+                "index": index_row,
+            }
+        )
+    if seen != set(runtime):
+        raise ProductionLineageError(
+            "hybrid record spec is not exhaustive against runtime fixture"
+        )
+    order = [
+        (_text("record kind", row.get("kind")), _text("record id", row.get("record_id")))
+        for row in spec_rows
+    ]
+    if order != sorted(order):
+        raise ProductionLineageError(
+            "hybrid record spec rows must be sorted by kind/record_id"
+        )
+    settlement_tickers = sorted(
+        row["ticker"] for row in external_records
+    )
+    if (
+        settlement_tickers != sorted(records_by_ticker)
+        or len(settlement_tickers) != len(set(settlement_tickers))
+    ):
+        raise ProductionLineageError(
+            "runtime SETTLEMENT coverage is not exact against terminal root"
+        )
+    if not exact_spec_rows:
+        raise ProductionLineageError(
+            "hybrid lineage must retain exact-release L1/L2/trades evidence"
+        )
+    exact_fixture = copy.deepcopy(dict(fixture))
+    exact_fixture["settlements"] = []
+    exact_fixture["evidence_bindings"] = exact_binding_rows
+    exact_spec = {
+        "schema_version": RECORD_SPEC_SCHEMA,
+        "run_id": root["run_id"],
+        "records": exact_spec_rows,
+    }
+    return exact_fixture, exact_spec, external_records
+
+
+def produce_hybrid_lineage_receipt(
+    *,
+    fixture: Mapping[str, Any],
+    manifest_pins: Mapping[str, Any],
+    record_spec: Mapping[str, Any],
+    terminal_bundle: _terminal_bridge.TerminalLineageBundle,
+    reader: ExactVersionReader,
+    parquet_runtime: _VerifiedParquetRuntime | None = None,
+    expected_extractor_code_sha256: str | None = None,
+    require_root_read_only_code: bool = False,
+) -> dict[str, Any]:
+    """Produce v2 lineage with exact releases plus root terminal evidence."""
+
+    (
+        terminal_receipt,
+        terminal_records,
+        terminal_index,
+    ) = _validate_terminal_root_bundle_for_hybrid(terminal_bundle)
+    (
+        exact_fixture,
+        exact_record_spec,
+        external_rows,
+    ) = _split_hybrid_inputs(
+        fixture=fixture,
+        record_spec=record_spec,
+        records_by_ticker=terminal_records,
+        index_by_ticker=terminal_index,
+    )
+    base = produce_lineage_receipt(
+        fixture=exact_fixture,
+        manifest_pins=manifest_pins,
+        record_spec=exact_record_spec,
+        reader=reader,
+        parquet_runtime=parquet_runtime,
+        expected_extractor_code_sha256=expected_extractor_code_sha256,
+        require_root_read_only_code=require_root_read_only_code,
+    )
+    extractor_code_sha256 = base["extractor_code_sha256"]
+    extractor_config_sha256 = _canonical_hash(
+        {
+            "manifest_pins": manifest_pins,
+            "record_spec": record_spec,
+            "terminal_root_receipt": terminal_receipt,
+        },
+        "hybrid extractor configuration",
+    )
+    records = copy.deepcopy(base["records"])
+    for row in records:
+        row["transform_config_sha256"] = extractor_config_sha256
+    terminal_root_sha = _canonical_hash(
+        terminal_receipt, "terminal root receipt"
+    )
+    for row in external_rows:
+        index = row["index"]
+        member = {
+            "source_class": "OFFICIAL_TERMINAL_CAPTURE",
+            "shard_id": index["shard_id"],
+            "ticker": row["ticker"],
+            "channel": "SETTLEMENT",
+            "temporality": _terminal_bridge.TEMPORALITY,
+            "adapter_code_sha256": index["adapter_code_sha256"],
+            "adapter_config_sha256": index["adapter_config_sha256"],
+            "authority_raw_sha256": index["authority_raw_sha256"],
+            "capture_receipt_raw_sha256": index[
+                "capture_receipt_raw_sha256"
+            ],
+            "raw_pins_raw_sha256": index["raw_pins_raw_sha256"],
+            "normalized_output_raw_sha256": index[
+                "normalized_output_raw_sha256"
+            ],
+            "normalized_output_canonical_sha256": index[
+                "normalized_output_canonical_sha256"
+            ],
+            "selected_raw_response_sha256": index[
+                "selected_raw_response_sha256"
+            ],
+            "source_record_sha256": index["record_sha256"],
+            "terminal_root_receipt_sha256": terminal_root_sha,
+        }
+        members = [member]
+        runtime_record = row["runtime_record"]
+        records.append(
+            {
+                "kind": "SETTLEMENT",
+                "record_id": row["record_id"],
+                "record_sha256": _canonical_hash(
+                    runtime_record, "runtime settlement"
+                ),
+                "record_date_utc": row["record_date_utc"],
+                "mode": "DIRECT",
+                "source_members": members,
+                "transform_code_sha256": extractor_code_sha256,
+                "transform_config_sha256": extractor_config_sha256,
+                "input_set_sha256": _canonical_hash(
+                    members, "terminal source member set"
+                ),
+            }
+        )
+    records.sort(key=lambda row: (row["kind"], row["record_id"]))
+    payload: dict[str, Any] = {
+        "schema_version": HYBRID_LINEAGE_RECEIPT_SCHEMA,
+        "run_id": _text("fixture run_id", fixture.get("run_id")),
+        "release_set_sha256": _canonical_hash(
+            _fixture_releases(fixture), "fixture release set"
+        ),
+        "extractor_code_sha256": extractor_code_sha256,
+        "extractor_config_sha256": extractor_config_sha256,
+        "record_schema_sha256": HYBRID_LINEAGE_RECORD_SCHEMA_SHA256,
+        "object_reads": base["object_reads"],
+        "external_terminal_evidence": terminal_receipt,
+        "records": records,
+        "records_sha256": _canonical_hash(records, "hybrid lineage records"),
+    }
+    payload["payload_sha256"] = _canonical_hash(
+        payload, "hybrid lineage receipt payload"
+    )
+    _canonical_hash(payload, "hybrid lineage receipt")
+    return payload
+
+
 def write_receipt_create_once(
     path: Path,
     payload: Mapping[str, Any],
@@ -3077,6 +3884,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest-pins-sha256", required=True)
     parser.add_argument("--record-spec", required=True)
     parser.add_argument("--record-spec-sha256", required=True)
+    parser.add_argument("--terminal-root-spec")
+    parser.add_argument("--terminal-root-spec-sha256")
     parser.add_argument(
         "--expected-extractor-code-sha256",
         required=True,
@@ -3169,7 +3978,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         expected_raw_sha256=args.record_spec_sha256,
         label="record spec",
     )
-    parquet_runtime_pin = require_production_record_spec_v2(record_spec)
+    terminal_spec_path = args.terminal_root_spec
+    terminal_spec_sha256 = args.terminal_root_spec_sha256
+    if (terminal_spec_path is None) != (terminal_spec_sha256 is None):
+        raise ProductionLineageError(
+            "terminal root spec path and raw SHA must be supplied together"
+        )
+    terminal_bundle: _terminal_bridge.TerminalLineageBundle | None = None
+    if terminal_spec_path is None:
+        parquet_runtime_pin = require_production_record_spec_v2(record_spec)
+    else:
+        parquet_runtime_pin = require_production_hybrid_record_spec_v3(
+            record_spec
+        )
+        terminal_spec = _terminal_bridge.load_pinned_terminal_root_spec(
+            Path(terminal_spec_path),
+            expected_raw_sha256=_sha(
+                "terminal root spec raw SHA-256",
+                terminal_spec_sha256,
+            ),
+            require_root_read_only=True,
+        )
+        try:
+            terminal_bundle = _terminal_bridge.build_terminal_root_bundle(
+                terminal_spec,
+                require_root_read_only=True,
+            )
+        except _terminal_bridge.TerminalLineageBridgeError as exc:
+            raise ProductionLineageError(
+                f"terminal root evidence refused: {exc}"
+            ) from exc
     parquet_runtime: _VerifiedParquetRuntime | None = None
     runtime_path = args.parquet_runtime_receipt
     runtime_sha256 = args.parquet_runtime_receipt_sha256
@@ -3201,15 +4039,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             require_root_read_only=True,
         )
     reader = W09ExactVersionS3Reader(region=args.region)
-    receipt = produce_lineage_receipt(
-        fixture=fixture,
-        manifest_pins=manifest_pins,
-        record_spec=record_spec,
-        reader=reader,
-        parquet_runtime=parquet_runtime,
-        expected_extractor_code_sha256=expected_code_sha256,
-        require_root_read_only_code=True,
-    )
+    if terminal_bundle is None:
+        receipt = produce_lineage_receipt(
+            fixture=fixture,
+            manifest_pins=manifest_pins,
+            record_spec=record_spec,
+            reader=reader,
+            parquet_runtime=parquet_runtime,
+            expected_extractor_code_sha256=expected_code_sha256,
+            require_root_read_only_code=True,
+        )
+    else:
+        receipt = produce_hybrid_lineage_receipt(
+            fixture=fixture,
+            manifest_pins=manifest_pins,
+            record_spec=record_spec,
+            terminal_bundle=terminal_bundle,
+            reader=reader,
+            parquet_runtime=parquet_runtime,
+            expected_extractor_code_sha256=expected_code_sha256,
+            require_root_read_only_code=True,
+        )
     output = Path(args.output)
     raw_sha256 = write_receipt_create_once(output, receipt)
     summary = {
@@ -3219,6 +4069,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "output": str(output),
         "records": len(receipt["records"]),
         "verified_logical_objects": len(receipt["object_reads"]),
+        "external_terminal_tickers": len(
+            receipt.get("external_terminal_evidence", {}).get(
+                "required_tickers", []
+            )
+        ),
     }
     os.write(1, canonical_json_bytes(summary) + b"\n")
     return 0
@@ -3231,6 +4086,9 @@ if __name__ == "__main__":
 __all__ = [
     "ExactVersionReader",
     "MANIFEST_PINS_SCHEMA",
+    "HYBRID_LINEAGE_RECEIPT_SCHEMA",
+    "HYBRID_LINEAGE_RECORD_SCHEMA_SHA256",
+    "HYBRID_RECORD_SPEC_SCHEMA",
     "PARQUET_RUNTIME_RECEIPT_SCHEMA",
     "ProductionLineageError",
     "RECORD_SPEC_SCHEMA",
@@ -3239,9 +4097,11 @@ __all__ = [
     "W09ExactVersionS3Reader",
     "build_parquet_runtime_receipt",
     "produce_lineage_receipt",
+    "produce_hybrid_lineage_receipt",
     "production_extractor_code_sha256",
     "refuse_non_imds_credentials",
     "require_production_record_spec_v2",
+    "require_production_hybrid_record_spec_v3",
     "validate_extractor_code_pin",
     "validate_parquet_runtime_receipt",
     "write_receipt_create_once",

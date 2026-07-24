@@ -113,6 +113,7 @@ C1_CLASSIFICATION = (
 )
 TRUSTED_AUTHORITY_SCHEMA = "pnl-spine-trusted-authority-v2"
 LINEAGE_RECEIPT_SCHEMA = "pnl-spine-lineage-receipt-v1"
+HYBRID_LINEAGE_RECEIPT_SCHEMA = "pnl-spine-lineage-receipt-v2"
 LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
     {
         "object_read_key": [
@@ -136,6 +137,46 @@ LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
         ],
     }
 )
+HYBRID_LINEAGE_RECORD_SCHEMA_SHA256 = canonical_sha256(
+    {
+        "exact_object_read_key": [
+            "release_id",
+            "logical_key",
+            "version_id",
+        ],
+        "record_key": ["kind", "record_id"],
+        "record_kinds": [
+            "L2_SNAPSHOT",
+            "NORMALIZED_ROW",
+            "PUBLIC_TRADE",
+            "SETTLEMENT",
+        ],
+        "source_member_variants": {
+            "EXACT_RELEASE_OBJECT": [
+                "release_id",
+                "logical_key",
+                "version_id",
+                "locator_schema",
+                "locator",
+            ],
+            "OFFICIAL_TERMINAL_CAPTURE": [
+                "shard_id",
+                "ticker",
+                "capture_receipt_raw_sha256",
+                "raw_pins_raw_sha256",
+                "normalized_output_raw_sha256",
+                "selected_raw_response_sha256",
+            ],
+        },
+        "terminal_temporality": (
+            "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF"
+        ),
+    }
+)
+TERMINAL_ROOT_RECEIPT_SCHEMA = (
+    "pnl-spine-official-terminal-root-receipt-v1"
+)
+TERMINAL_TEMPORALITY = "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF"
 
 
 class RunnerContractError(ValueError):
@@ -921,7 +962,7 @@ def _validate_evidence_bindings(
     fixture: Mapping[str, Any],
     *,
     releases: Sequence[ExactReleaseBinding],
-) -> dict[tuple[str, str], ExactSourceObject]:
+) -> dict[tuple[str, str], ExactSourceObject | None]:
     """Bind every runtime record to one exact-version source object.
 
     The binding covers the canonical record bytes, exact release/object
@@ -941,8 +982,8 @@ def _validate_evidence_bindings(
                 (release.release_id, source.logical_key, source.version_id)
             ] = source
 
-    bound: dict[tuple[str, str], ExactSourceObject] = {}
-    allowed = {
+    bound: dict[tuple[str, str], ExactSourceObject | None] = {}
+    exact_allowed = {
         "kind",
         "record_id",
         "record_sha256",
@@ -951,10 +992,20 @@ def _validate_evidence_bindings(
         "source_object_version_id",
         "source_object_sha256",
     }
+    external_allowed = {
+        "kind",
+        "record_id",
+        "record_sha256",
+        "source_class",
+        "market_ticker",
+        "source_raw_response_sha256",
+    }
     for index, raw in enumerate(
         _list("evidence_bindings", fixture.get("evidence_bindings"))
     ):
         binding = _mapping(f"evidence_bindings[{index}]", raw)
+        is_external = "source_class" in binding
+        allowed = external_allowed if is_external else exact_allowed
         _strict_keys(
             f"evidence_bindings[{index}]",
             binding,
@@ -979,6 +1030,35 @@ def _validate_evidence_bindings(
             raise ProvenanceError(
                 f"record SHA mismatch for {key[0]}/{key[1]}"
             )
+        if is_external:
+            if (
+                key[0] != "SETTLEMENT"
+                or binding.get("source_class")
+                != "OFFICIAL_TERMINAL_CAPTURE"
+            ):
+                raise ProvenanceError(
+                    "external evidence is allowed only for official "
+                    "SETTLEMENT"
+                )
+            ticker = _text(
+                "external evidence market_ticker",
+                binding.get("market_ticker"),
+            )
+            if record.get("market_ticker") != ticker:
+                raise ProvenanceError(
+                    "external settlement ticker differs from runtime record"
+                )
+            source_raw_sha = _sha256_text(
+                "external source_raw_response_sha256",
+                binding.get("source_raw_response_sha256"),
+            )
+            if embedded_source != source_raw_sha:
+                raise ProvenanceError(
+                    "external settlement source SHA differs from runtime "
+                    "record"
+                )
+            bound[key] = None
+            continue
         release_id = _text("release_id", binding.get("release_id"))
         try:
             release = release_by_id[release_id]
@@ -1026,6 +1106,376 @@ def _validate_evidence_bindings(
     return bound
 
 
+def _validate_terminal_root_receipt_for_lineage(
+    value: object,
+) -> tuple[str, dict[str, Mapping[str, Any]]]:
+    """Validate the immutable, observation-only terminal root in lineage v2."""
+
+    receipt = _mapping("external_terminal_evidence", value)
+    allowed = {
+        "schema_version",
+        "temporality",
+        "coverage_policy",
+        "required_tickers",
+        "required_tickers_sha256",
+        "eligible_tickers",
+        "eligible_tickers_sha256",
+        "eligibility_exclusions",
+        "eligibility_exclusions_sha256",
+        "adapter_version_policy",
+        "shards",
+        "shards_sha256",
+        "terminal_records_sha256",
+        "terminal_record_index",
+        "terminal_record_index_sha256",
+        "metadata_evidence_sha256",
+        "resolved_capabilities",
+        "remaining_blockers",
+        "historical_point_in_time_metadata_satisfied",
+        "scheduled_start_authority_satisfied",
+        "historical_lifecycle_intervals_satisfied",
+        "network_reads_performed_by_bridge",
+        "s3_writes",
+        "financial_mutations",
+        "payload_sha256",
+    }
+    _strict_keys(
+        "external_terminal_evidence",
+        receipt,
+        allowed,
+        required=allowed,
+    )
+    if receipt.get("schema_version") != TERMINAL_ROOT_RECEIPT_SCHEMA:
+        raise ProvenanceError("unknown external terminal root schema")
+    payload = dict(receipt)
+    payload_sha = _sha256_text(
+        "external terminal payload_sha256",
+        payload.pop("payload_sha256"),
+    )
+    if payload_sha != canonical_sha256(payload):
+        raise ProvenanceError("external terminal root self hash mismatch")
+    if (
+        receipt.get("temporality") != TERMINAL_TEMPORALITY
+        or receipt.get("coverage_policy") != "EXACT_REQUIRED_TICKER_SET"
+    ):
+        raise ProvenanceError(
+            "external terminal root weakens temporality or exact coverage"
+        )
+    if any(
+        receipt.get(field) is not False
+        for field in (
+            "historical_point_in_time_metadata_satisfied",
+            "scheduled_start_authority_satisfied",
+            "historical_lifecycle_intervals_satisfied",
+        )
+    ):
+        raise ProvenanceError(
+            "external terminal root cannot satisfy historical metadata gates"
+        )
+    if any(
+        receipt.get(field) != 0
+        for field in (
+            "network_reads_performed_by_bridge",
+            "s3_writes",
+            "financial_mutations",
+        )
+    ):
+        raise ProvenanceError(
+            "external terminal root is not an offline read-only bridge"
+        )
+    required_blockers = [
+        "BLOCK_A01_HISTORICAL_POINT_IN_TIME_METADATA_INTERVALS_MISSING",
+        "BLOCK_A01_SCHEDULED_START_AUTHORITY_MISSING",
+        "BLOCK_A01_EXCHANGE_SETTLEMENT_REVISION_SEQUENCE_UNAVAILABLE",
+    ]
+    if receipt.get("remaining_blockers") != required_blockers:
+        raise ProvenanceError(
+            "external terminal root removed a mandatory blocker"
+        )
+    tickers = [
+        _text(f"external terminal ticker[{index}]", ticker)
+        for index, ticker in enumerate(
+            _list(
+                "external terminal required_tickers",
+                receipt.get("required_tickers"),
+            )
+        )
+    ]
+    if (
+        not tickers
+        or tickers != sorted(tickers)
+        or len(tickers) != len(set(tickers))
+        or _sha256_text(
+            "external terminal required_tickers_sha256",
+            receipt.get("required_tickers_sha256"),
+        )
+        != canonical_sha256(tickers)
+    ):
+        raise ProvenanceError(
+            "external terminal required ticker coverage is invalid"
+        )
+    eligible_tickers = [
+        _text(f"external eligible ticker[{index}]", ticker)
+        for index, ticker in enumerate(
+            _list(
+                "external terminal eligible_tickers",
+                receipt.get("eligible_tickers"),
+            )
+        )
+    ]
+    if (
+        not eligible_tickers
+        or eligible_tickers != sorted(eligible_tickers)
+        or len(eligible_tickers) != len(set(eligible_tickers))
+        or _sha256_text(
+            "external terminal eligible_tickers_sha256",
+            receipt.get("eligible_tickers_sha256"),
+        )
+        != canonical_sha256(eligible_tickers)
+    ):
+        raise ProvenanceError(
+            "external terminal eligible ticker coverage is invalid"
+        )
+    exclusion_rows = _list(
+        "external terminal eligibility_exclusions",
+        receipt.get("eligibility_exclusions"),
+    )
+    if _sha256_text(
+        "external terminal eligibility_exclusions_sha256",
+        receipt.get("eligibility_exclusions_sha256"),
+    ) != canonical_sha256(exclusion_rows):
+        raise ProvenanceError(
+            "external terminal eligibility exclusion hash mismatch"
+        )
+    exclusion_tickers: list[str] = []
+    for index, raw in enumerate(exclusion_rows):
+        exclusion = _mapping(
+            f"external terminal eligibility exclusion[{index}]", raw
+        )
+        ticker = _text(
+            "external terminal eligibility exclusion ticker",
+            exclusion.get("ticker"),
+        )
+        if (
+            exclusion.get("reason_code")
+            != "NON_STANDARD_PRICE_LEVEL_STRUCTURE"
+            or exclusion.get("observed_price_level_structure")
+            != "tapered_deci_cent"
+            or exclusion.get("economic_record_admitted") is not False
+            or exclusion.get("temporality") != TERMINAL_TEMPORALITY
+        ):
+            raise ProvenanceError(
+                "external terminal eligibility exclusion semantics drifted"
+            )
+        controls = _mapping(
+            "external terminal eligibility exclusion controls",
+            exclusion.get("filesystem_controls"),
+        )
+        for name in ("authority", "raw_response"):
+            fact = _mapping(
+                f"external terminal eligibility exclusion {name}",
+                controls.get(name),
+            )
+            if fact.get("root_read_only_verified") is not True:
+                raise ProvenanceError(
+                    "external terminal eligibility exclusion was not "
+                    "root/read-only verified"
+                )
+        exclusion_tickers.append(ticker)
+    if (
+        exclusion_tickers != sorted(exclusion_tickers)
+        or len(exclusion_tickers) != len(set(exclusion_tickers))
+        or sorted(eligible_tickers + exclusion_tickers) != tickers
+        or set(eligible_tickers) & set(exclusion_tickers)
+    ):
+        raise ProvenanceError(
+            "external terminal denominator coverage is not exact"
+        )
+    raw_shards = _list(
+        "external terminal shards", receipt.get("shards")
+    )
+    if (
+        not raw_shards
+        or _sha256_text(
+            "external terminal shards_sha256",
+            receipt.get("shards_sha256"),
+        )
+        != canonical_sha256(raw_shards)
+    ):
+        raise ProvenanceError("external terminal shard hash mismatch")
+    shard_by_id: dict[str, Mapping[str, Any]] = {}
+    adapter_pairs: set[tuple[str, str]] = set()
+    shard_approvals: list[dict[str, str]] = []
+    previous_shard = ""
+    for index, raw in enumerate(raw_shards):
+        shard = _mapping(f"external terminal shard[{index}]", raw)
+        shard_id = _text("external terminal shard_id", shard.get("shard_id"))
+        if previous_shard and shard_id <= previous_shard:
+            raise ProvenanceError(
+                "external terminal shards must be sorted and unique"
+            )
+        previous_shard = shard_id
+        code_sha = _sha256_text(
+            "external terminal adapter_code_sha256",
+            shard.get("adapter_code_sha256"),
+        )
+        config_sha = _sha256_text(
+            "external terminal adapter_config_sha256",
+            shard.get("adapter_config_sha256"),
+        )
+        adapter_pairs.add((code_sha, config_sha))
+        shard_approvals.append(
+            {
+                "shard_id": shard_id,
+                "adapter_code_sha256": code_sha,
+                "adapter_config_sha256": config_sha,
+            }
+        )
+        controls = _mapping(
+            "external terminal filesystem_controls",
+            shard.get("filesystem_controls"),
+        )
+        for name in (
+            "authority",
+            "capture_receipt",
+            "raw_pins",
+            "normalized_output",
+        ):
+            fact = _mapping(
+                f"external terminal filesystem_controls.{name}",
+                controls.get(name),
+            )
+            if fact.get("root_read_only_verified") is not True:
+                raise ProvenanceError(
+                    "external terminal control was not root/read-only verified"
+                )
+        for raw_index, raw_fact in enumerate(
+            _list(
+                "external terminal raw_responses",
+                shard.get("raw_responses"),
+            )
+        ):
+            response = _mapping(
+                f"external terminal raw response[{raw_index}]", raw_fact
+            )
+            filesystem = _mapping(
+                "external terminal raw response filesystem",
+                response.get("filesystem"),
+            )
+            if filesystem.get("root_read_only_verified") is not True:
+                raise ProvenanceError(
+                    "external terminal raw response was not root/read-only "
+                    "verified"
+                )
+        shard_by_id[shard_id] = shard
+    policy = _mapping(
+        "external terminal adapter_version_policy",
+        receipt.get("adapter_version_policy"),
+    )
+    _strict_keys(
+        "external terminal adapter_version_policy",
+        policy,
+        {"mode", "approved_shards"},
+        required={"mode", "approved_shards"},
+    )
+    mode = _text("external terminal adapter version mode", policy.get("mode"))
+    approvals = _list(
+        "external terminal approved_shards",
+        policy.get("approved_shards"),
+    )
+    if mode == "SINGLE_VERSION_REQUIRED":
+        if approvals or len(adapter_pairs) != 1:
+            raise ProvenanceError(
+                "mixed terminal adapter versions lack explicit approval"
+            )
+    elif mode == "EXPLICIT_PER_SHARD":
+        if approvals != shard_approvals:
+            raise ProvenanceError(
+                "terminal adapter per-shard approvals are not exact"
+            )
+    else:
+        raise ProvenanceError("unknown terminal adapter version policy")
+
+    raw_index = _list(
+        "external terminal record index",
+        receipt.get("terminal_record_index"),
+    )
+    if _sha256_text(
+        "external terminal record index SHA",
+        receipt.get("terminal_record_index_sha256"),
+    ) != canonical_sha256(raw_index):
+        raise ProvenanceError("external terminal record index hash mismatch")
+    index_by_ticker: dict[str, Mapping[str, Any]] = {}
+    for index, raw in enumerate(raw_index):
+        row = _mapping(f"external terminal record index[{index}]", raw)
+        required_index = {
+            "ticker",
+            "shard_id",
+            "settlement_id",
+            "record_sha256",
+            "observed_at_ns",
+            "selected_raw_response_sha256",
+            "adapter_code_sha256",
+            "adapter_config_sha256",
+            "authority_raw_sha256",
+            "capture_receipt_raw_sha256",
+            "raw_pins_raw_sha256",
+            "normalized_output_raw_sha256",
+            "normalized_output_canonical_sha256",
+        }
+        _strict_keys(
+            f"external terminal record index[{index}]",
+            row,
+            required_index,
+            required=required_index,
+        )
+        ticker = _text("external terminal index ticker", row.get("ticker"))
+        if ticker in index_by_ticker:
+            raise ProvenanceError(
+                "duplicate ticker in external terminal record index"
+            )
+        try:
+            shard = shard_by_id[
+                _text("external terminal index shard_id", row.get("shard_id"))
+            ]
+        except KeyError as exc:
+            raise ProvenanceError(
+                "external terminal index references an absent shard"
+            ) from exc
+        for field in (
+            "adapter_code_sha256",
+            "adapter_config_sha256",
+            "authority_raw_sha256",
+            "capture_receipt_raw_sha256",
+            "raw_pins_raw_sha256",
+            "normalized_output_raw_sha256",
+            "normalized_output_canonical_sha256",
+        ):
+            if row.get(field) != shard.get(field):
+                raise ProvenanceError(
+                    f"external terminal index differs from shard: {field}"
+                )
+        _sha256_text(
+            "external terminal index record SHA",
+            row.get("record_sha256"),
+        )
+        _sha256_text(
+            "external terminal selected raw SHA",
+            row.get("selected_raw_response_sha256"),
+        )
+        _plain_int(
+            "external terminal observed_at_ns",
+            row.get("observed_at_ns"),
+            minimum=0,
+        )
+        index_by_ticker[ticker] = row
+    if list(index_by_ticker) != eligible_tickers:
+        raise ProvenanceError(
+            "external terminal record index is not exact ticker coverage"
+        )
+    return canonical_sha256(receipt), index_by_ticker
+
+
 def _validate_lineage_receipt(
     fixture: Mapping[str, Any],
     receipt: object,
@@ -1035,6 +1485,8 @@ def _validate_lineage_receipt(
     """Validate externally pinned record membership and derivation authority."""
 
     lineage = _mapping("trusted_lineage_receipt", receipt)
+    lineage_schema = lineage.get("schema_version")
+    is_hybrid = lineage_schema == HYBRID_LINEAGE_RECEIPT_SCHEMA
     top_allowed = {
         "schema_version",
         "run_id",
@@ -1047,13 +1499,18 @@ def _validate_lineage_receipt(
         "records_sha256",
         "payload_sha256",
     }
+    if is_hybrid:
+        top_allowed.add("external_terminal_evidence")
     _strict_keys(
         "trusted_lineage_receipt",
         lineage,
         top_allowed,
         required=top_allowed,
     )
-    if lineage.get("schema_version") != LINEAGE_RECEIPT_SCHEMA:
+    if lineage_schema not in {
+        LINEAGE_RECEIPT_SCHEMA,
+        HYBRID_LINEAGE_RECEIPT_SCHEMA,
+    }:
         raise ProvenanceError("unknown lineage receipt schema")
     calculated_receipt_sha256 = canonical_sha256(lineage)
     if (
@@ -1085,14 +1542,24 @@ def _validate_lineage_receipt(
         "extractor_config_sha256",
         lineage.get("extractor_config_sha256"),
     )
-    if (
-        _sha256_text(
-            "record_schema_sha256",
-            lineage.get("record_schema_sha256"),
-        )
-        != LINEAGE_RECORD_SCHEMA_SHA256
-    ):
+    expected_record_schema = (
+        HYBRID_LINEAGE_RECORD_SCHEMA_SHA256
+        if is_hybrid
+        else LINEAGE_RECORD_SCHEMA_SHA256
+    )
+    if _sha256_text(
+        "record_schema_sha256",
+        lineage.get("record_schema_sha256"),
+    ) != expected_record_schema:
         raise ProvenanceError("lineage record schema contract drift")
+    terminal_root_sha256: str | None = None
+    terminal_index: dict[str, Mapping[str, Any]] = {}
+    if is_hybrid:
+        terminal_root_sha256, terminal_index = (
+            _validate_terminal_root_receipt_for_lineage(
+                lineage.get("external_terminal_evidence")
+            )
+        )
 
     provenance = _mapping("provenance", fixture.get("provenance"))
     release_rows = _list(
@@ -1224,14 +1691,32 @@ def _validate_lineage_receipt(
         "locator",
         "source_record_sha256",
     }
+    external_member_allowed = {
+        "source_class",
+        "shard_id",
+        "ticker",
+        "channel",
+        "temporality",
+        "adapter_code_sha256",
+        "adapter_config_sha256",
+        "authority_raw_sha256",
+        "capture_receipt_raw_sha256",
+        "raw_pins_raw_sha256",
+        "normalized_output_raw_sha256",
+        "normalized_output_canonical_sha256",
+        "selected_raw_response_sha256",
+        "source_record_sha256",
+        "terminal_root_receipt_sha256",
+    }
     lineage_records: dict[
         tuple[str, str], Mapping[str, Any]
     ] = {}
     lineage_members: dict[
-        tuple[str, str], frozenset[tuple[str, str, str, str]]
+        tuple[str, str], frozenset[tuple[str, ...]]
     ] = {}
     record_order: list[tuple[str, str]] = []
     referenced_objects: set[tuple[str, str, str]] = set()
+    referenced_terminal_tickers: set[str] = set()
     for index, raw in enumerate(record_rows):
         row = _mapping(f"lineage records[{index}]", raw)
         _strict_keys(
@@ -1279,8 +1764,8 @@ def _validate_lineage_receipt(
         )
         if not raw_members:
             raise ProvenanceError("lineage source_members cannot be empty")
-        member_order: list[tuple[str, str, str, str, str]] = []
-        membership: set[tuple[str, str, str, str]] = set()
+        member_order: list[tuple[str, ...]] = []
+        membership: set[tuple[str, ...]] = set()
         for member_index, member_raw in enumerate(raw_members):
             member = _mapping(
                 (
@@ -1289,6 +1774,117 @@ def _validate_lineage_receipt(
                 ),
                 member_raw,
             )
+            if "source_class" in member:
+                if not is_hybrid or kind != "SETTLEMENT":
+                    raise ProvenanceError(
+                        "external lineage member is allowed only for "
+                        "hybrid SETTLEMENT"
+                    )
+                _strict_keys(
+                    (
+                        f"lineage records[{index}]."
+                        f"source_members[{member_index}]"
+                    ),
+                    member,
+                    external_member_allowed,
+                    required=external_member_allowed,
+                )
+                if (
+                    member.get("source_class")
+                    != "OFFICIAL_TERMINAL_CAPTURE"
+                    or member.get("channel") != "SETTLEMENT"
+                    or member.get("temporality") != TERMINAL_TEMPORALITY
+                ):
+                    raise ProvenanceError(
+                        "external terminal source semantics drifted"
+                    )
+                ticker = _text(
+                    "external terminal source ticker",
+                    member.get("ticker"),
+                )
+                try:
+                    terminal = terminal_index[ticker]
+                except KeyError as exc:
+                    raise ProvenanceError(
+                        "external terminal source ticker is absent from root"
+                    ) from exc
+                expected_external = {
+                    "shard_id": terminal["shard_id"],
+                    "adapter_code_sha256": terminal[
+                        "adapter_code_sha256"
+                    ],
+                    "adapter_config_sha256": terminal[
+                        "adapter_config_sha256"
+                    ],
+                    "authority_raw_sha256": terminal[
+                        "authority_raw_sha256"
+                    ],
+                    "capture_receipt_raw_sha256": terminal[
+                        "capture_receipt_raw_sha256"
+                    ],
+                    "raw_pins_raw_sha256": terminal[
+                        "raw_pins_raw_sha256"
+                    ],
+                    "normalized_output_raw_sha256": terminal[
+                        "normalized_output_raw_sha256"
+                    ],
+                    "normalized_output_canonical_sha256": terminal[
+                        "normalized_output_canonical_sha256"
+                    ],
+                    "selected_raw_response_sha256": terminal[
+                        "selected_raw_response_sha256"
+                    ],
+                    "source_record_sha256": terminal["record_sha256"],
+                    "terminal_root_receipt_sha256": terminal_root_sha256,
+                }
+                if any(
+                    member.get(field) != expected
+                    for field, expected in expected_external.items()
+                ):
+                    raise ProvenanceError(
+                        "external terminal source member differs from root"
+                    )
+                if (
+                    terminal["settlement_id"] != key[1]
+                    or terminal["record_sha256"] != record_sha256
+                ):
+                    raise ProvenanceError(
+                        "external terminal index differs from settlement"
+                    )
+                source_record_sha256 = _sha256_text(
+                    "external source_record_sha256",
+                    member.get("source_record_sha256"),
+                )
+                member_key = (
+                    "OFFICIAL_TERMINAL_CAPTURE",
+                    member["shard_id"],
+                    ticker,
+                    member["capture_receipt_raw_sha256"],
+                    member["raw_pins_raw_sha256"],
+                    member["normalized_output_raw_sha256"],
+                    member["selected_raw_response_sha256"],
+                )
+                if member_key in member_order:
+                    raise ProvenanceError(
+                        "duplicate external terminal source member"
+                    )
+                member_order.append(member_key)
+                membership.add(
+                    (
+                        "OFFICIAL_TERMINAL_CAPTURE",
+                        ticker,
+                        member["selected_raw_response_sha256"],
+                    )
+                )
+                referenced_terminal_tickers.add(ticker)
+                if (
+                    mode != "DIRECT"
+                    or source_record_sha256 != record_sha256
+                ):
+                    raise ProvenanceError(
+                        "external terminal lineage must be DIRECT"
+                    )
+                continue
             _strict_keys(
                 (
                     f"lineage records[{index}]."
@@ -1416,6 +2012,22 @@ def _validate_lineage_receipt(
             "lineage object read set is not exact; "
             f"missing={missing}, extra={extra}"
         )
+    if is_hybrid:
+        if referenced_terminal_tickers != set(terminal_index):
+            missing = sorted(
+                set(terminal_index) - referenced_terminal_tickers
+            )
+            extra = sorted(
+                referenced_terminal_tickers - set(terminal_index)
+            )
+            raise ProvenanceError(
+                "external terminal record use is not exact; "
+                f"missing={missing}, extra={extra}"
+            )
+    elif referenced_terminal_tickers:
+        raise ProvenanceError(
+            "legacy lineage cannot reference external terminal evidence"
+        )
 
     binding_allowed = {
         "kind",
@@ -1426,16 +2038,30 @@ def _validate_lineage_receipt(
         "source_object_version_id",
         "source_object_sha256",
     }
+    external_binding_allowed = {
+        "kind",
+        "record_id",
+        "record_sha256",
+        "source_class",
+        "market_ticker",
+        "source_raw_response_sha256",
+    }
     seen_bindings: set[tuple[str, str]] = set()
     for index, raw in enumerate(
         _list("evidence_bindings", fixture.get("evidence_bindings"))
     ):
         binding = _mapping(f"evidence_bindings[{index}]", raw)
+        is_external_binding = "source_class" in binding
+        allowed_binding = (
+            external_binding_allowed
+            if is_external_binding
+            else binding_allowed
+        )
         _strict_keys(
             f"evidence_bindings[{index}]",
             binding,
-            binding_allowed,
-            required=binding_allowed,
+            allowed_binding,
+            required=allowed_binding,
         )
         key = (
             _text("kind", binding.get("kind")),
@@ -1453,21 +2079,43 @@ def _validate_lineage_receipt(
             raise ProvenanceError(
                 "fixture evidence record SHA disagrees with lineage"
             )
-        source_identity = (
-            _text("release_id", binding.get("release_id")),
-            _text(
-                "source_object_logical_key",
-                binding.get("source_object_logical_key"),
-            ),
-            _text(
-                "source_object_version_id",
-                binding.get("source_object_version_id"),
-            ),
-            _sha256_text(
-                "source_object_sha256",
-                binding.get("source_object_sha256"),
-            ),
-        )
+        if is_external_binding:
+            if (
+                not is_hybrid
+                or key[0] != "SETTLEMENT"
+                or binding.get("source_class")
+                != "OFFICIAL_TERMINAL_CAPTURE"
+            ):
+                raise ProvenanceError(
+                    "external fixture binding is hybrid SETTLEMENT-only"
+                )
+            source_identity = (
+                "OFFICIAL_TERMINAL_CAPTURE",
+                _text(
+                    "external binding market_ticker",
+                    binding.get("market_ticker"),
+                ),
+                _sha256_text(
+                    "external binding source_raw_response_sha256",
+                    binding.get("source_raw_response_sha256"),
+                ),
+            )
+        else:
+            source_identity = (
+                _text("release_id", binding.get("release_id")),
+                _text(
+                    "source_object_logical_key",
+                    binding.get("source_object_logical_key"),
+                ),
+                _text(
+                    "source_object_version_id",
+                    binding.get("source_object_version_id"),
+                ),
+                _sha256_text(
+                    "source_object_sha256",
+                    binding.get("source_object_sha256"),
+                ),
+            )
         if source_identity not in lineage_members[key]:
             raise ProvenanceError(
                 "fixture evidence source disagrees with lineage"
@@ -5406,6 +6054,8 @@ if __name__ == "__main__":
 __all__ = [
     "C1_CLASSIFICATION",
     "FIXTURE_SCHEMA",
+    "HYBRID_LINEAGE_RECEIPT_SCHEMA",
+    "HYBRID_LINEAGE_RECORD_SCHEMA_SHA256",
     "LINEAGE_RECEIPT_SCHEMA",
     "LINEAGE_RECORD_SCHEMA_SHA256",
     "NET_COMPLETE",

@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 import threading
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qs, urlsplit
 import urllib.error
 import urllib.request
@@ -18,6 +18,8 @@ import pytest
 
 from tools.research.pnl_spine.contracts import canonical_sha256
 from tools.research.pnl_spine.production_lineage import (
+    HYBRID_LINEAGE_RECEIPT_SCHEMA,
+    HYBRID_RECORD_SPEC_SCHEMA,
     MANIFEST_PINS_SCHEMA,
     PARQUET_RUNTIME_POLICY,
     RECORD_SPEC_SCHEMA,
@@ -37,6 +39,7 @@ from tools.research.pnl_spine.production_lineage import (
     _validate_parquet_runtime_receipt_shape,
     build_parquet_runtime_receipt,
     main,
+    produce_hybrid_lineage_receipt,
     produce_lineage_receipt,
     production_extractor_code_sha256,
     refuse_non_imds_credentials,
@@ -45,6 +48,10 @@ from tools.research.pnl_spine.production_lineage import (
     validate_parquet_runtime_receipt,
     write_receipt_create_once,
 )
+from tools.research.pnl_spine.terminal_lineage_bridge import (
+    TerminalLineageBundle,
+)
+from tools.research.pnl_spine.provenance import ProvenanceError
 from tools.research.pnl_spine.runner import (
     LINEAGE_RECORD_SCHEMA_SHA256,
     _validate_lineage_receipt,
@@ -572,6 +579,212 @@ def test_production_receipt_is_runner_accepted_and_hashes_shared_object_once():
         "source-version-0",
     )
     assert reader.calls.count(row_object) == 1
+
+
+def _root_terminal_bundle(
+    settlement: Mapping[str, Any],
+) -> TerminalLineageBundle:
+    ticker = settlement["market_ticker"]
+    code_sha = "a" * 64
+    config_sha = "b" * 64
+    authority_sha = "c" * 64
+    capture_sha = "d" * 64
+    pins_sha = "e" * 64
+    output_raw_sha = "f" * 64
+    output_canonical_sha = "1" * 64
+    source_sha = settlement["source_sha256"]
+    root_fact = {
+        "path": "/etc/w09/pnl-terminal/test.json",
+        "raw_sha256": "2" * 64,
+        "size_bytes": 1,
+        "uid": 0,
+        "mode_octal": "0444",
+        "root_read_only_verified": True,
+    }
+    raw_fact = {
+        "ticker": ticker,
+        "batch_attempt_index": 0,
+        "raw_relative_path": "0000.0000.current.response.json",
+        "raw_size": 1,
+        "raw_sha256": source_sha,
+        "source_tier": "current",
+        "http_status": 200,
+        "filesystem": {
+            **root_fact,
+            "path": (
+                "/etc/w09/pnl-terminal/"
+                "0000.0000.current.response.json"
+            ),
+            "raw_sha256": source_sha,
+        },
+    }
+    shard = {
+        "shard_id": "batch-00",
+        "adapter_code_sha256": code_sha,
+        "adapter_config_sha256": config_sha,
+        "authority_raw_sha256": authority_sha,
+        "capture_receipt_raw_sha256": capture_sha,
+        "raw_pins_raw_sha256": pins_sha,
+        "normalized_output_raw_sha256": output_raw_sha,
+        "normalized_output_canonical_sha256": output_canonical_sha,
+        "tickers": [ticker],
+        "tickers_sha256": canonical_sha256([ticker]),
+        "terminal_records_sha256": canonical_sha256([settlement]),
+        "metadata_evidence_sha256": "3" * 64,
+        "raw_response_evidence_sha256": "4" * 64,
+        "raw_responses": [raw_fact],
+        "filesystem_controls": {
+            "authority": root_fact,
+            "capture_receipt": root_fact,
+            "raw_pins": root_fact,
+            "normalized_output": root_fact,
+        },
+    }
+    index = {
+        "ticker": ticker,
+        "shard_id": "batch-00",
+        "settlement_id": settlement["settlement_id"],
+        "record_sha256": canonical_sha256(settlement),
+        "observed_at_ns": settlement["observed_at_ns"],
+        "selected_raw_response_sha256": source_sha,
+        "adapter_code_sha256": code_sha,
+        "adapter_config_sha256": config_sha,
+        "authority_raw_sha256": authority_sha,
+        "capture_receipt_raw_sha256": capture_sha,
+        "raw_pins_raw_sha256": pins_sha,
+        "normalized_output_raw_sha256": output_raw_sha,
+        "normalized_output_canonical_sha256": output_canonical_sha,
+    }
+    payload = {
+        "schema_version": (
+            "pnl-spine-official-terminal-root-receipt-v1"
+        ),
+        "temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
+        "coverage_policy": "EXACT_REQUIRED_TICKER_SET",
+        "required_tickers": [ticker],
+        "required_tickers_sha256": canonical_sha256([ticker]),
+        "eligible_tickers": [ticker],
+        "eligible_tickers_sha256": canonical_sha256([ticker]),
+        "eligibility_exclusions": [],
+        "eligibility_exclusions_sha256": canonical_sha256([]),
+        "adapter_version_policy": {
+            "mode": "SINGLE_VERSION_REQUIRED",
+            "approved_shards": [],
+        },
+        "shards": [shard],
+        "shards_sha256": canonical_sha256([shard]),
+        "terminal_records_sha256": canonical_sha256([settlement]),
+        "terminal_record_index": [index],
+        "terminal_record_index_sha256": canonical_sha256([index]),
+        "metadata_evidence_sha256": "5" * 64,
+        "resolved_capabilities": [
+            "OFFICIAL_FINALIZED_YES_NO_RESULT",
+        ],
+        "remaining_blockers": [
+            "BLOCK_A01_HISTORICAL_POINT_IN_TIME_METADATA_INTERVALS_MISSING",
+            "BLOCK_A01_SCHEDULED_START_AUTHORITY_MISSING",
+            "BLOCK_A01_EXCHANGE_SETTLEMENT_REVISION_SEQUENCE_UNAVAILABLE",
+        ],
+        "historical_point_in_time_metadata_satisfied": False,
+        "scheduled_start_authority_satisfied": False,
+        "historical_lifecycle_intervals_satisfied": False,
+        "network_reads_performed_by_bridge": 0,
+        "s3_writes": 0,
+        "financial_mutations": 0,
+    }
+    payload["payload_sha256"] = canonical_sha256(payload)
+    return TerminalLineageBundle(
+        receipt=payload,
+        terminal_records_by_ticker={ticker: settlement},
+    )
+
+
+def test_hybrid_receipt_binds_exact_sources_and_external_terminal_root():
+    fixture, pins, spec, reader = production_case()
+    selected_raw_sha = "9" * 64
+    settlement = {
+        "settlement_id": "settlement-1",
+        "market_ticker": "KX-TEST",
+        "status": "FINALIZED",
+        "finalized": True,
+        "yes_settlement_value_e4": 10_000,
+        "observed_at_ns": utc_seconds(3) * 1_000_000_000 + 30,
+        "revision": 0,
+        "source_sha256": selected_raw_sha,
+    }
+    fixture["settlements"] = [settlement]
+    fixture["evidence_bindings"][-1] = {
+        "kind": "SETTLEMENT",
+        "record_id": "settlement-1",
+        "record_sha256": canonical_sha256(settlement),
+        "source_class": "OFFICIAL_TERMINAL_CAPTURE",
+        "market_ticker": "KX-TEST",
+        "source_raw_response_sha256": selected_raw_sha,
+    }
+    spec["schema_version"] = HYBRID_RECORD_SPEC_SCHEMA
+    settlement_row = next(
+        row for row in spec["records"] if row["kind"] == "SETTLEMENT"
+    )
+    settlement_row.update(
+        {
+            "mode": "DIRECT",
+            "sources": [
+                {
+                    "alias": "official_terminal",
+                    "source_class": "OFFICIAL_TERMINAL_CAPTURE",
+                    "ticker": "KX-TEST",
+                }
+            ],
+            "transform": {"schema_version": "identity-v1"},
+        }
+    )
+    bundle = _root_terminal_bundle(settlement)
+
+    receipt = produce_hybrid_lineage_receipt(
+        fixture=fixture,
+        manifest_pins=pins,
+        record_spec=spec,
+        terminal_bundle=bundle,
+        reader=reader,
+    )
+
+    assert receipt["schema_version"] == HYBRID_LINEAGE_RECEIPT_SCHEMA
+    assert len(receipt["object_reads"]) == 3
+    member = next(
+        row for row in receipt["records"] if row["kind"] == "SETTLEMENT"
+    )["source_members"][0]
+    assert member["source_class"] == "OFFICIAL_TERMINAL_CAPTURE"
+    assert member["temporality"] == (
+        "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF"
+    )
+    _validate_lineage_receipt(
+        fixture,
+        receipt,
+        expected_sha256=canonical_sha256(receipt),
+    )
+    forged = copy.deepcopy(receipt)
+    forged_settlement = next(
+        row for row in forged["records"] if row["kind"] == "SETTLEMENT"
+    )
+    forged_settlement["source_members"][0][
+        "selected_raw_response_sha256"
+    ] = "8" * 64
+    forged_settlement["input_set_sha256"] = canonical_sha256(
+        forged_settlement["source_members"]
+    )
+    forged["records_sha256"] = canonical_sha256(forged["records"])
+    payload = dict(forged)
+    payload.pop("payload_sha256")
+    forged["payload_sha256"] = canonical_sha256(payload)
+    with pytest.raises(
+        ProvenanceError,
+        match="external terminal source member differs from root",
+    ):
+        _validate_lineage_receipt(
+            fixture,
+            forged,
+            expected_sha256=canonical_sha256(forged),
+        )
 
 
 def test_exported_api_rejects_wrong_code_pin_before_any_exact_read():
