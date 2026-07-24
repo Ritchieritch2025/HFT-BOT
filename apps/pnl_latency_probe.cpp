@@ -6,12 +6,16 @@
 // The executable hashes its own loaded binary and root-pinned deployment
 // controls; producer/environment/host hashes are never accepted as CLI facts.
 //
-// IOC_EXIT is intentionally NOT implemented as a write path.  The
-// --ioc-exit-preflight mode performs authenticated GETs only and reports that
-// a separate current live authority and a separately reviewed executor are
-// required.  --execute-ioc-exit is refused before credentials are loaded.
+// IOC_EXIT now has a complete reduce-only/IOC implementation and a pure
+// adversarially tested recovery state machine, but its compile-time release
+// gates remain false pending a fresh independent audit, trusted pre-trade fee
+// binding, and deployment proof for the account-wide credential-broker lock.
+// While closed,
+// --execute-ioc-exit is refused before controls, credentials, network or
+// local artifacts.  The read-only --ioc-exit-preflight remains separate.
 
 #include "daemon_util.hpp"
+#include "pnl_ioc_exit_state.hpp"
 #include "kalshi/client.hpp"
 #include "kalshi/env.hpp"
 #include "kalshi/wire.hpp"
@@ -82,6 +86,21 @@ constexpr std::int64_t kMaximumClockFutureSkewMs = 5 * 1'000;
 constexpr std::int64_t kMaximumClockErrorNs = 10 * 1'000'000;
 constexpr std::string_view kProbeClockId =
     "STD_STEADY_CLOCK:probe-process";
+constexpr std::string_view kIocAuthoritySchema =
+    "pnl-spine-ioc-exit-authority-v1";
+constexpr std::string_view kIocPrivateFragmentSchema =
+    "pnl-spine-private-ioc-exit-fragment-v1";
+constexpr std::string_view kAccountMutationLockPath =
+    "/var/lib/w09-pnl/account-mutation.lock";
+// The complete executor and its offline state machine live below this gate.
+// The gates remain false until a fresh independent audit passes, a trusted
+// pre-trade fee schedule is bound to the one-shot authority, and the W09
+// deployment proves that the dedicated credential broker honors the same
+// persistent account-mutation lock.  While either gate is false,
+// --execute-ioc-exit refuses before controls, credentials, network, locks,
+// ledgers, or output files.
+constexpr bool kIocExitExecutorIndependentlyAudited = false;
+constexpr bool kIocPretradeFeeScheduleBound = false;
 // GetOrders has no direct client_order_id query, a bounded list query can time
 // out or be eventually consistent, and this binary has neither an audited
 // account-level trading block nor a position-flattening IOC transmitter.
@@ -98,6 +117,7 @@ struct Options {
   bool self_test_authority_deadline = false;
   bool self_test_network_environment = false;
   bool self_test_ambiguous_post_recovery = false;
+  bool self_test_ioc_exit_executor = false;
   std::string ticker;
   std::string authority_file;
   std::string expected_authority_sha256;
@@ -116,6 +136,19 @@ struct Authority {
   std::int64_t expires_at_unix_s = 0;
   bool allow_place_cancel = false;
   bool allow_ioc_exit = false;
+  std::string nonce_sha256;
+  std::string transaction_id;
+  std::uint64_t accepted_at_steady_ns = 0;
+  std::uint64_t monotonic_deadline_ns = 0;
+};
+
+struct IocAuthority {
+  std::int64_t issued_at_unix_s = 0;
+  std::int64_t expires_at_unix_s = 0;
+  std::int64_t quantity_e4 = 0;
+  std::int64_t price_limit_e4 = 0;
+  std::int64_t maximum_cash_loss_e6 = 0;
+  std::int64_t maximum_fee_e6 = 0;
   std::string nonce_sha256;
   std::string transaction_id;
   std::uint64_t accepted_at_steady_ns = 0;
@@ -225,11 +258,27 @@ struct OrderSnapshot {
 
 struct CreateAck {
   std::string order_id;
+  std::string client_order_id;
   std::int64_t fill_count_e4 = 0;
   std::int64_t remaining_count_e4 = 0;
   std::int64_t matching_engine_ts_ms = 0;
   std::optional<std::int64_t> average_fee_paid_e6;
   std::optional<std::int64_t> average_fill_price_e4;
+};
+
+struct IocOrderSnapshot {
+  std::string order_id;
+  std::string client_order_id;
+  std::string ticker;
+  std::int64_t subaccount = -1;
+  std::int64_t requested_e4 = 0;
+  std::int64_t filled_e4 = 0;
+  std::int64_t remaining_e4 = 0;
+  std::int64_t total_fill_cost_e6 = 0;
+  std::int64_t total_fee_e6 = 0;
+  std::int64_t maker_fill_cost_e6 = 0;
+  std::int64_t maker_fee_e6 = 0;
+  std::string response_sha256;
 };
 
 struct CancelAck {
@@ -1032,10 +1081,11 @@ std::optional<CreateAck> parse_create_ack(std::string_view body) {
     if (root_result.error()) return std::nullopt;
     auto root = root_result.value();
     auto order_id = string_field(root, {"order_id"});
+    auto client_order_id = string_field(root, {"client_order_id"});
     auto filled = count_field(root, {"fill_count"}, {});
     auto remaining = count_field(root, {"remaining_count"}, {});
     std::int64_t ts_ms = 0;
-    if (!order_id || !filled || !remaining ||
+    if (!order_id || !client_order_id || !filled || !remaining ||
         root["ts_ms"].get(ts_ms) != simdjson::SUCCESS || ts_ms <= 0)
       return std::nullopt;
     std::optional<std::int64_t> average_fee;
@@ -1055,7 +1105,7 @@ std::optional<CreateAck> parse_create_ack(std::string_view body) {
         return std::nullopt;
     }
     return CreateAck{
-        *order_id, *filled, *remaining, ts_ms, average_fee,
+        *order_id, *client_order_id, *filled, *remaining, ts_ms, average_fee,
         average_fill_price};
   } catch (...) {
     return std::nullopt;
@@ -1101,6 +1151,106 @@ std::optional<PositionSnapshot> parse_position_snapshot(
     }
     // The portfolio endpoint omits zero-position markets.
     return PositionSnapshot{0, sha256_hex(body)};
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::optional<PositionSnapshot> parse_exact_ioc_position_snapshot(
+    std::string_view body, std::string_view ticker) {
+  try {
+    simdjson::dom::parser parser;
+    auto root_result = parser.parse(body);
+    if (root_result.error()) return std::nullopt;
+    auto root = root_result.value();
+    simdjson::dom::array positions;
+    if (root["market_positions"].get(positions) != simdjson::SUCCESS)
+      return std::nullopt;
+    std::string_view cursor;
+    if (root["cursor"].get(cursor) != simdjson::SUCCESS ||
+        !cursor.empty())
+      return std::nullopt;
+    bool found = false;
+    std::int64_t exact_position = 0;
+    for (auto position : positions) {
+      const auto found_ticker =
+          string_field(position, {"ticker", "market_ticker"});
+      if (!found_ticker || *found_ticker != ticker || found)
+        return std::nullopt;
+      const auto value =
+          count_field(position, {"position_fp"}, {"position"});
+      if (!value) return std::nullopt;
+      found = true;
+      exact_position = *value;
+    }
+    // With an exact ticker filter and an empty cursor, omission is the
+    // official zero-position representation.
+    return PositionSnapshot{
+        found ? exact_position : 0, sha256_hex(body)};
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+std::optional<IocOrderSnapshot> parse_ioc_order_snapshot(
+    std::string_view body) {
+  try {
+    simdjson::dom::parser parser;
+    auto root_result = parser.parse(body);
+    if (root_result.error()) return std::nullopt;
+    auto order = order_object(root_result.value());
+    const auto order_id = string_field(order, {"order_id"});
+    const auto client_order_id =
+        string_field(order, {"client_order_id"});
+    const auto ticker = string_field(order, {"ticker"});
+    const auto requested = count_field(
+        order, {"initial_count_fp"}, {"initial_count"});
+    const auto filled = count_field(
+        order, {"fill_count_fp"}, {"fill_count"});
+    const auto remaining = count_field(
+        order, {"remaining_count_fp"}, {"remaining_count"});
+    std::int64_t subaccount = -1;
+    if (!order_id || order_id->empty() || !client_order_id ||
+        client_order_id->empty() || !ticker || ticker->empty() ||
+        !requested || !filled || !remaining ||
+        order["subaccount_number"].get(subaccount) != simdjson::SUCCESS ||
+        subaccount < 0 || subaccount > 63 ||
+        *requested <= 0 || *filled < 0 || *remaining < 0)
+      return std::nullopt;
+
+    const auto exact_dollars = [&](std::string_view field)
+        -> std::optional<std::int64_t> {
+      simdjson::dom::element value;
+      if (order[field].get(value) != simdjson::SUCCESS)
+        return std::nullopt;
+      const auto parsed = decimal_e6(value);
+      if (!parsed || *parsed < 0) return std::nullopt;
+      return parsed;
+    };
+    const auto taker_cost = exact_dollars("taker_fill_cost_dollars");
+    const auto maker_cost = exact_dollars("maker_fill_cost_dollars");
+    const auto taker_fee = exact_dollars("taker_fees_dollars");
+    const auto maker_fee = exact_dollars("maker_fees_dollars");
+    if (!taker_cost || !maker_cost || !taker_fee || !maker_fee ||
+        *taker_cost >
+            std::numeric_limits<std::int64_t>::max() - *maker_cost ||
+        *taker_fee >
+            std::numeric_limits<std::int64_t>::max() - *maker_fee)
+      return std::nullopt;
+    return IocOrderSnapshot{
+        *order_id,
+        *client_order_id,
+        *ticker,
+        subaccount,
+        *requested,
+        *filled,
+        *remaining,
+        *taker_cost + *maker_cost,
+        *taker_fee + *maker_fee,
+        *maker_cost,
+        *maker_fee,
+        sha256_hex(body),
+    };
   } catch (...) {
     return std::nullopt;
   }
@@ -1231,7 +1381,8 @@ std::optional<Authority> parse_authority(
       return std::nullopt;
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
-    if (issued > now || expires <= now || expires <= issued ||
+    if (issued <= 0 || issued > now || expires <= now ||
+        expires <= issued ||
         expires - issued > 15 * 60 || !allow_place_cancel ||
         allow_ioc_exit || !single_use || max_place_orders != 1 ||
         max_cancel_orders != 1 || max_attempts != 1 ||
@@ -1264,7 +1415,171 @@ std::optional<Authority> parse_authority(
   }
 }
 
+std::optional<IocAuthority> parse_ioc_authority(
+    const Options& options, const RuntimeFacts& facts,
+    std::string& authority_sha256) {
+  const auto bytes = read_root_control_file(options.authority_file);
+  if (!bytes) return std::nullopt;
+  authority_sha256 = sha256_hex(*bytes);
+  if (!is_sha256(options.expected_authority_sha256) ||
+      authority_sha256 != options.expected_authority_sha256)
+    return std::nullopt;
+  try {
+    simdjson::dom::parser parser;
+    auto root_result = parser.parse(*bytes);
+    if (root_result.error()) return std::nullopt;
+    auto root = root_result.value();
+    const std::set<std::string> expected_keys = {
+        "allow_ioc_exit",
+        "ca_bundle_sha256",
+        "clock_quality_receipt_sha256",
+        "consumption_ledger_path_sha256",
+        "environment_fingerprint_sha256",
+        "execution_host_fingerprint_sha256",
+        "expires_at_unix_s",
+        "issued_at_unix_s",
+        "max_attempts",
+        "max_cash_loss_e6",
+        "max_fee_e6",
+        "max_ioc_exit_orders",
+        "measured_on",
+        "nonce_sha256",
+        "price_cap_e4",
+        "producer_code_sha256",
+        "producer_config_sha256",
+        "quantity_e4",
+        "receipt_id",
+        "schema_version",
+        "single_use",
+        "terminal_consumption_receipt_path_sha256",
+        "ticker",
+        "trace_output_path_sha256",
+    };
+    if (!has_exact_keys(root, expected_keys)) return std::nullopt;
+    const auto schema = string_field(root, {"schema_version"});
+    const auto ticker = string_field(root, {"ticker"});
+    const auto code_sha =
+        string_field(root, {"producer_code_sha256"});
+    const auto config_sha =
+        string_field(root, {"producer_config_sha256"});
+    const auto environment_sha =
+        string_field(root, {"environment_fingerprint_sha256"});
+    const auto execution_host_sha =
+        string_field(root, {"execution_host_fingerprint_sha256"});
+    const auto clock_quality_sha =
+        string_field(root, {"clock_quality_receipt_sha256"});
+    const auto ca_bundle_sha =
+        string_field(root, {"ca_bundle_sha256"});
+    const auto receipt_id = string_field(root, {"receipt_id"});
+    const auto measured_on = string_field(root, {"measured_on"});
+    const auto output_path_sha =
+        string_field(root, {"trace_output_path_sha256"});
+    const auto ledger_path_sha =
+        string_field(root, {"consumption_ledger_path_sha256"});
+    const auto terminal_path_sha = string_field(
+        root, {"terminal_consumption_receipt_path_sha256"});
+    const auto nonce = string_field(root, {"nonce_sha256"});
+    std::int64_t issued = 0;
+    std::int64_t expires = 0;
+    std::int64_t maximum_attempts = 0;
+    std::int64_t maximum_ioc_orders = 0;
+    std::int64_t quantity_e4 = 0;
+    std::int64_t price_limit_e4 = 0;
+    std::int64_t maximum_cash_loss_e6 = 0;
+    std::int64_t maximum_fee_e6 = 0;
+    bool allow_ioc_exit = false;
+    bool single_use = false;
+    const auto output_path = strict_absolute_path(options.output);
+    const auto ledger_path =
+        strict_absolute_path(options.consumption_ledger);
+    const auto terminal_path =
+        strict_absolute_path(options.terminal_consumption_receipt);
+    if (!output_path || !ledger_path || !terminal_path ||
+        output_path == ledger_path || output_path == terminal_path ||
+        ledger_path == terminal_path)
+      return std::nullopt;
+    if (!schema || *schema != kIocAuthoritySchema || !ticker ||
+        *ticker != options.ticker || !code_sha ||
+        *code_sha != facts.producer_code_sha256 || !config_sha ||
+        *config_sha != facts.producer_config_sha256 ||
+        !environment_sha ||
+        *environment_sha != facts.environment_fingerprint_sha256 ||
+        !execution_host_sha ||
+        *execution_host_sha != facts.execution_host_fingerprint_sha256 ||
+        !clock_quality_sha ||
+        *clock_quality_sha != facts.clock_quality_receipt_sha256 ||
+        !ca_bundle_sha || *ca_bundle_sha != facts.ca_bundle_sha256 ||
+        !receipt_id || *receipt_id != options.receipt_id ||
+        !measured_on || *measured_on != facts.hostname ||
+        !output_path_sha ||
+        *output_path_sha != sha256_hex(output_path->string()) ||
+        !ledger_path_sha ||
+        *ledger_path_sha != sha256_hex(ledger_path->string()) ||
+        !terminal_path_sha ||
+        *terminal_path_sha != sha256_hex(terminal_path->string()) ||
+        !nonce || !is_sha256(*nonce) ||
+        root["issued_at_unix_s"].get(issued) != simdjson::SUCCESS ||
+        root["expires_at_unix_s"].get(expires) != simdjson::SUCCESS ||
+        root["max_attempts"].get(maximum_attempts) !=
+            simdjson::SUCCESS ||
+        root["max_ioc_exit_orders"].get(maximum_ioc_orders) !=
+            simdjson::SUCCESS ||
+        root["quantity_e4"].get(quantity_e4) != simdjson::SUCCESS ||
+        root["price_cap_e4"].get(price_limit_e4) != simdjson::SUCCESS ||
+        root["max_cash_loss_e6"].get(maximum_cash_loss_e6) !=
+            simdjson::SUCCESS ||
+        root["max_fee_e6"].get(maximum_fee_e6) != simdjson::SUCCESS ||
+        root["allow_ioc_exit"].get(allow_ioc_exit) !=
+            simdjson::SUCCESS ||
+        root["single_use"].get(single_use) != simdjson::SUCCESS)
+      return std::nullopt;
+    const auto now = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+    if (issued <= 0 || issued > now || expires <= now ||
+        expires <= issued ||
+        expires - issued > 15 * 60 || !allow_ioc_exit || !single_use ||
+        maximum_attempts != 1 || maximum_ioc_orders != 1 ||
+        quantity_e4 <= 0 || price_limit_e4 <= 0 ||
+        price_limit_e4 >= 10'000 || maximum_cash_loss_e6 <= 0 ||
+        maximum_fee_e6 <= 0 ||
+        maximum_fee_e6 > maximum_cash_loss_e6)
+      return std::nullopt;
+    const auto accepted_at_steady_ns = steady_now_ns();
+    const auto remaining_seconds =
+        static_cast<std::uint64_t>(expires - now);
+    if (remaining_seconds >
+        (std::numeric_limits<std::uint64_t>::max() -
+         accepted_at_steady_ns) /
+            1'000'000'000ULL)
+      return std::nullopt;
+    return IocAuthority{
+        issued,
+        expires,
+        quantity_e4,
+        price_limit_e4,
+        maximum_cash_loss_e6,
+        maximum_fee_e6,
+        *nonce,
+        sha256_hex(authority_sha256 + *nonce + options.receipt_id),
+        accepted_at_steady_ns,
+        accepted_at_steady_ns + remaining_seconds * 1'000'000'000ULL,
+    };
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
 bool authority_allows_new_risk(const Authority& authority) {
+  const auto wall_now = std::chrono::system_clock::to_time_t(
+      std::chrono::system_clock::now());
+  const auto steady_now = steady_now_ns();
+  return wall_now >= authority.issued_at_unix_s &&
+         wall_now < authority.expires_at_unix_s &&
+         steady_now >= authority.accepted_at_steady_ns &&
+         steady_now < authority.monotonic_deadline_ns;
+}
+
+bool authority_allows_new_risk(const IocAuthority& authority) {
   const auto wall_now = std::chrono::system_clock::to_time_t(
       std::chrono::system_clock::now());
   const auto steady_now = steady_now_ns();
@@ -1343,6 +1658,21 @@ bool valid_ticker(std::string_view ticker) {
          });
 }
 
+bool valid_uuid_identity(std::string_view value) {
+  if (value.size() != 36 || value[8] != '-' || value[13] != '-' ||
+      value[18] != '-' || value[23] != '-')
+    return false;
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    if (index == 8 || index == 13 || index == 18 || index == 23)
+      continue;
+    const unsigned char c = static_cast<unsigned char>(value[index]);
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F')))
+      return false;
+  }
+  return true;
+}
+
 bool valid_ascii_label(std::string_view value) {
   return !value.empty() && value.size() <= 160 &&
          std::all_of(value.begin(), value.end(), [](unsigned char c) {
@@ -1373,6 +1703,46 @@ std::string json_escape(std::string_view value) {
     }
   }
   return result;
+}
+
+std::string fixed_e4(std::int64_t value) {
+  if (value < 0) throw std::runtime_error("negative fixed-point value");
+  char buffer[64];
+  std::snprintf(
+      buffer, sizeof(buffer), "%lld.%04lld",
+      static_cast<long long>(value / 10'000),
+      static_cast<long long>(value % 10'000));
+  return buffer;
+}
+
+std::string immutable_ioc_client_order_id(
+    std::string_view transaction_id, std::string_view ticker) {
+  std::string identity = sha256_hex(
+      std::string(transaction_id) + "\nIOC_EXIT\n" +
+      std::string(ticker) + "\nsubaccount=0");
+  // Set the UUID version/variant bits without introducing randomness.  The
+  // source material is the immutable one-shot transaction identity.
+  identity[12] = '4';
+  identity[16] = '8';
+  return identity.substr(0, 8) + "-" + identity.substr(8, 4) + "-" +
+         identity.substr(12, 4) + "-" + identity.substr(16, 4) + "-" +
+         identity.substr(20, 12);
+}
+
+std::string ioc_order_body(const pnl_ioc::ExitPlan& plan) {
+  const char* side =
+      plan.expected_position_before_e4 > 0 ? "ask" : "bid";
+  return "{\"cancel_order_on_pause\":true,\"client_order_id\":\"" +
+         plan.client_order_id + "\",\"count\":\"" +
+         fixed_e4(plan.quantity_e4) +
+         "\",\"exchange_index\":-1,\"post_only\":false,\"price\":\"" +
+         fixed_e4(plan.limit_price_e4) +
+         "\",\"reduce_only\":true,"
+         "\"self_trade_prevention_type\":\"taker_at_cross\","
+         "\"side\":\"" +
+         side +
+         "\",\"subaccount\":0,\"ticker\":\"" + plan.ticker +
+         "\",\"time_in_force\":\"immediate_or_cancel\"}";
 }
 
 std::string sample_json(const CausalSample& sample) {
@@ -1438,6 +1808,11 @@ struct MutationAccounting {
   std::int64_t cancel_delete_attempts = 0;
   std::string client_order_id_sha256;
   bool cancel_risk_reduction_after_expiry = false;
+};
+
+struct IocMutationAccounting {
+  std::int64_t ioc_exit_post_attempts = 0;
+  std::string client_order_id_sha256;
 };
 
 enum class AmbiguousLookupOutcome {
@@ -1534,6 +1909,49 @@ bool publish_terminal_consumption(
   return reservation.finish(document.str());
 }
 
+bool publish_ioc_terminal_consumption(
+    OutputReservation& reservation, const IocAuthority& authority,
+    std::string_view authority_sha256,
+    const IocMutationAccounting& accounting,
+    std::string_view terminal_state,
+    const std::optional<std::string>& trace_source_sha256) {
+  if (!valid_ascii_label(terminal_state) ||
+      accounting.ioc_exit_post_attempts < 0 ||
+      accounting.ioc_exit_post_attempts > 1 ||
+      (!accounting.client_order_id_sha256.empty() &&
+       !is_sha256(accounting.client_order_id_sha256)) ||
+      (trace_source_sha256 && !is_sha256(*trace_source_sha256)))
+    return false;
+  const auto finished_at_wall_utc_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  std::ostringstream document;
+  document
+      << "{\"authority_sha256\":\"" << authority_sha256
+      << "\",\"client_order_id_sha256\":";
+  if (accounting.client_order_id_sha256.empty()) {
+    document << "null";
+  } else {
+    document << "\"" << accounting.client_order_id_sha256 << "\"";
+  }
+  document
+      << ",\"finished_at_wall_utc_ms\":" << finished_at_wall_utc_ms
+      << ",\"ioc_exit_post_attempts\":"
+      << accounting.ioc_exit_post_attempts
+      << ",\"schema_version\":\"pnl-spine-ioc-exit-authority-terminal-v1\""
+      << ",\"terminal_state\":\"" << terminal_state
+      << "\",\"trace_source_sha256\":";
+  if (trace_source_sha256) {
+    document << "\"" << *trace_source_sha256 << "\"";
+  } else {
+    document << "null";
+  }
+  document << ",\"transaction_id\":\"" << authority.transaction_id
+           << "\"}";
+  return reservation.finish(document.str());
+}
+
 std::optional<PositionSnapshot> fetch_position(
     KalshiClient& client, const std::string& ticker) {
   auto response = client.request(
@@ -1549,6 +1967,157 @@ std::optional<OrderSnapshot> fetch_order(
   if (!response || !response->ok()) return std::nullopt;
   return parse_order_snapshot(response->body);
 }
+
+class KalshiIocTransport final : public pnl_ioc::Transport {
+ public:
+  KalshiIocTransport(
+      KalshiClient& client, KalshiClient::Lane& lane,
+      const RuntimeFacts& facts, const IocAuthority& authority)
+      : client_(client),
+        lane_(lane),
+        facts_(facts),
+        authority_(authority) {}
+
+  std::optional<pnl_ioc::PositionEvidence> get_exact_position(
+      std::string_view ticker, std::int64_t subaccount) override {
+    if (subaccount < 0 || subaccount > 63 ||
+        !network_boundary_still_valid(facts_))
+      return std::nullopt;
+    const std::string path =
+        "/portfolio/positions?ticker=" + std::string(ticker) +
+        "&subaccount=" + std::to_string(subaccount) + "&limit=1000";
+    auto response = client_.request(Method::Get, path);
+    if (!response || response->status != 200) return std::nullopt;
+    const auto parsed =
+        parse_exact_ioc_position_snapshot(response->body, ticker);
+    if (!parsed) return std::nullopt;
+    if (post_attempts == 0) initial_position_ = *parsed;
+    last_position_ = *parsed;
+    return pnl_ioc::PositionEvidence{
+        true, parsed->position_e4, parsed->response_sha256};
+  }
+
+  pnl_ioc::CreateEvidence post_reduce_only_ioc(
+      const pnl_ioc::ExitPlan& plan) override {
+    pnl_ioc::CreateEvidence evidence;
+    decision_ns = steady_now_ns();
+    body = ioc_order_body(plan);
+    request_sha256 = sha256_hex(
+        std::string("POST\n") + std::string(kEventOrderPath) + "\n" +
+        body);
+    if (!authority_allows_new_risk(authority_) ||
+        !network_boundary_still_valid(facts_)) {
+      evidence.disposition =
+          pnl_ioc::PostDisposition::UnambiguousRejection;
+      return evidence;
+    }
+    auto request =
+        client_.sign_request(Method::Post, kEventOrderPath, body);
+    if (!request || !authority_allows_new_risk(authority_) ||
+        !network_boundary_still_valid(facts_)) {
+      evidence.disposition =
+          pnl_ioc::PostDisposition::UnambiguousRejection;
+      return evidence;
+    }
+    sent_ns = steady_now_ns();
+    ++post_attempts;
+    evidence.mutation_attempted = true;
+    auto response = lane_.send(*request);
+    acknowledged_ns = steady_now_ns();
+    if (!response) {
+      evidence.disposition = pnl_ioc::PostDisposition::Ambiguous;
+      return evidence;
+    }
+    evidence.http_status = response->status;
+    evidence.response_sha256 = sha256_hex(response->body);
+    const auto parsed_order_id = parse_order_id(response->body);
+    if (parsed_order_id && valid_uuid_identity(*parsed_order_id))
+      evidence.order_id = *parsed_order_id;
+    if (response->status == 201) {
+      evidence.disposition = pnl_ioc::PostDisposition::Created201;
+      const auto ack = parse_create_ack(response->body);
+      if (ack && valid_uuid_identity(ack->order_id) &&
+          valid_uuid_identity(ack->client_order_id)) {
+        evidence.exact_ack = true;
+        evidence.order_id = ack->order_id;
+        evidence.client_order_id = ack->client_order_id;
+        evidence.fill_count_e4 = ack->fill_count_e4;
+        evidence.remaining_count_e4 = ack->remaining_count_e4;
+        evidence.matching_engine_ts_ms =
+            ack->matching_engine_ts_ms;
+        evidence.average_fee_paid_e6 = ack->average_fee_paid_e6;
+        evidence.average_fill_price_e4 =
+            ack->average_fill_price_e4;
+      }
+    } else if (
+        response->status == 400 || response->status == 401 ||
+        response->status == 403 || response->status == 422 ||
+        response->status == 429) {
+      evidence.disposition =
+          pnl_ioc::PostDisposition::UnambiguousRejection;
+    } else {
+      // 408/409/5xx and every undocumented status are conservative: the
+      // exchange may have accepted the deterministic request identity.
+      evidence.disposition = pnl_ioc::PostDisposition::Ambiguous;
+    }
+    create_body_sha256 = evidence.response_sha256;
+    return evidence;
+  }
+
+  pnl_ioc::RecoveryFrame get_known_order_and_position(
+      std::string_view order_id, std::string_view ticker,
+      std::int64_t subaccount) override {
+    pnl_ioc::RecoveryFrame frame;
+    if (!valid_uuid_identity(order_id) ||
+        !network_boundary_still_valid(facts_))
+      return frame;
+    auto response = client_.request(
+        Method::Get, std::string(kGetOrderPath) + "/" +
+                         std::string(order_id));
+    if (response && response->status == 200) {
+      const auto parsed = parse_ioc_order_snapshot(response->body);
+      if (parsed) {
+        last_order_ = *parsed;
+        frame.order = pnl_ioc::OrderEvidence{
+            true,
+            parsed->order_id,
+            parsed->client_order_id,
+            parsed->ticker,
+            parsed->subaccount,
+            parsed->requested_e4,
+            parsed->filled_e4,
+            parsed->remaining_e4,
+            parsed->total_fill_cost_e6,
+            parsed->total_fee_e6,
+            parsed->maker_fill_cost_e6,
+            parsed->maker_fee_e6,
+            parsed->response_sha256,
+        };
+      }
+    }
+    frame.position = get_exact_position(ticker, subaccount);
+    effective_ns = steady_now_ns();
+    return frame;
+  }
+
+  int post_attempts = 0;
+  std::uint64_t decision_ns = 0;
+  std::uint64_t sent_ns = 0;
+  std::uint64_t acknowledged_ns = 0;
+  std::uint64_t effective_ns = 0;
+  std::string body;
+  std::string request_sha256;
+  std::string create_body_sha256;
+  std::optional<PositionSnapshot> initial_position_;
+  std::optional<PositionSnapshot> last_position_;
+  std::optional<IocOrderSnapshot> last_order_;
+
+ private:
+  KalshiClient& client_;
+  KalshiClient::Lane& lane_;
+  const RuntimeFacts& facts_;
+  const IocAuthority& authority_;
+};
 
 bool best_effort_cancel(
     KalshiClient& client, KalshiClient::Lane& lane,
@@ -1603,6 +2172,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
       options.self_test_network_environment = true;
     } else if (argument == "--self-test-ambiguous-post-recovery") {
       options.self_test_ambiguous_post_recovery = true;
+    } else if (argument == "--self-test-ioc-exit-executor") {
+      options.self_test_ioc_exit_executor = true;
     } else {
       auto value = next_value(index, argc, argv);
       if (!value) return std::nullopt;
@@ -1635,7 +2206,8 @@ int dry_run() {
       "{\"default_mode\":\"DRY_RUN\",\"network_io\":false,"
       "\"order_transmitted\":false,\"place_cancel_gate\":"
       "\"FAIL_CLOSED_AMBIGUOUS_POST_RECOVERY_UNPROVEN\","
-      "\"ioc_exit_gate\":\"FAIL_CLOSED_EXECUTOR_NOT_IMPLEMENTED\","
+      "\"ioc_exit_gate\":\"FAIL_CLOSED_PENDING_INDEPENDENT_AUDIT_FEE_"
+      "BINDING_AND_ACCOUNT_LOCK_DEPLOYMENT\","
       "\"three_path_latency_ready\":false,"
       "\"schema_version\":\"pnl-spine-causal-latency-probe-plan-v1\"}");
   return 0;
@@ -1764,6 +2336,397 @@ int self_test_ambiguous_post_recovery_contract() {
   return ok ? 0 : 1;
 }
 
+int self_test_ioc_exit_executor_contract() {
+  using pnl_ioc::CreateEvidence;
+  using pnl_ioc::ExitPlan;
+  using pnl_ioc::ExitState;
+  using pnl_ioc::OrderEvidence;
+  using pnl_ioc::PositionEvidence;
+  using pnl_ioc::PostDisposition;
+  using pnl_ioc::RecoveryFrame;
+  using pnl_ioc::ScriptedTransport;
+
+  const auto plan_for = [](std::int64_t position_e4) {
+    return ExitPlan{
+        "TEST-TICKER",
+        "11111111-2222-3333-4444-555555555555",
+        position_e4,
+        position_e4 < 0 ? -position_e4 : position_e4,
+        position_e4 < 0 ? 5'500 : 4'500,
+        2'000'000,
+        100'000,
+        true,
+        100'000,
+        0,
+    };
+  };
+  const auto created_for = [](const ExitPlan& plan) {
+    return CreateEvidence{
+        PostDisposition::Created201,
+        true,
+        201,
+        true,
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        plan.client_order_id,
+        plan.quantity_e4,
+        0,
+        1'800'000'000'000LL,
+        12'300,
+        plan.expected_position_before_e4 < 0 ? 5'500 : 4'600,
+        std::string(64, '1'),
+    };
+  };
+  const auto order_for = [](
+                             const ExitPlan& plan,
+                             const CreateEvidence& create) {
+    std::int64_t total_cost_e6 = 0;
+    std::int64_t total_fee_e6 = 0;
+    const bool cost_ok = pnl_ioc::checked_product_div(
+        *create.average_fill_price_e4, plan.quantity_e4, 100,
+        total_cost_e6);
+    const bool fee_ok = pnl_ioc::checked_product_div(
+        *create.average_fee_paid_e6, plan.quantity_e4, 10'000,
+        total_fee_e6);
+    if (!cost_ok || !fee_ok) return OrderEvidence{};
+    return OrderEvidence{
+        true,
+        create.order_id,
+        plan.client_order_id,
+        plan.ticker,
+        plan.subaccount,
+        plan.quantity_e4,
+        plan.quantity_e4,
+        0,
+        total_cost_e6,
+        total_fee_e6,
+        0,
+        0,
+        std::string(64, '2'),
+    };
+  };
+  const auto success_transport = [&](
+                                     const ExitPlan& plan) {
+    ScriptedTransport transport;
+    transport.pre_position =
+        PositionEvidence{true, plan.expected_position_before_e4,
+                         std::string(64, '3')};
+    transport.create = created_for(plan);
+    transport.recovery.push_back(RecoveryFrame{
+        order_for(plan, transport.create),
+        PositionEvidence{true, 0, std::string(64, '4')}});
+    return transport;
+  };
+  bool ok = true;
+  int assertion_index = 0;
+  const auto expect = [&](bool condition) {
+    ++assertion_index;
+    if (!condition)
+      std::fprintf(
+          stderr, "IOC EXIT SELF-TEST assertion %d failed\n",
+          assertion_index);
+    ok = ok && condition;
+  };
+
+  // Exact official V2 fixture decoding and payload semantics are exercised
+  // separately from the pure state transition matrix.
+  {
+    constexpr std::string_view order_json =
+        "{\"order\":{\"client_order_id\":\"11111111-2222-3333-4444-"
+        "555555555555\",\"fill_count_fp\":\"2.0000\","
+        "\"initial_count_fp\":\"2.0000\","
+        "\"maker_fees_dollars\":\"0.000000\","
+        "\"maker_fill_cost_dollars\":\"0.000000\","
+        "\"order_id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\","
+        "\"remaining_count_fp\":\"0.0000\","
+        "\"subaccount_number\":0,"
+        "\"taker_fees_dollars\":\"0.024600\","
+        "\"taker_fill_cost_dollars\":\"1.100000\","
+        "\"ticker\":\"TEST-TICKER\"}}";
+    constexpr std::string_view position_json =
+        "{\"cursor\":\"\",\"event_positions\":[],"
+        "\"market_positions\":[{\"position_fp\":\"-2.0000\","
+        "\"ticker\":\"TEST-TICKER\"}]}";
+    const auto order = parse_ioc_order_snapshot(order_json);
+    const auto position =
+        parse_exact_ioc_position_snapshot(position_json, "TEST-TICKER");
+    expect(order && order->requested_e4 == 20'000 &&
+           order->filled_e4 == 20'000 &&
+           order->remaining_e4 == 0 &&
+           order->total_fill_cost_e6 == 1'100'000 &&
+           order->total_fee_e6 == 24'600 &&
+           order->maker_fill_cost_e6 == 0 &&
+           order->maker_fee_e6 == 0);
+    expect(position && position->position_e4 == -20'000);
+    expect(!parse_exact_ioc_position_snapshot(
+        "{\"cursor\":\"next\",\"market_positions\":[]}",
+        "TEST-TICKER"));
+    expect(!parse_exact_ioc_position_snapshot(
+        "{\"cursor\":\"\",\"market_positions\":["
+        "{\"position_fp\":\"1.0000\",\"ticker\":\"TEST-TICKER\"},"
+        "{\"position_fp\":\"1.0000\",\"ticker\":\"TEST-TICKER\"}]}",
+        "TEST-TICKER"));
+    expect(!parse_ioc_order_snapshot(
+        "{\"order\":{\"order_id\":\"missing-required-fields\"}}"));
+    const auto bid_plan = plan_for(-20'000);
+    const auto ask_plan = plan_for(20'000);
+    const std::string bid_body = ioc_order_body(bid_plan);
+    const std::string ask_body = ioc_order_body(ask_plan);
+    for (const auto* required : {
+             "\"time_in_force\":\"immediate_or_cancel\"",
+             "\"reduce_only\":true",
+             "\"post_only\":false",
+             "\"cancel_order_on_pause\":true",
+             "\"self_trade_prevention_type\":\"taker_at_cross\"",
+             "\"subaccount\":0",
+             "\"exchange_index\":-1"}) {
+      expect(bid_body.find(required) != std::string::npos);
+      expect(ask_body.find(required) != std::string::npos);
+    }
+    expect(bid_body.find("\"side\":\"bid\"") != std::string::npos);
+    expect(ask_body.find("\"side\":\"ask\"") != std::string::npos);
+    expect(bid_body.find("expiration_time") == std::string::npos);
+    expect(ask_body.find("expiration_time") == std::string::npos);
+  }
+
+  // Both signed position directions must map to a single fully reconciled
+  // lifecycle with exactly one mutation.
+  for (const auto signed_position : {-20'000LL, 20'000LL}) {
+    const ExitPlan plan = plan_for(signed_position);
+    auto transport = success_transport(plan);
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::ReadyTrace);
+    expect(result.publishable_latency_sample);
+    expect(result.account_mutations_locked);
+    expect(result.ioc_post_attempts == 1 && transport.post_calls == 1);
+    expect(result.known_order_read_attempts == 1);
+    expect(transport.queried_order_ids.size() == 1);
+    expect(transport.queried_order_ids.front() ==
+           transport.create.order_id);
+  }
+
+  // A missing, zero, wrong-signed, or wrong-sized pre-position cannot reach
+  // POST.
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    for (const auto& bad_position :
+         std::vector<std::optional<PositionEvidence>>{
+             std::nullopt,
+             PositionEvidence{false, -20'000, {}},
+             PositionEvidence{true, 0, {}},
+             PositionEvidence{true, 20'000, {}},
+             PositionEvidence{true, -10'000, {}}}) {
+      auto transport = success_transport(plan);
+      transport.pre_position = bad_position;
+      const auto result = pnl_ioc::run(transport, plan);
+      expect(result.state == ExitState::BlockedPrePositionUnproven);
+      expect(transport.post_calls == 0);
+      expect(result.account_mutations_locked);
+    }
+  }
+
+  // Transport ambiguity without an exchange-assigned order_id is never
+  // "recovered" by list absence and never retries POST.
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    transport.create = CreateEvidence{
+        PostDisposition::Ambiguous,
+        true,
+        0,
+        false,
+        {},
+        plan.client_order_id,
+        0,
+        0,
+        0,
+        std::nullopt,
+        std::nullopt,
+        {}};
+    transport.recovery.clear();
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(
+        result.state ==
+        ExitState::BlockedPostAmbiguousWithoutKnownOrderId);
+    expect(transport.post_calls == 1 && transport.known_order_calls == 0);
+    expect(!result.publishable_latency_sample);
+  }
+
+  // A known order_id can prove risk is gone after a lost response, but it
+  // cannot recreate the causal 201 ack or become latency evidence.
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    transport.create.disposition = PostDisposition::Ambiguous;
+    transport.create.http_status = 503;
+    transport.create.exact_ack = false;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(
+        result.state ==
+        ExitState::RiskResolvedEvidenceNotPublishable);
+    expect(!result.publishable_latency_sample);
+    expect(result.exact_post_position);
+    expect(transport.post_calls == 1);
+  }
+
+  // Bounded known-order reads tolerate temporary read unavailability, but
+  // cannot exceed the fixed attempt cap.
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    const RecoveryFrame success = transport.recovery.front();
+    transport.recovery = {{}, {}, success};
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::ReadyTrace);
+    expect(
+        result.known_order_read_attempts ==
+        pnl_ioc::kMaximumKnownOrderReadAttempts);
+  }
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    transport.recovery = {{}, {}, {}, {}};
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedKnownOrderReadbackMissing);
+    expect(
+        transport.known_order_calls ==
+        pnl_ioc::kMaximumKnownOrderReadAttempts);
+    expect(transport.post_calls == 1);
+  }
+
+  // Every identity component is independently binding.
+  for (int mutation = 0; mutation < 4; ++mutation) {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    auto& order = *transport.recovery.front().order;
+    if (mutation == 0) order.order_id = "wrong-order";
+    if (mutation == 1) order.client_order_id = "wrong-client";
+    if (mutation == 2) order.ticker = "WRONG-TICKER";
+    if (mutation == 3) order.subaccount = 1;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedOrderIdentityMismatch);
+    expect(!result.publishable_latency_sample);
+  }
+
+  // Partial fill, nonzero remaining, and residual/flipped positions all stay
+  // locked and cannot become READY.
+  for (int mutation = 0; mutation < 4; ++mutation) {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    auto& order = *transport.recovery.front().order;
+    auto& position = *transport.recovery.front().position;
+    if (mutation == 0) {
+      transport.create.fill_count_e4 = 10'000;
+      transport.create.remaining_count_e4 = 0;
+      order.filled_e4 = 10'000;
+      order.remaining_e4 = 0;
+      position.position_e4 = -10'000;
+    }
+    if (mutation == 1) {
+      order.filled_e4 = 10'000;
+      order.remaining_e4 = 10'000;
+      position.position_e4 = -10'000;
+    }
+    if (mutation == 2) position.position_e4 = 1;
+    if (mutation == 3) position.position_e4 = 10'000;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(
+        result.state == ExitState::BlockedPartialOrResidualPosition ||
+        result.state == ExitState::BlockedCreateAckInvalid);
+    expect(!result.publishable_latency_sample);
+    expect(transport.post_calls == 1);
+  }
+
+  // Ack/order fill totals, aggregate cost, aggregate fee, price protection,
+  // and fee/cash budgets are exact fixed-point gates.
+  for (int mutation = 0; mutation < 7; ++mutation) {
+    ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    auto& order = *transport.recovery.front().order;
+    if (mutation == 0) ++order.total_fill_cost_e6;
+    if (mutation == 1) ++order.total_fee_e6;
+    if (mutation == 2) transport.create.average_fill_price_e4 = 5'501;
+    if (mutation == 3) transport.create.average_fee_paid_e6.reset();
+    if (mutation == 4) transport.create.client_order_id = "wrong-client";
+    if (mutation == 5) order.maker_fill_cost_e6 = 1;
+    if (mutation == 6) order.maker_fee_e6 = 1;
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(
+        result.state == ExitState::BlockedFillOrFeeBinding ||
+        result.state == ExitState::BlockedCreateAckInvalid);
+    expect(!result.publishable_latency_sample);
+  }
+  for (int mutation = 0; mutation < 2; ++mutation) {
+    ExitPlan plan = plan_for(-20'000);
+    if (mutation == 0) plan.maximum_fee_e6 = 1;
+    if (mutation == 1) plan.maximum_cash_loss_e6 = 1;
+    auto transport = success_transport(plan);
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedPrePositionUnproven);
+    expect(transport.post_calls == 0);
+    expect(!result.publishable_latency_sample);
+  }
+  {
+    ExitPlan plan = plan_for(-20'000);
+    plan.exact_pretrade_fee_bound = false;
+    auto transport = success_transport(plan);
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedPrePositionUnproven);
+    expect(transport.position_reads == 0 && transport.post_calls == 0);
+    expect(!result.publishable_latency_sample);
+  }
+  for (int mutation = 0; mutation < 2; ++mutation) {
+    ExitPlan plan = plan_for(-20'000);
+    if (mutation == 0) {
+      plan.expected_position_before_e4 =
+          std::numeric_limits<std::int64_t>::min();
+      plan.quantity_e4 = std::numeric_limits<std::int64_t>::max();
+    } else {
+      plan.expected_position_before_e4 =
+          -std::numeric_limits<std::int64_t>::max();
+      plan.quantity_e4 = std::numeric_limits<std::int64_t>::max();
+      plan.limit_price_e4 = 9'999;
+      plan.maximum_cash_loss_e6 =
+          std::numeric_limits<std::int64_t>::max();
+      plan.maximum_fee_e6 = 1;
+      plan.pretrade_maximum_fee_e6 = 1;
+    }
+    auto transport = success_transport(plan);
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedPrePositionUnproven);
+    expect(transport.position_reads == 0 && transport.post_calls == 0);
+  }
+
+  // An explicitly rejected request is a failed measurement, not a sample.
+  {
+    const ExitPlan plan = plan_for(-20'000);
+    auto transport = success_transport(plan);
+    transport.create = CreateEvidence{
+        PostDisposition::UnambiguousRejection,
+        true,
+        400,
+        false,
+        {},
+        plan.client_order_id,
+        0,
+        0,
+        0,
+        std::nullopt,
+        std::nullopt,
+        {}};
+    transport.recovery.clear();
+    const auto result = pnl_ioc::run(transport, plan);
+    expect(result.state == ExitState::BlockedPostRejected);
+    expect(transport.post_calls == 1 && transport.known_order_calls == 0);
+  }
+
+  expect(!kIocExitExecutorIndependentlyAudited);
+  expect(!kIocPretradeFeeScheduleBound);
+  std::puts(
+      ok ? "IOC EXIT EXECUTOR CONTRACT SELF-TEST PASS"
+         : "IOC EXIT EXECUTOR CONTRACT SELF-TEST FAIL");
+  return ok ? 0 : 1;
+}
+
 int ioc_preflight(const Options& options) {
   if (!valid_ticker(options.ticker)) {
     std::fprintf(stderr, "IOC_EXIT preflight requires --ticker\n");
@@ -1807,8 +2770,8 @@ int ioc_preflight(const Options& options) {
       "\"required_authority_action\":\"IOC_EXIT\","
       "\"required_reduce_only\":true,"
       "\"schema_version\":\"pnl-spine-ioc-exit-preflight-v1\","
-      "\"state\":\"REQUIRES_SEPARATE_CURRENT_LIVE_AUTHORITY_AND_"
-      "REVIEWED_EXECUTOR\",\"ticker\":\"%s\","
+      "\"state\":\"REQUIRES_SEPARATE_CURRENT_LIVE_AUTHORITY_AUDITED_"
+      "EXECUTOR_FEE_BINDING_AND_ACCOUNT_LOCK_DEPLOYMENT\",\"ticker\":\"%s\","
       "\"required_time_in_force\":\"immediate_or_cancel\"}\n",
       static_cast<unsigned long long>(steady_now_ns()),
       sha256_hex(book->body).c_str(),
@@ -1816,6 +2779,382 @@ int ioc_preflight(const Options& options) {
       required_book_side,
       json_escape(options.ticker).c_str());
   return 4;
+}
+
+int execute_ioc_exit(const Options& options) {
+  if constexpr (!kIocExitExecutorIndependentlyAudited ||
+                !kIocPretradeFeeScheduleBound) {
+    (void)options;
+    std::fprintf(
+        stderr,
+        "IOC_EXIT EXECUTOR IS IMPLEMENTED BUT LIVE TRANSMISSION REMAINS "
+        "DISABLED AND FAILS CLOSED PENDING INDEPENDENT AUDIT, TRUSTED "
+        "PRE-TRADE FEE BINDING, AND DEDICATED-CREDENTIAL ACCOUNT-LOCK "
+        "DEPLOYMENT; no authority, credential, network, lock, ledger, or "
+        "output artifact was touched\n");
+    return 2;
+  }
+  if (!require_common_options(options) || options.authority_file.empty() ||
+      options.output.empty() || options.consumption_ledger.empty() ||
+      options.terminal_consumption_receipt.empty()) {
+    std::fprintf(stderr, "IOC_EXIT options incomplete\n");
+    return 2;
+  }
+  const auto facts = collect_runtime_facts(options);
+  if (!facts) {
+    std::fprintf(
+        stderr,
+        "IOC_EXIT immutable code/config/environment/host/clock "
+        "boundary refused\n");
+    return 2;
+  }
+  std::string authority_sha256;
+  const auto authority =
+      parse_ioc_authority(options, *facts, authority_sha256);
+  if (!authority) {
+    std::fprintf(stderr, "IOC_EXIT authority refused\n");
+    return 2;
+  }
+
+  // The hard-coded root-owned lock is acquired before the one-shot ledger or
+  // any credential/network access.  It intentionally persists after both
+  // success and failure.  Only a root supervisor may release it after
+  // verifying the terminal receipt; an unresolved attempt therefore blocks a
+  // second invocation even if a new authority file appears.
+  OutputReservation account_lock{std::string(kAccountMutationLockPath)};
+  if (!account_lock.valid()) {
+    std::fprintf(
+        stderr,
+        "IOC_EXIT account mutation lock is already held; refusing before "
+        "authority consumption\n");
+    return 2;
+  }
+  OutputReservation ledger_reservation(options.consumption_ledger);
+  OutputReservation output_reservation(options.output);
+  OutputReservation terminal_reservation(
+      options.terminal_consumption_receipt);
+  if (!ledger_reservation.valid() || !output_reservation.valid() ||
+      !terminal_reservation.valid()) {
+    std::fprintf(
+        stderr,
+        "IOC_EXIT root receipt reservation failed; account lock remains "
+        "held\n");
+    return 2;
+  }
+  const auto consumed_at_wall_utc_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  std::ostringstream lock_document;
+  lock_document
+      << "{\"account_scope\":\"DEDICATED_LATENCY_PROBE_CREDENTIAL\","
+      << "\"acquired_at_wall_utc_ms\":" << consumed_at_wall_utc_ms
+      << ",\"authority_sha256\":\"" << authority_sha256
+      << "\",\"credential_broker_must_refuse_while_present\":true,"
+      << "\"producer_code_sha256\":\""
+      << facts->producer_code_sha256
+      << "\",\"release_policy\":\"ROOT_ONLY_AFTER_TERMINAL_RECEIPT_"
+      << "RECONCILIATION\",\"schema_version\":\"pnl-spine-account-"
+      << "mutation-lock-v1\",\"state\":\"ACCOUNT_MUTATIONS_LOCKED\","
+      << "\"ticker_sha256\":\"" << sha256_hex(options.ticker)
+      << "\",\"transaction_id\":\"" << authority->transaction_id
+      << "\"}";
+  if (!account_lock.finish(lock_document.str())) {
+    std::fprintf(
+        stderr, "IOC_EXIT account mutation lock durability failed\n");
+    return 2;
+  }
+
+  std::ostringstream consumption;
+  consumption
+      << "{\"authority_sha256\":\"" << authority_sha256
+      << "\",\"ca_bundle_sha256\":\"" << facts->ca_bundle_sha256
+      << "\",\"clock_quality_receipt_sha256\":\""
+      << facts->clock_quality_receipt_sha256
+      << "\",\"consumed_at_wall_utc_ms\":" << consumed_at_wall_utc_ms
+      << ",\"environment_fingerprint_sha256\":\""
+      << facts->environment_fingerprint_sha256
+      << "\",\"execution_host_fingerprint_sha256\":\""
+      << facts->execution_host_fingerprint_sha256
+      << "\",\"max_attempts\":1,\"max_ioc_exit_post_attempts\":1,"
+      << "\"nonce_sha256\":\"" << authority->nonce_sha256
+      << "\",\"producer_code_sha256\":\""
+      << facts->producer_code_sha256
+      << "\",\"producer_config_sha256\":\""
+      << facts->producer_config_sha256
+      << "\",\"receipt_id\":\"" << json_escape(options.receipt_id)
+      << "\",\"schema_version\":\"pnl-spine-ioc-exit-authority-"
+      << "consumption-v1\","
+      << "\"terminal_consumption_receipt_path_sha256\":\""
+      << sha256_hex(
+             strict_absolute_path(options.terminal_consumption_receipt)
+                 ->string())
+      << "\",\"trace_output_path_sha256\":\""
+      << sha256_hex(strict_absolute_path(options.output)->string())
+      << "\",\"transaction_id\":\"" << authority->transaction_id
+      << "\"}";
+  if (!ledger_reservation.finish(consumption.str())) {
+    std::fprintf(
+        stderr,
+        "IOC_EXIT authority consumption durability failed; account lock "
+        "remains held\n");
+    return 2;
+  }
+
+  IocMutationAccounting accounting;
+  const std::string client_order_id = immutable_ioc_client_order_id(
+      authority->transaction_id, options.ticker);
+  accounting.client_order_id_sha256 = sha256_hex(client_order_id);
+  bool output_finished = false;
+  const auto publish_failure_receipt = [&](
+                                           std::string_view state,
+                                           const std::optional<
+                                               pnl_ioc::ExitResult>& result) {
+    if (output_finished) return std::optional<std::string>{};
+    std::ostringstream document;
+    document
+        << "{\"account_mutation_lock_path_sha256\":\""
+        << sha256_hex(std::string(kAccountMutationLockPath))
+        << "\",\"account_mutations_locked\":true,"
+        << "\"authority_sha256\":\"" << authority_sha256
+        << "\",\"client_order_id_sha256\":\""
+        << accounting.client_order_id_sha256
+        << "\",\"exact_create_ack\":"
+        << (result && result->exact_create_ack ? "true" : "false")
+        << ",\"exact_order_readback\":"
+        << (result && result->exact_order_readback ? "true" : "false")
+        << ",\"exact_post_position\":"
+        << (result && result->exact_post_position ? "true" : "false")
+        << ",\"ioc_exit_post_attempts\":"
+        << accounting.ioc_exit_post_attempts
+        << ",\"known_order_id_sha256\":";
+    if (result && !result->known_order_id.empty()) {
+      document << "\"" << sha256_hex(result->known_order_id) << "\"";
+    } else {
+      document << "null";
+    }
+    document
+        << ",\"known_order_read_attempts\":"
+        << (result ? result->known_order_read_attempts : 0)
+        << ",\"order_transmitted\":"
+        << (accounting.ioc_exit_post_attempts == 1 ? "true" : "false")
+        << ",\"publishable_latency_sample\":false,"
+        << "\"schema_version\":\"pnl-spine-ioc-exit-attempt-receipt-v1\","
+        << "\"state\":\"" << state
+        << "\",\"ticker_sha256\":\"" << sha256_hex(options.ticker)
+        << "\",\"transaction_id\":\"" << authority->transaction_id
+        << "\"}";
+    const std::string bytes = document.str();
+    if (!output_reservation.finish(bytes)) return std::optional<std::string>{};
+    output_finished = true;
+    return std::optional<std::string>{sha256_hex(bytes)};
+  };
+  const auto terminate = [&](
+                             std::string_view state, int code,
+                             const std::optional<pnl_ioc::ExitResult>&
+                                 result = std::nullopt) {
+    (void)publish_failure_receipt(state, result);
+    (void)publish_ioc_terminal_consumption(
+        terminal_reservation, *authority, authority_sha256, accounting,
+        state, std::nullopt);
+    return code;
+  };
+
+  if (!scrub_ambient_network_environment() ||
+      !network_boundary_still_valid(*facts))
+    return terminate("BLOCKED_PROXY_OR_CA_DRIFT", 2);
+  if (!drop_execution_privileges(*facts))
+    return terminate("BLOCKED_PRIVILEGE_DROP", 2);
+
+  Runtime runtime;
+  try {
+    runtime = resolve_runtime();
+    require_orders_allowed(runtime);
+  } catch (const SafetyViolation& error) {
+    std::fprintf(stderr, "IOC_EXIT refused: %s\n", error.what());
+    return terminate("BLOCKED_RUNTIME_SAFETY_GATE", 2);
+  }
+  if (!network_boundary_still_valid(*facts))
+    return terminate("BLOCKED_PROXY_OR_CA_DRIFT", 2);
+  const char* key_id = std::getenv("KALSHI_API_KEY_ID");
+  const char* key_path = std::getenv("KALSHI_PRIVATE_KEY_PATH");
+  if (!key_id || !*key_id || !key_path || !*key_path)
+    return terminate("BLOCKED_CREDENTIALS_UNAVAILABLE", 2);
+  Config config;
+  config.api_key_id = key_id;
+  try {
+    config.private_key_pem = read_file(key_path);
+  } catch (...) {
+    return terminate("BLOCKED_PRIVATE_KEY_READ", 2);
+  }
+  config.base_url = runtime.rest_base_url;
+  config.pool_size = 1;
+  std::optional<KalshiClient> client_storage;
+  try {
+    client_storage.emplace(std::move(config));
+  } catch (...) {
+    return terminate("BLOCKED_CLIENT_CONSTRUCTION", 2);
+  }
+  KalshiClient& client = *client_storage;
+  auto lane = client.make_lane();
+  const auto warm = lane.ping();
+  if (!warm || !warm->ok())
+    return terminate("BLOCKED_WARMUP_FAILED", 3);
+
+  KalshiIocTransport transport(
+      client, lane, *facts, *authority);
+  const auto planning_position =
+      transport.get_exact_position(options.ticker, 0);
+  std::int64_t absolute_position = 0;
+  if (!planning_position || !planning_position->exact ||
+      planning_position->position_e4 == 0 ||
+      !pnl_ioc::checked_abs(
+          planning_position->position_e4, absolute_position) ||
+      absolute_position != authority->quantity_e4)
+    return terminate("BLOCKED_EXACT_PRE_POSITION_UNPROVEN", 3);
+
+  const pnl_ioc::ExitPlan plan{
+      options.ticker,
+      client_order_id,
+      planning_position->position_e4,
+      authority->quantity_e4,
+      authority->price_limit_e4,
+      authority->maximum_cash_loss_e6,
+      authority->maximum_fee_e6,
+      false,
+      0,
+      0,
+  };
+  const pnl_ioc::ExitResult result = pnl_ioc::run(transport, plan);
+  accounting.ioc_exit_post_attempts = result.ioc_post_attempts;
+  if (transport.post_attempts != result.ioc_post_attempts ||
+      result.ioc_post_attempts > 1)
+    return terminate(
+        "BLOCKED_IOC_MUTATION_CARDINALITY", 5, result);
+  const auto finished_wall_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  const bool engine_time_bound =
+      result.create.matching_engine_ts_ms >=
+          authority->issued_at_unix_s * 1'000 &&
+      result.create.matching_engine_ts_ms <
+          authority->expires_at_unix_s * 1'000 &&
+      result.create.matching_engine_ts_ms >= consumed_at_wall_utc_ms &&
+      result.create.matching_engine_ts_ms <=
+          finished_wall_ms + kMaximumClockFutureSkewMs;
+  if (result.state == pnl_ioc::ExitState::ReadyTrace &&
+      !engine_time_bound)
+    return terminate("BLOCKED_IOC_ENGINE_TIME_BINDING", 5, result);
+  if (result.state != pnl_ioc::ExitState::ReadyTrace ||
+      !result.publishable_latency_sample || !result.terminal_order ||
+      !result.terminal_position || !transport.initial_position_ ||
+      !transport.last_order_ || !transport.last_position_ ||
+      transport.sent_ns == 0 || transport.acknowledged_ns == 0 ||
+      transport.effective_ns == 0 ||
+      transport.decision_ns > transport.sent_ns ||
+      transport.sent_ns > transport.acknowledged_ns ||
+      transport.acknowledged_ns > transport.effective_ns) {
+    return terminate(pnl_ioc::state_name(result.state), 5, result);
+  }
+
+  CausalSample sample;
+  sample.path = "IOC_EXIT";
+  sample.action_semantics = "IOC_POSITION_REDUCING_EXIT";
+  sample.decision_ns = transport.decision_ns;
+  sample.sent_ns = transport.sent_ns;
+  sample.acknowledged_ns = transport.acknowledged_ns;
+  sample.effective_ns = transport.effective_ns;
+  sample.order_ref_sha256 = sha256_hex(result.known_order_id);
+  sample.request_sha256 = transport.request_sha256;
+  sample.response_sha256 = sha256_hex(
+      result.create.response_sha256 + "\n" +
+      result.terminal_order->response_sha256 + "\n" +
+      transport.initial_position_->response_sha256 + "\n" +
+      result.terminal_position->response_sha256);
+  sample.source_event_sha256 = sha256_hex(
+      authority_sha256 + sample.request_sha256 +
+      sample.response_sha256 + std::to_string(sample.decision_ns) +
+      std::to_string(sample.effective_ns));
+  sample.http_status = result.create.http_status;
+  sample.live_authority_sha256 = authority_sha256;
+  sample.matching_engine_ts_ms =
+      result.create.matching_engine_ts_ms;
+  sample.average_fee_paid_e6 =
+      result.create.average_fee_paid_e6;
+  sample.average_fill_price_e4 =
+      result.create.average_fill_price_e4;
+  sample.book_side =
+      plan.expected_position_before_e4 > 0 ? "ASK" : "BID";
+  sample.clock_quality_receipt_sha256 =
+      facts->clock_quality_receipt_sha256;
+  sample.environment_fingerprint_sha256 =
+      facts->environment_fingerprint_sha256;
+  sample.execution_host_fingerprint_sha256 =
+      facts->execution_host_fingerprint_sha256;
+  sample.request_reduce_only = true;
+  sample.requested_price_e4 = plan.limit_price_e4;
+  sample.subaccount = plan.subaccount;
+  sample.ticker_sha256 = sha256_hex(plan.ticker);
+  sample.time_in_force = "IMMEDIATE_OR_CANCEL";
+  sample.requested_e4 = plan.quantity_e4;
+  sample.filled_e4 = result.terminal_order->filled_e4;
+  sample.canceled_e4 = 0;
+  sample.remaining_e4 = result.terminal_order->remaining_e4;
+  sample.position_before_e4 = plan.expected_position_before_e4;
+  sample.position_after_e4 =
+      result.terminal_position->position_e4;
+  sample.order_status = "EXECUTED";
+
+  const auto created_at_ns = steady_now_ns();
+  const auto created_at_wall_utc_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  std::ostringstream fragment;
+  fragment
+      << "{\"account_mutation_lock_path_sha256\":\""
+      << sha256_hex(std::string(kAccountMutationLockPath))
+      << "\",\"account_mutations_locked\":true,"
+      << "\"clock_id\":\"" << kProbeClockId << "\","
+      << "\"clock_quality_receipt_sha256\":\""
+      << facts->clock_quality_receipt_sha256
+      << "\",\"created_at_ns\":" << created_at_ns
+      << ",\"created_at_wall_utc_ms\":" << created_at_wall_utc_ms
+      << ",\"environment_fingerprint_sha256\":\""
+      << facts->environment_fingerprint_sha256
+      << "\",\"execution_host_fingerprint_sha256\":\""
+      << facts->execution_host_fingerprint_sha256
+      << "\",\"fragment_action\":\"IOC_EXIT\","
+      << "\"measurement_mode\":\"REAL_ORDER_MEASURED\","
+      << "\"measured_on\":\"" << json_escape(facts->hostname)
+      << "\",\"producer_code_sha256\":\""
+      << facts->producer_code_sha256
+      << "\",\"producer_config_sha256\":\""
+      << facts->producer_config_sha256
+      << "\",\"receipt_id\":\"" << json_escape(options.receipt_id)
+      << "\",\"samples\":[" << sample_json(sample)
+      << "],\"schema_version\":\"" << kIocPrivateFragmentSchema
+      << "\"}";
+  const std::string fragment_bytes = fragment.str();
+  if (!output_reservation.finish(fragment_bytes))
+    return terminate("BLOCKED_IOC_FRAGMENT_WRITE", 3, result);
+  output_finished = true;
+  const std::string fragment_sha256 = sha256_hex(fragment_bytes);
+  if (!publish_ioc_terminal_consumption(
+          terminal_reservation, *authority, authority_sha256, accounting,
+          "IOC_EXIT_RECONCILED", fragment_sha256)) {
+    std::fprintf(stderr, "IOC_EXIT terminal receipt write failed\n");
+    return 3;
+  }
+  std::printf(
+      "{\"account_mutations_locked\":true,"
+      "\"fragment_only_not_three_path_ready\":true,"
+      "\"ioc_exit_fragment_sha256\":\"%s\","
+      "\"order_transmitted\":true,"
+      "\"state\":\"IOC_EXIT_RECONCILED\"}\n",
+      fragment_sha256.c_str());
+  return 0;
 }
 
 int execute_place_cancel(const Options& options) {
@@ -2246,7 +3585,14 @@ int main(int argc, char** argv) {
   if (!parsed) {
     std::fprintf(
         stderr,
-        "usage: pnl_latency_probe [--ioc-exit-preflight --ticker T] | "
+        "usage: pnl_latency_probe [--self-test-ioc-exit-executor] | "
+        "[--ioc-exit-preflight --ticker T] | "
+        "[--execute-ioc-exit --ticker T --authority-file P "
+        "--expected-authority-sha256 H --producer-config-file P "
+        "--environment-receipt-file P --execution-host-receipt-file P "
+        "--clock-quality-receipt-file P --receipt-id ID "
+        "--out P --consumption-ledger P "
+        "--terminal-consumption-receipt P] | "
         "[--execute-place-cancel --ticker T --authority-file P "
         "--expected-authority-sha256 H --producer-config-file P "
         "--environment-receipt-file P --execution-host-receipt-file P "
@@ -2256,13 +3602,6 @@ int main(int argc, char** argv) {
     return 2;
   }
   const Options& options = *parsed;
-  if (options.execute_ioc_exit) {
-    std::fprintf(
-        stderr,
-        "IOC_EXIT TRANSMISSION IS NOT IMPLEMENTED AND FAILS CLOSED: "
-        "read-only preflight cannot produce IOC_EXIT evidence\n");
-    return 2;
-  }
   if (options.self_test_v2) return self_test_v2_contract();
   if (options.self_test_authority_deadline)
     return self_test_authority_deadline_contract();
@@ -2270,10 +3609,15 @@ int main(int argc, char** argv) {
     return self_test_network_environment_contract();
   if (options.self_test_ambiguous_post_recovery)
     return self_test_ambiguous_post_recovery_contract();
-  if (options.execute_place_cancel && options.ioc_exit_preflight) {
+  if (options.self_test_ioc_exit_executor)
+    return self_test_ioc_exit_executor_contract();
+  if ((options.execute_place_cancel && options.ioc_exit_preflight) ||
+      (options.execute_ioc_exit && options.ioc_exit_preflight) ||
+      (options.execute_ioc_exit && options.execute_place_cancel)) {
     std::fprintf(stderr, "choose exactly one probe mode\n");
     return 2;
   }
+  if (options.execute_ioc_exit) return execute_ioc_exit(options);
   if (options.execute_place_cancel) return execute_place_cancel(options);
   if (options.ioc_exit_preflight) return ioc_preflight(options);
   return dry_run();

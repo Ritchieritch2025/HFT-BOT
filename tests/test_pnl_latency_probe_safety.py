@@ -65,7 +65,8 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             payload["place_cancel_gate"],
         )
         self.assertEqual(
-            "FAIL_CLOSED_EXECUTOR_NOT_IMPLEMENTED",
+            "FAIL_CLOSED_PENDING_INDEPENDENT_AUDIT_FEE_BINDING_AND_"
+            "ACCOUNT_LOCK_DEPLOYMENT",
             payload["ioc_exit_gate"],
         )
 
@@ -89,7 +90,10 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             },
         )
         self.assertEqual(2, completed.returncode)
-        self.assertIn("NOT IMPLEMENTED AND FAILS CLOSED", completed.stderr)
+        self.assertIn(
+            "IMPLEMENTED BUT LIVE TRANSMISSION REMAINS DISABLED",
+            completed.stderr,
+        )
         self.assertNotIn("private key", completed.stderr.lower())
 
     def test_place_cancel_live_path_is_disabled_before_all_inputs(self) -> None:
@@ -384,12 +388,18 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
             consumption.index("schema_version"),
         )
 
-    def test_ioc_exit_cannot_be_counted_as_complete_three_path(self) -> None:
+    def test_ioc_exit_implementation_remains_closed_until_fresh_audit(
+        self,
+    ) -> None:
         source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
             encoding="utf-8"
         )
         self.assertIn(
-            '"IOC_EXIT TRANSMISSION IS NOT IMPLEMENTED AND FAILS CLOSED',
+            "constexpr bool kIocExitExecutorIndependentlyAudited = false",
+            source,
+        )
+        self.assertIn(
+            "constexpr bool kIocPretradeFeeScheduleBound = false",
             source,
         )
         self.assertIn(
@@ -407,6 +417,141 @@ class PnlLatencyProbeSafetyTests(unittest.TestCase):
         )
         self.assertEqual(2, completed.returncode)
         self.assertIn("FAILS CLOSED", completed.stderr)
+        self.assertIn("PENDING INDEPENDENT AUDIT", completed.stderr)
+
+    def test_ioc_exit_state_machine_adversarial_matrix_passes(self) -> None:
+        completed = self.run_probe("--self-test-ioc-exit-executor")
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(
+            "IOC EXIT EXECUTOR CONTRACT SELF-TEST PASS",
+            completed.stdout.strip(),
+        )
+
+    def test_ioc_exit_live_gate_precedes_every_side_effect(self) -> None:
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        execute = source[source.index("int execute_ioc_exit") :]
+        gate = execute.index(
+            "if constexpr (!kIocExitExecutorIndependentlyAudited ||"
+        )
+        for later in (
+            "require_common_options",
+            "collect_runtime_facts",
+            "parse_ioc_authority",
+            "account_lock",
+            "ledger_reservation",
+            "drop_execution_privileges",
+            'std::getenv("KALSHI_API_KEY_ID")',
+            "pnl_ioc::run",
+        ):
+            self.assertLess(gate, execute.index(later), later)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out = root / "out.json"
+            consumed = root / "consumed.json"
+            terminal = root / "terminal.json"
+            completed = self.run_probe(
+                "--execute-ioc-exit",
+                "--ticker",
+                "TEST-TICKER",
+                "--authority-file",
+                str(root / "missing-authority.json"),
+                "--expected-authority-sha256",
+                "1" * 64,
+                "--producer-config-file",
+                str(root / "missing-config.json"),
+                "--environment-receipt-file",
+                str(root / "missing-environment.json"),
+                "--execution-host-receipt-file",
+                str(root / "missing-host.json"),
+                "--clock-quality-receipt-file",
+                str(root / "missing-clock.json"),
+                "--receipt-id",
+                "ioc-gate-test",
+                "--out",
+                str(out),
+                "--consumption-ledger",
+                str(consumed),
+                "--terminal-consumption-receipt",
+                str(terminal),
+                extra_env={
+                    "KALSHI_API_KEY_ID": "must-not-be-read",
+                    "KALSHI_PRIVATE_KEY_PATH": "/does/not/exist",
+                    "KALSHI_ENV": "prod",
+                    "KALSHI_MODE": "live",
+                    "KALSHI_ALLOW_PROD": "1",
+                    "KALSHI_ALLOW_LIVE": "1",
+                },
+            )
+            self.assertEqual(2, completed.returncode)
+            self.assertFalse(out.exists())
+            self.assertFalse(consumed.exists())
+            self.assertFalse(terminal.exists())
+
+    def test_ioc_executor_has_one_post_and_known_id_only_recovery(self) -> None:
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        header = (ROOT / "apps" / "pnl_ioc_exit_state.hpp").read_text(
+            encoding="utf-8"
+        )
+        execute = source[
+            source.index("int execute_ioc_exit") :
+            source.index("int execute_place_cancel")
+        ]
+        transport = source[
+            source.index("class KalshiIocTransport") :
+            source.index("bool best_effort_cancel")
+        ]
+        self.assertEqual(
+            1, transport.count("lane_.send(*request)"),
+            "IOC transport must expose exactly one mutation send",
+        )
+        self.assertIn(
+            'Method::Get, std::string(kGetOrderPath) + "/"',
+            transport,
+        )
+        self.assertNotIn("/portfolio/orders?", transport)
+        self.assertNotIn("client_order_id=", transport)
+        self.assertIn(
+            "kMaximumKnownOrderReadAttempts = 3", header
+        )
+        self.assertIn(
+            "there is deliberately no list-orders", header.lower()
+        )
+        self.assertIn(
+            "credential_broker_must_refuse_while_present", execute
+        )
+        self.assertIn(
+            "ROOT_ONLY_AFTER_TERMINAL_RECEIPT_", execute
+        )
+        self.assertIn(
+            '<< "RECONCILIATION', execute
+        )
+        self.assertIn(
+            '"fragment_only_not_three_path_ready\\":true', execute
+        )
+
+    def test_ioc_body_uses_exact_official_v2_safety_fields(self) -> None:
+        source = (ROOT / "apps" / "pnl_latency_probe.cpp").read_text(
+            encoding="utf-8"
+        )
+        body = source[
+            source.index("std::string ioc_order_body") :
+            source.index("std::string sample_json")
+        ]
+        for exact_field in (
+            '\\"time_in_force\\":\\"immediate_or_cancel\\"',
+            '\\"reduce_only\\":true',
+            '\\"post_only\\":false',
+            '\\"self_trade_prevention_type\\":\\"taker_at_cross\\"',
+            '\\"cancel_order_on_pause\\":true',
+            '\\"subaccount\\":0',
+            '\\"exchange_index\\":-1',
+        ):
+            self.assertIn(exact_field, body)
+        self.assertNotIn("expiration_time", body)
 
 
 if __name__ == "__main__":
