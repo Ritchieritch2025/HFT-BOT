@@ -1748,6 +1748,22 @@ def test_cli_authority_is_raw_pinned_and_output_is_create_once(tmp_path):
         row["code"]
         for row in a01_materialize_cli.UNRESOLVED_PRODUCTION_GATES
     }
+    assert (
+        "BLOCK_A01_PATHWISE_FIRST_FILL_CANCEL_ENGINE_MISSING"
+        not in {
+            row["code"]
+            for row in a01_materialize_cli.UNRESOLVED_PRODUCTION_GATES
+        }
+    )
+    assert {
+        row["code"]
+        for row in a01_materialize_cli.UNRESOLVED_PRODUCTION_GATES
+    } == {
+        "BLOCK_A01_LATENCY_FEE_DERIVATION_NOT_BOUND",
+        "BLOCK_A01_POINT_IN_TIME_METADATA_INTERVALS_MISSING",
+        "BLOCK_A01_TRADE_CLOCK_EPOCH_AND_NS_ENGINE_MISSING",
+        "BLOCK_A01_OPPORTUNITY_DENOMINATOR_LEDGER_MISSING",
+    }
     assert receipt["materialization"]["rows"]
 
     first_sha = a01_materialize_cli.write_receipt_create_once(

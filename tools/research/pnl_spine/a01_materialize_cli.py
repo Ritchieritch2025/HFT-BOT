@@ -52,14 +52,6 @@ INPUT_LAYOUT = {
 # input bundle from being mislabeled production READY.
 UNRESOLVED_PRODUCTION_GATES = (
     {
-        "code": "BLOCK_A01_PATHWISE_FIRST_FILL_CANCEL_ENGINE_MISSING",
-        "detail": (
-            "runner does not yet implement first-fill stop-new-risk, "
-            "sibling/safety-event cancel, reconcile, and residual "
-            "reduce-only IOC"
-        ),
-    },
-    {
         "code": "BLOCK_A01_LATENCY_FEE_DERIVATION_NOT_BOUND",
         "detail": (
             "latency values and net margin are not yet recomputed from "
