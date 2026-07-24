@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import io
 import json
@@ -598,7 +599,7 @@ def test_schema_nonfinal_and_nonstandard_tick_fail_closed(
         )
 
 
-def test_duplicate_json_keys_and_float_dollars_are_rejected() -> None:
+def test_duplicate_json_keys_and_numeric_dollars_are_rejected() -> None:
     with pytest.raises(OfficialMarketAdapterError, match="duplicate"):
         adapter.parse_strict_json(
             b'{"market":{},"market":{}}',
@@ -608,8 +609,109 @@ def test_duplicate_json_keys_and_float_dollars_are_rejected() -> None:
         b'"settlement_value_dollars":"1.0000"',
         b'"settlement_value_dollars":1.0',
     )
-    with pytest.raises(OfficialMarketAdapterError, match="floating-point"):
+    with pytest.raises(
+        OfficialMarketAdapterError,
+        match="settlement_value_dollars",
+    ):
         _parse_final_market_response(raw, expected_ticker=TICKER_A)
+
+
+@pytest.mark.parametrize("literal", [b"1.5", b"7.5"])
+def test_production_floor_strike_float_is_exact_raw_evidence(
+    tmp_path: Path,
+    literal: bytes,
+) -> None:
+    response = market_response(TICKER_A).replace(
+        b'"market":{',
+        b'"market":{"floor_strike":' + literal + b",",
+        1,
+    )
+    auth, auth_sha, receipt, receipt_sha, directory, _ = capture_current(
+        tmp_path,
+        response=response,
+    )
+    raw_path = directory / "0000.0000.current.response.json"
+    assert raw_path.read_bytes() == response
+    attempt = receipt["captures"][0]["attempts"][0]
+    assert attempt["raw_sha256"] == hashlib.sha256(response).hexdigest()
+    receipt_raw = (directory / "CAPTURE_RECEIPT.json").read_bytes()
+    assert receipt_raw == canonical_json_bytes(receipt) + b"\n"
+    assert receipt_sha == hashlib.sha256(receipt_raw).hexdigest()
+    assert b"floor_strike" not in receipt_raw
+
+    pins, pins_sha = raw_pins(
+        receipt,
+        authority_sha=auth_sha,
+        receipt_raw_sha=receipt_sha,
+    )
+    output = normalize_capture(
+        authority=auth,
+        authority_raw_sha256=auth_sha,
+        capture_receipt=receipt,
+        capture_receipt_raw_sha256=receipt_sha,
+        capture_dir=directory,
+        raw_pins=pins,
+        raw_pins_raw_sha256=pins_sha,
+        expected_code_sha256=adapter_code_sha256(),
+    )
+    assert output["raw_response_evidence"][0][
+        "raw_reverified_sha256"
+    ] == hashlib.sha256(response).hexdigest()
+    assert output["terminal_records"][0]["market_ticker"] == TICKER_A
+
+
+def test_source_numbers_are_exact_but_cannot_enter_canonical_receipts() -> None:
+    parsed = adapter.parse_strict_json(
+        (
+            b'{"floor_strike":1.5,"long_decimal":'
+            b"0.10000000000000000000000000000000000001,"
+            b'"large_finite":1e309,"signed_zero":-0.0}'
+        ),
+        label="official response fixture",
+        allow_finite_numbers=True,
+    )
+    assert parsed == {
+        "floor_strike": Decimal("1.5"),
+        "long_decimal": Decimal(
+            "0.10000000000000000000000000000000000001"
+        ),
+        "large_finite": Decimal("1e309"),
+        "signed_zero": Decimal("-0.0"),
+    }
+    assert parsed["signed_zero"].is_signed()
+    with pytest.raises(TypeError, match="floats are forbidden"):
+        canonical_json_bytes(parsed)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"floor_strike":NaN}',
+        b'{"floor_strike":Infinity}',
+        b'{"floor_strike":-Infinity}',
+    ],
+)
+def test_nonfinite_official_numeric_values_are_rejected(raw: bytes) -> None:
+    with pytest.raises(OfficialMarketAdapterError, match="strict JSON"):
+        adapter.parse_strict_json(
+            raw,
+            label="official response fixture",
+            allow_finite_numbers=True,
+        )
+
+
+def test_float_compatibility_does_not_weaken_control_json_or_duplicates() -> None:
+    with pytest.raises(OfficialMarketAdapterError, match="floating-point"):
+        adapter.parse_strict_json(
+            b'{"expires_at_utc":1.5}',
+            label="authority fixture",
+        )
+    with pytest.raises(OfficialMarketAdapterError, match="duplicate"):
+        adapter.parse_strict_json(
+            b'{"floor_strike":1.5,"floor_strike":7.5}',
+            label="official response fixture",
+            allow_finite_numbers=True,
+        )
 
 
 def test_authority_requires_sorted_unique_tickers_and_live_validity() -> None:

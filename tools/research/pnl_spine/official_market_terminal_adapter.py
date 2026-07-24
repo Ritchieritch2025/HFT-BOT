@@ -108,6 +108,10 @@ ADAPTER_CONFIG = {
     "terminal_rule": "FINALIZED_YES_NO_EXACT_PAYOUT_ONLY",
     "metadata_temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
     "scheduled_start_mapping": "FORBIDDEN",
+    "control_receipt_noninteger_numbers": "FORBIDDEN",
+    "official_response_noninteger_numbers": (
+        "FINITE_EXACT_DECIMAL_SOURCE_ONLY_NOT_PROMOTED"
+    ),
 }
 
 
@@ -217,7 +221,35 @@ def _reject_float(value: str) -> None:
     )
 
 
-def parse_strict_json(raw: bytes, *, label: str) -> object:
+def _parse_exact_finite_number(value: str) -> Decimal:
+    """Parse one JSON non-integer number without binary-float coercion.
+
+    Official market responses contain additive numeric fields such as
+    ``floor_strike: 1.5``.  They are retained as exact ``Decimal`` values only
+    while validating the raw response.  Canonical control/receipt documents
+    continue to reject Decimal values, so an unconsumed source field cannot
+    silently cross the evidence boundary.
+    """
+
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise OfficialMarketAdapterError(
+            f"invalid JSON numeric value: {value}"
+        ) from exc
+    if not parsed.is_finite():
+        raise OfficialMarketAdapterError(
+            f"non-finite JSON numeric value is forbidden: {value}"
+        )
+    return parsed
+
+
+def parse_strict_json(
+    raw: bytes,
+    *,
+    label: str,
+    allow_finite_numbers: bool = False,
+) -> object:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -225,10 +257,15 @@ def parse_strict_json(raw: bytes, *, label: str) -> object:
             f"{label} is not UTF-8"
         ) from exc
     try:
+        parse_float = (
+            _parse_exact_finite_number
+            if allow_finite_numbers
+            else _reject_float
+        )
         return json.loads(
             text,
             object_pairs_hook=_strict_object,
-            parse_float=_reject_float,
+            parse_float=parse_float,
             parse_constant=_reject_float,
         )
     except (json.JSONDecodeError, OfficialMarketAdapterError) as exc:
@@ -1119,7 +1156,11 @@ def _parse_final_market_response(
     *,
     expected_ticker: str,
 ) -> dict[str, Any]:
-    value = parse_strict_json(raw, label=f"market response {expected_ticker}")
+    value = parse_strict_json(
+        raw,
+        label=f"market response {expected_ticker}",
+        allow_finite_numbers=True,
+    )
     if not isinstance(value, Mapping):
         raise OfficialMarketAdapterError("market response must be an object")
     _exact_keys("market response envelope", value, {"market"})
