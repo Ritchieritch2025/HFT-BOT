@@ -60,6 +60,11 @@ REQUEST_HEADERS = {
 TIMEOUT_SECONDS = 15
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 READ_CHUNK_BYTES = 64 * 1024
+MAX_TICKERS_PER_AUTHORITY = 50
+MIN_REQUEST_INTERVAL_NS = 250_000_000
+MAX_429_RETRIES_PER_ENDPOINT = 2
+MIN_RETRY_AFTER_SECONDS = 1
+MAX_RETRY_AFTER_SECONDS = 30
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,199}$")
@@ -69,7 +74,7 @@ UTC_RE = re.compile(
 )
 DOLLARS_4_RE = re.compile(r"^(?:0|1)\.\d{4}$")
 SAFE_RAW_NAME_RE = re.compile(
-    r"^\d{4}\.(?:current|historical)\.response\.json$"
+    r"^\d{4}\.\d{4}\.(?:current|historical)\.response\.json$"
 )
 
 ADAPTER_CONFIG = {
@@ -85,6 +90,21 @@ ADAPTER_CONFIG = {
     "redirect": "FORBIDDEN",
     "timeout_seconds": TIMEOUT_SECONDS,
     "max_response_bytes": MAX_RESPONSE_BYTES,
+    "rate_limit_policy": {
+        "max_tickers_per_authority": MAX_TICKERS_PER_AUTHORITY,
+        "minimum_request_interval_ns": MIN_REQUEST_INTERVAL_NS,
+        "http_429": (
+            "RETRY_SAME_ENDPOINT_ONLY_WITH_BOUNDED_INTEGER_RETRY_AFTER"
+        ),
+        "max_429_retries_per_endpoint": MAX_429_RETRIES_PER_ENDPOINT,
+        "min_retry_after_seconds": MIN_RETRY_AFTER_SECONDS,
+        "max_retry_after_seconds": MAX_RETRY_AFTER_SECONDS,
+        "every_http_attempt_raw_capture": "CREATE_ONCE",
+        "historical_fallback_on_429": "FORBIDDEN",
+        "production_sharding": (
+            "ISSUE_MULTIPLE_EXACT_AUTHORITIES_ABOVE_MAX_TICKERS"
+        ),
+    },
     "terminal_rule": "FINALIZED_YES_NO_EXACT_PAYOUT_ONLY",
     "metadata_temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
     "scheduled_start_mapping": "FORBIDDEN",
@@ -336,6 +356,11 @@ def validate_authority(
         raise OfficialMarketAdapterError(
             "authority tickers must be a nonempty list"
         )
+    if len(tickers_raw) > MAX_TICKERS_PER_AUTHORITY:
+        raise OfficialMarketAdapterError(
+            "authority exceeds bounded production shard size; "
+            "issue multiple exact authorities"
+        )
     tickers = [
         _require_ticker(f"tickers[{index}]", item)
         for index, item in enumerate(tickers_raw)
@@ -352,6 +377,7 @@ class HttpResult:
     status: int
     final_url: str
     body: bytes
+    retry_after: str | None = None
 
 
 class Transport(Protocol):
@@ -401,20 +427,84 @@ def _read_bounded(response: BinaryIO) -> bytes:
     return b"".join(chunks)
 
 
-def _build_request(url: str) -> urllib.request.Request:
+def _canonical_request_identity(url: str) -> tuple[str, str]:
+    """Return ``(source_tier, ticker)`` only for one exact canonical URL."""
+
+    if not isinstance(url, str) or not url:
+        raise OfficialMarketAdapterError("request URL must be nonempty text")
     parts = urllib.parse.urlsplit(url)
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise OfficialMarketAdapterError(
+            "request URL has an invalid port"
+        ) from exc
     if (
         parts.scheme != "https"
         or parts.hostname != OFFICIAL_HOST
-        or parts.port is not None
+        or parts.netloc != OFFICIAL_HOST
+        or port is not None
+        or parts.username is not None
+        or parts.password is not None
         or parts.query
         or parts.fragment
-        or not (
-            parts.path.startswith(CURRENT_MARKET_PATH)
-            or parts.path.startswith(HISTORICAL_MARKET_PATH)
-        )
     ):
-        raise OfficialMarketAdapterError("request URL is outside fixed paths")
+        raise OfficialMarketAdapterError(
+            "request URL is outside the exact fixed origin"
+        )
+    raw_path_lower = parts.path.lower()
+    if "\\" in parts.path or re.search(
+        r"%(?:2f|5c|2e)", raw_path_lower
+    ):
+        raise OfficialMarketAdapterError(
+            "encoded slash, backslash or dot is forbidden in request path"
+        )
+    try:
+        decoded_path = urllib.parse.unquote_to_bytes(parts.path).decode(
+            "ascii"
+        )
+    except UnicodeDecodeError as exc:
+        raise OfficialMarketAdapterError(
+            "request path must be canonical ASCII"
+        ) from exc
+    if any(segment in {".", ".."} for segment in decoded_path.split("/")):
+        raise OfficialMarketAdapterError(
+            "dot segments are forbidden in request path"
+        )
+    matched: tuple[str, str] | None = None
+    for source_tier, prefix in (
+        ("current", CURRENT_MARKET_PATH),
+        ("historical", HISTORICAL_MARKET_PATH),
+    ):
+        if not parts.path.startswith(prefix):
+            continue
+        suffix = parts.path[len(prefix) :]
+        if (
+            not suffix
+            or "/" in suffix
+            or "\\" in suffix
+            or "%" in suffix
+        ):
+            raise OfficialMarketAdapterError(
+                "request path is not one exact canonical market path"
+            )
+        ticker = _require_ticker("request URL ticker", suffix)
+        matched = (source_tier, ticker)
+        break
+    if matched is None:
+        raise OfficialMarketAdapterError(
+            "request URL is outside fixed market paths"
+        )
+    source_tier, ticker = matched
+    if url != _market_url(ticker, source_tier=source_tier):
+        raise OfficialMarketAdapterError(
+            "request URL is not its exact canonical reconstruction"
+        )
+    return source_tier, ticker
+
+
+def _build_request(url: str) -> urllib.request.Request:
+    _canonical_request_identity(url)
     request = urllib.request.Request(
         url,
         headers=dict(REQUEST_HEADERS),
@@ -436,6 +526,28 @@ def _build_request(url: str) -> urllib.request.Request:
     return request
 
 
+def _single_retry_after(headers: Any) -> str | None:
+    if headers is None:
+        return None
+    if hasattr(headers, "get_all"):
+        values = headers.get_all("Retry-After", [])
+    else:
+        value = headers.get("Retry-After")
+        values = [] if value is None else [value]
+    if len(values) > 1:
+        raise OfficialMarketAdapterError(
+            "multiple Retry-After headers are forbidden"
+        )
+    if not values:
+        return None
+    value = values[0]
+    if not isinstance(value, str):
+        raise OfficialMarketAdapterError(
+            "Retry-After header must be text"
+        )
+    return value
+
+
 def urllib_transport(url: str, timeout_seconds: int) -> HttpResult:
     request = _build_request(url)
     opener = _direct_no_redirect_opener()
@@ -446,6 +558,7 @@ def urllib_transport(url: str, timeout_seconds: int) -> HttpResult:
             raise OfficialMarketAdapterError(
                 "HTTP error response URL changed"
             ) from exc
+        retry_after = _single_retry_after(exc.headers)
         try:
             body = _read_bounded(exc)
         finally:
@@ -454,6 +567,7 @@ def urllib_transport(url: str, timeout_seconds: int) -> HttpResult:
             status=int(exc.code),
             final_url=exc.geturl(),
             body=body,
+            retry_after=retry_after,
         )
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise OfficialMarketAdapterError(
@@ -465,10 +579,16 @@ def urllib_transport(url: str, timeout_seconds: int) -> HttpResult:
                 "official market response URL changed"
             )
         status = int(response.getcode())
+        retry_after = _single_retry_after(response.headers)
         body = _read_bounded(response)
     finally:
         response.close()
-    return HttpResult(status=status, final_url=url, body=body)
+    return HttpResult(
+        status=status,
+        final_url=url,
+        body=body,
+        retry_after=retry_after,
+    )
 
 
 def system_clock() -> tuple[int, int]:
@@ -550,29 +670,168 @@ def _require_no_symlink_components(path: Path, *, label: str) -> None:
             )
 
 
-def _response_filename(index: int, source_tier: str) -> str:
+def _response_filename(
+    ticker_index: int,
+    batch_attempt_index: int,
+    source_tier: str,
+) -> str:
     if source_tier not in {"current", "historical"}:
         raise OfficialMarketAdapterError("invalid response source tier")
-    return f"{index:04d}.{source_tier}.response.json"
+    return (
+        f"{ticker_index:04d}.{batch_attempt_index:04d}."
+        f"{source_tier}.response.json"
+    )
+
+
+class Sleeper(Protocol):
+    def __call__(self, seconds: float) -> None:
+        ...
+
+
+class _CaptureTimeline:
+    """One batch-wide authority window and non-regressing clock ledger."""
+
+    def __init__(
+        self,
+        *,
+        issued_wall_ns: int,
+        expires_wall_ns: int,
+        initial_wall_ns: int,
+        initial_monotonic_ns: int,
+        clock: Clock,
+        sleeper: Sleeper,
+    ) -> None:
+        self.issued_wall_ns = issued_wall_ns
+        self.expires_wall_ns = expires_wall_ns
+        self.clock = clock
+        self.sleeper = sleeper
+        self.last_wall_ns: int | None = None
+        self.last_monotonic_ns: int | None = None
+        self.last_attempt_after_monotonic_ns: int | None = None
+        self.next_batch_attempt_index = 0
+        self._observe(
+            initial_wall_ns,
+            initial_monotonic_ns,
+            label="batch authority validation",
+        )
+
+    def _observe(self, wall_ns: int, monotonic_ns: int, *, label: str) -> None:
+        _plain_int(f"{label} wall", wall_ns, minimum=0)
+        _plain_int(f"{label} monotonic", monotonic_ns, minimum=0)
+        if not self.issued_wall_ns <= wall_ns <= self.expires_wall_ns:
+            raise OfficialMarketAdapterError(
+                f"{label} is outside authority validity window"
+            )
+        if self.last_wall_ns is not None and wall_ns < self.last_wall_ns:
+            raise OfficialMarketAdapterError(
+                f"{label} wall clock regressed across batch"
+            )
+        if (
+            self.last_monotonic_ns is not None
+            and monotonic_ns < self.last_monotonic_ns
+        ):
+            raise OfficialMarketAdapterError(
+                f"{label} monotonic clock regressed across batch"
+            )
+        self.last_wall_ns = wall_ns
+        self.last_monotonic_ns = monotonic_ns
+
+    def before_attempt(
+        self,
+        *,
+        retry_delay_ns: int,
+    ) -> tuple[int, int, int, int]:
+        retry_delay_ns = _plain_int(
+            "retry delay", retry_delay_ns, minimum=0
+        )
+        wall_ns, monotonic_ns = self.clock()
+        self._observe(
+            wall_ns,
+            monotonic_ns,
+            label="HTTP attempt before",
+        )
+        required_delay_ns = 0
+        if self.last_attempt_after_monotonic_ns is not None:
+            required_delay_ns = max(
+                MIN_REQUEST_INTERVAL_NS,
+                retry_delay_ns,
+            )
+            elapsed = (
+                monotonic_ns - self.last_attempt_after_monotonic_ns
+            )
+            if elapsed < required_delay_ns:
+                remaining_ns = required_delay_ns - elapsed
+                if wall_ns + remaining_ns > self.expires_wall_ns:
+                    raise OfficialMarketAdapterError(
+                        "required throttle/retry delay exceeds authority expiry"
+                    )
+                self.sleeper(remaining_ns / 1_000_000_000)
+                wall_ns, monotonic_ns = self.clock()
+                self._observe(
+                    wall_ns,
+                    monotonic_ns,
+                    label="HTTP attempt after throttle",
+                )
+                elapsed = (
+                    monotonic_ns - self.last_attempt_after_monotonic_ns
+                )
+            if elapsed < required_delay_ns:
+                raise OfficialMarketAdapterError(
+                    "clock does not prove required request throttle"
+                )
+        batch_attempt_index = self.next_batch_attempt_index
+        self.next_batch_attempt_index += 1
+        return (
+            batch_attempt_index,
+            wall_ns,
+            monotonic_ns,
+            required_delay_ns,
+        )
+
+    def after_attempt(
+        self,
+        *,
+        wall_ns: int,
+        monotonic_ns: int,
+        before_wall_ns: int,
+        before_monotonic_ns: int,
+    ) -> None:
+        self._observe(
+            wall_ns,
+            monotonic_ns,
+            label="HTTP attempt after",
+        )
+        if wall_ns < before_wall_ns:
+            raise OfficialMarketAdapterError(
+                "HTTP attempt wall clock regressed"
+            )
+        if monotonic_ns < before_monotonic_ns:
+            raise OfficialMarketAdapterError(
+                "HTTP attempt monotonic clock regressed"
+            )
+        self.last_attempt_after_monotonic_ns = monotonic_ns
 
 
 def _capture_one_attempt(
     *,
     ticker: str,
-    index: int,
+    ticker_index: int,
     source_tier: str,
+    endpoint_attempt_index: int,
+    retry_delay_ns: int,
     output_dir: Path,
     transport: Transport,
-    clock: Clock,
+    timeline: _CaptureTimeline,
 ) -> dict[str, Any]:
     url = _market_url(ticker, source_tier=source_tier)
-    wall_before, mono_before = clock()
-    _plain_int("fetch wall before", wall_before, minimum=0)
-    _plain_int("fetch monotonic before", mono_before, minimum=0)
+    (
+        batch_attempt_index,
+        wall_before,
+        mono_before,
+        required_delay_ns,
+    ) = timeline.before_attempt(retry_delay_ns=retry_delay_ns)
     result = transport(url, TIMEOUT_SECONDS)
-    wall_after, mono_after = clock()
-    _plain_int("fetch wall after", wall_after, minimum=wall_before)
-    _plain_int("fetch monotonic after", mono_after, minimum=mono_before)
+    wall_after, mono_after = timeline.clock()
     if not isinstance(result, HttpResult):
         raise OfficialMarketAdapterError(
             "transport returned an untrusted result type"
@@ -588,16 +847,39 @@ def _capture_one_attempt(
         raise OfficialMarketAdapterError(
             "official response exceeds fixed byte limit"
         )
-    relative = _response_filename(index, source_tier)
+    if result.retry_after is not None and not isinstance(
+        result.retry_after, str
+    ):
+        raise OfficialMarketAdapterError(
+            "Retry-After transport value must be text"
+        )
+    relative = _response_filename(
+        ticker_index,
+        batch_attempt_index,
+        source_tier,
+    )
     raw_sha = _write_create_once(
         output_dir / relative,
         result.body,
     )
-    return {
+    # The response is durably captured even if the post-request clock proves
+    # that authority expired during this HTTP attempt.  The batch still fails
+    # closed and no successful CAPTURE_RECEIPT is emitted.
+    timeline.after_attempt(
+        wall_ns=wall_after,
+        monotonic_ns=mono_after,
+        before_wall_ns=wall_before,
+        before_monotonic_ns=mono_before,
+    )
+    attempt = {
         "ticker": ticker,
         "source_tier": source_tier,
+        "endpoint_attempt_index": endpoint_attempt_index,
+        "batch_attempt_index": batch_attempt_index,
         "request_url": url,
         "http_status": status,
+        "required_delay_from_prior_attempt_ns": required_delay_ns,
+        "retry_after_seconds": None,
         "fetch_wall_ns_before": wall_before,
         "fetch_wall_ns_after": wall_after,
         "fetch_monotonic_ns_before": mono_before,
@@ -608,6 +890,70 @@ def _capture_one_attempt(
         "adapter_code_sha256": adapter_code_sha256(),
         "adapter_config_sha256": ADAPTER_CONFIG_SHA256,
     }
+    if status != 429 and result.retry_after is not None:
+        raise OfficialMarketAdapterError(
+            "Retry-After is accepted only on HTTP 429"
+        )
+    if status == 429:
+        header = result.retry_after
+        if header is None or re.fullmatch(r"[1-9][0-9]*", header) is None:
+            raise OfficialMarketAdapterError(
+                "HTTP 429 requires one integer Retry-After header"
+            )
+        retry_seconds = int(header)
+        if not (
+            MIN_RETRY_AFTER_SECONDS
+            <= retry_seconds
+            <= MAX_RETRY_AFTER_SECONDS
+        ):
+            raise OfficialMarketAdapterError(
+                "HTTP 429 Retry-After is outside bounded policy"
+            )
+        attempt["retry_after_seconds"] = retry_seconds
+    return attempt
+
+
+def _capture_endpoint(
+    *,
+    ticker: str,
+    ticker_index: int,
+    source_tier: str,
+    output_dir: Path,
+    transport: Transport,
+    timeline: _CaptureTimeline,
+) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    retry_delay_ns = 0
+    for endpoint_attempt_index in range(
+        MAX_429_RETRIES_PER_ENDPOINT + 1
+    ):
+        attempt = _capture_one_attempt(
+            ticker=ticker,
+            ticker_index=ticker_index,
+            source_tier=source_tier,
+            endpoint_attempt_index=endpoint_attempt_index,
+            retry_delay_ns=retry_delay_ns,
+            output_dir=output_dir,
+            transport=transport,
+            timeline=timeline,
+        )
+        attempts.append(attempt)
+        if attempt["http_status"] != 429:
+            return attempts
+        if endpoint_attempt_index >= MAX_429_RETRIES_PER_ENDPOINT:
+            raise OfficialMarketAdapterError(
+                f"{ticker} {source_tier} endpoint exhausted bounded "
+                "HTTP 429 retries; issue a fresh sharded authority"
+            )
+        retry_delay_ns = attempt["retry_after_seconds"] * 1_000_000_000
+        if (
+            attempt["fetch_wall_ns_after"] + retry_delay_ns
+            > timeline.expires_wall_ns
+        ):
+            raise OfficialMarketAdapterError(
+                "HTTP 429 Retry-After would exceed authority expiry"
+            )
+    raise AssertionError("bounded endpoint retry loop fell through")
 
 
 def capture_markets(
@@ -618,6 +964,7 @@ def capture_markets(
     output_dir: Path,
     transport: Transport = urllib_transport,
     clock: Clock = system_clock,
+    sleeper: Sleeper = time.sleep,
 ) -> tuple[dict[str, Any], str]:
     """Capture one immutable official response set.
 
@@ -630,41 +977,53 @@ def capture_markets(
         raise OfficialMarketAdapterError(
             "live adapter code does not match external code pin"
         )
-    now_wall_ns, _ = clock()
+    now_wall_ns, now_monotonic_ns = clock()
     authority = validate_authority(
         authority,
         raw_sha256=authority_raw_sha256,
         expected_code_sha256=expected_code_sha256,
         now_wall_ns=now_wall_ns,
     )
+    issued_wall_ns = _timestamp_ns(
+        "issued_at_utc", authority["issued_at_utc"]
+    )
+    expires_wall_ns = _timestamp_ns(
+        "expires_at_utc", authority["expires_at_utc"]
+    )
+    timeline = _CaptureTimeline(
+        issued_wall_ns=issued_wall_ns,
+        expires_wall_ns=expires_wall_ns,
+        initial_wall_ns=now_wall_ns,
+        initial_monotonic_ns=now_monotonic_ns,
+        clock=clock,
+        sleeper=sleeper,
+    )
     _safe_new_directory(output_dir)
     captures: list[dict[str, Any]] = []
     for index, ticker in enumerate(authority["tickers"]):
-        attempts = [
-            _capture_one_attempt(
+        current_attempts = _capture_endpoint(
+            ticker=ticker,
+            ticker_index=index,
+            source_tier="current",
+            output_dir=output_dir,
+            transport=transport,
+            timeline=timeline,
+        )
+        attempts = list(current_attempts)
+        current_status = current_attempts[-1]["http_status"]
+        if current_status == 404:
+            historical_attempts = _capture_endpoint(
                 ticker=ticker,
-                index=index,
-                source_tier="current",
+                ticker_index=index,
+                source_tier="historical",
                 output_dir=output_dir,
                 transport=transport,
-                clock=clock,
+                timeline=timeline,
             )
-        ]
-        current_status = attempts[0]["http_status"]
-        if current_status == 404:
-            attempts.append(
-                _capture_one_attempt(
-                    ticker=ticker,
-                    index=index,
-                    source_tier="historical",
-                    output_dir=output_dir,
-                    transport=transport,
-                    clock=clock,
-                )
-            )
-            selected_index = 1
+            attempts.extend(historical_attempts)
+            selected_index = len(attempts) - 1
         elif current_status == 200:
-            selected_index = 0
+            selected_index = len(current_attempts) - 1
         else:
             raise OfficialMarketAdapterError(
                 f"{ticker} current endpoint returned HTTP "
@@ -698,6 +1057,10 @@ def capture_markets(
         "schema_version": CAPTURE_RECEIPT_SCHEMA,
         "authority_raw_sha256": authority_raw_sha256,
         "authority_id": authority["authority_id"],
+        "authority_issued_at_utc": authority["issued_at_utc"],
+        "authority_expires_at_utc": authority["expires_at_utc"],
+        "authority_issued_wall_ns": issued_wall_ns,
+        "authority_expires_wall_ns": expires_wall_ns,
         "adapter_code_sha256": code_before,
         "adapter_config_sha256": ADAPTER_CONFIG_SHA256,
         "adapter_config": ADAPTER_CONFIG,
@@ -707,6 +1070,7 @@ def capture_markets(
         "temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
         "captures": captures,
     }
+    receipt = _validate_capture_receipt(receipt)
     raw = canonical_json_bytes(receipt) + b"\n"
     raw_sha = _write_create_once(
         output_dir / "CAPTURE_RECEIPT.json",
@@ -856,6 +1220,10 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
             "schema_version",
             "authority_raw_sha256",
             "authority_id",
+            "authority_issued_at_utc",
+            "authority_expires_at_utc",
+            "authority_issued_wall_ns",
+            "authority_expires_wall_ns",
             "adapter_code_sha256",
             "adapter_config_sha256",
             "adapter_config",
@@ -870,6 +1238,25 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
         raise OfficialMarketAdapterError("wrong capture receipt schema")
     _sha("capture authority SHA", value["authority_raw_sha256"])
     _text("capture authority id", value["authority_id"])
+    issued_wall_ns = _timestamp_ns(
+        "capture authority issued_at",
+        value["authority_issued_at_utc"],
+    )
+    expires_wall_ns = _timestamp_ns(
+        "capture authority expires_at",
+        value["authority_expires_at_utc"],
+    )
+    if expires_wall_ns <= issued_wall_ns:
+        raise OfficialMarketAdapterError(
+            "capture authority expiry is not after issue"
+        )
+    if (
+        value["authority_issued_wall_ns"] != issued_wall_ns
+        or value["authority_expires_wall_ns"] != expires_wall_ns
+    ):
+        raise OfficialMarketAdapterError(
+            "capture authority text/nanosecond bounds mismatch"
+        )
     _sha("capture adapter code SHA", value["adapter_code_sha256"])
     if value["adapter_config_sha256"] != ADAPTER_CONFIG_SHA256:
         raise OfficialMarketAdapterError(
@@ -890,8 +1277,14 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
     captures = value["captures"]
     if not isinstance(captures, list) or not captures:
         raise OfficialMarketAdapterError("capture set must be nonempty")
+    if len(captures) > MAX_TICKERS_PER_AUTHORITY:
+        raise OfficialMarketAdapterError(
+            "capture exceeds bounded authority shard size"
+        )
     seen: set[str] = set()
     previous = ""
+    previous_attempt: Mapping[str, Any] | None = None
+    expected_batch_attempt_index = 0
     for capture_index, capture in enumerate(captures):
         if not isinstance(capture, Mapping):
             raise OfficialMarketAdapterError("capture entry must be object")
@@ -910,9 +1303,16 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
         seen.add(ticker)
         previous = ticker
         attempts = capture["attempts"]
-        if not isinstance(attempts, list) or len(attempts) not in {1, 2}:
+        maximum_attempts = 2 * (
+            MAX_429_RETRIES_PER_ENDPOINT + 1
+        )
+        if (
+            not isinstance(attempts, list)
+            or not attempts
+            or len(attempts) > maximum_attempts
+        ):
             raise OfficialMarketAdapterError(
-                "capture must contain one or two attempts"
+                "capture attempt count exceeds bounded endpoint policy"
             )
         selected_index = _plain_int(
             "selected_attempt_index",
@@ -931,8 +1331,12 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
                 {
                     "ticker",
                     "source_tier",
+                    "endpoint_attempt_index",
+                    "batch_attempt_index",
                     "request_url",
                     "http_status",
+                    "required_delay_from_prior_attempt_ns",
+                    "retry_after_seconds",
                     "fetch_wall_ns_before",
                     "fetch_wall_ns_after",
                     "fetch_monotonic_ns_before",
@@ -948,15 +1352,13 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
                 raise OfficialMarketAdapterError(
                     "capture attempt ticker does not match parent"
                 )
-            expected_tier = (
-                "current" if attempt_index == 0 else "historical"
-            )
-            if attempt["source_tier"] != expected_tier:
+            source_tier = attempt["source_tier"]
+            if source_tier not in {"current", "historical"}:
                 raise OfficialMarketAdapterError(
-                    "capture endpoint ordering is invalid"
+                    "capture source tier is invalid"
                 )
             if attempt["request_url"] != _market_url(
-                ticker, source_tier=expected_tier
+                ticker, source_tier=source_tier
             ):
                 raise OfficialMarketAdapterError(
                     "capture request URL is not canonical"
@@ -972,7 +1374,7 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
                 attempt["fetch_wall_ns_before"],
                 minimum=0,
             )
-            _plain_int(
+            after_wall = _plain_int(
                 "capture wall after",
                 attempt["fetch_wall_ns_after"],
                 minimum=before_wall,
@@ -982,18 +1384,100 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
                 attempt["fetch_monotonic_ns_before"],
                 minimum=0,
             )
-            _plain_int(
+            after_mono = _plain_int(
                 "capture monotonic after",
                 attempt["fetch_monotonic_ns_after"],
                 minimum=before_mono,
             )
+            if not (
+                issued_wall_ns
+                <= before_wall
+                <= after_wall
+                <= expires_wall_ns
+            ):
+                raise OfficialMarketAdapterError(
+                    "capture attempt is outside authority validity window"
+                )
+            batch_attempt_index = _plain_int(
+                "batch_attempt_index",
+                attempt["batch_attempt_index"],
+                minimum=0,
+            )
+            if batch_attempt_index != expected_batch_attempt_index:
+                raise OfficialMarketAdapterError(
+                    "capture batch attempt indexes are not contiguous"
+                )
+            expected_batch_attempt_index += 1
+            endpoint_attempt_index = _plain_int(
+                "endpoint_attempt_index",
+                attempt["endpoint_attempt_index"],
+                minimum=0,
+                maximum=MAX_429_RETRIES_PER_ENDPOINT,
+            )
+            expected_delay_ns = 0
+            if previous_attempt is not None:
+                previous_after_wall = previous_attempt[
+                    "fetch_wall_ns_after"
+                ]
+                previous_after_mono = previous_attempt[
+                    "fetch_monotonic_ns_after"
+                ]
+                if (
+                    before_wall < previous_after_wall
+                    or before_mono < previous_after_mono
+                ):
+                    raise OfficialMarketAdapterError(
+                        "capture clocks regressed across HTTP attempts"
+                    )
+                expected_delay_ns = MIN_REQUEST_INTERVAL_NS
+                if previous_attempt["http_status"] == 429:
+                    previous_retry = previous_attempt[
+                        "retry_after_seconds"
+                    ]
+                    if type(previous_retry) is not int:
+                        raise OfficialMarketAdapterError(
+                            "prior HTTP 429 lacks retry delay"
+                        )
+                    expected_delay_ns = max(
+                        expected_delay_ns,
+                        previous_retry * 1_000_000_000,
+                    )
+                if before_mono - previous_after_mono < expected_delay_ns:
+                    raise OfficialMarketAdapterError(
+                        "capture does not prove required request throttle"
+                    )
+            declared_delay_ns = _plain_int(
+                "required_delay_from_prior_attempt_ns",
+                attempt["required_delay_from_prior_attempt_ns"],
+                minimum=0,
+            )
+            if declared_delay_ns != expected_delay_ns:
+                raise OfficialMarketAdapterError(
+                    "capture declared request delay is inconsistent"
+                )
+            retry_after_seconds = attempt["retry_after_seconds"]
+            if status == 429:
+                _plain_int(
+                    "retry_after_seconds",
+                    retry_after_seconds,
+                    minimum=MIN_RETRY_AFTER_SECONDS,
+                    maximum=MAX_RETRY_AFTER_SECONDS,
+                )
+            elif retry_after_seconds is not None:
+                raise OfficialMarketAdapterError(
+                    "non-429 capture must not carry Retry-After"
+                )
             raw_name = _text(
                 "capture raw path", attempt["raw_relative_path"]
             )
             if (
                 SAFE_RAW_NAME_RE.fullmatch(raw_name) is None
                 or raw_name
-                != _response_filename(capture_index, expected_tier)
+                != _response_filename(
+                    capture_index,
+                    batch_attempt_index,
+                    source_tier,
+                )
             ):
                 raise OfficialMarketAdapterError(
                     "capture raw path is unsafe or noncanonical"
@@ -1019,20 +1503,86 @@ def _validate_capture_receipt(value: object) -> dict[str, Any]:
                 raise OfficialMarketAdapterError(
                     "selected capture attempt is not HTTP 200"
                 )
-        if len(attempts) == 1:
-            if attempts[0]["http_status"] != 200 or selected_index != 0:
+            previous_attempt = attempt
+
+        current_attempts: list[Mapping[str, Any]] = []
+        historical_attempts: list[Mapping[str, Any]] = []
+        saw_historical = False
+        for attempt in attempts:
+            if attempt["source_tier"] == "historical":
+                saw_historical = True
+                historical_attempts.append(attempt)
+            elif saw_historical:
                 raise OfficialMarketAdapterError(
-                    "single current attempt must be selected HTTP 200"
+                    "current endpoint cannot resume after historical"
                 )
-        else:
-            if (
-                attempts[0]["http_status"] != 404
-                or attempts[1]["http_status"] != 200
-                or selected_index != 1
+            else:
+                current_attempts.append(attempt)
+        if not current_attempts:
+            raise OfficialMarketAdapterError(
+                "capture must begin with current endpoint"
+            )
+        for endpoint_attempt_index, attempt in enumerate(current_attempts):
+            if attempt["endpoint_attempt_index"] != endpoint_attempt_index:
+                raise OfficialMarketAdapterError(
+                    "current endpoint retry indexes are not contiguous"
+                )
+        for endpoint_attempt_index, attempt in enumerate(
+            historical_attempts
+        ):
+            if attempt["endpoint_attempt_index"] != endpoint_attempt_index:
+                raise OfficialMarketAdapterError(
+                    "historical endpoint retry indexes are not contiguous"
+                )
+        if len(current_attempts) > MAX_429_RETRIES_PER_ENDPOINT + 1:
+            raise OfficialMarketAdapterError(
+                "current endpoint retry count exceeds bounded policy"
+            )
+        if len(historical_attempts) > MAX_429_RETRIES_PER_ENDPOINT + 1:
+            raise OfficialMarketAdapterError(
+                "historical endpoint retry count exceeds bounded policy"
+            )
+        if any(
+            attempt["http_status"] != 429
+            for attempt in current_attempts[:-1]
+        ):
+            raise OfficialMarketAdapterError(
+                "only HTTP 429 may precede a current endpoint retry"
+            )
+        current_terminal_status = current_attempts[-1]["http_status"]
+        if current_terminal_status == 200:
+            if historical_attempts:
+                raise OfficialMarketAdapterError(
+                    "historical fallback after current 200 is forbidden"
+                )
+            if selected_index != len(current_attempts) - 1:
+                raise OfficialMarketAdapterError(
+                    "selected current response index is invalid"
+                )
+        elif current_terminal_status == 404:
+            if not historical_attempts:
+                raise OfficialMarketAdapterError(
+                    "current 404 requires historical endpoint"
+                )
+            if any(
+                attempt["http_status"] != 429
+                for attempt in historical_attempts[:-1]
             ):
                 raise OfficialMarketAdapterError(
-                    "historical fallback is allowed only after current 404"
+                    "only HTTP 429 may precede a historical endpoint retry"
                 )
+            if historical_attempts[-1]["http_status"] != 200:
+                raise OfficialMarketAdapterError(
+                    "historical fallback did not terminate in HTTP 200"
+                )
+            if selected_index != len(attempts) - 1:
+                raise OfficialMarketAdapterError(
+                    "selected historical response index is invalid"
+                )
+        else:
+            raise OfficialMarketAdapterError(
+                "current endpoint must terminate in HTTP 200 or 404"
+            )
     return dict(value)
 
 
@@ -1214,6 +1764,18 @@ def normalize_capture(
     if capture["authority_id"] != authority["authority_id"]:
         raise OfficialMarketAdapterError(
             "capture receipt authority id mismatch"
+        )
+    if (
+        capture["authority_issued_at_utc"] != authority["issued_at_utc"]
+        or capture["authority_expires_at_utc"]
+        != authority["expires_at_utc"]
+        or capture["authority_issued_wall_ns"]
+        != _timestamp_ns("issued_at_utc", authority["issued_at_utc"])
+        or capture["authority_expires_wall_ns"]
+        != _timestamp_ns("expires_at_utc", authority["expires_at_utc"])
+    ):
+        raise OfficialMarketAdapterError(
+            "capture receipt authority time binding mismatch"
         )
     if capture["adapter_code_sha256"] != code_before:
         raise OfficialMarketAdapterError(
