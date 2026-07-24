@@ -248,6 +248,34 @@ tick table 和 lifecycle observation 与 normalized settlement/metadata
 逐字段比对。任何自洽地改 pin、把 YES 改成 NO、把 URL 改到其他域名或把
 fetch 移出 authority window 的尝试都会 fail closed。
 
+### Canonical tapered-deci-cent exclusion capture
+
+`official_market_terminal_adapter.py capture-exclusion` 只接受绑定该 exact
+adapter code/config 的 singleton ticker authority。它与正常 capture 共用
+固定官方 HTTPS origin、current→historical-only-on-current-404、bounded
+429/Retry-After、250ms throttle、wall/monotonic 双时钟与 create-once raw
+路径，但 selected response 必须是完整的 finalized
+`tapered_deci_cent` 三段 tick table。
+
+每个 ticker 使用一个全新且此前不存在的 output directory，成功时只产出：
+
+- receipt 中声明的每一份原始 HTTP response；
+- `CAPTURE_RECEIPT.json`；
+- `RAW_PINS.json`；
+- `EXCLUSION_RAW_INVENTORY.json`。
+
+inventory 明确写入
+`reason_code=NON_STANDARD_PRICE_LEVEL_STRUCTURE`、
+`economic_record_admitted=false`、`normalization_permitted=false`、
+`settlement_record_emitted=false`、`s3_writes=0` 和
+`financial_mutations=0`。它保留完整 attempt ledger 并重新哈希每份 raw；
+观察时钟来自实际请求前后 clock bracket，禁止依据文件 mtime 补造。该
+capture 不得交给 `normalize`，后者仍会拒绝非 `linear_cent` response。
+
+部署和 live capture 必须在独立审计之后，且代码变更意味着旧 authority
+不能复用；需为每个 ticker 生成绑定新 code/config SHA 的新 singleton
+只读 authority。
+
 该通道的 temporality 永远是
 `OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF`。它只解除 finalized YES/NO 与
 exact payout 的 settlement 覆盖，不会解除以下门：

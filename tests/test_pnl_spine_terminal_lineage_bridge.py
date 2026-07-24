@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from tools.research.pnl_spine import official_market_terminal_adapter as adapter
 from tools.research.pnl_spine.terminal_lineage_bridge import (
     COVERAGE_POLICY,
     EXPLICIT_PER_SHARD,
@@ -830,6 +831,138 @@ def test_ineligible_terminal_is_explicit_denominator_not_economic_row(
     )
     assert exclusion["economic_record_admitted"] is False
     assert exclusion["terminal_fact"]["yes_settlement_value_e4"] == 0
+
+
+def test_canonical_exclusion_capture_artifacts_feed_bridge_without_pnl_row(
+    tmp_path: Path,
+) -> None:
+    spec = _case(tmp_path / "eligible")
+    ticker = "KXPGATOUR-COPC26-BBRO"
+    code_path = Path(adapter.__file__)
+    code_sha = hashlib.sha256(code_path.read_bytes()).hexdigest()
+    authority = {
+        "schema_version": adapter.AUTHORITY_SCHEMA,
+        "authority_id": "A01-EXCLUSION-TEST-01",
+        "purpose": adapter.PURPOSE,
+        "issued_at_utc": "2026-07-23T00:00:00Z",
+        "expires_at_utc": "2026-07-24T00:00:00Z",
+        "tickers": [ticker],
+        "adapter_code_sha256": code_sha,
+        "adapter_config_sha256": adapter.ADAPTER_CONFIG_SHA256,
+    }
+    authority_path = tmp_path / "exclusion-authority.json"
+    authority_sha = _write_json(authority_path, authority)
+    raw = canonical_json_bytes(
+        {
+            "market": {
+                "ticker": ticker,
+                "status": "finalized",
+                "result": "no",
+                "settlement_value_dollars": "0.0000",
+                "settlement_ts": "2026-07-23T01:00:00Z",
+                "price_level_structure": "tapered_deci_cent",
+                "price_ranges": [
+                    {
+                        "start": "0.0000",
+                        "end": "0.1000",
+                        "step": "0.0010",
+                    },
+                    {
+                        "start": "0.1000",
+                        "end": "0.9000",
+                        "step": "0.0100",
+                    },
+                    {
+                        "start": "0.9000",
+                        "end": "1.0000",
+                        "step": "0.0010",
+                    },
+                ],
+                "open_time": "2026-07-01T00:00:00Z",
+                "close_time": "2026-07-22T00:00:00Z",
+                "expected_expiration_time": "2026-07-22T00:00:00Z",
+                "occurrence_datetime": "2026-07-21T00:00:00Z",
+            }
+        }
+    )
+    current_url = (
+        "https://api.elections.kalshi.com/trade-api/v2/markets/"
+        f"{ticker}"
+    )
+
+    class Clock:
+        wall = 1_784_764_801_000_000_000
+        mono = 1_000_000_000
+
+        def __call__(self) -> tuple[int, int]:
+            self.wall += 1_000_000
+            self.mono += 1_000_000
+            return self.wall, self.mono
+
+        def sleep(self, seconds: float) -> None:
+            delta = int(seconds * 1_000_000_000)
+            self.wall += delta
+            self.mono += delta
+
+    clock = Clock()
+    bundle = adapter.capture_exclusion_terminal(
+        authority,
+        authority_raw_sha256=authority_sha,
+        expected_code_sha256=code_sha,
+        output_dir=tmp_path / "canonical-exclusion",
+        transport=lambda url, timeout: adapter.HttpResult(
+            status=200,
+            final_url=url,
+            body=raw,
+        ),
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+    capture_path = tmp_path / "canonical-exclusion/CAPTURE_RECEIPT.json"
+    pins_path = tmp_path / "canonical-exclusion/RAW_PINS.json"
+    selected = bundle.capture_receipt["captures"][0]["attempts"][0]
+    spec["required_tickers"] = sorted([*spec["required_tickers"], ticker])
+    spec["eligibility_exclusions"] = [
+        {
+            "ticker": ticker,
+            "reason_code": "NON_STANDARD_PRICE_LEVEL_STRUCTURE",
+            "adapter_code_path": str(code_path),
+            "authority_path": str(authority_path),
+            "authority_raw_sha256": authority_sha,
+            "capture_receipt_path": str(capture_path),
+            "capture_receipt_raw_sha256": (
+                bundle.capture_receipt_raw_sha256
+            ),
+            "raw_pins_path": str(pins_path),
+            "raw_pins_raw_sha256": bundle.raw_pins_raw_sha256,
+            "raw_response_path": str(
+                capture_path.parent / selected["raw_relative_path"]
+            ),
+            "raw_response_raw_sha256": selected["raw_sha256"],
+            "raw_response_size_bytes": selected["raw_size"],
+            "adapter_code_sha256": code_sha,
+            "adapter_config_sha256": adapter.ADAPTER_CONFIG_SHA256,
+            "source_tier": "current",
+            "http_status": 200,
+            "observed_price_level_structure": "tapered_deci_cent",
+        }
+    ]
+
+    root = build_terminal_root_bundle(
+        spec, require_root_read_only=False
+    )
+    assert ticker not in root.terminal_records_by_ticker
+    assert root.receipt["eligibility_exclusions"][0][
+        "economic_record_admitted"
+    ] is False
+    assert bundle.raw_inventory["economic_record_admitted"] is False
+    assert bundle.raw_inventory["reason_code"] == (
+        "NON_STANDARD_PRICE_LEVEL_STRUCTURE"
+    )
+    assert hashlib.sha256(
+        (tmp_path / "canonical-exclusion/EXCLUSION_RAW_INVENTORY.json")
+        .read_bytes()
+    ).hexdigest() == bundle.raw_inventory_raw_sha256
 
 
 def test_required_ineligible_ticker_without_root_exclusion_is_missing(

@@ -16,6 +16,12 @@ This adapter is intentionally split into two phases.
     re-hashes every response body, strictly parses the selected finalized
     market response, and emits A01 settlement records plus metadata evidence.
 
+``capture-exclusion``
+    Requires a singleton exact-ticker authority and captures only the audited
+    ``tapered_deci_cent`` terminal shape.  It emits the full attempt ledger,
+    raw pins, and an all-raw inventory explicitly marked non-economic.  It
+    has no normalization or settlement-record path.
+
 The current/historical market endpoints expose the state observed at fetch
 time.  They are *not* historical point-in-time metadata snapshots.  In
 particular, this adapter never promotes ``occurrence_datetime``,
@@ -36,7 +42,7 @@ import re
 import stat
 import sys
 import time
-from typing import Any, BinaryIO, Mapping, Protocol, Sequence
+from typing import Any, BinaryIO, Callable, Mapping, Protocol, Sequence
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,6 +52,10 @@ AUTHORITY_SCHEMA = "a01-official-market-authority-v1"
 CAPTURE_RECEIPT_SCHEMA = "a01-official-market-capture-receipt-v1"
 RAW_PINS_SCHEMA = "a01-official-market-raw-pins-v1"
 OUTPUT_SCHEMA = "a01-official-market-terminal-metadata-v1"
+EXCLUSION_INVENTORY_SCHEMA = (
+    "a01-official-market-exclusion-raw-inventory-v1"
+)
+EXCLUSION_REASON = "NON_STANDARD_PRICE_LEVEL_STRUCTURE"
 
 OFFICIAL_HOST = "api.elections.kalshi.com"
 OFFICIAL_ORIGIN = f"https://{OFFICIAL_HOST}"
@@ -117,6 +127,14 @@ ADAPTER_CONFIG = {
         ),
     },
     "terminal_rule": "FINALIZED_YES_NO_EXACT_PAYOUT_ONLY",
+    "capture_profiles": {
+        "economic_terminal": (
+            "LINEAR_CENT_ONLY_NORMALIZATION_REQUIRES_EXTERNAL_RAW_PINS"
+        ),
+        "eligibility_exclusion": (
+            "SINGLE_EXACT_TICKER_TAPERED_DECI_CENT_CAPTURE_ONLY"
+        ),
+    },
     "metadata_temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
     "scheduled_start_mapping": "FORBIDDEN",
     "control_receipt_noninteger_numbers": "FORBIDDEN",
@@ -489,6 +507,18 @@ class HttpResult:
     final_url: str
     body: bytes
     retry_after: str | None = None
+
+
+@dataclass(frozen=True)
+class ExclusionCaptureBundle:
+    """Create-once, non-economic evidence emitted for one exact ticker."""
+
+    capture_receipt: Mapping[str, Any]
+    capture_receipt_raw_sha256: str
+    raw_pins: Mapping[str, Any]
+    raw_pins_raw_sha256: str
+    raw_inventory: Mapping[str, Any]
+    raw_inventory_raw_sha256: str
 
 
 class Transport(Protocol):
@@ -1067,7 +1097,7 @@ def _capture_endpoint(
     raise AssertionError("bounded endpoint retry loop fell through")
 
 
-def capture_markets(
+def _capture_markets_with_parser(
     authority: Mapping[str, Any],
     *,
     authority_raw_sha256: str,
@@ -1076,13 +1106,9 @@ def capture_markets(
     transport: Transport = urllib_transport,
     clock: Clock = system_clock,
     sleeper: Sleeper = time.sleep,
+    selected_response_parser: Callable[..., dict[str, Any]],
+    require_singleton_authority: bool,
 ) -> tuple[dict[str, Any], str]:
-    """Capture one immutable official response set.
-
-    The caller must independently retain the returned receipt raw SHA and
-    construct a raw-pins document before calling :func:`normalize_capture`.
-    """
-
     code_before = adapter_code_sha256()
     if code_before != expected_code_sha256:
         raise OfficialMarketAdapterError(
@@ -1095,6 +1121,10 @@ def capture_markets(
         expected_code_sha256=expected_code_sha256,
         now_wall_ns=now_wall_ns,
     )
+    if require_singleton_authority and len(authority["tickers"]) != 1:
+        raise OfficialMarketAdapterError(
+            "exclusion capture requires one exact-ticker authority"
+        )
     issued_wall_ns = _timestamp_ns(
         "issued_at_utc", authority["issued_at_utc"]
     )
@@ -1149,7 +1179,7 @@ def capture_markets(
         # a deceptively complete capture receipt.  Normalization re-parses
         # independently after external raw pinning.
         selected_raw = (output_dir / selected["raw_relative_path"]).read_bytes()
-        _parse_final_market_response(
+        selected_response_parser(
             selected_raw,
             expected_ticker=ticker,
         )
@@ -1190,6 +1220,35 @@ def capture_markets(
     return receipt, raw_sha
 
 
+def capture_markets(
+    authority: Mapping[str, Any],
+    *,
+    authority_raw_sha256: str,
+    expected_code_sha256: str,
+    output_dir: Path,
+    transport: Transport = urllib_transport,
+    clock: Clock = system_clock,
+    sleeper: Sleeper = time.sleep,
+) -> tuple[dict[str, Any], str]:
+    """Capture one immutable official response set for economic normalization.
+
+    The caller must independently retain the returned receipt raw SHA and
+    construct a raw-pins document before calling :func:`normalize_capture`.
+    """
+
+    return _capture_markets_with_parser(
+        authority,
+        authority_raw_sha256=authority_raw_sha256,
+        expected_code_sha256=expected_code_sha256,
+        output_dir=output_dir,
+        transport=transport,
+        clock=clock,
+        sleeper=sleeper,
+        selected_response_parser=_parse_final_market_response,
+        require_singleton_authority=False,
+    )
+
+
 def _money_e4(label: str, value: object) -> int:
     text = _text(label, value)
     if DOLLARS_4_RE.fullmatch(text) is None:
@@ -1225,10 +1284,51 @@ def _parse_standard_price_ranges(value: object) -> list[dict[str, str]]:
     return [{"start": start, "end": end, "step": step}]
 
 
-def _parse_final_market_response(
+def _parse_tapered_deci_cent_price_ranges(
+    value: object,
+) -> list[dict[str, str]]:
+    expected = [
+        {"start": "0.0000", "end": "0.1000", "step": "0.0010"},
+        {"start": "0.1000", "end": "0.9000", "step": "0.0100"},
+        {"start": "0.9000", "end": "1.0000", "step": "0.0010"},
+    ]
+    if not isinstance(value, list) or len(value) != len(expected):
+        raise OfficialMarketAdapterError(
+            "tapered_deci_cent exclusion requires three exact intervals"
+        )
+    parsed: list[dict[str, str]] = []
+    for index, expected_row in enumerate(expected):
+        item = value[index]
+        if not isinstance(item, Mapping):
+            raise OfficialMarketAdapterError(
+                f"price_ranges[{index}] must be object"
+            )
+        _exact_keys(
+            f"price_ranges[{index}]", item, {"start", "end", "step"}
+        )
+        row = {
+            "start": _text(
+                f"price_ranges[{index}].start", item["start"]
+            ),
+            "end": _text(f"price_ranges[{index}].end", item["end"]),
+            "step": _text(f"price_ranges[{index}].step", item["step"]),
+        }
+        if row != expected_row:
+            raise OfficialMarketAdapterError(
+                "tapered_deci_cent exclusion tick intervals drifted"
+            )
+        parsed.append(row)
+    return parsed
+
+
+def _parse_terminal_market_response(
     raw: bytes,
     *,
     expected_ticker: str,
+    expected_price_level_structure: str,
+    price_ranges_parser: Callable[
+        [object], list[dict[str, str]]
+    ],
 ) -> dict[str, Any]:
     value = parse_strict_json(
         raw,
@@ -1304,11 +1404,15 @@ def _parse_final_market_response(
         "market.price_level_structure",
         market["price_level_structure"],
     )
-    if price_level_structure != "linear_cent":
+    if price_level_structure != expected_price_level_structure:
+        if expected_price_level_structure == "linear_cent":
+            raise OfficialMarketAdapterError(
+                "non-standard price level structure is not eligible for A01"
+            )
         raise OfficialMarketAdapterError(
-            "non-standard price level structure is not eligible for A01"
+            "exclusion response is not tapered_deci_cent"
         )
-    price_ranges = _parse_standard_price_ranges(market["price_ranges"])
+    price_ranges = price_ranges_parser(market["price_ranges"])
     return {
         "ticker": ticker,
         "status": status,
@@ -1323,6 +1427,32 @@ def _parse_final_market_response(
         "expected_expiration_time": expected_expiration_time,
         "occurrence_datetime": occurrence_datetime,
     }
+
+
+def _parse_final_market_response(
+    raw: bytes,
+    *,
+    expected_ticker: str,
+) -> dict[str, Any]:
+    return _parse_terminal_market_response(
+        raw,
+        expected_ticker=expected_ticker,
+        expected_price_level_structure="linear_cent",
+        price_ranges_parser=_parse_standard_price_ranges,
+    )
+
+
+def _parse_exclusion_market_response(
+    raw: bytes,
+    *,
+    expected_ticker: str,
+) -> dict[str, Any]:
+    return _parse_terminal_market_response(
+        raw,
+        expected_ticker=expected_ticker,
+        expected_price_level_structure="tapered_deci_cent",
+        price_ranges_parser=_parse_tapered_deci_cent_price_ranges,
+    )
 
 
 def _validate_capture_receipt(value: object) -> dict[str, Any]:
@@ -1846,6 +1976,254 @@ def _read_exact_raw(
     return raw
 
 
+def _validate_exclusion_inventory(
+    value: object,
+    *,
+    authority_raw_sha256: str,
+    capture_receipt_raw_sha256: str,
+    raw_pins_raw_sha256: str,
+    adapter_code_sha256_value: str,
+    ticker: str,
+    selected_response: Mapping[str, Any],
+    raw_response_evidence: Sequence[Mapping[str, Any]],
+    terminal_fact: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise OfficialMarketAdapterError(
+            "exclusion raw inventory must be object"
+        )
+    required = {
+        "schema_version",
+        "authority_raw_sha256",
+        "capture_receipt_raw_sha256",
+        "raw_pins_raw_sha256",
+        "adapter_code_sha256",
+        "adapter_config_sha256",
+        "ticker",
+        "temporality",
+        "capture_profile",
+        "request_method",
+        "request_authentication",
+        "reason_code",
+        "observed_price_level_structure",
+        "economic_record_admitted",
+        "settlement_record_emitted",
+        "metadata_record_emitted",
+        "normalization_permitted",
+        "network_reads",
+        "s3_writes",
+        "financial_mutations",
+        "selected_response",
+        "raw_responses",
+        "observed_terminal_fact",
+    }
+    _exact_keys("exclusion raw inventory", value, required)
+    expected_bindings = {
+        "schema_version": EXCLUSION_INVENTORY_SCHEMA,
+        "authority_raw_sha256": authority_raw_sha256,
+        "capture_receipt_raw_sha256": capture_receipt_raw_sha256,
+        "raw_pins_raw_sha256": raw_pins_raw_sha256,
+        "adapter_code_sha256": adapter_code_sha256_value,
+        "adapter_config_sha256": ADAPTER_CONFIG_SHA256,
+        "ticker": ticker,
+        "temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
+        "capture_profile": "ELIGIBILITY_EXCLUSION_ONLY",
+        "request_method": "GET",
+        "request_authentication": "NONE",
+        "reason_code": EXCLUSION_REASON,
+        "observed_price_level_structure": "tapered_deci_cent",
+        "economic_record_admitted": False,
+        "settlement_record_emitted": False,
+        "metadata_record_emitted": False,
+        "normalization_permitted": False,
+        "network_reads": len(raw_response_evidence),
+        "s3_writes": 0,
+        "financial_mutations": 0,
+    }
+    for field, expected in expected_bindings.items():
+        if value[field] != expected:
+            raise OfficialMarketAdapterError(
+                f"exclusion raw inventory binding drifted: {field}"
+            )
+    selected = value["selected_response"]
+    if not isinstance(selected, Mapping) or dict(selected) != dict(
+        selected_response
+    ):
+        raise OfficialMarketAdapterError(
+            "exclusion selected response differs from capture/raw pins"
+        )
+    raw_rows = value["raw_responses"]
+    if (
+        not isinstance(raw_rows, list)
+        or raw_rows
+        != [dict(row) for row in raw_response_evidence]
+    ):
+        raise OfficialMarketAdapterError(
+            "exclusion all-raw inventory differs from attempt ledger"
+        )
+    observed = value["observed_terminal_fact"]
+    if not isinstance(observed, Mapping) or dict(observed) != dict(
+        terminal_fact
+    ):
+        raise OfficialMarketAdapterError(
+            "exclusion terminal fact differs from selected official raw"
+        )
+    forbidden = {
+        "settlement_id",
+        "terminal_records",
+        "metadata_evidence",
+        "record_id",
+    }
+    if forbidden & set(value) or forbidden & set(observed):
+        raise OfficialMarketAdapterError(
+            "exclusion inventory attempted to emit an economic record"
+        )
+    return dict(value)
+
+
+def capture_exclusion_terminal(
+    authority: Mapping[str, Any],
+    *,
+    authority_raw_sha256: str,
+    expected_code_sha256: str,
+    output_dir: Path,
+    transport: Transport = urllib_transport,
+    clock: Clock = system_clock,
+    sleeper: Sleeper = time.sleep,
+) -> ExclusionCaptureBundle:
+    """Capture one tapered terminal market without creating a PnL record."""
+
+    code_before = adapter_code_sha256()
+    receipt, receipt_raw_sha = _capture_markets_with_parser(
+        authority,
+        authority_raw_sha256=authority_raw_sha256,
+        expected_code_sha256=expected_code_sha256,
+        output_dir=output_dir,
+        transport=transport,
+        clock=clock,
+        sleeper=sleeper,
+        selected_response_parser=_parse_exclusion_market_response,
+        require_singleton_authority=True,
+    )
+    capture = receipt["captures"][0]
+    ticker = capture["ticker"]
+    selected = capture["attempts"][capture["selected_attempt_index"]]
+    selected_pin = {
+        field: selected[field]
+        for field in (
+            "ticker",
+            "source_tier",
+            "request_url",
+            "http_status",
+            "raw_size",
+            "raw_sha256",
+        )
+    }
+    pins: dict[str, Any] = {
+        "schema_version": RAW_PINS_SCHEMA,
+        "authority_raw_sha256": authority_raw_sha256,
+        "capture_receipt_raw_sha256": receipt_raw_sha,
+        "adapter_code_sha256": code_before,
+        "adapter_config_sha256": ADAPTER_CONFIG_SHA256,
+        "selected_responses": [selected_pin],
+    }
+    pins_raw = canonical_json_bytes(pins) + b"\n"
+    pins_raw_sha = hashlib.sha256(pins_raw).hexdigest()
+    pins = _validate_raw_pins(
+        pins,
+        raw_sha256=pins_raw_sha,
+        capture_receipt_raw_sha256=receipt_raw_sha,
+        authority_raw_sha256=authority_raw_sha256,
+        adapter_code_sha256_value=code_before,
+    )
+    pins_written_sha = _write_create_once(
+        output_dir / "RAW_PINS.json", pins_raw
+    )
+    if pins_written_sha != pins_raw_sha:
+        raise OfficialMarketAdapterError(
+            "exclusion raw-pins create-once SHA mismatch"
+        )
+
+    raw_evidence: list[dict[str, Any]] = []
+    selected_raw: bytes | None = None
+    for attempt in capture["attempts"]:
+        raw = _read_exact_raw(
+            output_dir / attempt["raw_relative_path"],
+            expected_size=attempt["raw_size"],
+            expected_sha256=attempt["raw_sha256"],
+        )
+        evidence = {
+            **dict(attempt),
+            "raw_reverified_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        raw_evidence.append(evidence)
+        if (
+            attempt["batch_attempt_index"]
+            == selected["batch_attempt_index"]
+        ):
+            selected_raw = raw
+    if selected_raw is None:
+        raise OfficialMarketAdapterError(
+            "exclusion selected raw response is absent"
+        )
+    terminal_fact = _parse_exclusion_market_response(
+        selected_raw, expected_ticker=ticker
+    )
+    inventory: dict[str, Any] = {
+        "schema_version": EXCLUSION_INVENTORY_SCHEMA,
+        "authority_raw_sha256": authority_raw_sha256,
+        "capture_receipt_raw_sha256": receipt_raw_sha,
+        "raw_pins_raw_sha256": pins_raw_sha,
+        "adapter_code_sha256": code_before,
+        "adapter_config_sha256": ADAPTER_CONFIG_SHA256,
+        "ticker": ticker,
+        "temporality": "OBSERVED_AT_FETCH_NOT_HISTORICAL_AS_OF",
+        "capture_profile": "ELIGIBILITY_EXCLUSION_ONLY",
+        "request_method": "GET",
+        "request_authentication": "NONE",
+        "reason_code": EXCLUSION_REASON,
+        "observed_price_level_structure": "tapered_deci_cent",
+        "economic_record_admitted": False,
+        "settlement_record_emitted": False,
+        "metadata_record_emitted": False,
+        "normalization_permitted": False,
+        "network_reads": len(raw_evidence),
+        "s3_writes": 0,
+        "financial_mutations": 0,
+        "selected_response": selected_pin,
+        "raw_responses": raw_evidence,
+        "observed_terminal_fact": terminal_fact,
+    }
+    inventory = _validate_exclusion_inventory(
+        inventory,
+        authority_raw_sha256=authority_raw_sha256,
+        capture_receipt_raw_sha256=receipt_raw_sha,
+        raw_pins_raw_sha256=pins_raw_sha,
+        adapter_code_sha256_value=code_before,
+        ticker=ticker,
+        selected_response=selected_pin,
+        raw_response_evidence=raw_evidence,
+        terminal_fact=terminal_fact,
+    )
+    inventory_raw = canonical_json_bytes(inventory) + b"\n"
+    inventory_raw_sha = _write_create_once(
+        output_dir / "EXCLUSION_RAW_INVENTORY.json",
+        inventory_raw,
+    )
+    if adapter_code_sha256() != code_before:
+        raise OfficialMarketAdapterError(
+            "adapter code changed during exclusion evidence capture"
+        )
+    return ExclusionCaptureBundle(
+        capture_receipt=receipt,
+        capture_receipt_raw_sha256=receipt_raw_sha,
+        raw_pins=pins,
+        raw_pins_raw_sha256=pins_raw_sha,
+        raw_inventory=inventory,
+        raw_inventory_raw_sha256=inventory_raw_sha,
+    )
+
+
 def normalize_capture(
     *,
     authority: Mapping[str, Any],
@@ -2202,6 +2580,14 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--expected-adapter-code-sha256", required=True)
     capture.add_argument("--output-dir", required=True)
 
+    exclusion = subparsers.add_parser("capture-exclusion")
+    exclusion.add_argument("--authority", required=True)
+    exclusion.add_argument("--authority-sha256", required=True)
+    exclusion.add_argument(
+        "--expected-adapter-code-sha256", required=True
+    )
+    exclusion.add_argument("--output-dir", required=True)
+
     normalize = subparsers.add_parser("normalize")
     normalize.add_argument("--authority", required=True)
     normalize.add_argument("--authority-sha256", required=True)
@@ -2253,6 +2639,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(
                 {
                     "capture_receipt_raw_sha256": receipt_raw_sha,
+                    "network_mutations": 0,
+                    "financial_mutations": 0,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.command == "capture-exclusion":
+        bundle = capture_exclusion_terminal(
+            authority,
+            authority_raw_sha256=_raw_sha(authority_raw),
+            expected_code_sha256=code_sha,
+            output_dir=Path(args.output_dir),
+        )
+        print(
+            json.dumps(
+                {
+                    "ticker": bundle.raw_inventory["ticker"],
+                    "capture_receipt_raw_sha256": (
+                        bundle.capture_receipt_raw_sha256
+                    ),
+                    "raw_pins_raw_sha256": bundle.raw_pins_raw_sha256,
+                    "raw_inventory_raw_sha256": (
+                        bundle.raw_inventory_raw_sha256
+                    ),
+                    "economic_record_admitted": False,
+                    "settlement_record_emitted": False,
                     "network_mutations": 0,
                     "financial_mutations": 0,
                 },

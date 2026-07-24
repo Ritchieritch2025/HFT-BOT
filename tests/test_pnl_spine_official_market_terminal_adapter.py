@@ -17,6 +17,8 @@ from tools.research.pnl_spine import official_market_terminal_adapter as adapter
 from tools.research.pnl_spine.official_market_terminal_adapter import (
     ADAPTER_CONFIG_SHA256,
     AUTHORITY_SCHEMA,
+    EXCLUSION_INVENTORY_SCHEMA,
+    EXCLUSION_REASON,
     RAW_PINS_SCHEMA,
     HttpResult,
     OfficialMarketAdapterError,
@@ -28,9 +30,11 @@ from tools.research.pnl_spine.official_market_terminal_adapter import (
     _read_pinned_file,
     _require_non_root,
     _validate_capture_receipt,
+    _validate_exclusion_inventory,
     _write_create_once,
     adapter_code_sha256,
     canonical_json_bytes,
+    capture_exclusion_terminal,
     capture_markets,
     normalize_capture,
     validate_authority,
@@ -163,6 +167,41 @@ def market_response(
     if omit is not None:
         market.pop(omit)
     return canonical_json_bytes({"market": market})
+
+
+def tapered_market_response(
+    ticker: str,
+    *,
+    ranges: object | None = None,
+    structure: str = "tapered_deci_cent",
+) -> bytes:
+    return market_response(
+        ticker,
+        result="no",
+        payout="0.0000",
+        structure=structure,
+        ranges=(
+            [
+                {
+                    "start": "0.0000",
+                    "end": "0.1000",
+                    "step": "0.0010",
+                },
+                {
+                    "start": "0.1000",
+                    "end": "0.9000",
+                    "step": "0.0100",
+                },
+                {
+                    "start": "0.9000",
+                    "end": "1.0000",
+                    "step": "0.0010",
+                },
+            ]
+            if ranges is None
+            else ranges
+        ),
+    )
 
 
 def raw_pins(
@@ -597,6 +636,354 @@ def test_schema_nonfinal_and_nonstandard_tick_fail_closed(
             response,
             expected_ticker=TICKER_A,
         )
+
+
+def test_exclusion_capture_emits_only_complete_non_economic_evidence(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    raw = tapered_market_response(TICKER_A)
+    transport = FakeTransport({current: (200, raw)})
+    clock = FakeClock()
+    directory = tmp_path / "exclusion"
+
+    bundle = capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=directory,
+        transport=transport,
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    assert transport.calls == [(current, adapter.TIMEOUT_SECONDS)]
+    assert sorted(path.name for path in directory.iterdir()) == [
+        "0000.0000.current.response.json",
+        "CAPTURE_RECEIPT.json",
+        "EXCLUSION_RAW_INVENTORY.json",
+        "RAW_PINS.json",
+    ]
+    assert (directory / "0000.0000.current.response.json").read_bytes() == raw
+    assert bundle.raw_inventory["schema_version"] == (
+        EXCLUSION_INVENTORY_SCHEMA
+    )
+    assert bundle.raw_inventory["ticker"] == TICKER_A
+    assert bundle.raw_inventory["reason_code"] == EXCLUSION_REASON
+    assert bundle.raw_inventory["economic_record_admitted"] is False
+    assert bundle.raw_inventory["settlement_record_emitted"] is False
+    assert bundle.raw_inventory["metadata_record_emitted"] is False
+    assert bundle.raw_inventory["normalization_permitted"] is False
+    assert bundle.raw_inventory["request_method"] == "GET"
+    assert bundle.raw_inventory["request_authentication"] == "NONE"
+    assert bundle.raw_inventory["network_reads"] == 1
+    assert bundle.raw_inventory["s3_writes"] == 0
+    assert bundle.raw_inventory["financial_mutations"] == 0
+    attempt = bundle.capture_receipt["captures"][0]["attempts"][0]
+    assert bundle.raw_inventory["raw_responses"] == [
+        {**attempt, "raw_reverified_sha256": attempt["raw_sha256"]}
+    ]
+    assert "terminal_records" not in bundle.raw_inventory
+    assert "settlement_id" not in bundle.raw_inventory[
+        "observed_terminal_fact"
+    ]
+    assert hashlib.sha256(
+        (directory / "CAPTURE_RECEIPT.json").read_bytes()
+    ).hexdigest() == bundle.capture_receipt_raw_sha256
+    assert hashlib.sha256(
+        (directory / "RAW_PINS.json").read_bytes()
+    ).hexdigest() == bundle.raw_pins_raw_sha256
+    assert hashlib.sha256(
+        (directory / "EXCLUSION_RAW_INVENTORY.json").read_bytes()
+    ).hexdigest() == bundle.raw_inventory_raw_sha256
+
+
+def test_exclusion_capture_historical_fallback_preserves_all_raws(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    historical = _market_url(TICKER_A, source_tier="historical")
+    historical_raw = tapered_market_response(TICKER_A)
+    transport = FakeTransport(
+        {
+            current: (404, b'{"error":"not found"}'),
+            historical: (200, historical_raw),
+        }
+    )
+    clock = FakeClock()
+    bundle = capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=tmp_path / "exclusion",
+        transport=transport,
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    attempts = bundle.capture_receipt["captures"][0]["attempts"]
+    assert [row["http_status"] for row in attempts] == [404, 200]
+    assert [row["source_tier"] for row in attempts] == [
+        "current",
+        "historical",
+    ]
+    assert bundle.capture_receipt["captures"][0][
+        "selected_attempt_index"
+    ] == 1
+    assert len(bundle.raw_inventory["raw_responses"]) == 2
+    selected_pin = bundle.raw_pins["selected_responses"][0]
+    assert selected_pin["source_tier"] == "historical"
+    assert selected_pin["raw_sha256"] == hashlib.sha256(
+        historical_raw
+    ).hexdigest()
+
+
+def test_exclusion_capture_429_retry_ledger_is_complete_and_throttled(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    transport = FakeTransport(
+        {
+            current: [
+                (429, b'{"error":"rate limited"}', "1"),
+                (200, tapered_market_response(TICKER_A)),
+            ]
+        }
+    )
+    clock = FakeClock()
+    bundle = capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=tmp_path / "exclusion",
+        transport=transport,
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    attempts = bundle.capture_receipt["captures"][0]["attempts"]
+    assert [row["http_status"] for row in attempts] == [429, 200]
+    assert attempts[0]["retry_after_seconds"] == 1
+    assert attempts[1]["endpoint_attempt_index"] == 1
+    assert attempts[1]["required_delay_from_prior_attempt_ns"] == (
+        1_000_000_000
+    )
+    assert len(bundle.raw_inventory["raw_responses"]) == 2
+    _validate_capture_receipt(bundle.capture_receipt)
+
+
+def test_exclusion_capture_requires_single_exact_ticker_before_http(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A, TICKER_B])
+    transport = FakeTransport({})
+    directory = tmp_path / "exclusion"
+    clock = FakeClock()
+
+    with pytest.raises(
+        OfficialMarketAdapterError,
+        match="one exact-ticker authority",
+    ):
+        capture_exclusion_terminal(
+            auth,
+            authority_raw_sha256=auth_sha,
+            expected_code_sha256=adapter_code_sha256(),
+            output_dir=directory,
+            transport=transport,
+            clock=clock,
+            sleeper=clock.sleep,
+        )
+    assert transport.calls == []
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (market_response(TICKER_A), "not tapered"),
+        (
+            tapered_market_response(
+                TICKER_A,
+                ranges=[
+                    {
+                        "start": "0.0000",
+                        "end": "1.0000",
+                        "step": "0.0010",
+                    }
+                ],
+            ),
+            "three exact intervals",
+        ),
+        (
+            tapered_market_response(
+                TICKER_A,
+                ranges=[
+                    {
+                        "start": "0.0000",
+                        "end": "0.1000",
+                        "step": "0.0010",
+                    },
+                    {
+                        "start": "0.1000",
+                        "end": "0.9000",
+                        "step": "0.0010",
+                    },
+                    {
+                        "start": "0.9000",
+                        "end": "1.0000",
+                        "step": "0.0010",
+                    },
+                ],
+            ),
+            "intervals drifted",
+        ),
+    ],
+)
+def test_exclusion_capture_refuses_wrong_structure_or_tick_table(
+    tmp_path: Path,
+    response: bytes,
+    message: str,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    directory = tmp_path / "exclusion"
+    clock = FakeClock()
+    with pytest.raises(OfficialMarketAdapterError, match=message):
+        capture_exclusion_terminal(
+            auth,
+            authority_raw_sha256=auth_sha,
+            expected_code_sha256=adapter_code_sha256(),
+            output_dir=directory,
+            transport=FakeTransport({current: (200, response)}),
+            clock=clock,
+            sleeper=clock.sleep,
+        )
+    assert (directory / "0000.0000.current.response.json").exists()
+    assert not (directory / "CAPTURE_RECEIPT.json").exists()
+    assert not (directory / "RAW_PINS.json").exists()
+    assert not (directory / "EXCLUSION_RAW_INVENTORY.json").exists()
+
+
+def test_exclusion_capture_cannot_be_normalized_into_settlement(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    clock = FakeClock()
+    directory = tmp_path / "exclusion"
+    bundle = capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=directory,
+        transport=FakeTransport(
+            {current: (200, tapered_market_response(TICKER_A))}
+        ),
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    with pytest.raises(
+        OfficialMarketAdapterError,
+        match="non-standard price level",
+    ):
+        normalize_capture(
+            authority=auth,
+            authority_raw_sha256=auth_sha,
+            capture_receipt=bundle.capture_receipt,
+            capture_receipt_raw_sha256=(
+                bundle.capture_receipt_raw_sha256
+            ),
+            capture_dir=directory,
+            raw_pins=bundle.raw_pins,
+            raw_pins_raw_sha256=bundle.raw_pins_raw_sha256,
+            expected_code_sha256=adapter_code_sha256(),
+        )
+
+
+def test_exclusion_inventory_rejects_economic_admission_and_extra_record(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    clock = FakeClock()
+    bundle = capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=tmp_path / "exclusion",
+        transport=FakeTransport(
+            {current: (200, tapered_market_response(TICKER_A))}
+        ),
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+    inventory = bundle.raw_inventory
+    common = {
+        "authority_raw_sha256": auth_sha,
+        "capture_receipt_raw_sha256": (
+            bundle.capture_receipt_raw_sha256
+        ),
+        "raw_pins_raw_sha256": bundle.raw_pins_raw_sha256,
+        "adapter_code_sha256_value": adapter_code_sha256(),
+        "ticker": TICKER_A,
+        "selected_response": inventory["selected_response"],
+        "raw_response_evidence": inventory["raw_responses"],
+        "terminal_fact": inventory["observed_terminal_fact"],
+    }
+    admitted = dict(inventory)
+    admitted["economic_record_admitted"] = True
+    with pytest.raises(
+        OfficialMarketAdapterError, match="economic_record_admitted"
+    ):
+        _validate_exclusion_inventory(admitted, **common)
+
+    injected = dict(inventory)
+    injected["terminal_records"] = [{"settlement_id": "forbidden"}]
+    with pytest.raises(
+        OfficialMarketAdapterError, match="keys mismatch"
+    ):
+        _validate_exclusion_inventory(injected, **common)
+
+
+def test_exclusion_capture_directory_and_all_artifacts_are_create_once(
+    tmp_path: Path,
+) -> None:
+    auth, auth_sha = authority([TICKER_A])
+    current = _market_url(TICKER_A, source_tier="current")
+    directory = tmp_path / "exclusion"
+    clock = FakeClock()
+    capture_exclusion_terminal(
+        auth,
+        authority_raw_sha256=auth_sha,
+        expected_code_sha256=adapter_code_sha256(),
+        output_dir=directory,
+        transport=FakeTransport(
+            {current: (200, tapered_market_response(TICKER_A))}
+        ),
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    second_transport = FakeTransport(
+        {current: (200, tapered_market_response(TICKER_A))}
+    )
+    with pytest.raises(
+        OfficialMarketAdapterError, match="create-once"
+    ):
+        capture_exclusion_terminal(
+            auth,
+            authority_raw_sha256=auth_sha,
+            expected_code_sha256=adapter_code_sha256(),
+            output_dir=directory,
+            transport=second_transport,
+            clock=clock,
+            sleeper=clock.sleep,
+        )
+    assert second_transport.calls == []
 
 
 def test_duplicate_json_keys_and_numeric_dollars_are_rejected() -> None:
