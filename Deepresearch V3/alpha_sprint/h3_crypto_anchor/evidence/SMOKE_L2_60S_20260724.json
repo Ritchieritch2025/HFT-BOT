@@ -1,0 +1,59 @@
+{
+  "schema_version": "alpha-sprint-h3-smoke-receipt-v1",
+  "run_id": "20260724T065329.889799Z-2b5c652a1932",
+  "started_at_utc": "2026-07-24T06:53:29.890445Z",
+  "stopped_at_utc": "2026-07-24T06:54:29.919450Z",
+  "elapsed_seconds": 60.029582,
+  "scope": {
+    "authority": "PUBLIC_READ_ONLY_NO_CREDENTIALS_NO_FINANCIAL_ACTIONS",
+    "sources": "COINBASE_ONLY",
+    "coinbase_products": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "coinbase_channels": [
+      "market_trades",
+      "level2",
+      "heartbeats"
+    ],
+    "max_data_bytes": 50000000000
+  },
+  "result": "PASS",
+  "raw_data": {
+    "bytes": 13898730,
+    "measured_bytes_per_second": 231531.3473280557,
+    "projected_24h_bytes_at_measured_rate": 20004308409,
+    "straight_line_projection_only": true
+  },
+  "records": {
+    "coinbase_ws": 2254,
+    "receipts": 5,
+    "coinbase_channels": {
+      "heartbeats": 59,
+      "l2_data": 2074,
+      "market_trades": 118,
+      "subscriptions": 3
+    }
+  },
+  "validation": {
+    "coinbase_valid_records": 2254,
+    "coinbase_invalid_records": 0,
+    "coinbase_parse_errors": 0,
+    "coinbase_sequence_gaps": 0,
+    "coinbase_out_of_order": 0,
+    "coinbase_reconnects": 0,
+    "worker_errors": 0
+  },
+  "raw_file_sha256": {
+    "coinbase_ws.ndjson": "d213b6d6085238766954a0c2187eff869d7ce0fb7cd14d0f8a5cb7ac3107671c",
+    "kalshi_catalog.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "kalshi_market.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "receipts.ndjson": "35ad2a37f8b9973ff552a73bae6cbb0f7e2baf99ea632f96d4533cab84c58a75"
+  },
+  "limitations": [
+    "The 24-hour byte estimate is a straight-line projection from one minute.",
+    "The raw smoke files remain in temporary local storage and are not part of this commit.",
+    "No Kalshi data was included in this L2 capacity-only run.",
+    "No cash-PnL claim is made."
+  ]
+}

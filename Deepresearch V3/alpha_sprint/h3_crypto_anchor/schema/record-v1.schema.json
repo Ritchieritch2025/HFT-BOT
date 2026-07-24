@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alpha-sprint:h3:record-v1",
+  "title": "Alpha Sprint H3 append-only capture record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_id",
+    "run_id",
+    "record_type",
+    "source",
+    "local_record_wall_ns",
+    "local_record_wall_utc",
+    "local_record_monotonic_ns"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "alpha-sprint-h3-capture-v1"
+    },
+    "record_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_type": {
+      "enum": [
+        "coinbase_ws_envelope",
+        "kalshi_public_rest_response",
+        "capture_receipt"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "local_record_wall_ns": {
+      "type": "integer"
+    },
+    "local_record_wall_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "local_record_monotonic_ns": {
+      "type": "integer"
+    },
+    "local_receive_wall_ns": {
+      "type": "integer"
+    },
+    "local_receive_wall_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "local_receive_monotonic_ns": {
+      "type": "integer"
+    },
+    "raw_payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "raw_json": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "coinbase_ws_envelope"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "endpoint",
+          "connection_id",
+          "local_receive_wall_ns",
+          "local_receive_monotonic_ns",
+          "raw_payload_sha256",
+          "raw_json",
+          "validation"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "kalshi_public_rest_response"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "request_method",
+          "request_url",
+          "request_binding",
+          "request_send_wall_ns",
+          "request_send_monotonic_ns",
+          "local_receive_wall_ns",
+          "local_receive_monotonic_ns",
+          "http_status",
+          "raw_payload_sha256",
+          "authentication_used"
+        ],
+        "properties": {
+          "request_method": {
+            "const": "GET"
+          },
+          "authentication_used": {
+            "const": false
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

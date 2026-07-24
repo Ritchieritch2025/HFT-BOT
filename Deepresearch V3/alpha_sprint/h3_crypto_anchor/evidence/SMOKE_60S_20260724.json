@@ -1,0 +1,71 @@
+{
+  "schema_version": "alpha-sprint-h3-smoke-receipt-v1",
+  "run_id": "20260724T065114.607419Z-4f39a3fad3f6",
+  "started_at_utc": "2026-07-24T06:51:14.608175Z",
+  "stopped_at_utc": "2026-07-24T06:52:14.860524Z",
+  "elapsed_seconds": 60.25260775,
+  "scope": {
+    "authority": "PUBLIC_READ_ONLY_NO_CREDENTIALS_NO_FINANCIAL_ACTIONS",
+    "coinbase_products": [
+      "BTC-USD",
+      "ETH-USD"
+    ],
+    "coinbase_channels": [
+      "market_trades",
+      "ticker",
+      "heartbeats"
+    ],
+    "kalshi_series": [
+      "KXBTC15M",
+      "KXETH15M"
+    ],
+    "kalshi_method": "GET_ONLY",
+    "max_data_bytes": 50000000000
+  },
+  "result": "PASS",
+  "raw_data": {
+    "bytes": 1256883,
+    "measured_bytes_per_second": 20860.225755125095,
+    "projected_24h_bytes_at_measured_rate": 1802323505,
+    "straight_line_projection_only": true
+  },
+  "records": {
+    "coinbase_ws": 501,
+    "kalshi_catalog": 28,
+    "kalshi_market": 48,
+    "receipts": 10,
+    "coinbase_channels": {
+      "heartbeats": 60,
+      "market_trades": 105,
+      "subscriptions": 3,
+      "ticker": 333
+    }
+  },
+  "validation": {
+    "coinbase_valid_records": 501,
+    "coinbase_invalid_records": 0,
+    "coinbase_parse_errors": 0,
+    "coinbase_sequence_gaps": 0,
+    "coinbase_out_of_order": 0,
+    "coinbase_reconnects": 0,
+    "kalshi_http_responses": 76,
+    "kalshi_http_errors": 0,
+    "kalshi_mapping_refusals": 0,
+    "kalshi_market_snapshots": 24,
+    "kalshi_orderbook_snapshots": 24,
+    "worker_errors": 0
+  },
+  "raw_file_sha256": {
+    "coinbase_ws.ndjson": "42d01d2378ad1f32afc5351a0d682efbbadbdca5f1f1e68d3c854e0dddce9ef8",
+    "kalshi_catalog.ndjson": "29091ce08257b8797b6711609f56e3c3752a77f8a8030efa347e4535d5e74030",
+    "kalshi_market.ndjson": "b63913b48697a6c35726059999013b47507857c5d31a92fbbf9091201a2d21b3",
+    "receipts.ndjson": "eaba86bea1c7489eda5129e18ff9b78ce97b881867757bf6e5bf0461cec1f908"
+  },
+  "limitations": [
+    "The smoke run did not enable Coinbase level2.",
+    "The 24-hour byte estimate is a straight-line projection from one minute.",
+    "The raw smoke files remain in temporary local storage and are not part of this commit.",
+    "No CF Benchmarks authenticated settlement-index feed was used.",
+    "No cash-PnL claim is made."
+  ]
+}
