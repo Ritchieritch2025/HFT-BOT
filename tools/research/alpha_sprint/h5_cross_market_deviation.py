@@ -88,7 +88,6 @@ GRAPH_REQUIRED_COLUMNS = {
     "market_ticker",
     "event_ticker",
     "mapping_status",
-    "l2_rows",
 }
 
 
@@ -352,13 +351,16 @@ def _load_market_graph(path: Path) -> Dict[str, Any]:
 def _families_for_date(
     con: Any, graph_path: Path, date: str
 ) -> Dict[str, List[str]]:
+    # Membership only.  Whether a leg is CAPTURED comes from l2_replay
+    # presence (the graph's l2_rows column is not a per-channel capture
+    # indicator on these dates); the capture intersection happens inside
+    # _measure_date against first-valid quote times.
     sql = f"""
         SELECT event_ticker, market_ticker
         FROM read_parquet({_quote(str(graph_path))})
         WHERE CAST(date AS VARCHAR) = {_quote(date)}
           AND mapping_status = {_quote(CANONICAL_MAPPING_STATUS)}
           AND event_ticker IS NOT NULL
-          AND TRY_CAST(l2_rows AS BIGINT) > 0
     """
     families: Dict[str, List[str]] = {}
     for event_ticker, market_ticker in con.execute(sql).fetchall():
@@ -492,6 +494,19 @@ def _measure_date(
         str(market): int(t)
         for market, t in con.execute(_first_valid_sql(l2_paths, date)).fetchall()
     }
+    # Capture intersection: a leg counts only if l2_replay actually holds a
+    # valid quote row for it on this date; a family stays in scope with >=2
+    # captured legs (prereg: "family = >=2 captured legs on that date").
+    families = {
+        family: captured
+        for family, legs in families.items()
+        if len(captured := [leg for leg in legs if leg in first_valid])
+        >= MIN_FAMILY_LEGS
+    }
+    if not families:
+        raise H5StudyError(
+            f"no canonical multi-leg families with captured L2 on {date}"
+        )
     leg_pool = sorted(
         leg for legs in families.values() for leg in legs if leg in first_valid
     )
