@@ -171,12 +171,12 @@ def _build_namespace(
             "stage": "l2_replay",
             "partition_key": key,
             "source_binding": source_binding,
-            "schema": [{"name": name} for name in L2_COLUMNS],
             "data": {
                 "path": f"l2_replay/data/{key}.parquet",
                 "size_bytes": data_path.stat().st_size,
                 "sha256": _sha256(data_path),
                 "row_count": count,
+                "schema": [{"name": name} for name in L2_COLUMNS],
             },
         }
         receipt_path = stage_dir / "receipts" / f"{key}.json"

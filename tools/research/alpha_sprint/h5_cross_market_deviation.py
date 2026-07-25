@@ -165,14 +165,17 @@ def _parse_partition_key(key: str) -> Tuple[str, int]:
 
 
 def _schema_names(receipt: Mapping[str, Any]) -> set:
-    schema = receipt.get("schema")
+    data = receipt.get("data")
+    if not isinstance(data, Mapping):
+        return set()
+    schema = data.get("schema")
     if not isinstance(schema, list):
         return set()
-    names = set()
-    for row in schema:
-        if isinstance(row, Mapping) and isinstance(row.get("name"), str):
-            names.add(row["name"])
-    return names
+    return {
+        str(row.get("name"))
+        for row in schema
+        if isinstance(row, Mapping) and isinstance(row.get("name"), str)
+    }
 
 
 def _load_stage(
