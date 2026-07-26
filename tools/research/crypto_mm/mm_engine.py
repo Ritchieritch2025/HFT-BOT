@@ -133,6 +133,7 @@ class S:
     settle_zero_streak = 0  # F4 consecutive zero-revenue settlements
     settled_seen = set()    # F4 dedupe of applied settlements
     requote_suppressed = 0  # F5 sub-threshold holds (observability)
+    fills_seen = set()      # fill dedupe across WS channel + REST poll
     last_control_cancel = 0.0
     control_error = ""
 
@@ -641,10 +642,29 @@ def fill_price_dollars(f, side):
     return px / 100.0 if px > 1.0 else px
 
 
+def ws_fill_to_rest(msg):
+    """Normalize a WS 'fill' channel message to the REST fills shape so
+    both paths feed the ONE apply_fill ledger."""
+    return {"ticker": msg.get("market_ticker") or msg.get("ticker"),
+            "side": msg.get("side"), "count": msg.get("count"),
+            "yes_price": msg.get("yes_price"),
+            "no_price": msg.get("no_price"),
+            "created_ts": msg.get("ts") or msg.get("created_ts"),
+            "trade_id": msg.get("trade_id")}
+
+
 def apply_fill(f):
     """One exchange fill: advance the cursor, latch the side, move cost
     from the resting-order reservation to the filled ledger (A1 stays
-    conserved — never double-counted, never dropped)."""
+    conserved — never double-counted, never dropped).  Deduped by
+    trade_id so the WS push and the REST poll can both deliver it."""
+    key = f.get("trade_id") or (f.get("ticker"), f.get("side"),
+                                f.get("count"), f.get("created_ts"),
+                                f.get("yes_price"), f.get("no_price"))
+    if key in S.fills_seen:
+        L.w({"ev": "FILL_DUP_SKIP", "key": str(key)[:120]})
+        return
+    S.fills_seen.add(key)
     ts = fill_created_s(f)
     if ts is not None:
         S.fills_cursor = max(S.fills_cursor, ts + 1)
@@ -819,6 +839,28 @@ async def recon_task():
         recon_check()
 
 
+async def ws_fills_task():
+    """Primary fill feed: the private WS 'fill' channel (sub-second),
+    with the REST poller kept as reconciliation backstop.  Same code
+    path both modes (audit 10.6); shadow simply never receives fills."""
+    while True:
+        try:
+            async with websockets.connect(
+                    WS, additional_headers=websockets_headers(),
+                    ping_interval=10) as ws:
+                await ws.send(json.dumps({"id": 3, "cmd": "subscribe",
+                                          "params": {"channels": ["fill"]}}))
+                L.w({"ev": "WSFILL_SUB"})
+                async for raw in ws:
+                    m = json.loads(raw)
+                    if m.get("type") != "fill":
+                        continue
+                    apply_fill(ws_fill_to_rest(m.get("msg") or {}))
+        except Exception as e:
+            L.w({"ev": "WSFILL_ERR", "err": repr(e)[:150]})
+            await asyncio.sleep(2)
+
+
 async def fills_task():
     while True:
         await asyncio.sleep(3)
@@ -875,8 +917,8 @@ async def main():
          "hard_max_open_cost":HARD_MAX_OPEN_COST,
          "kill_loss":KILL_LOSS})
     await asyncio.gather(
-        cf_task(), md_task(), fills_task(), beat(), control_task(),
-        recon_task(), settlements_task()
+        cf_task(), md_task(), fills_task(), ws_fills_task(), beat(),
+        control_task(), recon_task(), settlements_task()
     )
 
 if __name__ == "__main__":

@@ -56,6 +56,8 @@ def reset():
     E.S.recon_fails = 0
     if hasattr(E.S, "requote_suppressed"):
         E.S.requote_suppressed = 0
+    if hasattr(E.S, "fills_seen"):
+        E.S.fills_seen.clear()
     E.S.realized = 0.0
     if hasattr(E.S, "settle_zero_streak"):
         E.S.settle_zero_streak = 0
@@ -538,6 +540,28 @@ class F3_FillPipelineAndReservation(unittest.TestCase):
         self.assertEqual(E.S.net_pos["M1"]["n"], 2)
         self.assertAlmostEqual(E.S.net_pos["M1"]["cost"], 1.20)
         self.assertIn(("M1", "ask_no"), E.S.latch)
+
+    def test_apply_fill_dedupes_by_trade_id_across_ws_and_rest(self):
+        # WS pushes the fill, then the REST poll returns the same record:
+        # it must be applied exactly once or inventory double-counts.
+        reset()
+        f = {"ticker": "M1", "side": "yes", "count": 2, "yes_price": 40,
+             "created_ts": 1_770_000_000, "trade_id": "t-123"}
+        E.apply_fill(f)
+        E.apply_fill(dict(f))
+        self.assertEqual(E.S.net_pos["M1"]["y"], 2)
+        self.assertAlmostEqual(E.S.net_pos["M1"]["cost"], 0.80)
+
+    def test_ws_fill_normalizes_to_rest_shape(self):
+        reset()
+        msg = {"market_ticker": "M1", "side": "no", "count": 3,
+               "no_price": 60, "yes_price": 40, "ts": 1_770_000_000,
+               "trade_id": "t-9"}
+        f = E.ws_fill_to_rest(msg)
+        E.apply_fill(f)
+        self.assertEqual(E.S.net_pos["M1"]["n"], 3)
+        self.assertAlmostEqual(E.S.net_pos["M1"]["cost"], 1.80)
+        self.assertGreaterEqual(E.S.fills_cursor, 1_770_000_001)
 
     def test_startup_selfcheck_passes_when_probe_sees_fill(self):
         reset()
