@@ -21,8 +21,13 @@ of failure CANNOT pass silently:
 
 Arms grid: refill (re-arm after fills, replacing the latch) x hard
 per-market inventory cap x inventory-retreat skew gamma (cents/contract)
-x min-requote threshold (F5 evidence).  No exit legs here — the passive
-closeout family was already killed by e4_twoleg_closeout (2026-07-25).
+x min-requote threshold (F5 evidence) x the PAIRING family (operator
+doctrine 2026-07-26, 吃差价 pivot): both sides always quoted; after one
+side fills the opposite side is pushed to the pair-cost ceiling
+(<=99c locks >=1c, Kalshi nets the position so capital releases);
+unpaired lots taker-flatten at age ~90s or at T-5m, never carried into
+the death zone.  This is DISTINCT from the killed e4_twoleg family
+(fixed offset from own entry, hold-side exit, losers kept to T-3m).
 
 Run (EC2 prod, data lives there):
   cd ~/hft-bot && python3 tools/research/crypto_mm/grid_replay_v2.py
@@ -48,10 +53,12 @@ if _ROOT not in sys.path:
 
 try:
     from tools.research.crypto_mm.e4_twoleg_closeout import (
-        BASELINE_EXPECT, check_baseline, cluster_boot_ci)
+        BASELINE_EXPECT, check_baseline, cluster_boot_ci,
+        taker_fee_c_per_order, walk_book_sell)
 except ImportError:                               # running from crypto_mm/
     from e4_twoleg_closeout import (
-        BASELINE_EXPECT, check_baseline, cluster_boot_ci)
+        BASELINE_EXPECT, check_baseline, cluster_boot_ci,
+        taker_fee_c_per_order, walk_book_sell)
 
 # ---------------------------------------------------------------- constants
 CLIP = 5 * 10_000                 # e4 units (5 contracts)
@@ -89,6 +96,15 @@ class Arm:
     cap: int = 999                # per-market |net contracts| ceiling
     gamma_c: float = 0.0          # retreat cents per contract of inventory
     requote_min_c: float = 0.0    # F5: suppress reprices below this
+    # -- pairing family (operator doctrine 2026-07-26, 吃差价 pivot).
+    # NOT the killed e4_twoleg family: that one priced a same-inventory
+    # exit at a fixed offset from its OWN entry; here the opposite side
+    # is an independent ENTRY pushed to the pair-cost ceiling, both
+    # sides always live, and unpaired lots taker-flatten young.
+    pair: bool = False            # pair-off opposite fills, push + flatten
+    pair_lock_c: float = 99.0     # max pair cost, cents (99 locks >=1c)
+    unpaired_max_lots: int = 1    # per-side unpaired lot ceiling
+    flatten_age_s: float = 90.0   # unpaired age -> taker flatten
 
     @property
     def imp_e4(self) -> int:
@@ -114,6 +130,17 @@ GRID_ARMS = (
         gamma_c=0.5),
     Arm(name="thr05", mode="tail", requote_min_c=0.5),
     Arm(name="thr05_front", mode="front", requote_min_c=0.5),
+    Arm(name="pair99_lots1_age90", mode="tail", refill=True, pair=True),
+    Arm(name="pair99_lots2_age90", mode="tail", refill=True, pair=True,
+        unpaired_max_lots=2),
+    Arm(name="pair98_lots1_age90", mode="tail", refill=True, pair=True,
+        pair_lock_c=98.0),
+    Arm(name="pair99_lots1_age30", mode="tail", refill=True, pair=True,
+        flatten_age_s=30.0),
+    Arm(name="pair99_lots1_agemax", mode="tail", refill=True, pair=True,
+        flatten_age_s=1e9),       # isolates the push; T-5m flatten only
+    Arm(name="pair99_lots1_age90_front", mode="front", refill=True,
+        pair=True),
 )
 
 
@@ -132,6 +159,9 @@ class ArmState:
     clusters: set = field(default_factory=set)
     requote_suppressed: int = 0
     carried_ct: int = 0           # contracts alive at market end
+    unpaired: dict = field(default_factory=lambda: {"y": [], "n": []})
+    paired_ct: int = 0            # contracts netted by opposite fills
+    flattened_ct: int = 0         # contracts closed by taker flatten
 
     def merge(self, other: "ArmState") -> None:
         self.placed += other.placed
@@ -143,6 +173,8 @@ class ArmState:
         self.q_peak = max(self.q_peak, other.q_peak)
         self.requote_suppressed += other.requote_suppressed
         self.carried_ct += other.carried_ct
+        self.paired_ct += other.paired_ct
+        self.flattened_ct += other.flattened_ct
 
 
 def best(bk):
@@ -207,11 +239,63 @@ class MarketSim:
         st.q_peak = max(st.q_peak, abs(st.q))
         if not arm.refill:
             st.done[side_key] = True
+        if arm.pair:
+            opp = "n" if side_key == "y" else "y"
+            if st.unpaired[opp]:
+                # FIFO: pair against the OLDEST opposite lot.  Locked
+                # P&L = 100 - both entries; booked as c/contract halves
+                # so the mean stays per-contract comparable to hold arms.
+                e_opp, _ts0 = st.unpaired[opp].pop(0)
+                locked = (10000 - lvl - e_opp) / 100.0
+                st.pnl.extend((locked / 2.0, locked / 2.0))
+                st.pairs.extend(((self.mt, locked / 2.0),
+                                 (self.mt, locked / 2.0)))
+                st.paired_ct += 2 * CLIP_CT
+            else:
+                st.unpaired[side_key].append((lvl, t_ts))
+            return
         entry_c = lvl / 100.0
         win = (self.res == "yes") == (side_key == "y")
         pnl = (100.0 if win else 0.0) - entry_c
         st.pnl.append(pnl)
         st.pairs.append((self.mt, pnl))
+
+    def _flatten_lot(self, st, side_key, entry_e4):
+        """Taker-flatten one unpaired lot into displayed same-side bids
+        (walk best-first, official 7% quadratic fee); the undisplayed
+        remainder settles.  At most one lot per book event — displayed
+        liquidity is never double-counted inside a single event."""
+        own = self.books[side_key]
+        fills, filled = walk_book_sell(own, CLIP)
+        rem = CLIP - filled
+        total_c = sum((p - entry_e4) / 100.0 * (q / 10000.0)
+                      for p, q in fills)
+        if filled:
+            total_c -= taker_fee_c_per_order(fills)
+        if rem:
+            win = (self.res == "yes") == (side_key == "y")
+            total_c += ((10000 if win else 0) - entry_e4) / 100.0 \
+                * (rem / 10000.0)
+        pnl = total_c / (CLIP / 10000.0)
+        st.pnl.append(pnl)
+        st.pairs.append((self.mt, pnl))
+        st.flattened_ct += int(filled / 10000)
+        st.carried_ct += int(rem / 10000)
+        st.q += -CLIP_CT if side_key == "y" else CLIP_CT
+
+    def _age_flatten(self, arm, st, ts, tte):
+        """Unpaired lots die young: at flatten_age_s, or unconditionally
+        once inside the T-5m withdraw window (never carry into the
+        death zone)."""
+        age_us = int(arm.flatten_age_s * 1_000_000)
+        for side_key in ("y", "n"):
+            lots = st.unpaired[side_key]
+            if not lots:
+                continue
+            lvl, t_fill = lots[0]
+            if ts - t_fill >= age_us or tte <= self.withdraw:
+                lots.pop(0)
+                self._flatten_lot(st, side_key, lvl)
 
     def _depth_sample(self, t_px, taker):
         """Trade-through depth beyond best, in 0.1c bins (gamma evidence)."""
@@ -226,6 +310,8 @@ class MarketSim:
 
     # ------------------------------------------------------- quoting hooks
     def _blocked_by_cap(self, arm, st, side_key) -> bool:
+        if arm.pair:
+            return len(st.unpaired[side_key]) >= arm.unpaired_max_lots
         adverse = st.q if side_key == "y" else -st.q
         return arm.refill and adverse >= arm.cap
 
@@ -236,6 +322,22 @@ class MarketSim:
         away from the market; a retreated quote is a tail join at its
         level — both choices pessimistic for the arm."""
         base = b + arm.imp_e4
+        if arm.pair:
+            opp = "n" if side_key == "y" else "y"
+            lots = st.unpaired[opp]
+            if lots:
+                # Push toward the pair-cost ceiling for the OLDEST lot:
+                # the highest price that still locks the pair, clamped a
+                # whole cent under the crossing point (post-only).  If
+                # the displayed best already exceeds the ceiling, rest
+                # AT the ceiling (tail of its level) — the lock is never
+                # violated for a faster fill.
+                ceiling = int(round(arm.pair_lock_c * 100)) - lots[0][0]
+                opp_best = best(self.books[opp])
+                push = ceiling if opp_best is None else \
+                    min(ceiling, (10000 - opp_best) - 100)
+                lvl = max(100, min(push, 9900))
+                return lvl, (bk.get(lvl, 0) or 0)
         adverse = st.q if side_key == "y" else -st.q
         retreat = int(round(arm.gamma_c * adverse * 100)) if adverse > 0 else 0
         if retreat > 0:
@@ -264,6 +366,8 @@ class MarketSim:
         tte = self.close - ts
         for arm in self.arms:
             st = self.states[arm.name]
+            if arm.pair:
+                self._age_flatten(arm, st, ts, tte)
             for side_key in ("y", "n"):
                 if not arm.refill and st.done[side_key]:
                     continue
@@ -309,6 +413,17 @@ class MarketSim:
         for arm in self.arms:
             st = self.states[arm.name]
             st.quotes = {"y": None, "n": None}
+            if arm.pair:
+                # Unpaired lots at data end settle (carried_no_exit).
+                for side_key in ("y", "n"):
+                    for lvl, _t in st.unpaired[side_key]:
+                        win = (self.res == "yes") == (side_key == "y")
+                        pnl = (100.0 if win else 0.0) - lvl / 100.0
+                        st.pnl.append(pnl)
+                        st.pairs.append((self.mt, pnl))
+                        st.carried_ct += CLIP_CT
+                    st.unpaired[side_key] = []
+                continue
             st.carried_ct += abs(st.q)
 
 
@@ -333,10 +448,15 @@ def arm_report_block(states):
     out = {}
     for name, s in states.items():
         blk = entry_stats_block({name: s}, LAT_US)[name]
+        filled_ct = s.fills * CLIP_CT
         blk.update({
             "ci95_cluster_boot": cluster_boot_ci(s.pairs),
             "q_peak_contracts": s.q_peak,
             "carried_contracts": s.carried_ct,
+            "paired_contracts": s.paired_ct,
+            "flattened_contracts": s.flattened_ct,
+            "pct_carried_of_filled": (round(s.carried_ct / filled_ct, 4)
+                                      if filled_ct else None),
             "requote_suppressed": s.requote_suppressed,
             "gray": len(s.clusters) < 30,
         })
@@ -488,7 +608,10 @@ def main():
         "entry": "e4_front verbatim semantics via neutral hooks; refill arms "
                  "replace the latch with cap+skew; retreat is one-sided and "
                  "tail-joins its level (pessimistic)",
-        "no_exit_legs": "passive closeout family killed by e4_twoleg_closeout",
+        "exit_legs": "fixed-offset closeout family killed by "
+                     "e4_twoleg_closeout; the pair arms are a different "
+                     "shape: opposite-side entry pushed to the pair-cost "
+                     "ceiling + age/T-5m taker flatten of unpaired lots",
         "split": "TRAIN 07-12..19 / VALIDATE 07-20..23, cluster=market",
     }
     results["generated_at_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()

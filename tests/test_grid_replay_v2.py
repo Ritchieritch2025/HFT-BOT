@@ -264,3 +264,139 @@ def test_neutral_arms_constant_matches_e4_modes():
     names = {(a.mode, a.refill, a.gamma_c, a.requote_min_c)
              for a in NEUTRAL_ARMS}
     assert names == {("tail", False, 0.0, 0.0), ("front", False, 0.0, 0.0)}
+
+
+# ------------------------------------------------------------ pairing arm
+# Operator doctrine 2026-07-26 ("反复出入场吃差价才是做市"): both sides
+# always quoted; after one side fills, PUSH the opposite side so the
+# pair costs <= pair_lock_c (Kalshi nets the position -> capital
+# released, >=1c locked); unpaired lots die by taker flatten at age
+# flatten_age_s or at the T-5m withdraw, never carried into the death
+# zone.  This is NOT the killed e4_twoleg family (fixed offset from own
+# entry, hold-side exit): the exit here is an ENTRY on the other side
+# priced off the pair-cost ceiling.
+
+def pair_arm(**kw):
+    d = dict(name="pair", mode="tail", refill=True, pair=True)
+    d.update(kw)
+    return Arm(**d)
+
+
+def test_pair_opposite_fills_lock_pnl_and_release_inventory():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")     # sell-taker fills our y@30.00
+    sweep(tr, T0 + 2000, 4000, big, "yes")    # buy-taker: n side 6000<=6500
+    s = sim([pair_arm()], trades=tr)
+    snapshot(s, T0, [(3000, 1)], [(6500, 1)])
+    delta(s, T0 + 3000, "yes", 3000, 0)       # consume both trades
+    a = s.arm_state("pair")
+    assert a.fills == 2
+    assert a.paired_ct == 10                  # 2 lots x CLIP_CT netted
+    assert a.pnl == [pytest.approx(2.5), pytest.approx(2.5)]  # 100-30-65
+    assert not a.unpaired["y"] and not a.unpaired["n"]
+    assert a.q == 0
+    s.finalize()
+    assert a.carried_ct == 0
+
+
+def test_pair_push_reprices_opposite_to_lock_ceiling():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")     # y lot @3000, unpaired
+    s = sim([pair_arm()], trades=tr)
+    snapshot(s, T0, [(3000, 1)], [(6500, 1)])
+    delta(s, T0 + 2000, "yes", 3000, 0)       # fill applies; reprice intent
+    a = s.arm_state("pair")
+    assert a.unpaired["y"] == [(3000, T0 + 1000)]
+    assert a.quotes["n"] is not None and a.quotes["n"]["cx"] is not None
+    delta(s, T0 + 2000 + LAT + 1, "yes", 3000, 0)   # cancel done, re-place
+    # ceiling = 9900-3000 = 6900; n ask = 10000-3000-100 = 6900 too
+    assert a.quotes["n"]["lvl"] == 6900
+    assert a.quotes["n"]["ahead"] == 0        # improving past 6500 best
+    # unpaired cap (1 lot): the y side must NOT be re-quoted
+    assert a.quotes["y"] is None
+
+
+def test_pair_push_never_exceeds_ceiling_when_best_is_above_it():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")
+    s = sim([pair_arm()], trades=tr)
+    snapshot(s, T0, [(3000, 1)], [(9000, 4_000), (6900, 7_000)])
+    delta(s, T0 + 2000, "yes", 3000, 0)
+    a = s.arm_state("pair")
+    delta(s, T0 + 2000 + LAT + 1, "yes", 3000, 0)
+    # natural join would be 9000 -> pair cost 120c; ceiling wins
+    assert a.quotes["n"]["lvl"] == 6900
+    assert a.quotes["n"]["ahead"] == 7_000    # tail of displayed at 6900
+
+
+def test_pair_fifo_pairs_oldest_lot_first():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")
+    sweep(tr, T0 + 3000, 3100, big, "no")
+    sweep(tr, T0 + 5000, 4000, big, "yes")    # n fill 6500 pairs vs 3000 lot
+    s = sim([pair_arm(unpaired_max_lots=2)], trades=tr)
+    snapshot(s, T0, [(3100, 1), (3000, 1)], [(6500, 1)])
+    delta(s, T0 + 2000, "yes", 3000, 0)       # fill 1 (y joins best 3100...)
+    a = s.arm_state("pair")
+    delta(s, T0 + 2000 + LAT + 1, "yes", 3000, 0)
+    delta(s, T0 + 6000, "yes", 3000, 0)
+    assert a.paired_ct == 10
+    assert len(a.unpaired["y"]) == 1          # newest lot remains
+    assert not a.unpaired["n"]
+
+
+def test_pair_age_flatten_pays_taker_fee():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")     # y lot @3000
+    s = sim([pair_arm()], trades=tr)
+    snapshot(s, T0, [(3000, 1)], [(9000, 1)])
+    delta(s, T0 + 2000, "yes", 3000, -1)      # consume fill; empty 3000
+    a = s.arm_state("pair")
+    assert a.unpaired["y"] == [(3000, T0 + 1000)]
+    ts_flat = T0 + 1000 + 90 * US + 1
+    delta(s, ts_flat, "yes", 2500, 50_000)    # displayed bid appears
+    # 5 ct sold @25.00 vs 30.00 entry: -5c/ct - fee(7% quad, ceil to cent
+    # order-total 7c => 1.4c/ct) = -6.4c/ct
+    assert not a.unpaired["y"]
+    assert a.flattened_ct == 5
+    assert a.pnl[-1] == pytest.approx(-6.4)
+    assert a.q == 0
+
+
+def test_pair_withdraw_window_flattens_regardless_of_age():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")
+    s = sim([pair_arm(flatten_age_s=1e9)], trades=tr)   # age rule off
+    snapshot(s, T0, [(3000, 1)], [(9000, 1)])
+    delta(s, T0 + 2000, "yes", 3000, -1)
+    a = s.arm_state("pair")
+    assert a.unpaired["y"]
+    ts_wd = CLOSE - WITHDRAW + 1              # inside the T-5m death zone
+    delta(s, ts_wd, "yes", 2500, 50_000)
+    assert not a.unpaired["y"]
+    assert a.flattened_ct == 5
+
+
+def test_pair_finalize_settles_remaining_unpaired():
+    tr = []
+    big = 10 * CLIP
+    sweep(tr, T0 + 1000, 3000, big, "no")
+    s = sim([pair_arm()], trades=tr, res="yes")
+    snapshot(s, T0, [(3000, 1)], [(9000, 1)])
+    delta(s, T0 + 2000, "yes", 3000, 0)
+    s.finalize()
+    a = s.arm_state("pair")
+    assert a.carried_ct == 5
+    assert a.pnl[-1] == pytest.approx(70.0)   # 100 - 30, settled yes
+    assert not a.unpaired["y"]
+
+
+def test_pair_defaults_leave_neutral_arms_untouched():
+    for a in NEUTRAL_ARMS:
+        assert a.pair is False
