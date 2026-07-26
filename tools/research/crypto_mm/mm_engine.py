@@ -49,6 +49,13 @@ CLIP = os.environ.get("MM_CLIP", "5.00")
 IMP = 0.001                       # +0.1c improvement
 SENTINEL_C = 15.0
 MARGIN_C = float(os.environ.get("MM_MARGIN", "0.3"))  # kernel-fair edge gate, cents
+# Pairing closed loop (audit 2026-07-26 must-list; operator 吃差价 pivot).
+# OFF by default until the grid_replay_v2 pair-arm verdict; flip with
+# MM_PAIR=1 for shadow evidence runs.
+PAIR = os.environ.get("MM_PAIR", "0") == "1"
+PAIR_LOCK_C = float(os.environ.get("MM_PAIR_LOCK_C", "99"))  # max pair cost
+UNPAIRED_MAX_CT = float(os.environ.get("MM_UNPAIRED_MAX_CT", "2"))  # 1 clip
+UNPAIRED_AGE_S = float(os.environ.get("MM_UNPAIRED_AGE_S", "90"))
 GAMMA_C = float(os.environ.get("MM_GAMMA", "0.5"))  # F1 skew retreat, cents/contract
 MIN_REQUOTE_C = float(os.environ.get("MM_MIN_REQUOTE", "0.5"))  # F5, cents:
     # hold a WANTED resting order unless the target moved at least this
@@ -139,6 +146,8 @@ class S:
     session_start_ts = time.time()  # F4 scope: only THIS session's settles
     settle_zero_streak = 0  # F4 consecutive zero-revenue settlements
     settled_seen = set()    # F4 dedupe of applied settlements
+    unpaired = {}           # mt -> {"bid": [(px,ts,ct)], "ask_no": [...]}
+    flatten_sent = {}       # (mt, side) -> last IOC send ts (cooldown)
     requote_suppressed = 0  # F5 sub-threshold holds (observability)
     fills_seen = set()      # fill dedupe across WS channel + REST poll
     last_eval = {}          # mt -> last QUOTE_EVAL wall time (1/s throttle)
@@ -364,6 +373,171 @@ def skew_px(px, adverse_ct):
         return px
     return legal_floor(px - GAMMA_C * adverse_ct / 100.0)
 
+# ---------------------------------------------------------- pairing loop
+def unpaired_ct(mt, side):
+    lots = S.unpaired.get(mt)
+    return sum(c for _, _, c in lots[side]) if lots else 0.0
+
+
+def side_blocked(mt, side):
+    """Entry gate.  Legacy mode: the permanent one-fill-per-side latch.
+    Pair mode: a side facing opposite unpaired lots is an EXIT leg and
+    is always allowed; entries block at one clip of unpaired inventory;
+    and in live, position on the book without a fresh exchange
+    confirmation (recon <15s) blocks NEW entries — funds re-arm only
+    after the exchange has agreed the book is what we think it is."""
+    if not PAIR:
+        return (mt, side) in S.latch
+    opp = "ask_no" if side == "bid" else "bid"
+    if unpaired_ct(mt, opp) > 0:
+        return False
+    if unpaired_ct(mt, side) >= UNPAIRED_MAX_CT:
+        return True
+    if MODE == "live":
+        stale = (S.last_recon_ok_mono is None
+                 or time.monotonic() - S.last_recon_ok_mono > 15.0)
+        if stale and any(v["y"] or v["n"] for v in S.net_pos.values()):
+            return True
+    return False
+
+
+def pair_push_prices(mt, y_px, n_px, yb, ya):
+    """Pair mode: push the leg OPPOSITE the oldest unpaired lot up to
+    the pair-cost ceiling (PAIR_LOCK_C - entry locks >= the complement),
+    clamped one cent under the cross so post_only survives.  Returns
+    (y_px, n_px, exit_bid, exit_no)."""
+    lots = S.unpaired.get(mt)
+    if not lots:
+        return y_px, n_px, False, False
+    exit_bid = exit_no = False
+    if lots["bid"]:                    # long unpaired YES -> push NO leg
+        ceil_no = PAIR_LOCK_C / 100.0 - lots["bid"][0][0]
+        no_ask = 1.0 - yb / 10000.0
+        n_px = legal_floor(max(0.0, min(ceil_no, no_ask - 0.01)))
+        exit_no = True
+    if lots["ask_no"]:                 # long unpaired NO -> push YES leg
+        ceil_yes = PAIR_LOCK_C / 100.0 - lots["ask_no"][0][0]
+        yes_ask = ya / 10000.0
+        y_px = legal_floor(max(0.0, min(ceil_yes, yes_ask - 0.01)))
+        exit_bid = True
+    return y_px, n_px, exit_bid, exit_no
+
+
+def pair_off(mt, side, n, px, ts):
+    """FIFO-net a fill against opposite unpaired lots.  A netted YES/NO
+    pair returns $1/contract from the exchange (positions net;
+    settlement only sees the net) — realized locks 100c minus both
+    entries and the collateral leaves the ledger NOW, which is the
+    whole 资金释放 point.  The remainder becomes an unpaired lot."""
+    lots = S.unpaired.setdefault(mt, {"bid": [], "ask_no": []})
+    opp = "ask_no" if side == "bid" else "bid"
+    rem = n
+    while rem > 0 and lots[opp]:
+        opx, ots, oct_ = lots[opp][0]
+        take = min(rem, oct_)
+        locked = (1.0 - px - opx) * take
+        S.realized += locked
+        d = S.net_pos.setdefault(mt, {"y": 0, "n": 0, "cost": 0.0})
+        d["y"] -= take
+        d["n"] -= take
+        d["cost"] -= (px + opx) * take
+        L.w({"ev": "PAIR_LOCK", "mt": mt, "ct": take,
+             "px_a": opx, "px_b": px, "locked_usd": round(locked, 4),
+             "realized": round(S.realized, 4)})
+        if take >= oct_ - 1e-9:
+            lots[opp].pop(0)
+        else:
+            lots[opp][0] = (opx, ots, oct_ - take)
+        rem -= take
+    if rem > 1e-9:
+        lots[side].append((px, ts, rem))
+    S.open_cost = sum(v["cost"] for v in S.net_pos.values())
+
+
+def flatten_due(now_s):
+    """(mt, side) list of unpaired lots past UNPAIRED_AGE_S, with a 5s
+    IOC-resend cooldown so the 1s task never spams the book."""
+    if not PAIR:
+        return []
+    due = []
+    for mt, lots in S.unpaired.items():
+        for side in ("bid", "ask_no"):
+            if not lots[side]:
+                continue
+            if now_s - lots[side][0][1] < UNPAIRED_AGE_S:
+                continue
+            if now_s - S.flatten_sent.get((mt, side), 0.0) < 5.0:
+                continue
+            due.append((mt, side))
+    return due
+
+
+def flatten_lot_taker(mt, side, now_s):
+    """Cut an aged unpaired lot: IOC-cross the OPPOSITE side one cent
+    through its ask (7% taker fee accepted — a bounded loss beats
+    settlement gambling).  The resulting fill flows back through
+    apply_fill and pairs off, so the loss books through the ONE ledger."""
+    bk = S.books.get(mt)
+    lots = S.unpaired.get(mt)
+    if not bk or not lots or not lots[side]:
+        return
+    yb, nb = best(bk["y"]), best(bk["n"])
+    _px, _ts, ct = lots[side][0]
+    if side == "bid":                  # long YES -> buy NO at its ask
+        if yb is None:
+            return
+        no_px = min(0.99, (1.0 - yb / 10000.0) + 0.01)
+        wire_side, wire_px = "ask", round(1.0 - no_px, 4)
+    else:                              # long NO -> buy YES at its ask
+        if nb is None:
+            return
+        yes_px = min(0.99, (1.0 - nb / 10000.0) + 0.01)
+        wire_side, wire_px = "bid", round(yes_px, 4)
+    S.flatten_sent[(mt, side)] = now_s
+    order_taker(mt, wire_side, wire_px, ct, reason="unpaired_age")
+
+
+def order_taker(mt, side, exchange_px, count, reason=""):
+    """IOC risk-cut order.  Deliberately not capped by within_cap: it
+    strictly reduces unpaired inventory and is bounded by
+    UNPAIRED_MAX_CT; its cost books through apply_fill like any fill."""
+    if not take_token():
+        L.w({"ev": "RATE_SKIP", "mt": mt, "side": side})
+        return False
+    body = {"ticker": mt, "client_order_id": str(uuid.uuid4()),
+            "side": side, "count": f"{count:.2f}",
+            "price": f"{exchange_px:.4f}",
+            "time_in_force": "immediate_or_cancel",
+            "self_trade_prevention_type": "taker"}
+    if MODE == "live":
+        code, resp = rest("POST", "/portfolio/events/orders", body, host=V2O)
+        L.w({"ev": "TAKER_ACK" if code in (200, 201) else "TAKER_REJ",
+             "mt": mt, "side": side, "px": exchange_px,
+             "count": count, "code": code, "reason": reason,
+             "resp": str(resp)[:200]})
+        if code not in (200, 201) and "insufficient_balance" in str(resp) \
+                and not S.halted:
+            S.halted = True
+            cancel_all("INSUFFICIENT_BALANCE")
+            L.w({"ev": "HALT", "reason": "insufficient_balance on taker "
+                 "cut — local ledger untrusted"})
+            write_control_status()
+        return code in (200, 201)
+    L.w({"ev": "INTENT_TAKER", "mt": mt, "side": side, "px": exchange_px,
+         "count": count, "reason": reason, "mode": "shadow"})
+    return True
+
+
+async def pair_flatten_task():
+    while True:
+        await asyncio.sleep(1)
+        if not PAIR or S.halted or CTRL.get("paused") or CTRL.get("kill"):
+            continue
+        now_s = time.time()
+        for mt, side in flatten_due(now_s):
+            flatten_lot_taker(mt, side, now_s)
+
+
 def order_place(mt, side, exchange_px, *, risk_px=None, edge_c=None):
     """Submit one order after a final control/risk check.
 
@@ -520,6 +694,10 @@ def think():
         # applied BEFORE the hard MAX_NET latch ever binds.
         y_px = skew_px(q_px(yb, ya), net)
         n_px = skew_px(q_px(10000-ya, 10000-yb), -net)
+        exit_bid = exit_no = False
+        if PAIR:
+            y_px, n_px, exit_bid, exit_no = pair_push_prices(
+                mt, y_px, n_px, yb, ya)
         # F0 side gate: only rest on a side that is CHEAP vs KERNEL fair.
         # RTI drops -> kernel fair drops -> bid side turns rich -> cancel
         # NOW (without waiting for the book); mirror for the NO side.
@@ -541,10 +719,17 @@ def think():
         # A5 hard inventory latch: |net| >= MAX_NET blocks the side outright
         skew_block_bid = net >= MAX_NET
         skew_block_no  = -net >= MAX_NET
-        want["bid"] = ok and (mt,"bid") not in S.latch and y_px >= 0.001 \
-                      and room and edge_bid >= MARGIN_C and not skew_block_bid
-        want["ask_no"] = ok and (mt,"ask_no") not in S.latch and n_px >= 0.001 \
-                      and room and edge_no >= MARGIN_C and not skew_block_no
+        # Exit legs (pair mode) bypass the kernel edge gate and the zone
+        # gate: they REDUCE risk, and vetoing them is exactly how the
+        # one-sided piles built up.  Entries keep every gate.
+        want["bid"] = (ok or exit_bid) and not side_blocked(mt, "bid") \
+                      and y_px >= 0.001 and room \
+                      and (exit_bid or (edge_bid >= MARGIN_C
+                                        and not skew_block_bid))
+        want["ask_no"] = (ok or exit_no) and not side_blocked(mt, "ask_no") \
+                      and n_px >= 0.001 and room \
+                      and (exit_no or (edge_no >= MARGIN_C
+                                       and not skew_block_no))
         # Calibration telemetry: EVERY evaluation leaves a receipt (1/s
         # per market), including the times we choose NOT to quote — the
         # live probe's primary product is evidence, not dollars.
@@ -557,7 +742,7 @@ def think():
                  "edge_bid": round(edge_bid, 2),
                  "edge_no": round(edge_no, 2), "net": net,
                  "want_bid": want["bid"], "want_no": want["ask_no"],
-                 "zone_ok": ok})
+                 "zone_ok": ok, "exit_bid": exit_bid, "exit_no": exit_no})
         for side, w, px in (("bid", want["bid"], y_px), ("ask_no", want["ask_no"], n_px)):
             od = S.orders.get((mt, side))
             if od and w and 0.001 <= abs(od["px"]-px) < MIN_REQUOTE_C/100.0:
@@ -861,6 +1046,8 @@ def apply_fill(f):
         od["qty"] = float(od.get("qty", CLIP)) - n
         if od["qty"] <= 1e-9:
             S.orders.pop((mt, side), None)
+    if PAIR:
+        pair_off(mt, side, n, px, ts)
 
 
 def fills_visibility_selfcheck():
@@ -1217,7 +1404,8 @@ async def main():
          "kill_loss":KILL_LOSS})
     await asyncio.gather(
         cf_task(), md_task(), fills_task(), ws_fills_task(), beat(),
-        control_task(), recon_task(), settlements_task()
+        control_task(), recon_task(), settlements_task(),
+        pair_flatten_task()
     )
 
 if __name__ == "__main__":

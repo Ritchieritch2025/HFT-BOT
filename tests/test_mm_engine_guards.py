@@ -1125,3 +1125,108 @@ class DirectionAuthorityAndFirstStrike(unittest.TestCase):
             E.S.net_pos["KXBTC15M-26JUL252130-30"]["n"], 2.0,
             "404 = gone-maybe-FILLED: the fill must be booked before "
             "the caller frees the slot and requotes")
+
+
+class PairingLoop(unittest.TestCase):
+    """Engine-side pairing closed loop (audit 2026-07-26 must-list,
+    MM_PAIR gated): fill one leg -> only the OPPOSITE leg may be added,
+    pushed to the pair-cost ceiling; a netted YES/NO pair returns
+    $1/contract (Kalshi nets positions) so realized locks 100c - both
+    entries and collateral leaves the ledger NOW; unpaired inventory is
+    capped at one clip and aged lots are cut by an IOC taker cross."""
+
+    def setUp(self):
+        reset()
+        E.S.unpaired.clear()
+        E.S.flatten_sent.clear()
+        self._pair = mock.patch.object(E, "PAIR", True)
+        self._pair.start()
+
+    def tearDown(self):
+        self._pair.stop()
+
+    @staticmethod
+    def fill(side, px_dollars, ct=2.0, ts="2026-07-26T02:00:00Z",
+             tid="t"):
+        yes = px_dollars if side == "yes" else round(1 - px_dollars, 4)
+        no = round(1 - yes, 4)
+        return {"ticker": "MKT", "outcome_side": side,
+                "count_fp": f"{ct:.2f}", "created_time": ts,
+                "yes_price_dollars": f"{yes:.4f}",
+                "no_price_dollars": f"{no:.4f}", "trade_id": tid}
+
+    def test_opposite_fills_pair_off_and_lock_realized(self):
+        E.apply_fill(self.fill("yes", 0.30, tid="a"))
+        E.apply_fill(self.fill("no", 0.65, tid="b"))
+        d = E.S.net_pos["MKT"]
+        self.assertEqual((d["y"], d["n"]), (0.0, 0.0))
+        self.assertAlmostEqual(d["cost"], 0.0)
+        self.assertAlmostEqual(E.S.realized, (1.0 - 0.30 - 0.65) * 2)
+        self.assertEqual(E.unpaired_ct("MKT", "bid"), 0.0)
+        self.assertEqual(E.unpaired_ct("MKT", "ask_no"), 0.0)
+
+    def test_partial_fill_pairs_fifo_remainder_stays(self):
+        E.apply_fill(self.fill("yes", 0.30, ct=2.0, tid="a"))
+        E.apply_fill(self.fill("no", 0.65, ct=1.0, tid="b"))
+        self.assertAlmostEqual(E.S.realized, (1.0 - 0.95) * 1)
+        self.assertEqual(E.unpaired_ct("MKT", "bid"), 1.0)
+
+    def test_entry_blocked_at_unpaired_cap_exit_side_open(self):
+        E.apply_fill(self.fill("yes", 0.30, ct=2.0, tid="a"))
+        self.assertTrue(E.side_blocked("MKT", "bid"),
+                        "one clip unpaired = no more entries this side")
+        self.assertFalse(E.side_blocked("MKT", "ask_no"),
+                         "the exit leg must always be allowed")
+
+    def test_push_prices_opposite_leg_to_lock_ceiling(self):
+        E.apply_fill(self.fill("yes", 0.30, tid="a"))
+        # yes best bid 30c -> NO ask 70c; ceiling 99-30=69c; cross-1c=69c
+        y_px, n_px, exit_bid, exit_no = E.pair_push_prices(
+            "MKT", 0.30, 0.50, 3000, 3200)
+        self.assertTrue(exit_no)
+        self.assertFalse(exit_bid)
+        self.assertAlmostEqual(n_px, 0.69)
+
+    def test_push_ceiling_binds_when_market_is_higher(self):
+        E.apply_fill(self.fill("yes", 0.60, tid="a"))
+        # ceiling 99-60=39c even though NO ask is 70c
+        _, n_px, _, exit_no = E.pair_push_prices(
+            "MKT", 0.60, 0.50, 3000, 3200)
+        self.assertTrue(exit_no)
+        self.assertAlmostEqual(n_px, 0.39)
+
+    def test_aged_lot_is_flattened_by_taker_cross(self):
+        E.apply_fill(self.fill("yes", 0.30, tid="a",
+                               ts="2026-07-26T02:00:00Z"))
+        fill_ts = E.fill_created_s({"created_time":
+                                    "2026-07-26T02:00:00Z"})
+        due = E.flatten_due(fill_ts + E.UNPAIRED_AGE_S + 1)
+        self.assertEqual(due, [("MKT", "bid")])
+        E.S.books["MKT"] = {"y": {3000: 100}, "n": {6500: 100}}
+        sent = []
+        with mock.patch.object(E, "order_taker",
+                               side_effect=lambda *a, **k: sent.append(a)):
+            E.flatten_lot_taker("MKT", "bid", fill_ts + 91)
+        # long YES cut = buy NO at its ask (1-0.30) + 1c buffer,
+        # wire = ask side at 1 - no_px
+        self.assertEqual(sent[0][0], "MKT")
+        self.assertEqual(sent[0][1], "ask")
+        self.assertAlmostEqual(sent[0][2], round(1 - 0.71, 4))
+        # cooldown recorded so the 1s task does not spam IOCs
+        self.assertIn(("MKT", "bid"), E.S.flatten_sent)
+
+    def test_flatten_fill_flows_back_and_books_the_loss_cut(self):
+        E.apply_fill(self.fill("yes", 0.30, tid="a"))
+        E.apply_fill(self.fill("no", 0.72, tid="b"))   # the IOC's fill
+        self.assertAlmostEqual(E.S.realized, (1.0 - 0.30 - 0.72) * 2)
+        self.assertEqual(E.unpaired_ct("MKT", "bid"), 0.0)
+
+    def test_stale_recon_blocks_new_entries_when_position_on_book(self):
+        E.apply_fill(self.fill("yes", 0.30, ct=1.0, tid="a"))
+        with mock.patch.object(E, "MODE", "live"):
+            E.S.last_recon_ok_mono = None
+            self.assertTrue(E.side_blocked("MKT2", "bid"),
+                            "position on book + no fresh exchange "
+                            "confirmation = no new entries")
+            E.S.last_recon_ok_mono = E.time.monotonic()
+            self.assertFalse(E.side_blocked("MKT2", "bid"))
