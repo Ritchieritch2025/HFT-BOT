@@ -55,6 +55,8 @@ def reset():
     E.S.control_error = ""; E.S.last_control_cancel = 0.0
     E.S.last_replace.clear(); E.S.books.clear(); E.S.meta.clear()
     E.S.recon_fails = 0
+    E.S.fills_selfcheck_ok = False
+    E.S.last_recon_ok_mono = None
     if hasattr(E.S, "requote_suppressed"):
         E.S.requote_suppressed = 0
     if hasattr(E.S, "fills_seen"):
@@ -185,11 +187,55 @@ class HotControl(unittest.TestCase):
         self.assertTrue(E.S.halted)
         self.assertIn("missing", E.S.control_error)
 
-    def test_live_unpaused_document_is_rejected(self):
+    def test_live_unpause_rejected_until_pipelines_proven(self):
+        # The interlock is EVIDENCE-based now (F2/F3 exist): live may
+        # only be unpaused after the fills self-check has passed AND
+        # reconciliation has succeeded at least once THIS process.
         reset()
+        E.S.fills_selfcheck_ok = False
+        E.S.last_recon_ok_mono = None
         document = mc.next_control(
             E.CTRL,
             {"paused": False, "note": "must not auto-arm live"},
+            hard_max_cost=E.HARD_MAX_OPEN_COST,
+            hard_max_clip=E.HARD_MAX_CLIP,
+            hard_max_net=E.HARD_MAX_NET,
+        )
+        with (
+            mock.patch.object(E, "MODE", "live"),
+            self.assertRaisesRegex(mc.ControlError, "live resume disabled"),
+        ):
+            E.apply_control_document(document)
+        # selfcheck alone is not enough
+        E.S.fills_selfcheck_ok = True
+        with (
+            mock.patch.object(E, "MODE", "live"),
+            self.assertRaisesRegex(mc.ControlError, "live resume disabled"),
+        ):
+            E.apply_control_document(document)
+
+    def test_live_unpause_accepted_once_selfcheck_and_recon_green(self):
+        reset()
+        E.S.fills_selfcheck_ok = True
+        E.S.last_recon_ok_mono = E.time.monotonic()
+        document = mc.next_control(
+            E.CTRL,
+            {"paused": False, "note": "operator ignition"},
+            hard_max_cost=E.HARD_MAX_OPEN_COST,
+            hard_max_clip=E.HARD_MAX_CLIP,
+            hard_max_net=E.HARD_MAX_NET,
+        )
+        with mock.patch.object(E, "MODE", "live"):
+            self.assertTrue(E.apply_control_document(document))
+        self.assertFalse(E.CTRL["paused"])
+
+    def test_live_unpause_rejected_when_recon_success_is_stale(self):
+        reset()
+        E.S.fills_selfcheck_ok = True
+        E.S.last_recon_ok_mono = E.time.monotonic() - 120.0   # 2min old
+        document = mc.next_control(
+            E.CTRL,
+            {"paused": False, "note": "stale recon"},
             hard_max_cost=E.HARD_MAX_OPEN_COST,
             hard_max_clip=E.HARD_MAX_CLIP,
             hard_max_net=E.HARD_MAX_NET,

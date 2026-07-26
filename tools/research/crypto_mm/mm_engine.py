@@ -130,6 +130,8 @@ class S:
     rej_429 = 0
     limit_breached = False
     recon_fails = 0       # F2 consecutive /portfolio/positions failures
+    fills_selfcheck_ok = False   # F3 startup probe result (live gate)
+    last_recon_ok_mono = None    # F2 last successful recon (live gate)
     settle_zero_streak = 0  # F4 consecutive zero-revenue settlements
     settled_seen = set()    # F4 dedupe of applied settlements
     requote_suppressed = 0  # F5 sub-threshold holds (observability)
@@ -196,9 +198,18 @@ def apply_control_document(document):
         hard_max_net=HARD_MAX_NET,
     )
     if MODE == "live" and not candidate["paused"]:
-        raise ControlError(
-            "live resume disabled until exchange order/fill reconciliation exists"
-        )
+        # Evidence-based ignition interlock: unpausing live requires the
+        # fills-visibility self-check to have PASSED and a reconciliation
+        # success within the last 30s IN THIS PROCESS.  Both pipelines
+        # were dead the whole session on 2026-07-25.
+        recon_age = (None if S.last_recon_ok_mono is None
+                     else time.monotonic() - S.last_recon_ok_mono)
+        if (not S.fills_selfcheck_ok or recon_age is None
+                or recon_age > 30.0):
+            raise ControlError(
+                "live resume disabled: requires fills selfcheck PASS and "
+                f"recon success <30s old (selfcheck={S.fills_selfcheck_ok}, "
+                f"recon_age={recon_age})")
     if _control_loaded:
         if candidate["revision"] < CTRL["revision"]:
             raise ControlError("control revision moved backwards")
@@ -848,6 +859,7 @@ def recon_check():
     S.recon_fails = 0
     diffs = recon_divergences(S.net_pos, d.get("market_positions"))
     if not diffs:
+        S.last_recon_ok_mono = time.monotonic()
         L.w({"ev": "RECON_OK",
              "markets": len(d.get("market_positions") or [])})
     if diffs:
@@ -938,6 +950,7 @@ async def main():
     load_control(force=True)
     if MODE == "live":
         ok, why = fills_visibility_selfcheck()
+        S.fills_selfcheck_ok = ok
         L.w({"ev": "FILLS_SELFCHECK", "ok": ok, "why": why})
         if not ok:
             S.halted = True
