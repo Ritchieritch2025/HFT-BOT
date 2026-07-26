@@ -1047,3 +1047,81 @@ class RealSchemaContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class DirectionAuthorityAndFirstStrike(unittest.TestCase):
+    """Audit 2026-07-26: Kalshi direction rules say outcome_side /
+    book_side are authoritative; a 'sell yes' print is LONG NO (ask).
+    Reading the bare 'side' field books the wrong side.  Plus the two
+    first-strike rules: cancel-404 means GONE-maybe-FILLED (sync the
+    ledger before freeing the slot), and insufficient_balance from the
+    exchange means our ledger is wrong -> halt on the FIRST one, not
+    after 317 retries."""
+
+    SELL_YES_FILL = {"action": "sell", "book_side": "ask",
+                     "outcome_side": "no", "side": "yes",
+                     "count_fp": "2.00",
+                     "created_time": "2026-07-26T01:21:34.292512Z",
+                     "market_ticker": "KXBTC15M-26JUL252130-30",
+                     "no_price_dollars": "0.7500",
+                     "yes_price_dollars": "0.2500",
+                     "trade_id": "t-dir-1"}
+
+    def setUp(self):
+        reset()
+
+    def test_sell_yes_books_long_no(self):
+        E.apply_fill(E.ws_fill_to_rest(dict(self.SELL_YES_FILL)))
+        d = E.S.net_pos["KXBTC15M-26JUL252130-30"]
+        self.assertEqual(d["n"], 2.0, "sell YES = long NO, not long YES")
+        self.assertEqual(d["y"], 0)
+        self.assertAlmostEqual(d["cost"], 2 * 0.75)
+        self.assertIn(("KXBTC15M-26JUL252130-30", "ask_no"), E.S.latch)
+        self.assertNotIn(("KXBTC15M-26JUL252130-30", "bid"), E.S.latch)
+
+    def test_book_side_beats_bare_side(self):
+        f = dict(self.SELL_YES_FILL)
+        del f["outcome_side"]
+        E.apply_fill(E.ws_fill_to_rest(f))
+        self.assertEqual(
+            E.S.net_pos["KXBTC15M-26JUL252130-30"]["n"], 2.0)
+
+    def test_legacy_side_only_still_parses(self):
+        f = dict(self.SELL_YES_FILL)
+        del f["outcome_side"], f["book_side"], f["action"]
+        E.apply_fill(E.ws_fill_to_rest(f))
+        self.assertEqual(
+            E.S.net_pos["KXBTC15M-26JUL252130-30"]["y"], 2.0)
+
+    def test_insufficient_balance_halts_on_first_reject(self):
+        calls = []
+
+        def fake_rest(method, path, body=None, host=None):
+            calls.append(method)
+            return 400, {"error": "insufficient_balance"}
+        with mock.patch.object(E, "MODE", "live"), \
+                mock.patch.object(E, "rest", fake_rest), \
+                mock.patch.object(E, "load_control", return_value=False), \
+                mock.patch.object(E, "cancel_all") as ca, \
+                mock.patch.object(E, "write_control_status"):
+            out = E.order_place("KXBTC15M-X", "yes", 0.30, edge_c=1.0)
+        self.assertIsNone(out)
+        self.assertTrue(E.S.halted)
+        ca.assert_called_once()
+
+    def test_cancel_404_syncs_fills_before_freeing_slot(self):
+        fill = dict(self.SELL_YES_FILL)
+        fill["ticker"] = fill.pop("market_ticker")
+
+        def fake_rest(method, path, body=None, host=None):
+            if method == "DELETE":
+                return 404, {"error": "order not found"}
+            return 200, {"fills": [fill]}
+        with mock.patch.object(E, "MODE", "live"), \
+                mock.patch.object(E, "rest", fake_rest):
+            ok = E.order_cancel("KXBTC15M-26JUL252130-30", "ask_no", "oid-1")
+        self.assertTrue(ok)
+        self.assertEqual(
+            E.S.net_pos["KXBTC15M-26JUL252130-30"]["n"], 2.0,
+            "404 = gone-maybe-FILLED: the fill must be booked before "
+            "the caller frees the slot and requotes")

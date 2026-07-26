@@ -402,6 +402,18 @@ def order_place(mt, side, exchange_px, *, risk_px=None, edge_c=None):
              "mt":mt,"side":side,"px":exchange_px,"risk_px":risk_px,
              "qty":quantity,"code":code,"ms":ms,"edge_c":edge_c,
              "oid":oid,"resp":str(resp)[:200]})
+        if code not in (200, 201) and "insufficient_balance" in str(resp):
+            # The exchange refusing for money we think we have means the
+            # LOCAL ledger is wrong.  07-25: the engine retried this 317
+            # times through 18,703 rate-limit blocks.  First strike stops
+            # the session; no auto-resume.
+            if not S.halted:
+                S.halted = True
+                cancel_all("INSUFFICIENT_BALANCE")
+                L.w({"ev": "HALT",
+                     "reason": "exchange insufficient_balance on first "
+                               "reject — local ledger untrusted"})
+                write_control_status()
         return (oid, quantity) if code in (200,201) and oid else None
     L.w({"ev":"INTENT_PLACE","mt":mt,"side":side,"px":exchange_px,
          "risk_px":risk_px,"qty":quantity,"edge_c":edge_c,"mode":"shadow"})
@@ -412,10 +424,17 @@ def order_cancel(mt, side, oid, reason=""):
         t0 = time.monotonic()
         code, resp = rest("DELETE", f"/portfolio/events/orders/{oid}", host=V2O)
         ms = round((time.monotonic() - t0) * 1000.0, 1)
-        ok = code in (200, 201, 204, 404)     # 404 = already gone
+        ok = code in (200, 201, 204, 404)
         L.w({"ev":"CANCEL_ACK" if ok else "CANCEL_FAIL",
              "mt":mt,"side":side,"oid":oid,"code":code,"ms":ms,
              "reason":reason})
+        if code == 404:
+            # 404 = order GONE, which includes FILLED.  07-25: filled
+            # orders 404'd on cancel, were treated as "canceled fine",
+            # and the freed slot was immediately requoted — the ledger
+            # never saw the fill.  Sync fills BEFORE the caller frees
+            # the slot.
+            poll_fills_once()
         return ok
     else:
         L.w({"ev":"INTENT_CANCEL","mt":mt,"side":side,"oid":oid,
@@ -739,13 +758,35 @@ def ws_fill_to_rest(msg):
     both paths feed the ONE apply_fill ledger.  Real wire fields pass
     through untouched — parsing happens in exactly one place."""
     f = {k: msg[k] for k in (
-        "side", "count", "count_fp", "yes_price", "no_price",
+        "side", "outcome_side", "book_side", "action",
+        "count", "count_fp", "yes_price", "no_price",
         "yes_price_dollars", "no_price_dollars", "price",
         "created_ts", "created_time", "trade_id") if k in msg}
     f["ticker"] = msg.get("market_ticker") or msg.get("ticker")
     if "created_ts" not in f and "created_time" not in f:
         f["created_ts"] = msg.get("ts")
     return f
+
+
+def fill_engine_side(f):
+    """Engine side of a fill, by AUTHORITY order (Kalshi direction
+    rules, docs/getting_started/order_direction): outcome_side, then
+    book_side, then the bare 'side' as a legacy fallback.  A 'sell yes'
+    print is LONG NO (ask) — reading the bare side field books it as
+    long YES, which is how the 07-25 session miscounted its inventory
+    direction.  None = cannot determine (caller halts live)."""
+    o = f.get("outcome_side")
+    if o in ("yes", "no"):
+        return "bid" if o == "yes" else "ask_no"
+    b = f.get("book_side")
+    if b in ("bid", "ask"):
+        return "bid" if b == "bid" else "ask_no"
+    raw = f.get("side")
+    if raw in ("yes", "bid"):
+        return "bid"
+    if raw in ("no", "ask", "ask_no"):
+        return "ask_no"
+    return None
 
 
 def parse_fill(f):
@@ -755,10 +796,12 @@ def parse_fill(f):
     mt = f.get("ticker")
     if not mt:
         return None, "no ticker"
-    raw = f.get("side")
-    if raw not in ("yes", "no", "bid", "ask", "ask_no"):
-        return None, f"unknown side {raw!r}"
-    side = "bid" if raw in ("yes", "bid") else "ask_no"
+    side = fill_engine_side(f)
+    if side is None:
+        return None, ("cannot determine direction "
+                      f"(outcome_side={f.get('outcome_side')!r} "
+                      f"book_side={f.get('book_side')!r} "
+                      f"side={f.get('side')!r})")
     n = qty_of(f, "count")
     if n is None or n <= 0:
         return None, "count missing/unparseable"
@@ -791,7 +834,8 @@ def apply_fill(f):
     if parsed is None:
         L.w({"ev": "FILL_APPLY_ERR", "why": why, "raw": {
             k: f.get(k) for k in (
-                "ticker", "side", "count", "count_fp", "price",
+                "ticker", "side", "outcome_side", "book_side", "action",
+                "count", "count_fp", "price",
                 "yes_price", "no_price", "yes_price_dollars",
                 "no_price_dollars", "created_ts", "created_time")}})
         if MODE == "live" and not S.halted:
@@ -1092,13 +1136,23 @@ async def ws_fills_task():
             await asyncio.sleep(2)
 
 
+def poll_fills_once():
+    """One REST fills sweep from the cursor.  Shared by the 3s poller
+    and the cancel-404 sync."""
+    code, d = rest("GET",
+                   f"/portfolio/fills?min_ts={S.fills_cursor}&limit=100")
+    if code != 200:
+        L.w({"ev": "FILL_POLL_FAIL", "code": code})
+        return
+    for f in (d.get("fills") or []):
+        apply_fill(f)
+
+
 async def fills_task():
     while True:
         await asyncio.sleep(3)
         if MODE != "live": continue
-        code, d = rest("GET", f"/portfolio/fills?min_ts={S.fills_cursor}&limit=100")
-        for f in (d.get("fills") or []):
-            apply_fill(f)
+        poll_fills_once()
         if S.realized <= KILL_LOSS and not S.halted:
             S.halted=True; cancel_all("KILL_LOSS"); L.w({"ev":"KILL","realized":S.realized})
 
