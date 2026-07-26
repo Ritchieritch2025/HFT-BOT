@@ -135,6 +135,7 @@ class S:
     recon_fails = 0       # F2 consecutive /portfolio/positions failures
     fills_selfcheck_ok = False   # F3 startup probe result (live gate)
     last_recon_ok_mono = None    # F2 last successful recon (live gate)
+    session_start_ts = time.time()  # F4 scope: only THIS session's settles
     settle_zero_streak = 0  # F4 consecutive zero-revenue settlements
     settled_seen = set()    # F4 dedupe of applied settlements
     requote_suppressed = 0  # F5 sub-threshold holds (observability)
@@ -766,6 +767,21 @@ def _cents(v):
         return 0.0
 
 
+def settlement_in_session(s):
+    """Only settlements that settled AFTER this process started count
+    toward the econ breaker.  The first live boot applied all-time
+    history and produced a garbage realized number — thresholds must
+    compare against THIS session's economics only."""
+    ts = s.get("settled_time")
+    try:
+        import datetime as dtm
+        settled = dtm.datetime.fromisoformat(
+            str(ts).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return False        # unparseable time: exclude, never guess
+    return settled >= S.session_start_ts - 60.0
+
+
 def apply_settlement(s):
     """One EXCHANGE settlement record (the only admissible P&L source —
     2026-07-25 lesson: never judge P&L from balance or memory).  Trips
@@ -813,7 +829,8 @@ async def settlements_task():
             L.w({"ev": "SETTLE_FETCH_FAIL", "code": code})
             continue
         for s in (d.get("settlements") or []):
-            apply_settlement(s)
+            if settlement_in_session(s):
+                apply_settlement(s)
 
 
 # --------------------------------------------------------------- F2 recon

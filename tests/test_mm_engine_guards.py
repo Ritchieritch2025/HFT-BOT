@@ -712,6 +712,17 @@ class F4_EconomicBreaker(unittest.TestCase):
                                         "2026-07-25T22:30:00Z"))
         self.assertTrue(E.S.halted)
 
+    def test_only_settlements_after_session_start_are_applied(self):
+        # First live boot applied ALL-TIME history (realized $45,674
+        # garbage) -> the -$2 econ threshold compared against noise.
+        # Only settlements settled after process start may count.
+        reset()
+        E.S.session_start_ts = 1_785_027_600     # process start (epoch s)
+        old = self._settle("OLD", 0, 80, "2026-07-25T21:00:00Z")
+        new = self._settle("NEW", 0, 80, "2026-07-26T01:05:00Z")
+        self.assertFalse(E.settlement_in_session(old))
+        self.assertTrue(E.settlement_in_session(new))
+
     def test_settlement_applied_once_despite_repolls(self):
         reset()
         s = self._settle("A", 400, 232)
