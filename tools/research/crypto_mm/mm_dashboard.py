@@ -40,6 +40,34 @@ R = "\x1b[31;1m"; Y = "\x1b[33;1m"; G = "\x1b[32m"; DIM = "\x1b[2m"
 B = "\x1b[1m"; N = "\x1b[0m"
 
 
+# ------------------------------------------------- tolerant field access
+# Live capture 2026-07-26 (incident #3): the exchange's portfolio
+# surfaces use *_fp / *_dollars STRING fields (count_fp, position_fp,
+# market_exposure_dollars, yes_total_cost_dollars...).  Every reader
+# below accepts both the real schema and the legacy names.
+
+def fnum(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def qty_of(rec, base):
+    """Contract count: '<base>_fp' string first, legacy int second."""
+    if f"{base}_fp" in rec:
+        return fnum(rec[f"{base}_fp"])
+    return fnum(rec.get(base))
+
+
+def cents_of(rec, base):
+    """Money in cents: '<base>_dollars' string x100 first, legacy cents
+    int second."""
+    if f"{base}_dollars" in rec:
+        return fnum(rec[f"{base}_dollars"]) * 100.0
+    return fnum(rec.get(base))
+
+
 # ------------------------------------------------------------ pure logic
 def pct(sorted_xs, q):
     """Nearest-rank percentile of an ascending list; None when empty."""
@@ -53,9 +81,10 @@ def paired_rate(fills):
     """2*min(yes,no) contracts per market / total contracts."""
     by = {}
     for f in fills or []:
-        d = by.setdefault(f.get("ticker"), {"y": 0, "n": 0})
+        d = by.setdefault(f.get("ticker") or f.get("market_ticker"),
+                          {"y": 0, "n": 0})
         side = "y" if f.get("side") in ("yes", "bid") else "n"
-        d[side] += int(f.get("count", 0) or 0)
+        d[side] += qty_of(f, "count")
     total = sum(d["y"] + d["n"] for d in by.values())
     if not total:
         return None
@@ -71,12 +100,12 @@ def realized_today(settlements, day_utc):
         ts = str(s.get("settled_time") or "")
         if not ts.startswith(day_utc):
             continue
-        rev = float(s.get("revenue") or 0)
-        cost = (float(s.get("yes_total_cost") or 0)
-                + float(s.get("no_total_cost") or 0))
+        rev = fnum(s.get("revenue"))
+        cost = cents_of(s, "yes_total_cost") + cents_of(s, "no_total_cost")
         usd += (rev - cost) / 100.0
         windows += 1
-        contracts += int(s.get("yes_count") or 0) + int(s.get("no_count") or 0)
+        contracts += int(round(qty_of(s, "yes_count")
+                               + qty_of(s, "no_count")))
     return usd, windows, contracts
 
 
@@ -85,14 +114,14 @@ def floating_pnl(positions, marks):
     — a partly-marked number is a lie, show nothing instead."""
     total_c = 0.0
     for p in positions or []:
-        pos = int(p.get("position") or 0)
+        pos = qty_of(p, "position")
         if pos == 0:
             continue
         mark = marks.get(p.get("ticker"))
         if mark is None:
             return None
         value_c = pos * mark if pos > 0 else (-pos) * (100.0 - mark)
-        total_c += value_c - float(p.get("market_exposure") or 0)
+        total_c += value_c - cents_of(p, "market_exposure")
     return total_c / 100.0
 
 
@@ -356,15 +385,17 @@ def render(st, ex_state, width=100):
         for mt in sorted(set(list(ex_state["pos_by_mt"]) +
                              list(ex_state["ord_by_mt"]))):
             p = ex_state["pos_by_mt"].get(mt, {})
-            net = int(p.get("position") or 0)
-            cost = float(p.get("market_exposure") or 0) / 100.0
+            net = int(round(qty_of(p, "position")))
+            cost = cents_of(p, "market_exposure") / 100.0
             sev = net_severity(net, max_net)
             col = R if sev == "crit" else (Y if sev == "warn" else "")
             ods = []
             for o in ex_state["ord_by_mt"].get(mt, []):
                 age = o.get("_age_s")
-                ods.append(f"{o.get('side')}@{o.get('yes_price')}c"
-                           f"x{o.get('remaining_count')}"
+                px_c = cents_of(o, "yes_price")
+                rem = qty_of(o, "remaining_count")
+                ods.append(f"{o.get('side')}@{px_c:.1f}c"
+                           f"x{rem:g}"
                            f" {int(age)}s" if age is not None else "")
             tte = ex_state["tte_by_mt"].get(mt)
             tte_s = "—" if tte is None else (
@@ -436,7 +467,7 @@ def main():
                 code2, d2 = ex.get("/portfolio/orders?status=resting&limit=200")
                 if code == 200 and code2 == 200:
                     pos = [p for p in (d.get("market_positions") or [])
-                           if int(p.get("position") or 0) != 0]
+                           if qty_of(p, "position") != 0]
                     ex_state["pos_by_mt"] = {p["ticker"]: p for p in pos}
                     by = {}
                     now_utc = dt.datetime.now(dt.timezone.utc)
@@ -458,11 +489,10 @@ def main():
                             "/markets?tickers=" + ",".join(tickers[:40]))
                         if code3 == 200:
                             for mk in (d3.get("markets") or []):
-                                yb = mk.get("yes_bid")
-                                ya = mk.get("yes_ask")
-                                if yb is not None and ya is not None:
-                                    marks[mk["ticker"]] = (float(yb)
-                                                           + float(ya)) / 2.0
+                                yb = cents_of(mk, "yes_bid")
+                                ya = cents_of(mk, "yes_ask")
+                                if yb > 0 and ya > 0:
+                                    marks[mk["ticker"]] = (yb + ya) / 2.0
                                 try:
                                     cs = dt.datetime.fromisoformat(
                                         str(mk.get("close_time")).replace(

@@ -29,6 +29,56 @@ def test_pct_nearest_rank():
     assert D.pct([], 50) is None
 
 
+# ---------------------------------------------------- real-schema records
+# VERBATIM field shapes captured live 2026-07-26 01:2x-01:30Z (incident
+# #3 postmortem).  The dashboard must read THESE, not the field names we
+# guessed: *_fp and *_dollars, values as STRINGS.
+REAL_FILL = {"action": "sell", "book_side": "ask", "count_fp": "2.00",
+             "created_time": "2026-07-26T01:21:34.292512Z",
+             "fee_cost": "0.000000", "is_taker": False,
+             "market_ticker": "KXBTC15M-26JUL252130-30",
+             "no_price_dollars": "0.7500", "outcome_side": "no",
+             "side": "no", "ticker": "KXBTC15M-26JUL252130-30",
+             "trade_id": "t-1", "yes_price_dollars": "0.2500"}
+REAL_POSITION = {"ticker": "KXBTC15M-26JUL252130-30",
+                 "position_fp": "-20.00",
+                 "market_exposure_dollars": "14.680000",
+                 "fees_paid_dollars": "0.000000",
+                 "realized_pnl_dollars": "0.000000",
+                 "total_traded_dollars": "14.680000"}
+REAL_SETTLEMENT = {"event_ticker": "KXBTC15M-26JUL252130",
+                   "fee_cost": "0.000000", "market_result": "no",
+                   "no_count_fp": "20.00",
+                   "no_total_cost_dollars": "14.680000",
+                   "revenue": 2000,
+                   "settled_time": "2026-07-26T01:30:06.038277Z",
+                   "ticker": "KXBTC15M-26JUL252130-30", "value": 0,
+                   "yes_count_fp": "0.00",
+                   "yes_total_cost_dollars": "0.000000"}
+
+
+def test_paired_rate_reads_real_fill_schema():
+    a = dict(REAL_FILL)
+    b = dict(REAL_FILL, side="yes", count_fp="2.00", trade_id="t-2")
+    # 2 no + 2 yes on the same market -> fully paired
+    assert D.paired_rate([a, b]) == pytest.approx(1.0)
+
+
+def test_realized_today_reads_real_settlement_schema():
+    usd, windows, contracts = D.realized_today(
+        [REAL_SETTLEMENT], day_utc="2026-07-26")
+    assert usd == pytest.approx(20.00 - 14.68)
+    assert windows == 1
+    assert contracts == 20
+
+
+def test_floating_pnl_reads_real_position_schema():
+    marks = {"KXBTC15M-26JUL252130-30": 25.0}   # yes mid 25c -> NO worth 75c
+    # 20 NO valued 20*75=1500c vs exposure 1468c -> +$0.32
+    out = D.floating_pnl([REAL_POSITION], marks)
+    assert out == pytest.approx(0.32)
+
+
 # ------------------------------------------------------------- paired rate
 def test_paired_rate_two_sided_market():
     fills = [

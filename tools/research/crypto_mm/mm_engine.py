@@ -140,6 +140,7 @@ class S:
     settled_seen = set()    # F4 dedupe of applied settlements
     requote_suppressed = 0  # F5 sub-threshold holds (observability)
     fills_seen = set()      # fill dedupe across WS channel + REST poll
+    last_eval = {}          # mt -> last QUOTE_EVAL wall time (1/s throttle)
     last_control_cancel = 0.0
     control_error = ""
 
@@ -522,6 +523,19 @@ def think():
                       and room and edge_bid >= MARGIN_C and not skew_block_bid
         want["ask_no"] = ok and (mt,"ask_no") not in S.latch and n_px >= 0.001 \
                       and room and edge_no >= MARGIN_C and not skew_block_no
+        # Calibration telemetry: EVERY evaluation leaves a receipt (1/s
+        # per market), including the times we choose NOT to quote — the
+        # live probe's primary product is evidence, not dollars.
+        if now - S.last_eval.get(mt, 0.0) >= 1.0:
+            S.last_eval[mt] = now
+            L.w({"ev": "QUOTE_EVAL", "mt": mt, "tte": round(tte, 1),
+                 "fair_c": round(fair_c, 2), "mid_c": round(mid_c, 2),
+                 "sigma": round(sigma, 4), "rti": ticks[-1],
+                 "yb": yb, "ya": ya, "y_px": y_px, "n_px": n_px,
+                 "edge_bid": round(edge_bid, 2),
+                 "edge_no": round(edge_no, 2), "net": net,
+                 "want_bid": want["bid"], "want_no": want["ask_no"],
+                 "zone_ok": ok})
         for side, w, px in (("bid", want["bid"], y_px), ("ask_no", want["ask_no"], n_px)):
             od = S.orders.get((mt, side))
             if od and w and 0.001 <= abs(od["px"]-px) < MIN_REQUOTE_C/100.0:

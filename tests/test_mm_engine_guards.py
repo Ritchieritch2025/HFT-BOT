@@ -57,6 +57,8 @@ def reset():
     E.S.recon_fails = 0
     E.S.fills_selfcheck_ok = False
     E.S.last_recon_ok_mono = None
+    if hasattr(E.S, "last_eval"):
+        E.S.last_eval.clear()
     if hasattr(E.S, "requote_suppressed"):
         E.S.requote_suppressed = 0
     if hasattr(E.S, "fills_seen"):
@@ -846,6 +848,46 @@ class MD_SessionWatchdog(unittest.TestCase):
         asyncio.get_event_loop().run_until_complete(run())
         self.assertGreater(ws.sent, 1)
         self.assertIn("MWS", E.S.books)
+
+
+class QuoteEvalTelemetry(unittest.TestCase):
+    """The live probe's primary product is EVIDENCE.  Every pricing
+    evaluation must leave a receipt — kernel fair, sigma, mid, both
+    edges, inventory, want flags — throttled to 1/s per market so the
+    calibration study covers the times we chose NOT to quote."""
+
+    def test_eval_logged_with_full_fields_and_throttled(self):
+        F0_KernelSideSelection._arm_market(
+            F0_KernelSideSelection(methodName="run"), 55.0)
+        events = []
+        with (
+            mock.patch.object(E.L, "w", side_effect=lambda o: events.append(o)),
+            mock.patch.object(E, "load_control", return_value=False),
+        ):
+            E.think()
+            E.think()                      # same second: must be throttled
+        evals = [e for e in events if e.get("ev") == "QUOTE_EVAL"]
+        self.assertEqual(len(evals), 1)
+        ev = evals[0]
+        for key in ("mt", "tte", "fair_c", "mid_c", "sigma", "rti",
+                    "edge_bid", "edge_no", "net", "want_bid", "want_no",
+                    "y_px", "n_px", "zone_ok"):
+            self.assertIn(key, ev)
+        self.assertAlmostEqual(ev["fair_c"], 55.0, delta=0.3)
+
+    def test_eval_reemitted_after_one_second(self):
+        F0_KernelSideSelection._arm_market(
+            F0_KernelSideSelection(methodName="run"), 55.0)
+        events = []
+        with (
+            mock.patch.object(E.L, "w", side_effect=lambda o: events.append(o)),
+            mock.patch.object(E, "load_control", return_value=False),
+        ):
+            E.think()
+            E.S.last_eval["M1"] -= 1.1     # pretend a second passed
+            E.think()
+        evals = [e for e in events if e.get("ev") == "QUOTE_EVAL"]
+        self.assertEqual(len(evals), 2)
 
 
 class PricingKernel(unittest.TestCase):
