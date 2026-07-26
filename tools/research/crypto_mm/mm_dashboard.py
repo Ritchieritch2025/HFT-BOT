@@ -444,7 +444,52 @@ def render(st, ex_state, width=100):
 
 
 # ------------------------------------------------------------------ main
+def snapshot_once():
+    """Render ONE plain-text frame and exit — for non-interactive use
+    (`! ssh ... -- --once` inside a chat session, cron, logs)."""
+    ex = Exchange()
+    tail = NdjsonTail(OUT_DIR)
+    st = EngineState()
+    st.feed(tail.poll())
+    src_pnl = Source("PnL/交易所", max_age_s=45.0)
+    src_pos = Source("持仓/交易所", max_age_s=20.0)
+    ex_state = {"enabled": ex.enabled, "realized": (0.0, 0, 0),
+                "floating": None, "paired": None, "fills_n": 0,
+                "pos_by_mt": {}, "ord_by_mt": {}, "tte_by_mt": {},
+                "src_pnl": src_pnl, "src_pos": src_pos}
+    if ex.enabled:
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        day = now_utc.strftime("%Y-%m-%d")
+        c1, d1 = ex.get(
+            "/portfolio/positions?settlement_status=unsettled&limit=200")
+        c2, d2 = ex.get("/portfolio/orders?status=resting&limit=200")
+        if c1 == 200 and c2 == 200:
+            pos = [p for p in (d1.get("market_positions") or [])
+                   if qty_of(p, "position") != 0]
+            ex_state["pos_by_mt"] = {p["ticker"]: p for p in pos}
+            by = {}
+            for o in (d2.get("orders") or []):
+                o["_age_s"] = None
+                by.setdefault(o.get("ticker"), []).append(o)
+            ex_state["ord_by_mt"] = by
+            src_pos.ok()
+        c3, d3 = ex.get("/portfolio/settlements?limit=200")
+        c4, d4 = ex.get("/portfolio/fills?limit=200")
+        if c3 == 200 and c4 == 200:
+            ex_state["realized"] = realized_today(d3.get("settlements"), day)
+            fills = [f for f in (d4.get("fills") or [])
+                     if str(f.get("created_time", "")).startswith(day)]
+            ex_state["fills_n"] = len(fills)
+            ex_state["paired"] = paired_rate(fills)
+            src_pnl.ok()
+    for ln in render(st, ex_state):
+        print(ln)
+
+
 def main():
+    if "--once" in sys.argv:
+        snapshot_once()
+        return
     ex = Exchange()
     tail = NdjsonTail(OUT_DIR)
     st = EngineState()

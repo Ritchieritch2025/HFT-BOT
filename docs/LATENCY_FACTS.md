@@ -172,3 +172,45 @@ shadow 模式 + full_chain probe 实测后另行入册。在那之前,第10条�
 
 **开口项**:生产在 EC2——若第10条门在 EC2 上裁,先在该机跑一次 bench_engine
 封存 EC2 基线(§6 的部署含义不变)。
+
+## 11. Tier 4 — 生产实盘下单/撤单首测(2026-07-25,历史第一批实盘订单)
+
+测点:EC2 prod(us-east-2)→ `external-api.kalshi.com`,warm lane。
+工具:`build/bench_order`(post-only 1¢ YES 买单,构造上不可成交,同轮撤销)。
+标的:KXBTC15M-26JUL250200-00。n=5(管道验证轮)。操作员亲手执行(`!` 通道)。
+原始日志:EC2 `/tmp/bench_prod_n5_*.log` → 归档 `work/latency/receipts/`(哈希待录)。
+
+| 环节 | p50 | min | max | p99 |
+|---|---|---|---|---|
+| RSA-PSS 签名(EC2) | 0.9ms | 0.9ms | 0.9ms | UNMEASURED(n=5) |
+| place wire→ack | 4.6ms | 4.2ms | 5.2ms | UNMEASURED |
+| **cancel wire→ack** | **3.8ms** | 3.6ms | 4.8ms | UNMEASURED |
+| 决策→order-ack 全链 | 5.5ms | — | — | UNMEASURED |
+
+**独立对证(交易所账本,签名 GET /portfolio/orders,2026-07-25T05:51:06Z):**
+5 单全部 canceled;服务器侧 created→canceled = 3.61/3.81/3.95/4.15/4.77ms,
+与 bench 的 cancel p50 3.8ms 咬合;相邻创建间隔 8.7–10.8ms ≈ 一轮
+sign+place+cancel(0.9+4.6+3.8≈9.3ms)。两套独立时钟互证,数字为真。
+
+**2026-07-25 全套补测(操作员授权实盘探测单;全部收据在 EC2
+`work/latency/receipts/` 带 sha256):**
+
+| 项 | 实测 | 备注 |
+|---|---|---|
+| 时钟(0.1) | chrony 偏移 <1µs(AWS Time Sync) | 单向测量地基成立 |
+| n=50 下单 | p50 4.1 / max(≈p98) 5.7ms,50/50/0 | 双侧活市场 36/37¢ |
+| n=50 撤单 | p50 4.1 / max(≈p98) 6.3ms | 保守记账上界收紧至 **≤7ms** |
+| **并发撤 10 张**(3.4/5.1 核心) | 单张 3.7–5.1ms,**全撤墙钟 5.0ms** | 10 条预热连接并行,无串行化惩罚 |
+| 冷连接罚(G) | TCP 1.3–2.1ms + TLS ~20ms ≈ 25ms | 实盘引擎必须连接池常温 |
+| RTT 地板 | ~1.5ms | 物理对质:4–6ms ack > 地板 ✓ |
+| 限速(C,官方账户接口) | **advanced 档:读写各 300 tokens/s、桶 600;create=10、cancel=2 tokens** | 撤退燃爆 300 张/瞬,持续 150/s——**非瓶颈**;**下单持续 30/s、burst 60——报价刷新的硬预算,入 E4** |
+| ticker 频道入站滞后(D) | p50 0.51s / p90 1.5s(n=3,869) | 坐实:ticker 不能当警报器;警报=L2 delta/BRTI/Coinbase |
+| REST cfbenchmarks 成本 | 50 tokens/次 | BRTI 只能走 WS 频道 |
+
+**未测余项:** fill 推送(4.1,需真实成交,操作员亲手);自单可见(4.2,
+因 L2 订阅窗口缺口未测成,可随时补);BRTI/Coinbase 入站(1.2/1.3,等部署);
+EC2 签名尾部(低优先);风暴日全链彩排(5.1 完整版)。
+
+**数据质量警报(2026-07-25):L2 采集订阅滞后于 15 分钟窗口轮换**——hour-15
+文件仅含 11:15 窗口(34.5 万条),11:30/11:45 窗口整窗缺失。12 天 BTC15M L2
+为逐窗口有洞;E4 必须逐窗口报告覆盖率;已通报 build 线修订阅刷新。
