@@ -345,7 +345,7 @@ def skew_px(px, adverse_ct):
         return px
     return legal_floor(px - GAMMA_C * adverse_ct / 100.0)
 
-def order_place(mt, side, exchange_px, *, risk_px=None):
+def order_place(mt, side, exchange_px, *, risk_px=None, edge_c=None):
     """Submit one order after a final control/risk check.
 
     ``exchange_px`` is the wire price.  ``risk_px`` is the contract cost used
@@ -374,33 +374,39 @@ def order_place(mt, side, exchange_px, *, risk_px=None):
             "time_in_force": "good_till_canceled",
             "self_trade_prevention_type": "maker", "post_only": True}
     if MODE == "live":
+        t0 = time.monotonic()
         code, resp = rest("POST", "/portfolio/events/orders", body, host=V2O)
+        ms = round((time.monotonic() - t0) * 1000.0, 1)
         oid = (resp.get("order_id") or (resp.get("order") or {}).get("order_id")
                or resp.get("id"))
         L.w({"ev":"ORDER_ACK" if code in (200,201) else "ORDER_REJ",
              "mt":mt,"side":side,"px":exchange_px,"risk_px":risk_px,
-             "qty":quantity,"code":code,
+             "qty":quantity,"code":code,"ms":ms,"edge_c":edge_c,
              "oid":oid,"resp":str(resp)[:200]})
         return (oid, quantity) if code in (200,201) and oid else None
     L.w({"ev":"INTENT_PLACE","mt":mt,"side":side,"px":exchange_px,
-         "risk_px":risk_px,"qty":quantity,"mode":"shadow"})
+         "risk_px":risk_px,"qty":quantity,"edge_c":edge_c,"mode":"shadow"})
     return "shadow-"+str(uuid.uuid4())[:8], quantity
 
-def order_cancel(mt, side, oid):
+def order_cancel(mt, side, oid, reason=""):
     if MODE == "live" and oid and not oid.startswith("shadow-"):
+        t0 = time.monotonic()
         code, resp = rest("DELETE", f"/portfolio/events/orders/{oid}", host=V2O)
+        ms = round((time.monotonic() - t0) * 1000.0, 1)
         ok = code in (200, 201, 204, 404)     # 404 = already gone
         L.w({"ev":"CANCEL_ACK" if ok else "CANCEL_FAIL",
-             "mt":mt,"side":side,"oid":oid,"code":code})
+             "mt":mt,"side":side,"oid":oid,"code":code,"ms":ms,
+             "reason":reason})
         return ok
     else:
-        L.w({"ev":"INTENT_CANCEL","mt":mt,"side":side,"oid":oid})
+        L.w({"ev":"INTENT_CANCEL","mt":mt,"side":side,"oid":oid,
+             "reason":reason})
     return True
 
 def cancel_all(reason):
     all_canceled = True
     for (mt, side), od in list(S.orders.items()):
-        if order_cancel(mt, side, od["id"]):
+        if order_cancel(mt, side, od["id"], reason=reason):
             S.orders.pop((mt, side), None)
         else:
             all_canceled = False
@@ -437,7 +443,7 @@ def think():
         if tte <= 0:
             for side in ("bid","ask_no"):
                 od = S.orders.pop((mt,side), None)
-                if od: order_cancel(mt, side, od["id"])
+                if od: order_cancel(mt, side, od["id"], reason="expired")
             S.meta.pop(mt, None); continue
         ticks = list(S.rti[ser]); bk = S.books.get(mt)
         if len(ticks) < 31 or not bk: continue
@@ -463,7 +469,7 @@ def think():
         if abs(fair_c - mid_c) > SENTINEL_C:
             for side in ("bid","ask_no"):
                 od = S.orders.pop((mt,side), None)
-                if od: order_cancel(mt, side, od["id"])
+                if od: order_cancel(mt, side, od["id"], reason="sentinel")
             L.w({"ev":"SENTINEL_PAUSE","mt":mt,"fv":round(fair_c,1),"mid":mid_c})
             continue
         ok = zone_ok(tte, mid_c)
@@ -508,7 +514,8 @@ def think():
                 continue
             if od and (not w or abs(od["px"]-px) >= 0.001):
                 if now - S.last_replace.get((mt,side),0) < 1.0 and w: continue
-                if order_cancel(mt, side, od["id"]):
+                if order_cancel(mt, side, od["id"],
+                                reason="reprice" if w else "risk_off"):
                     S.orders.pop((mt,side), None)
                     S.last_replace[(mt,side)] = now
                     od = None
@@ -523,10 +530,12 @@ def think():
                          "max_open_cost":MAX_OPEN_COST})
                     continue
                 if side == "bid":
-                    placed = order_place(mt, "bid", px, risk_px=px)
+                    placed = order_place(mt, "bid", px, risk_px=px,
+                                         edge_c=round(edge_bid, 2))
                 else:   # buy NO == rest an ask on the YES book at 1-no_px
                     placed = order_place(
-                        mt, "ask", round(1.0 - px, 4), risk_px=px
+                        mt, "ask", round(1.0 - px, 4), risk_px=px,
+                        edge_c=round(edge_no, 2)
                     )
                 if placed:
                     oid, quantity = placed
@@ -819,6 +828,9 @@ def recon_check():
         return False
     S.recon_fails = 0
     diffs = recon_divergences(S.net_pos, d.get("market_positions"))
+    if not diffs:
+        L.w({"ev": "RECON_OK",
+             "markets": len(d.get("market_positions") or [])})
     if diffs:
         if not S.halted:
             S.halted = True
