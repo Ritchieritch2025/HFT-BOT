@@ -86,9 +86,12 @@ def _sig(method, path):
             "KALSHI-ACCESS-TIMESTAMP": ts, "Content-Type": "application/json"}
 
 def rest(method, path, body=None, host=REST):
+    # Kalshi signs ts+method+PATH with the query string EXCLUDED; signing
+    # the full path 401s every parameterized GET (found by the fills
+    # selfcheck at live ignition 2026-07-26 — D1's second half).
     req = urllib.request.Request(host + path, method=method,
         data=json.dumps(body).encode() if body else None,
-        headers=_sig(method, path))
+        headers=_sig(method, path.split("?")[0]))
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status, json.load(r)

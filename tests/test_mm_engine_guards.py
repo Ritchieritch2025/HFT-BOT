@@ -478,6 +478,42 @@ class F1_InventorySkew(unittest.TestCase):
         self.assertAlmostEqual(E.legal_floor(0.0525), 0.052, places=4)
 
 
+class RestSigning(unittest.TestCase):
+    """Kalshi signs ts+method+PATH — query string EXCLUDED.  The engine
+    signed the full path including '?min_ts=...' so every /portfolio/
+    fills and /portfolio/positions call returned 401 (caught by the
+    fills selfcheck at live ignition 2026-07-26; order placement never
+    noticed because those paths carry no query).  D1 was therefore a
+    DOUBLE defect: ms units AND signature scope.
+    """
+
+    def _captured_sig_path(self, method, path):
+        captured = {}
+
+        def fake_sig(m, p):
+            captured["path"] = p
+            return {}
+
+        with (
+            mock.patch.object(E, "_sig", side_effect=fake_sig),
+            mock.patch.object(E.urllib.request, "urlopen",
+                              side_effect=OSError("no network in tests")),
+        ):
+            code, _ = E.rest(method, path)
+        self.assertEqual(code, -1)                 # no network happened
+        return captured["path"]
+
+    def test_rest_signs_path_without_query_string(self):
+        self.assertEqual(
+            self._captured_sig_path("GET", "/portfolio/fills?min_ts=5&limit=1"),
+            "/portfolio/fills")
+
+    def test_rest_signs_bare_path_unchanged(self):
+        self.assertEqual(
+            self._captured_sig_path("DELETE", "/portfolio/events/orders/abc123"),
+            "/portfolio/events/orders/abc123")
+
+
 class F2_PositionReconciliation(unittest.TestCase):
     """F2: every 5s the engine compares local net_pos against the
     EXCHANGE's /portfolio/positions truth.  >2 contracts divergence in
