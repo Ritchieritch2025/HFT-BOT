@@ -56,6 +56,7 @@ def reset():
     E.S.last_replace.clear(); E.S.books.clear(); E.S.meta.clear()
     E.S.recon_fails = 0
     E.S.fills_selfcheck_ok = False
+    E.S.contract_selfcheck_ok = False
     E.S.last_recon_ok_mono = None
     if hasattr(E.S, "last_eval"):
         E.S.last_eval.clear()
@@ -219,6 +220,7 @@ class HotControl(unittest.TestCase):
     def test_live_unpause_accepted_once_selfcheck_and_recon_green(self):
         reset()
         E.S.fills_selfcheck_ok = True
+        E.S.contract_selfcheck_ok = True
         E.S.last_recon_ok_mono = E.time.monotonic()
         document = mc.next_control(
             E.CTRL,
@@ -912,6 +914,135 @@ class PricingKernel(unittest.TestCase):
         # YES ask 49 implies NO bid 51, so buying NO is 1c rich.
         self.assertAlmostEqual(e_n, -1.0)
         self.assertAlmostEqual(e_y + e_n, 2.0)
+
+
+class RealSchemaContract(unittest.TestCase):
+    """Incident #3 (2026-07-26 01:2xZ): three schema-name guesses each
+    blinded a safety layer.  These tests pin the VERBATIM records
+    captured live — the engine must read THESE, not the names we wish
+    the exchange used."""
+
+    REAL_WS_FILL = {"action": "sell", "book_side": "ask",
+                    "count_fp": "2.00",
+                    "created_time": "2026-07-26T01:21:34.292512Z",
+                    "fee_cost": "0.000000", "is_taker": False,
+                    "market_ticker": "KXBTC15M-26JUL252130-30",
+                    "no_price_dollars": "0.7500", "outcome_side": "no",
+                    "side": "no", "trade_id": "t-real-1",
+                    "yes_price_dollars": "0.2500"}
+    REAL_POSITION = {"ticker": "KXBTC15M-26JUL252130-30",
+                     "position_fp": "-20.00",
+                     "market_exposure_dollars": "14.680000",
+                     "fees_paid_dollars": "0.000000",
+                     "realized_pnl_dollars": "0.000000",
+                     "total_traded_dollars": "14.680000"}
+    REAL_SETTLEMENT = {"event_ticker": "KXBTC15M-26JUL252130",
+                       "fee_cost": "0.000000", "market_result": "no",
+                       "no_count_fp": "20.00",
+                       "no_total_cost_dollars": "14.680000",
+                       "revenue": 2000,
+                       "settled_time": "2026-07-26T01:30:06.038277Z",
+                       "ticker": "KXBTC15M-26JUL252130-30", "value": 0,
+                       "yes_count_fp": "0.00",
+                       "yes_total_cost_dollars": "0.000000"}
+
+    def setUp(self):
+        reset()
+
+    def test_ws_fill_applies_to_ledger(self):
+        E.apply_fill(E.ws_fill_to_rest(dict(self.REAL_WS_FILL)))
+        d = E.S.net_pos["KXBTC15M-26JUL252130-30"]
+        self.assertEqual(d["n"], 2.0)
+        self.assertAlmostEqual(d["cost"], 2 * 0.75)
+        self.assertIn(("KXBTC15M-26JUL252130-30", "ask_no"), E.S.latch)
+
+    def test_rest_fill_same_record_dedupes_by_trade_id(self):
+        E.apply_fill(E.ws_fill_to_rest(dict(self.REAL_WS_FILL)))
+        rest_shape = dict(self.REAL_WS_FILL)
+        rest_shape["ticker"] = rest_shape.pop("market_ticker")
+        E.apply_fill(rest_shape)
+        self.assertEqual(E.S.net_pos["KXBTC15M-26JUL252130-30"]["n"], 2.0)
+
+    def test_unparseable_fill_halts_live_and_keeps_cursor(self):
+        blind = dict(self.REAL_WS_FILL)
+        del blind["count_fp"]           # the exact incident-#3 shape
+        cursor0 = E.S.fills_cursor
+        with mock.patch.object(E, "MODE", "live"), \
+                mock.patch.object(E, "cancel_all") as ca, \
+                mock.patch.object(E, "write_control_status"):
+            E.apply_fill(E.ws_fill_to_rest(blind))
+        self.assertTrue(E.S.halted)
+        ca.assert_called_once()
+        self.assertEqual(E.S.fills_cursor, cursor0,
+                         "cursor must not advance past an unapplied fill")
+        self.assertEqual(E.S.net_pos, {})
+
+    def test_settlement_real_schema_realized(self):
+        self.assertTrue(E.apply_settlement(dict(self.REAL_SETTLEMENT)))
+        self.assertAlmostEqual(E.S.realized, 5.32)
+        self.assertEqual(E.S.settle_zero_streak, 0)
+
+    def test_settlement_zero_revenue_streak_sees_dollar_costs(self):
+        s = dict(self.REAL_SETTLEMENT)
+        s["revenue"] = 0
+        E.apply_settlement(s)
+        self.assertEqual(E.S.settle_zero_streak, 1,
+                         "cost must come from *_dollars fields, not the "
+                         "legacy names that read 0")
+
+    def test_unparseable_settlement_halts_live(self):
+        s = dict(self.REAL_SETTLEMENT)
+        del s["revenue"]
+        with mock.patch.object(E, "MODE", "live"), \
+                mock.patch.object(E, "cancel_all") as ca, \
+                mock.patch.object(E, "write_control_status"):
+            self.assertFalse(E.apply_settlement(s))
+        self.assertTrue(E.S.halted)
+        ca.assert_called_once()
+
+    def test_recon_reads_position_fp(self):
+        diffs = E.recon_divergences({}, [dict(self.REAL_POSITION)])
+        self.assertEqual(diffs,
+                         [("KXBTC15M-26JUL252130-30", 0, -20)])
+
+    def test_recon_unparseable_position_is_divergence(self):
+        p = {"ticker": "KXBTC15M-26JUL252130-30"}
+        diffs = E.recon_divergences({}, [p])
+        self.assertEqual(diffs, [("KXBTC15M-26JUL252130-30", 0, None)])
+
+    def test_contract_selfcheck_passes_on_real_records(self):
+        def fake_rest(method, path, body=None, host=None):
+            if path.startswith("/portfolio/fills"):
+                f = dict(self.REAL_WS_FILL)
+                f["ticker"] = f.pop("market_ticker")
+                return 200, {"fills": [f]}
+            if path.startswith("/portfolio/positions"):
+                return 200, {"market_positions": [dict(self.REAL_POSITION)]}
+            return 200, {"settlements": [dict(self.REAL_SETTLEMENT)]}
+        with mock.patch.object(E, "rest", fake_rest):
+            ok, why = E.contract_selfcheck()
+        self.assertTrue(ok, why)
+
+    def test_contract_selfcheck_refuses_on_schema_break(self):
+        def fake_rest(method, path, body=None, host=None):
+            if path.startswith("/portfolio/positions"):
+                # a record with neither position nor position_fp
+                return 200, {"market_positions": [
+                    {"ticker": "X", "exposure": "1.00"}]}
+            if path.startswith("/portfolio/fills"):
+                return 200, {"fills": []}
+            return 200, {"settlements": []}
+        with mock.patch.object(E, "rest", fake_rest):
+            ok, why = E.contract_selfcheck()
+        self.assertFalse(ok)
+        self.assertIn("positions", why)
+
+    def test_contract_selfcheck_empty_surfaces_pass_unverified(self):
+        with mock.patch.object(E, "rest",
+                               lambda *a, **k: (200, {})):
+            ok, why = E.contract_selfcheck()
+        self.assertTrue(ok)
+        self.assertIn("EMPTY", why)
 
 
 if __name__ == "__main__":

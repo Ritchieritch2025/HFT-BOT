@@ -134,6 +134,7 @@ class S:
     limit_breached = False
     recon_fails = 0       # F2 consecutive /portfolio/positions failures
     fills_selfcheck_ok = False   # F3 startup probe result (live gate)
+    contract_selfcheck_ok = False  # incident-#3 schema gate (live gate)
     last_recon_ok_mono = None    # F2 last successful recon (live gate)
     session_start_ts = time.time()  # F4 scope: only THIS session's settles
     settle_zero_streak = 0  # F4 consecutive zero-revenue settlements
@@ -209,11 +210,13 @@ def apply_control_document(document):
         # were dead the whole session on 2026-07-25.
         recon_age = (None if S.last_recon_ok_mono is None
                      else time.monotonic() - S.last_recon_ok_mono)
-        if (not S.fills_selfcheck_ok or recon_age is None
-                or recon_age > 30.0):
+        if (not S.fills_selfcheck_ok or not S.contract_selfcheck_ok
+                or recon_age is None or recon_age > 30.0):
             raise ControlError(
-                "live resume disabled: requires fills selfcheck PASS and "
-                f"recon success <30s old (selfcheck={S.fills_selfcheck_ok}, "
+                "live resume disabled: requires fills+contract selfchecks "
+                "PASS and recon success <30s old "
+                f"(fills={S.fills_selfcheck_ok}, "
+                f"contract={S.contract_selfcheck_ok}, "
                 f"recon_age={recon_age})")
     if _control_loaded:
         if candidate["revision"] < CTRL["revision"]:
@@ -687,64 +690,133 @@ def fill_created_s(f):
     return None
 
 
-def fill_price_dollars(f, side):
-    """Side-correct fill cost in dollars (cents ints normalized)."""
-    px = f.get("yes_price") if side == "bid" else f.get("no_price")
-    if px is None:
-        px = f.get("price", 0)
+# Live capture 2026-07-26 (incident #3): every portfolio surface uses
+# *_fp / *_dollars STRING fields (count_fp, position_fp, yes_price_dollars,
+# yes_total_cost_dollars...).  The legacy names this engine originally
+# guessed never arrive on the wire.  Readers accept both shapes; a record
+# that parses under NEITHER is a schema break and must halt live trading,
+# never be silently skipped (11x FILL_APPLY_ERR while quoting = incident #3).
+
+def fnum(v):
     try:
-        px = float(px)
+        return float(v)
     except (TypeError, ValueError):
-        return 0.0
+        return None
+
+
+def qty_of(rec, base):
+    """Contract count: '<base>_fp' string first, legacy number second.
+    None (not 0) when the field is absent or unparseable."""
+    if f"{base}_fp" in rec:
+        return fnum(rec[f"{base}_fp"])
+    return fnum(rec.get(base))
+
+
+def cents_of(rec, base):
+    """Money in cents: '<base>_dollars' string x100 first, legacy cents
+    number second.  None when absent or unparseable."""
+    if f"{base}_dollars" in rec:
+        v = fnum(rec[f"{base}_dollars"])
+        return None if v is None else v * 100.0
+    return fnum(rec.get(base))
+
+
+def fill_price_dollars(f, side):
+    """Side-correct fill cost in dollars.  None = unparseable."""
+    base = "yes_price" if side == "bid" else "no_price"
+    if f"{base}_dollars" in f:
+        return fnum(f[f"{base}_dollars"])
+    px = fnum(f.get(base))
+    if px is None:
+        px = fnum(f.get("price"))
+    if px is None:
+        return None
     return px / 100.0 if px > 1.0 else px
 
 
 def ws_fill_to_rest(msg):
     """Normalize a WS 'fill' channel message to the REST fills shape so
-    both paths feed the ONE apply_fill ledger."""
-    return {"ticker": msg.get("market_ticker") or msg.get("ticker"),
-            "side": msg.get("side"), "count": msg.get("count"),
-            "yes_price": msg.get("yes_price"),
-            "no_price": msg.get("no_price"),
-            "created_ts": msg.get("ts") or msg.get("created_ts"),
-            "trade_id": msg.get("trade_id")}
+    both paths feed the ONE apply_fill ledger.  Real wire fields pass
+    through untouched — parsing happens in exactly one place."""
+    f = {k: msg[k] for k in (
+        "side", "count", "count_fp", "yes_price", "no_price",
+        "yes_price_dollars", "no_price_dollars", "price",
+        "created_ts", "created_time", "trade_id") if k in msg}
+    f["ticker"] = msg.get("market_ticker") or msg.get("ticker")
+    if "created_ts" not in f and "created_time" not in f:
+        f["created_ts"] = msg.get("ts")
+    return f
+
+
+def parse_fill(f):
+    """Strictly parse one fill record into (ticker, side, count,
+    px_dollars, ts_s).  Returns (None, why) on ANY consumed-field
+    failure — the caller decides whether that halts the engine."""
+    mt = f.get("ticker")
+    if not mt:
+        return None, "no ticker"
+    raw = f.get("side")
+    if raw not in ("yes", "no", "bid", "ask", "ask_no"):
+        return None, f"unknown side {raw!r}"
+    side = "bid" if raw in ("yes", "bid") else "ask_no"
+    n = qty_of(f, "count")
+    if n is None or n <= 0:
+        return None, "count missing/unparseable"
+    px = fill_price_dollars(f, side)
+    if px is None or not (0.0 < px < 1.0):
+        return None, f"price missing/unparseable ({px!r})"
+    ts = fill_created_s(f)
+    if ts is None:
+        return None, "timestamp missing/unparseable"
+    return (mt, side, n, px, ts), None
 
 
 def apply_fill(f):
-    """One exchange fill: advance the cursor, latch the side, move cost
-    from the resting-order reservation to the filled ledger (A1 stays
-    conserved — never double-counted, never dropped).  Deduped by
-    trade_id so the WS push and the REST poll can both deliver it."""
+    """One exchange fill: parse STRICTLY, then advance the cursor, latch
+    the side, move cost from the resting-order reservation to the filled
+    ledger (A1 stays conserved — never double-counted, never dropped).
+    Deduped by trade_id so the WS push and the REST poll can both
+    deliver it.  An unparseable record means the ledger is blind — in
+    live mode that is a HALT, not a log line (incident #3: 11x
+    FILL_APPLY_ERR while quoting continued).  The cursor advances ONLY
+    after a successful parse, so a schema break can never make the REST
+    backstop skip what the WS path failed to apply."""
     key = f.get("trade_id") or (f.get("ticker"), f.get("side"),
-                                f.get("count"), f.get("created_ts"),
-                                f.get("yes_price"), f.get("no_price"))
+                                qty_of(f, "count"), f.get("created_ts"),
+                                f.get("created_time"))
     if key in S.fills_seen:
         L.w({"ev": "FILL_DUP_SKIP", "key": str(key)[:120]})
         return
+    parsed, why = parse_fill(f)
+    if parsed is None:
+        L.w({"ev": "FILL_APPLY_ERR", "why": why, "raw": {
+            k: f.get(k) for k in (
+                "ticker", "side", "count", "count_fp", "price",
+                "yes_price", "no_price", "yes_price_dollars",
+                "no_price_dollars", "created_ts", "created_time")}})
+        if MODE == "live" and not S.halted:
+            S.halted = True
+            cancel_all("FILL_SCHEMA_BLIND")
+            L.w({"ev": "HALT",
+                 "reason": f"unparseable fill record ({why}) — "
+                           "ledger blind, refusing to keep quoting"})
+            write_control_status()
+        return
+    mt, side, n, px, ts = parsed
     S.fills_seen.add(key)
-    ts = fill_created_s(f)
-    if ts is not None:
-        S.fills_cursor = max(S.fills_cursor, ts + 1)
-    L.w({"ev": "FILL", "raw": {k: f.get(k) for k in (
-        "ticker", "side", "count", "price", "yes_price", "no_price",
-        "created_ts", "created_time")}})
-    mt = f.get("ticker")
-    side = "bid" if f.get("side") in ("yes", "bid") else "ask_no"
+    S.fills_cursor = max(S.fills_cursor, ts + 1)
+    L.w({"ev": "FILL", "ticker": mt, "side": side, "count": n,
+         "px_dollars": px, "ts_s": ts, "trade_id": f.get("trade_id")})
     S.latch.add((mt, side))
-    try:
-        n = float(f.get("count", 0))
-        px = fill_price_dollars(f, side)
-        d = S.net_pos.setdefault(mt, {"y": 0, "n": 0, "cost": 0.0})
-        d["y" if side == "bid" else "n"] += n
-        d["cost"] += px * n
-        S.open_cost = sum(v["cost"] for v in S.net_pos.values())
-        od = S.orders.get((mt, side))
-        if od is not None:
-            od["qty"] = float(od.get("qty", CLIP)) - n
-            if od["qty"] <= 1e-9:
-                S.orders.pop((mt, side), None)
-    except Exception as exc:
-        L.w({"ev": "FILL_APPLY_ERR", "err": repr(exc)[:150]})
+    d = S.net_pos.setdefault(mt, {"y": 0, "n": 0, "cost": 0.0})
+    d["y" if side == "bid" else "n"] += n
+    d["cost"] += px * n
+    S.open_cost = sum(v["cost"] for v in S.net_pos.values())
+    od = S.orders.get((mt, side))
+    if od is not None:
+        od["qty"] = float(od.get("qty", CLIP)) - n
+        if od["qty"] <= 1e-9:
+            S.orders.pop((mt, side), None)
 
 
 def fills_visibility_selfcheck():
@@ -769,16 +841,73 @@ def fills_visibility_selfcheck():
     return True, f"pipeline sees fill at ts={ts}"
 
 
+# ------------------------------------------------- contract selfcheck
+def parse_position(p):
+    """(ok, why) for one /portfolio/positions record — every field the
+    reconciler consumes must exist and parse."""
+    if not p.get("ticker"):
+        return False, "no ticker"
+    if qty_of(p, "position") is None:
+        return False, "position missing/unparseable (want position_fp)"
+    return True, "ok"
+
+
+def parse_settlement(s):
+    """(ok, why) for one /portfolio/settlements record — every field the
+    econ breaker (F4) consumes must exist and parse."""
+    if not s.get("ticker"):
+        return False, "no ticker"
+    for base in ("revenue", "yes_total_cost", "no_total_cost"):
+        if cents_of(s, base) is None:
+            return False, f"{base} missing/unparseable"
+    try:
+        import datetime as dtm
+        dtm.datetime.fromisoformat(
+            str(s.get("settled_time")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False, "settled_time unparseable"
+    return True, "ok"
+
+
+CONTRACT_SURFACES = (
+    ("fills", "/portfolio/fills?limit=1", "fills",
+     lambda r: (parse_fill(r)[0] is not None, parse_fill(r)[1] or "ok")),
+    ("positions", "/portfolio/positions?limit=1", "market_positions",
+     parse_position),
+    ("settlements", "/portfolio/settlements?limit=1", "settlements",
+     parse_settlement),
+)
+
+
+def contract_selfcheck():
+    """Startup ignition gate (incident #3 fix doctrine #1): fetch ONE
+    real record from each REST portfolio surface and prove every field
+    this engine consumes exists and parses.  Three same-day schema-name
+    guesses (count_fp, position_fp, yes_total_cost_dollars) each blinded
+    a different safety layer — unit tests against assumptions cannot
+    catch that; only the exchange's own records can.  An empty surface
+    is reported but cannot be verified.  The WS fill surface cannot be
+    fetched on demand — it is covered by parse_fill going through the
+    same strict path with HALT-on-failure at the first live message."""
+    notes = []
+    for name, path, listkey, parser in CONTRACT_SURFACES:
+        code, d = rest("GET", path)
+        if code != 200:
+            return False, f"{name}: HTTP {code}"
+        recs = d.get(listkey) or []
+        if not recs:
+            notes.append(f"{name}=EMPTY(unverified)")
+            continue
+        ok, why = parser(recs[0])
+        if not ok:
+            return False, f"{name}: {why}"
+        notes.append(f"{name}=ok")
+    return True, " ".join(notes)
+
+
 # ----------------------------------------------------------- F4 breaker
 ECON_HALT_LOSS = float(os.environ.get("MM_ECON_HALT", "-2.0"))  # dollars
 ECON_ZERO_STREAK = 2   # consecutive zero-revenue settlements -> halt
-
-
-def _cents(v):
-    try:
-        return float(v or 0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def settlement_in_session(s):
@@ -805,9 +934,26 @@ def apply_settlement(s):
     key = (s.get("ticker"), s.get("settled_time"))
     if key in S.settled_seen:
         return False
+    revenue = cents_of(s, "revenue")
+    yes_cost = cents_of(s, "yes_total_cost")
+    no_cost = cents_of(s, "no_total_cost")
+    if revenue is None or yes_cost is None or no_cost is None:
+        # Incident #3: F4 read the guessed 'yes_total_cost' name, got 0,
+        # and computed garbage realized P&L.  A settlement this engine
+        # cannot price means the econ breaker is blind — halt, don't skip.
+        L.w({"ev": "SETTLE_PARSE_ERR", "raw": {k: s.get(k) for k in (
+            "ticker", "settled_time", "revenue", "revenue_dollars",
+            "yes_total_cost", "yes_total_cost_dollars",
+            "no_total_cost", "no_total_cost_dollars")}})
+        if MODE == "live" and not S.halted:
+            S.halted = True
+            cancel_all("SETTLE_SCHEMA_BLIND")
+            L.w({"ev": "HALT",
+                 "reason": "unparseable settlement — econ breaker blind"})
+            write_control_status()
+        return False
     S.settled_seen.add(key)
-    revenue = _cents(s.get("revenue"))
-    cost = _cents(s.get("yes_total_cost")) + _cents(s.get("no_total_cost"))
+    cost = yes_cost + no_cost
     pnl = (revenue - cost) / 100.0
     S.realized += pnl
     if revenue <= 0 and cost > 0:
@@ -862,7 +1008,15 @@ def recon_divergences(local, market_positions):
     for mp in (market_positions or []):
         mt = mp.get("ticker")
         seen.add(mt)
-        exch = int(mp.get("position", 0) or 0)
+        # Real schema is position_fp STRING; there is no 'position' key
+        # (incident #3: reading it gave exch=0 vs local 0 = false green).
+        # Unparseable = divergence, never a silent 0.
+        raw = qty_of(mp, "position")
+        if raw is None:
+            lp = local.get(mt, {"y": 0, "n": 0})
+            diffs.append((mt, int(lp["y"] - lp["n"]), None))
+            continue
+        exch = int(round(raw))
         lp = local.get(mt, {"y": 0, "n": 0})
         lnet = int(lp["y"] - lp["n"])
         if abs(lnet - exch) > RECON_MAX_DIVERGENCE:
@@ -989,6 +1143,19 @@ async def main():
         if not ok:
             S.halted = True
             L.w({"ev": "HALT", "reason": f"fills selfcheck: {why}"})
+        ok2, why2 = contract_selfcheck()
+        S.contract_selfcheck_ok = ok2
+        L.w({"ev": "CONTRACT_SELFCHECK", "ok": ok2, "why": why2})
+        if not ok2:
+            S.halted = True
+            L.w({"ev": "HALT", "reason": f"contract selfcheck: {why2}"})
+    else:
+        # Shadow: run the same check for the log when creds allow, but
+        # never block — shadow's job is to produce evidence.
+        ok2, why2 = contract_selfcheck()
+        S.contract_selfcheck_ok = ok2
+        L.w({"ev": "CONTRACT_SELFCHECK", "ok": ok2, "why": why2,
+             "mode": "shadow-advisory"})
     write_control_status()
     L.w({"ev":"START","mode":MODE,"series":list(SERIES),"clip":CLIP,
          "improve":IMP,"sentinel_c":SENTINEL_C,"max_open_cost":MAX_OPEN_COST,
