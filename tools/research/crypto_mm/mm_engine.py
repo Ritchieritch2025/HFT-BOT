@@ -584,6 +584,45 @@ def fetch_open():
             except Exception: pass
     return out
 
+MD_SESSION_S = 120.0        # rotate subscription (re-fetch open markets)
+MD_RECV_TIMEOUT_S = 15.0    # silent-channel watchdog
+
+
+async def _md_session(ws):
+    """One subscription session; ALWAYS returns within MD_SESSION_S.
+
+    The old `async for raw in ws` checked its 120s budget only when a
+    message ARRIVED — after the subscribed market settled, the silent
+    channel hung the loop forever, fetch_open() never re-ran and the
+    engine sat at markets=0 while the exchange had an open market
+    (found live in shadow, 2026-07-26; the earlier 'markets=0 blip').
+    """
+    t0 = time.time()
+    while time.time() - t0 <= MD_SESSION_S:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=MD_RECV_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            continue
+        m = json.loads(raw); t = m.get("type"); msg = m.get("msg",{})
+        mt = msg.get("market_ticker","")
+        if t == "orderbook_snapshot":
+            def lv(a):
+                o={}
+                for px,q in (a or []): o[int(round(float(px)*10000))]=float(q)
+                return o
+            S.books[mt]={"y":lv(msg.get("yes_dollars_fp") or msg.get("yes")),
+                         "n":lv(msg.get("no_dollars_fp") or msg.get("no"))}
+        elif t == "orderbook_delta":
+            bk=S.books.setdefault(mt,{"y":{},"n":{}})
+            k="y" if msg["side"]=="yes" else "n"
+            px=int(round(float(msg["price_dollars"])*10000)) if msg.get("price_dollars") else int(msg.get("price",0))
+            dq=float(msg.get("delta_fp") or msg.get("delta",0))
+            nv=bk[k].get(px,0)+dq
+            if abs(nv)<=EPS: bk[k].pop(px,None)
+            else: bk[k][px]=nv
+            think()
+
+
 async def md_task():
     while True:
         try:
@@ -594,27 +633,7 @@ async def md_task():
                                           ping_interval=10) as ws:
                 await ws.send(json.dumps({"id":2,"cmd":"subscribe","params":{
                     "channels":["orderbook_delta"],"market_tickers":tickers}}))
-                t0 = time.time()
-                async for raw in ws:
-                    m = json.loads(raw); t = m.get("type"); msg = m.get("msg",{})
-                    mt = msg.get("market_ticker","")
-                    if t == "orderbook_snapshot":
-                        def lv(a):
-                            o={}
-                            for px,q in (a or []): o[int(round(float(px)*10000))]=float(q)
-                            return o
-                        S.books[mt]={"y":lv(msg.get("yes_dollars_fp") or msg.get("yes")),
-                                     "n":lv(msg.get("no_dollars_fp") or msg.get("no"))}
-                    elif t == "orderbook_delta":
-                        bk=S.books.setdefault(mt,{"y":{},"n":{}})
-                        k="y" if msg["side"]=="yes" else "n"
-                        px=int(round(float(msg["price_dollars"])*10000)) if msg.get("price_dollars") else int(msg.get("price",0))
-                        dq=float(msg.get("delta_fp") or msg.get("delta",0))
-                        nv=bk[k].get(px,0)+dq
-                        if abs(nv)<=EPS: bk[k].pop(px,None)
-                        else: bk[k][px]=nv
-                        think()
-                    if time.time()-t0>120: break
+                await _md_session(ws)
         except Exception as e:
             L.w({"ev":"MD_ERR","err":repr(e)[:150]}); await asyncio.sleep(2)
 

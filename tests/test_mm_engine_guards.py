@@ -6,6 +6,7 @@ The engine module is imported with shadow mode and dummy credentials.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -699,6 +700,59 @@ class F5_MinRequoteThreshold(unittest.TestCase):
             E.S.meta["M1"] = (self.SER, close_s, last - 1.0364 * sd)
             E.think()
         self.assertNotIn(("M1", "bid"), E.S.orders)
+
+
+class MD_SessionWatchdog(unittest.TestCase):
+    """Market-discovery deadlock (found live in shadow 2026-07-26):
+    after the subscribed market settled, its channel went silent and the
+    old `async for raw in ws` session-rotation check only ran on message
+    arrival — so fetch_open() never re-ran and markets stayed 0 for 18
+    minutes while the exchange had an open market.  The session must
+    end within its budget even on a COMPLETELY SILENT channel.
+    """
+
+    def test_silent_channel_session_still_ends_within_budget(self):
+        import asyncio
+
+        class SilentWS:
+            async def recv(self):
+                await asyncio.sleep(3600)      # never speaks
+
+        async def run():
+            with mock.patch.object(E, "MD_SESSION_S", 0.3), \
+                 mock.patch.object(E, "MD_RECV_TIMEOUT_S", 0.05):
+                # must return on its own well before the outer timeout
+                await asyncio.wait_for(E._md_session(SilentWS()), timeout=2.0)
+
+        asyncio.get_event_loop().run_until_complete(run())
+
+    def test_messages_still_processed_and_budget_still_enforced(self):
+        import asyncio
+
+        class BookWS:
+            def __init__(self):
+                self.sent = 0
+
+            async def recv(self):
+                self.sent += 1
+                await asyncio.sleep(0.01)
+                return json.dumps({
+                    "type": "orderbook_snapshot",
+                    "msg": {"market_ticker": "MWS",
+                            "yes": [[0.45, 7]], "no": [[0.53, 5]]}})
+
+        reset()
+        ws = BookWS()
+
+        async def run():
+            with mock.patch.object(E, "MD_SESSION_S", 0.2), \
+                 mock.patch.object(E, "MD_RECV_TIMEOUT_S", 0.05), \
+                 mock.patch.object(E, "think"):
+                await asyncio.wait_for(E._md_session(ws), timeout=2.0)
+
+        asyncio.get_event_loop().run_until_complete(run())
+        self.assertGreater(ws.sent, 1)
+        self.assertIn("MWS", E.S.books)
 
 
 class PricingKernel(unittest.TestCase):
