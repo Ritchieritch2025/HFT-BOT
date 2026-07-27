@@ -1,0 +1,8 @@
+{
+ "markets": 2899760,
+ "skipped_scalar": 9797,
+ "skipped_unfinalized": 138938,
+ "within_cutoff": 2360096,
+ "snapshot": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z",
+ "cutoff_us": 1784064617000000
+}

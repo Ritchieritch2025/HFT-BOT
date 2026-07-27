@@ -1,0 +1,8 @@
+{
+ "prereg_commit": "caea460",
+ "catalog_snapshot": "20260724T213017Z",
+ "taxonomy_sha16": "91dd1d4cdd7fe40b",
+ "code_sha_at_prereg": "2bb6a3cc706a",
+ "window_l1_trades": "2026-07-10..2026-07-24 (sealed)",
+ "window_l2": "2026-07-12 / 2026-07-15 / 2026-07-17"
+}
