@@ -608,6 +608,18 @@ def apply_control_document(document):
     CLIP = candidate["clip"]
     MAX_NET = candidate["max_net"]
     S.control_error = ""
+    # Deadlock guard (2026-07-28T04:05 tape): clip was raised to 3 while
+    # UNPAIRED_MAX_CT stayed 2 ("1 clip" doctrine), so EVERY entry failed
+    # the unpaired cap -- 1215 wants, 0 orders, in silence.  The mismatch
+    # must scream.
+    try:
+        if float(CLIP) > UNPAIRED_MAX_CT + 1e-9:
+            L.w({"ev": "CONFIG_WARN",
+                 "why": "clip exceeds unpaired cap: every entry will be "
+                        "blocked by UNPAIRED_CAP_SKIP",
+                 "clip": str(CLIP), "unpaired_max_ct": UNPAIRED_MAX_CT})
+    except (TypeError, ValueError):
+        pass
     if candidate["kill"]:
         S.halted = True
 
