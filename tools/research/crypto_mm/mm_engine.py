@@ -177,6 +177,18 @@ PAIR_LOCK_C = float(os.environ.get("MM_PAIR_LOCK_C", "99"))  # max pair cost
 # than tying up capital for a microscopic gross edge.
 PAIR_MIN_EDGE_C = float(os.environ.get("MM_PAIR_MIN_EDGE_C", "0.5"))
 UNPAIRED_MAX_CT = float(os.environ.get("MM_UNPAIRED_MAX_CT", "2"))  # 1 clip
+# Three-knife surgery (operator 修复令 2026-07-28, after the overnight
+# whipsaw: pair locks +$9.67 vs orphan-settlement tax ~-$13):
+#   knife 1: an unpaired lot whose opposite best ALREADY pays basis+fee+
+#            LOCK_TAKE_MIN_C is free money -- IOC it at the touch instead
+#            of waiting as a maker (87% of exit intents never filled).
+#   knife 2: MM_UNPAIRED_AGE_S re-armed (120s) -- the existing timed IOC
+#            cut, disabled at 100000 since the speed directive.
+#   knife 3: no NEW first legs inside ENTRY_CUTOFF_TTE_S of close; a leg
+#            born there cannot be paired in time.  Exits untouched.
+ENTRY_CUTOFF_TTE_S = float(os.environ.get("MM_ENTRY_CUTOFF_TTE_S", "240"))
+LOCK_TAKE_AGE_S = float(os.environ.get("MM_LOCK_TAKE_AGE_S", "20"))
+LOCK_TAKE_MIN_C = float(os.environ.get("MM_LOCK_TAKE_MIN_C", "0.3"))
 UNPAIRED_AGE_S = float(os.environ.get("MM_UNPAIRED_AGE_S", "90"))
 # Pair-cycle admission.  Unlike the legacy per-leg kernel selector, this
 # stages BOTH complementary maker orders before either fills.  It stays off
@@ -1452,11 +1464,13 @@ def flatten_due(now_s):
     return due
 
 
-def flatten_lot_taker(mt, side, now_s):
-    """Cut an aged unpaired lot: IOC-cross the OPPOSITE side one cent
-    through its ask (7% taker fee accepted — a bounded loss beats
+def flatten_lot_taker(mt, side, now_s, cross=0.01, reason="unpaired_age"):
+    """Cut an unpaired lot: IOC-cross the OPPOSITE side ``cross`` dollars
+    through its best (7% taker fee accepted — a bounded loss beats
     settlement gambling).  The resulting fill flows back through
-    apply_fill and pairs off, so the loss books through the ONE ledger."""
+    apply_fill and pairs off, so the loss books through the ONE ledger.
+    Knife 1 calls this with cross=0.0/reason="lock_take" to harvest a
+    completion the book is already paying for."""
     bk = S.books.get(mt)
     lots = S.unpaired.get(mt)
     if not bk or not lots or not lots[side]:
@@ -1473,7 +1487,7 @@ def flatten_lot_taker(mt, side, now_s):
             L.w({"ev": "FLATTEN_IMPOSSIBLE", "mt": mt, "side": side,
                  "why": "no_yes_bid"})
             return
-        no_px = min(0.99, (1.0 - yb / 10000.0) + 0.01)
+        no_px = min(0.99, (1.0 - yb / 10000.0) + cross)
         wire_side, wire_px = "ask", round(1.0 - no_px, 4)
     else:                              # long NO -> buy YES at its ask
         if nb is None:
@@ -1481,7 +1495,7 @@ def flatten_lot_taker(mt, side, now_s):
             L.w({"ev": "FLATTEN_IMPOSSIBLE", "mt": mt, "side": side,
                  "why": "no_no_bid"})
             return
-        yes_px = min(0.99, (1.0 - nb / 10000.0) + 0.01)
+        yes_px = min(0.99, (1.0 - nb / 10000.0) + cross)
         wire_side, wire_px = "bid", round(yes_px, 4)
     # A resting maker hedge and an IOC hedge must never coexist: both can
     # fill and turn a flat position into a new orphan in the other direction.
@@ -1494,7 +1508,45 @@ def flatten_lot_taker(mt, side, now_s):
             return
         risk_map_pop(S.orders, (mt, exit_side))
     S.flatten_sent[(mt, side)] = now_s
-    order_taker(mt, wire_side, wire_px, ct, reason="unpaired_age")
+    order_taker(mt, wire_side, wire_px, ct, reason=reason)
+
+
+def lock_take_due(now_s):
+    """Knife 1 scanner: unpaired lots whose OPPOSITE best already pays
+    basis + taker fee + LOCK_TAKE_MIN_C.  Completing at the touch is a
+    guaranteed positive lock; waiting as a maker was how 87% of exit
+    intents died unfilled and became settlement roulette."""
+    if not PAIR:
+        return []
+    due = []
+    for mt, lots in S.unpaired.items():
+        bk = S.books.get(mt)
+        if not bk:
+            continue
+        yb, nb = best(bk["y"]), best(bk["n"])
+        for side in ("bid", "ask_no"):
+            if not lots[side]:
+                continue
+            px0, ts0, _ct0, _f0 = lots[side][0]
+            if now_s - ts0 < LOCK_TAKE_AGE_S:
+                continue
+            if (mt, side) in S.flatten_pending:
+                continue
+            if now_s - S.flatten_sent.get((mt, side), 0.0) < 5.0:
+                continue
+            opp_best = yb if side == "bid" else nb
+            if opp_best is None:
+                continue
+            proceeds_c = opp_best / 100.0
+            fee_c = taker_fee_usd(proceeds_c / 100.0, 1.0) * 100.0
+            net_c = proceeds_c - px0 * 100.0 - fee_c
+            if net_c >= LOCK_TAKE_MIN_C:
+                L.w({"ev": "LOCK_TAKE", "mt": mt, "side": side,
+                     "basis_c": round(px0 * 100.0, 2),
+                     "proceeds_c": round(proceeds_c, 2),
+                     "fee_c": round(fee_c, 2), "net_c": round(net_c, 2)})
+                due.append((mt, side))
+    return due
 
 
 def order_taker(mt, side, exchange_px, count, reason=""):
@@ -1701,6 +1753,8 @@ async def pair_flatten_task():
         if not PAIR:
             continue
         now_s = time.time()
+        for mt, side in lock_take_due(now_s):
+            flatten_lot_taker(mt, side, now_s, cross=0.0, reason="lock_take")
         for mt, side in flatten_due(now_s):
             flatten_lot_taker(mt, side, now_s)
         # Approval #5 risk-layer exits: (4) graveyard unconditional close,
@@ -3498,6 +3552,9 @@ def think():
             (y_touch - n_touch) / touch_total if touch_total > 0 else 0.0
         )
         ok = zone_ok(tte, mid_c)
+        # Knife 3: entries also need enough runway to complete the pair;
+        # exits/completions are governed separately and never gated here.
+        ok_entry = ok and tte >= ENTRY_CUTOFF_TTE_S
         # Compute risk-reducing pair legs BEFORE the pricing gate.  A feed
         # reconnect, warmup, or sentinel disagreement may block entries but
         # must never strand inventory that can be closed at a bounded cost.
@@ -3696,7 +3753,7 @@ def think():
                     (y_px + n_px) * 100.0
                     <= PAIR_LOCK_C - PAIR_MIN_EDGE_C + 1e-9)
                 cycle_gate_ok = (
-                    entry_pricing_ok and ok and staged_qty_ok
+                    entry_pricing_ok and ok_entry and staged_qty_ok
                     and staged_known and staged_sum_ok
                     and tail_cheap_entry_allowed(mid_c, y_px)
                     and tail_cheap_entry_allowed(mid_c, n_px)
@@ -3712,7 +3769,7 @@ def think():
                 cycle_gate_ok, cycle_gate_reason = cycle_admission_gate(
                     mt, y_px, n_px, y_touch, n_touch,
                     entry_pricing_ok=entry_pricing_ok,
-                    zone=ok, net=net)
+                    zone=ok_entry, net=net)
             # This mode trades one complementary bundle, never a favorable
             # standalone leg.  If admission fails, BOTH entry wants are off.
             want["bid"] = cycle_gate_ok
@@ -3743,7 +3800,7 @@ def think():
                 not side_blocked(mt, "bid") and y_px >= 0.001
                 and (
                     (exit_bid if has_unpaired_no else False)
-                    or (entry_pricing_ok and ok and room
+                    or (entry_pricing_ok and ok_entry and room
                         and cheap_bid_entry
                         and edge_bid >= margin_bid_c
                         and edge_within_cap(edge_bid, ps_early)
@@ -3754,7 +3811,7 @@ def think():
                 not side_blocked(mt, "ask_no") and n_px >= 0.001
                 and (
                     (exit_no if has_unpaired_yes else False)
-                    or (entry_pricing_ok and ok and room
+                    or (entry_pricing_ok and ok_entry and room
                         and cheap_no_entry
                         and edge_no >= margin_no_c
                         and edge_within_cap(edge_no, ps_early)
@@ -3777,7 +3834,7 @@ def think():
                 r = block_reason(
                     blocked=side_blocked(mt, sd), px=px_,
                     is_exit_path=ex_, has_unpaired_opp=unp_,
-                    entry_pricing_ok=entry_pricing_ok, zone_ok_=ok,
+                    entry_pricing_ok=entry_pricing_ok, zone_ok_=ok_entry,
                     room=room, cheap_ok=cheap_,
                     edge=edge_, margin=marg_,
                     cap_ok=edge_within_cap(edge_, ps_early),
@@ -3789,7 +3846,7 @@ def think():
         # Sentinel/stale pricing, inventory latches, and an actual capital
         # breach still cancel immediately.
         if (not (PAIR and PAIR_PREQUOTE and not pair_exit_active)
-                and entry_pricing_ok and ok
+                and entry_pricing_ok and ok_entry
                 and exposure() <= MAX_OPEN_COST + 1e-9):
             for held_side in ("bid", "ask_no"):
                 od = S.orders.get((mt, held_side))
