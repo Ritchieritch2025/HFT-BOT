@@ -2422,6 +2422,20 @@ def _budget_validate_open_orders(
         if fresh:
             L.w({"ev": "FRESH_ORDER_PENDING_SNAPSHOT",
                  "ids": sorted(fresh)[:3]})
+        # Race #19 (2026-07-28T05:00): the mirror image on the way OUT.  At
+        # market close the exchange voids resting orders instantly while
+        # order_cancel needs seconds to PROVE expiry; the reservation is
+        # rightly retained locally, so the guard must expect its absence.
+        # Every cancel attempt stamps an order tombstone -- treat absence
+        # with a fresh tombstone (<15s) as cancel-in-flight; a cancel that
+        # cannot prove itself within the window still trips.
+        now_m = time.monotonic()
+        leaving = {oid for oid in stale_missing
+                   if now_m - S.order_tombstones.get(oid, -1e9) <= 15.0}
+        if leaving:
+            L.w({"ev": "CANCELING_ORDER_PENDING_SNAPSHOT",
+                 "ids": sorted(leaving)[:3]})
+            stale_missing -= leaving
         if stale_missing:
             raise mba.AdapterError(
                 "local resting order absent from exchange snapshot"

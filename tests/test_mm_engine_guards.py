@@ -1171,6 +1171,26 @@ class F2_PositionReconciliation(unittest.TestCase):
             [], orders={}, pending_new={},
             unknown_orders={"oid-1": rec})
 
+    def test_cancel_in_flight_order_absence_is_graced(self):
+        # Race #19: at market close the exchange voids our resting order
+        # instantly; while order_cancel is proving expiry (fresh tombstone)
+        # the budget snapshot must not call the absence blindness.
+        reset()
+        E.S.orders[("MKT", "bid")] = {
+            "id": "oid-x", "px": 0.40, "qty": 2.0,
+            "t": E.time.time() - 60.0,        # not a JUST-placed order
+            "wire_side": "bid", "exchange_px": 0.40,
+        }
+        args = dict(orders=dict(E.S.orders), pending_new={},
+                    unknown_orders={})
+        with self.assertRaises(E.mba.AdapterError):
+            E._budget_validate_open_orders([], **args)   # no tombstone: trip
+        E.S.order_tombstones["oid-x"] = E.time.monotonic()
+        E._budget_validate_open_orders([], **args)       # in-flight: graced
+        E.S.order_tombstones["oid-x"] = E.time.monotonic() - 16.0
+        with self.assertRaises(E.mba.AdapterError):
+            E._budget_validate_open_orders([], **args)   # stale: still trips
+
     def test_monitor_snapshot_transient_failures_tolerated_three_strikes(self):
         # Race #18: one transient HTTP -1 on the 1Hz monitor must NOT
         # durably latch; three consecutive failures still trip.
