@@ -325,6 +325,9 @@ class S:
     # recorder kept the missing ticks; splice them in instead of waiting.
     rti_seam_from_ms = {}      # ser -> last hydrated source_ms (None=closed)
     rti_seam_attempts = {}     # ser -> bridge attempts so far
+    recon_suspect = set()      # markets diverging on the LAST recon pass
+    last_budget_trip_err = ""  # dedupe key for repeated blind-trip spam
+    last_budget_trip_log = 0.0
     pricing_unready = {}       # ser -> reason pricing_state last returned None
     last_pricing_unready = {}  # mt -> last PRICING_UNREADY receipt wall time
     cf_session_ticks = {
@@ -578,6 +581,9 @@ def apply_control_document(document):
                 or (REQUIRE_FLAT_START and not S.flat_start_ok)
                 or not budget_ready
                 or recon_age is None or recon_age > 30.0):
+            # STABLE text only: this message is the reject-dedupe key, and
+            # embedding the live recon_age made every rejection "new",
+            # re-running cancel_all 4x/second (2026-07-28T02:48 tape).
             raise ControlError(
                 "live resume disabled: requires fills+contract selfchecks "
                 "PASS and recon success <30s old "
@@ -585,7 +591,7 @@ def apply_control_document(document):
                 f"contract={S.contract_selfcheck_ok}, "
                 f"flat_start={S.flat_start_ok}, "
                 f"budget_ready={budget_ready}, "
-                f"recon_age={recon_age})")
+                f"recon_fresh={recon_age is not None and recon_age <= 30.0})")
     if _control_loaded:
         if candidate["revision"] < CTRL["revision"]:
             raise ControlError("control revision moved backwards")
@@ -1886,6 +1892,16 @@ def order_cancel(mt, side, oid, reason=""):
     S.order_tombstones[oid] = time.monotonic()   # release imminent
     if oid in S.unknown_orders:
         return False
+    # Capture the reservation's economics NOW: if the local order row is
+    # gone by the time the budget guard shapes this unknown record, an
+    # economics-free record durably latches the budget
+    # (2026-07-28T02:48 BUDGET_MONITOR_SNAPSHOT_BLIND, qty/px/xpx all None).
+    _od0 = S.orders.get((mt, side))
+    _econ0 = (
+        {k: _od0[k] for k in ("qty", "px", "wire_side", "exchange_px")
+         if k in _od0}
+        if isinstance(_od0, dict) and _od0.get("id") == oid else {}
+    )
     if MODE == "live" and oid and not oid.startswith("shadow-"):
         t0 = time.monotonic()
         code, resp = rest("DELETE", f"/portfolio/events/orders/{oid}", host=V2O)
@@ -1909,6 +1925,7 @@ def order_cancel(mt, side, oid, reason=""):
                 risk_map_pop(S.unknown_orders, oid)
                 return True
             risk_map_set(S.unknown_orders, oid, {
+                **_econ0,
                 "ticker": mt, "side": side, "reason": reason,
                 "since": time.time(), "delete_code": code,
                 "reduced_by": reduced_by, "local_remaining": current,
@@ -1959,6 +1976,7 @@ def order_cancel(mt, side, oid, reason=""):
             # endpoint.  Only the order-scoped fill sweep removing the full
             # local remainder above may release a 404 reservation.
             risk_map_set(S.unknown_orders, oid, {
+                **_econ0,
                 "ticker": mt, "side": side, "reason": reason,
                 "since": time.time(), "delete_code": code,
                 "lookup_code": c2, "lookup_status": status or None,
@@ -1973,6 +1991,7 @@ def order_cancel(mt, side, oid, reason=""):
             return False
         if code < 0 or code >= 500 or code == 204:
             risk_map_set(S.unknown_orders, oid, {
+                **_econ0,
                 "ticker": mt, "side": side, "reason": reason,
                 "since": time.time(), "delete_code": code,
             })
@@ -2217,7 +2236,11 @@ def _budget_validate_open_orders(
             if owner not in owner_economics:
                 key = (unknown.get("ticker"), unknown.get("side"))
                 shaped = {
-                    "qty": unknown.get("qty"),
+                    # local_remaining is the reservation actually retained
+                    # when a cancel ACK could not prove release.
+                    "qty": (unknown.get("qty")
+                            if unknown.get("qty") is not None
+                            else unknown.get("local_remaining")),
                     # Unknown-order records vary by origin (cancel-unknown,
                     # IOC limbo); risk_px can be absent -- fall through the
                     # price aliases before letting the strict parser trip
@@ -2605,6 +2628,22 @@ def _budget_snapshot_or_trip(stage):
     try:
         return capture_budget_snapshot()
     except Exception as exc:
+        # One latch = one trip.  The 1 Hz monitor re-tripping an already
+        # latched, already halted guard on the identical error re-ran
+        # cancel_all ~4x/second for 90s straight (2026-07-28T02:48 tape).
+        err = f"{type(exc).__name__}: {exc}"[:200]
+        already = (
+            S.halted
+            and S.budget_guard.record.latched
+            and err == S.last_budget_trip_err
+        )
+        S.last_budget_trip_err = err
+        if already:
+            now_m = time.monotonic()
+            if now_m - S.last_budget_trip_log >= 30.0:
+                S.last_budget_trip_log = now_m
+                _budget_log_trip(stage, exc)
+            return None
         S.budget_guard.trip_blind(
             stage=stage, error=exc, reservations_clear=False
         )
@@ -5192,6 +5231,24 @@ def recon_check():
                  "diffs": [{"mt": m, "local": l, "exchange": x}
                            for m, l, x in graced]})
             diffs = [t for t in diffs if t not in graced]
+    if diffs:
+        # Race #16 mirror (2026-07-28T02:47): the exchange can also record
+        # our fill BEFORE the local pipeline applies it, so recent_fill_mono
+        # is not yet set and the grace above cannot see it.  Two-strike
+        # rule: a divergence must survive two consecutive recon passes
+        # (~5s apart) before it halts.  A real break still halts within
+        # ~10s -- the same bound the own-fill grace already accepts.
+        prev_suspect = S.recon_suspect
+        S.recon_suspect = {t[0] for t in diffs}
+        confirmed = [t for t in diffs if t[0] in prev_suspect]
+        if not confirmed:
+            L.w({"ev": "RECON_SUSPECT",
+                 "diffs": [{"mt": m, "local": l, "exchange": x}
+                           for m, l, x in diffs]})
+            return False
+        diffs = confirmed
+    else:
+        S.recon_suspect = set()
     if not diffs:
         S.last_recon_ok_mono = time.monotonic()
         L.w({"ev": "RECON_OK",

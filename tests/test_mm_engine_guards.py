@@ -56,9 +56,13 @@ def reset():
     # leak between tests -- one test's fills would brake the next one's side
     for attr in ("side_brake", "side_fill_times", "recent_fill_mono",
                  "order_tombstones", "want_unmet", "exit_intent",
-                 "last_pos_action", "last_pos_log"):
+                 "last_pos_action", "last_pos_log", "recon_suspect",
+                 "unknown_orders", "pricing_unready"):
         if hasattr(E.S, attr):
             getattr(E.S, attr).clear()
+    if hasattr(E.S, "last_budget_trip_err"):
+        E.S.last_budget_trip_err = ""
+        E.S.last_budget_trip_log = 0.0
     E.S.open_cost = 0.0; E.S.halted = False; E.S.tokens = 8.0
     E.S.tok_t = 0.0; E.S.limit_breached = False
     E.S.control_error = ""; E.S.last_control_cancel = 0.0
@@ -1055,19 +1059,40 @@ class F2_PositionReconciliation(unittest.TestCase):
                                       "qty": 2.0, "t": 0}
         resp = {"market_positions": [{"ticker": "MKT", "position": -58}]}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
-            ok = E.recon_check()
-        self.assertFalse(ok)
+            ok = E.recon_check()          # strike 1: suspect only
+            self.assertFalse(ok)
+            self.assertFalse(E.S.halted)
+            self.assertFalse(E.recon_check())   # strike 2: halt
         self.assertTrue(E.S.halted)
         self.assertFalse(E.S.orders)          # cancel_all drained
 
-    def test_any_position_divergence_halts(self):
+    def test_any_position_divergence_halts_on_second_strike(self):
         reset()
         E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
         E.S.net_pos["MKT"] = {"y": 4, "n": 0, "cost": 1.8}
         resp = {"market_positions": [{"ticker": "MKT", "position": 5}]}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
             self.assertFalse(E.recon_check())
+            self.assertFalse(E.S.halted)
+            self.assertFalse(E.recon_check())
         self.assertTrue(E.S.halted)
+
+    def test_transient_divergence_clears_without_halt(self):
+        # Race #16 mirror: exchange records our fill before the local
+        # pipeline applies it.  One divergent pass, then agreement -- the
+        # suspect must clear and the engine must keep running.
+        reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
+        E.S.net_pos["MKT"] = {"y": 0, "n": 2, "cost": 1.5}
+        diverged = {"market_positions": [{"ticker": "MKT", "position": 0}]}
+        agreed = {"market_positions": [{"ticker": "MKT", "position": -2}]}
+        with mock.patch.object(E, "rest",
+                               side_effect=[(200, diverged), (200, agreed),
+                                            (200, diverged)]):
+            self.assertFalse(E.recon_check())   # suspect
+            self.assertTrue(E.recon_check())    # resolved: suspect cleared
+            self.assertFalse(E.recon_check())   # NEW suspect, not strike 2
+        self.assertFalse(E.S.halted)
 
     def test_local_position_missing_on_exchange_halts(self):
         # local says long 5, exchange says flat -> phantom inventory
@@ -1076,6 +1101,7 @@ class F2_PositionReconciliation(unittest.TestCase):
         E.S.net_pos["MKT"] = {"y": 5, "n": 0, "cost": 2.0}
         resp = {"market_positions": []}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
+            self.assertFalse(E.recon_check())
             self.assertFalse(E.recon_check())
         self.assertTrue(E.S.halted)
 
@@ -1116,7 +1142,56 @@ class F2_PositionReconciliation(unittest.TestCase):
         resp = {"market_positions": [{"ticker": "MKT", "position": -2}]}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
             self.assertFalse(E.recon_check())
+            self.assertFalse(E.recon_check())
         self.assertTrue(E.S.halted)
+
+    def test_unknown_order_record_carries_reservation_economics(self):
+        # 2026-07-28T02:48 latch: an unknown-order record with no economics
+        # (qty/px/xpx all None) durably latched the budget guard once the
+        # local order row was gone.  order_cancel must copy the economics
+        # into the record it creates, and the adapter must accept it alone.
+        reset()
+        E.S.unknown_orders.clear()
+        E.S.orders[("MKT", "bid")] = {
+            "id": "oid-1", "px": 0.40, "qty": 2.0, "t": 0,
+            "wire_side": "bid", "exchange_px": 0.40,
+        }
+        with mock.patch.object(E, "rest", return_value=(500, {})), \
+                mock.patch.object(E, "MODE", "live"):
+            E.order_cancel("MKT", "bid", "oid-1", reason="test")
+        rec = dict(E.S.unknown_orders["oid-1"])
+        E.S.unknown_orders.clear()
+        self.assertEqual(rec["qty"], 2.0)
+        self.assertEqual(rec["px"], 0.40)
+        self.assertEqual(rec["wire_side"], "bid")
+        self.assertEqual(rec["exchange_px"], 0.40)
+        # Orphaned record (local row gone) must validate on its own.
+        E.S.orders.clear()
+        E._budget_validate_open_orders(
+            [], orders={}, pending_new={},
+            unknown_orders={"oid-1": rec})
+
+    def test_repeated_blind_trip_is_deduped(self):
+        # One latch = one trip: the 1 Hz monitor must not re-run the
+        # cancel storm on an identical, already-latched error.
+        reset()
+        E.S.last_budget_trip_err = ""
+        E.S.last_budget_trip_log = 0.0
+        trip_calls = []
+        guard = mock.Mock()
+        guard.record.latched = True
+        guard.trip_receipt = None
+        guard.trip_blind = lambda **kw: trip_calls.append(kw)
+        boom = E.mba.AdapterError("same failure")
+        with mock.patch.object(E.S, "budget_guard", guard), \
+                mock.patch.object(E, "capture_budget_snapshot",
+                                  side_effect=boom):
+            E.S.halted = False
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # real trip
+            E.S.halted = True
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # deduped
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # deduped
+        self.assertEqual(len(trip_calls), 1)
 
 
 class F3_FillPipelineAndReservation(unittest.TestCase):
