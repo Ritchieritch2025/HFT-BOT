@@ -8,8 +8,10 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -50,16 +52,44 @@ import rti_pricing as rp  # noqa: E402
 
 def reset():
     E.S.orders.clear(); E.S.latch.clear(); E.S.net_pos.clear()
+    # speed-directive state (2026-07-27): brakes and fill clocks must not
+    # leak between tests -- one test's fills would brake the next one's side
+    for attr in ("side_brake", "side_fill_times", "recent_fill_mono",
+                 "order_tombstones", "want_unmet", "exit_intent",
+                 "last_pos_action", "last_pos_log"):
+        if hasattr(E.S, attr):
+            getattr(E.S, attr).clear()
     E.S.open_cost = 0.0; E.S.halted = False; E.S.tokens = 8.0
     E.S.tok_t = 0.0; E.S.limit_breached = False
     E.S.control_error = ""; E.S.last_control_cancel = 0.0
     E.S.last_replace.clear(); E.S.books.clear(); E.S.meta.clear()
+    for series in E.SERIES:
+        E.S.rti[series].clear()
+        if hasattr(E.S, "rti_src_ms"):
+            E.S.rti_src_ms[series].clear()
+        E.S.rti_t[series] = 0.0
+        if hasattr(E.S, "rti_lock"):
+            E.S.rti_lock[series] = None
+        if hasattr(E.S, "cf_session_ticks"):
+            E.S.cf_session_ticks[series].clear()
+    if hasattr(E.S, "cf_stream_ok"):
+        E.S.cf_stream_ok = False
+        E.S.cf_sid = None
+        E.S.cf_seq = None
+    if hasattr(E.S, "public_trades"):
+        E.S.public_trades.clear()
+        E.S.public_trade_ids.clear()
+        E.S.public_trade_id_fifo.clear()
     E.S.recon_fails = 0
     E.S.fills_selfcheck_ok = False
     E.S.contract_selfcheck_ok = False
     E.S.last_recon_ok_mono = None
     if hasattr(E.S, "last_eval"):
         E.S.last_eval.clear()
+    if hasattr(E.S, "last_entry_source_ms"):
+        E.S.last_entry_source_ms.clear()
+    if hasattr(E.S, "last_sentinel_log"):
+        E.S.last_sentinel_log.clear()
     if hasattr(E.S, "requote_suppressed"):
         E.S.requote_suppressed = 0
     if hasattr(E.S, "fills_seen"):
@@ -69,6 +99,27 @@ def reset():
         E.S.settle_zero_streak = 0
     if hasattr(E.S, "settled_seen"):
         E.S.settled_seen.clear()
+    if hasattr(E.S, "unpaired"):
+        E.S.unpaired.clear()
+    if hasattr(E.S, "flatten_sent"):
+        E.S.flatten_sent.clear()
+    if hasattr(E.S, "flatten_pending"):
+        E.S.flatten_pending.clear()
+    if hasattr(E.S, "unknown_orders"):
+        E.S.unknown_orders.clear()
+    if hasattr(E.S, "pending_new"):
+        E.S.pending_new.clear()
+    if hasattr(E.S, "filled_by_order"):
+        E.S.filled_by_order.clear()
+    if hasattr(E.S, "place_not_before"):
+        E.S.place_not_before.clear()
+    if hasattr(E.S, "pair_locked_by_market"):
+        E.S.pair_locked_by_market.clear()
+        E.S.pair_locked_total = 0.0
+    if hasattr(E.S, "cycle_active"):
+        E.S.cycle_active.clear()
+        E.S.completed_cycles = 0
+        E.S.canary_done = False
     E.MAX_OPEN_COST = 8.0; E.CLIP = "2.00"; E.MAX_NET = 6
     E._control_loaded = True
     E.CTRL.clear()
@@ -81,6 +132,33 @@ def reset():
         hard_max_net=E.HARD_MAX_NET,
     ))
     E._ctrl_t = 0.0
+
+
+def seed_timed_rti(series, ticks, now=None, spacing_ms=1000):
+    """Seed the same strict source-time state used by live pricing."""
+    now = E.time.time() if now is None else float(now)
+    end_ms = int(now * 1000)
+    start_ms = end_ms - (len(ticks) - 1) * int(spacing_ms)
+    E.S.rti[series].clear()
+    E.S.rti[series].extend(ticks)
+    E.S.rti_src_ms[series].clear()
+    E.S.rti_src_ms[series].extend(
+        start_ms + i * int(spacing_ms) for i in range(len(ticks))
+    )
+    E.S.rti_t[series] = now
+    E.S.rti_lock[series] = None
+    E.S.cf_stream_ok = True
+
+
+def advance_timed_rti(series, value=None, seconds=1):
+    """Advance one authoritative source tick for entry-decision tests."""
+    value = E.S.rti[series][-1] if value is None else float(value)
+    E.S.rti[series].append(value)
+    E.S.rti_src_ms[series].append(
+        E.S.rti_src_ms[series][-1] + int(seconds * 1000)
+    )
+    E.S.rti_t[series] = E.time.time()
+    E.S.cf_stream_ok = True
 
 
 class A1_ImmediateAccounting(unittest.TestCase):
@@ -336,6 +414,24 @@ class ZoneMap(unittest.TestCase):
         self.assertTrue(E.zone_ok(200, 5))
 
 
+class TailCheapOnly(unittest.TestCase):
+    def test_disabled_preserves_both_sides(self):
+        with mock.patch.object(E, "TAIL_CHEAP_ONLY", False):
+            self.assertTrue(E.tail_cheap_entry_allowed(85, 79))
+            self.assertTrue(E.tail_cheap_entry_allowed(85, 21))
+
+    def test_tail_rejects_expensive_outcome_but_keeps_cheap_one(self):
+        with mock.patch.object(E, "TAIL_CHEAP_ONLY", True):
+            self.assertFalse(E.tail_cheap_entry_allowed(85, 79))
+            self.assertTrue(E.tail_cheap_entry_allowed(85, 21))
+            self.assertTrue(E.tail_cheap_entry_allowed(15, 15))
+            self.assertFalse(E.tail_cheap_entry_allowed(15, 85))
+
+    def test_mid_market_is_not_filtered(self):
+        with mock.patch.object(E, "TAIL_CHEAP_ONLY", True):
+            self.assertTrue(E.tail_cheap_entry_allowed(50, 79))
+
+
 class TickBands(unittest.TestCase):
     def test_tail_band_improves_by_deci_cent(self):
         # bid 95.0c, ask 96.0c -> improve to 95.1c
@@ -368,16 +464,24 @@ class F0_KernelSideSelection(unittest.TestCase):
         RTI ticks with sigma~3; strike solved so kernel fair ~= target."""
         reset()
         now = E.time.time()
-        ticks = [65000.0 + (3.0 if i % 2 else -3.0) for i in range(40)]
-        E.S.rti[self.SER].clear()
-        E.S.rti[self.SER].extend(ticks)
-        E.S.rti_t[self.SER] = now
+        ticks = [
+            65000.0 + (3.0 if i % 2 else -3.0) for i in range(301)
+        ]
+        seed_timed_rti(self.SER, ticks, now=now)
         tte = 700.0
-        sigma = rp.sigma_from_ticks(list(ticks))
+        sigma = max(
+            rp.sigma_from_timed_ticks(
+                ticks, list(E.S.rti_src_ms[self.SER]), window_s=60),
+            rp.sigma_from_timed_ticks(
+                ticks, list(E.S.rti_src_ms[self.SER]), window_s=300),
+        )
         self.assertIsNotNone(sigma)
         # invert the pre-lock variance for the strike hitting the target
         import math
-        inside = rp.rw_avg_var_factor(rp.LOCK_TICKS) / (rp.LOCK_TICKS ** 2)
+        inside = (
+            rp.rw_avg_var_factor(rp.LOCK_TICKS - 1)
+            / (rp.LOCK_TICKS ** 2)
+        )
         sd = sigma * math.sqrt((tte - rp.LOCK_TICKS) + inside)
         z = {55.0: 0.12566, 37.0: -0.33185}[fair_target_c]
         strike = ticks[-1] - z * sd
@@ -419,6 +523,389 @@ class F0_KernelSideSelection(unittest.TestCase):
         self.assertNotIn(("M1", "ask_no"), E.S.orders)
 
 
+class H5_SourceTimedPricing(unittest.TestCase):
+    """Live pricing must preserve the exchange's one-second time units."""
+
+    SER = "KXBTC15M"
+
+    @staticmethod
+    def _msg(source_ms, value, lock=None, *, seq=1):
+        return {
+            "type": "cfbenchmarks_value",
+            "sid": 1,
+            "seq": seq,
+            "msg": {
+                "index_id": "BRTI",
+                "received_at": source_ms + 100,
+                "data": json.dumps({
+                    "type": "value",
+                    "id": "BRTI",
+                    "time": source_ms,
+                    "value": str(value),
+                }),
+                "avg_60s_data": {
+                    "value": f"{float(value):.8f}",
+                    "window_size": 0,
+                    "window_start_ts_ms": source_ms - 60_000,
+                    "window_end_ts_exclusive": source_ms,
+                },
+                **({
+                    "last_60s_windowed_average_15min": lock
+                } if lock is not None else {}),
+            },
+        }
+
+    def test_phase_840_starts_official_window_without_shifted_field(self):
+        reset()
+        close_ms = 1_800_000
+        source_ms = close_ms - 60_000
+        self.assertTrue(E.ingest_cf_value(
+            self._msg(source_ms, 65001.25),
+            received_wall_s=source_ms / 1000.0,
+        ))
+        self.assertEqual(list(E.S.rti_src_ms[self.SER]), [source_ms])
+        self.assertEqual(E.S.rti_lock[self.SER]["close_ms"], close_ms)
+        self.assertEqual(E.S.rti_lock[self.SER]["n"], 1)
+        self.assertAlmostEqual(
+            E.S.rti_lock[self.SER]["sum"], 65001.25, places=6)
+
+    def test_phase_841_uses_own_window_and_validates_shifted_field(self):
+        reset()
+        close_ms = 1_800_000
+        first_ms = close_ms - 60_000
+        self.assertTrue(E.ingest_cf_value(
+            self._msg(first_ms, 65000.0, seq=1),
+            received_wall_s=first_ms / 1000.0,
+        ))
+        source_ms = first_ms + 1000
+        shifted = {
+            # This exchange field deliberately excludes phase :14:00 and
+            # includes the current :14:01 tick.  It is validated, but is not
+            # the contract's [close-60s, close) settlement accumulator.
+            "value": "65010.00000000",
+            "window_size": 1,
+            "window_start_ts_ms": first_ms,
+            "window_end_ts_exclusive": source_ms,
+        }
+        frame = self._msg(source_ms, 65010.0, shifted, seq=2)
+        frame["msg"]["avg_60s_data"] = {
+            "value": "65000.00000000",
+            "window_size": 1,
+            "window_start_ts_ms": source_ms - 60_000,
+            "window_end_ts_exclusive": source_ms,
+        }
+        self.assertTrue(E.ingest_cf_value(
+            frame, received_wall_s=source_ms / 1000.0))
+        official = E.S.rti_lock[self.SER]
+        self.assertEqual(official["n"], 2)
+        self.assertAlmostEqual(official["sum"], 130010.0, places=8)
+        self.assertAlmostEqual(official["avg"], 65005.0, places=8)
+
+    def test_duplicate_source_timestamp_is_not_a_second_observation(self):
+        reset()
+        msg = self._msg(1_800_001, 65000.0)
+        self.assertTrue(E.ingest_cf_value(msg, received_wall_s=1800.001))
+        self.assertFalse(E.ingest_cf_value(msg, received_wall_s=1800.002))
+        self.assertEqual(len(E.S.rti[self.SER]), 1)
+        self.assertEqual(len(E.S.rti_src_ms[self.SER]), 1)
+
+    def test_missing_required_final_minute_field_rejects_atomically(self):
+        reset()
+        source_ms = 1_800_000 - 59_000  # phase :14:01, lock n=1 required
+        self.assertFalse(E.ingest_cf_value(
+            self._msg(source_ms, 65000.0),
+            received_wall_s=source_ms / 1000.0,
+        ))
+        self.assertEqual(list(E.S.rti[self.SER]), [])
+        self.assertEqual(list(E.S.rti_src_ms[self.SER]), [])
+        self.assertFalse(E.S.cf_stream_ok)
+
+    def test_reconnect_mid_final_minute_accepts_session_scoped_n1(self):
+        reset()
+        source_ms = 1_785_040_169_000
+        frame = self._msg(
+            source_ms,
+            "64489.51",
+            {
+                "value": "64489.51000000",
+                "window_size": 1,
+                "window_start_ts_ms": 1_785_040_140_000,
+                "window_end_ts_exclusive": source_ms,
+            },
+            seq=1,
+        )
+        # Both feed-maintained averages restart their observation count with
+        # the subscription.  Their metadata keeps the contract window start,
+        # so phase :14:29 can legitimately carry n=1 after a reconnect.
+        self.assertTrue(E.ingest_cf_value(
+            frame, received_wall_s=(source_ms + 100) / 1000.0))
+        self.assertEqual(list(E.S.rti_src_ms[self.SER]), [source_ms])
+        # Missing phase :14:00..:14:28 raw ticks means the official
+        # accumulator still fails closed.
+        self.assertIsNone(E.S.rti_lock[self.SER])
+
+        next_ms = source_ms + 1000
+        next_frame = self._msg(
+            next_ms,
+            "64490.51",
+            {
+                "value": "64490.01000000",
+                "window_size": 2,
+                "window_start_ts_ms": 1_785_040_140_000,
+                "window_end_ts_exclusive": next_ms,
+            },
+            seq=2,
+        )
+        next_frame["msg"]["avg_60s_data"] = {
+            "value": "64489.51000000",
+            "window_size": 1,
+            "window_start_ts_ms": next_ms - 60_000,
+            "window_end_ts_exclusive": next_ms,
+        }
+        self.assertTrue(E.ingest_cf_value(
+            next_frame, received_wall_s=(next_ms + 100) / 1000.0))
+        self.assertIsNone(E.S.rti_lock[self.SER])
+
+    def test_hydrated_raw_ticks_restore_official_lock_after_reconnect(self):
+        reset()
+        source_ms = 1_785_040_169_000
+        official_start = 1_785_040_140_000
+        prior = [
+            Decimal("64460.00") + Decimal(i)
+            for i in range(29)
+        ]
+        E.S.rti_src_ms[self.SER].extend(
+            official_start + i * 1000 for i in range(29))
+        E.S.rti[self.SER].extend(float(v) for v in prior)
+        current = Decimal("64489.51")
+        frame = self._msg(
+            source_ms,
+            str(current),
+            {
+                # New subscription: session-scoped shifted field restarts
+                # at one even though raw recorder history is continuous.
+                "value": f"{current:.8f}",
+                "window_size": 1,
+                "window_start_ts_ms": official_start,
+                "window_end_ts_exclusive": source_ms,
+            },
+            seq=1,
+        )
+        self.assertTrue(E.ingest_cf_value(
+            frame, received_wall_s=(source_ms + 100) / 1000.0))
+        lock = E.S.rti_lock[self.SER]
+        expected_sum = sum(prior, Decimal(0)) + current
+        self.assertEqual(lock["n"], 30)
+        self.assertAlmostEqual(lock["sum"], float(expected_sum), places=8)
+        self.assertAlmostEqual(
+            lock["avg"], float(expected_sum / 30), places=8)
+
+    def test_close_tick_keeps_official_prior_60_not_shifted_last_60(self):
+        reset()
+        close_ms = 1_800_000
+        # Index 0..59 are the official [close-60s, close) observations.
+        # Index 60 is the close tick and must NOT enter this contract.
+        values = [Decimal("65000.00") + Decimal(i) for i in range(61)]
+        for i, value in enumerate(values):
+            source_ms = close_ms - 60_000 + i * 1000
+            prior = values[max(0, i - 60):i]
+            avg60 = (
+                sum(prior, Decimal(0)) / len(prior) if prior else value
+            )
+            shifted = None
+            if i:
+                shifted_values = values[1:i + 1]
+                shifted_avg = (
+                    sum(shifted_values, Decimal(0))
+                    / len(shifted_values)
+                )
+                shifted = {
+                    "value": f"{shifted_avg:.8f}",
+                    "window_size": i,
+                    "window_start_ts_ms": close_ms - 60_000,
+                    "window_end_ts_exclusive": source_ms,
+                }
+            frame = self._msg(
+                source_ms, f"{value:.2f}", shifted, seq=i + 1)
+            frame["msg"]["avg_60s_data"] = {
+                "value": f"{avg60:.8f}",
+                "window_size": len(prior),
+                "window_start_ts_ms": source_ms - 60_000,
+                "window_end_ts_exclusive": source_ms,
+            }
+            self.assertTrue(E.ingest_cf_value(
+                frame, received_wall_s=source_ms / 1000.0))
+
+        final_lock = E.S.rti_lock[self.SER]
+        authoritative = sum(values[:60], Decimal(0)) / 60
+        shifted = sum(values[1:], Decimal(0)) / 60
+        self.assertEqual(final_lock["n"], 60)
+        self.assertAlmostEqual(final_lock["avg"], float(authoritative), places=8)
+        self.assertNotAlmostEqual(
+            final_lock["avg"], float(shifted), places=8)
+
+    def test_pricing_requires_a_continuous_full_300_second_window(self):
+        reset()
+        now = E.time.time()
+        short = [
+            65000.0 + (3.0 if i % 2 else -3.0) for i in range(300)
+        ]
+        seed_timed_rti(self.SER, short, now=now)
+        self.assertIsNone(E.pricing_state(self.SER, now + 700, now_s=now))
+
+        full = short + [65003.0]
+        seed_timed_rti(self.SER, full, now=now)
+        self.assertIsNotNone(
+            E.pricing_state(self.SER, now + 700, now_s=now))
+
+        # One missing second anywhere in the long window invalidates entry
+        # pricing until that gap rolls out of the 300-second history.
+        end_ms = int(now * 1000)
+        start_ms = end_ms - 301_000
+        times = []
+        current = start_ms
+        for i in range(301):
+            if i:
+                current += 2000 if i == 150 else 1000
+            times.append(current)
+        E.S.rti[self.SER].clear()
+        E.S.rti[self.SER].extend(full)
+        E.S.rti_src_ms[self.SER].clear()
+        E.S.rti_src_ms[self.SER].extend(times)
+        E.S.rti_t[self.SER] = now
+        self.assertEqual(times[-1], end_ms)
+        self.assertIsNone(E.pricing_state(
+            self.SER, now + 700, now_s=now))
+
+    def test_multiscale_estimator_uses_the_more_conservative_sigma(self):
+        reset()
+        now = E.time.time()
+        ticks = [65000.0]
+        for i in range(1, 301):
+            amp = 10.0 if i <= 240 else 1.0
+            ticks.append(ticks[-1] + (amp if i % 2 else -amp))
+        seed_timed_rti(self.SER, ticks, now=now)
+        state = E.pricing_state(self.SER, now + 700, now_s=now)
+        self.assertIsNotNone(state)
+        self.assertGreater(state["sigma_long"], state["sigma_short"])
+        self.assertAlmostEqual(
+            state["sigma"], state["sigma_long"], places=9)
+
+    def test_lock_state_is_used_only_for_its_exact_market_close(self):
+        reset()
+        now = E.time.time()
+        ticks = [
+            65000.0 + (3.0 if i % 2 else -3.0) for i in range(301)
+        ]
+        seed_timed_rti(self.SER, ticks, now=now)
+        close_ms = int(round((now + 45.0) * 1000.0))
+        E.S.rti_lock[self.SER] = {
+            "sum": 65002.0 * 15,
+            "n": 15,
+            "close_ms": close_ms,
+            "source_ms": int(now * 1000),
+            "avg": 65002.0,
+        }
+        matching = E.pricing_state(
+            self.SER, close_ms / 1000.0, now_s=now)
+        other = E.pricing_state(
+            self.SER, close_ms / 1000.0 + 900.0, now_s=now)
+        self.assertEqual(matching["locked_n"], 15)
+        self.assertEqual(other["locked_n"], 0)
+
+    def test_restart_hydrates_rolling_history_without_five_minute_wait(self):
+        reset()
+        with tempfile.TemporaryDirectory() as td:
+            capture = Path(td) / "cfb.ndjson"
+            end_ms = 1_900_000
+            lines = []
+            for i in range(301):
+                source_ms = end_ms - (300 - i) * 1000
+                value = f"{65000 + (3 if i % 2 else -3):.2f}"
+                frame = {
+                    "type": "cfbenchmarks_value",
+                    "sid": 7,
+                    "seq": i + 1,
+                    "msg": {
+                        "index_id": "BRTI",
+                        "received_at": source_ms + 80,
+                        "data": json.dumps({
+                            "type": "value", "id": "BRTI",
+                            "time": source_ms, "value": value,
+                        }),
+                    },
+                }
+                lines.append(json.dumps({
+                    "kind": "FRAME", "payload": json.dumps(frame) + "\n",
+                }))
+            capture.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            loaded = E.hydrate_rti_from_capture(
+                str(Path(td) / "*.ndjson"),
+                now_s=(end_ms + 1000) / 1000.0,
+            )
+            self.assertEqual(loaded, 301)
+            self.assertFalse(E.S.cf_stream_ok)
+
+            # The first current-session tick establishes stream integrity;
+            # pricing is ready immediately from the recorder's rolling state.
+            live = self._msg(
+                end_ms + 1000, 65003.0, seq=1)
+            self.assertTrue(E.ingest_cf_value(
+                live, received_wall_s=(end_ms + 1100) / 1000.0))
+            state = E.pricing_state(
+                self.SER, (end_ms + 701_000) / 1000.0,
+                now_s=(end_ms + 1100) / 1000.0,
+            )
+            self.assertIsNotNone(state)
+
+
+class H6_PublicPairFlow(unittest.TestCase):
+    """Public taker flow is the observable input to pair completion odds."""
+
+    @staticmethod
+    def _trade(trade_id, outcome, yes_px, qty, ts_ms):
+        return {
+            "trade_id": trade_id,
+            "market_ticker": "M1",
+            "yes_price_dollars": f"{yes_px:.4f}",
+            "count_fp": f"{qty:.2f}",
+            "taker_outcome_side": outcome,
+            "taker_book_side": "bid" if outcome == "yes" else "ask",
+            "ts_ms": ts_ms,
+        }
+
+    def test_flow_is_side_and_price_executable_and_deduped(self):
+        reset()
+        now_ms = 2_000_000
+        # taker NO sells YES into our YES bid; taker YES sells NO into
+        # our NO bid.  Only trades through the proposed levels count.
+        yes_hit = self._trade("t-no", "no", 0.40, 6.0, now_ms - 5_000)
+        no_hit = self._trade("t-yes", "yes", 0.60, 3.0, now_ms - 4_000)
+        self.assertTrue(E.apply_public_trade(yes_hit))
+        self.assertTrue(E.apply_public_trade(no_hit))
+        self.assertIsNone(E.apply_public_trade(dict(no_hit)))
+        E.S.books["M1"] = {
+            "y": {4500: 4.0},
+            "n": {4100: 2.0},
+        }
+        with mock.patch.object(E, "CLIP", "1.00"):
+            got = E.pair_flow_stats(
+                "M1", y_px=0.45, n_px=0.41, now_ms=now_ms)
+        self.assertEqual(got["y_flow_10s"], 6.0)
+        self.assertEqual(got["n_flow_10s"], 3.0)
+        self.assertEqual(got["y_queue_ahead"], 4.0)
+        self.assertEqual(got["n_queue_ahead"], 2.0)
+        self.assertAlmostEqual(got["y_clear_eta_s"], 50.0, places=6)
+        self.assertAlmostEqual(got["n_clear_eta_s"], 60.0, places=6)
+
+    def test_conflicting_public_trade_direction_is_rejected(self):
+        reset()
+        bad = self._trade("bad", "yes", 0.60, 1.0, 2_000_000)
+        bad["taker_book_side"] = "ask"
+        self.assertFalse(E.apply_public_trade(bad))
+        self.assertFalse(E.S.public_trades)
+
+
 class F1_InventorySkew(unittest.TestCase):
     """F1: graduated quote retreat against inventory, before the hard
     MAX_NET latch.  gamma derivation: docs/research_reports/
@@ -426,12 +913,39 @@ class F1_InventorySkew(unittest.TestCase):
     0.5c/contract, replay-bracketed by grid_replay_v2 arms 0.2/0.5/1.0).
     """
 
+    def setUp(self):
+        # These cases specify the FIXED-cent skew contract (GAMMA_C per
+        # contract).  The sigma-transduced skew is a different regime with
+        # its own test below, so pin the regime explicitly instead of
+        # letting the ambient default decide what the assertions mean.
+        self._scale = mock.patch.object(E, "SIGMA_SCALE", False)
+        self._scale.start()
+        self.addCleanup(self._scale.stop)
+
     def _arm(self, fair_target_c, net_y=0, net_n=0):
         F0_KernelSideSelection._arm_market(
             F0_KernelSideSelection(methodName="run"), fair_target_c)
         if net_y or net_n:
             E.S.net_pos["M1"] = {"y": net_y, "n": net_n,
                                  "cost": 0.45 * net_y + 0.53 * net_n}
+
+    def test_sigma_transduced_skew_scales_with_contract_volatility(self):
+        """With transduction ON the retreat is GAMMA_K sigma-units, so a
+        more volatile contract retreats further for the same inventory."""
+        with mock.patch.object(E, "SIGMA_SCALE", True):
+            calm = {"sigma": 1.0, "dp_ds_c_per_usd": 0.5}
+            wild = {"sigma": 4.0, "dp_ds_c_per_usd": 0.5}
+            g_calm = E.gamma_c_dyn(calm)
+            g_wild = E.gamma_c_dyn(wild)
+            self.assertGreater(g_wild, g_calm)
+            self.assertAlmostEqual(g_wild / g_calm, 4.0, places=6)
+            # and the entry threshold moves with the same scale
+            self.assertGreater(E.margin_c(wild), E.margin_c(calm))
+        # transduction off -> legacy constant, unaffected by sigma
+        with mock.patch.object(E, "SIGMA_SCALE", False):
+            self.assertEqual(E.gamma_c_dyn({"sigma": 9.0,
+                                            "dp_ds_c_per_usd": 0.5}),
+                             E.GAMMA_C)
 
     def test_long_yes_retreats_yes_bid_by_gamma_per_contract(self):
         # net +4, gamma 0.5c/ct -> retreat 2c: 45c baseline -> 43c
@@ -527,8 +1041,16 @@ class F2_PositionReconciliation(unittest.TestCase):
     also halts: a dead data source means stop, not keep quoting.
     """
 
+    def setUp(self):
+        reset()
+        # The settlement-window exemption (race #5 sibling, 2026-07-27)
+        # scopes recon to OPEN markets; these cases assert the OPEN-market
+        # contract, so the fixture market must be live in S.meta.
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
+
     def test_replay_of_incident_58_unseen_no_contracts_halts(self):
         reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
         E.S.orders[("MKT", "bid")] = {"id": "shadow-1", "px": 0.4,
                                       "qty": 2.0, "t": 0}
         resp = {"market_positions": [{"ticker": "MKT", "position": -58}]}
@@ -538,17 +1060,19 @@ class F2_PositionReconciliation(unittest.TestCase):
         self.assertTrue(E.S.halted)
         self.assertFalse(E.S.orders)          # cancel_all drained
 
-    def test_small_divergence_within_tolerance_passes(self):
+    def test_any_position_divergence_halts(self):
         reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
         E.S.net_pos["MKT"] = {"y": 4, "n": 0, "cost": 1.8}
         resp = {"market_positions": [{"ticker": "MKT", "position": 5}]}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
-            self.assertTrue(E.recon_check())
-        self.assertFalse(E.S.halted)
+            self.assertFalse(E.recon_check())
+        self.assertTrue(E.S.halted)
 
     def test_local_position_missing_on_exchange_halts(self):
         # local says long 5, exchange says flat -> phantom inventory
         reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
         E.S.net_pos["MKT"] = {"y": 5, "n": 0, "cost": 2.0}
         resp = {"market_positions": []}
         with mock.patch.object(E, "rest", return_value=(200, resp)):
@@ -573,6 +1097,27 @@ class F2_PositionReconciliation(unittest.TestCase):
         self.assertFalse(E.S.halted)
         self.assertEqual(E.S.recon_fails, 1)
 
+    def test_own_recent_fill_divergence_is_graced_not_halted(self):
+        # Race #16 (2026-07-28T02:29): graveyard-flatten taker fill moved
+        # local to 0 while the positions replica still showed -2.  Within
+        # 10s of OUR OWN fill on that market the divergence is explained.
+        reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
+        E.S.recent_fill_mono["MKT"] = E.time.monotonic()
+        resp = {"market_positions": [{"ticker": "MKT", "position": -2}]}
+        with mock.patch.object(E, "rest", return_value=(200, resp)):
+            self.assertTrue(E.recon_check())
+        self.assertFalse(E.S.halted)
+
+    def test_stale_fill_grace_expired_divergence_still_halts(self):
+        reset()
+        E.S.meta["MKT"] = ("KXBTC15M", E.time.time() + 600.0, 65000.0)
+        E.S.recent_fill_mono["MKT"] = E.time.monotonic() - 11.0
+        resp = {"market_positions": [{"ticker": "MKT", "position": -2}]}
+        with mock.patch.object(E, "rest", return_value=(200, resp)):
+            self.assertFalse(E.recon_check())
+        self.assertTrue(E.S.halted)
+
 
 class F3_FillPipelineAndReservation(unittest.TestCase):
     """F3 + D1: the fills cursor is SECONDS (the API's min_ts unit — the
@@ -591,10 +1136,18 @@ class F3_FillPipelineAndReservation(unittest.TestCase):
                          1_770_000_000)
         self.assertEqual(E.fill_created_s({"created_ts": 1_770_000_000_000}),
                          1_770_000_000)
+        self.assertAlmostEqual(
+            E.fill_created_s({"created_ts": 1_770_000_000_958}),
+            1_770_000_000.958)
         self.assertEqual(
             E.fill_created_s({"created_time": "2026-07-25T22:00:00Z"}),
             1_785_016_800)
+        self.assertAlmostEqual(
+            E.fill_created_s(
+                {"created_time": "2026-07-25T22:00:00.958Z"}),
+            1_785_016_800.958)
         self.assertIsNone(E.fill_created_s({}))
+        self.assertIsNone(E.fill_created_s({"created_ts": "nan"}))
 
     def test_apply_fill_transfers_reservation_no_double_count(self):
         reset()
@@ -608,7 +1161,7 @@ class F3_FillPipelineAndReservation(unittest.TestCase):
         self.assertNotIn(("M1", "bid"), E.S.orders)
         self.assertEqual(E.S.net_pos["M1"]["y"], 2)
         self.assertIn(("M1", "bid"), E.S.latch)
-        self.assertGreaterEqual(E.S.fills_cursor, 1_770_000_001)
+        self.assertGreaterEqual(E.S.fills_cursor, 1_770_000_000)
 
     def test_apply_fill_partial_keeps_remainder_reserved(self):
         reset()
@@ -648,7 +1201,7 @@ class F3_FillPipelineAndReservation(unittest.TestCase):
         E.apply_fill(f)
         self.assertEqual(E.S.net_pos["M1"]["n"], 3)
         self.assertAlmostEqual(E.S.net_pos["M1"]["cost"], 1.80)
-        self.assertGreaterEqual(E.S.fills_cursor, 1_770_000_001)
+        self.assertGreaterEqual(E.S.fills_cursor, 1_770_000_000)
 
     def test_startup_selfcheck_passes_when_probe_sees_fill(self):
         reset()
@@ -749,14 +1302,22 @@ class F5_MinRequoteThreshold(unittest.TestCase):
         y best 95.0c, ask 96.0c, kernel fair ~97c."""
         reset()
         now = E.time.time()
-        ticks = [65000.0 + (3.0 if i % 2 else -3.0) for i in range(40)]
-        E.S.rti[self.SER].clear()
-        E.S.rti[self.SER].extend(ticks)
-        E.S.rti_t[self.SER] = now
+        ticks = [
+            65000.0 + (3.0 if i % 2 else -3.0) for i in range(301)
+        ]
+        seed_timed_rti(self.SER, ticks, now=now)
         tte = 700.0
-        sigma = rp.sigma_from_ticks(list(ticks))
+        sigma = max(
+            rp.sigma_from_timed_ticks(
+                ticks, list(E.S.rti_src_ms[self.SER]), window_s=60),
+            rp.sigma_from_timed_ticks(
+                ticks, list(E.S.rti_src_ms[self.SER]), window_s=300),
+        )
         import math
-        inside = rp.rw_avg_var_factor(rp.LOCK_TICKS) / (rp.LOCK_TICKS ** 2)
+        inside = (
+            rp.rw_avg_var_factor(rp.LOCK_TICKS - 1)
+            / (rp.LOCK_TICKS ** 2)
+        )
         sd = sigma * math.sqrt((tte - rp.LOCK_TICKS) + inside)
         strike = ticks[-1] - 1.8808 * sd          # p ~= 0.97
         E.S.meta["M1"] = (self.SER, now + tte, strike)
@@ -771,6 +1332,7 @@ class F5_MinRequoteThreshold(unittest.TestCase):
                                    places=4)
             # book improves 0.2c: below the 0.5c threshold -> hold
             E.S.books["M1"]["y"][9520] = 10.0
+            advance_timed_rti(self.SER)
             E.think()
         self.assertAlmostEqual(E.S.orders[("M1", "bid")]["px"], 0.951,
                                places=4)
@@ -781,6 +1343,8 @@ class F5_MinRequoteThreshold(unittest.TestCase):
         with mock.patch.object(E, "load_control", return_value=False):
             E.think()
             E.S.books["M1"]["y"][9560] = 10.0     # +0.6c >= threshold
+            E.S.orders[("M1", "bid")]["t"] -= E.MIN_QUOTE_AGE_S + 1
+            advance_timed_rti(self.SER)
             E.think()
         self.assertAlmostEqual(E.S.orders[("M1", "bid")]["px"], 0.957,
                                places=4)
@@ -795,6 +1359,23 @@ class F5_MinRequoteThreshold(unittest.TestCase):
             # kernel fair drops to ~85c (inside the sentinel, but the
             # 95.1c quote is now rich): want=False must cancel at once
             E.S.meta["M1"] = (self.SER, close_s, last - 1.0364 * sd)
+            advance_timed_rti(self.SER)
+            E.think()
+        self.assertNotIn(("M1", "bid"), E.S.orders)
+
+    def test_queue_hysteresis_never_overrides_a_closed_strategy_zone(self):
+        # Queue age is useful only inside a regime whose measured
+        # adverse-selection gate still permits entry.  Crossing from the
+        # >=10m all-market zone into the 5-10m near-50 exclusion must drain
+        # an old quote even when that quote retains positive kernel edge.
+        F0_KernelSideSelection._arm_market(
+            F0_KernelSideSelection(methodName="run"), 55.0)
+        with mock.patch.object(E, "load_control", return_value=False):
+            E.think()
+            self.assertIn(("M1", "bid"), E.S.orders)
+            ser, _close_s, strike = E.S.meta["M1"]
+            E.S.meta["M1"] = (ser, E.time.time() + 500.0, strike)
+            advance_timed_rti(ser)
             E.think()
         self.assertNotIn(("M1", "bid"), E.S.orders)
 
@@ -887,6 +1468,7 @@ class QuoteEvalTelemetry(unittest.TestCase):
         ):
             E.think()
             E.S.last_eval["M1"] -= 1.1     # pretend a second passed
+            advance_timed_rti("KXBTC15M")
             E.think()
         evals = [e for e in events if e.get("ev") == "QUOTE_EVAL"]
         self.assertEqual(len(evals), 2)
@@ -1061,6 +1643,7 @@ class DirectionAuthorityAndFirstStrike(unittest.TestCase):
     SELL_YES_FILL = {"action": "sell", "book_side": "ask",
                      "outcome_side": "no", "side": "yes",
                      "count_fp": "2.00",
+                     "fee_cost": "0.000000",
                      "created_time": "2026-07-26T01:21:34.292512Z",
                      "market_ticker": "KXBTC15M-26JUL252130-30",
                      "no_price_dollars": "0.7500",
@@ -1109,9 +1692,13 @@ class DirectionAuthorityAndFirstStrike(unittest.TestCase):
         self.assertTrue(E.S.halted)
         ca.assert_called_once()
 
-    def test_cancel_404_syncs_fills_before_freeing_slot(self):
+    def test_cancel_404_requires_proven_full_fill_before_freeing_slot(self):
         fill = dict(self.SELL_YES_FILL)
         fill["ticker"] = fill.pop("market_ticker")
+        fill["order_id"] = "oid-1"
+        E.S.orders[("KXBTC15M-26JUL252130-30", "ask_no")] = {
+            "id": "oid-1", "px": 0.75, "qty": 2.0, "t": 0,
+        }
 
         def fake_rest(method, path, body=None, host=None):
             if method == "DELETE":
@@ -1172,28 +1759,70 @@ class PairingLoop(unittest.TestCase):
         self.assertEqual(E.unpaired_ct("MKT", "bid"), 1.0)
 
     def test_entry_blocked_at_unpaired_cap_exit_side_open(self):
+        """Operator speed directive 2026-07-27: the one-leg latch became a
+        net-cap latch -- concurrent cycles are allowed up to MAX_NET, and
+        entries block only AT the cap.  The exit side stays always open."""
         E.apply_fill(self.fill("yes", 0.30, ct=2.0, tid="a"))
-        self.assertTrue(E.side_blocked("MKT", "bid"),
-                        "one clip unpaired = no more entries this side")
+        with mock.patch.object(E, "MAX_NET", 2):
+            self.assertTrue(E.side_blocked("MKT", "bid"),
+                            "at the net cap = no more entries this side")
+        with mock.patch.object(E, "MAX_NET", 3):
+            E.S.side_brake.clear()
+            self.assertFalse(E.side_blocked("MKT", "bid"),
+                             "below the cap entries stay open")
         self.assertFalse(E.side_blocked("MKT", "ask_no"),
                          "the exit leg must always be allowed")
 
-    def test_push_prices_opposite_leg_to_lock_ceiling(self):
+    def test_rapid_fire_brake_blocks_side_after_two_quick_fills(self):
+        """Two same-side fills inside BRAKE_N_S = a sweep; that side pauses
+        BRAKE_HOLD_S while the exit side keeps working."""
         E.apply_fill(self.fill("yes", 0.30, tid="a"))
-        # yes best bid 30c -> NO ask 70c; ceiling 99-30=69c; cross-1c=69c
+        E.apply_fill(self.fill("yes", 0.31, tid="b"))
+        with mock.patch.object(E, "MAX_NET", 10):
+            self.assertTrue(E.side_blocked("MKT", "bid"),
+                            "brake must hold the swept side")
+            self.assertFalse(E.side_blocked("MKT", "ask_no"))
+        E.S.side_brake.clear()
+        with mock.patch.object(E, "MAX_NET", 10):
+            self.assertFalse(E.side_blocked("MKT", "bid"))
+
+    def test_push_prices_opposite_leg_to_lock_ceiling(self):
+        # Young-lot semantics: the complement is pinned at the PROFIT
+        # ceiling.  The bounded-loss relaxation is age-driven and has its
+        # own tests, so disable it here rather than let the fixture's fixed
+        # timestamp decide what this case means.
+        patcher = mock.patch.object(E, "ORPHAN_MAKER_MAX_LOSS_C", 0.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        E.apply_fill(self.fill("yes", 0.30, tid="a"))
+        # yes best bid 30c -> NO ask 70c; net-edge ceiling 98.5-30=68.5c;
+        # legal whole-cent quote is 68c, not a forced 69c completion.
         y_px, n_px, exit_bid, exit_no = E.pair_push_prices(
             "MKT", 0.30, 0.50, 3000, 3200)
         self.assertTrue(exit_no)
         self.assertFalse(exit_bid)
-        self.assertAlmostEqual(n_px, 0.69)
+        self.assertAlmostEqual(n_px, 0.68)
 
     def test_push_ceiling_binds_when_market_is_higher(self):
+        patcher = mock.patch.object(E, "ORPHAN_MAKER_MAX_LOSS_C", 0.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         E.apply_fill(self.fill("yes", 0.60, tid="a"))
-        # ceiling 99-60=39c even though NO ask is 70c
+        # net-edge ceiling 98.5-60=38.5c even though NO ask is 70c
         _, n_px, _, exit_no = E.pair_push_prices(
             "MKT", 0.60, 0.50, 3000, 3200)
         self.assertTrue(exit_no)
-        self.assertAlmostEqual(n_px, 0.39)
+        self.assertAlmostEqual(n_px, 0.38)
+
+    def test_pair_exit_does_not_add_collateral_over_pair_budget(self):
+        E.apply_fill(self.fill("yes", 0.30, ct=2.0, tid="a"))
+        with mock.patch.object(E, "MAX_OPEN_COST", 0.50):
+            _, _, _, exit_no = E.pair_push_prices(
+                "MKT", 0.30, 0.50, 3000, 3200)
+        self.assertFalse(
+            exit_no,
+            "pair completion must not create more locked collateral than the cap",
+        )
 
     def test_aged_lot_is_flattened_by_taker_cross(self):
         E.apply_fill(self.fill("yes", 0.30, tid="a",
