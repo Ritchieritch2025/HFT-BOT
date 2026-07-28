@@ -328,6 +328,7 @@ class S:
     recon_suspect = set()      # markets diverging on the LAST recon pass
     last_budget_trip_err = ""  # dedupe key for repeated blind-trip spam
     last_budget_trip_log = 0.0
+    budget_snapshot_fails = 0  # consecutive 1Hz monitor snapshot failures
     pricing_unready = {}       # ser -> reason pricing_state last returned None
     last_pricing_unready = {}  # mt -> last PRICING_UNREADY receipt wall time
     cf_session_ticks = {
@@ -2634,12 +2635,32 @@ def budget_cancel_all(reason):
     return complete and not unresolved_remote
 
 
+BUDGET_SNAPSHOT_MAX_FAILS = int(
+    os.environ.get("MM_BUDGET_SNAPSHOT_MAX_FAILS", "3"))
+
+
 def _budget_snapshot_or_trip(stage):
     if S.budget_guard is None:
         raise mba.AdapterError("budget guard is not initialized")
     try:
-        return capture_budget_snapshot()
+        snap = capture_budget_snapshot()
+        S.budget_snapshot_fails = 0
+        return snap
     except Exception as exc:
+        # Race #18 (2026-07-28T04:46): ONE transient HTTP -1 on the 1 Hz
+        # monitor durably latched the whole engine.  Mirror the recon
+        # doctrine: the MONITOR line tolerates a bounded streak of
+        # snapshot failures (3s of blindness) before declaring a durable
+        # trip.  Startup/preflight stay fail-fast, and persistent
+        # blindness still latches.
+        if stage == "MONITOR_SNAPSHOT":
+            S.budget_snapshot_fails += 1
+            if S.budget_snapshot_fails < BUDGET_SNAPSHOT_MAX_FAILS:
+                L.w({"ev": "BUDGET_SNAPSHOT_RETRY",
+                     "fails": S.budget_snapshot_fails,
+                     "max_fails": BUDGET_SNAPSHOT_MAX_FAILS,
+                     "error": f"{type(exc).__name__}: {exc}"[:160]})
+                return None
         # One latch = one trip.  The 1 Hz monitor re-tripping an already
         # latched, already halted guard on the identical error re-ran
         # cancel_all ~4x/second for 90s straight (2026-07-28T02:48 tape).

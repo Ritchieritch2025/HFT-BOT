@@ -1171,6 +1171,47 @@ class F2_PositionReconciliation(unittest.TestCase):
             [], orders={}, pending_new={},
             unknown_orders={"oid-1": rec})
 
+    def test_monitor_snapshot_transient_failures_tolerated_three_strikes(self):
+        # Race #18: one transient HTTP -1 on the 1Hz monitor must NOT
+        # durably latch; three consecutive failures still trip.
+        reset()
+        E.S.budget_snapshot_fails = 0
+        trip_calls = []
+        guard = mock.Mock()
+        guard.record.latched = False
+        guard.trip_receipt = None
+        guard.trip_blind = lambda **kw: trip_calls.append(kw)
+        boom = E.mba.AdapterError("user data timestamp HTTP -1")
+        with mock.patch.object(E.S, "budget_guard", guard), \
+                mock.patch.object(E, "capture_budget_snapshot",
+                                  side_effect=[boom, {"ok": 1}, boom, boom,
+                                               boom]):
+            self.assertIsNone(E._budget_snapshot_or_trip("MONITOR_SNAPSHOT"))
+            self.assertEqual(trip_calls, [])          # strike 1: tolerated
+            self.assertEqual(E._budget_snapshot_or_trip("MONITOR_SNAPSHOT"),
+                             {"ok": 1})               # success resets streak
+            self.assertEqual(E.S.budget_snapshot_fails, 0)
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # strike 1
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # strike 2
+            self.assertEqual(trip_calls, [])
+            E._budget_snapshot_or_trip("MONITOR_SNAPSHOT")   # strike 3: trip
+        self.assertEqual(len(trip_calls), 1)
+
+    def test_startup_snapshot_failure_still_fails_fast(self):
+        reset()
+        E.S.budget_snapshot_fails = 0
+        trip_calls = []
+        guard = mock.Mock()
+        guard.record.latched = False
+        guard.trip_receipt = None
+        guard.trip_blind = lambda **kw: trip_calls.append(kw)
+        boom = E.mba.AdapterError("startup blind")
+        with mock.patch.object(E.S, "budget_guard", guard), \
+                mock.patch.object(E, "capture_budget_snapshot",
+                                  side_effect=boom):
+            E._budget_snapshot_or_trip("STARTUP_SNAPSHOT")
+        self.assertEqual(len(trip_calls), 1)
+
     def test_repeated_blind_trip_is_deduped(self):
         # One latch = one trip: the 1 Hz monitor must not re-run the
         # cancel storm on an identical, already-latched error.
