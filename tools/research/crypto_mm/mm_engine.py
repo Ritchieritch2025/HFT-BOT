@@ -352,6 +352,7 @@ class S:
     last_budget_trip_log = 0.0
     budget_snapshot_fails = 0  # consecutive 1Hz monitor snapshot failures
     mid_hist = {}              # mt -> [(ts, mid_c)] for CORE2 drift veto
+    last_gap_bridge = -1e9     # throttle for mid-session RTI gap splicing
     core2_qty = {}             # (mt, side) -> policy size this pass
     last_core2_diag = {}       # mt -> last CORE2_DIAG wall time
     pricing_unready = {}       # ser -> reason pricing_state last returned None
@@ -3215,6 +3216,50 @@ def bridge_rti_seam(ser):
         S.rti_seam_from_ms[ser] = None
 
 
+def bridge_rti_gaps(ser, window_s=320.0):
+    """Mid-session variant of the seam bridge (2026-07-29T06:30 alert):
+    a live CF-stream hiccup leaves a hole inside the 300s sigma window
+    and blinds pricing until the hole ages out.  The independent recorder
+    kept those ticks -- splice ANY window hole from disk.  Conflicting
+    ticks are never overwritten; a hole genuinely absent from the
+    recorder stays a hole and the sigma gate keeps ruling."""
+    times = S.rti_src_ms[ser]
+    if len(times) < 2:
+        return
+    if time.monotonic() - S.last_gap_bridge < 20.0:
+        return
+    now_ms = times[-1]
+    lo_bound = now_ms - window_s * 1000.0
+    tl = list(times)
+    gaps = [(a, b) for a, b in zip(tl, tl[1:])
+            if b - a > 1100 and b >= lo_bound]
+    if not gaps:
+        return
+    S.last_gap_bridge = time.monotonic()
+    paths = glob.glob(CF_CAPTURE_GLOB)
+    try:
+        paths = sorted(paths, key=os.path.getmtime)[-2:]
+    except OSError:
+        paths = sorted(paths)[-2:]
+    fresh = _capture_source_ticks(paths).get(ser, {})
+    merged = dict(zip(tl, S.rti[ser]))
+    added = 0
+    for a, b in gaps:
+        for t, v in fresh.items():
+            if a < t < b and t not in merged:
+                merged[t] = float(v)
+                added += 1
+    if not added:
+        return
+    ordered = sorted(merged.items())[-RTI_HISTORY_TICKS:]
+    S.rti[ser].clear()
+    S.rti_src_ms[ser].clear()
+    S.rti_src_ms[ser].extend(t for t, _ in ordered)
+    S.rti[ser].extend(v for _, v in ordered)
+    L.w({"ev": "RTI_GAP_BRIDGED", "series": ser, "gaps": len(gaps),
+         "added": added})
+
+
 def ingest_cf_value(frame, received_wall_s=None):
     """Strictly validate and atomically append one official CF frame.
 
@@ -3665,8 +3710,11 @@ def think():
                 # quoting blackout; the reason must be on the tape.
                 if now - S.last_pricing_unready.get(mt, 0.0) >= 30.0:
                     S.last_pricing_unready[mt] = now
+                    reason_ = S.pricing_unready.get(ser, "unknown")
                     L.w({"ev": "PRICING_UNREADY", "mt": mt,
-                         "reason": S.pricing_unready.get(ser, "unknown")})
+                         "reason": reason_})
+                    if "sigma_window" in reason_:
+                        bridge_rti_gaps(ser)
                 continue
         fair_c = None
         sigma = None

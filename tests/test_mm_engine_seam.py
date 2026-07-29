@@ -135,6 +135,34 @@ def test_bridge_retries_until_recorder_flushes_then_gives_up():
     assert E.S.rti_seam_from_ms[SER] is None, "bounded: stop trying"
 
 
+def test_mid_session_gap_bridged_from_recorder():
+    """2026-07-29T06:30 alert: a live CF hiccup left a hole INSIDE the
+    sigma window (seam closed).  bridge_rti_gaps must splice the hole
+    from the recorder and end the blindness immediately."""
+    fresh()
+    E.S.last_gap_bridge = -1e9
+    t0 = 1_785_204_000_000
+    n = 400
+    hole = {t0 + 350 * 1000 + k * 1000 for k in (1, 2, 3)}
+    ticks = [(t0 + i * 1000, wobble(i)) for i in range(n)
+             if t0 + i * 1000 not in hole]
+    pattern = write_capture("cap_a.ndjson", ticks)
+    with mock.patch.object(E, "CF_CAPTURE_GLOB", pattern):
+        E.hydrate_rti_from_capture()
+    E.S.rti_seam_from_ms[SER] = None
+    E.S.cf_stream_ok = True
+    now_s = (t0 + (n - 1) * 1000) / 1000.0 + 0.2
+    E.S.rti_t[SER] = now_s
+    assert E.pricing_state(SER, now_s + 600.0, now_s=now_s) is None
+    # recorder has the hole ticks
+    pattern = write_capture(
+        "cap_b.ndjson",
+        [(t0 + 350 * 1000 + k * 1000, wobble(350 + k)) for k in (1, 2, 3)])
+    with mock.patch.object(E, "CF_CAPTURE_GLOB", pattern):
+        E.bridge_rti_gaps(SER)
+    assert E.pricing_state(SER, now_s + 600.0, now_s=now_s) is not None
+
+
 def test_golden_restart_blindness_ends_with_bridge():
     """THE 300.8s case: >300s of clean hydrated history, one 3s hole at
     the splice point.  pricing_state must be None (with the reason on
