@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rti_pricing as rp
 import mm_budget_adapter as mba
 import mm_candidate_adapter as mca
+import quote_core_v2 as qc2
 from mm_control import (
     ControlError,
     STATUS_SCHEMA,
@@ -189,6 +190,15 @@ UNPAIRED_MAX_CT = float(os.environ.get("MM_UNPAIRED_MAX_CT", "2"))  # 1 clip
 ENTRY_CUTOFF_TTE_S = float(os.environ.get("MM_ENTRY_CUTOFF_TTE_S", "240"))
 LOCK_TAKE_AGE_S = float(os.environ.get("MM_LOCK_TAKE_AGE_S", "20"))
 LOCK_TAKE_MIN_C = float(os.environ.get("MM_LOCK_TAKE_MIN_C", "0.3"))
+# CORE2 (operator 2026-07-29 实盘试跑令): the replay-validated v2.1 policy
+# (book-anchored sizes, momentum veto, wide-spread-only) replaces the
+# legacy want/price decision when MM_CORE2=1.  Every hard rail below the
+# decision layer (budget guard, caps, recon, knives, survival) is
+# untouched.  Winner params from the 3-day out-of-sample verdict.
+CORE2 = os.environ.get("MM_CORE2", "0") == "1"
+CORE2_AS_BASE_C = float(os.environ.get("MM_CORE2_AS_BASE_C", "0.6"))
+CORE2_DRIFT_VETO_C = float(os.environ.get("MM_CORE2_DRIFT_VETO_C", "0.9"))
+CORE2_MIN_SPREAD_C = float(os.environ.get("MM_CORE2_MIN_SPREAD_C", "1.5"))
 UNPAIRED_AGE_S = float(os.environ.get("MM_UNPAIRED_AGE_S", "90"))
 # Pair-cycle admission.  Unlike the legacy per-leg kernel selector, this
 # stages BOTH complementary maker orders before either fills.  It stays off
@@ -341,6 +351,9 @@ class S:
     last_budget_trip_err = ""  # dedupe key for repeated blind-trip spam
     last_budget_trip_log = 0.0
     budget_snapshot_fails = 0  # consecutive 1Hz monitor snapshot failures
+    mid_hist = {}              # mt -> [(ts, mid_c)] for CORE2 drift veto
+    core2_qty = {}             # (mt, side) -> policy size this pass
+    last_core2_diag = {}       # mt -> last CORE2_DIAG wall time
     pricing_unready = {}       # ser -> reason pricing_state last returned None
     last_pricing_unready = {}  # mt -> last PRICING_UNREADY receipt wall time
     cf_session_ticks = {
@@ -3862,6 +3875,103 @@ def think():
                 )
                 if held_edge >= 0.0:
                     want[held_side] = True
+        # ------------------- CORE2 decision override -------------------
+        if CORE2 and not (PAIR and PAIR_PREQUOTE and not pair_exit_active):
+            mid_now_c = mid_c
+            hist = S.mid_hist.setdefault(mt, [])
+            hist.append((now, mid_now_c))
+            while hist and hist[0][0] < now - 12.0:
+                hist.pop(0)
+            drift_c = mid_now_c - hist[0][1] if hist else 0.0
+            tape30 = [r for r in S.public_trades.get(mt, ())
+                      if r[0] >= now * 1000.0 - 30_000]
+            flow_sell = sum(r[3] for r in tape30 if r[1] == "bid")
+            flow_buy = sum(r[3] for r in tape30 if r[1] != "bid")
+            lots_all = S.unpaired.get(mt) or {"bid": [], "ask_no": []}
+            oldest = None
+            for sd_ in ("bid", "ask_no"):
+                for l_ in lots_all[sd_]:
+                    if oldest is None or l_[1] < oldest[1]:
+                        oldest = l_
+            basis2 = None
+            if net > 1e-9 and lots_all["bid"]:
+                basis2 = lots_all["bid"][0][0] * 100.0
+            elif net < -1e-9 and lots_all["ask_no"]:
+                basis2 = lots_all["ask_no"][0][0] * 100.0
+            st2 = qc2.MarketState(
+                yes_bid_c=yb / 100.0, yes_ask_c=ya / 100.0,
+                bid_depth=float(bk["y"].get(yb, 0.0) or 0.0),
+                ask_depth=float(bk["n"].get(nb, 0.0) or 0.0),
+                flow_buy=flow_buy, flow_sell=flow_sell,
+                fair_c=fair_c, sigma_c=float(_sc or 0.3),
+                q=float(net), tte_s=tte,
+                unpaired_age_s=(now - oldest[1]) if oldest else 0.0,
+                basis_c=basis2, mid_drift_c=drift_c,
+            )
+            p2 = qc2.Params(
+                clip=float(CLIP), q_max=max(float(MAX_NET), 1.0),
+                as_base_c=CORE2_AS_BASE_C,
+                drift_veto_c=CORE2_DRIFT_VETO_C,
+                min_spread_c=CORE2_MIN_SPREAD_C,
+                entry_cutoff_s=ENTRY_CUTOFF_TTE_S,
+                lock_take_age_s=LOCK_TAKE_AGE_S,
+                lock_take_min_c=LOCK_TAKE_MIN_C,
+                bail_age_s=UNPAIRED_AGE_S if UNPAIRED_AGE_S < 3600 else 120.0,
+            )
+            q2 = qc2.compute(st2, p2)
+            new_want = {
+                "bid": q2.bid_sz >= 1.0 and q2.bid_px_c is not None,
+                "ask_no": q2.ask_sz >= 1.0 and q2.ask_px_c is not None,
+            }
+            # Approval-#1 accounting stays exact: mirror every flip.
+            for sd_, unp_, cheap_, edge_, marg_, skewb_, px_, ex_ in (
+                ("bid", has_unpaired_no, cheap_bid_entry, edge_bid,
+                 margin_bid_c, skew_block_bid, y_px, exit_bid),
+                ("ask_no", has_unpaired_yes, cheap_no_entry, edge_no,
+                 margin_no_c, skew_block_no, n_px, exit_no),
+            ):
+                if want.get(sd_, False) == new_want[sd_]:
+                    continue
+                if want.get(sd_, False):
+                    S.side_wants -= 1
+                    S.block_reasons["core2_zero"] = (
+                        S.block_reasons.get("core2_zero", 0) + 1)
+                else:
+                    r_ = block_reason(
+                        blocked=side_blocked(mt, sd_), px=px_,
+                        is_exit_path=ex_, has_unpaired_opp=unp_,
+                        entry_pricing_ok=entry_pricing_ok,
+                        zone_ok_=ok_entry, room=room, cheap_ok=cheap_,
+                        edge=edge_, margin=marg_,
+                        cap_ok=edge_within_cap(edge_, ps_early),
+                        skew_block=skewb_)
+                    if S.block_reasons.get(r_, 0) > 0:
+                        S.block_reasons[r_] -= 1
+                        S.side_wants += 1
+                    else:
+                        # cannot find the legacy reason: keep identity by
+                        # leaving the side off this pass (next tick retries)
+                        new_want[sd_] = False
+            want = new_want
+            if q2.bid_px_c is not None:
+                y_px = round(q2.bid_px_c / 100.0, 4)
+            if q2.ask_px_c is not None:
+                n_px = round(q2.ask_px_c / 100.0, 4)
+            S.core2_qty[(mt, "bid")] = q2.bid_sz
+            S.core2_qty[(mt, "ask_no")] = q2.ask_sz
+            if net < -1e-9 and want["bid"]:
+                exit_bid = True
+            if net > 1e-9 and want["ask_no"]:
+                exit_no = True
+            if now - S.last_core2_diag.get(mt, 0.0) >= 5.0:
+                S.last_core2_diag[mt] = now
+                L.w({"ev": "CORE2_DIAG", "mt": mt,
+                     "want": want, "bid_px": q2.bid_px_c,
+                     "no_px": q2.ask_px_c,
+                     "sz": (q2.bid_sz, q2.ask_sz),
+                     "drift_c": round(drift_c, 2),
+                     "spread_c": round(ya / 100.0 - yb / 100.0, 2),
+                     "diag": q2.diag})
         # Position re-evaluation (operator ruling 2026-07-27: p is a
         # function of state, not a number fixed at fill time).  Every event
         # re-marks residual inventory against the CURRENT fair and emits a
@@ -4122,6 +4232,10 @@ def think():
                 unpaired_ct(mt, "ask_no") if side == "bid"
                 else unpaired_ct(mt, "bid")
             ) if exit_leg else float(CLIP)
+            if CORE2:
+                cq = S.core2_qty.get((mt, side))
+                if cq and cq >= 1.0:
+                    target_qty = min(cq, target_qty) if exit_leg else cq
             qty_changed = (
                 od is not None and
                 abs(float(od.get("qty", CLIP)) - target_qty) > 1e-9
