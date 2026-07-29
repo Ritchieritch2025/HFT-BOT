@@ -88,6 +88,9 @@ class MarketSim:
         self.events = 0
         self.dbg = {"decides": 0, "no_book": 0, "want_bid": 0,
                     "want_ask": 0, "placed": 0, "trades": 0}
+        self.mid_hist = []       # (ts, mid_c) for drift
+        self.cut_pnl_c = 0.0     # attribution: taker-cut leg P&L
+        self.settle_pnl_c = 0.0  # attribution: settled-leg P&L
 
     # ---------- book ----------
     def on_book(self, msg_type, side, price_e4, delta_e4, yes_levels,
@@ -210,6 +213,11 @@ class MarketSim:
             self.trades_window.pop(0)
         buy = sum(c for t, s, c in self.trades_window if s == "yes")
         sell = sum(c for t, s, c in self.trades_window if s == "no")
+        mid_now = (yes_bid_c + yes_ask_c) / 2.0
+        self.mid_hist.append((now, mid_now))
+        while self.mid_hist and self.mid_hist[0][0] < now - 12.0:
+            self.mid_hist.pop(0)
+        drift = mid_now - self.mid_hist[0][1] if self.mid_hist else 0.0
         q_now = self.net_q()
         basis = None
         if q_now > 1e-9 and self.lots["bid"]:
@@ -223,7 +231,7 @@ class MarketSim:
             fair_c=fair_c, sigma_c=sigma_c,
             q=q_now, tte_s=self.close_s - now,
             unpaired_age_s=self.oldest_age(),
-            basis_c=basis,
+            basis_c=basis, mid_drift_c=drift,
         )
         qs = compute(st, self.p)
         if qs.bid_sz > 0:
@@ -279,6 +287,7 @@ class MarketSim:
         self.taker_cuts += 1
         self.fees_c += fee * ct
         self.cash_c += proceeds_c * ct - fee * ct
+        self.cut_pnl_c += (proceeds_c - lot.px_c - fee) * ct
         lot.qty -= ct
         if lot.qty <= 1e-9:
             lots.pop(0)
@@ -296,9 +305,13 @@ class MarketSim:
                           and self.strike is not None
                           and self.settle_avg > self.strike)
         for l in self.lots["bid"]:
-            self.cash_c += 100.0 * l.qty if result_yes else 0.0
+            pay = 100.0 * l.qty if result_yes else 0.0
+            self.cash_c += pay
+            self.settle_pnl_c += pay - l.px_c * l.qty
         for l in self.lots["ask_no"]:
-            self.cash_c += 0.0 if result_yes else 100.0 * l.qty
+            pay = 0.0 if result_yes else 100.0 * l.qty
+            self.cash_c += pay
+            self.settle_pnl_c += pay - l.px_c * l.qty
         self.lots = {"bid": [], "ask_no": []}
         return result_yes
 
@@ -307,4 +320,6 @@ class MarketSim:
                     fills=self.fills, locks=self.locks,
                     locked_c=round(self.locked_c, 2),
                     taker_cuts=self.taker_cuts,
+                    cut_pnl_c=round(self.cut_pnl_c, 2),
+                    settle_pnl_c=round(self.settle_pnl_c, 2),
                     fees_c=round(self.fees_c, 2), dbg=dict(self.dbg))

@@ -33,6 +33,10 @@ class Params:
     as_flow_c: float = 2.00      # extra AS at a fully one-sided tape
     as_sigma_c: float = 0.15     # extra AS per unit sigma_c (cents)
     maker_fee_c: float = 0.0
+    drift_veto_c: float = 0.8    # mid moved this much against a side in
+                                 # the drift window -> that side is OFF
+    min_spread_c: float = 0.8    # thinner books have no maker economics
+    micro_tilt: float = 0.6      # microprice tilt strength from depth imb
     # completion / bail (the three knives live in the policy now)
     lock_take_age_s: float = 20.0
     lock_take_min_c: float = 0.3
@@ -59,6 +63,7 @@ class MarketState:
     tte_s: float
     unpaired_age_s: float = 0.0  # age of oldest unpaired lot (0 if flat)
     basis_c: float = None        # cost of the oldest unpaired lot
+    mid_drift_c: float = 0.0     # mid change over drift window (signed, c)
 
 
 @dataclass
@@ -123,28 +128,37 @@ def compute(st: MarketState, p: Params = None) -> Quotes:
         return max(0.0, 1.0 - abs(q_after) / p.q_max)
 
     # ---- price + edge gate per side ----
+    # ---- micro-fair: the BOOK is the anchor.  Mid plus a depth tilt
+    # (stacked bids push micro-fair up).  The model fair is only a sanity
+    # clamp: micro-fair is trusted within +-3c of it when both exist.
+    mid_c = (st.yes_bid_c + st.yes_ask_c) / 2.0
+    micro = mid_c + p.micro_tilt * imb * (spread_c / 2.0)
+    if st.fair_c is not None:
+        micro = min(max(micro, st.fair_c - 3.0), st.fair_c + 3.0)
+
     def side_quote(side):
         one_way = one_way_bid if side == "bid" else one_way_ask
         as_c = (p.as_base_c
                 + p.as_flow_c * one_way
                 + p.as_sigma_c * st.sigma_c)
+        # momentum veto: mid moving against this side = off
+        if side == "bid" and st.mid_drift_c <= -p.drift_veto_c:
+            return None, 0.0, as_c
+        if side == "ask_no" and st.mid_drift_c >= p.drift_veto_c:
+            return None, 0.0, as_c
+        if spread_c < p.min_spread_c:
+            return None, 0.0, as_c
         if side == "bid":
             join_px = st.yes_bid_c
-            edge_join = (None if st.fair_c is None
-                         else st.fair_c - join_px)
+            edge_join = micro - join_px
             improve_px = join_px + 1.0
-            edge_improve = (None if st.fair_c is None
-                            else st.fair_c - improve_px)
+            edge_improve = micro - improve_px
         else:
             no_bid = 100.0 - st.yes_ask_c      # best NO bid in NO cents
             join_px = no_bid
-            edge_join = (None if st.fair_c is None
-                         else (100.0 - st.fair_c) - join_px)
+            edge_join = (100.0 - micro) - join_px
             improve_px = join_px + 1.0
-            edge_improve = (None if st.fair_c is None
-                            else (100.0 - st.fair_c) - improve_px)
-        if edge_join is None:
-            return None, 0.0, as_c
+            edge_improve = (100.0 - micro) - improve_px
         net_join = edge_join - as_c - p.maker_fee_c
         net_improve = edge_improve - as_c - p.maker_fee_c
         if spread_c >= 2.0 and net_improve >= (p.min_net_edge_c

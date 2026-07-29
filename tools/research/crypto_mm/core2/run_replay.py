@@ -191,6 +191,9 @@ def run(dates, params, verbose=False, limit=0):
         locks=sum(r["locks"] for r in results),
         locked_usd=round(sum(r["locked_c"] for r in results) / 100.0, 2),
         taker_cuts=sum(r["taker_cuts"] for r in results),
+        cut_pnl_usd=round(sum(r["cut_pnl_c"] for r in results) / 100.0, 2),
+        settle_pnl_usd=round(
+            sum(r["settle_pnl_c"] for r in results) / 100.0, 2),
         fees_usd=round(sum(r["fees_c"] for r in results) / 100.0, 2),
         losers=len([r for r in results if r["pnl_c"] < 0]),
         worst=sorted(results, key=lambda r: r["pnl_c"])[:3],

@@ -13,9 +13,9 @@ from quote_core_v2 import Params
 import run_replay
 
 GRID = {
-    "as_base_c": [0.6, 1.0, 1.5],
-    "min_net_edge_c": [0.2, 0.4],
-    "flow_imb_k": [1.4, 2.0],
+    "as_base_c": [0.6, 1.2],
+    "drift_veto_c": [0.5, 0.9, 1.4],
+    "min_spread_c": [0.8, 1.5],
 }
 
 
@@ -50,7 +50,8 @@ def main():
     for obj, ov, s in scored:
         print(f"obj={obj:+.2f} pnl={s['pnl_usd']:+.2f} "
               f"dd={s['max_drawdown_usd']:.2f} locks={s['locks']} "
-              f"locked={s['locked_usd']:+.2f} cuts={s['taker_cuts']} "
+              f"locked={s['locked_usd']:+.2f} cutP={s['cut_pnl_usd']:+.2f} "
+              f"setP={s['settle_pnl_usd']:+.2f} "
               f"losers={s['losers']}/{s['markets']} {ov}")
     json.dump([(o, ov, s) for o, ov, s in scored],
               open("sweep_results.json", "w"), default=str)
