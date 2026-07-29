@@ -2591,6 +2591,14 @@ def capture_budget_snapshot():
             break
         if _attempt < 2:
             time.sleep(0.3)
+    else:
+        # Race #20 (2026-07-29T13:40): all three reads regressed -- a lag
+        # spike on the replica pool.  Raising HERE keeps the failure in
+        # the SNAPSHOT stage, where the monitor's three-strike tolerance
+        # rules; the guard's strict validator never sees a known-stale
+        # timestamp and cannot durably latch on a transient.
+        raise mba.AdapterError(
+            "user data as_of_time regressed after 3 replica retries")
     timestamp_finished = time.time()
     generation_after = S.risk_generation
     return {
