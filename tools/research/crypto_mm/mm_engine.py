@@ -3526,6 +3526,26 @@ def pricing_state(ser, close_s, now_s=None):
 
 
 def think():
+    """Crash containment (2026-07-29T20:35: round(None) in a receipt took
+    the whole process down).  A decision-loop defect must halt VISIBLY —
+    orders cancelled, state preserved for forensics — never kill the
+    process and orphan its exchange orders."""
+    try:
+        _think_inner()
+    except Exception:
+        import traceback
+        err = traceback.format_exc(limit=6)[-400:]
+        L.w({"ev": "THINK_ERR", "trace": err})
+        if not S.halted:
+            S.halted = True
+            try:
+                cancel_all("THINK_ERR")
+            except Exception:
+                pass
+            write_control_status()
+
+
+def _think_inner():
     load_control()
     now = time.time()
     tox_settle_pending(now)
@@ -4055,7 +4075,10 @@ def think():
             # shape is the raw material of every toxicity estimate; a fill
             # without its context is a wasted observation.
             S.last_eval_state[mt] = {
-                "fair_c": round(fair_c, 3),
+                # fair_c may legitimately be None under CORE2 (the core is
+                # book-anchored and keeps deciding through a CF stall) --
+                # 2026-07-29T20:35 crash: round(None).
+                "fair_c": (round(fair_c, 3) if fair_c is not None else None),
                 "mid_c": (round(mid_c, 2) if mid_c is not None else None),
                 # Point-in-time volatility block (operator directive
                 # 2026-07-28: every trade carries its PIT indicators).
