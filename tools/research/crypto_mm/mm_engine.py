@@ -3695,7 +3695,11 @@ def think():
         # The unvalidated wind layer (D6) is stripped; no kernel price,
         # no ENTRY quotes (fail closed).  Exact offsetting legs remain live.
         ps = ps_early
-        if not pair_exit_active:
+        # CORE2 is book-reactive: a stalled BRTI stream must not freeze the
+        # decision loop (2026-07-29T09:45 alert -- 172s eval stall while
+        # the book was live).  The per-tick dedupe is a LEGACY entry-churn
+        # brake; CORE2 has its own churn control downstream.
+        if not pair_exit_active and not CORE2:
             if ps is not None:
                 if S.last_entry_source_ms.get(mt) == ps["source_ms"]:
                     # Book deltas often arrive in bursts and temporarily move
