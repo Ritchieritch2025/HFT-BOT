@@ -121,11 +121,17 @@ def compute(st: MarketState, p: Params = None) -> Quotes:
     f_imb_ask = 1.0 - p.imb_scale * max(0.0, imb)
 
     # ---- inventory: shrink the side that grows |q| ----
+    # The FIRST clip of inventory is the business (a maker must be able
+    # to open); the penalty ramps only on STACKING beyond one clip
+    # (2026-07-29 pilot: clip=1/q_max=2 halved every first entry and,
+    # with the integer floor, the core never quoted at all).
     def f_inv(side):
         q_after = st.q + p.clip if side == "bid" else st.q - p.clip
         if abs(q_after) <= abs(st.q):          # reducing: never shrunk
             return 1.0
-        return max(0.0, 1.0 - abs(q_after) / p.q_max)
+        over = max(0.0, abs(q_after) - p.clip)
+        span = max(p.q_max - p.clip, 1e-9)
+        return max(0.0, 1.0 - over / span)
 
     # ---- price + edge gate per side ----
     # ---- micro-fair: the BOOK is the anchor.  Mid plus a depth tilt
@@ -185,7 +191,9 @@ def compute(st: MarketState, p: Params = None) -> Quotes:
         f_fl = f_flow_bid if side == "bid" else f_flow_ask
         f_im = f_imb_bid if side == "bid" else f_imb_ask
         sz = p.clip * f_tte * f_fl * f_im * f_inv(side)
-        return float(int(sz)) if sz >= 1.0 else 0.0
+        n = int(sz + 0.5)                     # round, don't floor: at
+        return float(min(n, int(p.clip))) if n >= 1 else 0.0  # clip=1 a
+        # floored fraction silenced the core entirely (2026-07-29 pilot)
 
     out.bid_px_c, out.bid_sz = bid_px, final_size("bid", bid_px)
     out.ask_px_c, out.ask_sz = ask_px, final_size("ask_no", ask_px)
