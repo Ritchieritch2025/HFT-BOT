@@ -2741,9 +2741,12 @@ def _budget_snapshot_or_trip(stage):
         # monitor durably latched the whole engine.  Mirror the recon
         # doctrine: the MONITOR line tolerates a bounded streak of
         # snapshot failures (3s of blindness) before declaring a durable
-        # trip.  Startup/preflight stay fail-fast, and persistent
-        # blindness still latches.
-        if stage == "MONITOR_SNAPSHOT":
+        # trip.  Startup stays fail-fast; persistent blindness latches.
+        # Race #21 (2026-07-29T20:53, CORE2's very first live order): the
+        # PREFLIGHT line gets the same tolerance -- a tolerated failure
+        # DENIES that placement (fail-safe: no order goes out blind) but
+        # must not latch the engine for one network blip.
+        if stage in ("MONITOR_SNAPSHOT", "PREFLIGHT_SNAPSHOT"):
             S.budget_snapshot_fails += 1
             if S.budget_snapshot_fails < BUDGET_SNAPSHOT_MAX_FAILS:
                 L.w({"ev": "BUDGET_SNAPSHOT_RETRY",
