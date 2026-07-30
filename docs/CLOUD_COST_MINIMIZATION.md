@@ -83,65 +83,102 @@ AccessDenied,`ListBuckets` 也没有。**所以第 4 行只能等更宽的凭证
 
 ---
 
-## 4. B 路径的执行顺序
+## 4. B 路径执行单(操作员控制台,2026-07-30 裁决)
 
-前置:需要一把有 `ec2:*` 和 `s3:*` 的凭证(现有的 `researchReader` 和
-`vaultWriter` 都不够 —— `vaultWriter` 是 List/Get/Put **无 Delete**,那是当初
-故意设计的防误删护栏)。
+裁决:走 B,操作员在控制台亲自点。下面按顺序,**每一步做完再做下一步**。
+Claude 只能碰盒子内部(SSH),碰不到 AWS API —— 所以第 2 步由 Claude 跑,
+其余全在控制台。
+
+### 第 1 步 · 开机生产盒(控制台)
+
+EC2 → Instances → `i-0fd427becf740a06b` → Instance state → **Start**。
+起来后把新的公网 IP 告诉 Claude(EIP 3.130.232.109 如果还关联着就还是它)。
+
+> 为什么要开机:整台机器的 726G 原始磁带能不能安全删,取决于它是不是真的
+> 都躺在 S3 里。`kalshi-s3-sync-hourly.timer` 在 07-27 前后有过健康问题
+> (durable 回执 timer 从 07-22 起就是 dead),不能假设同步是完整的。
+> **没核对就删盘 = 永久丢磁带。**
+
+### 第 2 步 · 核对 + 补传(Claude 通过 SSH 执行)
+
+Claude 会做三件事,做完给出一份「本地 vs S3 逐日对账表」再请示:
+
+1. 逐个 `work/raw/date=*` 目录比对本地文件名+字节数与
+   `s3://kalshi-vault-ritcardo/ec2/raw/` 的清单
+2. 有缺口就 `aws s3 sync` 补传(此刻无进程在写,不存在 W-A3 撕裂拷贝风险)
+3. 把 `work/warehouse`、`work/live`、`work/mm` 这些不在 `raw` 下的也传上去
+
+盒子上的 `~/.kalshi/env.sh` 里是 `vaultWriter` 凭证(List/Get/**Put**,无
+Delete)—— 补传够用,而且它天然删不掉任何东西,这一步没有误删风险。
+
+对完账 Claude 会 `sudo shutdown -h now`,然后回报「可以删盘 / 不可以删盘」。
+
+### 第 3 步 · S3 生命周期(控制台,零风险,可以和第 2 步并行)
+
+S3 → `kalshi-vault-ritcardo` → Management → **Create lifecycle rule**
+
+- Rule name: `paused-project-deep-archive`,作用范围选 **整个桶**
+- 勾 *Move current versions of objects between storage classes* →
+  **Glacier Deep Archive**,Days after object creation = **0**
+- 勾 *Move noncurrent versions* → 同样 Deep Archive,Days = 0
+- 勾 *Permanently delete noncurrent versions*,Days = **1**
+- 勾 *Delete expired object delete markers* 和 *Abort incomplete multipart
+  uploads after 1 day*
+
+然后 Properties → Bucket Versioning → **Suspend**。
+
+> 转换是异步的,几小时到一天才全部落到 Deep Archive,账单跟着降。
+> 转换请求费 $0.05/1000 对象 —— 这个桶是 GB 级大文件,总共几块钱。
+
+### 第 4 步 · 终止实例(控制台,**不可逆**)
+
+**等 Claude 在第 2 步回报「可以删盘」之后再做。**
+
+EC2 → Instances → 选中 `i-0fd427becf740a06b` 和 `i-0e53d134dceffe166`
+(两台都应是 stopped)→ Instance state → **Terminate**。
+
+### 第 5 步 · 删盘(控制台,**不可逆**)
+
+生产机的根盘当初是 `DeleteOnTermination = No` 建的
+(`PLAN_AWS_MIGRATION.md:230`),**终止实例不会把它删掉**,它会变成
+`available` 状态继续按 $58/月计费。这一步不能省。
+
+EC2 → Volumes → 筛 State = **available** → 选中 726 GB 和 300 GB 那两个 →
+Actions → **Delete volume**。删之前确认 `available` 列表里没有别的东西。
+
+### 第 6 步 · 释放弹性 IP(控制台)
+
+终止实例只会解除关联,**不会释放** EIP,闲置的 EIP 照样 $3.65/月。
+
+EC2 → Elastic IPs → 两个都选(3.130.232.109 / 18.226.151.192)→
+Actions → **Release Elastic IP addresses**。
+
+### 第 7 步 · 收尾核对
+
+Billing → Cost Explorer,次日看一眼日成本是不是掉到 $0.0x。
+或者 EC2 控制台确认:Instances 全 terminated、Volumes 空、Elastic IPs 空。
+
+---
+
+### W09 盒子上有什么值得留的
+
+111G 里 **91G 是 `/srv/w09-research/cache`** —— 那是 S3 研究数据的本地缓存,
+可重建,**不用传**。真正值得留的只有 `checkpoints` 9.4G + `runs` 5.1G +
+`c1-runs` 160M ≈ 15G。W09 已经在 07-30T16:36Z 下电,如果要保这 15G,需要在
+第 4 步之前重新开机让 Claude 传一次(多花约 $0.5 的计算费)。
+
+### 如果改主意想让 Claude 代劳
+
+`tools/ops/cloud_teardown.py` 已经把第 3~6 步全实现了,默认 dry-run:
 
 ```bash
-# 0. 盘点,拿到真实数字(只读,先跑这个)
-python3 tools/ops/cloud_cost_inventory.py
-
-# 1. S3 生命周期 —— 不删数据,立刻砍掉 95% 的 S3 账单。先做,因为零风险
-python3 tools/ops/cloud_teardown.py --stage s3            # 预览
-python3 tools/ops/cloud_teardown.py --stage s3 --apply
+python3 tools/ops/cloud_teardown.py --stage s3 --stage term --stage volume --stage eip
+python3 tools/ops/cloud_teardown.py --stage s3 --stage term --stage volume --stage eip --apply
 ```
 
-**2. 核对生产盘的 raw 是否真的都在 S3**(这一步决定能不能直接删盘)。
-控制台启动 `i-0fd427becf740a06b`,然后在盒子上:
-
-```bash
-# 每个 date= 目录的本地文件清单 vs S3 清单,逐个 key 比大小
-cd /home/ubuntu/hft-bot
-for d in work/raw/date=*; do
-  D=$(basename "$d")
-  echo "== $D"
-  ls -l "$d" | awk '{print $9, $5}' | sort > /tmp/local.$D
-  aws s3 ls "s3://kalshi-vault-ritcardo/ec2/raw/$D/" \
-    | awk '{print $4, $3}' | sort > /tmp/s3.$D
-  diff /tmp/local.$D /tmp/s3.$D | head -20
-done
-# 有缺口就补传(注意:此时没有进程在写,不存在撕裂拷贝风险)
-aws s3 sync work/raw s3://kalshi-vault-ritcardo/ec2/raw
-# 另外把 warehouse / live / mm 这些不在 raw 里的也传上去
-aws s3 sync work/warehouse s3://kalshi-vault-ritcardo/ec2/warehouse
-aws s3 sync work/live      s3://kalshi-vault-ritcardo/ec2/live
-aws s3 sync work/mm        s3://kalshi-vault-ritcardo/ec2/mm
-sudo shutdown -h now
-```
-
-W09 上的 111G 里 **91G 是 `cache`**(S3 研究数据的本地缓存,可重建,不用传)。
-值得传的只有 `checkpoints` 9.4G + `runs` 5.1G + `c1-runs` 160M。
-
-```bash
-# 3. 终止 → 删盘 → 释放 IP(不可逆,按这个顺序)
-python3 tools/ops/cloud_teardown.py --stage term --stage volume --stage eip
-python3 tools/ops/cloud_teardown.py --stage term --stage volume --stage eip --apply
-```
-
-`--stage volume` 内置护栏:没有 completed 快照的盘会被 SKIP。走 B 路径
-(数据已在 S3)时这个护栏会拦下所有盘,需要先 `--stage snap` 或手动确认放行。
-
-### 控制台替代路径(不给凭证时)
-
-1. EC2 → Elastic IPs → 选中两个 → Actions → Release,×2
-2. EC2 → Instances → 选中两台(已 stopped)→ Instance state → Terminate
-3. EC2 → Volumes → 状态 `available` 的两个 → Actions → Delete volume
-4. S3 → `kalshi-vault-ritcardo` → Management → Create lifecycle rule →
-   作用于全桶 → Transition current+noncurrent versions to Glacier Deep Archive
-   after 0 days → 另加 "Permanently delete noncurrent versions after 1 day"
-5. S3 → Properties → Bucket Versioning → Suspend
+需要一把带 `ec2:*` + `s3:*` 的临时 IAM key 放进 `~/.aws/credentials`。
+`--stage volume` 有护栏:没有 completed 快照的盘会被 SKIP,走 B 路径时需要
+显式放行。
 
 ---
 
