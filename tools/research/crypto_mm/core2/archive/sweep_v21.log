@@ -1,0 +1,12 @@
+obj=+0.51 pnl=+0.51 dd=0.00 locks=42 locked=+0.48 cutP=+0.07 setP=+0.00 losers=0/39 {'as_base_c': 0.6, 'drift_veto_c': 0.9, 'min_spread_c': 1.5}
+obj=+0.51 pnl=+0.51 dd=0.00 locks=42 locked=+0.48 cutP=+0.07 setP=+0.00 losers=0/39 {'as_base_c': 0.6, 'drift_veto_c': 1.4, 'min_spread_c': 1.5}
+obj=+0.47 pnl=+0.47 dd=0.00 locks=39 locked=+0.44 cutP=+0.07 setP=+0.00 losers=0/39 {'as_base_c': 1.2, 'drift_veto_c': 0.9, 'min_spread_c': 1.5}
+obj=+0.47 pnl=+0.47 dd=0.00 locks=39 locked=+0.44 cutP=+0.07 setP=+0.00 losers=0/39 {'as_base_c': 1.2, 'drift_veto_c': 1.4, 'min_spread_c': 1.5}
+obj=+0.41 pnl=+0.41 dd=0.00 locks=34 locked=+0.38 cutP=+0.07 setP=+0.00 losers=1/39 {'as_base_c': 0.6, 'drift_veto_c': 0.5, 'min_spread_c': 1.5}
+obj=+0.36 pnl=+0.36 dd=0.00 locks=31 locked=+0.34 cutP=+0.07 setP=+0.00 losers=1/39 {'as_base_c': 1.2, 'drift_veto_c': 0.5, 'min_spread_c': 1.5}
+obj=-0.60 pnl=+0.08 dd=1.35 locks=327 locked=+4.60 cutP=-4.02 setP=+0.00 losers=10/39 {'as_base_c': 1.2, 'drift_veto_c': 1.4, 'min_spread_c': 0.8}
+obj=-0.96 pnl=-0.28 dd=1.35 locks=293 locked=+4.00 cutP=-3.79 setP=+0.00 losers=9/39 {'as_base_c': 1.2, 'drift_veto_c': 0.9, 'min_spread_c': 0.8}
+obj=-1.10 pnl=-0.43 dd=1.35 locks=290 locked=+3.99 cutP=-3.94 setP=+0.00 losers=10/39 {'as_base_c': 1.2, 'drift_veto_c': 0.5, 'min_spread_c': 0.8}
+obj=-2.28 pnl=-1.28 dd=2.00 locks=364 locked=+5.04 cutP=-5.73 setP=+0.00 losers=13/39 {'as_base_c': 0.6, 'drift_veto_c': 1.4, 'min_spread_c': 0.8}
+obj=-2.72 pnl=-1.67 dd=2.10 locks=328 locked=+4.41 cutP=-5.50 setP=+0.00 losers=12/39 {'as_base_c': 0.6, 'drift_veto_c': 0.9, 'min_spread_c': 0.8}
+obj=-2.78 pnl=-1.73 dd=2.10 locks=325 locked=+4.40 cutP=-5.56 setP=+0.00 losers=12/39 {'as_base_c': 0.6, 'drift_veto_c': 0.5, 'min_spread_c': 0.8}

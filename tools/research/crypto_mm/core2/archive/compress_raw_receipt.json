@@ -1,0 +1,1 @@
+{"action":"lossless zstd compress of unsealed raw (07-22/23/25/26), no deletion; reversible before sealing","by":"agent night-ops 2026-07-29T02:40Z","why":"disk 100% full, prune blocked on day_unsealed, recorders at risk (operator pnl-forever directive)"}
