@@ -1,0 +1,352 @@
+{
+ "arms_TRAIN": {
+  "front_cancel_60ms": {
+   "close1": {
+    "ci95_cluster_boot": [
+     -2.232,
+     -0.356
+    ],
+    "exit_kinds": {
+     "passive": 342,
+     "taker_flatten": 18
+    },
+    "frac_carried_to_settle": 0.0,
+    "frac_closed_passive": 0.95,
+    "frac_forced_flat": 0.05,
+    "hold_secs_p50": 3.1,
+    "mean_net_pnl_c": -1.239,
+    "positions": 360
+   },
+   "close2": {
+    "ci95_cluster_boot": [
+     -2.894,
+     -0.538
+    ],
+    "exit_kinds": {
+     "passive": 334,
+     "taker_flatten": 26
+    },
+    "frac_carried_to_settle": 0.0027,
+    "frac_closed_passive": 0.9278,
+    "frac_forced_flat": 0.0695,
+    "hold_secs_p50": 11.6,
+    "mean_net_pnl_c": -1.618,
+    "positions": 360
+   },
+   "close3": {
+    "ci95_cluster_boot": [
+     -2.839,
+     -0.308
+    ],
+    "exit_kinds": {
+     "passive": 327,
+     "taker_flatten": 33
+    },
+    "frac_carried_to_settle": 0.0027,
+    "frac_closed_passive": 0.9083,
+    "frac_forced_flat": 0.0889,
+    "hold_secs_p50": 21.3,
+    "mean_net_pnl_c": -1.479,
+    "positions": 360
+   },
+   "hold": {
+    "ci95_cluster_boot": [
+     0.293,
+     0.377
+    ],
+    "exit_kinds": {
+     "hold_to_settle": 360
+    },
+    "frac_carried_to_settle": 1.0,
+    "frac_closed_passive": 0.0,
+    "frac_forced_flat": 0.0,
+    "hold_secs_p50": null,
+    "mean_net_pnl_c": 0.34,
+    "positions": 360
+   }
+  },
+  "tail_cancel_60ms": {
+   "close1": {
+    "ci95_cluster_boot": [
+     -2.444,
+     -0.404
+    ],
+    "exit_kinds": {
+     "passive": 342,
+     "taker_flatten": 18
+    },
+    "frac_carried_to_settle": 0.0,
+    "frac_closed_passive": 0.95,
+    "frac_forced_flat": 0.05,
+    "hold_secs_p50": 5.6,
+    "mean_net_pnl_c": -1.355,
+    "positions": 360
+   },
+   "close2": {
+    "ci95_cluster_boot": [
+     -3.163,
+     -0.801
+    ],
+    "exit_kinds": {
+     "passive": 331,
+     "taker_flatten": 29
+    },
+    "frac_carried_to_settle": 0.0027,
+    "frac_closed_passive": 0.9194,
+    "frac_forced_flat": 0.0778,
+    "hold_secs_p50": 20.1,
+    "mean_net_pnl_c": -1.911,
+    "positions": 360
+   },
+   "close3": {
+    "ci95_cluster_boot": [
+     -2.803,
+     -0.36
+    ],
+    "exit_kinds": {
+     "passive": 327,
+     "taker_flatten": 33
+    },
+    "frac_carried_to_settle": 0.0027,
+    "frac_closed_passive": 0.9083,
+    "frac_forced_flat": 0.0889,
+    "hold_secs_p50": 28.3,
+    "mean_net_pnl_c": -1.497,
+    "positions": 360
+   },
+   "hold": {
+    "ci95_cluster_boot": [
+     -0.052,
+     0.206
+    ],
+    "exit_kinds": {
+     "hold_to_settle": 360
+    },
+    "frac_carried_to_settle": 1.0,
+    "frac_closed_passive": 0.0,
+    "frac_forced_flat": 0.0,
+    "hold_secs_p50": null,
+    "mean_net_pnl_c": 0.081,
+    "positions": 360
+   }
+  }
+ },
+ "arms_VALIDATE": {
+  "front_cancel_60ms": {
+   "close1": {
+    "ci95_cluster_boot": [
+     -0.469,
+     0.674
+    ],
+    "exit_kinds": {
+     "passive": 186,
+     "taker_flatten": 4
+    },
+    "frac_carried_to_settle": 0.0,
+    "frac_closed_passive": 0.9789,
+    "frac_forced_flat": 0.0211,
+    "hold_secs_p50": 3.7,
+    "mean_net_pnl_c": 0.198,
+    "positions": 190
+   },
+   "close2": {
+    "ci95_cluster_boot": [
+     -0.754,
+     1.219
+    ],
+    "exit_kinds": {
+     "passive": 182,
+     "taker_flatten": 8
+    },
+    "frac_carried_to_settle": 0.0,
+    "frac_closed_passive": 0.9579,
+    "frac_forced_flat": 0.0421,
+    "hold_secs_p50": 10.2,
+    "mean_net_pnl_c": 0.332,
+    "positions": 190
+   },
+   "close3": {
+    "ci95_cluster_boot": [
+     -1.087,
+     1.482
+    ],
+    "exit_kinds": {
+     "carried_no_bid": 1,
+     "passive": 178,
+     "taker_flatten": 11
+    },
+    "frac_carried_to_settle": 0.0053,
+    "frac_closed_passive": 0.9368,
+    "frac_forced_flat": 0.0579,
+    "hold_secs_p50": 14.8,
+    "mean_net_pnl_c": 0.344,
+    "positions": 190
+   },
+   "hold": {
+    "ci95_cluster_boot": [
+     0.263,
+     0.374
+    ],
+    "exit_kinds": {
+     "hold_to_settle": 190
+    },
+    "frac_carried_to_settle": 1.0,
+    "frac_closed_passive": 0.0,
+    "frac_forced_flat": 0.0,
+    "hold_secs_p50": null,
+    "mean_net_pnl_c": 0.321,
+    "positions": 190
+   }
+  },
+  "tail_cancel_60ms": {
+   "close1": {
+    "ci95_cluster_boot": [
+     -2.064,
+     0.181
+    ],
+    "exit_kinds": {
+     "carried_no_bid": 1,
+     "passive": 182,
+     "taker_flatten": 7
+    },
+    "frac_carried_to_settle": 0.0053,
+    "frac_closed_passive": 0.9579,
+    "frac_forced_flat": 0.0368,
+    "hold_secs_p50": 6.2,
+    "mean_net_pnl_c": -0.813,
+    "positions": 190
+   },
+   "close2": {
+    "ci95_cluster_boot": [
+     -2.41,
+     0.34
+    ],
+    "exit_kinds": {
+     "carried_no_bid": 1,
+     "passive": 178,
+     "taker_flatten": 11
+    },
+    "frac_carried_to_settle": 0.0053,
+    "frac_closed_passive": 0.9368,
+    "frac_forced_flat": 0.0579,
+    "hold_secs_p50": 21.5,
+    "mean_net_pnl_c": -0.918,
+    "positions": 190
+   },
+   "close3": {
+    "ci95_cluster_boot": [
+     -1.576,
+     1.045
+    ],
+    "exit_kinds": {
+     "carried_no_bid": 1,
+     "passive": 176,
+     "taker_flatten": 13
+    },
+    "frac_carried_to_settle": 0.0053,
+    "frac_closed_passive": 0.9263,
+    "frac_forced_flat": 0.0684,
+    "hold_secs_p50": 28.5,
+    "mean_net_pnl_c": -0.189,
+    "positions": 190
+   },
+   "hold": {
+    "ci95_cluster_boot": [
+     -0.211,
+     0.216
+    ],
+    "exit_kinds": {
+     "hold_to_settle": 190
+    },
+    "frac_carried_to_settle": 1.0,
+    "frac_closed_passive": 0.0,
+    "frac_forced_flat": 0.0,
+    "hold_secs_p50": null,
+    "mean_net_pnl_c": 0.0,
+    "positions": 190
+   }
+  }
+ },
+ "baseline_gate": {
+  "diffs": [],
+  "expected_from": "ORIGINAL e4_front.py log (report sha 753adc5d9f6fbf31)",
+  "pass": true
+ },
+ "generated_at_utc": "2026-07-25T22:06:30.162736+00:00",
+ "known_answer_graveyard_VAL": {
+  "front_cancel_60ms": {
+   "clusters_filled": 96,
+   "fill_rate": 0.8571,
+   "fills": 192,
+   "gray": false,
+   "markets_quoted": 96,
+   "mean_settle_pnl_c": -3.198,
+   "quotes_placed": 224
+  },
+  "tail_cancel_60ms": {
+   "clusters_filled": 96,
+   "fill_rate": 0.3305,
+   "fills": 192,
+   "gray": false,
+   "markets_quoted": 96,
+   "mean_settle_pnl_c": -3.654,
+   "quotes_placed": 581
+  }
+ },
+ "known_answer_verdict": "RED_OK",
+ "main_TRAIN": {
+  "front_cancel_60ms": {
+   "clusters_filled": 180,
+   "fill_rate": 0.7563,
+   "fills": 360,
+   "gray": false,
+   "markets_quoted": 180,
+   "mean_settle_pnl_c": 0.34,
+   "quotes_placed": 476
+  },
+  "tail_cancel_60ms": {
+   "clusters_filled": 180,
+   "fill_rate": 0.3252,
+   "fills": 360,
+   "gray": false,
+   "markets_quoted": 180,
+   "mean_settle_pnl_c": 0.081,
+   "quotes_placed": 1107
+  }
+ },
+ "main_VALIDATE": {
+  "front_cancel_60ms": {
+   "clusters_filled": 95,
+   "fill_rate": 0.6934,
+   "fills": 190,
+   "gray": false,
+   "markets_quoted": 95,
+   "mean_settle_pnl_c": 0.321,
+   "quotes_placed": 274
+  },
+  "tail_cancel_60ms": {
+   "clusters_filled": 95,
+   "fill_rate": 0.2632,
+   "fills": 190,
+   "gray": false,
+   "markets_quoted": 95,
+   "mean_settle_pnl_c": 0.0,
+   "quotes_placed": 722
+  }
+ },
+ "policy": {
+  "arms": {
+   "close1": "passive exit at entry+1c, ladder -1c at 30/60/120s, T-3m taker flatten (7% quadratic fee, order rounded up to cent), no-bid -> carried",
+   "close2": "passive exit at entry+2c, ladder -1c at 30/60/120s, T-3m taker flatten (7% quadratic fee, order rounded up to cent), no-bid -> carried",
+   "close3": "passive exit at entry+3c, ladder -1c at 30/60/120s, T-3m taker flatten (7% quadratic fee, order rounded up to cent), no-bid -> carried",
+   "hold": "to settlement (baseline)"
+  },
+  "clip": 5,
+  "entry": "e4_front verbatim (tail & front, 10m<=tte<30m, withdraw T-5m, max 1 fill/side/market, maker fee 0)",
+  "exit_fill_model": "trade-through on opposite bid book, tail join, activation fill_ts+cancel_lat, no fills past T-3m",
+  "split": "TRAIN 07-12..19 / VALIDATE 07-20..23, cluster=market"
+ },
+ "schema_version": "e4-twoleg-closeout-v1",
+ "script_sha256": "16572f2c37e0673e2068dd98f84715c2dff10caf10ef5aa799e89e0f99089297",
+ "verdict": "OK"
+}

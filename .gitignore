@@ -9,3 +9,7 @@ work/
 sandbox/
 # Deepresearch archives: data JSONs are committed, the 35M visual HTML stays local-only
 Deepresearch V3/*/REPORT/
+.worktrees/
+# single 388 MB row dump — over GitHub's 100 MB hard limit; regenerable from the
+# round4 canary inputs. Everything else under tmp/ is committed as evidence.
+tmp/crypto_mm_canary_20260726/round4/z3_round4_stage1_entry_r3_2caa5e_rows_20260726.json.gz

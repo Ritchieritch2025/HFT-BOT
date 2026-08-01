@@ -1,0 +1,75 @@
+{
+  "schema": "z3-round4-stage1-entry-r3-revision-receipt-v1",
+  "scope": "DISCOVERY_EXTRACTION_ONLY",
+  "audit_trigger": "R2 skipped missing BOOK receipts, allowing lag as-of lookup to cross an explicit one-sided/empty-book gap",
+  "superseded_r2": {
+    "script_sha256": "d0f719a6c42f444dbb47501f59c85f61f3c6ef697ca90ec5e799b1d41146c067",
+    "prereg_sha256": "ef17552358c29490f99be72b69b7a5ca1e2a07fd16ae2b470d4e1e5e89b538f7",
+    "embedded_spec_sha256": "18b1ef43840e19f91f7b66ec8995838f1091ddaa1a354c3b57198dcaabc0c0f0",
+    "revision_receipt_sha256": "82d14c448811b3fd3626d691eadcba101f4fdbeed6780f0dc24a22c4830dcd99",
+    "manifest_sha256": "49a96183519b2c796ed8f31c6bb3b78cfb3d71a97c45acf552cc56f11f95e60c",
+    "status": "SUPERSEDED_BEFORE_RUN",
+    "remote_upload_started": false,
+    "remote_run_started": false,
+    "remote_process_checks_empty": 2,
+    "results_eligible": false,
+    "partial_result_artifacts_written": false
+  },
+  "earlier_c796_attempt": {
+    "classification": "VOID_CODE_CONTRACT_OVERSTRICT",
+    "script_sha256": "c796907e56960756031c989eb363e1f0c4884e0fb459d09847cd02f09aa39a10",
+    "remote_log_sha256": "639e10e31fc194da935545807a692e3a5a771950ca1117f75d3cc4e1a8962e64",
+    "results_eligible": false
+  },
+  "r3_correction": {
+    "economic_or_action_change": false,
+    "entry_admission_change": false,
+    "entry_admission_still_requires_two_sided_touch": true,
+    "missing_book_receipt": "append (recv_wall_ns, null, book_stable_id) to midpoint history and increment passive_mid_skipped_missing_touch once per receipt",
+    "causal_lag_lookup": "return the midpoint or null of the last BOOK receipt at or before the target time",
+    "active_risk_missing_touch": "retain causal queue/depth/flow; set spread_e4, touch_imbalance, mid_move_1s_e4 and mid_move_10s_e4 to null",
+    "extractor_imputation_forbidden": true,
+    "stale_midpoint_carry_forbidden": true,
+    "model_feature_selection_deferred": true
+  },
+  "sealed_invariants": {
+    "dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "receipt_clock": "strict local receipt clock",
+    "equal_receipt_order": "BOOK before TRADE",
+    "fill_rule": "strict trade-through",
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false
+  },
+  "r3_seal": {
+    "script_sha256": "2caa5e520fb8d57f7f259cb680a60a9e06cd4561ac58c24d2ed5e20b56a5a2d0",
+    "prereg_sha256": "1bce1ab3501191f86161e0701ec5f2b32af56c0036a720ef555f2e2a1c99a819",
+    "embedded_spec_sha256": "f90f7b8e58b77601ab2145e364ed7a905e36f3436247ffe2a232c91c19f345ab",
+    "contract_sha256": "7b038b8f97831ddda6ffcfce5580ffbd71cd9a8bdf095cf2bb4c41ca7c03989a",
+    "extractor_tests_sha256": "57ff7a1f68865cc761951175091665ffa33e3e81efd019a58f1418207ead7339"
+  },
+  "local_verification": {
+    "command_scope": [
+      "tests/test_round4_stage1_entry_contract.py",
+      "tests/test_round4_stage1_entry_extractor.py",
+      "tests/test_round4_table_builder.py"
+    ],
+    "passed": 41,
+    "failed": 0,
+    "python_compile": "PASS",
+    "valid_missing_valid_gap_test": "PASS",
+    "recovery_1s_10s_target_state_test": "PASS"
+  },
+  "remote_execution": {
+    "r3_run_started": false,
+    "status": "PENDING_INDEPENDENT_R3_SEAL_AUDIT"
+  }
+}

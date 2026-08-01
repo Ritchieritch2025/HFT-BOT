@@ -1,0 +1,45 @@
+{
+  "schema": "round4-postfill-route-executability-addendum-r2",
+  "status": "PRE_DATA_P0_CONTRACT_FIX",
+  "candidate_status": "NO_CANDIDATE",
+  "fit_authorized": false,
+  "candidate_selection_authorized": false,
+  "live_authorized": false,
+  "predecessor": {
+    "contract_version": "ROUND4_POSTFILL_FULL_COVERAGE_V1",
+    "action_family_version": "ROUND4_KEEP_IOC_FULL_COVERAGE_V1",
+    "python_sha256": "b90cf10feb041ad93d42ca31ce33f097ee87e03c721e0fe38c2698ffbd375b7f",
+    "supplemental_ddl_sha256": "f203374753eed49915af6044e9b0d2a626d40aacc43694caf7db73c5ca8cdee7"
+  },
+  "replacement": {
+    "contract_version": "ROUND4_POSTFILL_FULL_COVERAGE_V2",
+    "action_family_version": "ROUND4_KEEP_IOC_FULL_COVERAGE_V2",
+    "required_route_fields": [
+      "buy_complement_executable_qty_fp",
+      "buy_complement_residual_inventory_fp",
+      "sell_first_executable_qty_fp",
+      "sell_first_residual_inventory_fp"
+    ],
+    "route_conservation": "executable_qty_fp + residual_inventory_fp = remaining_inventory_fp",
+    "selectable_route": "residual_inventory_fp = 0",
+    "ranking": "maximize conservative/high-fee PnL among selectable routes",
+    "tie_break": "BUY_COMPLEMENT",
+    "no_selectable_route": {
+      "ioc_legal": false,
+      "ioc_route": null,
+      "ioc_limit_price_e4": null,
+      "skip_reason": "IOC_ALL_ROUTES_INCOMPLETE_RESIDUAL_HELD",
+      "only_legal_action": "KEEP"
+    }
+  },
+  "source_dates_allowed": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "source_dates_forbidden": [
+    "2026-07-23",
+    "2026-07-26"
+  ],
+  "real_round4_rows_opened_before_fix": 0
+}

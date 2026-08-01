@@ -1,0 +1,300 @@
+{
+  "schema": "kxbtc15m-round4-two-stage-hazard-design-prereg-v1.1",
+  "experiment_id": "KXBTC15M-ROUND4-TWO-STAGE-HAZARD-V1",
+  "created_date_utc": "2026-07-26",
+  "status": "DESIGN_AND_SCHEMA_PREREG",
+  "candidate_status": "ACTION_SET_PENDING",
+  "deployable": false,
+  "live_authorized": false,
+  "claim": "NO_CANDIDATE",
+  "revision": {
+    "id": "R1_PRE_DATA_P1",
+    "date_utc": "2026-07-26",
+    "real_data_opened_before_revision": false,
+    "changes": [
+      "DATA_INVALID requires whole-market-day/all-action rollback and is forbidden in analytical risk sets",
+      "same-envelope complement fill is a zero-time atom outside continuous hazards",
+      "source paths reject every additional date token",
+      "cycle economics follows cycle_policy_outcome primary key and ledger contract",
+      "per-cause RCLL, true pooled-null/ETA interface and AJ direction gate required"
+    ]
+  },
+  "purpose": "Replace q_yes*q_no with first-fill competing risks followed by direct conditional complement completion hazards.",
+  "supersedes_for_round4": {
+    "path": "docs/research_reports/CRYPTO_MM_DYNAMIC_PAIR_EV_GATE_PREREG_2026-07-26.md",
+    "sha256": "4957cb5383da618fd75747f40c37bd28760dd5523fbfdeb0528bb93ed6aa4869",
+    "scope": [
+      "historical split",
+      "q_yes*q_no model object",
+      "concrete action arms"
+    ]
+  },
+  "round3_diagnostic_only": {
+    "source_path": "tmp/crypto_mm_canary_20260726/round3/z3_price_allocation_round3_report.json",
+    "source_sha256": "0ef11cdd374a75328663c315496d510d8d494f736ba988ebb84da1a8b01b1485",
+    "may_select_candidate": false,
+    "arms_all_realized_ev_negative": true,
+    "calibration_examples": {
+      "A1_SPEND_ALL_SLOW": {
+        "mean_predicted_q_both": 0.879206,
+        "actual_completion": 0.49763
+      },
+      "A2_FULL_MINIMAX_ETA": {
+        "mean_predicted_q_both": 0.858696,
+        "actual_completion": 0.422964
+      },
+      "A3_FULL_EV_GATE": {
+        "mean_predicted_q_both": 0.76261,
+        "actual_completion": 0.018323
+      }
+    },
+    "realized_ev_c_per_cycle": {
+      "A0_COMMON_TOUCH": -1.485507,
+      "A1_SPEND_ALL_SLOW": -1.319077,
+      "A2_FULL_MINIMAX_ETA": -1.342745,
+      "A3_FULL_EV_GATE": -1.507351
+    }
+  },
+  "data_policy": {
+    "discovery_only_dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "hard_forbidden_dates": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "other_historical_dates_allowed": false,
+    "forbidden_path_check": "before file content open; every YYYY-MM-DD/YYYY_MM_DD/YYYY/MM/DD/YYYYMMDD token must equal the requested date",
+    "final": {
+      "kind": "genuinely forward complete UTC days only",
+      "start": "first 00:00:00Z after all model/code/action/schema seals",
+      "minimum_complete_hours": 24,
+      "minimum_resolved_admitted_terminal_episodes": 300,
+      "minimum_unique_15m_markets": 30,
+      "decision_boundary": "end of a complete UTC day only",
+      "reset_on_any_change": true
+    }
+  },
+  "clock_contract": {
+    "tradable_clock": "local_recv_ts_us=recv_wall_ns//1000",
+    "forbidden_decision_clocks": [
+      "exchange_ts_us",
+      "ts_utc",
+      "file_order_without_receipt_clock"
+    ],
+    "combined_order": [
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "channel_priority_BOOK_before_TRADE",
+      "ws_seq_or_sentinel",
+      "stable_source_id"
+    ],
+    "causal_feature_check": "feature_asof_wall_ns<=decision_wall_ns"
+  },
+  "entry_action_contract": {
+    "families": [
+      "ENTRY_SKIP",
+      "ENTRY_PAIR_POST_ONLY"
+    ],
+    "clip_contracts": 1,
+    "flat_only": true,
+    "both_ack_before_risk_start": true,
+    "legal_grid_from_market_price_ranges": true,
+    "post_only_required": true,
+    "pair_cost_ceiling_required": true,
+    "nonoverlap_cycle_per_market": true,
+    "concrete_price_actions": "PENDING_CLEAN_POSTFILL_DISCOVERY"
+  },
+  "first_event_contract": {
+    "competing_causes": [
+      "YES_FIRST",
+      "NO_FIRST"
+    ],
+    "other_terminals": [
+      "ADMIN_CENSOR_NO_FIRST_FILL",
+      "ACK_FAILED"
+    ],
+    "data_invalid_handling": "whole market-day and all actions rollback before analytical table/model materialization",
+    "data_invalid_allowed_in_risk_set": false,
+    "independent_probability_product_forbidden": true,
+    "required_identity": "F_yes(h)+F_no(h)+S0(h)=1"
+  },
+  "zero_time_atom_contract": {
+    "event": "same-envelope complement fill after deterministic first-cause ordering",
+    "table": "postfill_zero_time_atom",
+    "elapsed_time": 0,
+    "epsilon_interval_forbidden": true,
+    "continuous_hazard_input_forbidden": true,
+    "continuous_stage_2_condition": "no zero-time atom",
+    "identity": "Q_C_total(h)=pi_atom+(1-pi_atom)*Q_C_continuous(h|no_atom)",
+    "positive_rows": "postfill_zero_time_atom",
+    "denominator": "first_fill_state LEFT JOIN postfill_zero_time_atom",
+    "postfill_action_after_atom_forbidden": true
+  },
+  "postfill_action_contract": {
+    "families": {
+      "KEEP": "Preserve complement price, queue age and priority.",
+      "REPRICE": "Cancel/replace complement; complete cancel race; reset queue age.",
+      "IOC": "Reduce-only exact L2 walk using a sealed route and limit; residual inventory remains in ledger."
+    },
+    "concrete_decision_times": "PENDING_CLEAN_POSTFILL_DISCOVERY",
+    "concrete_keep_horizons": "PENDING_CLEAN_POSTFILL_DISCOVERY",
+    "concrete_reprice_actions": "PENDING_CLEAN_POSTFILL_DISCOVERY",
+    "concrete_ioc_actions": "PENDING_CLEAN_POSTFILL_DISCOVERY",
+    "action_set_seal_required_before_forward": true
+  },
+  "model_contract": {
+    "stage_1": {
+      "object": "cause-specific first-fill hazards",
+      "hazards": [
+        "lambda_yes",
+        "lambda_no"
+      ],
+      "estimator": "side-oriented pooled piecewise exponential ridge",
+      "time_bins_s": [
+        0,
+        1,
+        2,
+        5,
+        15,
+        30,
+        60,
+        120,
+        300
+      ]
+    },
+    "stage_2": {
+      "object": "P(complement before exit | first side, causal first-fill/postfill state, chosen action)",
+      "hazards": [
+        "mu_complement",
+        "mu_inventory_exit"
+      ],
+      "estimator": "side-oriented pooled piecewise exponential ridge",
+      "time_bins_s": [
+        0,
+        0.25,
+        0.5,
+        1,
+        2,
+        5,
+        10,
+        30,
+        60
+      ],
+      "ioc_handling": "deterministic exact execution outcome, not a synthetic fill hazard"
+    },
+    "ridge_grid": [
+      0.1,
+      1,
+      10
+    ],
+    "selection": "leave-one-date-out on 2026-07-20..22 only",
+    "calibration": "cross-fitted intercept+slope only",
+    "nonparametric_sanity": "Aalen-Johansen/Kaplan-Meier",
+    "stage_1_rcll_reporting": [
+      "YES_FIRST",
+      "NO_FIRST",
+      "combined"
+    ],
+    "pooled_null": "time-bin and side intercept only; no continuous features",
+    "eta_baseline": "requires explicit queue-ahead, clip, consumption-rate unit and sign contract; otherwise ETA_BASELINE_NOT_IDENTIFIED",
+    "aj_direction_conflict_status": "MODEL_MISSPECIFIED",
+    "action_seal_allowed_on_direction_conflict": false,
+    "deep_or_tree_sweep_allowed": false
+  },
+  "causal_feature_contract": {
+    "entry": [
+      "same_price_ahead_fp",
+      "better_depth_barrier_fp",
+      "queue_position_fp_if_observed",
+      "flow_1s_fp",
+      "flow_5s_fp",
+      "flow_10s_fp",
+      "flow_60s_fp",
+      "flow_acceleration",
+      "touch_imbalance",
+      "candidate_tick_offset",
+      "spread_e4",
+      "causal_mid_move_1s_e4",
+      "causal_mid_move_10s_e4",
+      "tte_ms",
+      "order_age_ms",
+      "candidate_pair_cost_e4",
+      "candidate_pair_gain_usd"
+    ],
+    "postfill_additions": [
+      "first_side",
+      "first_price_e4",
+      "first_qty_fp",
+      "first_fill_elapsed_ms",
+      "complement_price_e4",
+      "complement_order_age_ms",
+      "complement_queue_position_fp",
+      "causal_mid_move_since_entry_e4",
+      "causal_mid_move_since_fill_e4",
+      "buy_complement_exit_pnl_usd",
+      "sell_first_exit_pnl_usd",
+      "pair_gain_if_complement_usd",
+      "time_to_hard_boundary_ms",
+      "action_kind",
+      "cancel_state"
+    ],
+    "forbidden": [
+      "future_quote_or_trade",
+      "realized_wait",
+      "future_queue_clear",
+      "terminal_label_as_feature",
+      "settlement_outcome",
+      "whole_episode_aggregate",
+      "forbidden_date_statistic",
+      "feature_not_locally_received_at_decision"
+    ]
+  },
+  "primary_metrics": {
+    "ev_cycle": "sum(net_pnl_usd)/admitted_entry_cycles, including no-fill cycles",
+    "capital_dollar_seconds": "integral(resting reservation + pending reservation + unpaired cost basis) dt",
+    "ev_capital_time": "sum(net_pnl_usd)/sum(capital_dollar_seconds)",
+    "display_unit": "cents per locked-dollar-hour = 100*3600*ev_capital_time",
+    "both_must_be_reported": true,
+    "negative_ev_cycle_cannot_be_overridden_by_turnover": true
+  },
+  "forward_gate": {
+    "minimum_resolved_admitted_terminal_episodes": 300,
+    "minimum_unique_15m_markets": 30,
+    "minimum_complete_utc_hours": 24,
+    "ev_cycle_cluster_ci95_lower_gt_usd": 0,
+    "ev_capital_time_cluster_ci95_lower_gt": 0,
+    "paired_control_delta_ci95_lower_gte_usd": 0,
+    "both_first_side_realized_conditional_value_gte_usd": 0,
+    "unknown_carried_unreconciled_required": 0,
+    "source_gates_all_green": true,
+    "model_calibration_guard_required": true
+  },
+  "table_contract": {
+    "path": "round4_two_stage_tables.sql",
+    "tables": [
+      "source_day_gate",
+      "action_set_seal",
+      "entry_episode",
+      "entry_risk_interval",
+      "first_fill_state",
+      "postfill_zero_time_atom",
+      "postfill_decision",
+      "postfill_action",
+      "postfill_risk_interval",
+      "postfill_action_outcome",
+      "cycle_policy_outcome"
+    ],
+    "required_views": [
+      "policy_ev_cycle",
+      "policy_ev_capital_time"
+    ]
+  },
+  "next_gate": {
+    "required_evidence": "clean causal postfill tables and two-stage discovery calibration on 2026-07-20..22",
+    "then": "write one explicit ACTION_SET_SEAL before opening any forward day",
+    "candidate_claim_before_gate": false
+  }
+}

@@ -1,0 +1,362 @@
+{
+  "schema": "round4-postfill-public-proxy-prereg-v4.1",
+  "contract_version": "ROUND4_POSTFILL_PUBLIC_PROXY_V4_1",
+  "action_family_version": "ROUND4_KEEP_FLATTEN_FOK_PUBLIC_PROXY_V4_1",
+  "status": "PRE_DATA_CONTRACT_SEALED_DISCOVERY_ONLY",
+  "self_contained": true,
+  "supersedes_for_future_extraction": [
+    "ROUND4_POSTFILL_PUBLIC_PROXY_V4",
+    "ROUND4_KEEP_FLATTEN_FOK_PUBLIC_PROXY_V4"
+  ],
+  "rejected_artifact_preservation": {
+    "v4_prereg_json": "ROUND4_POSTFILL_KEEP_FLATTEN_FOK_PREREG_V4.json",
+    "v4_prereg_markdown": "ROUND4_POSTFILL_KEEP_FLATTEN_FOK_PREREG_V4.md",
+    "v4_manifest": "FULL_COVERAGE_STAGE2_V4_SHA256SUMS",
+    "status": "PRESERVED_AS_REJECTED_FAILURE_EVIDENCE",
+    "initial_v4_1_red_run": {
+      "cases": 10,
+      "red": 9,
+      "incidental_green": 1,
+      "defects_exposed": [
+        "ACKED historical cancel state accepted",
+        "off-grid first price accepted",
+        "COMPLEMENT_FILL at close accepted",
+        "post-close public settlement receipt rejected",
+        "first-fill normalized proxy evidence absent",
+        "same-effective public FOK book accepted",
+        "capital omitted complement reservation",
+        "low/base/high fee band mislabeled as bound",
+        "ticker/date/window metadata not bound"
+      ],
+      "incidental_green_limitation": "The off-grid complement mutation was rejected only by an unrelated complement-identity mismatch; V4.1 adds an independent tapered-grid gate."
+    }
+  },
+  "authorization": {
+    "real_data_extraction_authorized": false,
+    "fit_authorized": false,
+    "candidate_selection_authorized": false,
+    "forward_or_heldout_open_authorized": false,
+    "shadow_authorized": false,
+    "live_authorized": false
+  },
+  "official_exchange_sources": [
+    {
+      "title": "Fee rounding",
+      "url": "https://docs.kalshi.com/getting_started/fee_rounding",
+      "locked_use": "Every true fill has rounded trade fee and account-balance rounding; fee accumulation and whole-cent rebates are per order. V4.1 never treats maker trade-fee multiplier zero as proof that total net rounding fee is zero."
+    },
+    {
+      "title": "Fixed-point migration",
+      "url": "https://docs.kalshi.com/getting_started/fixed_point_migration",
+      "locked_use": "Contract counts accept two decimals with minimum granularity delta=0.01 contracts; market price grids come from price_level_structure/price_ranges. The tapered_deci_cent example has 0.001 ticks outside 0.10-0.90 and 0.01 ticks inside."
+    },
+    {
+      "title": "Market settlement",
+      "url": "https://docs.kalshi.com/getting_started/market_settlement",
+      "locked_use": "Settlement normally occurs after expiration, timing varies, finalized positions resolve automatically, and funds transfer at settlement. Scheduled close is not a cash-release receipt."
+    },
+    {
+      "title": "Order directions",
+      "url": "https://docs.kalshi.com/getting_started/order_direction",
+      "locked_use": "Held YES exits through ASK/sell YES; held NO exits through BID/buy YES."
+    },
+    {
+      "title": "Create Order V2",
+      "url": "https://docs.kalshi.com/api-reference/orders/create-order-v2",
+      "locked_use": "fill_or_kill and self-trade-prevention protocol fields."
+    },
+    {
+      "title": "Kalshi Fee Schedule",
+      "url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+      "effective_date": "2026-07-07",
+      "raw_pdf_sha256": "815e2d5127d02d2fb90773d1a3844dc15a987696171eddc4e58de87b59c6124c",
+      "raw_pdf_bytes": 382507,
+      "raw_pdf_pages": 12,
+      "locked_use": "The authenticated existing local PDF gives general taker rate 0.07/default M=1, maker rate 0.0175/default M=0, centicent rounding, and no settlement fee. KXBTC15M is absent from the non-standard list and therefore inherits the defaults. Maker trade-fee M=0 does not by itself prove zero balance-rounding fee."
+    }
+  ],
+  "external_source_receipts": {
+    "receipt_path": "tmp/crypto_mm_canary_20260726/round4/ROUND4_POSTFILL_V4_1_EXTERNAL_SOURCE_RECEIPTS.json",
+    "series_get": {
+      "captured_at_utc": "2026-07-26T11:43:46Z",
+      "raw_sha256": "be24516ae4825de53af89b12ead76e3a93ac52e18ef67bf519621adde3ed5bc2",
+      "observed_fee_type": "quadratic",
+      "observed_fee_multiplier": 1
+    },
+    "series_fee_changes_get": {
+      "captured_at_utc": "2026-07-26T11:43:51Z",
+      "raw_sha256": "6780c8eb7edbb5e1ca3b15166f17cef054befacb2cc8f4bc479c54074a9a2c18",
+      "show_historical": true,
+      "observed_change_count": 0
+    },
+    "current_open_event_get": {
+      "captured_at_utc": "2026-07-26T11:46:20Z",
+      "raw_sha256": "c65e94f4c8919171866048e1ee237a596a4c125d98a6113eff311ab618ead304",
+      "observed_price_level_structure": "tapered_deci_cent",
+      "event_and_market_fee_override_fields_present": false,
+      "observation_limit": "Field absence is not standalone fee proof; series, historical fee changes, and authenticated PDF must agree."
+    },
+    "fee_schedule_pdf": {
+      "local_path": "/Applications/Research Ritch/kalshi-fee-schedule July'.pdf",
+      "raw_sha256": "815e2d5127d02d2fb90773d1a3844dc15a987696171eddc4e58de87b59c6124c",
+      "where_froms_xattr_sha256": "1f0c5b6d7b9718fbe402ee43501b9aa649b97a69abba972f1639fb3c71fceaee",
+      "pymupdf_page_text_join_lf_sha256": "5f90733a0dae6e3d9577efb37895011ddda96385731481a7706c48643b58276d",
+      "raw_bytes_authenticated": true
+    },
+    "drift_rule": "Any PDF path/size/mtime/raw hash/xattr/page/text drift, series fee field drift, nonempty fee_changes response, or market grid drift fails closed before candidate use."
+  },
+  "target_account_precision_receipt": {
+    "target_account_class": "DIRECT",
+    "account_rounding_target_usd": "0.0001",
+    "local_path": "tmp/crypto_mm_canary_20260726/position_value_contract_probe_result.json",
+    "sha256": "816528a20ee70ffc7536c02b8984a69f8730f8304656a259e2edd124e6db8da6",
+    "observed_subaccount": 0,
+    "locked_use": "Account-precision evidence only. It is not a discovery execution, reward, action, or fitting row.",
+    "forbidden_discovery_date": "2026-07-26"
+  },
+  "market_and_data_boundary": {
+    "data_role": "DISCOVERY",
+    "data_origin": "PUBLIC_RAW",
+    "allowed_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates_utc": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "path_preflight_before_open": true,
+    "market_day_rollback_on_any_contract_failure": true,
+    "ticker_binding": "market_ticker, market_id, source_date_utc, market-window open/close, metadata stable id, and metadata source hash must agree",
+    "price_level_structure": "tapered_deci_cent",
+    "minimum_true_fill_increment_contracts": "0.01",
+    "minimum_increment_unknown": "FAIL_CLOSED",
+    "true_fill_minimum_attestation_required": true,
+    "primary_candidate_maker_quote_gate": "whole-cent aligned only; tapered subcent maker quotes are sensitivity-only",
+    "terminal_wins_over_same_time_grid": true
+  },
+  "historical_public_proxy_evidence": {
+    "table": "postfill_v41_public_proxy_evidence",
+    "normalized_trade_table": "postfill_v41_public_trade_row",
+    "required_fields": [
+      "maker_order_yes_book_side",
+      "maker_order_outcome_side",
+      "maker_order_outcome_price_e4",
+      "maker_order_yes_price_e4",
+      "maker_order_qty_fp",
+      "trigger_public_trade_row_id",
+      "derived_cumulative_strict_through_qty_fp",
+      "public_trade_spine_sha256",
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ingest_sequence",
+      "stable_source_id",
+      "source_rows_sha256"
+    ],
+    "public_trade_row_fields": [
+      "trade_index",
+      "trade_id",
+      "taker_book_side",
+      "taker_outcome_side",
+      "yes_price_e4",
+      "count_fp",
+      "is_block_trade",
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ingest_sequence",
+      "stable_source_id",
+      "source_rows_sha256"
+    ],
+    "strict_full_proxy_rule": "Public trade fields are taker direction on the YES-book price scale. A resting YES BID is crossed by taker NO/ASK at a strictly lower YES price; a resting NO bid is a YES-book ASK and is crossed by taker YES/BID at a strictly higher YES price. Derived cumulative child-row quantity must cover the complete maker order.",
+    "summary_derivation": "Trade indices are contiguous and causal; trigger id/envelope is the final child row; cumulative quantity and spine hash are derived from normalized child rows rather than trusted from the summary.",
+    "first_fill_receipt_binding": "Evidence wall, monotonic, ingest sequence, stable id, ticker, and market id equal the first-fill envelope.",
+    "continuous_complement_binding": "Evidence equals the terminal complement receipt and terminal occurs strictly before market close.",
+    "race_binding": "CANCEL_RACE_PAIR references the same normalized complement evidence id and occurs strictly before cancel effective x.",
+    "zero_atom_binding": "First and complement share wall/mono envelope; complement ingest_sequence is strictly greater.",
+    "source_hash_recomputed": true
+  },
+  "cancel_and_fok_clock": {
+    "historical_state_field": "simulated_cancel_state",
+    "only_allowed_historical_value": "NONE",
+    "forbidden_values": [
+      "ACKED",
+      "PENDING",
+      "UNKNOWN"
+    ],
+    "decision_to_effective_ms": 60,
+    "classification": "SYNTHETIC_SCENARIO_NOT_OBSERVED_ACK_NOT_PRODUCTION_SLA",
+    "same_time_synthetic_order": [
+      "cancel_effective sequence 0",
+      "FOK processed sequence 1"
+    ],
+    "public_book_cutoff": "recv_mono_ns must be strictly less than cancel/FOK effective recv_mono_ns; wall is also strictly earlier",
+    "same_effective_higher_receive_key": "REJECT",
+    "receive_key_total_order_used_to_cross_effective": false
+  },
+  "fok_book_and_slice_spine": {
+    "book_source_fields": [
+      "market_ticker",
+      "market_id",
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ingest_sequence",
+      "stable_source_id",
+      "source_rows_sha256"
+    ],
+    "source_hash_recomputed": true,
+    "normalized_table": "postfill_v41_fok_slice",
+    "primary_key": [
+      "postfill_fok_outcome_id",
+      "slice_index"
+    ],
+    "sequence_rule": "contiguous zero-based slice_index in canonical best-to-worse order",
+    "execution_rule": "Contract walks source_qty_fp and derives executed_qty_fp; caller-supplied execution slices are forbidden.",
+    "atomicity": "FOK_FULL if canonical source depth reaches q, otherwise FOK_ZERO with every executed_qty_fp=0",
+    "candidate_grid_gate": "Every source and limit price is legal tapered_deci_cent and whole-cent aligned for the primary candidate arm."
+  },
+  "fee_contract": {
+    "symbols": {
+      "delta_qty": "0.01 contracts, minimum true-fill quantity",
+      "tau": "0.0001 USD trade-fee quantum",
+      "h": "0.0001 USD target DIRECT account balance precision",
+      "p_i": "public L2 level dollar price",
+      "q_i": "derived executed quantity at level i",
+      "n_i": "q_i/delta_qty",
+      "n_max": "sum_i n_i",
+      "t_k_i": "ceil_tau(0.07*(k*delta_qty)*p_i*(1-p_i))",
+      "rho_k_i": "signed-balance remainder in [0,h) for a k*delta_qty true fill"
+    },
+    "serialized_semantics": {
+      "raw_total": "sum_i 0.07*q_i*p_i*(1-p_i)",
+      "aggregate_centicent_lower": "ceil_tau(raw_total)",
+      "public_l2_level_scenario": "sum_i ceil_tau(0.07*q_i*p_i*(1-p_i))",
+      "trade_upper_before_account_rounding": "sum_i n_i*ceil_tau(0.07*delta_qty*p_i*(1-p_i))",
+      "partition_dp_no_rebate_upper": "sum_i DP_i(n_i), where DP_i(m)=max_{1<=k<=m}(DP_i(m-k)+t_k_i+rho_k_i)",
+      "sql_safe_upper": "trade_upper_before_account_rounding+n_max*h",
+      "doc_literal_tight_sensitivity": "raw_total+n_max*0.0001+0.01/order"
+    },
+    "candidate_selected_bound": "PARTITION_DP_NO_REBATE_SAFE_UPPER",
+    "doc_literal_tight_bound_candidate_use": "FORBIDDEN_WITHOUT_AUTHENTICATED_ACCUMULATOR_RECURRENCE",
+    "forward_actual_fee": "Use the actual fee_cost receipt later; historical public L2 marks it unavailable.",
+    "maker_trade_fee": "0 under the frozen KXBTC15M schedule",
+    "maker_net_rounding_fee": "separate from trade fee",
+    "maker_primary_alignment_proof": "With whole-cent p, delta_qty=0.01 and target DIRECT h=tau=0.0001, p*delta_qty and every rounded trade fee are h-aligned; every legal private maker partition has rho=0.",
+    "p_0_30_q_2_test_vector": {
+      "raw_total": "0.0294",
+      "old_v4_high": "0.03",
+      "trade_partition_upper": "0.04",
+      "partition_dp_no_rebate_upper": "0.04",
+      "sql_safe_upper": "0.06",
+      "conclusion": "The V4 0.03 high scenario was not an upper bound."
+    }
+  },
+  "capital_and_cash_contract": {
+    "symbols": {
+      "q": "first-fill and exit quantity",
+      "p0": "first-fill dollar price",
+      "pc": "original complement dollar price",
+      "F0_upper": "first maker net-fee safe upper",
+      "Fc_upper": "complement maker net-fee safe upper",
+      "B": "q*p0+F0_upper",
+      "R": "q*pc+Fc_upper; local engineering reserve for an independently fillable resting complement, not an exchange-held-cash claim",
+      "C": "directional FOK candidate reserve/cash requirement",
+      "x": "synthetic cancel-effective or order-expiry receipt elapsed seconds",
+      "f": "FOK terminal elapsed seconds",
+      "r": "public FINALIZED/settlement receipt elapsed seconds"
+    },
+    "locked_pair_capital": "B+R",
+    "peak_strategy_capital": "max(B+R,B+C)",
+    "race_or_keep_pair_to_t": "(B+R)*t",
+    "fok_full": "(B+R)*x+(B+C)*(f-x)",
+    "fok_zero": "(B+R)*x+(B+C)*(f-x)+B*(r-f)",
+    "hard_fallback": "(B+R)*x+B*(r-x)",
+    "held_no_fok_cash": "q*fok_limit_price+F_upper",
+    "held_yes_fok_cash": "max(0,F_upper-q*fok_limit_price)",
+    "reservation_release_order": "R is added back only after synthetic cancel effective x",
+    "hard_release_rule": "x is the sealed post-close synthetic public-lifecycle order-expiry/cancel-effective scenario; r is the actual public settlement receipt. Neither is silently backfilled to scheduled close.",
+    "settlement_constraint": "r >= market close and public receipt ticker, market id, status, result, stable id, source hash, receive wall/mono, determined time, and finalized time are bound"
+  },
+  "serialized_tables": [
+    "postfill_v41_fee_schedule_receipt",
+    "postfill_v41_market_metadata_receipt",
+    "postfill_v41_settlement_receipt",
+    "postfill_v41_causal_state",
+    "postfill_v41_action",
+    "postfill_v41_keep_transition",
+    "postfill_v41_flatten_fok_outcome",
+    "postfill_v41_fok_slice",
+    "postfill_v41_public_proxy_evidence",
+    "postfill_v41_public_trade_row",
+    "postfill_v41_zero_time_atom"
+  ],
+  "ddl_and_commit_authority": {
+    "schema": "round4_postfill_state_contract_v4_1.sql",
+    "validator": "round4_postfill_v4_1_validator.sql",
+    "shared_legacy_zero_atom_dependency": false,
+    "zero_atom_ticker_and_provenance_not_null": true,
+    "table_builder_gate": "insert_postfill_v41_tables",
+    "transaction_rule": "Insert all eleven tables, execute normative validator, roll back all rows on any violation.",
+    "independent_sql_recomputation": [
+      "fee-schedule, market-metadata, and settlement normalized receipt linkage",
+      "public trade-row contiguity, taker direction, YES-price conversion, cumulative quantity, trigger envelope, and spine hash linkage",
+      "canonical slice walk and FULL/ZERO classification",
+      "gross PnL",
+      "raw/lower/L2/Tmax/DP-aligned/SQL-safe fee values",
+      "candidate conservative net",
+      "held-NO versus held-YES cash",
+      "peak capital",
+      "FOK x/f/r and KEEP/HARD capital dollar-seconds",
+      "action-pair, outcome, evidence, and zero-atom linkage"
+    ],
+    "fake_123_gate": "A row with forged gross/net/capital=123 is rejected by normative SQL and the transaction returns to zero inserted rows."
+  },
+  "required_counterexamples": [
+    "ACKED/PENDING/UNKNOWN simulated cancel state",
+    "same-effective zzzz public book event",
+    "t=0 state consuming a same-envelope row after the first fill",
+    "other-market settlement/result",
+    "COMPLEMENT_FILL at market close",
+    "fake gross/net/capital 123",
+    "zero-atom NULL ticker or provenance",
+    "off-grid first/complement/FOK slice/limit price",
+    "ticker/date/window metadata mismatch",
+    "unknown delta_qty or non-integral q/delta_qty",
+    "first/complement proxy that lacks full cumulative strict-through quantity",
+    "self-reported execution slices",
+    "DOC_LITERAL tight sensitivity selected for candidate gate",
+    "forged target-account precision receipt",
+    "held-NO FOK cash infeasibility",
+    "FOK_ZERO/HARD missing B-only post-release capital segment"
+  ],
+  "post_audit_sql_counterexamples": [
+    "orphan FOK slice",
+    "orphan KEEP action",
+    "all FOK slices rewritten to foreign identity and hashes",
+    "pre-decision public FOK book",
+    "state/action FOK fee upper rewritten to zero",
+    "coherent 60ms-to-50ms latency rewrite",
+    "unlinked settlement id/hash",
+    "foreign FIRST_FILL proxy",
+    "arbitrary outcome fee schedule",
+    "missing public trade-row spine",
+    "proxy cumulative rewritten independently of child rows",
+    "wrong public taker direction",
+    "market metadata window drift",
+    "normalized settlement result drift",
+    "coherent frozen fee receipt hash rewrite",
+    "first proxy maker economics rewritten away from state"
+  ],
+  "seal_gates": {
+    "targeted_tests_expected": "45 passed",
+    "targeted_test_command": "python3 -m pytest tests/test_round4_postfill_state_contract_v4_1.py -q",
+    "combined_tests_expected": "125 passed",
+    "combined_test_command": "python3 -m pytest tests/test_round4_postfill_state_contract_v4_1.py tests/test_round4_postfill_state_contract.py tests/test_round4_table_builder.py tests/test_round4_stage1_entry_extractor.py tests/test_round4_stage1_entry_contract.py -q",
+    "python_and_sql_independent_economic_recomputation": true,
+    "full_zero_race_hard_and_zero_atom_sql_insert_tests": true,
+    "learner_v4_1_pin_required_before_fit": true,
+    "old_learner_pin_authorizes_candidate_or_live": false,
+    "candidate_selection_authorized": false,
+    "live_authorized": false
+  }
+}

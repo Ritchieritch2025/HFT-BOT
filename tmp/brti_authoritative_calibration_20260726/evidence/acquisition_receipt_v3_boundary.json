@@ -1,0 +1,2863 @@
+{
+  "attempt_count": 72,
+  "elapsed_ms": 45127.723,
+  "engine_or_service_mutation_performed": false,
+  "hard_banned_history_requested": false,
+  "hours": [
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 0.328,
+          "body_bytes": 756062,
+          "body_sha256": "2c4f11bf1bd8434332adecc1a582972d6ef3926d52749b72dcc363ed17bcfc13",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1117.051,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T00:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T00:00:00.000Z",
+      "maximum_source_ms": 1784509199800,
+      "minimum_source_ms": 1784505600000,
+      "payload_count": 18000,
+      "payload_sha256": "36856e3a7ac17d0b3e9f8428ca3cc1c5bc1726790964ba0a342c69de1959c648",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784509199000,
+      "projected_minimum_source_ms": 1784505600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 97003,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_00.json.gz",
+      "stored_sha256": "505dc46b42d0bb5e20193dd1b82211d9519e4d9cdbd4b3ef9ce87e46e0a19171"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 500.821,
+          "body_bytes": 756062,
+          "body_sha256": "24c49702466b5ef2d590d36eb02e07198c88b32cd463ca34a05dfb669c82bdfc",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 935.029,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T01:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T01:00:00.000Z",
+      "maximum_source_ms": 1784512799800,
+      "minimum_source_ms": 1784509200000,
+      "payload_count": 18000,
+      "payload_sha256": "a1369a0cbc9dc94bfae83b66eb6f5f6f44f9d1645bebc2d46ad715aae8536966",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784512799000,
+      "projected_minimum_source_ms": 1784509200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 97396,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_01.json.gz",
+      "stored_sha256": "cb23ed7805aa1b715e803df4cf967b1d955bab28880cda3e96de5d2b06834359"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 1236.553,
+          "body_bytes": 756062,
+          "body_sha256": "6dc76ed0372552c6e8cbb2122098d609af6c269b28ab1acf960a46936dfb1d7d",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1295.192,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T02:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T02:00:00.000Z",
+      "maximum_source_ms": 1784516399800,
+      "minimum_source_ms": 1784512800000,
+      "payload_count": 18000,
+      "payload_sha256": "38453048f2f4c1b017794c03dc75cdb18efdd2f21d0ca782b15cdfb197c3daa5",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784516399000,
+      "projected_minimum_source_ms": 1784512800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 96104,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_02.json.gz",
+      "stored_sha256": "1db1564b6870914f755ad9ec777ba7dfdc2336fe2cca87f25bfe9e84f894c416"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 1736.627,
+          "body_bytes": 756062,
+          "body_sha256": "4b5ae7443108680e82b1323c543e09f4d147e832475a88ee792a1b8803037385",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1234.37,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T03:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T03:00:00.000Z",
+      "maximum_source_ms": 1784519999800,
+      "minimum_source_ms": 1784516400000,
+      "payload_count": 18000,
+      "payload_sha256": "898ad5043bf8f1e64d0ea73745b835b8c21d329f4f9bb1285f75b5d2a56fdd38",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784519999000,
+      "projected_minimum_source_ms": 1784516400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 93923,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_03.json.gz",
+      "stored_sha256": "31a3d404d98785e61afbc9bbcc4b7930f1b1354b1cc1697b2ecd9b307a554d50"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 2624.842,
+          "body_bytes": 756062,
+          "body_sha256": "c2f5dcf6d8c6317f16f153dbe7b4e11f691f76322ac655bdfc16aa6f0e9706fe",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1218.444,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T04:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T04:00:00.000Z",
+      "maximum_source_ms": 1784523599800,
+      "minimum_source_ms": 1784520000000,
+      "payload_count": 18000,
+      "payload_sha256": "402675815ea15c8646ec8b5d1ea8b48100c1f3e1af37fbc482a2b6fa1ec0f14c",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784523599000,
+      "projected_minimum_source_ms": 1784520000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92748,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_04.json.gz",
+      "stored_sha256": "cf4d8403f2060ece59d2fbd5581cae658a1a40b252654c081861039b150b8133"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 3125.481,
+          "body_bytes": 756062,
+          "body_sha256": "a5dc6ea530ecd78c0ee34b61c88b60c99ba70c489933284955233c4d8abc64e0",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 992.889,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T05:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T05:00:00.000Z",
+      "maximum_source_ms": 1784527199800,
+      "minimum_source_ms": 1784523600000,
+      "payload_count": 18000,
+      "payload_sha256": "585330ba5bba49749fd924773582b255b2307a9cc2ae6aaa87c549ab1d7d3ae7",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784527199000,
+      "projected_minimum_source_ms": 1784523600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 96361,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_05.json.gz",
+      "stored_sha256": "c5e29cac5149e423410de89ddcf17b6851d2e014bf816eddbf0cfa6ff6e59b46"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 3942.442,
+          "body_bytes": 756062,
+          "body_sha256": "b43355f600b03c57860d555f0475284744b65f6bd2f1e41538a90d13b0a08b8b",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 952.352,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T06:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T06:00:00.000Z",
+      "maximum_source_ms": 1784530799800,
+      "minimum_source_ms": 1784527200000,
+      "payload_count": 18000,
+      "payload_sha256": "14300097ad502dbc070143058fa70794f96d0faa05dbf7d5120315a59ef342b6",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784530799000,
+      "projected_minimum_source_ms": 1784527200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94879,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_06.json.gz",
+      "stored_sha256": "d2c5e7fb56ac4dde633b74f70e28803fe3b9f2f55b550daf0ba7ca42f7d5baa8"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 4442.822,
+          "body_bytes": 756062,
+          "body_sha256": "62b8d5da6cbb56bfe85aaf0bb1ff8ce7e1dbbcbb1d33072c92d5dd914c59b893",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1178.441,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T07:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T07:00:00.000Z",
+      "maximum_source_ms": 1784534399800,
+      "minimum_source_ms": 1784530800000,
+      "payload_count": 18000,
+      "payload_sha256": "accaec7df8fb1898372f05708daee7cc854edb5a7f737f545b4788159c6c13fd",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784534399000,
+      "projected_minimum_source_ms": 1784530800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92854,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_07.json.gz",
+      "stored_sha256": "e2a4a95ad02e490e39591a9b668c884f1675c734b26b27c2825ac634fe95cb6d"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 5013.713,
+          "body_bytes": 756062,
+          "body_sha256": "3328554497f5820032ee8ea8b1033ad4f6279f4d2ca9529d3a35eedc58dc6508",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1291.229,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T08:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T08:00:00.000Z",
+      "maximum_source_ms": 1784537999800,
+      "minimum_source_ms": 1784534400000,
+      "payload_count": 18000,
+      "payload_sha256": "658ae3891919d9f190b3a8846c818545b804f79c547525c4756ed494d7b34515",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784537999000,
+      "projected_minimum_source_ms": 1784534400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91716,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_08.json.gz",
+      "stored_sha256": "03249e0654661511b41725a14c3a566e427a39f8d9adbfebf5c936956e2d9c2a"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 5743.399,
+          "body_bytes": 756062,
+          "body_sha256": "2e66738c697c3bf8edb2035cb50440fcc08dbd41496b6caceee7610902b8bd18",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1068.567,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T09:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T09:00:00.000Z",
+      "maximum_source_ms": 1784541599800,
+      "minimum_source_ms": 1784538000000,
+      "payload_count": 18000,
+      "payload_sha256": "5981a3e16c78142e556f3b927d7c69d5807c33e5adee96f8e430ad8cc3853e8d",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784541599000,
+      "projected_minimum_source_ms": 1784538000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 89952,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_09.json.gz",
+      "stored_sha256": "5935aac0fe103c9197a8ae2d7710751de1aebdcd74935f2df750b215a2b99e9a"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 6403.314,
+          "body_bytes": 756062,
+          "body_sha256": "dd73df382982ec1104dff70b248fbb68691d93c50d3a99d7e3257038ac5d1367",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1180.706,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T10:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T10:00:00.000Z",
+      "maximum_source_ms": 1784545199800,
+      "minimum_source_ms": 1784541600000,
+      "payload_count": 18000,
+      "payload_sha256": "58d20902a032da1652d21d5100dff62afa6696c11b4b222adf73c15950866349",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784545199000,
+      "projected_minimum_source_ms": 1784541600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90114,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_10.json.gz",
+      "stored_sha256": "885404557cf61ac330012cc3b60fbf19ee6c130739a8a8095bb455474484b4eb"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 6942.491,
+          "body_bytes": 752534,
+          "body_sha256": "1347d1d87b56f8548d57345d7ac1e39e7a9a19fcdcab7daf74e7dd8b73faad4e",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1001.942,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3584 missing=16 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T11:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T11:00:00.000Z",
+      "maximum_source_ms": 1784548799800,
+      "minimum_source_ms": 1784545200000,
+      "payload_count": 17916,
+      "payload_sha256": "3f4d2958b1c956d6b8ca95af7639e578c5ef708dad3985274ebb87a34575f9d6",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 93922,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_11.json.gz",
+      "stored_sha256": "76029ac91461c59c6a2e89c198fe0375f89363b56549b9bd741701a3f0759bcc"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 7702.767,
+          "body_bytes": 756062,
+          "body_sha256": "55a341c86baf65aad8660faf88de6c55f01a2e47264cd2129ee8970157e55709",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 929.903,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T12:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T12:00:00.000Z",
+      "maximum_source_ms": 1784552399800,
+      "minimum_source_ms": 1784548800000,
+      "payload_count": 18000,
+      "payload_sha256": "27e186fde2f7640c0ddbbbb7f08bab45f90fa65f48950d791eaaf567f9d0f5cd",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784552399000,
+      "projected_minimum_source_ms": 1784548800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94102,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_12.json.gz",
+      "stored_sha256": "ece484341bc26d89bbf0345fcf1666a7bd81a8b9174b05132fcdca06623e52dc"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 8202.826,
+          "body_bytes": 756062,
+          "body_sha256": "95c062b42b30450c4c62b4e5609ad07063849dc5193bca2cafab7ad53da84c7f",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 912.198,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T13:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T13:00:00.000Z",
+      "maximum_source_ms": 1784555999800,
+      "minimum_source_ms": 1784552400000,
+      "payload_count": 18000,
+      "payload_sha256": "6e1d38f348c0f54a3e69b5028e17e61bd2697e6d1d5ce0d14ac3e28c5b568af6",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784555999000,
+      "projected_minimum_source_ms": 1784552400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 96161,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_13.json.gz",
+      "stored_sha256": "1dbcef89369663527424ab8370e3c2d271193de8a5d3a7b22654f12a46a989a0"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 8762.886,
+          "body_bytes": 756062,
+          "body_sha256": "126b56b5ba643b49e08ae2adef75104ab62e2cf2da15fd097956218a23a9ccad",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1254.949,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T14:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T14:00:00.000Z",
+      "maximum_source_ms": 1784559599800,
+      "minimum_source_ms": 1784556000000,
+      "payload_count": 18000,
+      "payload_sha256": "e8c8d14f8e0c26e022c04fd0aea67276b098145ca8fc03e113f0e1340532491d",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784559599000,
+      "projected_minimum_source_ms": 1784556000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 98905,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_14.json.gz",
+      "stored_sha256": "732b202a2fd1fcc2e4b55954a667f44612ac3855ebc58b03d61171deaa9d8b04"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 9262.951,
+          "body_bytes": 756062,
+          "body_sha256": "ae873041d814d81f30b88230904271a9139ef441afa1f2397b71dfbcbfbfb476",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1288.317,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T15:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T15:00:00.000Z",
+      "maximum_source_ms": 1784563199800,
+      "minimum_source_ms": 1784559600000,
+      "payload_count": 18000,
+      "payload_sha256": "23d48c4e4f1419fbe2284040d378c9fbd4eba9b97b946807964bd821ab730997",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784563199000,
+      "projected_minimum_source_ms": 1784559600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 98912,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_15.json.gz",
+      "stored_sha256": "dceedf86d3ccbbf0596cd4b5958bcc8c0611589dc19a122f05ea50f74477fe3b"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 10135.013,
+          "body_bytes": 756062,
+          "body_sha256": "2d4fcb8529cc40dd5e67621043055597faa018aee1858476cc1cdd21828fdcda",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 993.306,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T16:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T16:00:00.000Z",
+      "maximum_source_ms": 1784566799800,
+      "minimum_source_ms": 1784563200000,
+      "payload_count": 18000,
+      "payload_sha256": "bdbd3b67f690209268544f5c6bc19ee7b628c823733ab922c59d2463f257d696",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784566799000,
+      "projected_minimum_source_ms": 1784563200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 95189,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_16.json.gz",
+      "stored_sha256": "7ebd9b1a1ba5e04715a84187337bfa76610edd04be067d57428a959f0ef77394"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 10660.409,
+          "body_bytes": 756062,
+          "body_sha256": "35c763e8b7cef864c57fdae6cdb2c98126a2e28b09aa9d6378c9732b3f208c79",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 898.184,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T17:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T17:00:00.000Z",
+      "maximum_source_ms": 1784570399800,
+      "minimum_source_ms": 1784566800000,
+      "payload_count": 18000,
+      "payload_sha256": "944079974b08010d99d139240e3220e9941e6bde140075b0ecdcf04745946352",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784570399000,
+      "projected_minimum_source_ms": 1784566800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 93628,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_17.json.gz",
+      "stored_sha256": "a73b6c2f477fdf0784471e9a94ade85005bb5a648c48fe6d993e7923ac0bdde8"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 11250.184,
+          "body_bytes": 756062,
+          "body_sha256": "7b2b9129b58904a3d6212a2dd5f1ba70b4f17c9ce4ae172cb761833043345e8e",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 924.755,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T18:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T18:00:00.000Z",
+      "maximum_source_ms": 1784573999800,
+      "minimum_source_ms": 1784570400000,
+      "payload_count": 18000,
+      "payload_sha256": "413bc3907f45501ae6d7f1e5d5d952eed9d485a4f4e41e708ef0256d85110f57",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784573999000,
+      "projected_minimum_source_ms": 1784570400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94477,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_18.json.gz",
+      "stored_sha256": "b606252b9e848db38904e0a6cb7439bd37952a9e73f22c663e9de3397960ee0c"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 11750.252,
+          "body_bytes": 756062,
+          "body_sha256": "b3336deb2f546f155e01fcd4c052bddecffb8590cb15343e12e9ae218a970be2",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1253.686,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T19:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T19:00:00.000Z",
+      "maximum_source_ms": 1784577599800,
+      "minimum_source_ms": 1784574000000,
+      "payload_count": 18000,
+      "payload_sha256": "b33d11978864911cdce7c6207f3f296327f29a9256cf4c90a2d3139f036c17b0",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784577599000,
+      "projected_minimum_source_ms": 1784574000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92955,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_19.json.gz",
+      "stored_sha256": "bd93e2cdbf47d2a5b658e9d566dc43fa01e67b1ebdee585520cdf09dc1a6a54d"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 12299.467,
+          "body_bytes": 753164,
+          "body_sha256": "47c9dd25d5a927aaa6e54d6e9faefa024f0429bb9934e8eb857925d79e51e2fc",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1125.203,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3585 missing=15 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T20:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T20:00:00.000Z",
+      "maximum_source_ms": 1784581199800,
+      "minimum_source_ms": 1784577600000,
+      "payload_count": 17931,
+      "payload_sha256": "4e49a7dd7481a0d9dc9075ccf45c5cdef7cd505d91037e4815b2274f12236ba8",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 89254,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_20.json.gz",
+      "stored_sha256": "be4bd1e7c13b91374da7ee37ac82cd97bc3e6904e6d3a6e8efc807d5519a76df"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 13114.568,
+          "body_bytes": 752198,
+          "body_sha256": "06be1f2c99d8964fa0c025b3dd18bfe8e8f5a72f1464d8ce4173bd4879c2686a",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 862.811,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3582 missing=18 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T21:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T21:00:00.000Z",
+      "maximum_source_ms": 1784584799800,
+      "minimum_source_ms": 1784581200000,
+      "payload_count": 17908,
+      "payload_sha256": "0f9e9debf93f5de7beebe10b3732879c693b6601e511f267c095b480b937884d",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 85369,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_21.json.gz",
+      "stored_sha256": "17ea4f4ccfafcddb26eeea96a055ba5289816e983f3fe2b57d5e3b95eb446c51"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 13614.64,
+          "body_bytes": 752534,
+          "body_sha256": "6cacc66903e913c7989e49384d159564f8563647bc2095334aff18483a28fd80",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 971.131,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3584 missing=16 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T22:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T22:00:00.000Z",
+      "maximum_source_ms": 1784588399800,
+      "minimum_source_ms": 1784584800000,
+      "payload_count": 17916,
+      "payload_sha256": "76ba269dd7671f52299859e8a01970bc89682cc7fa73950bab1282dbb4b960e0",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 88735,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_22.json.gz",
+      "stored_sha256": "420495213b71e4718ecb86d1e9f0ec1b5b6e4d4205aa4de9954d38ccc83e1cc0"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 14114.636,
+          "body_bytes": 756062,
+          "body_sha256": "bbe6ad88aa75b52a6a76ec4a6238cfcb1bfeee84cc307fe3ee2fa02a6eaea653",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1127.018,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T23:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T23:00:00.000Z",
+      "maximum_source_ms": 1784591999800,
+      "minimum_source_ms": 1784588400000,
+      "payload_count": 18000,
+      "payload_sha256": "401c8ce4f23cb79e3018549c34c30040189a9982ba70eabaa23bce87c1dc52dd",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784591999000,
+      "projected_minimum_source_ms": 1784588400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 89244,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-20_23.json.gz",
+      "stored_sha256": "3ba39c6022961c3edd206fe168574274f6a12ad088d2a73fde5ec781150a3535"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 14695.273,
+          "body_bytes": 756062,
+          "body_sha256": "92119498a3f6be764d1a847c9e0c97233674da548a6035476aadd5a521e67eaa",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1827.842,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T00:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T00:00:00.000Z",
+      "maximum_source_ms": 1784595599800,
+      "minimum_source_ms": 1784592000000,
+      "payload_count": 18000,
+      "payload_sha256": "399f42c7683356c0227fe3a6e872f081eaecce460bbe787ba3819df8b4876bde",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784595599000,
+      "projected_minimum_source_ms": 1784592000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94205,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_00.json.gz",
+      "stored_sha256": "aa05cbd01fdc2f2a44f973eb5b5bc862b4d1a3026ee9fd6e636813c13fbd8572"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 15408.31,
+          "body_bytes": 756062,
+          "body_sha256": "75e00c86e26b13f84d8889190f817e7b2968ae528ad54c5efb4ef71df86b0c37",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 875.602,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T01:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T01:00:00.000Z",
+      "maximum_source_ms": 1784599199800,
+      "minimum_source_ms": 1784595600000,
+      "payload_count": 18000,
+      "payload_sha256": "eb3b4985e9f7bd95b535f4485f8a5c2574768d5233b1a5b3c408576da4c8144e",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784599199000,
+      "projected_minimum_source_ms": 1784595600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92192,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_01.json.gz",
+      "stored_sha256": "7abd652c3f85b5017b2d541821df8a971981a0e25a310adb70e2722c9120b053"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 16405.93,
+          "body_bytes": 756062,
+          "body_sha256": "0cdfe221f60a726ef6de6c8aa1ccc6b7e8a98440ef4a5c5b36dfb47dce4d897d",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1292.642,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T02:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T02:00:00.000Z",
+      "maximum_source_ms": 1784602799800,
+      "minimum_source_ms": 1784599200000,
+      "payload_count": 18000,
+      "payload_sha256": "b35ba9187a7602ca3626c7f88d2ff58af1fd22207982a733e6ebe4c9235d7cae",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784602799000,
+      "projected_minimum_source_ms": 1784599200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92538,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_02.json.gz",
+      "stored_sha256": "8d1fa92c8c4d13859153d307eca5fa8c82ecae7dda5c1cd8ddd0937957d4925c"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 16905.998,
+          "body_bytes": 756062,
+          "body_sha256": "c8a71fb3d71c3dba2c46790b53808950fc9bf43384589bacf9481eff3f0e270a",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1288.226,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T03:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T03:00:00.000Z",
+      "maximum_source_ms": 1784606399800,
+      "minimum_source_ms": 1784602800000,
+      "payload_count": 18000,
+      "payload_sha256": "8916037fec26db5bb659ab03d3d36538a357c3dc570ef80e818df7947106423d",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784606399000,
+      "projected_minimum_source_ms": 1784602800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91064,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_03.json.gz",
+      "stored_sha256": "3c8bbefe8b7e36ad385ca4688fdbf37c4edb9185014e8ffe69bb61a2870a69b0"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 17811.54,
+          "body_bytes": 756062,
+          "body_sha256": "d202514537c61eb7ac7c80010ef792e6901dbd35e09e8dc7b0c2a4ca371f915f",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 940.24,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T04:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T04:00:00.000Z",
+      "maximum_source_ms": 1784609999800,
+      "minimum_source_ms": 1784606400000,
+      "payload_count": 18000,
+      "payload_sha256": "13b9eee0248a0d7a757d60923b9bde9692c7f717249a05b930e3095194b690ca",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784609999000,
+      "projected_minimum_source_ms": 1784606400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90994,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_04.json.gz",
+      "stored_sha256": "ee936c15ce4b72fb30119d87354d4591a9d62ee70fb705bacf3dfd6ca840122b"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 18321.331,
+          "body_bytes": 756062,
+          "body_sha256": "9287de9945e380a2479dd531f70b6690faf59daf5f562085b3f99ad75bd66ba6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 965.659,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T05:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T05:00:00.000Z",
+      "maximum_source_ms": 1784613599800,
+      "minimum_source_ms": 1784610000000,
+      "payload_count": 18000,
+      "payload_sha256": "97d17ae893de1a84963d88dcb331f9d7f718f13d8b18073ce270a66ad1d4c85f",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784613599000,
+      "projected_minimum_source_ms": 1784610000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90626,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_05.json.gz",
+      "stored_sha256": "ea5691f4b74038b421c2b1bd05967a35c9fb58fa7147c77f02ff219beb9e2d61"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 18863.954,
+          "body_bytes": 756062,
+          "body_sha256": "403308cd9451f68281a13c354f9cad0d0635e0bff66dd7d3ea77f64713cf22a5",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1278.923,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T06:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T06:00:00.000Z",
+      "maximum_source_ms": 1784617199800,
+      "minimum_source_ms": 1784613600000,
+      "payload_count": 18000,
+      "payload_sha256": "752993eba8e089339bde8d704dfbdd94e786ec9872d4f7ae9a08027f31b830e4",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784617199000,
+      "projected_minimum_source_ms": 1784613600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92023,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_06.json.gz",
+      "stored_sha256": "3071598d06d2816ea4346362bf38e0b5ea9759004afd858152cb3976c38cc3d8"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 19407.436,
+          "body_bytes": 756062,
+          "body_sha256": "ced41624bac53d3e39d88edad99d90fe61443417d98e57d7b8cf1786110a19a3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 974.329,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T07:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T07:00:00.000Z",
+      "maximum_source_ms": 1784620799800,
+      "minimum_source_ms": 1784617200000,
+      "payload_count": 18000,
+      "payload_sha256": "3a5b99061602aa50b8e36a32a5b41bc7ed57b2ea1a0f3023a13c88e9a9662114",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784620799000,
+      "projected_minimum_source_ms": 1784617200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92227,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_07.json.gz",
+      "stored_sha256": "3bcf5f36b48e9cfb8cabefd505cd140b92b6efcb6dc12818f21eb316f32b9438"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 20270.709,
+          "body_bytes": 756062,
+          "body_sha256": "15ee4d5f9196232c095a1be2c9b71c0bb7de0a09beb45fc55d97cd2d86c4e9c6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1075.502,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T08:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T08:00:00.000Z",
+      "maximum_source_ms": 1784624399800,
+      "minimum_source_ms": 1784620800000,
+      "payload_count": 18000,
+      "payload_sha256": "d899ab0dc9c323fe6f153338ef7325f6553ae6608f20dce4c55760d4cd9ad53a",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784624399000,
+      "projected_minimum_source_ms": 1784620800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 93073,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_08.json.gz",
+      "stored_sha256": "7f72ea888a46a1081f368d4aca38e96150703dffb4774255ba72ec4f803f6bfe"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 20770.824,
+          "body_bytes": 756062,
+          "body_sha256": "6987892c5a310d89fff8ee1b8e6670e39e3eda2a8359e7076cef796e3a6d63f6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 897.478,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T09:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T09:00:00.000Z",
+      "maximum_source_ms": 1784627999800,
+      "minimum_source_ms": 1784624400000,
+      "payload_count": 18000,
+      "payload_sha256": "03a5ac7e72c2cc7a67338f76eca48e4b0a2d8819efa4260567d5cd9f25f3278f",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784627999000,
+      "projected_minimum_source_ms": 1784624400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88800,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_09.json.gz",
+      "stored_sha256": "983f539444b801caac3f09e193bf460e4c4722f5a1dedf17172b91e5c70ee53e"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 21477.267,
+          "body_bytes": 756062,
+          "body_sha256": "f331584f3ed3b8b13fbf7f019e3dad58272b5a62a303ad2c431bdcd92e62f1e3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 902.503,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T10:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T10:00:00.000Z",
+      "maximum_source_ms": 1784631599800,
+      "minimum_source_ms": 1784628000000,
+      "payload_count": 18000,
+      "payload_sha256": "c005ec21381fab9340efdb762db1e5cab9aac753f6c278fcd208c079309e52f8",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784631599000,
+      "projected_minimum_source_ms": 1784628000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90192,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_10.json.gz",
+      "stored_sha256": "bfc47d4ed418dcb8a4b53780f839766f12095138f0bbdd6a570610d30f6e7a67"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 21977.827,
+          "body_bytes": 756062,
+          "body_sha256": "e9a526a17ce5e99b378a77ca6deb4b4cc873d59cd727254d6c4d3f8b6128294f",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 858.041,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T11:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T11:00:00.000Z",
+      "maximum_source_ms": 1784635199800,
+      "minimum_source_ms": 1784631600000,
+      "payload_count": 18000,
+      "payload_sha256": "e56bee4b23b07c9381184aa9294f0f64dad2033d01805649d070e8343d38e2cc",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784635199000,
+      "projected_minimum_source_ms": 1784631600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88248,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_11.json.gz",
+      "stored_sha256": "f97c70d8813fc98bc5530bab98a71bad31f06828f424a2a90da8ea55820284a8"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 22479.192,
+          "body_bytes": 756062,
+          "body_sha256": "7bfcb8388b315d1ab08dc8d7ff3059bdb3662548550143fca94da9b55d122149",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1201.5,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T12:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T12:00:00.000Z",
+      "maximum_source_ms": 1784638799800,
+      "minimum_source_ms": 1784635200000,
+      "payload_count": 18000,
+      "payload_sha256": "79d10148df780995157f057b93705ccc59646f9030303d2c2a6667eeb59f5497",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784638799000,
+      "projected_minimum_source_ms": 1784635200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92151,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_12.json.gz",
+      "stored_sha256": "8b2a283abbcab8717290a745a2ff9b7df7fa358083e57e36226e94f7002522e9"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 22979.26,
+          "body_bytes": 756062,
+          "body_sha256": "62bc6178edc174b9419067e01df85c2a86271011a5b7bf6651560d3b5f4b258c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 910.841,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T13:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T13:00:00.000Z",
+      "maximum_source_ms": 1784642399800,
+      "minimum_source_ms": 1784638800000,
+      "payload_count": 18000,
+      "payload_sha256": "215ec7622aec6f223f5b57a14f15e634c43483b01adc34bb96849c6993730cff",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784642399000,
+      "projected_minimum_source_ms": 1784638800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94570,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_13.json.gz",
+      "stored_sha256": "844c86996042f6de148d0a9e1bdab775ae72cb55213cfe55af5639177f4e0679"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 23799.759,
+          "body_bytes": 756062,
+          "body_sha256": "048c2d953826249d4f87f68e035f5266893d7509ac5a2b6ee90d8912d91b4fd8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1563.223,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T14:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T14:00:00.000Z",
+      "maximum_source_ms": 1784645999800,
+      "minimum_source_ms": 1784642400000,
+      "payload_count": 18000,
+      "payload_sha256": "4c9eb644ff3ee25971aabea175d17490752c33433395315ddc6a6e1b438a0ff4",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784645999000,
+      "projected_minimum_source_ms": 1784642400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 96899,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_14.json.gz",
+      "stored_sha256": "6682c81f16ab15b93ad89041ce85a1c507e3fde20fa32beeebb6c8ad3bd72d94"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 24299.828,
+          "body_bytes": 756062,
+          "body_sha256": "9711a4f71cb8b2adf22eadfda7839753bafc40271597fb0f8cfaad84db637fbd",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1381.17,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T15:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T15:00:00.000Z",
+      "maximum_source_ms": 1784649599800,
+      "minimum_source_ms": 1784646000000,
+      "payload_count": 18000,
+      "payload_sha256": "29467356fd4537f511dd3e3c4178dbdfb2f8902713f49bc0ade3d0dd1608a983",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784649599000,
+      "projected_minimum_source_ms": 1784646000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94335,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_15.json.gz",
+      "stored_sha256": "cd4cc30796d1612aa746b45aabfaf247161b3e8d34e29e93012d1a4fe7a4eab7"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 25521.276,
+          "body_bytes": 756062,
+          "body_sha256": "2e0fc66ebb370568a45409c0fa0f60c9cedfadfc85683c6ab8b0bd4abe6a82f1",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1233.495,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T16:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T16:00:00.000Z",
+      "maximum_source_ms": 1784653199800,
+      "minimum_source_ms": 1784649600000,
+      "payload_count": 18000,
+      "payload_sha256": "bc4fac88dfc71389859b9d58c394d6127a7a6bd646e308c0ec5ca6a64480ac4f",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784653199000,
+      "projected_minimum_source_ms": 1784649600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92099,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_16.json.gz",
+      "stored_sha256": "ff2c5af4ece78b86bcaf29e59a5eb5ce29e1c3b006a3bd48ba21892875ed3a37"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 26021.35,
+          "body_bytes": 756062,
+          "body_sha256": "0f2deec26a4f32aa29efe3c8dcc42f6df291177d42d95a930ae9ae20099c11e3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 912.33,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T17:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T17:00:00.000Z",
+      "maximum_source_ms": 1784656799800,
+      "minimum_source_ms": 1784653200000,
+      "payload_count": 18000,
+      "payload_sha256": "800e71fab6fe99793c2be50f51130d29526b560095bffc4e59ba3798bc9f0599",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784656799000,
+      "projected_minimum_source_ms": 1784653200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92007,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_17.json.gz",
+      "stored_sha256": "289b030884bbb0e5dc13b49d9954a947cfe608dcf6de174655734d5a9014af53"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 26866.336,
+          "body_bytes": 756062,
+          "body_sha256": "fe982835550b69a84e35a609d3adf52467cda1af1c31b5a41fe81f1b0530374d",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1213.139,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T18:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T18:00:00.000Z",
+      "maximum_source_ms": 1784660399800,
+      "minimum_source_ms": 1784656800000,
+      "payload_count": 18000,
+      "payload_sha256": "bc9e0a1a49c79fcd1b98e3bd1b1083b55613b2eda78fd6347e57f9b79cc50e79",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784660399000,
+      "projected_minimum_source_ms": 1784656800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92754,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_18.json.gz",
+      "stored_sha256": "280ced02d7b83925c4e3c0b43898ab17dc5c258177c301a7184bd28400ec9e43"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 27366.409,
+          "body_bytes": 756062,
+          "body_sha256": "5fc0c8c756002b0f894db45f988911ed7b6fb73bf6dcafa4b5099fe6cea514de",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1039.949,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T19:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T19:00:00.000Z",
+      "maximum_source_ms": 1784663999800,
+      "minimum_source_ms": 1784660400000,
+      "payload_count": 18000,
+      "payload_sha256": "ab8a955e0ca433630a4f1d4814a14374b417549bf78d6e38b2bae48b091e9f90",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784663999000,
+      "projected_minimum_source_ms": 1784660400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 89576,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_19.json.gz",
+      "stored_sha256": "0f1292da86b595fcff9cbaf174fc0421f40dd3681faac98c289c0e8082bc5213"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 28192.401,
+          "body_bytes": 753584,
+          "body_sha256": "a94f25eb14c5e90ac462c9a0bc446f6efe8285e3dca0e989242695a95bd966a5",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 821.944,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3589 missing=11 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T20:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T20:00:00.000Z",
+      "maximum_source_ms": 1784667599800,
+      "minimum_source_ms": 1784664000000,
+      "payload_count": 17941,
+      "payload_sha256": "2c7f5971a076492999296375bd63ac8712ab5e2db64d5e639dabb31a5a1c40cd",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 85057,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_20.json.gz",
+      "stored_sha256": "5436fa55f2a46eba682e3132ccb2dfc262343c7e391337ea395502e6752a098b"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 28692.472,
+          "body_bytes": 751190,
+          "body_sha256": "6f9e0d7fd06dbb76112d0dce930300736592f8efefa57427e1d05ad7fc1841af",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 868.544,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3577 missing=23 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T21:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T21:00:00.000Z",
+      "maximum_source_ms": 1784671199800,
+      "minimum_source_ms": 1784667600000,
+      "payload_count": 17884,
+      "payload_sha256": "06f8eb8fab8c9654e46ae8244b017274e5f27d6cab19926128dbb4028e4fd284",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 85673,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_21.json.gz",
+      "stored_sha256": "f8a4dd4ed4bd8da357a2108ddb46450b3b71ff5101e4b2ee1742ba0027952037"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 29192.464,
+          "body_bytes": 756062,
+          "body_sha256": "6c090652dfb97769c5fca1177eb59aee00b75ad1ad73e358189c8ce931679a9b",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 944.8,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T22:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T22:00:00.000Z",
+      "maximum_source_ms": 1784674799800,
+      "minimum_source_ms": 1784671200000,
+      "payload_count": 18000,
+      "payload_sha256": "56661aafec4d06c312be9109632a24b38e005f80e28786ecb81f3320d214643b",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784674799000,
+      "projected_minimum_source_ms": 1784671200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88492,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_22.json.gz",
+      "stored_sha256": "e02b4dfaf4d4a8b3ec8d1de17d7d3f49cf38f5ced1078419ddf2a25e366fa6d8"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 29692.528,
+          "body_bytes": 752744,
+          "body_sha256": "3e3eded36c8584d81314ba33e4e1ae72966ddcb63066b42791302db9b506edaa",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 860.634,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3583 missing=17 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T23:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T23:00:00.000Z",
+      "maximum_source_ms": 1784678399800,
+      "minimum_source_ms": 1784674800000,
+      "payload_count": 17921,
+      "payload_sha256": "86d238699fc5495acc77a38068014591d7c6262594a8b78f953c9b0d5a663113",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 88900,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-21_23.json.gz",
+      "stored_sha256": "c6d037142100f710ef9674a44794a5fc062c2a5302595b0a4cf168e2ab4f0893"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 30241.561,
+          "body_bytes": 756062,
+          "body_sha256": "89bc8edd3dda60cf81902ad2d94251e1f8576f0ce00ce79354af365cd3d840f7",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 969.5,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T00:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T00:00:00.000Z",
+      "maximum_source_ms": 1784681999800,
+      "minimum_source_ms": 1784678400000,
+      "payload_count": 18000,
+      "payload_sha256": "694efb5d0ffb2e2d6db6852c9d416cd2bd40070132c28dfa8e1ab61d220de55f",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784681999000,
+      "projected_minimum_source_ms": 1784678400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92757,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_00.json.gz",
+      "stored_sha256": "9344eeb1fdefdeed78bb8bd9df64ea0a3117dd34512d0286dcd69703a41e6ac6"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 30741.634,
+          "body_bytes": 756062,
+          "body_sha256": "11f209b003e1507a31773d1fa7111023337a69bb126afff681a0dbf03a8ac6c7",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 869.838,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T01:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T01:00:00.000Z",
+      "maximum_source_ms": 1784685599800,
+      "minimum_source_ms": 1784682000000,
+      "payload_count": 18000,
+      "payload_sha256": "f7a2a3c95514ee4e0abad70492dc743b32a3b151ebfa16ac078f90f549c925e1",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784685599000,
+      "projected_minimum_source_ms": 1784682000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92137,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_01.json.gz",
+      "stored_sha256": "72b4e0228fc158be1b4c859e4f3a98a5c747502b367687297535e72d889adf28"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 31306.759,
+          "body_bytes": 756062,
+          "body_sha256": "62c50aa40334ca77c33525821a5eb1c6431f062b2cf85c0e9e5a0fb37bc9ebad",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1081.821,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T02:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T02:00:00.000Z",
+      "maximum_source_ms": 1784689199800,
+      "minimum_source_ms": 1784685600000,
+      "payload_count": 18000,
+      "payload_sha256": "7b0d63c2f55b3ae1f800c863cf8b9fe638292911ab9bc6c50d4ee4ea8c9b601a",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784689199000,
+      "projected_minimum_source_ms": 1784685600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91657,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_02.json.gz",
+      "stored_sha256": "66bff58f48e6196e1dee65afbc8c36db3b68179b2764f01eb11d5d5f9e69846f"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 31806.827,
+          "body_bytes": 756062,
+          "body_sha256": "224c342c8347b99a3965e328e9e450cf5cbeab165e3a49ab37a51948eeb077a6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 923.97,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T03:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T03:00:00.000Z",
+      "maximum_source_ms": 1784692799800,
+      "minimum_source_ms": 1784689200000,
+      "payload_count": 18000,
+      "payload_sha256": "0da32aa1699f3672e2ee749d2364719177f08ef32944e53471fc01fb4cee723c",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784692799000,
+      "projected_minimum_source_ms": 1784689200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91023,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_03.json.gz",
+      "stored_sha256": "d0b425f000bf5995c6fc7d99edc4a0ac91054b464b02557405861a8fe72e6934"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 32500.955,
+          "body_bytes": 756062,
+          "body_sha256": "a7a5c883784dcb5fb08cad579764b70a10cee6cb10b85593a5c0b5ef12a964a1",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 865.392,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T04:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T04:00:00.000Z",
+      "maximum_source_ms": 1784696399800,
+      "minimum_source_ms": 1784692800000,
+      "payload_count": 18000,
+      "payload_sha256": "f6001b56cfbda8e986f2930e29717d61c2c486b0a435a814ed01b87739280322",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784696399000,
+      "projected_minimum_source_ms": 1784692800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 89184,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_04.json.gz",
+      "stored_sha256": "391132b83b02af7ebeee54b196b8234316ad615e64b028633cb0df6630407009"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 33001.026,
+          "body_bytes": 756062,
+          "body_sha256": "e0e177c5ff26f60ad8548c0d9fb8be594c8248e8ea5a042fa4d6171258f18e02",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1258.385,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T05:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T05:00:00.000Z",
+      "maximum_source_ms": 1784699999800,
+      "minimum_source_ms": 1784696400000,
+      "payload_count": 18000,
+      "payload_sha256": "2bd9573e2b6c60132d44bf01e7441e759c741325b235a364a91be6ed278de3c1",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784699999000,
+      "projected_minimum_source_ms": 1784696400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92142,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_05.json.gz",
+      "stored_sha256": "3bf883f3485560bd4a34c94fdb1caaed55bedb587292b405fb0e555fa0a68884"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 33501.022,
+          "body_bytes": 756062,
+          "body_sha256": "915c8a8b4ef7e5d541f3c5fd37c4f2613b0e43c084ee20ad0ec7bd9e0134984b",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1206.207,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T06:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T06:00:00.000Z",
+      "maximum_source_ms": 1784703599800,
+      "minimum_source_ms": 1784700000000,
+      "payload_count": 18000,
+      "payload_sha256": "ee053b4af1d2238e459e7f561cb362de0e6b64b75db7184b2a4c10ad29ffb8bf",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784703599000,
+      "projected_minimum_source_ms": 1784700000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91815,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_06.json.gz",
+      "stored_sha256": "8077283b4f8c9382c9d5cc25f674f9c660724440bf688cd4b9605269ea9d5b0a"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 34362.593,
+          "body_bytes": 756062,
+          "body_sha256": "80683cafc04722562ac9f2864efbc48b9de222c3785d05cc57945754d2465610",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1169.163,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T07:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T07:00:00.000Z",
+      "maximum_source_ms": 1784707199800,
+      "minimum_source_ms": 1784703600000,
+      "payload_count": 18000,
+      "payload_sha256": "dc85c2070d68d1d541a043c80549fd1b8f4a3e6d0bbebe9d3e852aa6c15e364b",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784707199000,
+      "projected_minimum_source_ms": 1784703600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90858,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_07.json.gz",
+      "stored_sha256": "eab7fab83b5bd48876d77679338e0342c7cbb4664db577745307c54a1c48939f"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 34862.816,
+          "body_bytes": 756062,
+          "body_sha256": "40ff9be3622a5cfc46f8572ffcae47f4766f4d484c05bd943fc98438388b18b6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 930.435,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T08:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T08:00:00.000Z",
+      "maximum_source_ms": 1784710799800,
+      "minimum_source_ms": 1784707200000,
+      "payload_count": 18000,
+      "payload_sha256": "54e23a4ca6ee078ef89097df491c5d7dc29d7f131a492ba713b7b00ea0f7e12f",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784710799000,
+      "projected_minimum_source_ms": 1784707200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 90566,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_08.json.gz",
+      "stored_sha256": "05281ac501a201353b8816d382cdb6fbb68da456f6ff94f9d00fc5baef32d35e"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 35695.121,
+          "body_bytes": 756062,
+          "body_sha256": "fee29e638565d9e3a733477fa070a5d981083143075c7fe049b3f1378f05be15",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 958.574,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T09:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T09:00:00.000Z",
+      "maximum_source_ms": 1784714399800,
+      "minimum_source_ms": 1784710800000,
+      "payload_count": 18000,
+      "payload_sha256": "8aadd16a44980010dbb83840a1ef52f014fb8855fd669ee6fda369d721b6390a",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784714399000,
+      "projected_minimum_source_ms": 1784710800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88906,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_09.json.gz",
+      "stored_sha256": "01188bc761422d2cc0688f961c1f5e3912de21ccd9067d48abd5a521aca480e7"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 36195.191,
+          "body_bytes": 756062,
+          "body_sha256": "6052d26772584155587909831bc04224aa6e3c1cf72fa3ae71ad4fd217f410d0",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1034.96,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T10:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T10:00:00.000Z",
+      "maximum_source_ms": 1784717999800,
+      "minimum_source_ms": 1784714400000,
+      "payload_count": 18000,
+      "payload_sha256": "469157ae74b9e46f6e115315099da6046dede51c80ebb1ca03251575dda2d95c",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784717999000,
+      "projected_minimum_source_ms": 1784714400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 87824,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_10.json.gz",
+      "stored_sha256": "f5b58ffe989bdbee52a61ca673200172003255dead482d22317ccba02dd88948"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 36858.738,
+          "body_bytes": 756062,
+          "body_sha256": "b6b03fa852638ea306ce588ca46b618c00014be2c06b88d0b34faa0db9fef013",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 876.017,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T11:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T11:00:00.000Z",
+      "maximum_source_ms": 1784721599800,
+      "minimum_source_ms": 1784718000000,
+      "payload_count": 18000,
+      "payload_sha256": "25bbd99323e3c67a1179df63a4e087c87e69080999e99dd3e00f9f8429f2bd67",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784721599000,
+      "projected_minimum_source_ms": 1784718000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88317,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_11.json.gz",
+      "stored_sha256": "7ec1204e1c6a7ebe6e626404932c73b66a6b7017a7078154bb1a37e524cb5651"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 37362.977,
+          "body_bytes": 756062,
+          "body_sha256": "92ef67039d898f091710aa873fdb870d51d79784ca930ff1725373b7aaf7a9f3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 881.511,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T12:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T12:00:00.000Z",
+      "maximum_source_ms": 1784725199800,
+      "minimum_source_ms": 1784721600000,
+      "payload_count": 18000,
+      "payload_sha256": "09f52a9901b8b6b378ff37e071e600a3aad13b3c73061a42afc9159a7b488d35",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784725199000,
+      "projected_minimum_source_ms": 1784721600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91038,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_12.json.gz",
+      "stored_sha256": "8704616dd24183f5088236cf5b33bcb7d2163e7f5b41325990c31db94200afb9"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 37863.046,
+          "body_bytes": 756062,
+          "body_sha256": "2aa367c767fdaa27391a26d18026975a3757bd61087d192e597a7302cd519855",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 912.966,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T13:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T13:00:00.000Z",
+      "maximum_source_ms": 1784728799800,
+      "minimum_source_ms": 1784725200000,
+      "payload_count": 18000,
+      "payload_sha256": "c86c73f54f40b8abe4598844760ca67d89f3cc54edba0b38b497db06c2db7dc8",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784728799000,
+      "projected_minimum_source_ms": 1784725200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94580,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_13.json.gz",
+      "stored_sha256": "5a809e6a378ad4dd2bcae9e7abd2b4a6615ede1c92989df3a5fd47ce04691ef6"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 38363.041,
+          "body_bytes": 756062,
+          "body_sha256": "a4c505d41cb8a1bbb09545da2795697227f7838b78c08b9aa344b7f9311c70c2",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1078.699,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T14:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T14:00:00.000Z",
+      "maximum_source_ms": 1784732399800,
+      "minimum_source_ms": 1784728800000,
+      "payload_count": 18000,
+      "payload_sha256": "8ed8d98767153c9b0c915f5cef9c82ee9731105003fd7e2f6aca0cfa93b084b7",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784732399000,
+      "projected_minimum_source_ms": 1784728800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 97715,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_14.json.gz",
+      "stored_sha256": "5a5c6f7dfe7e47ddd8f65852f78b119d10e69eaf993e394a2a4783d4dc4405eb"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 38898.474,
+          "body_bytes": 756062,
+          "body_sha256": "7f83fdcca818295470a400f7d54844e31d350e8ea140bfcefebddf6450ea63f4",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1308.064,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T15:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T15:00:00.000Z",
+      "maximum_source_ms": 1784735999800,
+      "minimum_source_ms": 1784732400000,
+      "payload_count": 18000,
+      "payload_sha256": "139c2d40955e8ff328205709eb2029ee006d0aaf8660698cc9e30c8fb4f8238c",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784735999000,
+      "projected_minimum_source_ms": 1784732400000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 95287,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_15.json.gz",
+      "stored_sha256": "7c693837aa15bf6a617eb3c453ffc108230d2d299ac2a11a8b300a85e2c87695"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 39556.382,
+          "body_bytes": 756062,
+          "body_sha256": "0ba827552cb6aedee34a2861f818babcbb82ad83e6719f9de704cd42062bcd78",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1304.352,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T16:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T16:00:00.000Z",
+      "maximum_source_ms": 1784739599800,
+      "minimum_source_ms": 1784736000000,
+      "payload_count": 18000,
+      "payload_sha256": "46bceb678087fc4b435cb415304b98ebbf1c557c60e6a3d46dfd31000e2e2e11",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784739599000,
+      "projected_minimum_source_ms": 1784736000000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 94678,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_16.json.gz",
+      "stored_sha256": "1a29c8c58829d38d8812aac1bebad64ca25ba75823694b0873c529d75a27fa22"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 40337.785,
+          "body_bytes": 756062,
+          "body_sha256": "2acc5e41163adb2cdf88a133b6687903d1bf7786048a945132a57817203551c9",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1200.507,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T17:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T17:00:00.000Z",
+      "maximum_source_ms": 1784743199800,
+      "minimum_source_ms": 1784739600000,
+      "payload_count": 18000,
+      "payload_sha256": "4a84acfe4645f4b579ae2f63539be089b9c2ce212a9ebc7b9c161c17f39ac109",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784743199000,
+      "projected_minimum_source_ms": 1784739600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 93271,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_17.json.gz",
+      "stored_sha256": "567063e66fe7a386c4c37708195caa52af6c449e1722805af0307ddc369c7dce"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 40970.906,
+          "body_bytes": 756062,
+          "body_sha256": "54bf6cce0587dc8d19dac27a8d3a56c4de3d5202253f52ba9efb06bdf2b7da1c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1202.825,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T18:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T18:00:00.000Z",
+      "maximum_source_ms": 1784746799800,
+      "minimum_source_ms": 1784743200000,
+      "payload_count": 18000,
+      "payload_sha256": "f78dd75be2aefebd64053e4f7a79fbccc5ffc3966d401b541d2d490f584610e5",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784746799000,
+      "projected_minimum_source_ms": 1784743200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 92600,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_18.json.gz",
+      "stored_sha256": "7125e2909476a552823a6b216c26270d45ddc4d8c470963926d11e30630eabec"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 41665.114,
+          "body_bytes": 756062,
+          "body_sha256": "c58923f07096e26f2088f0b9c1a8e530193c84409e5817183a4eda388878252a",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 940.48,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T19:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T19:00:00.000Z",
+      "maximum_source_ms": 1784750399800,
+      "minimum_source_ms": 1784746800000,
+      "payload_count": 18000,
+      "payload_sha256": "ae3943c9013ce9892ce24efd480bb0f75ee8bb7a291f07e53b37bd2cb3f60a29",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784750399000,
+      "projected_minimum_source_ms": 1784746800000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 91269,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_19.json.gz",
+      "stored_sha256": "1552cf3fa7f482cbfcee7c421436867c474179a02c44b1ec2a99864aedc1a716"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 42285.081,
+          "body_bytes": 753710,
+          "body_sha256": "474ad4889f979c42592ce7972728723f9f27ba49f8fa968887f52a13ff0586d1",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 853.944,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3588 missing=12 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T20:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T20:00:00.000Z",
+      "maximum_source_ms": 1784753999800,
+      "minimum_source_ms": 1784750400000,
+      "payload_count": 17944,
+      "payload_sha256": "c091b80be673751d74c0ef9e8f113a398112ee62ea3770178b8fa2f1e9285ae6",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 88356,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_20.json.gz",
+      "stored_sha256": "4d2c405cace060df1a520968da76d01655a4988ba74fff18010cb0b5a4ed0422"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 42785.154,
+          "body_bytes": 751736,
+          "body_sha256": "3e92dfeff80fd73bb40c34fad1025ce19f10868d630bddff42db5a80451880db",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 931.829,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_error": "one-second boundary projection mismatch: count=3579 missing=21 extra=0 duplicates=0",
+          "projection_error_class": "RuntimeError",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T21:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T21:00:00.000Z",
+      "maximum_source_ms": 1784757599800,
+      "minimum_source_ms": 1784754000000,
+      "payload_count": 17897,
+      "payload_sha256": "5592101b1c7b406021e8936ca42fe418689076c14fe8213d884566f11b894e90",
+      "persisted": true,
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "FAILED_SECOND_BOUNDARY_PROJECTION",
+      "stored_bytes": 84445,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_21.json.gz",
+      "stored_sha256": "d869b60d7a19f3d61a4a17e5740c8420f05b5d4bf96ddaddb1e09f829e6a70bd"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 43285.928,
+          "body_bytes": 756062,
+          "body_sha256": "acb95342f66914db024993ad91222fcd0cb9073538d30f18b38ba15897057783",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 859.314,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T22:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T22:00:00.000Z",
+      "maximum_source_ms": 1784761199800,
+      "minimum_source_ms": 1784757600000,
+      "payload_count": 18000,
+      "payload_sha256": "b2a50122acac94561d813c66cc3ab0bdd567a2701b3db6118786b62d794748cc",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784761199000,
+      "projected_minimum_source_ms": 1784757600000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 89167,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_22.json.gz",
+      "stored_sha256": "ab3428ae215a420e1113fd52065bff4bc68f3c6862177a4f106ba7a3cda9ad1c"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 43844.343,
+          "body_bytes": 756062,
+          "body_sha256": "fb99cd87b408f8731957e9c6a6a4b555bb5b2a004551a249ab385b21e02d5e24",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1172.935,
+          "http_status": 200,
+          "network_error_class": null,
+          "projection_validation": "EXACT_3600_SECOND_BOUNDARIES",
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T23:00:00.000Z"
+          },
+          "validation": "RAW_AUTHORITATIVE_ENVELOPE_PERSISTED"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T23:00:00.000Z",
+      "maximum_source_ms": 1784764799800,
+      "minimum_source_ms": 1784761200000,
+      "payload_count": 18000,
+      "payload_sha256": "0fef2fe5be20d36b2e20970d80a09f205a7b037eb2f931f90044b2bc7f646f65",
+      "persisted": true,
+      "projected_duplicate_seconds": 0,
+      "projected_exact_second_grid": true,
+      "projected_maximum_source_ms": 1784764799000,
+      "projected_minimum_source_ms": 1784761200000,
+      "projected_missing_seconds": 0,
+      "projected_second_count": 3600,
+      "projection_predicate": "time_ms % 1000 == 0",
+      "raw_times_on_200ms_grid": true,
+      "raw_times_strictly_ascending_unique": true,
+      "status": "SUCCESS",
+      "stored_bytes": 88725,
+      "stored_path": "/tmp/brti_authoritative_calibration_20260726/evidence/source_snapshot_v3_boundary/brti_history_2026-07-22_23.json.gz",
+      "stored_sha256": "d2c6e40b3bcbe2f70070cba9e30756f82fb38014c06134592772da00607dfc2e"
+    }
+  ],
+  "logical_request_count": 72,
+  "maximum_attempts_per_hour": 2,
+  "maximum_configured_concurrency": 2,
+  "maximum_observed_concurrency": 2,
+  "minimum_attempt_start_interval_ms": 500,
+  "network_errors_retryable": false,
+  "projection_predicate": "time_ms % 1000 == 0",
+  "raw_persisted_hour_count": 72,
+  "read_only": true,
+  "recent_values_endpoint_called": false,
+  "redirect_count": 0,
+  "retried_hour_count": 0,
+  "retryable_http_statuses_only": [
+    429,
+    503
+  ],
+  "schema": "brti-authoritative-boundary-acquisition-v3",
+  "seal": {
+    "analyzer_sha256": "58458632c40ccaae1da4c8d6908aa44a6951dbdd70bfc3122926a3615579c1cd",
+    "base_calibration_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+    "base_downloader_sha256": "31a1d08cfee96afa71d5201950c75642823ceacbd94420ec47092ba5b795b8f1",
+    "base_hourly_analyzer_sha256": "a2d2dc54c2ae7e4c3079dd0cc2aea93b364b08e70366cf5f0ec936714744d89b",
+    "downloader_sha256": "64fdaa2da54110ca2a749a8a05acb2466b4a6a7992e7844eda12481883295c5e",
+    "preregistration_sha256": "464dfd36752c1b286e8983901cb3ec23dbe0d8f10611d0db593d5e4a9bb1d9aa",
+    "seal_sha256": "624dce500f0dbbce04e6596a71751b8eb34a4a58835ea6f07e2b6b9904976a80",
+    "verified": true
+  },
+  "status": "NO_DECISION_BOUNDARY_ACQUISITION_FAILED",
+  "trading_action_performed": false
+}

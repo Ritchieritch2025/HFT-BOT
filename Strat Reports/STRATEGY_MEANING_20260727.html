@@ -1,0 +1,118 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>策略全景 — 数字意味着什么</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<style>
+body{background:#0d1117;color:#dde3ea;font-family:-apple-system,Segoe UI,sans-serif;padding:16px 26px;max-width:1250px;margin:auto}
+h1{font-size:19px} .sub{color:#7d8896;font-size:12px;margin-bottom:14px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
+.card{background:#11161d;border:1px solid #21262d;border-radius:10px;padding:8px 10px 2px}
+.plot{height:270px}
+.cap{font-size:12.5px;color:#c9d5e3;padding:6px 6px 10px;border-top:1px dashed #21262d;margin-top:4px}
+.cap b{color:#7ee787}.cap .bad{color:#ff7b72}
+</style></head><body>
+<h1>策略全景 — 每张图一句"这意味着什么"</h1>
+<div class="sub">数据截至 2026-07-27 · 全部为实测/回放VALIDATE段数字 · 20小时影子 1088周期 + 6天回放 + 6.1亿张结算真值</div>
+
+<div class="row">
+<div class="card"><div id="c1" class="plot"></div>
+<div class="cap"><b>意味着:</b>生意本体是赚钱的(816次配对+$9.2),但272条孤腿亏掉$35——<span class="bad">亏损是利润的3.8倍</span>。整个v2工程只干一件事:把红柱子砍到绿柱子的35%以下。</div></div>
+<div class="card"><div id="c2" class="plot"></div>
+<div class="cap"><b>意味着:</b>孤腿不是小伤,一半以上单次亏超10¢,最惨-52.6¢。验收线(黄线-10¢)要求把p95从-31拉到-10以内——<b>尾巴砍掉三分之二</b>才许上真钱。</div></div>
+</div>
+
+<div class="row">
+<div class="card"><div id="c3" class="plot"></div>
+<div class="cap"><b>意味着:</b>第1轮判决:所有"付钱逃跑"(taker砍)的方案置信区间全在零下方;"不砍"和"免费maker退"是统计平手(区间都罩着零)。<b>伤人的是砍单动作本身</b>——每次砍要付扫价+手续费。</div></div>
+<div class="card"><div id="c4" class="plot"></div>
+<div class="cap"><b>意味着:</b>买"便宜结果"基本干净甚至赚,买"贵结果"侧全线有毒——<b>卖便宜保险的人被跳空收割,买便宜彩票的人被跳空奉养</b>。这是224×肥尾在账本上的倒影,凸性挡的依据。</div></div>
+</div>
+
+<div class="row">
+<div class="card"><div id="c5" class="plot"></div>
+<div class="cap"><b>意味着:</b>盘漂到尾部,配对完成率反而<b>最高</b>(81.5%)——彩票心理维持着双向流。所以漂移盘不是"不能做",是"只做便宜侧"。</div></div>
+<div class="card"><div id="c6" class="plot"></div>
+<div class="cap"><b>意味着:</b>信息链实测:Binance/Coinbase领先裁判(CF)整整1秒,而Coinbase离我们只有12ms。<b>鲨鱼的全部优势=这1秒;我们接上快锚后,结构性劣势清零</b>。撤单赛跑的胜负由census裁决,未测之前不许说赢。</div></div>
+</div>
+
+<div class="row">
+<div class="card"><div id="c7" class="plot"></div>
+<div class="cap"><b>意味着:</b>模型自信是反向指标——<span class="bad">模型声称edge最大的成交亏得最狠(-2.84¢)</span>,模型说"买贵了"的反而赚(+2.16¢)。当我们和盘口分歧最大时,盘口通常是对的:fair是慢真相。快锚修的就是这个。</div></div>
+<div class="card"><div id="c8" class="plot"></div>
+<div class="cap"><b>意味着:</b>参数审计:23个统计参数里只有6个是"活的"(带估计器自动重估)。<span class="bad">红色3个已证明数值错误</span>(gamma该0.83写0.5、哨兵该4.4写15、兜底该60写120)。户口本制度就是把灰柱全部变绿柱。</div></div>
+</div>
+
+<div class="row">
+<div class="card"><div id="c9" class="plot"></div>
+<div class="cap"><b>意味着:</b>池塘不小:单个15分钟系列日成交1.44亿张、$7100万名义。哪怕只吃到<b>0.05%份额×1¢差价≈$720/天</b>。现在的$0.76/天是clip=1的测量值,不是池塘的上限——量的锁(喂鲨鱼)正是盾要开的。</div></div>
+<div class="card"><div id="c10" class="plot"></div>
+<div class="cap"><b>意味着:</b>三层数字宪法:<b>行情参数=函数(秒-天)</b>,函数形状=慢函数(周-月),<b>风控红线=死常数(永不自适应)</b>。能被数据说服的熔断不是熔断——顶层必须聋,底层必须活。</div></div>
+</div>
+
+<script>
+const L={paper_bgcolor:'#0d1117',plot_bgcolor:'#11161d',font:{color:'#dde3ea',size:11},
+ margin:{l:55,r:15,t:34,b:42},xaxis:{gridcolor:'#1c2430'},yaxis:{gridcolor:'#1c2430'},
+ legend:{orientation:'h',y:1.16}};
+const lay=o=>Object.assign(JSON.parse(JSON.stringify(L)),o||{});
+const G='#7ee787',R='#ff7b72',B='#58a6ff',Y='#ffa657',P='#a371f7',GR='#8b949e';
+
+// 1 钱从哪来往哪去
+Plotly.newPlot('c1',[{x:['配对毛利<br>816次×+1.13¢','孤腿亏损<br>272次×−12.85¢','净结果'],
+ y:[9.22,-34.95,-25.73],type:'bar',marker:{color:[G,R,GR]},
+ text:['+$9.22','−$34.95','−$25.73'],textposition:'outside'}],
+ lay({title:{text:'钱从哪来、往哪去(20h影子,1088周期,$)',font:{size:13}}}));
+
+// 2 孤腿损失分布
+Plotly.newPlot('c2',[{x:['p50','p75','p90','p95','最差'],y:[-10.4,-17.7,-23.7,-31.3,-52.6],
+ type:'bar',marker:{color:R},text:['-10.4','-17.7','-23.7','-31.3','-52.6'],textposition:'outside'},
+ {x:['p50','p75','p90','p95','最差'],y:[-10,-10,-10,-10,-10],mode:'lines',
+  name:'验收线 p95≥−10¢',line:{color:Y,width:2,dash:'dash'}}],
+ lay({title:{text:'孤腿单次损失分布(¢) vs 验收线',font:{size:13}}}));
+
+// 3 第1轮判决 CI
+Plotly.newPlot('c3',[{x:['主线base<br>+0.32','从不砍<br>+0.03','maker退<br>−0.15','90s砍<br>−0.30','30s砍<br>−0.63','补弹家族<br>−1.2~−2.5'],
+ y:[0.321,0.025,-0.146,-0.30,-0.627,-1.85],type:'bar',
+ error_y:{type:'data',symmetric:false,array:[0.053,0.35,0.30,0.15,0.187,0.65],arrayminus:[0.058,0.35,0.30,0.15,0.187,0.65]},
+ marker:{color:[G,GR,GR,R,R,R]}},
+ {x:['主线base<br>+0.32','补弹家族<br>−1.2~−2.5'],y:[0,0],mode:'lines',showlegend:false,line:{color:'#444',width:1}}],
+ lay({title:{text:'回放VALIDATE:各方案EV(¢/张,95%CI)',font:{size:13}}}));
+
+// 4 毒性地图
+const zones=['<20','20-35','35-65','65-80','>80'];
+Plotly.newPlot('c4',[{x:zones,y:[-0.07,-2.30,-1.09,-2.71,-2.17],name:'买YES侧',type:'bar',marker:{color:R}},
+ {x:zones,y:[-1.38,0.21,-0.93,0.70,1.17],name:'买NO侧',type:'bar',marker:{color:B}}],
+ lay({title:{text:'毒性地图:5s markout(¢) 按方向×YES等价价区',font:{size:13}},barmode:'group'}));
+
+// 5 完成率
+Plotly.newPlot('c5',[{x:zones,y:[64.4,69.7,74.4,78.5,81.5],type:'bar',marker:{color:B},
+ text:['64.4%','69.7%','74.4%','78.5%','81.5%'],textposition:'outside'}],
+ lay({title:{text:'配对完成率 按入场价区(731周期)',font:{size:13}},yaxis:{gridcolor:'#1c2430',range:[0,95]}}));
+
+// 6 速度
+Plotly.newPlot('c6',[{y:['Kalshi永续(回声)','Coinbase','Binance','我们撤单RTT(warm)','鲨鱼全链(估)','我们全链(估)'],
+ x:[2,12,70,5.4,85,80],type:'bar',orientation:'h',
+ marker:{color:[GR,G,Y,G,R,B]},text:['2ms','12ms','70ms','5.4ms','75-100ms','78-88ms'],textposition:'outside'}],
+ lay({title:{text:'速度资产与赛跑(ms,越短越快)',font:{size:13}},margin:{l:130,r:40,t:34,b:42}}));
+
+// 7 模型自信反向
+Plotly.newPlot('c7',[{x:['模型称edge>2¢','0.5~2','−0.5~0.5','−2~−0.5','模型称买贵2¢+'],
+ y:[-2.84,-0.54,0.56,-3.61,2.16],type:'bar',
+ marker:{color:[R,R,GR,R,G]},text:['-2.84','-0.54','+0.56','-3.61','+2.16'],textposition:'outside'}],
+ lay({title:{text:'成交后30s markout(¢) 按"模型自称的edge"分桶',font:{size:13}}}));
+
+// 8 参数审计
+Plotly.newPlot('c8',[{x:['红:证明错了','橙:拍的没估计器','黄:测过一次焊死','绿:活参数'],
+ y:[3,11,3,6],type:'bar',marker:{color:[R,Y,'#d29922',G]},
+ text:[3,11,3,6],textposition:'outside'}],
+ lay({title:{text:'参数户口审计:23个统计参数的身份',font:{size:13}}}));
+
+// 9 池塘
+Plotly.newPlot('c9',[{x:['现状(clip=1)','吃0.01%份额','吃0.05%','吃0.1%'],
+ y:[0.76,144,720,1440],type:'bar',marker:{color:[GR,B,B,G]},
+ text:['$0.76','$144','$720','$1440'],textposition:'outside'}],
+ lay({title:{text:'日收入:现状 vs 份额情景(KXBTC15M 日量1.44亿张×1¢)',font:{size:13}},yaxis:{gridcolor:'#1c2430',type:'log'}}));
+
+// 10 三层宪法
+Plotly.newPlot('c10',[{x:['β/基差','毒性表','盈利曲面','估计器形状','风控红线'],
+ y:[86400,7,1,0.25,0],type:'bar',marker:{color:[G,G,B,P,R]},
+ text:['每秒','每天','每周','每月(人审)','永不'],textposition:'outside'}],
+ lay({title:{text:'谁多久更新一次(次/天,log)——顶层必须为0',font:{size:13}},yaxis:{gridcolor:'#1c2430',type:'log'}}));
+</script></body></html>

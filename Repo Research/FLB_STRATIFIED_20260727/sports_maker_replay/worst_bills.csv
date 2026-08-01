@@ -1,0 +1,13 @@
+family,phase,grp,n_positions,n_markets,total_usd,ev_c_per_lot,win_rate_of_fade,worst_single_fill_c,worst_day_usd,max_drawdown_usd,days
+sports_game,ingame,favorite,5094,2359,145.11,2.85,0.0805,-10.0,-3.58,-3.58,15
+sports_game,pregame,favorite,423,297,39.25,9.28,0.1608,-10.0,-1.06,-2.06,15
+sports_game,unknown,favorite,5777,2608,281.45,4.87,0.1016,-10.0,1.63,0.0,15
+sports_game,ingame,longshot,9549,2358,-1.23,-0.01,0.8627,-99.0,-37.41,-50.56,15
+sports_game,pregame,longshot,1454,1026,-31.4,-2.16,0.7572,-94.0,-15.53,-39.17,15
+sports_game,unknown,longshot,11531,2622,-145.83,-1.26,0.8532,-98.8,-24.86,-149.22,15
+sports_prop,ingame,favorite,62808,38676,1390.37,2.21,0.0606,-10.0,17.8,0.0,15
+sports_prop,pregame,favorite,2889,2368,96.1,3.33,0.0945,-10.0,-0.61,-0.02,15
+sports_prop,unknown,favorite,69868,36107,3389.34,4.85,0.0948,-10.0,75.62,0.0,15
+sports_prop,ingame,longshot,57935,25436,359.22,0.62,0.8732,-99.0,-42.11,-74.87,15
+sports_prop,pregame,longshot,18535,16575,221.8,1.2,0.832,-99.0,-45.02,-45.02,15
+sports_prop,unknown,longshot,100547,34021,430.03,0.43,0.8742,-99.0,-54.26,-54.26,15

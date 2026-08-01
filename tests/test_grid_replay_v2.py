@@ -260,6 +260,35 @@ def test_gate_or_die_exits_nonzero_on_any_field_drift():
     assert e.value.code == 1
 
 
+# ------------------------------------------------------ no-lookahead guards
+def test_maker_grace_does_not_flatten_before_grace_window():
+    arm = Arm(name="grace", mode="tail", refill=True, pair=True,
+               maker_grace_s=30.0, flatten_age_s=90.0)
+    tr = [(T0 + 1_000, 4000, 10 * CLIP, "no")]
+    s = sim([arm], trades=tr)
+    snapshot(s, T0, [(4000, 10_000)], [(9000, 10_000)])
+    # Fill the YES leg; the opposite leg is intentionally absent.
+    delta(s, T0 + 2_000, "yes", 4000, 0)
+    a = s.arm_state("grace")
+    assert len(a.unpaired["y"]) == 1
+    # At age 90s the grace arm must still wait (no future tape is consulted).
+    s.on_book_event(T0 + 90_000 * US, "delta", "yes", 4000, 0, None, None)
+    assert len(a.unpaired["y"]) == 1
+
+
+def test_opposite_depth_gate_uses_only_current_book():
+    arm = Arm(name="depth", mode="tail", refill=True, pair=True,
+              min_opp_depth_ct=5)
+    s = sim([arm])
+    # YES entry requires visible NO depth.  One contract is insufficient.
+    snapshot(s, T0, [(4000, 10_000)], [(9000, 4 * 10_000)])
+    a = s.arm_state("depth")
+    assert a.quotes["y"] is None
+    # Add enough currently visible depth; the next event may admit a quote.
+    delta(s, T0 + 1_000, "no", 9000, 2 * 10_000)
+    assert a.quotes["y"] is not None
+
+
 def test_neutral_arms_constant_matches_e4_modes():
     names = {(a.mode, a.refill, a.gamma_c, a.requote_min_c)
              for a in NEUTRAL_ARMS}
@@ -358,7 +387,8 @@ def test_pair_age_flatten_pays_taker_fee():
     delta(s, T0 + 2000, "yes", 3000, -1)      # consume fill; empty 3000
     a = s.arm_state("pair")
     assert a.unpaired["y"] == [(3000, T0 + 1000)]
-    ts_flat = T0 + 1000 + 90 * US + 1
+    # Replay timestamps are nanoseconds: 90 seconds = 90*US*1000.
+    ts_flat = T0 + 1000 + 90 * US * 1000 + 1
     delta(s, ts_flat, "yes", 2500, 50_000)    # displayed bid appears
     # 5 ct sold @25.00 vs 30.00 entry: -5c/ct - fee(7% quad, ceil to cent
     # order-total 7c => 1.4c/ct) = -6.4c/ct

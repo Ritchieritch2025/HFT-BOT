@@ -1,0 +1,125 @@
+{
+  "schema": "round4-postfill-v4.1-external-source-receipts-v1",
+  "created_at_utc": "2026-07-26T11:47:09Z",
+  "purpose": "Locally reproducible source receipts for the V4.1 fee schedule and current KXBTC15M market grid. This is not an artifact manifest and grants no candidate or live authority.",
+  "authorization": {
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false,
+    "final_manifest_created": false
+  },
+  "series_get": {
+    "method": "GET",
+    "url": "https://api.elections.kalshi.com/trade-api/v2/series/KXBTC15M",
+    "http_status": 200,
+    "captured_at_utc": "2026-07-26T11:43:46Z",
+    "raw_body_storage_path": "tmp/crypto_mm_canary_20260726/round4/v4_1_source_receipts/kxbtc15m_series_20260726T114346Z.raw.json",
+    "raw_body_storage_encoding": "identity",
+    "raw_body_bytes": 1096,
+    "raw_body_sha256": "be24516ae4825de53af89b12ead76e3a93ac52e18ef67bf519621adde3ed5bc2",
+    "observed": {
+      "ticker": "KXBTC15M",
+      "fee_type": "quadratic",
+      "fee_multiplier": 1,
+      "last_updated_ts": "2026-07-01T18:05:04.527379Z"
+    }
+  },
+  "series_fee_changes_get": {
+    "method": "GET",
+    "url": "https://api.elections.kalshi.com/trade-api/v2/series/fee_changes?series_ticker=KXBTC15M&show_historical=true",
+    "http_status": 200,
+    "captured_at_utc": "2026-07-26T11:43:51Z",
+    "raw_body_storage_path": "tmp/crypto_mm_canary_20260726/round4/v4_1_source_receipts/kxbtc15m_fee_changes_20260726T114351Z.raw.base64",
+    "raw_body_storage_encoding": "base64; decode without adding bytes",
+    "raw_body_bytes": 28,
+    "raw_body_sha256": "6780c8eb7edbb5e1ca3b15166f17cef054befacb2cc8f4bc479c54074a9a2c18",
+    "request_show_historical": true,
+    "observed_series_fee_change_count": 0
+  },
+  "current_open_event_get": {
+    "method": "GET",
+    "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXBTC15M&status=open&limit=20&with_nested_markets=true",
+    "http_status": 200,
+    "captured_at_utc": "2026-07-26T11:46:20Z",
+    "raw_body_storage_path": "tmp/crypto_mm_canary_20260726/round4/v4_1_source_receipts/kxbtc15m_open_event_20260726T114620Z.raw.base64",
+    "raw_body_storage_encoding": "base64; decode without adding bytes",
+    "raw_body_bytes": 2628,
+    "raw_body_sha256": "c65e94f4c8919171866048e1ee237a596a4c125d98a6113eff311ab618ead304",
+    "observed": {
+      "event_ticker": "KXBTC15M-26JUL260800",
+      "series_ticker": "KXBTC15M",
+      "market_ticker": "KXBTC15M-26JUL260800-00",
+      "market_status": "active",
+      "market_open_time": "2026-07-26T11:45:00Z",
+      "market_close_time": "2026-07-26T12:00:00Z",
+      "price_level_structure": "tapered_deci_cent",
+      "price_ranges": [
+        {
+          "start": "0.0000",
+          "end": "0.1000",
+          "step": "0.0010"
+        },
+        {
+          "start": "0.1000",
+          "end": "0.9000",
+          "step": "0.0100"
+        },
+        {
+          "start": "0.9000",
+          "end": "1.0000",
+          "step": "0.0010"
+        }
+      ],
+      "event_fee_type_field_present": false,
+      "event_fee_multiplier_field_present": false,
+      "market_fee_type_field_present": false,
+      "market_fee_multiplier_field_present": false,
+      "fee_waiver_expiration_time_field_present": false
+    },
+    "fee_observation_limit": "Absent event/market fee override fields are recorded as an observation, not standalone proof. The fee decision is jointly pinned by the series response, empty historical fee_changes response, authenticated July 7 PDF, and fail-closed drift checks."
+  },
+  "fee_schedule_pdf": {
+    "official_url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+    "local_existing_source_path": "/Applications/Research Ritch/kalshi-fee-schedule July'.pdf",
+    "local_source_is_existing_not_redownloaded": true,
+    "local_file_bytes": 382507,
+    "local_file_modified_at": "2026-07-24T22:57:50-04:00",
+    "page_count": 12,
+    "raw_pdf_sha256": "815e2d5127d02d2fb90773d1a3844dc15a987696171eddc4e58de87b59c6124c",
+    "raw_pdf_bytes_authenticated": true,
+    "macos_where_froms": [
+      "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+      "https://kalshi.com/docs/kalshi-fee-schedule.pdf"
+    ],
+    "macos_where_froms_xattr_raw_sha256": "1f0c5b6d7b9718fbe402ee43501b9aa649b97a69abba972f1639fb3c71fceaee",
+    "text_extraction": {
+      "method": "PyMuPDF 1.26.5; LF join between page.get_text() values; UTF-8",
+      "characters": 9612,
+      "sha256": "5f90733a0dae6e3d9577efb37895011ddda96385731481a7706c48643b58276d"
+    },
+    "visual_and_text_observations": {
+      "effective_date": "2026-07-07",
+      "general_taker_rate": "0.07",
+      "general_taker_default_multiplier": "1",
+      "general_maker_rate": "0.0175",
+      "general_maker_default_multiplier": "0",
+      "rounding_unit": "centicent",
+      "settlement_fee_usd": "0",
+      "kxbtc15m_non_standard_list_occurrences": 0,
+      "kxbtcmax150_non_standard_list_occurrences": 1,
+      "kxbtcy_non_standard_list_occurrences": 1
+    },
+    "current_direct_get_attempt": {
+      "attempted_at_utc": "2026-07-26T11:47:09Z",
+      "http_status": 429,
+      "server": "Vercel",
+      "result": "SECURITY_CHECKPOINT_NOT_PDF"
+    },
+    "provenance_rule": "The authenticated existing local PDF and its WhereFroms metadata are primary. The current 429 response is not hashed or represented as PDF content."
+  },
+  "frozen_fee_schedule_receipt": {
+    "fee_schedule_receipt_id": "KXBTC15M_FEE_SCHEDULE_2026_07_07",
+    "source_rows_sha256": "477dea5d3fef250f1f92d1273b1775b97db30cc80217d22b6504e557f3f7a17a",
+    "drift_policy": "Any local PDF path/size/mtime/raw hash/WhereFroms/page/text hash drift, series fee_type or fee_multiplier drift, nonempty fee_changes response, or open-market grid drift fails closed before candidate use."
+  }
+}

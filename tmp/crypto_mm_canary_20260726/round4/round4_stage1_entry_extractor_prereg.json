@@ -1,0 +1,10 @@
+{
+  "schema": "z3-round4-stage1-entry-full-roster-receipt-v1",
+  "experiment_sha256": "2caa5e520fb8d57f7f259cb680a60a9e06cd4561ac58c24d2ed5e20b56a5a2d0",
+  "embedded_spec_sha256": "f90f7b8e58b77601ab2145e364ed7a905e36f3436247ffe2a232c91c19f345ab",
+  "status": "DISCOVERY_EXTRACTION_ONLY",
+  "candidate_status": "ACTION_SET_PENDING",
+  "candidate": false,
+  "deployable": false,
+  "live_authorized": false
+}

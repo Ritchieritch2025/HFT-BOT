@@ -1,0 +1,10 @@
+{
+  "schema": "brti-fair-pricing-audit-seal-v1",
+  "sealed_at_utc": "2026-07-26T06:47:34Z",
+  "script_sha256": "72c768052858b0199efc091d2f87193dbe56f9f66e889e4fd4e3c5d2fa9d4495",
+  "preregistration_sha256": "e36c43e549fdca1150dbd74375d1b60b487ec5884804c8033148f7f2e86ce3b7",
+  "discovery_values_opened_before_seal": false,
+  "hard_banned_date": "2026-07-23",
+  "hard_banned_date_opened_enumerated_or_hashed": false,
+  "status": "SEALED"
+}

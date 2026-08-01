@@ -1,0 +1,860 @@
+{
+  "all_available": {
+    "conservative_touch_plus_1c": {
+      "chosen_horizon_counts": {
+        "0.25": 28,
+        "0.5": 6,
+        "1.0": 3,
+        "10.0": 33,
+        "2.0": 2,
+        "30.0": 3,
+        "5.0": 1,
+        "60.0": 8
+      },
+      "market_cluster_ci95_mean_usd": [
+        -0.00686315,
+        0.00208575
+      ],
+      "markets": 8,
+      "mean_usd_per_cycle": -0.00197262,
+      "n": 84,
+      "total_usd": -0.1657
+    },
+    "touch": {
+      "chosen_horizon_counts": {
+        "0.25": 28,
+        "0.5": 6,
+        "1.0": 3,
+        "10.0": 33,
+        "2.0": 2,
+        "30.0": 3,
+        "5.0": 1,
+        "60.0": 8
+      },
+      "market_cluster_ci95_mean_usd": [
+        -0.00242961,
+        0.00473418
+      ],
+      "markets": 8,
+      "mean_usd_per_cycle": 0.0014369,
+      "n": 84,
+      "total_usd": 0.1207
+    }
+  },
+  "available_horizons_s": [
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    30.0,
+    60.0
+  ],
+  "complete_eight_horizons_only": {
+    "conservative_touch_plus_1c": {
+      "chosen_horizon_counts": {
+        "0.25": 27,
+        "0.5": 6,
+        "1.0": 3,
+        "10.0": 33,
+        "2.0": 1,
+        "30.0": 3,
+        "5.0": 1,
+        "60.0": 8
+      },
+      "market_cluster_ci95_mean_usd": [
+        -0.00603231,
+        0.00315157
+      ],
+      "markets": 8,
+      "mean_usd_per_cycle": -0.00127805,
+      "n": 82,
+      "total_usd": -0.1048
+    },
+    "touch": {
+      "chosen_horizon_counts": {
+        "0.25": 27,
+        "0.5": 6,
+        "1.0": 3,
+        "10.0": 33,
+        "2.0": 1,
+        "30.0": 3,
+        "5.0": 1,
+        "60.0": 8
+      },
+      "market_cluster_ci95_mean_usd": [
+        -0.00181112,
+        0.00556429
+      ],
+      "markets": 8,
+      "mean_usd_per_cycle": 0.00198171,
+      "n": 82,
+      "total_usd": 0.1625
+    }
+  },
+  "interpretation": "chooses the best realized horizon separately for every cycle with future knowledge. This is only an optimistic envelope over the logged fixed-horizon rows available for that cycle. It is not an executable bound, not a complete eight-action bound when rows are missing, and not a bound on dynamic reprice/exit actions",
+  "not_causal": true,
+  "not_deployable": true,
+  "rows": [
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 1,
+      "conservative_horizon_s": 1.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260145-45",
+      "touch_horizon_s": 1.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 2,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260145-45",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 3,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.02,
+      "market": "KXBTC15M-26JUL260145-45",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.02
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 4,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": 0.001,
+      "market": "KXBTC15M-26JUL260145-45",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": 0.0105
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 5,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 6,
+      "conservative_horizon_s": 1.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 1.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 7,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.02,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.02
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 8,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 9,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 10,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": -0.0268,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": -0.017
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 11,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 12,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 13,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 14,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 15,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.03,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.03
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 16,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 17,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 18,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 19,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0185,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.009
+    },
+    {
+      "available_horizon_n": 7,
+      "completed_cycle": 20,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0274,
+      "market": "KXBTC15M-26JUL260200-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.018
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 21,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 22,
+      "conservative_horizon_s": 30.0,
+      "conservative_pnl_usd": 0.02,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 30.0,
+      "touch_pnl_usd": 0.02
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 23,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0374,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0275
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 24,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 25,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 26,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0262,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0164
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 27,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.02,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.02
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 28,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 29,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 30,
+      "conservative_horizon_s": 1.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 1.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 31,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0174,
+      "market": "KXBTC15M-26JUL260215-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.008
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 32,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 33,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0275,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0175
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 34,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 35,
+      "conservative_horizon_s": 2.0,
+      "conservative_pnl_usd": -0.0165,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 2.0,
+      "touch_pnl_usd": -0.0064
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 37,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 38,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0567,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0465
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 39,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0299,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0204
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 40,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 41,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 42,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0269,
+      "market": "KXBTC15M-26JUL260230-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0174
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 43,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 44,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.026,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0162
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 45,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 46,
+      "conservative_horizon_s": 30.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 30.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 47,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0321,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0224
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 48,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0158,
+      "market": "KXBTC15M-26JUL260245-45",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0063
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 49,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 50,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 51,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.026,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0162
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 52,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0299,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0195
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 53,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 54,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 55,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0295,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0199
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 56,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 57,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 58,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0185,
+      "market": "KXBTC15M-26JUL260300-00",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.009
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 59,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0275,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0174
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 60,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 61,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.02,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.02
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 62,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 63,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 64,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0335,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0232
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 65,
+      "conservative_horizon_s": 30.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 30.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 66,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 67,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 68,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0373,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0272
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 69,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 70,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 71,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0258,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0155
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 72,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 73,
+      "conservative_horizon_s": 60.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 60.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 74,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 75,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 76,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0258,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0155
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 77,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 78,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.027,
+      "market": "KXBTC15M-26JUL260315-15",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0168
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 79,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0347,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.0245
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 80,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 81,
+      "conservative_horizon_s": 5.0,
+      "conservative_pnl_usd": -0.0355,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 5.0,
+      "touch_pnl_usd": -0.0253
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 82,
+      "conservative_horizon_s": 10.0,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 10.0,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 83,
+      "conservative_horizon_s": 0.25,
+      "conservative_pnl_usd": -0.0171,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 0.25,
+      "touch_pnl_usd": -0.007
+    },
+    {
+      "available_horizon_n": 8,
+      "completed_cycle": 84,
+      "conservative_horizon_s": 0.5,
+      "conservative_pnl_usd": 0.01,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 0.5,
+      "touch_pnl_usd": 0.01
+    },
+    {
+      "available_horizon_n": 5,
+      "completed_cycle": 85,
+      "conservative_horizon_s": 2.0,
+      "conservative_pnl_usd": -0.0335,
+      "market": "KXBTC15M-26JUL260330-30",
+      "touch_horizon_s": 2.0,
+      "touch_pnl_usd": -0.0238
+    }
+  ],
+  "schema": "crypto-mm-fixed-horizon-hindsight-oracle-v1",
+  "source_sha256": "32733d959918e78ed6dda4608f55117e93909fb43c3fbdf909d317f963c82494",
+  "status": "POST_HOC_LOGGED_HORIZON_ENVELOPE_ONLY"
+}

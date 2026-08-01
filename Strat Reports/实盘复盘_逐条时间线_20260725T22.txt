@@ -1,0 +1,852 @@
+/home/ubuntu/replay_log.py:60: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  return dt.datetime.utcfromtimestamp(o["wall_ns"] / 1e9).strftime("%H:%M:%S.%f")[:-3]
+FILE mm_20260725T22.ndjson | engine events 747 | exchange fills 101
+------------------------------------------------------------------------------------------------
+22:01:01.287 START  mode=live cap=8.0 clip=2.00
+22:01:01.424 CONTROL {"note": "initial"}
+22:01:32.084 ACK    bid @0.680  51815-15  oid=75ec2bd9
+22:01:32.095 ACK    ask @0.690  51815-15  oid=d9081d9c
+22:01:32.564 >>FILL yes cnt=2.00   px=0.6800 51815-15   net_pos=+2
+22:01:32.680 CXL    bid oid=75ec2bd9 code=404
+22:01:32.697 ACK    bid @0.670  51815-15  oid=20c77176
+22:01:32.710 CXL    ask_no oid=d9081d9c code=200
+22:01:32.721 ACK    ask @0.680  51815-15  oid=6e90dc66
+22:01:33.366 >>FILL yes cnt=2.00   px=0.6700 51815-15   net_pos=+4
+22:01:34.280 >>FILL no  cnt=2.00   px=0.6800 51815-15   net_pos=+2
+22:01:36.486 CXL    ask_no oid=6e90dc66 code=404
+22:01:36.499 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.512 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.523 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.534 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.545 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.556 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.568 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.581 REJ    ask @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:01:36.592 CXL    bid oid=20c77176 code=404
+22:01:36.750 ACK    bid @0.710  51815-15  oid=dbc7128c
+22:01:37.000 ACK    ask @0.720  51815-15  oid=8d31e9d3
+22:01:37.408 >>FILL yes cnt=2.00   px=0.7100 51815-15   net_pos=+4
+22:01:38.087 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+2
+22:01:38.695 CXL    ask_no oid=8d31e9d3 code=404
+22:01:38.707 ACK    ask @0.730  51815-15  oid=46b268ea
+22:01:38.716 CXL    bid oid=dbc7128c code=404
+22:01:38.724 ACK    bid @0.720  51815-15  oid=8a7c6c76
+22:01:39.073 >>FILL yes cnt=2.00   px=0.7200 51815-15   net_pos=+4
+22:01:40.645 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=+2
+22:01:41.286 CXL    ask_no oid=46b268ea code=404
+22:01:41.299 ACK    ask @0.740  51815-15  oid=d4f50499
+22:01:41.310 CXL    bid oid=8a7c6c76 code=404
+22:01:41.321 ACK    bid @0.730  51815-15  oid=ed1b384b
+22:01:41.388 >>FILL no  cnt=2.00   px=0.7400 51815-15   net_pos=+0
+22:01:42.086 CXL    bid oid=ed1b384b code=200
+22:01:42.107 ACK    bid @0.730  51815-15  oid=b20fd187
+22:01:42.118 CXL    ask_no oid=d4f50499 code=404
+22:01:42.878 >>FILL yes cnt=2.00   px=0.7300 51815-15   net_pos=+2
+22:01:43.779 ACK    ask @0.750  51815-15  oid=9b92ad98
+22:01:43.789 CXL    bid oid=b20fd187 code=404
+22:01:47.460 >>FILL no  cnt=2.00   px=0.7500 51815-15   net_pos=+0
+22:01:48.469 CXL    ask_no oid=9b92ad98 code=404
+22:01:48.480 ACK    ask @0.760  51815-15  oid=5829bd58
+22:01:52.719 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-2
+22:01:54.367 ACK    bid @0.740  51815-15  oid=3f036218
+22:01:54.378 CXL    bid oid=3f036218 code=200
+22:01:54.386 ACK    bid @0.730  51815-15  oid=043deb01
+22:01:54.397 CXL    ask_no oid=5829bd58 code=404
+22:01:54.406 ACK    ask @0.750  51815-15  oid=5062aa0a
+22:01:55.388 CXL    bid oid=043deb01 code=200
+22:01:55.397 ACK    bid @0.740  51815-15  oid=72fbb389
+22:01:55.986 >>FILL yes cnt=2.00   px=0.7400 51815-15   net_pos=+0
+22:01:56.769 >>FILL no  cnt=2.00   px=0.7500 51815-15   net_pos=-2
+22:01:56.784 CXL    ask_no oid=5062aa0a code=404
+22:01:56.793 ACK    ask @0.760  51815-15  oid=3afbaaed
+22:01:56.802 CXL    bid oid=72fbb389 code=404
+22:01:58.605 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-4
+22:01:58.622 CXL    ask_no oid=3afbaaed code=404
+22:01:58.630 ACK    ask @0.770  51815-15  oid=ce8eb4eb
+22:01:59.622 CXL    ask_no oid=ce8eb4eb code=200
+22:01:59.631 ACK    ask @0.760  51815-15  oid=185a8dcb
+22:02:03.557 CXL    ask_no oid=185a8dcb code=200
+22:02:03.568 ACK    ask @0.750  51815-15  oid=affd144e
+22:02:04.974 >>FILL no  cnt=2.00   px=0.7500 51815-15   net_pos=-6
+22:02:05.611 CXL    ask_no oid=affd144e code=404
+22:02:05.678 ACK    ask @0.740  51815-15  oid=07d3c725
+22:02:05.697 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.711 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.722 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.775 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.784 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.793 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.805 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:05.818 CXL    ask_no oid=07d3c725 code=200
+22:02:05.874 ACK    bid @0.660  51815-15  oid=71fb635f
+22:02:05.898 >>FILL yes cnt=2.00   px=0.6600 51815-15   net_pos=-4
+22:02:05.914 CXL    bid oid=71fb635f code=404
+22:02:06.130 ACK    ask @0.660  51815-15  oid=e1668281
+22:02:06.373 ACK    bid @0.650  51815-15  oid=98947a5c
+22:02:06.726 >>FILL yes cnt=2.00   px=0.6500 51815-15   net_pos=-2
+22:02:06.750 CXL    ask_no oid=e1668281 code=200
+22:02:06.917 CXL    bid oid=98947a5c code=404
+22:02:06.930 ACK    bid @0.640  51815-15  oid=515b66e6
+22:02:07.071 CXL    bid oid=515b66e6 code=200
+22:02:07.079 ACK    ask @0.650  51815-15  oid=d960d97a
+22:02:08.638 CXL    ask_no oid=d960d97a code=200
+22:02:08.649 ACK    ask @0.640  51815-15  oid=a527a797
+22:02:09.096 ACK    bid @0.630  51815-15  oid=467f2d8e
+22:02:10.117 CXL    ask_no oid=a527a797 code=200
+22:02:10.386 ACK    ask @0.640  51815-15  oid=f1ed1755
+22:02:10.506 >>FILL yes cnt=2.00   px=0.6300 51815-15   net_pos=+0
+22:02:11.095 CXL    ask_no oid=f1ed1755 code=200
+22:02:11.391 ACK    ask @0.640  51815-15  oid=937f2de3
+22:02:12.147 CXL    ask_no oid=937f2de3 code=200
+22:02:13.836 CXL    bid oid=467f2d8e code=404
+22:02:13.847 ACK    bid @0.620  51815-15  oid=a3d31282
+22:02:14.835 CXL    bid oid=a3d31282 code=200
+22:02:14.846 ACK    bid @0.630  51815-15  oid=f9c0549e
+22:02:15.251 >>FILL yes cnt=2.00   px=0.6300 51815-15   net_pos=+2
+22:02:15.837 CXL    bid oid=f9c0549e code=404
+22:02:15.848 ACK    bid @0.620  51815-15  oid=67c8b397
+22:02:15.876 ACK    ask @0.650  51815-15  oid=ed1a5ce5
+22:02:15.890 CXL    ask_no oid=ed1a5ce5 code=200
+22:02:16.838 CXL    bid oid=67c8b397 code=200
+22:02:16.847 ACK    bid @0.630  51815-15  oid=c7f9235f
+22:02:17.065 CXL    bid oid=c7f9235f code=200
+22:02:17.076 ACK    ask @0.640  51815-15  oid=71ff12b6
+22:02:17.302 ACK    bid @0.620  51815-15  oid=f4999bf8
+22:02:17.311 CXL    bid oid=f4999bf8 code=200
+22:02:17.321 ACK    bid @0.620  51815-15  oid=bbf8c00f
+22:02:17.333 CXL    ask_no oid=71ff12b6 code=200
+22:02:18.320 ACK    ask @0.640  51815-15  oid=cb9f3759
+22:02:18.329 CXL    bid oid=bbf8c00f code=200
+22:02:18.397 ACK    bid @0.630  51815-15  oid=e43503a0
+22:02:18.408 CXL    ask_no oid=cb9f3759 code=200
+22:02:18.639 >>FILL yes cnt=2.00   px=0.6300 51815-15   net_pos=+4
+22:02:19.339 CXL    bid oid=e43503a0 code=404
+22:02:19.350 ACK    bid @0.620  51815-15  oid=9e25dd0c
+22:02:19.821 >>FILL yes cnt=2.00   px=0.6200 51815-15   net_pos=+6
+22:02:22.401 CXL    bid oid=9e25dd0c code=404
+22:02:22.410 ACK    bid @0.630  51815-15  oid=c5b94c1e
+22:02:22.422 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.434 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.446 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.455 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.466 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.475 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.486 REJ    ask @0.660  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:22.498 CXL    bid oid=c5b94c1e code=200
+22:02:22.659 ACK    ask @0.700  51815-15  oid=9645c10c
+22:02:23.092 ACK    bid @0.690  51815-15  oid=f77dac5a
+22:02:23.105 CXL    ask_no oid=9645c10c code=200
+22:02:23.700 >>FILL yes cnt=2.00   px=0.6900 51815-15   net_pos=+8
+22:02:24.424 CXL    bid oid=f77dac5a code=404
+22:02:24.436 ACK    ask @0.700  51815-15  oid=7273316c
+22:02:24.844 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=+6
+22:02:26.451 ACK    bid @0.690  51815-15  oid=1f553667
+22:02:26.459 CXL    ask_no oid=7273316c code=404
+22:02:26.476 ACK    ask @0.710  51815-15  oid=30487456
+22:02:26.489 CXL    bid oid=1f553667 code=200
+22:02:27.454 ACK    bid @0.700  51815-15  oid=f954099d
+22:02:27.569 >>FILL yes cnt=2.00   px=0.7000 51815-15   net_pos=+8
+22:02:27.589 CXL    bid oid=f954099d code=404
+22:02:27.635 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.646 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.656 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.664 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.673 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.684 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.696 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.708 REJ    bid @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:27.721 CXL    ask_no oid=30487456 code=200
+22:02:27.963 ACK    bid @0.660  51815-15  oid=aea0b999
+22:02:28.205 ACK    ask @0.670  51815-15  oid=1525c0c3
+22:02:29.156 >>FILL no  cnt=2.00   px=0.6700 51815-15   net_pos=+6
+22:02:29.174 CXL    ask_no oid=1525c0c3 code=404
+22:02:29.182 REJ    ask @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:29.191 REJ    ask @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:29.202 REJ    ask @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:29.214 REJ    ask @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:29.225 CXL    bid oid=aea0b999 code=200
+22:02:29.459 ACK    ask @0.690  51815-15  oid=61bbd081
+22:02:31.794 CXL    ask_no oid=61bbd081 code=200
+22:02:31.802 ACK    ask @0.680  51815-15  oid=5109834e
+22:02:32.117 >>FILL no  cnt=2.00   px=0.6800 51815-15   net_pos=+4
+22:02:32.469 ACK    bid @0.680  51815-15  oid=f8f05093
+22:02:32.480 CXL    ask_no oid=5109834e code=404
+22:02:32.584 >>FILL yes cnt=2.00   px=0.6800 51815-15   net_pos=+6
+22:02:32.609 CXL    bid oid=f8f05093 code=404
+22:02:32.620 ACK    bid @0.670  51815-15  oid=5b0f1f8a
+22:02:32.822 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.831 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.842 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.852 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.860 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.868 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.877 REJ    ask @0.700  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:02:32.900 CXL    bid oid=5b0f1f8a code=200
+22:02:32.967 ACK    ask @0.720  51815-15  oid=1637a869
+22:02:33.082 CXL    ask_no oid=1637a869 code=200
+22:02:33.220 ACK    bid @0.710  51815-15  oid=3d927a12
+22:02:34.029 >>FILL yes cnt=2.00   px=0.7100 51815-15   net_pos=+8
+22:02:34.623 CXL    bid oid=3d927a12 code=404
+22:02:34.634 ACK    bid @0.700  51815-15  oid=8f6ecaa9
+22:02:35.473 CXL    bid oid=8f6ecaa9 code=200
+22:02:35.482 ACK    ask @0.720  51815-15  oid=fb983d28
+22:02:35.601 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+6
+22:02:35.621 CXL    ask_no oid=fb983d28 code=404
+22:02:35.631 ACK    ask @0.730  51815-15  oid=b79dc56b
+22:02:36.625 CXL    ask_no oid=b79dc56b code=200
+22:02:36.636 ACK    ask @0.720  51815-15  oid=b98acfe1
+22:02:37.155 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+4
+22:02:40.702 CXL    ask_no oid=b98acfe1 code=404
+22:02:40.713 ACK    ask @0.730  51815-15  oid=2eea2de3
+22:02:41.713 CXL    ask_no oid=2eea2de3 code=200
+22:02:41.722 ACK    ask @0.720  51815-15  oid=60bbef77
+22:02:42.404 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+2
+22:02:42.716 CXL    ask_no oid=60bbef77 code=404
+22:02:42.727 ACK    ask @0.770  51815-15  oid=a9727d07
+22:02:43.729 ACK    bid @0.700  51815-15  oid=3d94e3fd
+22:02:43.738 CXL    ask_no oid=a9727d07 code=200
+22:02:44.114 ACK    ask @0.710  51815-15  oid=721292d6
+22:02:44.700 CXL    ask_no oid=721292d6 code=200
+22:02:46.175 >>FILL yes cnt=2.00   px=0.7000 51815-15   net_pos=+4
+22:02:47.883 CXL    bid oid=3d94e3fd code=404
+22:02:47.893 ACK    bid @0.690  51815-15  oid=6db3e364
+22:02:48.887 CXL    bid oid=6db3e364 code=200
+22:02:48.895 ACK    bid @0.700  51815-15  oid=f8d9d29c
+22:02:49.109 >>FILL yes cnt=2.00   px=0.7000 51815-15   net_pos=+6
+22:02:50.737 ACK    ask @0.710  51815-15  oid=c047b270
+22:02:51.072 CXL    ask_no oid=c047b270 code=200
+22:02:57.405 CXL    bid oid=f8d9d29c code=404
+22:02:57.418 ACK    bid @0.690  51815-15  oid=c0881a5a
+22:02:58.422 CXL    bid oid=c0881a5a code=200
+22:02:58.430 ACK    bid @0.700  51815-15  oid=b3906f40
+22:02:58.984 >>FILL yes cnt=2.00   px=0.7000 51815-15   net_pos=+8
+22:03:02.171 CXL    bid oid=b3906f40 code=404
+22:03:02.184 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.196 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.277 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.290 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.306 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.347 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.358 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.370 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:02.433 ACK    bid @0.650  51815-15  oid=fa474923
+22:03:03.171 CXL    bid oid=fa474923 code=200
+22:03:03.179 ACK    bid @0.670  51815-15  oid=c8bf5e98
+22:03:04.176 CXL    bid oid=c8bf5e98 code=200
+22:03:04.185 ACK    bid @0.680  51815-15  oid=7da11b86
+22:03:05.006 >>FILL yes cnt=2.00   px=0.6800 51815-15   net_pos=+10
+22:03:05.180 CXL    bid oid=7da11b86 code=404
+22:03:05.191 ACK    bid @0.690  51815-15  oid=3367303c
+22:03:05.600 >>FILL yes cnt=2.00   px=0.6900 51815-15   net_pos=+12
+22:03:06.569 CXL    bid oid=3367303c code=404
+22:03:06.596 REJ    bid @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.609 REJ    bid @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.616 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.625 REJ    bid @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.633 REJ    bid @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.644 REJ    bid @0.680  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.655 REJ    bid @0.670  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.663 REJ    bid @0.670  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:06.833 ACK    bid @0.650  51815-15  oid=51305b86
+22:03:07.627 ACK    ask @0.710  51815-15  oid=520627a3
+22:03:07.636 CXL    ask_no oid=520627a3 code=200
+22:03:07.645 CXL    bid oid=51305b86 code=200
+22:03:07.656 ACK    bid @0.660  51815-15  oid=1cbd6538
+22:03:08.653 CXL    bid oid=1cbd6538 code=200
+22:03:08.661 ACK    bid @0.680  51815-15  oid=0b141fc3
+22:03:09.582 >>FILL yes cnt=2.00   px=0.6800 51815-15   net_pos=+14
+22:03:13.106 CXL    bid oid=0b141fc3 code=404
+22:03:13.115 ACK    bid @0.690  51815-15  oid=2c731542
+22:03:13.797 >>FILL yes cnt=2.00   px=0.6900 51815-15   net_pos=+16
+22:03:13.918 CXL    bid oid=2c731542 code=404
+22:03:13.928 ACK    ask @0.700  51815-15  oid=e2ad4bbe
+22:03:14.165 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=+14
+22:03:14.185 CXL    ask_no oid=e2ad4bbe code=404
+22:03:14.200 ACK    ask @0.710  51815-15  oid=a2f8ea5e
+22:03:15.189 CXL    ask_no oid=a2f8ea5e code=200
+22:03:15.200 ACK    ask @0.700  51815-15  oid=bd3d6c81
+22:03:15.816 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=+12
+22:03:16.616 CXL    ask_no oid=bd3d6c81 code=404
+22:03:16.628 ACK    ask @0.710  51815-15  oid=93184a8a
+22:03:17.756 CXL    ask_no oid=93184a8a code=200
+22:03:17.767 ACK    ask @0.700  51815-15  oid=3ff751c0
+22:03:17.797 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=+10
+22:03:18.771 CXL    ask_no oid=3ff751c0 code=404
+22:03:18.781 ACK    ask @0.710  51815-15  oid=66da3c6b
+22:03:19.723 >>FILL no  cnt=2.00   px=0.7100 51815-15   net_pos=+8
+22:03:19.768 CXL    ask_no oid=66da3c6b code=404
+22:03:19.776 ACK    ask @0.720  51815-15  oid=73a5437b
+22:03:23.413 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+6
+22:03:34.165 CXL    ask_no oid=73a5437b code=404
+22:03:34.173 ACK    ask @0.710  51815-15  oid=c02bf743
+22:03:34.633 >>FILL no  cnt=2.00   px=0.7100 51815-15   net_pos=+4
+22:03:41.986 CXL    ask_no oid=c02bf743 code=404
+22:03:41.995 ACK    ask @0.720  51815-15  oid=ed6b93f0
+22:03:45.724 ACK    bid @0.680  51815-15  oid=e350a060
+22:03:45.736 CXL    bid oid=e350a060 code=200
+22:03:45.744 CXL    ask_no oid=ed6b93f0 code=200
+22:03:45.754 ACK    ask @0.710  51815-15  oid=edd7f128
+22:03:45.976 >>FILL no  cnt=2.00   px=0.7100 51815-15   net_pos=+2
+22:03:46.753 CXL    ask_no oid=edd7f128 code=404
+22:03:46.762 ACK    ask @0.720  51815-15  oid=6c27ed95
+22:03:47.477 >>FILL no  cnt=2.00   px=0.7200 51815-15   net_pos=+0
+22:03:47.754 CXL    ask_no oid=6c27ed95 code=404
+22:03:47.766 ACK    ask @0.730  51815-15  oid=901e10d7
+22:03:48.275 ACK    bid @0.700  51815-15  oid=a9e0a055
+22:03:48.286 CXL    ask_no oid=901e10d7 code=200
+22:03:48.488 >>FILL yes cnt=2.00   px=0.7000 51815-15   net_pos=+2
+22:03:48.605 CXL    bid oid=a9e0a055 code=404
+22:03:48.615 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.629 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.638 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.647 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.683 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.693 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.714 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.722 REJ    bid @0.690  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:03:48.868 ACK    bid @0.650  51815-15  oid=743df1c7
+22:03:50.396 ACK    ask @0.670  51815-15  oid=def36c47
+22:03:50.405 CXL    bid oid=743df1c7 code=200
+22:03:50.630 >>FILL no  cnt=2.00   px=0.6700 51815-15   net_pos=+0
+22:03:50.645 CXL    ask_no oid=def36c47 code=404
+22:03:50.653 ACK    ask @0.680  51815-15  oid=0f480002
+22:03:51.648 CXL    ask_no oid=0f480002 code=200
+22:03:51.656 ACK    ask @0.670  51815-15  oid=b4073168
+22:03:52.190 >>FILL no  cnt=2.00   px=0.6700 51815-15   net_pos=-2
+22:03:53.186 CXL    ask_no oid=b4073168 code=404
+22:03:53.206 ACK    ask @0.680  51815-15  oid=cbcc53b3
+22:03:53.247 >>FILL no  cnt=0.99   px=0.6800 51815-15   net_pos=-3
+22:03:53.265 >>FILL no  cnt=1.01   px=0.6800 51815-15   net_pos=-4
+22:03:54.091 ACK    bid @0.670  51815-15  oid=044a0748
+22:03:54.117 CXL    ask_no oid=cbcc53b3 code=404
+22:03:55.221 >>FILL yes cnt=2.00   px=0.6700 51815-15   net_pos=-2
+22:03:55.776 CXL    bid oid=044a0748 code=404
+22:03:55.785 ACK    bid @0.680  51815-15  oid=984c820a
+22:03:56.588 >>FILL yes cnt=2.00   px=0.6800 51815-15   net_pos=+0
+22:03:57.218 ACK    ask @0.700  51815-15  oid=7d678915
+22:03:57.233 CXL    bid oid=984c820a code=404
+22:03:59.403 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=-2
+22:04:03.191 CXL    ask_no oid=7d678915 code=404
+22:04:03.202 ACK    ask @0.710  51815-15  oid=248f80e4
+22:04:05.006 >>FILL no  cnt=2.00   px=0.7100 51815-15   net_pos=-4
+22:04:05.022 CXL    ask_no oid=248f80e4 code=404
+22:04:05.033 ACK    ask @0.720  51815-15  oid=6538031f
+22:04:06.020 CXL    ask_no oid=6538031f code=200
+22:04:06.031 ACK    ask @0.710  51815-15  oid=f4038420
+22:04:07.804 CXL    ask_no oid=f4038420 code=200
+22:04:07.813 ACK    ask @0.700  51815-15  oid=a9ed9493
+22:04:08.371 >>FILL no  cnt=2.00   px=0.7000 51815-15   net_pos=-6
+22:04:10.569 CXL    ask_no oid=a9ed9493 code=404
+22:04:10.579 ACK    ask @0.710  51815-15  oid=cdd20f9e
+22:04:11.356 >>FILL no  cnt=2.00   px=0.7100 51815-15   net_pos=-8
+22:04:11.568 CXL    ask_no oid=cdd20f9e code=404
+22:04:11.579 ACK    ask @0.780  51815-15  oid=359cb49f
+22:04:12.573 CXL    ask_no oid=359cb49f code=200
+22:04:12.584 ACK    ask @0.750  51815-15  oid=ae929621
+22:04:13.031 ACK    bid @0.730  51815-15  oid=1113807d
+22:04:13.085 CXL    ask_no oid=ae929621 code=200
+22:04:13.289 ACK    ask @0.750  51815-15  oid=b181f1ac
+22:04:13.297 CXL    bid oid=1113807d code=200
+22:04:13.802 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.810 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.821 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.832 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.840 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.848 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.858 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.870 REJ    bid @0.730  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:13.885 CXL    ask_no oid=b181f1ac code=200
+22:04:14.052 ACK    bid @0.720  51815-15  oid=1d6b8a7d
+22:04:14.587 >>FILL yes cnt=2.00   px=0.7200 51815-15   net_pos=-6
+22:04:14.604 CXL    bid oid=1d6b8a7d code=404
+22:04:14.687 ACK    bid @0.710  51815-15  oid=58520422
+22:04:15.614 CXL    bid oid=58520422 code=200
+22:04:15.623 ACK    bid @0.720  51815-15  oid=3221739c
+22:04:15.626 >>FILL yes cnt=2.00   px=0.7200 51815-15   net_pos=-4
+22:04:16.610 CXL    bid oid=3221739c code=404
+22:04:16.618 ACK    bid @0.710  51815-15  oid=59ad6de4
+22:04:16.835 ACK    ask @0.730  51815-15  oid=8c76b570
+22:04:16.844 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=-6
+22:04:16.860 CXL    ask_no oid=8c76b570 code=404
+22:04:16.868 ACK    ask @0.740  51815-15  oid=40778125
+22:04:17.047 CXL    bid oid=59ad6de4 code=200
+22:04:17.417 >>FILL no  cnt=2.00   px=0.7400 51815-15   net_pos=-8
+22:04:17.948 CXL    ask_no oid=40778125 code=404
+22:04:17.959 ACK    ask @0.750  51815-15  oid=ef927cae
+22:04:18.309 >>FILL no  cnt=2.00   px=0.7500 51815-15   net_pos=-10
+22:04:18.969 CXL    ask_no oid=ef927cae code=404
+22:04:18.980 ACK    ask @0.760  51815-15  oid=2e47bb4c
+22:04:19.047 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-12
+22:04:19.973 CXL    ask_no oid=2e47bb4c code=404
+22:04:19.980 ACK    ask @0.770  51815-15  oid=bbd52d2b
+22:04:22.190 >>FILL no  cnt=2.00   px=0.7700 51815-15   net_pos=-14
+22:04:25.527 CXL    ask_no oid=bbd52d2b code=404
+22:04:25.538 ACK    ask @0.760  51815-15  oid=a5b7bb41
+22:04:26.195 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-16
+22:04:26.563 CXL    ask_no oid=a5b7bb41 code=404
+22:04:26.571 ACK    ask @0.770  51815-15  oid=6191e64f
+22:04:27.569 CXL    ask_no oid=6191e64f code=200
+22:04:27.577 ACK    ask @0.760  51815-15  oid=d499db66
+22:04:28.281 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-18
+22:04:28.585 CXL    ask_no oid=d499db66 code=404
+22:04:28.599 ACK    ask @0.770  51815-15  oid=d659adcd
+22:04:29.891 CXL    ask_no oid=d659adcd code=200
+22:04:29.903 ACK    ask @0.760  51815-15  oid=89fcad74
+22:04:30.135 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-20
+22:04:31.171 CXL    ask_no oid=89fcad74 code=404
+22:04:31.181 ACK    ask @0.770  51815-15  oid=4ef9ea3c
+22:04:31.468 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.478 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.487 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.508 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.516 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.524 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.536 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.544 REJ    bid @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:31.562 CXL    ask_no oid=4ef9ea3c code=200
+22:04:31.686 ACK    bid @0.710  51815-15  oid=190cb683
+22:04:32.503 ACK    ask @0.730  51815-15  oid=fc5a4eea
+22:04:32.512 CXL    ask_no oid=fc5a4eea code=200
+22:04:32.538 ACK    ask @0.730  51815-15  oid=89eb63ef
+22:04:32.546 CXL    ask_no oid=89eb63ef code=200
+22:04:33.047 CXL    bid oid=190cb683 code=200
+22:04:33.056 ACK    bid @0.720  51815-15  oid=4fe36752
+22:04:33.111 ACK    ask @0.730  51815-15  oid=24162e90
+22:04:34.073 CXL    bid oid=4fe36752 code=200
+22:04:34.798 ACK    bid @0.710  51815-15  oid=7cc793c8
+22:04:34.809 CXL    bid oid=7cc793c8 code=200
+22:04:34.817 ACK    bid @0.710  51815-15  oid=060d2d47
+22:04:34.827 CXL    bid oid=060d2d47 code=200
+22:04:35.023 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=-22
+22:04:35.082 ACK    bid @0.710  51815-15  oid=56ac69d9
+22:04:35.091 CXL    bid oid=56ac69d9 code=200
+22:04:35.658 ACK    bid @0.720  51815-15  oid=33a9e0a9
+22:04:36.663 CXL    bid oid=33a9e0a9 code=200
+22:04:37.881 CXL    ask_no oid=24162e90 code=404
+22:04:37.890 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.900 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.909 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.920 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.928 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.936 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.944 REJ    ask @0.740  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:37.952 ACK    ask @0.750  51815-15  oid=db6677a3
+22:04:40.363 CXL    ask_no oid=db6677a3 code=200
+22:04:40.371 ACK    ask @0.740  51815-15  oid=bba0139c
+22:04:40.685 ACK    bid @0.730  51815-15  oid=079192ee
+22:04:40.692 CXL    ask_no oid=bba0139c code=200
+22:04:41.690 CXL    bid oid=079192ee code=200
+22:04:41.699 ACK    ask @0.740  51815-15  oid=19c43373
+22:04:44.529 >>FILL no  cnt=2.00   px=0.7400 51815-15   net_pos=-24
+22:04:44.551 CXL    ask_no oid=19c43373 code=404
+22:04:44.564 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.576 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.590 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.610 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.622 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.631 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.642 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.652 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:44.816 ACK    ask @0.780  51815-15  oid=a0e92391
+22:04:47.114 >>FILL no  cnt=2.00   px=0.7800 51815-15   net_pos=-26
+22:04:47.525 CXL    ask_no oid=a0e92391 code=404
+22:04:47.536 ACK    ask @0.770  51815-15  oid=aa2bee77
+22:04:47.730 ACK    bid @0.760  51815-15  oid=1e497d8e
+22:04:47.740 CXL    ask_no oid=aa2bee77 code=200
+22:04:47.774 ACK    ask @0.780  51815-15  oid=a324969b
+22:04:47.786 CXL    ask_no oid=a324969b code=200
+22:04:48.043 ACK    ask @0.780  51815-15  oid=3c9c8e23
+22:04:48.058 CXL    ask_no oid=3c9c8e23 code=200
+22:04:48.507 >>FILL yes cnt=2.00   px=0.7600 51815-15   net_pos=-24
+22:04:48.568 ACK    ask @0.780  51815-15  oid=e1523d43
+22:04:48.583 CXL    ask_no oid=e1523d43 code=200
+22:04:48.596 ACK    ask @0.780  51815-15  oid=ee250d18
+22:04:48.607 CXL    bid oid=1e497d8e code=404
+22:04:48.615 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.625 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.634 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.644 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.652 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.662 REJ    bid @0.770  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:04:48.671 CXL    ask_no oid=ee250d18 code=200
+22:04:48.849 ACK    ask @0.770  51815-15  oid=7148f045
+22:04:49.226 >>FILL no  cnt=2.00   px=0.7700 51815-15   net_pos=-26
+22:04:49.685 CXL    ask_no oid=7148f045 code=404
+22:04:49.694 ACK    ask @0.780  51815-15  oid=4f7f7c7b
+22:04:52.496 >>FILL no  cnt=1.00   px=0.7800 51815-15   net_pos=-27
+22:04:52.521 >>FILL no  cnt=0.02   px=0.7800 51815-15   net_pos=-27
+22:04:52.536 >>FILL no  cnt=0.98   px=0.7800 51815-15   net_pos=-28
+22:04:52.808 CXL    ask_no oid=4f7f7c7b code=404
+22:04:52.816 ACK    ask @0.790  51815-15  oid=09367e36
+22:04:53.382 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-30
+22:04:54.535 CXL    ask_no oid=09367e36 code=404
+22:04:54.546 ACK    ask @0.780  51815-15  oid=7d64f114
+22:04:54.778 >>FILL no  cnt=2.00   px=0.7800 51815-15   net_pos=-32
+22:04:55.540 CXL    ask_no oid=7d64f114 code=404
+22:04:55.550 ACK    ask @0.790  51815-15  oid=26abfb15
+22:04:56.548 CXL    ask_no oid=26abfb15 code=200
+22:04:56.560 ACK    ask @0.780  51815-15  oid=d0a66b62
+22:04:57.162 >>FILL no  cnt=2.00   px=0.7800 51815-15   net_pos=-34
+22:04:57.550 CXL    ask_no oid=d0a66b62 code=404
+22:04:57.561 ACK    ask @0.790  51815-15  oid=8a1ebab7
+22:04:58.641 >>FILL no  cnt=1.40   px=0.7900 51815-15   net_pos=-35
+22:04:58.727 >>FILL no  cnt=0.60   px=0.7900 51815-15   net_pos=-36
+22:04:59.326 CXL    ask_no oid=8a1ebab7 code=404
+22:04:59.337 ACK    ask @0.800  51815-15  oid=75cdea06
+22:05:00.976 CXL    ask_no oid=75cdea06 code=200
+22:05:00.987 ACK    ask @0.790  51815-15  oid=90ce30b7
+22:05:01.970 CXL    ask_no oid=90ce30b7 code=200
+22:05:01.982 ACK    ask @0.770  51815-15  oid=94557511
+22:05:03.061 CXL    ask_no oid=94557511 code=200
+22:05:03.073 ACK    ask @0.760  51815-15  oid=8b535ef1
+22:05:04.109 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-38
+22:05:06.112 CXL    ask_no oid=8b535ef1 code=404
+22:05:06.227 ACK    ask @0.770  51815-15  oid=7d0cdd44
+22:05:06.775 >>FILL no  cnt=2.00   px=0.7700 51815-15   net_pos=-40
+22:05:07.853 ACK    bid @0.750  51815-15  oid=d75db52a
+22:05:08.008 CXL    bid oid=d75db52a code=200
+22:05:08.017 ACK    bid @0.750  51815-15  oid=eb1757c2
+22:05:08.026 CXL    bid oid=eb1757c2 code=200
+22:05:08.132 ACK    bid @0.750  51815-15  oid=791670cb
+22:05:08.630 CXL    bid oid=791670cb code=200
+22:05:08.641 ACK    bid @0.750  51815-15  oid=77128ea3
+22:05:08.650 CXL    ask_no oid=7d0cdd44 code=404
+22:05:09.256 ACK    ask @0.770  51815-15  oid=9592572b
+22:05:09.634 CXL    bid oid=77128ea3 code=200
+22:05:09.645 ACK    bid @0.760  51815-15  oid=3b73e2f4
+22:05:09.869 CXL    bid oid=3b73e2f4 code=200
+22:05:10.610 >>FILL no  cnt=2.00   px=0.7700 51815-15   net_pos=-42
+22:05:13.310 ACK    bid @0.750  51815-15  oid=db3c7e59
+22:05:13.321 CXL    ask_no oid=9592572b code=404
+22:05:16.369 >>FILL yes cnt=2.00   px=0.7500 51815-15   net_pos=-40
+22:05:16.968 ACK    ask @0.760  51815-15  oid=bea4f6ee
+22:05:17.099 CXL    bid oid=db3c7e59 code=404
+22:05:17.298 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-42
+22:05:17.316 CXL    ask_no oid=bea4f6ee code=404
+22:05:17.327 ACK    ask @0.770  51815-15  oid=ebb478e7
+22:05:18.994 ACK    bid @0.750  51815-15  oid=12e6e9ee
+22:05:19.009 CXL    bid oid=12e6e9ee code=200
+22:05:19.149 ACK    bid @0.750  51815-15  oid=4574d43d
+22:05:19.312 CXL    bid oid=4574d43d code=200
+22:05:19.323 ACK    bid @0.750  51815-15  oid=e80bcb7b
+22:05:19.335 CXL    ask_no oid=ebb478e7 code=200
+22:05:19.345 ACK    ask @0.760  51815-15  oid=ff375c94
+22:05:19.740 >>FILL no  cnt=2.00   px=0.7600 51815-15   net_pos=-44
+22:05:20.072 CXL    ask_no oid=ff375c94 code=404
+22:05:20.144 >>FILL yes cnt=2.00   px=0.7500 51815-15   net_pos=-42
+22:05:20.315 CXL    bid oid=e80bcb7b code=404
+22:05:20.357 ACK    bid @0.730  51815-15  oid=fe5be1e4
+22:05:20.765 >>FILL yes cnt=2.00   px=0.7300 51815-15   net_pos=-40
+22:05:21.073 CXL    bid oid=fe5be1e4 code=404
+22:05:21.082 ACK    ask @0.740  51815-15  oid=817d5675
+22:05:22.655 CXL    ask_no oid=817d5675 code=200
+22:05:22.864 ACK    ask @0.730  51815-15  oid=49f5ec99
+22:05:23.027 ACK    bid @0.700  51815-15  oid=f093be64
+22:05:23.081 CXL    ask_no oid=49f5ec99 code=200
+22:05:23.095 ACK    ask @0.720  51815-15  oid=9a77ae3d
+22:05:23.357 CXL    ask_no oid=9a77ae3d code=200
+22:05:23.705 CXL    bid oid=f093be64 code=200
+22:05:23.714 ACK    bid @0.710  51815-15  oid=782b6b24
+22:05:23.727 ACK    ask @0.730  51815-15  oid=2c17b526
+22:05:23.736 CXL    bid oid=782b6b24 code=200
+22:05:23.745 ACK    bid @0.710  51815-15  oid=9aef30b8
+22:05:23.755 CXL    ask_no oid=2c17b526 code=200
+22:05:23.767 ACK    ask @0.730  51815-15  oid=53533736
+22:05:23.779 CXL    bid oid=9aef30b8 code=200
+22:05:24.380 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=-42
+22:05:24.762 CXL    ask_no oid=53533736 code=404
+22:05:24.934 ACK    ask @0.740  51815-15  oid=4bed8851
+22:05:26.438 CXL    ask_no oid=4bed8851 code=200
+22:05:26.449 ACK    ask @0.730  51815-15  oid=fda2bce0
+22:05:27.324 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=-44
+22:05:27.441 CXL    ask_no oid=fda2bce0 code=404
+22:05:27.449 ACK    ask @0.750  51815-15  oid=b880eb7f
+22:05:28.374 ACK    bid @0.720  51815-15  oid=e30425b8
+22:05:28.382 CXL    bid oid=e30425b8 code=200
+22:05:28.393 ACK    bid @0.720  51815-15  oid=db66a443
+22:05:28.403 CXL    ask_no oid=b880eb7f code=200
+22:05:28.414 ACK    ask @0.740  51815-15  oid=68cf4001
+22:05:28.463 CXL    ask_no oid=68cf4001 code=200
+22:05:28.477 ACK    ask @0.740  51815-15  oid=efc662ac
+22:05:28.485 CXL    ask_no oid=efc662ac code=200
+22:05:28.496 ACK    ask @0.740  51815-15  oid=7fe93406
+22:05:28.507 CXL    ask_no oid=7fe93406 code=200
+22:05:29.031 ACK    ask @0.730  51815-15  oid=b560989c
+22:05:29.067 CXL    bid oid=db66a443 code=200
+22:05:29.187 >>FILL no  cnt=2.00   px=0.7300 51815-15   net_pos=-46
+22:05:29.510 CXL    ask_no oid=b560989c code=404
+22:05:29.524 ACK    ask @0.750  51815-15  oid=47631aa8
+22:05:30.512 CXL    ask_no oid=47631aa8 code=200
+22:05:30.522 ACK    ask @0.740  51815-15  oid=d3142e69
+22:05:32.040 ACK    bid @0.730  51815-15  oid=66ee4af3
+22:05:32.061 CXL    ask_no oid=d3142e69 code=200
+22:05:32.590 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.615 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.626 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.635 REJ    ask @0.750  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.647 REJ    ask @0.760  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.660 REJ    ask @0.760  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.670 REJ    ask @0.760  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.717 REJ    ask @0.760  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:05:32.726 CXL    bid oid=66ee4af3 code=200
+22:05:32.854 ACK    ask @0.770  51815-15  oid=5c158623
+22:05:34.064 ACK    bid @0.760  51815-15  oid=e70c7b98
+22:05:34.378 >>FILL no  cnt=2.00   px=0.7700 51815-15   net_pos=-48
+22:05:34.400 CXL    ask_no oid=5c158623 code=404
+22:05:34.409 ACK    ask @0.780  51815-15  oid=4f253f5d
+22:05:34.426 CXL    bid oid=e70c7b98 code=200
+22:05:35.097 ACK    bid @0.770  51815-15  oid=17f6ae95
+22:05:36.075 CXL    ask_no oid=4f253f5d code=200
+22:05:38.101 CXL    bid oid=17f6ae95 code=200
+22:05:38.144 ACK    ask @0.780  51815-15  oid=512a1988
+22:05:39.082 ACK    bid @0.770  51815-15  oid=70b99ef9
+22:05:39.093 CXL    ask_no oid=512a1988 code=200
+22:05:43.061 CXL    bid oid=70b99ef9 code=200
+22:05:43.072 ACK    ask @0.780  51815-15  oid=18602c23
+22:05:43.706 >>FILL no  cnt=2.00   px=0.7800 51815-15   net_pos=-50
+22:05:43.722 CXL    ask_no oid=18602c23 code=404
+22:05:43.733 ACK    ask @0.790  51815-15  oid=a4c002f9
+22:05:43.876 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-52
+22:05:44.725 CXL    ask_no oid=a4c002f9 code=404
+22:05:44.733 ACK    ask @0.800  51815-15  oid=5e2a9bb8
+22:05:47.079 CXL    ask_no oid=5e2a9bb8 code=200
+22:05:47.090 ACK    ask @0.790  51815-15  oid=3fdd7934
+22:05:47.617 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-54
+22:05:48.152 CXL    ask_no oid=3fdd7934 code=404
+22:05:48.161 ACK    ask @0.800  51815-15  oid=d04d06b8
+22:05:49.259 CXL    ask_no oid=d04d06b8 code=200
+22:05:49.268 ACK    ask @0.790  51815-15  oid=ea91677e
+22:05:49.281 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-56
+22:05:51.170 ACK    bid @0.780  51815-15  oid=5be58340
+22:05:52.183 CXL    bid oid=5be58340 code=200
+22:05:53.754 CXL    ask_no oid=ea91677e code=404
+22:05:53.765 ACK    ask @0.800  51815-15  oid=fb01776a
+22:05:54.767 CXL    ask_no oid=fb01776a code=200
+22:05:54.778 ACK    ask @0.790  51815-15  oid=0ce77850
+22:05:55.045 ACK    bid @0.780  51815-15  oid=c90aa322
+22:05:55.227 CXL    bid oid=c90aa322 code=200
+22:05:57.303 ACK    bid @0.770  51815-15  oid=ebaf08b6
+22:05:57.312 CXL    bid oid=ebaf08b6 code=200
+22:05:57.455 ACK    bid @0.770  51815-15  oid=873a7504
+22:05:57.477 CXL    ask_no oid=0ce77850 code=200
+22:05:58.235 CXL    bid oid=873a7504 code=200
+22:05:58.245 ACK    ask @0.780  51815-15  oid=4917f056
+22:05:59.250 ACK    bid @0.770  51815-15  oid=1c217d60
+22:05:59.257 CXL    ask_no oid=4917f056 code=200
+22:06:01.650 ACK    ask @0.790  51815-15  oid=7ae99d1c
+22:06:01.659 CXL    bid oid=1c217d60 code=200
+22:06:02.297 ACK    bid @0.780  51815-15  oid=4f41606a
+22:06:02.305 CXL    ask_no oid=7ae99d1c code=200
+22:06:03.305 CXL    bid oid=4f41606a code=200
+22:06:03.316 ACK    ask @0.790  51815-15  oid=48db9574
+22:06:04.314 ACK    bid @0.780  51815-15  oid=faab3594
+22:06:04.323 CXL    ask_no oid=48db9574 code=200
+22:06:05.320 CXL    bid oid=faab3594 code=200
+22:06:05.328 ACK    ask @0.790  51815-15  oid=01a8e607
+22:06:06.619 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-58
+22:06:07.009 ACK    bid @0.770  51815-15  oid=948100d4
+22:06:07.018 CXL    bid oid=948100d4 code=200
+22:06:07.026 ACK    bid @0.770  51815-15  oid=32e7a68f
+22:06:07.035 CXL    ask_no oid=01a8e607 code=404
+22:06:07.046 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"invalid_order","message":"invalid order",
+22:06:07.056 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.070 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.081 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.090 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.102 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.112 CXL    bid oid=32e7a68f code=200
+22:06:07.282 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.506 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:07.755 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:08.012 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:08.269 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:08.521 ACK    bid @0.770  51815-15  oid=1a44d47a
+22:06:09.346 CXL    bid oid=1a44d47a code=200
+22:06:09.355 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:09.364 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:09.372 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:09.505 REJ    ask @0.780  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:09.757 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:10.040 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:10.275 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:10.527 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:10.797 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:11.016 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:11.256 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:11.554 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:11.771 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:12.028 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:12.258 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:12.520 ACK    bid @0.780  51815-15  oid=ae293a97
+22:06:12.766 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:13.009 REJ    ask @0.790  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:13.191 >>FILL yes cnt=2.00   px=0.7800 51815-15   net_pos=-56
+22:06:13.265 ACK    ask @0.790  51815-15  oid=9cfd3d9a
+22:06:13.369 CXL    ask_no oid=9cfd3d9a code=200
+22:06:17.099 ACK    ask @0.790  51815-15  oid=acb64bde
+22:06:17.374 >>FILL no  cnt=2.00   px=0.7900 51815-15   net_pos=-58
+22:06:17.376 CXL    ask_no oid=acb64bde code=404
+22:06:17.969 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.015 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.024 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.036 CXL    bid oid=ae293a97 code=404
+22:06:18.047 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.058 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.069 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.081 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.092 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.219 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:18.525 ACK    bid @0.790  51815-15  oid=2c924e9f
+22:06:20.393 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.406 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.414 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.426 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.439 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.447 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.454 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.485 REJ    ask @0.800  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.648 CXL    bid oid=2c924e9f code=200
+22:06:20.718 REJ    ask @0.810  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:20.969 REJ    ask @0.820  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:21.224 ACK    bid @0.810  51815-15  oid=e779e1a2
+22:06:23.176 CXL    bid oid=e779e1a2 code=200
+22:06:23.185 ACK    bid @0.820  51815-15  oid=04a53cc4
+22:06:23.499 >>FILL yes cnt=2.00   px=0.8200 51815-15   net_pos=-56
+22:06:26.287 ACK    ask @0.840  51815-15  oid=7ef8bb1c
+22:06:26.298 CXL    ask_no oid=7ef8bb1c code=200
+22:06:26.309 ACK    ask @0.840  51815-15  oid=a14892b6
+22:06:26.319 CXL    ask_no oid=a14892b6 code=200
+22:06:26.477 ACK    ask @0.840  51815-15  oid=6c033172
+22:06:26.488 CXL    ask_no oid=6c033172 code=200
+22:06:26.690 ACK    ask @0.840  51815-15  oid=f628478c
+22:06:26.706 CXL    ask_no oid=f628478c code=200
+22:06:26.910 ACK    ask @0.840  51815-15  oid=5c1a63e5
+22:06:26.924 CXL    bid oid=04a53cc4 code=404
+22:06:28.945 >>FILL no  cnt=2.00   px=0.8400 51815-15   net_pos=-58
+22:06:28.961 CXL    ask_no oid=5c1a63e5 code=404
+22:06:28.969 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:28.981 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:28.989 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:28.998 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.009 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.020 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.030 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.038 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.224 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.493 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.724 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:29.972 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:30.233 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:30.475 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:30.719 REJ    ask @0.840  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:31.001 REJ    ask @0.840  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:31.227 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:31.480 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:31.736 ACK    bid @0.830  51815-15  oid=2ae34579
+22:06:31.812 CXL    bid oid=2ae34579 code=200
+22:06:31.974 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:32.226 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:32.479 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:32.727 REJ    ask @0.840  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:32.999 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:33.224 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:33.485 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:33.723 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:33.986 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:34.229 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:34.475 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:34.740 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:34.970 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:35.226 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:35.471 REJ    ask @0.850  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:35.725 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:35.972 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:36.236 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:36.473 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:36.736 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:36.976 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:37.238 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:37.473 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:37.729 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:37.972 REJ    ask @0.860  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:38.223 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:38.470 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:38.725 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:38.973 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:39.236 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:39.490 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:39.733 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:39.982 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:40.234 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:40.480 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:40.720 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:40.970 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:41.222 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:41.471 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:41.727 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:41.984 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:42.227 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:42.504 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:42.725 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:42.976 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:43.233 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:43.485 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:43.729 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:43.975 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:44.230 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:44.478 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:44.728 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:44.973 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:45.230 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:45.479 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:45.722 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:45.994 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:46.223 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:46.478 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:46.723 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:46.973 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:47.224 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:47.475 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:47.724 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:47.979 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:48.221 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:48.484 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:48.723 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:48.974 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:49.250 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:49.473 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:49.722 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:49.976 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:50.219 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:50.475 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:50.723 REJ    ask @0.870  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:50.976 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:51.242 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:51.477 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:51.743 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:51.975 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:52.223 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:52.475 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:52.723 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:52.988 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:53.229 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:53.472 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:53.736 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:53.989 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:54.222 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:54.469 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:54.723 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:54.974 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:55.224 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:55.502 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:55.720 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:55.973 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:56.219 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:56.472 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:56.729 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:56.979 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:57.229 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:57.478 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:57.721 REJ    ask @0.880  code=400 {'error': '{"error":{"code":"insufficient_balance","message":"insuffic
+22:06:57.730 CONTROL {"paused": true, "kill": true}
+22:06:57.730 CANCEL_ALL  reason=CONTROL_KILL

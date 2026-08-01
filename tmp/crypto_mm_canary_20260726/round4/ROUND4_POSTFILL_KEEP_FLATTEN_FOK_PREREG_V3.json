@@ -1,0 +1,372 @@
+{
+  "schema": "round4-postfill-keep-flatten-fok-prereg-v3",
+  "contract_version": "ROUND4_POSTFILL_FULL_COVERAGE_V3",
+  "action_family_version": "ROUND4_KEEP_FLATTEN_FOK_FULL_COVERAGE_V3",
+  "status": "PRE_DATA_CONTRACT_SEALED_DISCOVERY_ONLY",
+  "self_contained": true,
+  "supersedes": [
+    "all pre-V3 postfill state and action contracts"
+  ],
+  "predecessor_dependency_required": false,
+  "authorization": {
+    "real_data_extraction_authorized": false,
+    "fit_authorized": false,
+    "candidate_selection_authorized": false,
+    "forward_or_heldout_open_authorized": false,
+    "shadow_authorized": false,
+    "live_authorized": false
+  },
+  "official_exchange_sources": [
+    {
+      "title": "Order directions",
+      "url": "https://docs.kalshi.com/getting_started/order_direction",
+      "locked_use": "bid is YES and ask is NO; selling YES is economically buying NO; buying YES reduces a held NO position"
+    },
+    {
+      "title": "Create Order V2",
+      "url": "https://docs.kalshi.com/api-reference/orders/create-order-v2",
+      "locked_use": "fill_or_kill, reduce_only, and self_trade_prevention_type are supported; reduce_only caps the order by current position; self-cross prevention is a backstop and does not replace the no-self-cross gate"
+    }
+  ],
+  "latency_scenario": {
+    "effective_decision_to_fok_ms": 60,
+    "classification": "CONSERVATIVE_RESEARCH_SCENARIO_NOT_PRODUCTION_SLA",
+    "receipt_path": "/home/ubuntu/hft-bot/work/latency/receipts/concurrent_cancel_1784993947.json",
+    "receipt_size_bytes": 217,
+    "receipt_sha256": "8d460e6b4e8dbfa87ef373b21e34bb41e76b0bcf3f881c46f817a04c51f31e08",
+    "sample_size": 10,
+    "limitation": "The ten observations are a small engineering sample.  The sealed 60ms value is a conservative replay scenario, not a measured p99 and not a production latency SLA."
+  },
+  "data_boundary": {
+    "data_role": "DISCOVERY",
+    "allowed_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates_utc": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "receipt_clock": "strict local receive wall and monotonic clocks",
+    "equal_time_order": [
+      "cancel_ack",
+      "flatten_fok_processed",
+      "public_crossing_event"
+    ],
+    "public_crossing_event_applied_to_ack_book": false,
+    "terminal_wins_over_same_time_grid": true,
+    "market_day_rollback_on_any_contract_failure": true
+  },
+  "decision_state": {
+    "grid_elapsed_ms": [
+      0,
+      250,
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      30000,
+      60000
+    ],
+    "rows_per_at_risk_grid": {
+      "causal_state": 1,
+      "actions": [
+        "KEEP",
+        "FLATTEN_FOK"
+      ],
+      "flatten_fok_outcomes": 1,
+      "keep_transitions": 1
+    },
+    "same_state_fingerprint_required_for_both_actions": true,
+    "zero_time_atom_has_state_or_action": false,
+    "remaining_inventory_rule": "Historical private partial maker fills are not identified.  Every nonterminal at-risk grid therefore requires remaining_inventory_fp = requested_qty_fp = first_fill_qty_fp.  Any decrease is unsupported DATA_INVALID, not a smaller continuing state.",
+    "queue_flow_always_required": [
+      "complement_queue_position_fp",
+      "complement_same_price_ahead_fp",
+      "complement_better_depth_fp",
+      "complement_flow_1s_fp",
+      "complement_flow_5s_fp",
+      "complement_flow_10s_fp",
+      "complement_flow_60s_fp",
+      "complement_flow_acceleration_fp"
+    ],
+    "nullable_feature_contract": {
+      "two_sided_touch_indicator": "two_sided_touch_available",
+      "two_sided_touch_nullable_fields": [
+        "touch_imbalance",
+        "spread_e4",
+        "mid_move_1s_e4",
+        "mid_move_10s_e4",
+        "mid_move_since_entry_e4",
+        "mid_move_since_fill_e4"
+      ],
+      "two_sided_missing_rule": "When two_sided_touch_available is false, every field in two_sided_touch_nullable_fields is NULL.  When true, all are non-NULL.",
+      "complement_touch_indicator": "complement_touch_available",
+      "complement_touch_nullable_fields": [
+        "complement_touch_distance_e4"
+      ],
+      "complement_missing_rule": "complement_touch_distance_e4 is NULL if and only if complement_touch_available is false.",
+      "logical_implication": "two_sided_touch_available implies complement_touch_available",
+      "stale_midpoint_carry_forbidden": true,
+      "extractor_imputation_forbidden": true,
+      "kernel_fair_indicator": "kernel_fair_available",
+      "kernel_fair_nullable_fields": [
+        "kernel_fair_e4",
+        "first_leg_fair_edge_e4",
+        "complement_fair_edge_e4",
+        "kernel_fair_move_since_entry_e4",
+        "kernel_fair_move_since_fill_e4",
+        "kernel_source_time_ms",
+        "kernel_causality_kind"
+      ],
+      "kernel_missing_rule": "When kernel_fair_available is false, all seven kernel fields are NULL.  When true, all seven are non-NULL, kernel_causality_kind is SOURCE_TIME_MINUS_5000MS, and kernel_source_time_ms is no later than decision wall time minus 5000ms.",
+      "kernel_edge_identity": {
+        "first_YES": "first_leg_fair_edge_e4 = kernel_fair_e4 - first_price_e4",
+        "first_NO": "first_leg_fair_edge_e4 = 10000 - kernel_fair_e4 - first_price_e4",
+        "complement_NO": "complement_fair_edge_e4 = 10000 - kernel_fair_e4 - complement_price_e4",
+        "complement_YES": "complement_fair_edge_e4 = kernel_fair_e4 - complement_price_e4"
+      },
+      "kernel_live_clock_rule": "Any future live feature must use the same five-second delayed source-time boundary.",
+      "kernel_stale_carry_forbidden": true,
+      "learner_train_fold_imputation_numeric_fields": [
+        "touch_imbalance",
+        "spread_e4",
+        "mid_move_1s_e4",
+        "mid_move_10s_e4",
+        "mid_move_since_entry_e4",
+        "mid_move_since_fill_e4",
+        "complement_touch_distance_e4",
+        "kernel_fair_e4",
+        "first_leg_fair_edge_e4",
+        "complement_fair_edge_e4",
+        "kernel_fair_move_since_entry_e4",
+        "kernel_fair_move_since_fill_e4"
+      ],
+      "learner_audit_only_nullable_fields": [
+        "kernel_source_time_ms",
+        "kernel_causality_kind"
+      ],
+      "learner_imputation_boundary": "Only the twelve numeric fields listed above may receive train-fold-only median imputation, paired with the three sealed availability indicators.  Kernel source time and causality kind remain audit-only.  Every other model feature remains fail-closed non-null."
+    }
+  },
+  "actions": {
+    "KEEP": {
+      "post_only": true,
+      "reduce_only": false,
+      "effective_latency_ms": 0,
+      "fok_requires_prior_cancel_ack": false
+    },
+    "FLATTEN_FOK": {
+      "canonical_v2_mapping": {
+        "held_YES": "ASK: sell YES; walk YES bids from best to worse",
+        "held_NO": "BID: buy YES to reduce NO; walk YES asks from best to worse, derived as 10000 minus NO bids"
+      },
+      "post_only": false,
+      "reduce_only": true,
+      "time_in_force": "fill_or_kill",
+      "self_trade_prevention_type": "taker_at_cross",
+      "fok_requires_prior_cancel_ack": true,
+      "profit_gate_bypassed_for_risk_exit": true,
+      "requested_qty": "all remaining inventory",
+      "legacy_alternative_routes": false
+    }
+  },
+  "price_and_limit": {
+    "price_unit": "e4 dollars",
+    "legal_min_e4": 10,
+    "legal_max_e4": 9990,
+    "legal_grid": {
+      "below_1000_or_above_9000_step_e4": 10,
+      "1000_through_9000_step_e4": 100
+    },
+    "full_visible_clip": "freeze the decision-time canonical walk and set the limit to the worst full-clip level plus one adverse legal tick, capped at the legal boundary",
+    "incomplete_visible_clip": "set the limit to the most adverse legal boundary and set flatten_limit_fallback=true",
+    "cross_boundary_receipts": {
+      "ASK_from_1000_e4": 990,
+      "BID_from_9000_e4": 9010
+    },
+    "empty_book": "empty slices, executable quantity zero, full residual inventory, and adverse-boundary fallback"
+  },
+  "execution_protocol": {
+    "sequence": [
+      "decision",
+      "cancel_request_for_resting_complement",
+      "cancel_ack",
+      "verify_no_other_own_crossing_order_in_market_and_subaccount",
+      "reduce_only_fill_or_kill_processed"
+    ],
+    "fok_terminal_atomicity_after_no_self_cross_gate": [
+      "FOK_FULL",
+      "FOK_ZERO"
+    ],
+    "cancel_ack_sequence": 0,
+    "fok_processed_sequence": 1,
+    "outcome_booleans": {
+      "CANCEL_RACE_PAIR": {
+        "cancel_ack_observed_before_terminal": false,
+        "fok_sent": false,
+        "no_self_cross_verified_before_fok": null
+      },
+      "FOK_FULL": {
+        "cancel_ack_observed_before_terminal": true,
+        "fok_sent": true,
+        "no_self_cross_verified_before_fok": true
+      },
+      "FOK_ZERO": {
+        "cancel_ack_observed_before_terminal": true,
+        "fok_sent": true,
+        "no_self_cross_verified_before_fok": true
+      }
+    },
+    "self_cross_failure": "If no-self-cross cannot be proven when the FOK would be sent, classify SELF_CROSS_UNIDENTIFIED and roll back the complete market-day; do not emit a normal action outcome."
+  },
+  "outcomes": {
+    "CANCEL_RACE_PAIR": {
+      "definition": "The exact private resting complement fill occurs strictly after the decision and strictly before cancel ACK.",
+      "quantity_rule": "complement_fill_qty equals all remaining inventory and residual inventory is zero",
+      "partial_private_fill_rule": "Any identified partial maker fill is unsupported DATA_INVALID and cannot be relabeled as a pair.",
+      "fok_sent": false,
+      "reward_value_kind": "EXACT",
+      "reward_exact_requires": "exact private complement price, quantity, stable receipt id, and maker fee receipt"
+    },
+    "FOK_FULL": {
+      "definition": "The canonical FOK fills the complete remaining clip at the frozen limit after cancel ACK and no-self-cross proof.",
+      "residual_inventory": 0,
+      "reward_exact": false,
+      "reward_value_kind": "FEE_BAND",
+      "capital_released": true
+    },
+    "FOK_ZERO": {
+      "definition": "The canonical FOK fills zero.",
+      "filled_quantity": 0,
+      "residual_inventory": "all requested inventory",
+      "conservative_reward_formula": "-(first_leg_cost_basis_usd + first_fill_fee_usd)",
+      "reward_exact": false,
+      "reward_value_kind": "LOWER_BOUND",
+      "conservative_fit_usable": true,
+      "capital_released": false,
+      "capital_held_until": "market close",
+      "drop_or_convert_to_partial_forbidden": true,
+      "selected_oos_policy": "NO_CANDIDATE"
+    }
+  },
+  "keep_transition": {
+    "nonterminal_interval": {
+      "transition_type": "NEXT_STATE",
+      "next_decision_id": "required",
+      "observed_terminal_type": null,
+      "immediate_reward": 0
+    },
+    "terminal_interval": {
+      "transition_type": "KEEP_TO_OBSERVED_TERMINAL",
+      "next_decision_id": null,
+      "observed_terminal_type": [
+        "COMPLEMENT_FILL",
+        "ADMIN_CENSOR",
+        "HARD_FALLBACK"
+      ],
+      "reward": "one exact observed old-policy terminal reward"
+    },
+    "final_60000ms_boundary": "If still at risk, the 60000ms KEEP action continues only to the frozen observed old-policy terminal/hard-fallback receipt.  This is not a fabricated next grid.  Reward and capital are booked exactly once.",
+    "current_policy_comparator": "CURRENT_DIST2_TTL60 must replay the exact historical policy receipt separately; it is not a grid-snap approximation."
+  },
+  "economics": {
+    "held_yes_fok_gross": "sum_i qty_i * (yes_sell_price_i_e4 - first_yes_price_e4) / 10000",
+    "held_no_fok_gross": "sum_i qty_i * (10000 - yes_buy_price_i_e4 - first_no_price_e4) / 10000",
+    "pair_gross": "qty * (10000 - first_leg_price_e4 - complement_price_e4) / 10000",
+    "raw_taker_fee_per_l2_level": "0.07 * qty * p * (1 - p)",
+    "fee_low": "ceil(sum(raw_level_fees), 0.0001 USD)",
+    "fee_base": "sum(ceil(raw_level_fee, 0.0001 USD))",
+    "fee_high": "sum(ceil(raw_level_fee, 0.01 USD))",
+    "net_fee_band": "gross_pnl_usd - first_fill_fee_usd - taker_fee_band_usd",
+    "first_fill_fee_conservation": {
+      "FOK_FULL": "maker_fee_usd equals first_fill_fee_usd; the FOK fee remains in the separate taker fee band",
+      "FOK_ZERO": "maker_fee_usd equals first_fill_fee_usd; conservative lower bound additionally loses first-leg cost basis",
+      "CANCEL_RACE_PAIR": "maker_fee_usd equals first_fill_fee_usd plus the exact private complement maker fee",
+      "KEEP_COMPLEMENT_FILL": "maker_fee_usd equals first_fill_fee_usd plus the exact private complement maker fee",
+      "KEEP_ADMIN_OR_HARD_FALLBACK": "terminal receipt separately states first_fill_fee_usd and exit fee; their sum must equal the serialized total fee"
+    },
+    "serialized_cost_fee_spine": {
+      "state": [
+        "first_fill_price_e4",
+        "first_fill_qty_fp",
+        "first_fill_fee_usd",
+        "first_leg_cost_basis_usd"
+      ],
+      "flatten_fok_outcome": [
+        "first_fill_price_e4",
+        "first_fill_qty_fp",
+        "first_fill_fee_usd",
+        "first_leg_cost_basis_usd",
+        "taker_fee_low_usd",
+        "taker_fee_base_usd",
+        "taker_fee_high_usd",
+        "race_complement_fee_usd"
+      ],
+      "keep_transition": [
+        "first_fill_price_e4",
+        "first_fill_qty_fp",
+        "first_fill_fee_usd",
+        "first_leg_cost_basis_usd",
+        "exit_fee_usd",
+        "maker_fee_usd"
+      ],
+      "ddl_independent_checks": [
+        "first_leg_cost_basis_usd = first_fill_price_e4 * first_fill_qty_fp / 10000",
+        "FOK_FULL and FOK_ZERO maker_fee_usd = first_fill_fee_usd",
+        "CANCEL_RACE_PAIR maker_fee_usd = first_fill_fee_usd + race_complement_fee_usd",
+        "FOK_ZERO conservative_reward_usd = -(first_leg_cost_basis_usd + first_fill_fee_usd)",
+        "KEEP terminal maker_fee_usd = first_fill_fee_usd + exit_fee_usd",
+        "KEEP immediate_net_pnl_usd = immediate_gross_pnl_usd - maker_fee_usd"
+      ]
+    },
+    "capital_dollar_seconds": {
+      "released_terminal": "(first_leg_cost_basis_usd + first_fill_fee_usd) * terminal_elapsed_ms / 1000",
+      "FOK_ZERO": "(first_leg_cost_basis_usd + first_fill_fee_usd) * market_close_elapsed_ms / 1000",
+      "KEEP_interval_increment": "(first_leg_cost_basis_usd + first_fill_fee_usd) * (interval_stop_ms - interval_start_ms) / 1000"
+    },
+    "fee_precision_limitation": "Public L2 price levels do not identify the private fill partition.  FOK_FULL is therefore a low/base/high fee sensitivity band, not an exact fee claim."
+  },
+  "historical_private_feed_limitation": {
+    "strict_trade_through_replay_may_only_identify_full_resting_complement_fills": true,
+    "private_partial_fill_identified": false,
+    "reporting_requirement": "Every result must state that historical private partial maker fills were not identified by the public strict-trade-through proxy.  If a source does identify a partial private fill, roll back the market-day as unsupported DATA_INVALID.",
+    "forward_requirement": "A future private-feed forward test must validate partial-fill and cancel-race handling independently."
+  },
+  "fail_closed_gates": [
+    "full expected episode roster by market-day",
+    "complete grid coverage",
+    "one KEEP and one FLATTEN_FOK row per causal state",
+    "one FLATTEN_FOK outcome and one KEEP transition per state",
+    "exact receipt-clock conservation",
+    "inventory conservation",
+    "at-risk inventory equals the complete first-fill quantity",
+    "first-fill fee conservation",
+    "fee-band reconciliation and monotonicity",
+    "no stale touch or midpoint carry",
+    "no legacy action fields",
+    "no self-cross uncertainty at FOK send"
+  ],
+  "sealed_artifact_paths": [
+    "../../../tools/research/crypto_mm/round4_postfill_state_contract.py",
+    "../../../tests/test_round4_postfill_state_contract.py",
+    "round4_postfill_state_contract.sql",
+    "round4_two_stage_tables.sql",
+    "ROUND4_POSTFILL_KEEP_FLATTEN_FOK_PREREG_V3.md",
+    "ROUND4_POSTFILL_KEEP_FLATTEN_FOK_PREREG_V3.json"
+  ],
+  "shared_schema_dependency": {
+    "path": "round4_two_stage_tables.sql",
+    "sha256": "ede23569a00e9948cd3772cc2213a07f8e5c3b9849b9dd0f46e8e6adff3eaed3",
+    "normative_scope_for_v3": "postfill_zero_time_atom table only",
+    "all_other_pre_v3_action_tables_normative_for_v3": false
+  },
+  "local_verification": {
+    "command": "python3 -m pytest tests/test_round4_postfill_state_contract.py -q",
+    "expected_result_at_seal": "30 passed",
+    "real_rows_opened": false,
+    "remote_run_started": false
+  }
+}

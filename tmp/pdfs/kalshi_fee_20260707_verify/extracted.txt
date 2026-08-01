@@ -1,0 +1,831 @@
+ 
+ 
+ 
+ 
+
+ 
+ 
+Trading Fees 
+The following terms apply to all event contract markets on the exchange, apart from specific products listed below, 
+which have their own fee schedule. 
+Trading fees are only charged for orders that are immediately matched with orders sitting on the orderbook. Trading 
+fees are not charged for orders placed that are not immediately matched and are instead left as resting orders on the 
+orderbook unless they are included in our “Maker Fees” section.  
+Trading fees are charged as a variable percentage fee of the expected earnings on an individual contract, which is 
+calculated by multiplying the maximum potential earnings from the contract by the implied probability of making those 
+earnings, or the price of the contract divided by $1. The current general fee charged for a trade in dollars is given by the 
+following formula:  
+​
+fees = round up(M x 0.07 x C x P x (1-P)) 
+​
+P = the price of a contract in dollars (50 cents is 0.5) 
+​
+C = the number of contracts being traded 
+​
+M = the multiplier for each contract (default is 1 unless otherwise indicated) 
+​
+round up = rounds up such that the fee + positionCost is rounded to a centicent 
+Maker Fees 
+ 
+​
+fees = round up(M x 0.0175 x C x P x (1-P)) 
+​
+P = the price of a contract in dollars (50 cents is 0.5) 
+​
+C = the number of contracts being traded 
+​
+M = the multiplier for each contract (default is 0 unless otherwise indicated) 
+​
+round up = rounds up such that the fee + positionCost is rounded to a centicent 
+Please refer to https://kalshi.com/fee-schedule for scheduled upcoming fee changes. 
+Maker fees are charged for orders placed that are not immediately matched and are instead left as resting orders on 
+the orderbook. These fees are only charged when a trade is ultimately executed, there are no fees associated with 
+canceling a resting order. 
+ 
+ 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+ 
+Settlement Fees 
+ 
+There is no settlement fee. 
+ 
+Membership Fees 
+ 
+There is no membership fee. 
+ 
+ACH Deposit and Withdrawal Fees 
+ 
+There is no fee associated with ACH deposits from your bank account to your Kalshi account. There is no fee associated 
+with ACH withdrawals to your bank account from your Kalshi account. 
+ 
+Wire Deposit and Withdrawal Fees 
+ 
+Fees for wire transfers vary from bank to bank. Kalshi does not charge any additional fees for wire deposit transfers.  
+(Withdrawals by wire are not currently supported for transactions under $500,000). 
+ 
+Debit Deposit and Withdrawal Fees 
+ 
+Kalshi charges a maximum fee of 2% on card deposits, which may be reduced from time to time based upon standards 
+applied fairly and uniformly across members. 
+ 
+Crypto Deposit and Withdrawal Fees 
+ 
+Crypto deposits and withdrawals may have associated fees charged by Kalshi’s third-party payment processor. Such fees 
+will be clearly disclosed prior to any associated transaction.​
+​
+Alternate Payment Method Deposit and Withdrawal Fees​
+Kalshi reserves the right to charge between 0% and 2% fees on all rails, and the right to change those rates at our 
+discretion. 
+ 
+Futures Commission Merchant Customers 
+ 
+Users accessing Kalshi via a third-party Futures Commission Merchant may be charged fees by their Futures Commission 
+Merchant that vary from the above fee schedule. Such fees will be disclosed prior to any associated transaction. 
+ 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+ 
+General Trading Fees Table (See below for fees on specific markets) 
+ 
+Price of 1 contract 
+ 
+Fee for 1 contract 
+ 
+Price for 100 contracts 
+ 
+Fee for 100 
+contracts 
+ 
+$0.01 
+ 
+$0.01 
+ 
+$1.00 
+ 
+$0.07 
+ 
+$0.05 
+ 
+$0.01 
+ 
+$5.00 
+ 
+$0.34 
+ 
+$0.10 
+ 
+$0.01 
+ 
+$10.00 
+ 
+$0.63 
+ 
+$0.15 
+ 
+$0.01 
+ 
+$15.00 
+ 
+$0.90 
+ 
+$0.20 
+ 
+$0.02 
+ 
+$20.00 
+ 
+$1.12 
+ 
+$0.25 
+ 
+$0.02 
+ 
+$25.00 
+ 
+$1.32 
+ 
+$0.30 
+ 
+$0.02 
+ 
+$30.00 
+ 
+$1.47 
+ 
+$0.35 
+ 
+$0.02 
+ 
+$35.00 
+ 
+$1.60 
+ 
+$0.40 
+ 
+$0.02 
+ 
+$40.00 
+ 
+$1.68 
+ 
+$0.45 
+ 
+$0.02 
+ 
+$45.00 
+ 
+$1.74 
+ 
+$0.50 
+ 
+$0.02 
+ 
+$50.00 
+ 
+$1.75 
+ 
+$0.55 
+ 
+$0.02 
+ 
+$55.00 
+ 
+$1.74 
+ 
+$0.60 
+ 
+$0.02 
+ 
+$60.00 
+ 
+$1.68 
+ 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+Price of 1 contract 
+Fee for 1 contract 
+Price for 100 contracts 
+Fee for 100 
+contracts 
+ 
+$0.65 
+ 
+$0.02 
+ 
+$65.00 
+ 
+$1.60 
+ 
+$0.70 
+ 
+$0.02 
+ 
+$70.00 
+ 
+$1.47 
+ 
+$0.75 
+ 
+$0.02 
+ 
+$75.00 
+ 
+$1.32 
+ 
+$0.80 
+ 
+$0.02 
+ 
+$80.00 
+ 
+$1.12 
+ 
+$0.85 
+ 
+$0.01 
+ 
+$85.00 
+ 
+$0.90 
+ 
+$0.90 
+ 
+$0.01 
+ 
+$90.00 
+ 
+$0.63 
+ 
+$0.95 
+ 
+$0.01 
+ 
+$95.00 
+ 
+$0.34 
+ 
+$0.99 
+ 
+$0.01 
+ 
+$99.00 
+ 
+$0.07 
+ 
+ 
+ 
+ 
+ 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+​
+ 
+ 
+ 
+ 
+Non-Standard Fees 
+ 
+Series 
+ 
+ 
+Maker 
+Multipler 
+Taker 
+Multiplier  
+KXAAAGASM 
+US gas price 
+1 
+1 
+KXATPMATCH 
+ATP Tennis Match 
+1 
+1 
+KXBALLONDOR 
+Ballon d'Or 
+1 
+1 
+KXBTCMAX150 
+When will bitcoin hit 150k? 
+1 
+1 
+KXBTCY 
+BTC price range EOY 
+0 
+0 
+KXCITRINI 
+Will the Citrini scenario 
+materialize? 
+0 
+0 
+KXCPI 
+CPI 
+1 
+1 
+KXCPIYOY 
+Inflation 
+1 
+1 
+KXDOED 
+DOE eliminated 
+0 
+0 
+KXEGGS 
+Egg prices 
+1 
+1 
+KXELECTIRAN 
+Will Iran hold a presidential 
+election? 
+0 
+0 
+KXEMMYCACTO 
+Emmys Award for Lead 
+Comedy Actor 
+1 
+1 
+KXEMMYCACTR 
+Emmys Award for Lead 
+Comedy Actress 
+1 
+1 
+KXEMMYCSERIES 
+Emmys Award for Comedy 
+Series 
+1 
+1 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+KXEMMYDACTO 
+Emmys Award for Lead 
+Drama Actor 
+1 
+1 
+KXEMMYDACTR 
+Emmys Award for Lead 
+Drama Actress 
+1 
+1 
+KXEMMYDSERIES 
+Emmys Award for Drama 
+Series 
+1 
+1 
+KXETHY 
+ETH price EOY 
+0 
+0 
+KXFED 
+Fed funds rate 
+1 
+1 
+KXFEDDECISION 
+Fed meeting 
+1 
+1 
+KXGAMBLINGREPEAL 
+Gambling Repeal 
+0 
+0 
+KXGDP 
+US GDP growth 
+1 
+1 
+KXGREENLAND 
+Greenland purchase 
+0 
+0 
+KXHEISMAN 
+Heisman Trophy Winner 
+1 
+1 
+KXINXY 
+S&P 500 yearly range 
+1 
+1 
+KXIPO 
+IPOs 
+1 
+1 
+KXIRANDEMOCRACY 
+Will Iran become a 
+democracy in 2026? 
+0 
+0 
+KXLALIGA 
+LA LIGA 
+1 
+1 
+KXLAYOFFSYINFO 
+Tech layoffs 
+0 
+0 
+KXLLM1 
+Year-end top LLM 
+1 
+1 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+KXMARMAD 
+College Basketball 
+Champion 
+1 
+1 
+KXMENWORLDCUP 
+Men's World Cup winner 
+1 
+1 
+KXMLB 
+World Series 
+1 
+1 
+KXMLBAL 
+MLB American League 
+Championship 
+1 
+1 
+KXMLBASGAME 
+Professional Baseball 
+All-Star Game 
+1 
+1 
+KXMLBGAME 
+Professional Baseball 
+Game 
+1 
+1 
+KXMLBNL 
+MLB National League 
+Championship 
+1 
+1 
+KXNASDAQ100Y 
+Nasdaq yearly range 
+1 
+1 
+KXNBA 
+Pro Basketball Champion 
+1 
+1 
+KXNBAEAST 
+Pro Basketball Eastern 
+Conference Champion 
+1 
+1 
+KXNBAMVP 
+Pro Basketball MVP 
+1 
+1 
+KXNBAROY 
+Pro Basketball Rookie of 
+the Year 
+1 
+1 
+KXNBAWEST 
+Pro Basketball Western 
+Conference Champion 
+1 
+1 
+KXNCAAF 
+NCAAF Championship 
+1 
+1 
+KXNCAAFACC 
+ACC Champion 
+1 
+1 
+KXNCAAFB10 
+Big Ten Champion 
+1 
+1 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+KXNCAAFB12 
+Big 12 Champion 
+1 
+1 
+KXNCAAFGAME 
+College Football Game 
+1 
+1 
+KXNCAAFPLAYOFF 
+College Football Playoff 
+Qualifiers 
+1 
+1 
+KXNCAAFSEC 
+SEC Champion 
+1 
+1 
+KXNFLAFCCHAMP 
+American Football 
+Conference Champion 
+1 
+1 
+KXNFLAFCEAST 
+American Football 
+Conference East 
+Winner 
+1 
+1 
+KXNFLAFCNORTH 
+American Football 
+Conference North 
+Winner 
+1 
+1 
+KXNFLAFCSOUTH 
+American Football 
+Conference South 
+Winner 
+1 
+1 
+KXNFLAFCWEST 
+American Football 
+Conference West 
+Winner 
+1 
+1 
+KXNFLCOTY 
+AP Pro Football Coach Of 
+The Year 
+1 
+1 
+KXNFLCPOTY 
+AP Pro Football Comeback 
+Player of the Year 
+1 
+1 
+KXNFLDPOTY 
+AP Pro Football Defensive 
+Player Of The Year 
+1 
+1 
+KXNFLDROTY 
+AP Pro Football Defensive 
+Rookie of the Year 
+1 
+1 
+KXNFLGAME 
+Professional Football Game 
+1 
+1 
+KXNFLMVP 
+AP Pro Football Regular 
+Season MVP 
+1 
+1 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+KXNFLNFCCHAMP 
+National Football 
+Conference Champion 
+1 
+1 
+KXNFLNFCEAST 
+National Football 
+Conference East 
+Winner 
+1 
+1 
+KXNFLNFCNORTH 
+National Football 
+Conference North 
+Winner 
+1 
+1 
+KXNFLNFCSOUTH 
+National Football 
+Conference South 
+Winner 
+1 
+1 
+KXNFLNFCWEST 
+National Football 
+Conference West 
+Winner 
+1 
+1 
+KXNFLOPOTY 
+AP Pro Football Offensive 
+Player Of The Year 
+1 
+1 
+KXNFLOROTY 
+AP Pro Football Offensive 
+Rookie of the Year 
+1 
+1 
+KXNHL 
+Stanley Cup 
+1 
+1 
+KXNHLEAST 
+Eastern Conference 
+Championship 
+1 
+1 
+KXNHLWEST 
+Western Conference 
+Champion 
+1 
+1 
+KXPAHLAVIHEAD 
+Will Pahlavi lead Iran? 
+0 
+0 
+KXPAYROLLS 
+Jobs numbers 
+1 
+1 
+KXPGARYDER 
+Ryder Cup 
+1 
+1 
+KXPGASOLHEIM 
+Solheim Cup 
+1 
+1 
+KXPGATOUR 
+PGA Tour 
+1 
+1 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+KXRATECUTCOUNT 
+Number of rate cuts 
+1 
+1 
+KXSB 
+Super Bowl 
+1 
+1 
+KXSUPERBOWLHEADL
+INE 
+Who will headline super 
+bowl LX 
+1 
+1 
+KXU3 
+Unemployment 
+1 
+1 
+KXUCL 
+UEFA Champions League 
+1 
+1 
+KXUCLGAME 
+UEFA Champions League 
+Game 
+1 
+1 
+KXWCGAME 
+World Cup Game 
+1 
+1 
+KXWNBA 
+WNBA Championship 
+1 
+1 
+KXWNBAGAME 
+Women's Pro Basketball 
+Game 
+1 
+1 
+KXWTAMATCH 
+WTA Tennis Match 
+1 
+1 
+ 
+Last updated and effective: July 7, 2026 
+  
+
+ 
+ 
+ 
+Perpetual Futures Fees 
+ 
+Table 1: Exchange Taker Fee Schedule 
+Tier 
+30D Trailing Perps + Prediction Volume  
+Taker Fee (bps) 
+0 
+$0 
+12.0 
+1 
+>= $100K 
+10.0 
+2 
+>= $300K 
+8.0 
+3 
+>= $1M 
+6.0 
+4 
+>= $3M 
+5.0 
+5 
+>= $10M 
+4.0 
+6 
+>= $30M 
+3.5 
+7 
+>= $100M 
+3.2 
+8 
+>= $300M 
+3.0 
+9 
+>= $1,000M 
+2.8 
+10 
+>= $3,000M 
+2.6 
+ 
+Table 2: Exchange Maker Fee Schedule 
+Tier 
+30D Trailing Perps + 
+Prediction Volume  
+ 
+Minimum Percent of 
+Perps Maker Volume 
+Maker Fee (bps) 
+0 
+$0 
+OR 
+N/A 
+5.0 
+1 
+>= $100K 
+OR 
+N/A 
+4.0 
+2 
+>= $300K 
+OR 
+N/A 
+3.2 
+3 
+>= $1M 
+OR 
+N/A 
+2.4 
+4 
+>= $3M 
+OR 
+N/A 
+2.0 
+5 
+>= $10M 
+OR 
+N/A 
+1.6 
+6 
+>= $30M 
+OR 
+>= 0.1% 
+1.4 
+7 
+>= $100M 
+OR 
+>= 0.3% 
+1.2 
+8 
+>= $300M 
+OR 
+>= 1.0% 
+1.0 
+9 
+>= $1,000M 
+OR 
+>= 3.0% 
+0.8 
+10 
+>= $3,000M 
+OR 
+>= 10.0% 
+0.6 
+ 
+ 
+ 
+Last updated and effective: July 7, 2026 
+  

@@ -1,0 +1,40 @@
+{
+  "schema": "kalshi-account-contract-probe-v1",
+  "probe_kind": "authenticated-read-only",
+  "host": "ubuntu@3.130.232.109",
+  "subaccount": 0,
+  "probe_utc": "2026-07-26T06:04:03Z",
+  "balance": {
+    "http_code": 200,
+    "balance": 1982,
+    "balance_dollars": "19.8205",
+    "portfolio_value": 0,
+    "updated_ts": 1785045843,
+    "balance_breakdown": [
+      {
+        "exchange_index": 0,
+        "balance": "19.8205"
+      }
+    ]
+  },
+  "positions": {
+    "http_code": 200,
+    "market_positions_count": 0
+  },
+  "resting_orders": {
+    "http_code": 200,
+    "orders_count": 0
+  },
+  "user_data_timestamp": {
+    "http_code": 200,
+    "as_of_time": "2026-07-26T06:04:03.373459Z"
+  },
+  "supports": [
+    "portfolio_value is zero when the account has no positions",
+    "balance_dollars agrees with exchange-index balance_breakdown"
+  ],
+  "does_not_establish": [
+    "whether resting-order collateral is already deducted from available balance",
+    "portfolio_value behavior while a position is open"
+  ]
+}

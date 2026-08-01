@@ -1,0 +1,114 @@
+{
+  "schema": "brti-authoritative-calibration-prereg-v1",
+  "status": "SEALED_BEFORE_2026_07_20_22_DOWNLOAD",
+  "purpose": "Audit the current BRTI kernel's binary-settlement calibration using authoritative CF history, while keeping direction pricing separate from execution/completion.",
+  "read_only": true,
+  "trading_authorized": false,
+  "engine_or_service_mutation_authorized": false,
+  "claim": "DISCOVERY_ONLY_NOT_VALIDATION",
+  "availability_authority": {
+    "probe_receipt_sha256": "16320cb82b219407e7a22698296695d5c1c63f1460311a48c907b8fec05445e8",
+    "classification": "ENTITLED_HISTORICAL_AVAILABLE",
+    "probe_http_status": 200,
+    "probe_payload_rows": 0
+  },
+  "download": {
+    "endpoint": "/trade-api/v2/cfbenchmarks/history/values",
+    "index_id": "BRTI",
+    "timespan": "DAY",
+    "timestamps_utc": [
+      "2026-07-20T00:00:00.000Z",
+      "2026-07-21T00:00:00.000Z",
+      "2026-07-22T00:00:00.000Z"
+    ],
+    "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+    "request_count": 3,
+    "retry_count": 0,
+    "redirects_allowed": false,
+    "inter_request_pause_ms": 250,
+    "maximum_response_bytes_each": 67108864,
+    "storage": "Deterministic gzip of each successful raw Kalshi envelope, mtime=0; receipt stores HTTP/body/payload hashes and timestamp range but no values."
+  },
+  "hard_guards": [
+    "Never issue a history request whose timestamp is 2026-07-23 or later.",
+    "Reject and do not persist any response containing a value timestamp outside its requested half-open UTC day [start,start+24h).",
+    "Never call recent /cfbenchmarks/values as a substitute.",
+    "Never print or persist credentials, signatures, auth timestamps, private-key paths, or individual BRTI values in console/receipt.",
+    "Each successful day response must contain at least one validated BRTI row; an empty day is an acquisition failure.",
+    "If any of the three downloads fails validation, calibration is NO_DECISION; do not fill gaps with Coinbase, market mid, later capture, interpolation, or terminal settlement."
+  ],
+  "kernel": {
+    "source": "Current tools/research/crypto_mm/rti_pricing.py plus mm_engine pricing_state contract, embedded in sealed analyzer.",
+    "forecast_horizons_tte_s": [
+      120,
+      180,
+      240
+    ],
+    "information_lag_s": 2,
+    "tick_selection": "At target close-horizon, use latest authoritative BRTI source tick at or before target-2s. This conservative lag avoids treating an exactly timestamped historical tick as instantaneously received.",
+    "sigma60": "Non-demeaned timestamp-aware diffusion over strict trailing 60s.",
+    "sigma300": "Non-demeaned timestamp-aware diffusion over strict trailing 300s.",
+    "sigma": "max(sigma60,sigma300)",
+    "minimum_window_coverage": 0.999,
+    "maximum_source_gap_s": 1.5,
+    "minimum_increments": 30,
+    "probability": "Phi((BRTI-strike)/(sigma*sqrt(max(model_tte-60,0)+sum(k^2,k=1..59)/60^2)))",
+    "probability_clip_for_logloss_logit": 1e-06
+  },
+  "settlement_and_metadata": {
+    "metadata_path": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "selected_series": "KXBTC15M",
+    "selected_close_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "outcome": "Official market result YES=1, NO=0.",
+    "strike": "floor_strike.",
+    "crosscheck": "Require exactly 60 authoritative one-second BRTI values in [close-60s,close), compute their mean, and require (mean>=floor_strike) to equal official result. Otherwise exclude and report."
+  },
+  "market_mid_benchmark": {
+    "book_paths": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date={allowed_date}/*.parquet",
+    "causal_order": [
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ws_seq"
+    ],
+    "reconstruction": "A snapshot replaces both maps; ordered deltas add signed delta_e4 at exact side/price.",
+    "validity": "Any missing receive clock, delta before an initial snapshot, unknown side/update semantics, or negative displayed quantity invalidates that market-day. Never clamp.",
+    "sampling": "At each fixed forecast target, use the latest reconstructed two-sided book with recv_wall_ns <= target wall-clock ns.",
+    "yes_mid": "(best positive YES bid + (1-best positive NO bid))/2."
+  },
+  "primary_metrics": {
+    "unit": "One row per settled market per fixed horizon.",
+    "forecasts": [
+      "kernel fair",
+      "market YES mid"
+    ],
+    "metrics": [
+      "Brier score",
+      "log loss",
+      "calibration intercept and slope from logit(P(Y=1))=a+b*logit(forecast)",
+      "paired kernel-minus-market Brier and log-loss differences"
+    ],
+    "uncertainty": "Market-cluster bootstrap, 2000 replicates, seed 26072611, percentile 95% CI.",
+    "minimum_reportable": "At least 20 unique markets and both outcomes; otherwise descriptive only."
+  },
+  "explicitly_blocked_secondary_tests": {
+    "fair_mid_gap_to_future_mid": {
+      "status": "BLOCKED_BRTI_RECEIVE_TIMESTAMP_ABSENT",
+      "reason": "Historical CF rows contain source time/value but not the original Kalshi receipt clock. A 1/2/5/10s causal microstructure markout cannot mix BRTI source time with book receive time."
+    },
+    "p3_first_fill_oof": {
+      "status": "BLOCKED_EXISTING_P3_CLOCK_AND_SCHEMA",
+      "reason": "The existing P3 artifact was built on the superseded ts_utc/ws_seq replay, its first_ts is not a corrected receive-clock fill timestamp, and it lacks first_side/first_price. It will not be joined."
+    },
+    "required_future_contract": "Rebuild both books and trades in a common receive-clock domain, preserve per-episode first side/price/receive timestamp, and seal a separate grouped-OOF preregistration."
+  },
+  "interpretation": {
+    "calibration": "Answers whether the BRTI kernel's direction probabilities match binary outcomes and how its score compares with market mid.",
+    "execution_completion": "Queue position, fill toxicity, opposite-leg completion, fees, and forced exits are not identified by calibration.",
+    "decision_rule": "Do not infer execution viability from good calibration; do not infer bad calibration from negative MM PnL.",
+    "deployment": "No result here authorizes trading or parameter changes."
+  }
+}

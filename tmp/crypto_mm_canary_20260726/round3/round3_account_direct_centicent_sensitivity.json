@@ -1,0 +1,488 @@
+{
+  "adjusted_raw": {
+    "path": "/tmp/round3_account_direct_centicent_adjusted_raw.json",
+    "sha256": "46af89c62fb75f665188e766afac98f2059b969d255301a076ddaabda3b769ad"
+  },
+  "analysis_class": "POST_HOC_ACCOUNT_SPECIFIC_DIRECT_CENTICENT",
+  "analysis_script_sha256": "b64f3192ace993021911a6b634e398e66d4eb40affb6ec423a201d2068672550",
+  "authenticated_probe": {
+    "authenticated_production": true,
+    "average_fee_paid_dollars_each_leg": "0.0153",
+    "average_fill_price_dollars": "0.6800",
+    "balance_dollars": {
+      "after_entry": "19.4852",
+      "after_flat": "19.7899",
+      "before": "19.8205"
+    },
+    "balance_identities": {
+      "entry_debit": "19.8205-19.4852=0.3353=0.3200 collateral+0.0153 fee",
+      "exit_credit": "19.7899-19.4852=0.3047=0.3200 collateral-0.0153 fee",
+      "roundtrip": "19.7899-19.8205=-0.0306=-2*0.0153"
+    },
+    "exchange_index": 0,
+    "formula_ceiled_to_dollars": "0.0153",
+    "formula_unrounded_dollars": "0.015232",
+    "one_contract_each_leg": true,
+    "ticker": "KXBTC15M-26JUL260230-30"
+  },
+  "dates": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "decision": "NO_ARM_TURNS_POSITIVE",
+  "deployable": false,
+  "fee_models": {
+    "account_specific_direct": "Decimal ceil to $0.0001 once per IOC order of sum(0.07*qty*p*(1-p)); this requested sensitivity does not add a separate rounding-fee/accumulator component",
+    "maker_pair_entry_fee": "unchanged zero",
+    "precision": {
+      "decimal_context_digits": 50,
+      "price": "exact price_e4 / 10000",
+      "quantity": "exact qty_e4 / 10000"
+    },
+    "scope_limit": "The authenticated probe identifies the base trade-fee contract for one whole contract at one price. It does not empirically identify direct-member rounding components for an IOC split across fractional fills; current API docs say such components can exist when balance change exceeds $0.0001 precision. Startup reconciliation remains mandatory.",
+    "sealed_round3": "ceil to $0.01 once per IOC order of sum(0.07*qty*p*(1-p))"
+  },
+  "frozen_execution_audit": {
+    "actions_fills_frozen": true,
+    "one_ioc_flatten_per_orphan_all_arms": true,
+    "projection_byte_equivalent": true,
+    "projection_definition": "complete raw arms with only cycle.pnl_c and cycle.trigger_est_pnl_c removed",
+    "sealed_projection_sha256": "56823a8ab4f4ae71c3a3a80c955869b2b135ae9e04739842c3773df2ef963fbc",
+    "sensitivity_projection_sha256": "56823a8ab4f4ae71c3a3a80c955869b2b135ae9e04739842c3773df2ef963fbc",
+    "source_clean_strategy_market_days": 72,
+    "source_invalid_market_days": 0,
+    "source_receipts_all_green": true
+  },
+  "generated_at_utc": "2026-07-26T08:36:26.370121+00:00",
+  "historical_validation_claim": false,
+  "inputs": {
+    "direct_account_probe": {
+      "path": "/tmp/position_value_contract_probe_result.json",
+      "sha256": "816528a20ee70ffc7536c02b8984a69f8730f8304656a259e2edd124e6db8da6"
+    },
+    "sealed_round3_raw": {
+      "path": "/tmp/z3_price_allocation_round3_raw.json",
+      "sha256": "a9bca54a22b0ae06076bd81192538a23d01058e965e0961bddaeae24ee9d3b90"
+    },
+    "sealed_round3_report": {
+      "path": "/tmp/z3_price_allocation_round3_report.json",
+      "sha256": "0ef11cdd374a75328663c315496d510d8d494f736ba988ebb84da1a8b01b1485"
+    },
+    "sealed_round3_script": {
+      "path": "/tmp/z3_price_allocation_round3.py",
+      "sha256": "293ab66c1ce753dde7893e481d06032c74f87594bd0cffac47f0a53043fa64da"
+    }
+  },
+  "interpretation": "Actions, fills, prices, times, exits, and pair outcomes are frozen to sealed ROUND3. Only realized IOC fee accounting is replaced; this cannot create a new strategy candidate.",
+  "metrics": {
+    "A0_COMMON_TOUCH": {
+      "account_direct_centicent": {
+        "ci95_market_cluster_c": [
+          -1.3564,
+          -1.1122
+        ],
+        "orphan_pnl_c": -3.038962,
+        "pair_gain_c": 1.064113,
+        "positive_ev": false,
+        "q_star": 0.740655,
+        "realized_ev_c_per_cycle": -1.242735,
+        "strict_pass": false
+      },
+      "change": {
+        "orphan_cycle_fee_saving_c": {
+          "count": 637,
+          "max": 0.98,
+          "mean": 0.431805,
+          "min": 0.0,
+          "sum": 275.06
+        },
+        "orphan_pnl_c": 0.431806,
+        "paired_cycle_pnl_delta_c": {
+          "count": 496,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "sum": 0.0
+        },
+        "q_star": -0.024694,
+        "realized_ev_c_per_cycle": 0.242772
+      },
+      "completion": 0.437776,
+      "completion_wilson_lcb95": 0.409146,
+      "cycles": 1133,
+      "markets": 58,
+      "original_whole_cent": {
+        "ci95_market_cluster_c": [
+          -1.6023,
+          -1.353
+        ],
+        "orphan_pnl_c": -3.470768,
+        "q_star": 0.765349,
+        "realized_ev_c_per_cycle": -1.485507
+      },
+      "orphans": 637,
+      "paired": 496
+    },
+    "A1_SPEND_ALL_SLOW": {
+      "account_direct_centicent": {
+        "ci95_market_cluster_c": [
+          -1.218,
+          -0.9819
+        ],
+        "orphan_pnl_c": -3.19417,
+        "pair_gain_c": 1.008254,
+        "positive_ev": false,
+        "q_star": 0.760078,
+        "realized_ev_c_per_cycle": -1.102916,
+        "strict_pass": false
+      },
+      "change": {
+        "orphan_cycle_fee_saving_c": {
+          "count": 636,
+          "max": 0.99,
+          "mean": 0.430283,
+          "min": 0.0,
+          "sum": 273.66
+        },
+        "orphan_pnl_c": 0.430283,
+        "paired_cycle_pnl_delta_c": {
+          "count": 630,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "sum": 0.0
+        },
+        "q_star": -0.022284,
+        "realized_ev_c_per_cycle": 0.216161
+      },
+      "completion": 0.49763,
+      "completion_wilson_lcb95": 0.470137,
+      "cycles": 1266,
+      "markets": 58,
+      "original_whole_cent": {
+        "ci95_market_cluster_c": [
+          -1.4408,
+          -1.1906
+        ],
+        "orphan_pnl_c": -3.624453,
+        "q_star": 0.782362,
+        "realized_ev_c_per_cycle": -1.319077
+      },
+      "orphans": 636,
+      "paired": 630
+    },
+    "A2_FULL_MINIMAX_ETA": {
+      "account_direct_centicent": {
+        "ci95_market_cluster_c": [
+          -1.1796,
+          -0.9225
+        ],
+        "orphan_pnl_c": -2.597223,
+        "pair_gain_c": 1.054294,
+        "positive_ev": false,
+        "q_star": 0.711272,
+        "realized_ev_c_per_cycle": -1.052762,
+        "strict_pass": false
+      },
+      "change": {
+        "orphan_cycle_fee_saving_c": {
+          "count": 985,
+          "max": 0.99,
+          "mean": 0.502538,
+          "min": 0.0,
+          "sum": 495.0
+        },
+        "orphan_pnl_c": 0.502538,
+        "paired_cycle_pnl_delta_c": {
+          "count": 722,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "sum": 0.0
+        },
+        "q_star": -0.034929,
+        "realized_ev_c_per_cycle": 0.289983
+      },
+      "completion": 0.422964,
+      "completion_wilson_lcb95": 0.399727,
+      "cycles": 1707,
+      "markets": 66,
+      "original_whole_cent": {
+        "ci95_market_cluster_c": [
+          -1.4793,
+          -1.2046
+        ],
+        "orphan_pnl_c": -3.099761,
+        "q_star": 0.746201,
+        "realized_ev_c_per_cycle": -1.342745
+      },
+      "orphans": 985,
+      "paired": 722
+    },
+    "A3_FULL_EV_GATE": {
+      "account_direct_centicent": {
+        "ci95_market_cluster_c": [
+          -1.0284,
+          -0.8423
+        ],
+        "orphan_pnl_c": -0.97348,
+        "pair_gain_c": 1.34,
+        "positive_ev": false,
+        "q_star": 0.420786,
+        "realized_ev_c_per_cycle": -0.931089,
+        "strict_pass": false
+      },
+      "change": {
+        "orphan_cycle_fee_saving_c": {
+          "count": 2143,
+          "max": 0.99,
+          "mean": 0.587018,
+          "min": 0.0,
+          "sum": 1257.98
+        },
+        "orphan_pnl_c": 0.587018,
+        "paired_cycle_pnl_delta_c": {
+          "count": 40,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "sum": 0.0
+        },
+        "q_star": -0.117224,
+        "realized_ev_c_per_cycle": 0.576262
+      },
+      "completion": 0.018323,
+      "completion_wilson_lcb95": 0.013485,
+      "cycles": 2183,
+      "markets": 62,
+      "original_whole_cent": {
+        "ci95_market_cluster_c": [
+          -1.5936,
+          -1.4297
+        ],
+        "orphan_pnl_c": -1.560498,
+        "q_star": 0.53801,
+        "realized_ev_c_per_cycle": -1.507351
+      },
+      "orphans": 2143,
+      "paired": 40
+    }
+  },
+  "no_arm_positive": true,
+  "official_documentation_resolution": {
+    "api_fee_rounding": {
+      "statement": "trade fee is ceiled to $0.0001; direct-member target balance precision is $0.0001 while non-direct is $0.01",
+      "url": "https://docs.kalshi.com/getting_started/fee_rounding"
+    },
+    "current_july_2026_fee_schedule": {
+      "statement": "general 7% formula; July 7 schedule defines round up so fee plus positionCost is rounded to a centicent",
+      "url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf"
+    },
+    "direct_account_observation": "average_fee_paid=$0.0153 on each 1-contract $0.68 fill, and balance_dollars moves by exact direct centicent amounts without an additional charge because the direct target precision is already $0.0001",
+    "finding": "The authenticated direct-account receipt agrees with the current route-specific API documentation. The conflict is with sealed ROUND3's stale generic whole-cent assumption and with reading the displayed whole-cent one-contract fee table as the direct-account response contract.",
+    "operational_rule": "Because fee behavior is member/route-specific and can change, startup must authenticate, reconcile a bounded fee probe or recent fill+balance identity, and halt if the observed response contract differs"
+  },
+  "original_report_addendum_binding": {
+    "applies_to_sha256": "0ef11cdd374a75328663c315496d510d8d494f736ba988ebb84da1a8b01b1485",
+    "sealed_original_modified": false
+  },
+  "per_discovery_date": {
+    "A0_COMMON_TOUCH": {
+      "2026-07-20": {
+        "completion": 0.441176,
+        "cycles": 272,
+        "orphan_pnl_c": -2.720355,
+        "orphans": 152,
+        "pair_gain_c": 1.04,
+        "paired": 120,
+        "q_star": 0.72343,
+        "realized_ev_c_per_cycle": -1.061375
+      },
+      "2026-07-21": {
+        "completion": 0.425926,
+        "cycles": 486,
+        "orphan_pnl_c": -3.032387,
+        "orphans": 279,
+        "pair_gain_c": 1.064734,
+        "paired": 207,
+        "q_star": 0.740126,
+        "realized_ev_c_per_cycle": -1.287317
+      },
+      "2026-07-22": {
+        "completion": 0.450667,
+        "cycles": 375,
+        "orphan_pnl_c": -3.282956,
+        "orphans": 206,
+        "pair_gain_c": 1.080473,
+        "paired": 169,
+        "q_star": 0.75238,
+        "realized_ev_c_per_cycle": -1.316504
+      }
+    },
+    "A1_SPEND_ALL_SLOW": {
+      "2026-07-20": {
+        "completion": 0.489933,
+        "cycles": 298,
+        "orphan_pnl_c": -2.919243,
+        "orphans": 152,
+        "pair_gain_c": 1.003425,
+        "paired": 146,
+        "q_star": 0.744198,
+        "realized_ev_c_per_cycle": -0.997399
+      },
+      "2026-07-21": {
+        "completion": 0.490741,
+        "cycles": 540,
+        "orphan_pnl_c": -3.14648,
+        "orphans": 275,
+        "pair_gain_c": 1.012453,
+        "paired": 265,
+        "q_star": 0.756559,
+        "realized_ev_c_per_cycle": -1.105522
+      },
+      "2026-07-22": {
+        "completion": 0.511682,
+        "cycles": 428,
+        "orphan_pnl_c": -3.456866,
+        "orphans": 209,
+        "pair_gain_c": 1.006393,
+        "paired": 219,
+        "q_star": 0.774516,
+        "realized_ev_c_per_cycle": -1.173096
+      }
+    },
+    "A2_FULL_MINIMAX_ETA": {
+      "2026-07-20": {
+        "completion": 0.412946,
+        "cycles": 448,
+        "orphan_pnl_c": -2.437046,
+        "orphans": 263,
+        "pair_gain_c": 1.034054,
+        "paired": 185,
+        "q_star": 0.702096,
+        "realized_ev_c_per_cycle": -1.003667
+      },
+      "2026-07-21": {
+        "completion": 0.432285,
+        "cycles": 731,
+        "orphan_pnl_c": -2.657769,
+        "orphans": 415,
+        "pair_gain_c": 1.073101,
+        "paired": 316,
+        "q_star": 0.712372,
+        "realized_ev_c_per_cycle": -1.044971
+      },
+      "2026-07-22": {
+        "completion": 0.418561,
+        "cycles": 528,
+        "orphan_pnl_c": -2.652599,
+        "orphans": 307,
+        "pair_gain_c": 1.044344,
+        "paired": 221,
+        "q_star": 0.717512,
+        "realized_ev_c_per_cycle": -1.105205
+      }
+    },
+    "A3_FULL_EV_GATE": {
+      "2026-07-20": {
+        "completion": 0.017467,
+        "cycles": 687,
+        "orphan_pnl_c": -0.982264,
+        "orphans": 675,
+        "pair_gain_c": 1.308333,
+        "paired": 12,
+        "q_star": 0.428824,
+        "realized_ev_c_per_cycle": -0.942253
+      },
+      "2026-07-21": {
+        "completion": 0.016908,
+        "cycles": 828,
+        "orphan_pnl_c": -1.014389,
+        "orphans": 814,
+        "pair_gain_c": 1.371429,
+        "paired": 14,
+        "q_star": 0.425175,
+        "realized_ev_c_per_cycle": -0.97405
+      },
+      "2026-07-22": {
+        "completion": 0.020958,
+        "cycles": 668,
+        "orphan_pnl_c": -0.913495,
+        "orphans": 654,
+        "pair_gain_c": 1.335714,
+        "paired": 14,
+        "q_star": 0.406141,
+        "realized_ev_c_per_cycle": -0.866356
+      }
+    }
+  },
+  "rigorous_no_flip_upper_bound": {
+    "all_upper_bounds_negative": true,
+    "arms": {
+      "A0_COMMON_TOUCH": {
+        "can_have_positive_cluster_ci_lower": false,
+        "can_pass_completion_gate": false,
+        "can_turn_positive": false,
+        "cluster_ci95_upper_bound_c": -0.363,
+        "completion_lcb95": 0.409146,
+        "ev_upper_bound_c_per_cycle": -0.928905,
+        "max_fee_saving_per_orphan_c": 0.99,
+        "old_ev_c_per_cycle": -1.485507,
+        "orphan_rate": 0.562224184,
+        "q_star_lower_bound": 0.699817
+      },
+      "A1_SPEND_ALL_SLOW": {
+        "can_have_positive_cluster_ci_lower": false,
+        "can_pass_completion_gate": false,
+        "can_turn_positive": false,
+        "cluster_ci95_upper_bound_c": -0.2006,
+        "completion_lcb95": 0.470137,
+        "ev_upper_bound_c_per_cycle": -0.821731,
+        "max_fee_saving_per_orphan_c": 0.99,
+        "old_ev_c_per_cycle": -1.319077,
+        "orphan_rate": 0.502369668,
+        "q_star_lower_bound": 0.723213
+      },
+      "A2_FULL_MINIMAX_ETA": {
+        "can_have_positive_cluster_ci_lower": false,
+        "can_pass_completion_gate": false,
+        "can_turn_positive": false,
+        "cluster_ci95_upper_bound_c": -0.2146,
+        "completion_lcb95": 0.399727,
+        "ev_upper_bound_c_per_cycle": -0.77148,
+        "max_fee_saving_per_orphan_c": 0.99,
+        "old_ev_c_per_cycle": -1.342745,
+        "orphan_rate": 0.577035735,
+        "q_star_lower_bound": 0.66679
+      },
+      "A3_FULL_EV_GATE": {
+        "can_have_positive_cluster_ci_lower": false,
+        "can_pass_completion_gate": false,
+        "can_turn_positive": false,
+        "cluster_ci95_upper_bound_c": -0.4397,
+        "completion_lcb95": 0.013485,
+        "ev_upper_bound_c_per_cycle": -0.535491,
+        "max_fee_saving_per_orphan_c": 0.99,
+        "old_ev_c_per_cycle": -1.507351,
+        "orphan_rate": 0.981676592,
+        "q_star_lower_bound": 0.298612
+      }
+    },
+    "proof": "Changing ceil-$0.01 to ceil-$0.0001 can improve at most $0.0099 = 0.99c per orphan IOC; paired cycles do not change. Thus EV_new <= EV_old + orphan_rate*0.99c.",
+    "strict_gate_possible_under_bound": false
+  },
+  "schema": "round3-account-specific-direct-centicent-sensitivity-v1",
+  "targeted_reprice_audit": {
+    "all_sealed_old_pnl_reproduced": true,
+    "all_three_discovery_dates_complete": true,
+    "analysis_script_sha256": "ff8ccc9a483e19b33db601333dc9a14c7f81c01f57926396a4fa298b8dd4a7bf",
+    "cycles": 4401,
+    "paired_cycles_byte_unchanged": true,
+    "path": "/tmp/round3_account_direct_centicent_reprice_audit.json",
+    "reproduced_orphan_cycles": 4401,
+    "schema": "round3-targeted-direct-centicent-reprice-audit-v1",
+    "sha256": "7e4243cb1ff728d7c6f4117988c80747e2c0188b84495102b1ee81d5fa37c373"
+  },
+  "this_run_read_2026_07_23": false
+}

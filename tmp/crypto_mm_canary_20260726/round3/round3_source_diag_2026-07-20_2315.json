@@ -1,0 +1,70 @@
+{
+  "schema": "z3-round3-source-diagnostic-v1",
+  "claim": "ROOT_CAUSE_DIAGNOSTIC_ONLY",
+  "date": "2026-07-20",
+  "ticker": "KXBTC15M-26JUL192315-15",
+  "forbidden_date_opened": false,
+  "paths": [
+    {
+      "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-20/orderbooks_full__Crypto__BTC__2026-07-20.parquet",
+      "bytes": 108851529
+    }
+  ],
+  "quality_receipt": {
+    "path": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_2026-07-20.json",
+    "sha256": "93fa2cbaae0e600cfca0a8537c8dfa3c1d9bbd26498809000b6b55dd1c401eab",
+    "core": {
+      "date": "2026-07-20",
+      "no_l2_files": false,
+      "sids_total": 24,
+      "sids_with_seq_gaps": 0,
+      "seq_gap_events": 0,
+      "seq_missed_total": 0,
+      "seq_regressions": 0,
+      "stream_restarts": 0,
+      "recorder_markers": {
+        "transport_close": 24
+      },
+      "markers_lost_frames": 0,
+      "snapshot_re_anchors_total": 234,
+      "parse_errors": 0
+    }
+  },
+  "legacy_ts_utc_order": {
+    "rows": 422564,
+    "snapshots": 3,
+    "deltas": 422561,
+    "deltas_before_snapshot": 3,
+    "negative_events": 1120,
+    "first_negative": {
+      "ts_utc": 1784516424137000,
+      "local_recv_ts_us": 1784516424141258,
+      "recv_wall_ns": 1784516424141258043,
+      "recv_mono_ns": 728653002299868,
+      "ws_sid": 1,
+      "ws_seq": 492,
+      "side": "yes",
+      "price_e4": 4700,
+      "before_e4": 3595400,
+      "delta_e4": -10000000,
+      "after_e4": -6404600
+    },
+    "sequence_regressions_in_iteration_order": 0,
+    "receive_regressions_in_iteration_order": 1,
+    "final_negative_levels": 0
+  },
+  "causal_receive_order": {
+    "rows": 422564,
+    "snapshots": 3,
+    "deltas": 422561,
+    "deltas_before_snapshot": 0,
+    "negative_events": 0,
+    "first_negative": null,
+    "sequence_regressions_in_iteration_order": 0,
+    "receive_regressions_in_iteration_order": 0,
+    "final_negative_levels": 0
+  },
+  "same_event_multiset": true,
+  "event_order_differs": true,
+  "root_cause": "ts_utc is COALESCE(exchange_ts_us, local_recv_ts_us) and is explicitly legacy-only; sorting on it can move exchange-timed deltas ahead of their locally received snapshot.  Causal replay must use recv_wall_ns/recv_mono_ns and signed delta semantics."
+}

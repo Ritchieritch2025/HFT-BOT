@@ -1,0 +1,53 @@
+{
+  "schema": "round4-stage2-terminal-label-evidence-verification-v1",
+  "status": "VERIFIED_LABEL_EVIDENCE_ONLY",
+  "verified_at_utc": "2026-07-26T12:09:34Z",
+  "market_count": 72,
+  "raw_response_count": 72,
+  "result_counts": {
+    "yes": 36,
+    "no": 36
+  },
+  "errors": [],
+  "roster_receipt": {
+    "path": "tmp/crypto_mm_canary_20260726/round4/round4_stage2_terminal_label_roster_20260726.json",
+    "raw_sha256": "1d4f382e763e80bf7f53fcf4f4ac75c4d88501c863a4e43d8e8f0c54ce2fe745",
+    "market_content_sha256": "b4c1cf503c8c84417d7ab6c729501e0b0c22c6a63038edb0a7336829e8adf247",
+    "source": "exact distinct KXBTC15M markets in the three pre-existing, SHA-pinned L2 fact partitions",
+    "terminal_or_outcome_field_used_to_select_roster": false
+  },
+  "capture": {
+    "directory": "tmp/crypto_mm_canary_20260726/round4/stage2_terminal_labels_20260726T120854Z",
+    "started_at_utc": "2026-07-26T12:08:59.027304Z",
+    "finished_at_utc": "2026-07-26T12:09:33.628148Z",
+    "public_get_only": true,
+    "authentication_used": false,
+    "receipt_sha256": "80d4f5bc0301b9d3ca2e367990ec55a7c5b27abfb6d3807839d5b747ffba19d9",
+    "sha256sums_sha256": "c7f066b00a671b98c3ab1dcc4b9cb9d212bba6572d2a8c5f81f76f3f0c1db8b6",
+    "capture_tool_code_sha256_recorded_at_capture": "b38643ecfdc42cd84fba0f101359b83eb0a7e48294e4d2b534576e8bca1f3d9f",
+    "all_raw_body_content_root_sha256": "b420abe64ff38bf5a9747549b00b195a64cfe2304906f46db7bf5007366b6591",
+    "selected_label_content_root_sha256": "fdf4d3e42b1208bf111e7bb4e21a9868dec54c841b23d4971c0c165342b00e31"
+  },
+  "current_verifier": {
+    "path": "tools/research/crypto_mm/round4_stage2_terminal_labels.py",
+    "sha256": "b38643ecfdc42cd84fba0f101359b83eb0a7e48294e4d2b534576e8bca1f3d9f",
+    "tests_path": "tests/test_round4_stage2_terminal_labels.py",
+    "tests_sha256": "2f2e4d01dd44eb295c6ff50b8384722a81590988c87fe471f66754338eb03e66",
+    "test_result": "15 passed"
+  },
+  "data_boundary": {
+    "role": "LABEL_AND_EVALUATION_ONLY",
+    "all_posthoc_get_values_forbidden_from_decision_features": true,
+    "settlement_ts_is_not_historical_receipt_time": true,
+    "price_ranges_do_not_prove_historical_point_in_time_grid": true,
+    "candidate_selection_authorized": false,
+    "shadow_authorized": false,
+    "live_authorized": false
+  },
+  "contract_binding": {
+    "round4_postfill_public_proxy_v4_1_status": "REJECTED_BY_INDEPENDENT_AUDIT",
+    "v4_1_commit_or_extraction_binding_authorized": false,
+    "future_contract_binding_authorized": false,
+    "future_v4_2_or_later_requires_explicit_new_binding": true
+  }
+}

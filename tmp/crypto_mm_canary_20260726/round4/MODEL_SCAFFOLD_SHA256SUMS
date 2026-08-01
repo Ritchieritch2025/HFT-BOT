@@ -1,0 +1,4 @@
+ebe15d7f23286197131c705c859085d9b988274d381846876bd807e19fcd65f2  ../../../tools/research/crypto_mm/round4_model_fitter.py
+c0804f73efcdf2045fed4f865f222c5efd67ef6126d0123488040aed5617c326  ../../../tests/test_round4_model_fitter.py
+c3c01c61971e5649f9d5f5a5fcf64b66881f64233452c70a4639a51f5c9e05ef  round4_two_stage_hazard_prereg.json
+ede23569a00e9948cd3772cc2213a07f8e5c3b9849b9dd0f46e8e6adff3eaed3  round4_two_stage_tables.sql

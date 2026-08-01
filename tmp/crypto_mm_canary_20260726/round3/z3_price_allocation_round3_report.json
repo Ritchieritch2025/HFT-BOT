@@ -1,0 +1,1069 @@
+{
+  "schema": "z3-price-allocation-round3-report-v1",
+  "host": "ubuntu@3.130.232.109",
+  "historical_validation_claim": false,
+  "this_run_read_2026_07_23": false,
+  "deployable": false,
+  "decision": "NO_CANDIDATE",
+  "discovery_candidate": null,
+  "strict_qualified": [],
+  "required_next_evidence": "model-and-code seal followed by genuinely forward holdout",
+  "split": {
+    "THIS_RUN_DISCOVERY": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "ALL_DISCOVERY_CONTAMINATED": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22",
+      "2026-07-23"
+    ],
+    "THIS_RUN_NEVER_OPENS": [
+      "2026-07-23"
+    ],
+    "FINAL_VALIDATION": "forward holdout after model and code seal"
+  },
+  "preregistration": {
+    "schema": "z3-price-allocation-round3-prereg-v1",
+    "status": "DISCOVERY_ONLY_CAUSAL_RECONSTRUCTION",
+    "candidate_count": 4,
+    "train_dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "historical_split_status": {
+      "all_discovery_contaminated": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22",
+        "2026-07-23"
+      ],
+      "this_run_reads": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22"
+      ],
+      "this_run_never_opens": [
+        "2026-07-23"
+      ],
+      "claim": "DISCOVERY_ONLY",
+      "final_validation": "post-model-and-code-seal forward holdout only"
+    },
+    "sealed_sources": {
+      "round2_script_sha256": "3b5ff6d4fddf617e6cb4bcf69e5449fc537a43f4d28cec9b61b1d938482358ee",
+      "base_replay_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+      "causal_contract_sha256": "4b7a3379a69aba3ea95361294db4ffea775791f56942f5c10818b14b18c04afd"
+    },
+    "causal_reconstruction": {
+      "required_fields_both_channels": [
+        "recv_wall_ns",
+        "recv_mono_ns",
+        "local_recv_ts_us"
+      ],
+      "clock_identity": "local_recv_ts_us == recv_wall_ns//1000",
+      "decision_flow_tte_clock": "local_recv_ts_us only",
+      "forbidden_replay_clocks": [
+        "ts_utc",
+        "exchange_ts_us"
+      ],
+      "combined_market_key": "(recv_wall_ns,recv_mono_ns,channel_priority,ws_seq_or_sentinel,stable_id)",
+      "same_envelope_priority": "BOOK=0 before TRADE=1",
+      "book_order": "recv_wall_ns,recv_mono_ns,ws_seq",
+      "trade_order": "recv_wall_ns,recv_mono_ns,trade_id",
+      "snapshot": "full re-anchor including ws_sid/ws_seq",
+      "delta": "requires prior snapshot, same ws_sid and strictly increasing ws_seq; raw daily receipt, not per-market +1, is gap authority",
+      "signed_level_rule": "next=prior+delta; next<0 invalidates and rolls back the complete market-day; next=0 deletes; never clamp",
+      "failure_scope": "daily raw receipt failure aborts the date; any market clock, sequence, snapshot, delta, trade, or reconstruction failure rolls back that complete market-day for all arms and is reported",
+      "raw_l2_receipt_gate": {
+        "schema": "l2-gap-receipt-v1",
+        "required_zero": [
+          "sids_with_seq_gaps",
+          "seq_gap_events",
+          "seq_missed_total",
+          "seq_regressions",
+          "stream_restarts",
+          "markers_lost_frames",
+          "parse_errors"
+        ],
+        "allowed_recorder_marker_keys": [
+          "transport_close"
+        ],
+        "snapshot_reanchors": "audited but allowed"
+      }
+    },
+    "common": {
+      "zone": "120<=TTE<300 and (mid<20c or mid>80c)",
+      "support": "complete trailing causal 60s history and finite positive two-sided touch ETA; every arm skips otherwise",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "post_only": "each candidate bid is on the real legal grid and strictly below its corresponding current ask",
+      "legal_grid": "0.1c on [0.1c,9.9c], 1c on [10c,90c], 0.1c on [90.1c,99.9c], including 9.9<->10 and 90<->90.1 boundaries",
+      "orphan_exit": "counterpart >=2c behind current touch, otherwise TTL60",
+      "cancel_ack_latency_ms": 60,
+      "fill_queue_ahead": "displayed quantity at exact quote level only",
+      "fill_test": "strict trade-through: eligible causal trade volume > exact-level ahead + clip",
+      "eta": "(positive displayed barrier depth at better prices + same-level ahead + clip)/(past causal 60s executable taker flow/60)",
+      "q_model": "q_side=1-exp(-60/ETA_side); q_both=q_yes*q_no",
+      "proxy_gain": "G=100-p_yes-p_no cents",
+      "proxy_loss_c": 3.5,
+      "ev_proxy": "q_both*G-(1-q_both)*3.5c"
+    },
+    "arms": {
+      "A0_COMMON_TOUCH": "quote both touches after common support if legal/post-only/sum<=99c",
+      "A1_SPEND_ALL_SLOW": "keep fast touch; spend all feasible pair slack on slow leg; after allocation require both candidate ETAs finite and >0",
+      "A2_FULL_MINIMAX_ETA": "complete legal feasible Cartesian product; minimize max ETA; ties higher q_both, lower pair sum, lower ETA imbalance, lower YES then NO price",
+      "A3_FULL_EV_GATE": "same complete product; maximize frozen EVproxy; ties higher q_both, lower max ETA, lower pair sum, lower ETA imbalance, lower YES then NO; enter only EVproxy>0"
+    },
+    "equivalent_acceleration": {
+      "side_tables": "sorted integer book/trade prefix sums replace outer-product sums",
+      "pair_grid": "precomputed flat indices for every legal pair with sum<=99c; no feasible action is removed",
+      "required_tests": "synthetic legal-boundary and causal vectors plus actual old discovery-market pointwise optimized-vs-naive enumeration for both A2 and A3"
+    },
+    "selection_gate": "cycles>=30 AND markets>=10 AND empirical completion Wilson LCB95>empirical break-even q* AND market-cluster bootstrap mean-PnL CI95 lower>0 AND zero strategy bugs AND all daily raw receipt gates pass; only fully clean market-days enter metrics",
+    "interpretation": "strict positive is only DISCOVERY candidate; deployable=false; forward holdout mandatory"
+  },
+  "policies": [
+    {
+      "name": "A0_COMMON_TOUCH",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "common_touch",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A1_SPEND_ALL_SLOW",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "spend_all_slow",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A2_FULL_MINIMAX_ETA",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "full_minimax_eta",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A3_FULL_EV_GATE",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "full_ev_gate",
+      "shift_ticks": 0
+    }
+  ],
+  "ranking": [
+    "A1_SPEND_ALL_SLOW",
+    "A2_FULL_MINIMAX_ETA",
+    "A3_FULL_EV_GATE",
+    "A0_COMMON_TOUCH"
+  ],
+  "metrics": {
+    "A0_COMMON_TOUCH": {
+      "cycles": 1133,
+      "markets": 58,
+      "paired": 496,
+      "orphans": 637,
+      "completion": 0.437776,
+      "completion_wilson_lcb95": 0.409146,
+      "empirical_break_even_q_star": 0.765349,
+      "pair_gain_c": 1.064113,
+      "orphan_loss_c": -3.470768,
+      "realized_ev_c_per_cycle": -1.485507,
+      "empirical_formula_ev_c": -1.485507,
+      "ci95_market_cluster_c": [
+        -1.6023,
+        -1.353
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.366142,
+        "median": 0.99999,
+        "p10": -2.463494,
+        "p90": 1.356234,
+        "min": -3.499901,
+        "max": 6.981662
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.752761,
+        "median": 0.777778,
+        "p10": 0.649371,
+        "p90": 0.777778,
+        "min": 0.333333,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.824949,
+        "median": 0.999751,
+        "p10": 0.215598,
+        "p90": 1.0,
+        "min": 2e-05,
+        "max": 1.0
+      },
+      "admissions": 1182,
+      "placed": 2377,
+      "fills": 1629,
+      "flattened": 637,
+      "carried": 0,
+      "eligible_decisions": 1917650,
+      "skipped_support": 81159,
+      "skipped_post_only": 0,
+      "skipped_pair_cost": 1835309,
+      "allocation_counts": {
+        "common_touch": 1182
+      },
+      "bugs": [],
+      "strict_pass": false,
+      "source_clean_market_days": 72,
+      "source_invalid_market_days_excluded": 0
+    },
+    "A1_SPEND_ALL_SLOW": {
+      "cycles": 1266,
+      "markets": 58,
+      "paired": 630,
+      "orphans": 636,
+      "completion": 0.49763,
+      "completion_wilson_lcb95": 0.470137,
+      "empirical_break_even_q_star": 0.782362,
+      "pair_gain_c": 1.008254,
+      "orphan_loss_c": -3.624453,
+      "realized_ev_c_per_cycle": -1.319077,
+      "empirical_formula_ev_c": -1.319077,
+      "ci95_market_cluster_c": [
+        -1.4408,
+        -1.1906
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.4631,
+        "median": 1.0,
+        "p10": -1.79819,
+        "p90": 1.0,
+        "min": -3.499435,
+        "max": 1.638055
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.776695,
+        "median": 0.777778,
+        "p10": 0.777778,
+        "p90": 0.777778,
+        "min": 0.673077,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.879206,
+        "median": 1.0,
+        "p10": 0.37818,
+        "p90": 1.0,
+        "min": 0.000126,
+        "max": 1.0
+      },
+      "admissions": 1303,
+      "placed": 2622,
+      "fills": 1896,
+      "flattened": 636,
+      "carried": 0,
+      "eligible_decisions": 1956308,
+      "skipped_support": 82893,
+      "skipped_post_only": 0,
+      "skipped_pair_cost": 1872112,
+      "allocation_counts": {
+        "spend_all_n_slow": 621,
+        "spend_all_y_slow": 682
+      },
+      "bugs": [],
+      "strict_pass": false,
+      "source_clean_market_days": 72,
+      "source_invalid_market_days_excluded": 0
+    },
+    "A2_FULL_MINIMAX_ETA": {
+      "cycles": 1707,
+      "markets": 66,
+      "paired": 722,
+      "orphans": 985,
+      "completion": 0.422964,
+      "completion_wilson_lcb95": 0.399727,
+      "empirical_break_even_q_star": 0.746201,
+      "pair_gain_c": 1.054294,
+      "orphan_loss_c": -3.099761,
+      "realized_ev_c_per_cycle": -1.342745,
+      "empirical_formula_ev_c": -1.342745,
+      "ci95_market_cluster_c": [
+        -1.4793,
+        -1.2046
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.47748,
+        "median": 1.0,
+        "p10": -2.330765,
+        "p90": 1.1,
+        "min": -3.499868,
+        "max": 12.501433
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.760748,
+        "median": 0.777778,
+        "p10": 0.720238,
+        "p90": 0.777778,
+        "min": 0.213415,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.858696,
+        "median": 1.0,
+        "p10": 0.256163,
+        "p90": 1.0,
+        "min": 2.9e-05,
+        "max": 1.0
+      },
+      "admissions": 1765,
+      "placed": 3542,
+      "fills": 2429,
+      "flattened": 985,
+      "carried": 0,
+      "eligible_decisions": 49446,
+      "skipped_support": 47681,
+      "skipped_post_only": 0,
+      "skipped_pair_cost": 0,
+      "allocation_counts": {
+        "full_minimax_eta": 1765
+      },
+      "bugs": [],
+      "strict_pass": false,
+      "source_clean_market_days": 72,
+      "source_invalid_market_days_excluded": 0
+    },
+    "A3_FULL_EV_GATE": {
+      "cycles": 2183,
+      "markets": 62,
+      "paired": 40,
+      "orphans": 2143,
+      "completion": 0.018323,
+      "completion_wilson_lcb95": 0.013485,
+      "empirical_break_even_q_star": 0.53801,
+      "pair_gain_c": 1.34,
+      "orphan_loss_c": -1.560498,
+      "realized_ev_c_per_cycle": -1.507351,
+      "empirical_formula_ev_c": -1.507351,
+      "ci95_market_cluster_c": [
+        -1.5936,
+        -1.4297
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 4.683737,
+        "median": 3.056565,
+        "p10": 0.945564,
+        "p90": 9.714944,
+        "min": 0.001379,
+        "max": 56.597064
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.397231,
+        "median": 0.411765,
+        "p10": 0.162791,
+        "p90": 0.636364,
+        "min": 0.039548,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.76261,
+        "median": 0.815716,
+        "p10": 0.474606,
+        "p90": 0.973618,
+        "min": 0.047512,
+        "max": 1.0
+      },
+      "admissions": 2311,
+      "placed": 4622,
+      "fills": 2223,
+      "flattened": 2143,
+      "carried": 0,
+      "eligible_decisions": 192536,
+      "skipped_support": 89315,
+      "skipped_post_only": 0,
+      "skipped_pair_cost": 0,
+      "allocation_counts": {
+        "ev_gate_reject": 100910,
+        "full_ev_gate": 2311
+      },
+      "bugs": [],
+      "strict_pass": false,
+      "source_clean_market_days": 72,
+      "source_invalid_market_days_excluded": 0
+    }
+  },
+  "source_quality": {
+    "all_daily_receipts_green": true,
+    "days": [
+      {
+        "date": "2026-07-20",
+        "raw_l2_receipt": {
+          "path": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_2026-07-20.json",
+          "sha256": "93fa2cbaae0e600cfca0a8537c8dfa3c1d9bbd26498809000b6b55dd1c401eab",
+          "schema_version": "l2-gap-receipt-v1",
+          "date": "2026-07-20",
+          "required_zero": {
+            "sids_with_seq_gaps": 0,
+            "seq_gap_events": 0,
+            "seq_missed_total": 0,
+            "seq_regressions": 0,
+            "stream_restarts": 0,
+            "markers_lost_frames": 0,
+            "parse_errors": 0
+          },
+          "recorder_markers": {
+            "transport_close": 24
+          },
+          "snapshot_re_anchors_total": 234,
+          "sids_total": 24,
+          "files": [
+            "l2_00.ndjson",
+            "l2_00.ndjson.1",
+            "l2_00.ndjson.2",
+            "l2_00.ndjson.3",
+            "l2_00.ndjson.4",
+            "l2_00.ndjson.5",
+            "l2_01.ndjson",
+            "l2_01.ndjson.1",
+            "l2_01.ndjson.2",
+            "l2_01.ndjson.3",
+            "l2_02.ndjson",
+            "l2_02.ndjson.1",
+            "l2_02.ndjson.2",
+            "l2_02.ndjson.3",
+            "l2_03.ndjson",
+            "l2_03.ndjson.1",
+            "l2_03.ndjson.2",
+            "l2_04.ndjson",
+            "l2_04.ndjson.1",
+            "l2_04.ndjson.2",
+            "l2_04.ndjson.3",
+            "l2_05.ndjson",
+            "l2_05.ndjson.1",
+            "l2_05.ndjson.2",
+            "l2_06.ndjson",
+            "l2_06.ndjson.1",
+            "l2_06.ndjson.2",
+            "l2_07.ndjson",
+            "l2_07.ndjson.1",
+            "l2_08.ndjson",
+            "l2_08.ndjson.1",
+            "l2_09.ndjson",
+            "l2_09.ndjson.1",
+            "l2_09.ndjson.2",
+            "l2_10.ndjson",
+            "l2_10.ndjson.1",
+            "l2_11.ndjson",
+            "l2_11.ndjson.1",
+            "l2_12.ndjson",
+            "l2_12.ndjson.1",
+            "l2_13.ndjson",
+            "l2_13.ndjson.1",
+            "l2_13.ndjson.2",
+            "l2_13.ndjson.3",
+            "l2_14.ndjson",
+            "l2_14.ndjson.1",
+            "l2_14.ndjson.2",
+            "l2_14.ndjson.3",
+            "l2_15.ndjson",
+            "l2_15.ndjson.1",
+            "l2_15.ndjson.2",
+            "l2_16.ndjson",
+            "l2_16.ndjson.1",
+            "l2_16.ndjson.2",
+            "l2_16.ndjson.3",
+            "l2_17.ndjson",
+            "l2_17.ndjson.1",
+            "l2_18.ndjson",
+            "l2_18.ndjson.1",
+            "l2_18.ndjson.2",
+            "l2_19.ndjson",
+            "l2_19.ndjson.1",
+            "l2_19.ndjson.2",
+            "l2_19.ndjson.3",
+            "l2_20.ndjson",
+            "l2_20.ndjson.1",
+            "l2_20.ndjson.2",
+            "l2_20.ndjson.3",
+            "l2_21.ndjson",
+            "l2_21.ndjson.1",
+            "l2_21.ndjson.2",
+            "l2_22.ndjson",
+            "l2_22.ndjson.1",
+            "l2_22.ndjson.2",
+            "l2_22.ndjson.3",
+            "l2_23.ndjson",
+            "l2_23.ndjson.1",
+            "l2_23.ndjson.2",
+            "l2_23.ndjson.3",
+            "l2_23.ndjson.4",
+            "l2_23.ndjson.5"
+          ]
+        },
+        "l2_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-20/orderbooks_full__Crypto__BTC__2026-07-20.parquet",
+            "bytes": 108851529
+          }
+        ],
+        "trade_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=15_min/date=2026-07-20/trades__Crypto__15_min__2026-07-20.csv.gz",
+            "bytes": 9970842
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BNB/date=2026-07-20/trades__Crypto__BNB__2026-07-20.csv.gz",
+            "bytes": 1969406
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BTC/date=2026-07-20/trades__Crypto__BTC__2026-07-20.csv.gz",
+            "bytes": 105565851
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=DOGE/date=2026-07-20/trades__Crypto__DOGE__2026-07-20.csv.gz",
+            "bytes": 3396020
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ETH/date=2026-07-20/trades__Crypto__ETH__2026-07-20.csv.gz",
+            "bytes": 14532868
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=HYPE/date=2026-07-20/trades__Crypto__HYPE__2026-07-20.csv.gz",
+            "bytes": 5238749
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Hourly/date=2026-07-20/trades__Crypto__Hourly__2026-07-20.csv.gz",
+            "bytes": 28372106
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Pre-Market/date=2026-07-20/trades__Crypto__Pre-Market__2026-07-20.csv.gz",
+            "bytes": 2691
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=SOL/date=2026-07-20/trades__Crypto__SOL__2026-07-20.csv.gz",
+            "bytes": 615963
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=XRP/date=2026-07-20/trades__Crypto__XRP__2026-07-20.csv.gz",
+            "bytes": 200759
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ZEC/date=2026-07-20/trades__Crypto__ZEC__2026-07-20.csv.gz",
+            "bytes": 779
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=none/date=2026-07-20/trades__Crypto__none__2026-07-20.csv.gz",
+            "bytes": 8828
+          }
+        ],
+        "trade_stats": {
+          "rows": 2213973,
+          "markets": 96,
+          "invalid_markets": 0
+        },
+        "book_rows": 7896432,
+        "book_markets": 24,
+        "snapshot_events": 72,
+        "delta_events": 7896360,
+        "snapshot_reanchors": 48,
+        "stream_resets": 0,
+        "zero_level_deletes": 274605,
+        "clean_market_days": 24,
+        "clean_strategy_market_days": 24,
+        "no_settlement_meta_market_days": 0,
+        "invalid_market_days": 0,
+        "invalid_market_samples": [],
+        "rolled_back": {
+          "A0_COMMON_TOUCH": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A1_SPEND_ALL_SLOW": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A2_FULL_MINIMAX_ETA": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A3_FULL_EV_GATE": {
+            "cycles": 0,
+            "admissions": 0
+          }
+        },
+        "equivalence_counts": {
+          "minimax": 0,
+          "ev": 0
+        },
+        "sample_truncated_after_equivalence": false,
+        "all_included_market_days_clean": true,
+        "daily_receipt_gate_pass": true,
+        "equivalence_complete": true
+      },
+      {
+        "date": "2026-07-21",
+        "raw_l2_receipt": {
+          "path": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_2026-07-21.json",
+          "sha256": "222e1e9b83d82da247c3315f4eebf8809027a2437f48b6ba3eb42cbe494a710f",
+          "schema_version": "l2-gap-receipt-v1",
+          "date": "2026-07-21",
+          "required_zero": {
+            "sids_with_seq_gaps": 0,
+            "seq_gap_events": 0,
+            "seq_missed_total": 0,
+            "seq_regressions": 0,
+            "stream_restarts": 0,
+            "markers_lost_frames": 0,
+            "parse_errors": 0
+          },
+          "recorder_markers": {
+            "transport_close": 24
+          },
+          "snapshot_re_anchors_total": 317,
+          "sids_total": 24,
+          "files": [
+            "l2_00.ndjson",
+            "l2_00.ndjson.1",
+            "l2_00.ndjson.2",
+            "l2_00.ndjson.3",
+            "l2_00.ndjson.4",
+            "l2_01.ndjson",
+            "l2_01.ndjson.1",
+            "l2_01.ndjson.2",
+            "l2_01.ndjson.3",
+            "l2_01.ndjson.4",
+            "l2_02.ndjson",
+            "l2_02.ndjson.1",
+            "l2_02.ndjson.2",
+            "l2_02.ndjson.3",
+            "l2_03.ndjson",
+            "l2_03.ndjson.1",
+            "l2_03.ndjson.2",
+            "l2_03.ndjson.3",
+            "l2_03.ndjson.4",
+            "l2_03.ndjson.5",
+            "l2_04.ndjson",
+            "l2_04.ndjson.1",
+            "l2_04.ndjson.2",
+            "l2_04.ndjson.3",
+            "l2_05.ndjson",
+            "l2_05.ndjson.1",
+            "l2_05.ndjson.2",
+            "l2_06.ndjson",
+            "l2_06.ndjson.1",
+            "l2_06.ndjson.2",
+            "l2_07.ndjson",
+            "l2_07.ndjson.1",
+            "l2_08.ndjson",
+            "l2_08.ndjson.1",
+            "l2_09.ndjson",
+            "l2_09.ndjson.1",
+            "l2_10.ndjson",
+            "l2_10.ndjson.1",
+            "l2_11.ndjson",
+            "l2_11.ndjson.1",
+            "l2_12.ndjson",
+            "l2_12.ndjson.1",
+            "l2_13.ndjson",
+            "l2_13.ndjson.1",
+            "l2_13.ndjson.2",
+            "l2_14.ndjson",
+            "l2_14.ndjson.1",
+            "l2_14.ndjson.2",
+            "l2_15.ndjson",
+            "l2_15.ndjson.1",
+            "l2_15.ndjson.2",
+            "l2_16.ndjson",
+            "l2_16.ndjson.1",
+            "l2_16.ndjson.2",
+            "l2_17.ndjson",
+            "l2_17.ndjson.1",
+            "l2_17.ndjson.2",
+            "l2_17.ndjson.3",
+            "l2_18.ndjson",
+            "l2_18.ndjson.1",
+            "l2_18.ndjson.2",
+            "l2_18.ndjson.3",
+            "l2_19.ndjson",
+            "l2_19.ndjson.1",
+            "l2_19.ndjson.2",
+            "l2_20.ndjson",
+            "l2_20.ndjson.1",
+            "l2_20.ndjson.2",
+            "l2_20.ndjson.3",
+            "l2_20.ndjson.4",
+            "l2_21.ndjson",
+            "l2_21.ndjson.1",
+            "l2_21.ndjson.2",
+            "l2_21.ndjson.3",
+            "l2_22.ndjson",
+            "l2_22.ndjson.1",
+            "l2_22.ndjson.2",
+            "l2_22.ndjson.3",
+            "l2_22.ndjson.4",
+            "l2_23.ndjson",
+            "l2_23.ndjson.1",
+            "l2_23.ndjson.2",
+            "l2_23.ndjson.3",
+            "l2_23.ndjson.4",
+            "l2_23.ndjson.5"
+          ]
+        },
+        "l2_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-21/orderbooks_full__Crypto__BTC__2026-07-21.parquet",
+            "bytes": 120801491
+          }
+        ],
+        "trade_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=15_min/date=2026-07-21/trades__Crypto__15_min__2026-07-21.csv.gz",
+            "bytes": 12089286
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BNB/date=2026-07-21/trades__Crypto__BNB__2026-07-21.csv.gz",
+            "bytes": 2361358
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BTC/date=2026-07-21/trades__Crypto__BTC__2026-07-21.csv.gz",
+            "bytes": 113500216
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=DOGE/date=2026-07-21/trades__Crypto__DOGE__2026-07-21.csv.gz",
+            "bytes": 4250748
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ETH/date=2026-07-21/trades__Crypto__ETH__2026-07-21.csv.gz",
+            "bytes": 16549428
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=HYPE/date=2026-07-21/trades__Crypto__HYPE__2026-07-21.csv.gz",
+            "bytes": 5135351
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Hourly/date=2026-07-21/trades__Crypto__Hourly__2026-07-21.csv.gz",
+            "bytes": 27119736
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Pre-Market/date=2026-07-21/trades__Crypto__Pre-Market__2026-07-21.csv.gz",
+            "bytes": 1052
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=SOL/date=2026-07-21/trades__Crypto__SOL__2026-07-21.csv.gz",
+            "bytes": 533654
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=XRP/date=2026-07-21/trades__Crypto__XRP__2026-07-21.csv.gz",
+            "bytes": 306308
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=none/date=2026-07-21/trades__Crypto__none__2026-07-21.csv.gz",
+            "bytes": 4555
+          }
+        ],
+        "trade_stats": {
+          "rows": 2390834,
+          "markets": 96,
+          "invalid_markets": 0
+        },
+        "book_rows": 8842044,
+        "book_markets": 24,
+        "snapshot_events": 72,
+        "delta_events": 8841972,
+        "snapshot_reanchors": 48,
+        "stream_resets": 0,
+        "zero_level_deletes": 296105,
+        "clean_market_days": 24,
+        "clean_strategy_market_days": 24,
+        "no_settlement_meta_market_days": 0,
+        "invalid_market_days": 0,
+        "invalid_market_samples": [],
+        "rolled_back": {
+          "A0_COMMON_TOUCH": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A1_SPEND_ALL_SLOW": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A2_FULL_MINIMAX_ETA": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A3_FULL_EV_GATE": {
+            "cycles": 0,
+            "admissions": 0
+          }
+        },
+        "equivalence_counts": {
+          "minimax": 0,
+          "ev": 0
+        },
+        "sample_truncated_after_equivalence": false,
+        "all_included_market_days_clean": true,
+        "daily_receipt_gate_pass": true,
+        "equivalence_complete": true
+      },
+      {
+        "date": "2026-07-22",
+        "raw_l2_receipt": {
+          "path": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_2026-07-22.json",
+          "sha256": "87815f64e8085f045d779abd3378edb58e1cdec77df5a9128d29e1a82e492a6f",
+          "schema_version": "l2-gap-receipt-v1",
+          "date": "2026-07-22",
+          "required_zero": {
+            "sids_with_seq_gaps": 0,
+            "seq_gap_events": 0,
+            "seq_missed_total": 0,
+            "seq_regressions": 0,
+            "stream_restarts": 0,
+            "markers_lost_frames": 0,
+            "parse_errors": 0
+          },
+          "recorder_markers": {
+            "transport_close": 24
+          },
+          "snapshot_re_anchors_total": 319,
+          "sids_total": 24,
+          "files": [
+            "l2_00.ndjson",
+            "l2_00.ndjson.1",
+            "l2_00.ndjson.2",
+            "l2_00.ndjson.3",
+            "l2_00.ndjson.4",
+            "l2_00.ndjson.5",
+            "l2_00.ndjson.6",
+            "l2_01.ndjson",
+            "l2_01.ndjson.1",
+            "l2_01.ndjson.2",
+            "l2_02.ndjson",
+            "l2_02.ndjson.1",
+            "l2_02.ndjson.2",
+            "l2_02.ndjson.3",
+            "l2_03.ndjson",
+            "l2_03.ndjson.1",
+            "l2_03.ndjson.2",
+            "l2_03.ndjson.3",
+            "l2_03.ndjson.4",
+            "l2_04.ndjson",
+            "l2_04.ndjson.1",
+            "l2_04.ndjson.2",
+            "l2_04.ndjson.3",
+            "l2_05.ndjson",
+            "l2_05.ndjson.1",
+            "l2_06.ndjson",
+            "l2_06.ndjson.1",
+            "l2_07.ndjson",
+            "l2_08.ndjson",
+            "l2_08.ndjson.1",
+            "l2_09.ndjson",
+            "l2_09.ndjson.1",
+            "l2_09.ndjson.2",
+            "l2_10.ndjson",
+            "l2_10.ndjson.1",
+            "l2_11.ndjson",
+            "l2_11.ndjson.1",
+            "l2_12.ndjson",
+            "l2_12.ndjson.1",
+            "l2_13.ndjson",
+            "l2_13.ndjson.1",
+            "l2_13.ndjson.2",
+            "l2_14.ndjson",
+            "l2_14.ndjson.1",
+            "l2_14.ndjson.2",
+            "l2_14.ndjson.3",
+            "l2_15.ndjson",
+            "l2_15.ndjson.1",
+            "l2_15.ndjson.2",
+            "l2_16.ndjson",
+            "l2_16.ndjson.1",
+            "l2_16.ndjson.2",
+            "l2_17.ndjson",
+            "l2_17.ndjson.1",
+            "l2_17.ndjson.2",
+            "l2_17.ndjson.3",
+            "l2_18.ndjson",
+            "l2_18.ndjson.1",
+            "l2_18.ndjson.2",
+            "l2_18.ndjson.3",
+            "l2_18.ndjson.4",
+            "l2_19.ndjson",
+            "l2_19.ndjson.1",
+            "l2_19.ndjson.2",
+            "l2_19.ndjson.3",
+            "l2_19.ndjson.4",
+            "l2_19.ndjson.5",
+            "l2_20.ndjson",
+            "l2_20.ndjson.1",
+            "l2_20.ndjson.2",
+            "l2_20.ndjson.3",
+            "l2_20.ndjson.4",
+            "l2_20.ndjson.5",
+            "l2_20.ndjson.6",
+            "l2_21.ndjson",
+            "l2_21.ndjson.1",
+            "l2_21.ndjson.2",
+            "l2_21.ndjson.3",
+            "l2_21.ndjson.4",
+            "l2_22.ndjson",
+            "l2_22.ndjson.1",
+            "l2_22.ndjson.2",
+            "l2_23.ndjson",
+            "l2_23.ndjson.1",
+            "l2_23.ndjson.2",
+            "l2_23.ndjson.3",
+            "l2_23.ndjson.4",
+            "l2_23.ndjson.5",
+            "l2_23.ndjson.6"
+          ]
+        },
+        "l2_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-22/orderbooks_full__Crypto__BTC__2026-07-22.parquet",
+            "bytes": 109386477
+          }
+        ],
+        "trade_paths": [
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=15_min/date=2026-07-22/trades__Crypto__15_min__2026-07-22.csv.gz",
+            "bytes": 11112776
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BNB/date=2026-07-22/trades__Crypto__BNB__2026-07-22.csv.gz",
+            "bytes": 2305522
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BTC/date=2026-07-22/trades__Crypto__BTC__2026-07-22.csv.gz",
+            "bytes": 97103490
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=DOGE/date=2026-07-22/trades__Crypto__DOGE__2026-07-22.csv.gz",
+            "bytes": 3504196
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ETH/date=2026-07-22/trades__Crypto__ETH__2026-07-22.csv.gz",
+            "bytes": 14175798
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=HYPE/date=2026-07-22/trades__Crypto__HYPE__2026-07-22.csv.gz",
+            "bytes": 5338713
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Hourly/date=2026-07-22/trades__Crypto__Hourly__2026-07-22.csv.gz",
+            "bytes": 25776913
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=NEAR/date=2026-07-22/trades__Crypto__NEAR__2026-07-22.csv.gz",
+            "bytes": 259
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Pre-Market/date=2026-07-22/trades__Crypto__Pre-Market__2026-07-22.csv.gz",
+            "bytes": 825
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=SOL/date=2026-07-22/trades__Crypto__SOL__2026-07-22.csv.gz",
+            "bytes": 547256
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=XRP/date=2026-07-22/trades__Crypto__XRP__2026-07-22.csv.gz",
+            "bytes": 282312
+          },
+          {
+            "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=none/date=2026-07-22/trades__Crypto__none__2026-07-22.csv.gz",
+            "bytes": 7465
+          }
+        ],
+        "trade_stats": {
+          "rows": 2042643,
+          "markets": 96,
+          "invalid_markets": 0
+        },
+        "book_rows": 7967427,
+        "book_markets": 24,
+        "snapshot_events": 72,
+        "delta_events": 7967355,
+        "snapshot_reanchors": 48,
+        "stream_resets": 0,
+        "zero_level_deletes": 266623,
+        "clean_market_days": 24,
+        "clean_strategy_market_days": 24,
+        "no_settlement_meta_market_days": 0,
+        "invalid_market_days": 0,
+        "invalid_market_samples": [],
+        "rolled_back": {
+          "A0_COMMON_TOUCH": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A1_SPEND_ALL_SLOW": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A2_FULL_MINIMAX_ETA": {
+            "cycles": 0,
+            "admissions": 0
+          },
+          "A3_FULL_EV_GATE": {
+            "cycles": 0,
+            "admissions": 0
+          }
+        },
+        "equivalence_counts": {
+          "minimax": 0,
+          "ev": 0
+        },
+        "sample_truncated_after_equivalence": false,
+        "all_included_market_days_clean": true,
+        "daily_receipt_gate_pass": true,
+        "equivalence_complete": true
+      }
+    ],
+    "tool_contract_evidence": {
+      "ingest_path": "/home/ubuntu/hft-bot/tools/ingest.py",
+      "ingest_sha256": "7a6be65a20f9e6240e53396afcaa81047df69d736e59054c196b9297c2e5cc8e",
+      "gap_tool_path": "/home/ubuntu/hft-bot/tools/l2_gap_check.py",
+      "gap_tool_sha256": "8a65b4764e1d70eaf653c27cc9a253ed626bc6cf9bb2dd6f431545907ae29de9",
+      "ingest_contract_lines": [
+        {
+          "line": 24,
+          "text": "legacy-compat only \u2014 never a tradable replay clock (see comment on STAGING_DDL)."
+        },
+        {
+          "line": 79,
+          "text": "#   local_recv_ts_us recv_wall_ns // 1000 (epoch micros) \u2014 the tradable clock"
+        }
+      ]
+    }
+  },
+  "equivalence_qa": {
+    "status": "ROUND3_SYNTHETIC_EQUIVALENCE_OK",
+    "causal_contract": {
+      "status": "CAUSAL_CONTRACT_SYNTHETIC_OK",
+      "expected_failures_observed": 4,
+      "same_envelope_order": "BOOK<TRADE",
+      "zero_delete": 1
+    },
+    "legal_boundary_tests": 4,
+    "full_grid_cases": 12,
+    "comparisons": {
+      "minimax": 12,
+      "ev": 12
+    },
+    "precomputed_feasible_pairs": 37071,
+    "complete_cartesian_pairs": 77841
+  },
+  "source": {
+    "experiment_sha256": "293ab66c1ce753dde7893e481d06032c74f87594bd0cffac47f0a53043fa64da",
+    "preregistration_path": "/tmp/z3_price_allocation_round3_prereg.json",
+    "preregistration_sha256": "0131bcb839e97b5feffc56a1a3fc7e79bd090cd1bf301fa3d000542ef63c402c",
+    "round2_sha256": "3b5ff6d4fddf617e6cb4bcf69e5449fc537a43f4d28cec9b61b1d938482358ee",
+    "sealed_base_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+    "causal_contract_sha256": "4b7a3379a69aba3ea95361294db4ffea775791f56942f5c10818b14b18c04afd",
+    "catalog": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "l2_glob": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/**/*.parquet",
+    "trades_glob": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/**/*.csv.gz"
+  },
+  "generated_at_utc": "2026-07-26T07:59:03.841069+00:00"
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "brti-authoritative-calibration-seal-v3-boundary-projection",
+  "sealed_at_utc": "2026-07-26T07:15:03Z",
+  "preregistration_sha256": "464dfd36752c1b286e8983901cb3ec23dbe0d8f10611d0db593d5e4a9bb1d9aa",
+  "downloader_sha256": "64fdaa2da54110ca2a749a8a05acb2466b4a6a7992e7844eda12481883295c5e",
+  "analyzer_sha256": "58458632c40ccaae1da4c8d6908aa44a6951dbdd70bfc3122926a3615579c1cd",
+  "base_downloader_sha256": "31a1d08cfee96afa71d5201950c75642823ceacbd94420ec47092ba5b795b8f1",
+  "base_hourly_analyzer_sha256": "a2d2dc54c2ae7e4c3079dd0cc2aea93b364b08e70366cf5f0ec936714744d89b",
+  "base_calibration_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+  "experiment_period_values_observed_before_v3_seal": false,
+  "pre_v3_transport_and_schema_observations_only": {
+    "v1_http_status": 503,
+    "v1_values_persisted": false,
+    "v2_http_200_hours": 72,
+    "v2_values_or_raw_envelopes_persisted": false,
+    "v2_failed_receipt_sha256": "c64d549c4fbbee32b6094c7eb0a5419b928cfc677e8fde481c20cf8fd78de551"
+  },
+  "logical_hour_count": 72,
+  "projection_predicate": "time_ms % 1000 == 0",
+  "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+  "status": "SEALED"
+}

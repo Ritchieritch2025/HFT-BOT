@@ -1,0 +1,111 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Kalshi 提词做市 · 两日实测报告</title>
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font: 11pt/1.55 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; color:#1a1a1a; margin:0; }
+h1 { font-size:21pt; margin:0 0 2pt; }
+.sub { color:#666; font-size:10pt; margin-bottom:4pt; }
+h2 { font-size:13pt; margin:20pt 0 6pt; padding-bottom:3pt; border-bottom:2px solid #1a1a1a; }
+h3 { font-size:11pt; margin:12pt 0 3pt; }
+p { margin:5pt 0; }
+.lead { background:#f5f3ee; border-left:3px solid #b8860b; padding:8pt 11pt; margin:8pt 0; }
+.warn { background:#fbeeee; border-left:3px solid #b3261e; padding:8pt 11pt; margin:8pt 0; }
+.ok { background:#eef5ea; border-left:3px solid #2e7d32; padding:8pt 11pt; margin:8pt 0; }
+table { border-collapse:collapse; width:100%; font-size:9.5pt; margin:6pt 0; font-variant-numeric:tabular-nums; }
+th,td { padding:4pt 7pt; text-align:right; border-bottom:1px solid #ddd; }
+th:first-child,td:first-child { text-align:left; }
+th { background:#1a1a1a; color:#fff; font-weight:600; }
+.pos { color:#2e7d32; font-weight:600; } .neg { color:#b3261e; font-weight:600; }
+.small { font-size:9pt; color:#777; }
+ul { margin:4pt 0; padding-left:18pt; } li { margin:3pt 0; }
+.foot { margin-top:16pt; padding-top:6pt; border-top:1px solid #ccc; font-size:8.5pt; color:#999; }
+.kpi { display:flex; gap:14pt; margin:8pt 0; }
+.kpi div { flex:1; background:#f5f3ee; border-radius:5px; padding:8pt 10pt; }
+.kpi .n { font-size:16pt; font-weight:700; } .kpi .l { font-size:8.5pt; color:#666; }
+</style></head><body>
+
+<h1>Kalshi「提词做市」策略 · 两日实测报告</h1>
+<div class="sub">EXPT-BO2026 · 2026-07-19 → 07-21 · 影子实盘(零真金,悲观成交口径)</div>
+
+<div class="lead"><b>一句话结论:</b> 我们复现了论文的核心 edge(卖"会"给上头的人、靠"多数事件不发生"吃钱),
+并搭好了能自动选市场、自动记账、自动避雷的完整系统。但<b>迄今只有约一天的结算数据,任何"哪类稳赚"的
+判断都还是噪声,不足以投真金。</b>结论:系统是真资产,盈利结论待更多天验证。</div>
+
+<h2>1. 策略在赚什么钱(机制)</h2>
+<p>Kalshi 上买"会发生"的人远多于事情真发生的次数——我们数了 <b>8,860 万笔</b>历史成交:
+体育里 74% 的钱押"会",实际只有 39% 发生。买"会"像买彩票,人们为那份期待多付钱。
+我们的做法只有一个:<b>常驻卖"会"给他们,持有到开奖,靠多数不发生吃概率钱。</b></p>
+<p>关键发现:赢一手赚约 45 分、输一手亏约 50 分,两边<b>几乎对称</b>——所以我们不靠"赢得多",
+纯靠<b>赢的次数够多</b>。于是能不能赚,只取决于一个变量:<b>这个发言场合,那些冷门词到底说不说。</b></p>
+
+<h2>2. 细分市场画像(11天历史 + 一夜实测,干净口径)</h2>
+<table>
+<tr><th>类别</th><th>笔数</th><th>不同事件</th><th>词没说率</th><th>净利¢/手</th><th>落袋$</th><th>判定</th></tr>
+<tr><td>电视/听证(Hannity等)</td><td>18</td><td>2</td><td>80%</td><td class="pos">+24.2</td><td class="pos">+485</td><td>样本太少</td></tr>
+<tr><td>财报电话会</td><td>17</td><td>2</td><td>59%</td><td class="pos">+9.2</td><td class="pos">+159</td><td>样本太少</td></tr>
+<tr><td>新闻提词</td><td>17</td><td>2</td><td>45%</td><td>−0.8</td><td>−15</td><td>打平</td></tr>
+<tr><td>政客演讲(Bernie)</td><td>13</td><td>1</td><td>40%</td><td class="neg">−10.0</td><td class="neg">−234</td><td>话痨风险</td></tr>
+<tr><td>体育转播(WNBA/MLB)</td><td>52</td><td>2</td><td>27%</td><td class="neg">−24.4</td><td class="neg">−1097</td><td><b>确认是坑</b></td></tr>
+</table>
+<p class="small">"词没说率" = 我们卖"会"后词没被说、我们赢的比例。盈利完美随它排序:80%→60%→45%→40%→27%,
+从赚到赔。机制直觉:话题越窄、发言越克制(财报会/电视节目),冷门词越不会蹦 → 我们越赢;
+边打边聊什么都说(体育转播/政客演讲)→ 我们越输。</p>
+
+<div class="warn"><b>关于上表的严重警告:</b> 除体育转播(52笔跨多场,机制清楚)外,
+其余每类都只有 <b>1–2 个不同事件</b>的样本。"电视类 +$485"拆开是:Hannity 一档节目 10战全胜 +$682,
+另一档 Last Word 反而 −$198。<b>100% 胜率本身就是运气的标志,不是规律。</b>
+现在没有一个类别(除体育外)的结论在统计上站得住。</div>
+
+<h2>3. 三本影子账 · 当前战绩(干净口径:去重 + 限仓200手/市场)</h2>
+<div class="kpi">
+<div><div class="n neg">−$702</div><div class="l">论文摆法 已结算(57赢/60输,245仓未开)</div></div>
+<div><div class="n neg">−$448</div><div class="l">改良摆法 已结算(61赢/56输,249仓未开)</div></div>
+</div>
+<p><b>账目为什么是负的:</b>一句话——<b>体育转播那 −$1097 的黑洞</b>。把它剔掉,其余类别合计是正的
+(财报+电视+新闻 ≈ +$629)。这不是"策略不行",是"选错了战场"。改良摆法(避开中间死亡谷价位)
+在逆风的 Bernie 场里也比论文摆法扛得好(−$96 vs −$234),这是两版对决的第一个数据点。</p>
+<p class="small">注:dashboard 上曾显示 −$1687 的合计,那是"未去重 + 无限铺仓 + 开奖前浮动噪声"的脏数;
+上面 −$702 是去重限仓、只算已结算的真实数。以本报告为准。</p>
+
+<h2>4. 跟单策略(RC-2)· 蹭知情流</h2>
+<p>看到有人短时间大量单边扫"不会"(=可能知道内幕),跟着买"不会"。共触发 115 次,已结算 40 笔:</p>
+<table>
+<tr><th>触发时"会"价</th><th>赢</th><th>输</th><th>落袋$</th><th>回测预期</th></tr>
+<tr><td>0–19¢</td><td>3</td><td>0</td><td class="pos">+13</td><td>薄</td></tr>
+<tr><td>20–39¢</td><td>2</td><td>4</td><td class="neg">−244</td><td>—</td></tr>
+<tr><td>40–59¢</td><td>2</td><td>0</td><td class="pos">+93</td><td>—</td></tr>
+<tr><td>60–79¢(主力带)</td><td>3</td><td>1</td><td class="pos">+190</td><td>+11¢/手</td></tr>
+<tr><td>80¢+</td><td>5</td><td>20</td><td class="pos">+327</td><td>薄</td></tr>
+</table>
+<p class="small">同样样本太少(每带个位数结算)。且暴露一个缺陷:跟单没有"多久开奖"过滤,
+今晚跟了多笔 7/27–8/3 才开奖的政治慢单,资金会被锁一两周。边界报告将把"回款时长"单列。</p>
+
+<h2>5. 系统资产(这是两天真正造出来的东西)</h2>
+<ul>
+<li><b>数据底座:</b>11天8,860万笔成交 + 15.3万市场结算,复现了论文全套度量(校准曲线、Kyle λ、
+Glosten-Harris、VPIN、频率/幅度分解),数字与论文吻合(如 γ₁↔λ 相关0.917)。</li>
+<li><b>实时监控:</b>全市场大单/爆量/量价共振四层探测 + VPIN 毒性撤退线,一夜抓 340万笔、报警3万+次。</li>
+<li><b>三个影子策略 + 自动记账 + 每日结算 + 分类开关</b>(宇宙九类可自由组合 on/off,不写死)。</li>
+<li><b>案例库:</b>自动记录论文现象(知情NO收割、信息炸弹、量价共振),含"Mamdani七连击直播收割"完整标本。</li>
+</ul>
+
+<h2>6. 已知问题与诚实边界</h2>
+<ul>
+<li><b>样本严重不足:</b>只有约一天结算。任何单类结论(除体育坑外)都是噪声。需每类≥50个不同事件(约1–2周)。</li>
+<li><b>无限资金裸奔:</b>影子为量地形没限总仓,押金冲到$1万+;真实需要多少钱取决于开几个摊,是可调旋钮,不是策略要求。</li>
+<li><b>事故污染:</b>07-20下午多副本重复记账(已修:安全重启脚本+记忆恢复);本报告已用去重口径剔除。</li>
+<li><b>论文防御未全开:</b>"直播前30分钟停手"故意没开,以量化其价值——政客/体育的亏损部分与此有关。</li>
+<li><b>容量约束:</b>真实瓶颈不是"押很多才赚一点",而是好市场盘口浅、吃不下大钱。这是小钱高周转的生意,不是大钱趴着吃。</li>
+</ul>
+
+<h2>7. 下一步</h2>
+<ul>
+<li><b>继续跑 1–2 周</b>,让每类样本从"运气"收敛到"规律";在此之前不投真金、不下"某类稳赚"结论。</li>
+<li><b>体育转播类保持关闭</b>(唯一样本够硬的结论,机制也清楚)。</li>
+<li>给跟单加"开奖时长"过滤;给摆摊接入"校准底线报价"(按真实概率+毛利挂,替代当前跟市价挂)。</li>
+<li>建下单执行层(WO-B/C),这是所有摆摊策略从"影子"到"真钱"唯一还缺的砖。</li>
+</ul>
+
+<div class="foot">EXPT-BO2026 · 论文:Bartlett &amp; O'Hara 2026, "Adverse Selection in Prediction Markets: Evidence from Kalshi"(SSRN 6615739)
+· 全部数据与可复现脚本:sandbox/expt_bo2026/ · 报告口径:去重+限仓200手+仅已结算 · 生成于 2026-07-21</div>
+</body></html>

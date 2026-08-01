@@ -1,0 +1,287 @@
+{
+  "schema": "round4-postfill-public-proxy-prereg-v4",
+  "contract_version": "ROUND4_POSTFILL_PUBLIC_PROXY_V4",
+  "action_family_version": "ROUND4_KEEP_FLATTEN_FOK_PUBLIC_PROXY_V4",
+  "status": "PRE_DATA_CONTRACT_SEALED_DISCOVERY_ONLY",
+  "self_contained": true,
+  "supersedes": [
+    "ROUND4_POSTFILL_FULL_COVERAGE_V3",
+    "ROUND4_KEEP_FLATTEN_FOK_FULL_COVERAGE_V3"
+  ],
+  "scientific_correction": "V3 incorrectly used private/observed language for mechanisms that historical public raw data cannot identify. V4 labels all historical maker fills as synthetic strict-trade-through full-fill proxies, the 60ms cancel event as a synthetic scenario, FOK as a public-book counterfactual, and self-cross checks as limited to the simulated strategy-order registry.",
+  "authorization": {
+    "real_data_extraction_authorized": false,
+    "fit_authorized": false,
+    "candidate_selection_authorized": false,
+    "forward_or_heldout_open_authorized": false,
+    "shadow_authorized": false,
+    "live_authorized": false
+  },
+  "official_exchange_sources": [
+    {
+      "title": "Order directions",
+      "url": "https://docs.kalshi.com/getting_started/order_direction",
+      "locked_use": "bid is YES and ask is NO; selling YES is economically buying NO; buying YES reduces a held NO position"
+    },
+    {
+      "title": "Create Order V2",
+      "url": "https://docs.kalshi.com/api-reference/orders/create-order-v2",
+      "locked_use": "fill_or_kill, reduce_only, and self_trade_prevention_type are supported protocol fields"
+    },
+    {
+      "title": "Kalshi Fee Schedule",
+      "url": "https://kalshi.com/docs/kalshi-fee-schedule.pdf",
+      "effective_date": "2026-07-07",
+      "accessed_date": "2026-07-26",
+      "locked_use": "The event-contract maker-fee formula has default multiplier M=0 unless a series is listed with a nonzero multiplier; KXBTC15M is not in the schedule's non-standard-fee list. The general taker formula is round_up(M*0.07*C*P*(1-P)) with default M=1. The schedule also states there is no settlement fee.",
+      "inference": "For KXBTC15M rows governed by this frozen schedule, first and complement resting-maker fees are zero. This is a schedule-based simulation input, not a private fee receipt. The schedule must be revalidated before any future-date or deployment use."
+    },
+    {
+      "title": "Market outcomes",
+      "url": "https://help.kalshi.com/en/articles/13823826-market-outcomes",
+      "accessed_date": "2026-07-26",
+      "locked_use": "outcomes are determined from each contract's rules and named source after expiry"
+    },
+    {
+      "title": "Prediction-market payout",
+      "url": "https://help.kalshi.com/en/articles/13823766-what-are-prediction-markets",
+      "accessed_date": "2026-07-26",
+      "locked_use": "a correct standard binary contract is worth one dollar"
+    }
+  ],
+  "market_and_data_boundary": {
+    "market_ticker_prefix": "KXBTC15M-",
+    "data_role": "DISCOVERY",
+    "data_origin": "PUBLIC_RAW",
+    "allowed_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates_utc": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "path_preflight_before_open": true,
+    "market_day_rollback_on_any_contract_failure": true,
+    "terminal_wins_over_same_time_grid": true,
+    "private_order_or_fill_feed_available": false,
+    "real_account_complete_order_registry_available": false
+  },
+  "provenance_contract": {
+    "first_fill_provenance": "PUBLIC_STRICT_TRADE_THROUGH_FULL_PROXY",
+    "complement_fill_provenance": "PUBLIC_STRICT_TRADE_THROUGH_FULL_PROXY",
+    "maker_fill_execution_nature": "SYNTHETIC",
+    "maker_fee_provenance": "SCHEDULE_ZERO_MAKER",
+    "fok_execution_provenance": "PUBLIC_BOOK_COUNTERFACTUAL",
+    "cancel_timing_provenance": "SYNTHETIC_60MS_SCENARIO",
+    "self_cross_scope": "SIMULATED_STRATEGY_ORDER_REGISTRY",
+    "settlement_reward_provenance": "OFFICIAL_RESULT_SETTLEMENT_SIMULATION",
+    "settlement_fee_provenance": "SETTLEMENT_ZERO_FEE",
+    "official_result_provenance": "OFFICIAL_MARKET_RESULT",
+    "forbidden_claims": [
+      "PRIVATE_EXACT",
+      "private fill receipt",
+      "observed cancel acknowledgement",
+      "complete real-account order registry",
+      "historical causal kernel fair"
+    ],
+    "simulation_exact_definition": "The arithmetic is exact conditional on the explicitly serialized public-proxy, fee-schedule, or official-result mechanism. SIMULATION_EXACT never means that a private execution or fee receipt was observed."
+  },
+  "latency_scenario": {
+    "effective_decision_to_fok_ms": 60,
+    "classification": "SYNTHETIC_SCENARIO_NOT_OBSERVED_ACK_NOT_PRODUCTION_SLA",
+    "receipt_path": "/home/ubuntu/hft-bot/work/latency/receipts/concurrent_cancel_1784993947.json",
+    "receipt_size_bytes": 217,
+    "receipt_sha256": "8d460e6b4e8dbfa87ef373b21e34bb41e76b0bcf3f881c46f817a04c51f31e08",
+    "sample_size": 10,
+    "limitation": "The engineering sample motivates a conservative 60ms scenario only. It is not an observed acknowledgement for each historical action, a measured p99, or a production SLA.",
+    "same_time_synthetic_order": [
+      "synthetic_cancel_applied_sequence_0",
+      "fok_counterfactual_processed_sequence_1",
+      "public_crossing_event_not_applied"
+    ]
+  },
+  "decision_state": {
+    "grid_elapsed_ms": [
+      0,
+      250,
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      30000,
+      60000
+    ],
+    "rows_per_at_risk_grid": {
+      "causal_state": 1,
+      "actions": [
+        "KEEP",
+        "FLATTEN_FOK"
+      ],
+      "flatten_fok_outcomes": 1,
+      "keep_transitions": 1
+    },
+    "same_state_fingerprint_required_for_both_actions": true,
+    "zero_time_atom_has_state_or_action": false,
+    "remaining_inventory_rule": "remaining_inventory_fp = requested_qty_fp = first_fill_qty_fp at every at-risk grid; the public full-fill proxy does not identify partial maker fills",
+    "fixed_original_complement_identity": [
+      "complement_order_id",
+      "complement_price_e4"
+    ],
+    "queue_state_rule": "The original complement order keeps its original id and price. Public queue position, same-price-ahead, better depth, and flow may evolve causally at each grid; replacement or repricing is forbidden.",
+    "touch_missingness": {
+      "two_sided_touch_available_false": "touch imbalance, spread, and all midpoint moves are NULL",
+      "complement_touch_available_false": "complement touch distance is NULL",
+      "two_sided_implies_complement_touch": true,
+      "stale_carry_forbidden": true
+    },
+    "historical_primary_kernel": {
+      "kernel_fair_available": false,
+      "all_seven_kernel_fields_null": true,
+      "reason": "public raw history has no receive timestamp that makes the external five-second source-time value causal at the decision receipt",
+      "five_second_source_time_use": "NON_CAUSAL_SENSITIVITY_ONLY",
+      "candidate_gate_use_forbidden": true,
+      "deployment_gate_use_forbidden": true
+    }
+  },
+  "actions": {
+    "KEEP": {
+      "execution_provenance": "ORIGINAL_MAKER_ORDER_PUBLIC_PROXY_OR_SETTLEMENT",
+      "rule": "Leave the original resting complement maker order unchanged in price and queue identity.",
+      "terminal_types": [
+        "COMPLEMENT_FILL",
+        "HARD_FALLBACK"
+      ],
+      "complement_terminal": "Only a public strict-trade-through full-fill proxy at the original complement price.",
+      "hard_fallback_terminal": "Only at market close, using the official YES/NO result, binary payout arithmetic, and zero settlement fee.",
+      "forbidden_terminal_types": [
+        "CURRENT_DIST2_TTL60",
+        "ADMIN_CENSOR"
+      ],
+      "current_policy_comparator": "CURRENT_DIST2_TTL60 remains an independent comparator and never terminates KEEP training."
+    },
+    "FLATTEN_FOK": {
+      "execution_provenance": "PUBLIC_BOOK_COUNTERFACTUAL",
+      "canonical_v2_mapping": {
+        "held_YES": "ASK: sell YES; walk YES bids best to worse",
+        "held_NO": "BID: buy YES to reduce NO; walk YES asks best to worse"
+      },
+      "post_only": false,
+      "reduce_only": true,
+      "time_in_force": "fill_or_kill",
+      "self_trade_prevention_type": "taker_at_cross",
+      "fok_requires_prior_synthetic_cancel_applied": true,
+      "requested_qty": "all remaining inventory",
+      "self_cross_claim_limit": "Only orders in the simulated strategy registry are checked; no statement is made about all orders in a real account or subaccount."
+    }
+  },
+  "price_and_book_counterfactual": {
+    "price_unit": "e4 dollars",
+    "legal_min_e4": 10,
+    "legal_max_e4": 9990,
+    "legal_grid": {
+      "below_1000_or_above_9000_step_e4": 10,
+      "1000_through_9000_step_e4": 100
+    },
+    "full_visible_clip": "freeze the public decision-time canonical walk and set the FOK limit to the worst full-clip level plus one adverse legal tick, capped at the legal boundary",
+    "incomplete_visible_clip": "use the adverse legal boundary with flatten_limit_fallback=true",
+    "atomicity": "FOK_FULL or FOK_ZERO; partial FOK is forbidden"
+  },
+  "outcomes": {
+    "CANCEL_RACE_PAIR": {
+      "definition": "The public strict-trade-through full-fill proxy for the unchanged complement order occurs strictly before synthetic cancel application.",
+      "fok_sent": false,
+      "synthetic_cancel_applied_before_terminal": false,
+      "quantity_rule": "complement_fill_qty_fp = requested_qty_fp and residual_inventory_fp = 0",
+      "maker_fee_usd": 0,
+      "reward_value_kind": "SIMULATION_EXACT",
+      "simulation_reward_exact": true
+    },
+    "FOK_FULL": {
+      "definition": "The public-book counterfactual fills the complete clip at the frozen limit after the synthetic cancel and simulated-registry no-self-cross gate.",
+      "residual_inventory_fp": 0,
+      "maker_fee_usd": 0,
+      "reward_value_kind": "FEE_BAND",
+      "simulation_reward_exact": false,
+      "capital_released": true
+    },
+    "FOK_ZERO": {
+      "definition": "The public-book counterfactual fills zero and retains the complete requested inventory.",
+      "maker_fee_usd": 0,
+      "reward_value_kind": "LOWER_BOUND",
+      "simulation_reward_exact": false,
+      "conservative_fit_usable": true,
+      "capital_released": false,
+      "capital_held_until": "market_close",
+      "drop_or_convert_to_partial_forbidden": true
+    }
+  },
+  "economics": {
+    "symbols": {
+      "q": "first-fill and requested quantity",
+      "p0": "first-fill price in dollars",
+      "pc": "original complement price in dollars",
+      "pi": "FOK slice price in dollars",
+      "qi": "FOK slice quantity",
+      "R": "official YES/NO market result",
+      "S": "first-fill YES/NO side"
+    },
+    "first_leg_cost_basis_usd": "q*p0",
+    "keep_or_race_pair_gross_usd": "q*(1-p0-pc)",
+    "fok_full_gross_held_yes_usd": "sum_i(qi*(pi-p0))",
+    "fok_full_gross_held_no_usd": "sum_i(qi*(1-pi-p0))",
+    "settlement_gross_usd": "q*(1-p0) if R=S else -q*p0",
+    "first_and_complement_maker_fee_usd": 0,
+    "settlement_fee_usd": 0,
+    "raw_taker_fee_per_slice_usd": "0.07*qi*pi*(1-pi)",
+    "taker_fee_band": {
+      "low": "ceil(sum_i(raw_i), 0.0001 USD)",
+      "base": "sum_i(ceil(raw_i, 0.0001 USD))",
+      "high": "sum_i(ceil(raw_i, 0.01 USD))"
+    },
+    "fok_full_net_band_usd": "gross - taker_fee_band; maker fee is zero",
+    "fok_zero_conservative_reward_usd": "-first_leg_cost_basis_usd",
+    "capital_dollar_seconds": {
+      "race_or_full": "first_leg_cost_basis_usd*terminal_elapsed_ms/1000",
+      "zero": "first_leg_cost_basis_usd*market_close_elapsed_ms/1000",
+      "keep_increment": "first_leg_cost_basis_usd*(stop_ms-start_ms)/1000"
+    }
+  },
+  "serialized_tables": [
+    "postfill_compact_causal_state",
+    "postfill_compact_causal_action",
+    "postfill_compact_keep_transition",
+    "postfill_compact_flatten_fok_outcome",
+    "postfill_zero_time_atom"
+  ],
+  "ddl_scope": {
+    "v4_normative_schema": "round4_postfill_state_contract.sql",
+    "shared_dependency": "round4_two_stage_tables.sql",
+    "shared_dependency_normative_scope": "Only the postfill_zero_time_atom table and its V4 public-origin/provenance extension are normative for this contract.",
+    "shared_legacy_tables_normative_for_v4": false,
+    "shared_legacy_admin_or_ack_semantics_allowed_in_v4_training": false
+  },
+  "required_negative_tests": [
+    "CURRENT_DIST2_TTL60 as KEEP terminal",
+    "PRIVATE_EXACT fill provenance",
+    "OBSERVED_CANCEL_ACK timing provenance",
+    "historical kernel_fair_available=true",
+    "HARD_FALLBACK before market close",
+    "HARD_FALLBACK with nonzero exit or settlement fee",
+    "non-KXBTC15M ticker under SCHEDULE_ZERO_MAKER",
+    "real-account-wide self-cross claim",
+    "nonzero first or complement maker fee",
+    "partial at-risk inventory or partial FOK"
+  ],
+  "seal_gates": {
+    "python_and_ddl_independent_economic_recomputation": true,
+    "python_and_ddl_provenance_checks": true,
+    "full_zero_race_hard_and_zero_atom_insert_tests": true,
+    "learner_v4_pin_required_before_fit": true,
+    "old_learner_pin_authorizes_candidate_or_live": false,
+    "candidate_selection_authorized": false,
+    "live_authorized": false
+  }
+}

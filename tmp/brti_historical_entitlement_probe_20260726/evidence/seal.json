@@ -1,0 +1,10 @@
+{
+  "schema": "brti-historical-entitlement-probe-seal-v1",
+  "sealed_at_utc": "2026-07-26T06:53:33Z",
+  "script_sha256": "9aece8376094d8e95cf13438ef907d7bc6fc0711531547d8fd80213f38c66264",
+  "preregistration_sha256": "fdc795b3c578b581a81d6643fb7f746d04cf60e29e7f52e3aa2b5e23769beb8f",
+  "experiment_period_history_requested_before_seal": false,
+  "probe_timestamp": "2009-01-01T00:00:00.000Z",
+  "probe_timespan": "HOUR",
+  "status": "SEALED"
+}

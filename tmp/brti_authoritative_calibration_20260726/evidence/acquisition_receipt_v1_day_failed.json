@@ -1,0 +1,36 @@
+{
+  "engine_or_service_mutation_performed": false,
+  "hard_banned_history_requested": false,
+  "read_only": true,
+  "recent_values_endpoint_called": false,
+  "redirect_count": 0,
+  "request_count_attempted": 1,
+  "request_count_planned": 3,
+  "requests": [
+    {
+      "body_bytes": 72,
+      "body_sha256": "f5cb2fda6497f77c4314bd61c400bb271798c078de67250742ac775f00f46549",
+      "content_type": "application/json; charset=utf-8",
+      "elapsed_ms": 5007.21,
+      "http_status": 503,
+      "network_error_class": null,
+      "persisted": false,
+      "query": {
+        "id": "BRTI",
+        "timespan": "DAY",
+        "timestamp": "2026-07-20T00:00:00.000Z"
+      }
+    }
+  ],
+  "retry_count": 0,
+  "schema": "brti-authoritative-acquisition-receipt-v1",
+  "seal": {
+    "analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+    "downloader_sha256": "5eb4644dfaf61df75051be009085e1f636be8b96e083361b633330806ca276b8",
+    "preregistration_sha256": "3c165373b3ba239dd1f20dcdb77ff8eadeb70f4fe5f8e9f0a4614bdbd103c800",
+    "seal_sha256": "93c8dffb363f5a2bdffaed65369e051b10f8b5619e939d01e2cbfea93243a8dc",
+    "verified": true
+  },
+  "status": "NO_DECISION_ACQUISITION_FAILED",
+  "trading_action_performed": false
+}

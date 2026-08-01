@@ -1,0 +1,127 @@
+{
+  "schema": "z3-postfill-fee-precision-boundary-addendum-v2",
+  "analysis_class": "POST_HOC_PRECISION_BOUNDARY_NO_RESELECTION",
+  "classification": "OPTIMISTIC_L2_AGGREGATE_MIN_FEE_MAX_PNL_SENSITIVITY",
+  "status": "DISCOVERY_ONLY_NO_CANDIDATE",
+  "candidate": false,
+  "deployable": false,
+  "live_authorized": false,
+  "date_2026_07_23_read": false,
+  "source": {
+    "original_report_sha256": "ff5c990cbb05e3695604c9c61612d7e8e92aeced3d4b3e12b3417e8220265cc8",
+    "original_episodes_sha256": "b4440b5822416954134f656dfe2aaf61fa3e8be0cfcdd295e62fc19f6bf3201f",
+    "sealed_replay_sha256": "b667c811707b7203bc532b5d51accc1ff2e082d2fff284e76b7377e8945d1b09",
+    "preregistration_sha256": "27549b7278eaa414bc2d4c06464ae881846d36ff8f281dd3f56678a9e098a0b7",
+    "old_fee_implementation_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+    "official_fee_rounding_url": "https://docs.kalshi.com/getting_started/fee_rounding",
+    "official_fee_rounding_markdown_sha256": "c9b8c7efd50df6512a4528e5a86044ad40699e17ababc7f9c42497c722829796",
+    "official_source_accessed_utc_date": "2026-07-26"
+  },
+  "old_fee_contract_confirmed": {
+    "generic_whole_cent": true,
+    "formula": "ceil_$0.01(sum_j 0.07*q_j*p_j*(1-p_j))",
+    "implementation_lines": "z3_price_allocation_train.py:139-148"
+  },
+  "l2_point_sensitivity": {
+    "formula": "ceil_$0.0001(sum_j 0.07*q_j*p_j*(1-p_j))",
+    "fee_interpretation": "lower bound",
+    "pnl_interpretation": "upper point estimate",
+    "private_fill_exact": false
+  },
+  "current_official_contract": {
+    "trade_fee": "each true fill ceiled to $0.0001",
+    "balance_change": "signed revenue minus trade fee, floored toward negative infinity",
+    "direct_target_precision_dollars": "0.0001",
+    "rounding_accumulator": "per order across all fills",
+    "rebate": "whole-cent, with non-negative net fee"
+  },
+  "identification": {
+    "l2_price_level_book_walk_observed": true,
+    "same_price_private_fill_partition_observed": false,
+    "private_order_rounding_path_observed": false,
+    "current_account_exact_point_identified": false,
+    "private_fill_and_balance_reconciliation_required": true
+  },
+  "strict_upper_bound": {
+    "maximum_pnl_improvement_per_ioc_c": 0.99,
+    "partition_independent": true,
+    "proof": "sum_i ceil_0.0001(raw_i) >= ceil_0.0001(sum_i raw_i), and post-rebate rounding residue is non-negative; true direct net fee is therefore at least the aggregate centicent lower fee. ceil_0.01(sum raw) - ceil_0.0001(sum raw) <= $0.0099 = 0.99c.",
+    "n": 1202,
+    "policies": {
+      "IOC_60MS": {
+        "old_exact_ev_c": -1.6261339434276207,
+        "ioc_rows": 1143,
+        "strict_ev_upper_c": -0.6847279534109818
+      },
+      "WAIT_0P25": {
+        "old_exact_ev_c": -1.5487986688851914,
+        "ioc_rows": 1029,
+        "strict_ev_upper_c": -0.7012861896838603
+      },
+      "WAIT_0P5": {
+        "old_exact_ev_c": -1.4672603993344426,
+        "ioc_rows": 953,
+        "strict_ev_upper_c": -0.6823435940099835
+      },
+      "WAIT_1": {
+        "old_exact_ev_c": -1.4526572379367721,
+        "ioc_rows": 867,
+        "strict_ev_upper_c": -0.7385723793677206
+      },
+      "WAIT_2": {
+        "old_exact_ev_c": -1.2842928452579034,
+        "ioc_rows": 719,
+        "strict_ev_upper_c": -0.6921048252911813
+      },
+      "WAIT_5": {
+        "old_exact_ev_c": -1.31808153078203,
+        "ioc_rows": 580,
+        "strict_ev_upper_c": -0.8403777038269551
+      },
+      "WAIT_10": {
+        "old_exact_ev_c": -1.4222021630615642,
+        "ioc_rows": 458,
+        "strict_ev_upper_c": -1.0449808652246257
+      },
+      "WAIT_30": {
+        "old_exact_ev_c": -1.6537437603993344,
+        "ioc_rows": 289,
+        "strict_ev_upper_c": -1.4157154742096505
+      },
+      "WAIT_60": {
+        "old_exact_ev_c": -1.651446755407654,
+        "ioc_rows": 229,
+        "strict_ev_upper_c": -1.4628361064891848
+      },
+      "CURRENT_DIST2_TTL60": {
+        "old_exact_ev_c": -1.0648752079866888,
+        "ioc_rows": 574,
+        "strict_ev_upper_c": -0.5921131447587353
+      },
+      "CLAIRVOYANT_BEST_FIXED": {
+        "old_exact_ev_c": 0.604477537437604,
+        "ioc_rows": 284,
+        "strict_ev_upper_c": 0.83838768718802,
+        "headroom_only": true
+      }
+    },
+    "all_executable_fixed_policy_upper_bounds_negative": true
+  },
+  "supersedes_draft_v1_phrases": [
+    "authenticated direct-account centicent fee",
+    "exact current-account fee repricing",
+    "exact direct-centicent fees",
+    "direct realized fee"
+  ],
+  "replacement_phrase": "optimistic L2-aggregate minimum-fee / maximum-PnL sensitivity",
+  "frozen_scope": {
+    "episode_support": true,
+    "actions": true,
+    "selected_policy": true,
+    "exit_ts": true,
+    "capital_time": true,
+    "maker_results": true,
+    "ioc_book_walk": true,
+    "selection_performed": false
+  }
+}

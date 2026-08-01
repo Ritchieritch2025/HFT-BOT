@@ -1,0 +1,98 @@
+SCRIPT_SHA 2caa5e520fb8d57f7f259cb680a60a9e06cd4561ac58c24d2ed5e20b56a5a2d0
+PREREG_SHA 1bce1ab3501191f86161e0701ec5f2b32af56c0036a720ef555f2e2a1c99a819
+RUN STAGE1 FULL ROSTER 2026-07-20..22
+DAY_COMPLETE 2026-07-20
+DAY_COMPLETE 2026-07-22
+DAY_COMPLETE 2026-07-21
+{
+  "status": "ROUND4_STAGE1_FULL_ROSTER_OK",
+  "contract_receipt": {
+    "schema": "round4-stage1-entry-contract-receipt-v1",
+    "experiment_id": "KXBTC15M-ROUND4-TWO-STAGE-HAZARD-V1",
+    "candidate_status": "ACTION_SET_PENDING",
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false,
+    "dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "date_2026_07_23_read": false,
+    "date_2026_07_26_read": false,
+    "entry_decisions": 2182648,
+    "pair_post_only_decisions": 1216,
+    "entry_skip_entries": 2181432,
+    "ack_failed_entries": 0,
+    "admitted_entries": 1216,
+    "first_fill_entries": 1202,
+    "no_first_fill_entries": 14,
+    "first_fill_identity_count": 1202,
+    "entry_risk_interval_rows": 1351,
+    "entry_capital_interval_rows": 1216,
+    "capital_dollar_seconds": "356.12351465",
+    "roster_partition_exact": true,
+    "admitted_denominator_includes_no_first_fill": true,
+    "risk_terminal_conservation": true,
+    "strict_trade_through_all_first_fills": true,
+    "nonoverlap_checked": true,
+    "whole_market_day_rollback_required": true,
+    "historical_ack_failure_identified": false,
+    "source_audit": {
+      "eligible_entry_decisions": 2182648,
+      "pair_post_only_decisions": 1216,
+      "entry_skip_decisions": 2181432,
+      "both_acked": 1216,
+      "ack_failed": 0
+    },
+    "canonical_rows_sha256": "a1339ced02d52d8fab7e30108ef6294f3ded668c088baab3a31946e1ef69918d"
+  },
+  "coverage": {
+    "per_date": {
+      "2026-07-20": {
+        "entry_decisions": 559164,
+        "risk_intervals": 320,
+        "ENTRY_SKIP": 558876,
+        "NO_FIRST": 158,
+        "YES_FIRST": 126,
+        "ADMIN_CENSOR_NO_FIRST_FILL": 4
+      },
+      "2026-07-21": {
+        "entry_decisions": 1019662,
+        "risk_intervals": 592,
+        "ENTRY_SKIP": 1019130,
+        "YES_FIRST": 259,
+        "NO_FIRST": 271,
+        "ADMIN_CENSOR_NO_FIRST_FILL": 2
+      },
+      "2026-07-22": {
+        "entry_decisions": 603822,
+        "risk_intervals": 439,
+        "ENTRY_SKIP": 603426,
+        "YES_FIRST": 205,
+        "NO_FIRST": 183,
+        "ADMIN_CENSOR_NO_FIRST_FILL": 8
+      }
+    },
+    "first_fill_markets": 58,
+    "no_first_fill_rate_given_both_acked": 0.011513157894736841,
+    "ack_failed_historical_rows": 0,
+    "ack_failed_historical_identified": false,
+    "sealed_first_fill_identity_exact": true,
+    "no_first_fill_derived_from_first_fill_artifact": false,
+    "trajectory_sampling_used": false,
+    "passive_mid_skipped_missing_touch": 112282,
+    "risk_state_missing_touch": 0
+  },
+  "whole_policy_scope": {
+    "whole_policy_economics_ready": false,
+    "reason": "entry/re-entry timing is inherited from frozen P3 current post-fill exits; a different KEEP/IOC policy changes capital release and future admission opportunities",
+    "required_next": "integrated non-overlapping candidate-policy replay over the full eligible-decision roster, with no-fill and capital-time"
+  },
+  "report_out": "/tmp/z3_round4_stage1_entry_r3_2caa5e_report_20260726.json",
+  "report_sha256": "70e0c90fd3e6ee083544a085a71c9249ded2c991c5eee9803bccf893cefcea78",
+  "rows_out": "/tmp/z3_round4_stage1_entry_r3_2caa5e_rows_20260726.json.gz",
+  "rows_sha256": "ad9ecac0182d241324a81628b954a6adab6a72aa87f6e891c3267b38d1a493fa",
+  "date_2026_07_23_read": false,
+  "date_2026_07_26_read": false
+}

@@ -1,0 +1,356 @@
+{
+  "schema": "z3-price-allocation-round2-report-v1",
+  "host": "ubuntu@3.130.232.109",
+  "split": {
+    "THIS_RUN_DISCOVERY": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "ALL_DISCOVERY_CONTAMINATED": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22",
+      "2026-07-23"
+    ],
+    "THIS_RUN_NEVER_OPENS": [
+      "2026-07-23"
+    ],
+    "FINAL_VALIDATION": "forward holdout after model and code seal"
+  },
+  "historical_validation_claim": false,
+  "this_run_read_2026_07_23": false,
+  "preregistration": {
+    "schema": "z3-price-allocation-round2-prereg-v1",
+    "candidate_count": 4,
+    "train_dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "historical_split_status": {
+      "all_discovery_contaminated": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22",
+        "2026-07-23"
+      ],
+      "this_run_reads": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22"
+      ],
+      "this_run_never_opens": [
+        "2026-07-23"
+      ],
+      "claim": "DISCOVERY_ONLY",
+      "final_validation": "post-model-and-code-seal forward holdout only"
+    },
+    "sealed_base": {
+      "script": "z3_price_allocation_train.py",
+      "sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+      "reuse": "one shared three-day event replay; allocation subclass only; engine code is not imported or modified"
+    },
+    "common": {
+      "zone": "120<=TTE<300 and (mid<20c or mid>80c)",
+      "support": "complete trailing 60s history and finite positive two-sided touch ETA; every arm skips otherwise",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "post_only": "each candidate bid is a real legal-grid price strictly below its corresponding current ask",
+      "legal_grid": "0.1c increments on [0.1c,9.9c], 1c increments on [10c,90c], 0.1c increments on [90.1c,99.9c]; boundary predecessor/successor is 9.9c<->10c and 90c<->90.1c",
+      "orphan_exit": "counterpart >=2c behind current touch, otherwise TTL60",
+      "cancel_ack_latency_ms": 60,
+      "fill_queue_ahead": "displayed quantity at exact quote level only",
+      "fill_test": "strict trade-through: cumulative eligible taker volume > exact-level ahead + clip",
+      "eta": "(all displayed barrier depth at better prices + same-level ahead + clip)/(past60 executable taker flow to candidate/60)",
+      "q_model": "q_side=1-exp(-60/ETA_side); q_both=q_yes*q_no",
+      "proxy_gain": "G=100-p_yes-p_no cents",
+      "proxy_loss_c": 3.5,
+      "ev_proxy": "q_both*G-(1-q_both)*3.5c"
+    },
+    "arms": {
+      "A0_COMMON_TOUCH": "after common support, quote both current touches if legal, post-only, and pair sum<=99c",
+      "A1_SPEND_ALL_SLOW": "keep the faster touch leg unchanged; assign the largest feasible legal-grid price to the slower touch-ETA leg, spending all usable pair slack subject to post-only and sum<=99c; YES is slower on tie",
+      "A2_FULL_MINIMAX_ETA": "enumerate the complete Cartesian product of legal post-only prices with pair sum<=99c and finite positive ETAs; minimize max ETA; ties choose higher q_both, lower pair sum, lower absolute log-ETA imbalance, then lower YES price, then lower NO price",
+      "A3_FULL_EV_GATE": "enumerate the same complete feasible legal grid; maximize frozen EVproxy; ties choose higher q_both, lower max ETA, lower pair sum, lower absolute log-ETA imbalance, then lower YES price, then lower NO price; admit only when selected EVproxy>0 strictly"
+    },
+    "selection_gate": "cycles>=30 AND markets>=10 AND empirical pair-completion Wilson LCB95>empirical break-even q* AND market-cluster bootstrap mean-PnL CI95 lower>0 AND zero invariant bugs",
+    "ranking": "strict passes first by market-cluster CI lower, realized mean PnL, markets, cycles",
+    "interpretation": "a strict positive is only a DISCOVERY candidate; deployable=false; forward holdout remains mandatory"
+  },
+  "policies": [
+    {
+      "name": "A0_COMMON_TOUCH",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "common_touch",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A1_SPEND_ALL_SLOW",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "spend_all_slow",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A2_FULL_MINIMAX_ETA",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "full_minimax_eta",
+      "shift_ticks": 0
+    },
+    {
+      "name": "A3_FULL_EV_GATE",
+      "ttl_s": 60.0,
+      "distance_stop_c": 2.0,
+      "allocation": "full_ev_gate",
+      "shift_ticks": 0
+    }
+  ],
+  "ranking": [
+    "A3_FULL_EV_GATE",
+    "A2_FULL_MINIMAX_ETA",
+    "A1_SPEND_ALL_SLOW",
+    "A0_COMMON_TOUCH"
+  ],
+  "metrics": {
+    "A0_COMMON_TOUCH": {
+      "cycles": 829,
+      "markets": 44,
+      "paired": 339,
+      "orphans": 490,
+      "completion": 0.408926,
+      "completion_wilson_lcb95": 0.375954,
+      "empirical_break_even_q_star": 0.775089,
+      "pair_gain_c": 1.022419,
+      "orphan_loss_c": -3.523459,
+      "realized_ev_c_per_cycle": -1.66453,
+      "empirical_formula_ev_c": -1.66453,
+      "ci95_market_cluster_c": [
+        -1.8339,
+        -1.4818
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.4417,
+        "median": 0.999992,
+        "p10": -1.863639,
+        "p90": 1.1,
+        "min": -3.499435,
+        "max": 11.0
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.763108,
+        "median": 0.777778,
+        "p10": 0.744681,
+        "p90": 0.777778,
+        "min": 0.241379,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.853112,
+        "median": 0.999963,
+        "p10": 0.360993,
+        "p90": 1.0,
+        "min": 0.000126,
+        "max": 1.0
+      },
+      "admissions": 876,
+      "placed": 1755,
+      "fills": 1168,
+      "flattened": 490,
+      "carried": 0,
+      "eligible_decisions": 1898785,
+      "skipped_support": 383660,
+      "skipped_post_only": 186195,
+      "skipped_pair_cost": 1328054,
+      "allocation_counts": {
+        "common_touch": 876
+      },
+      "bugs": [],
+      "strict_pass": false
+    },
+    "A1_SPEND_ALL_SLOW": {
+      "cycles": 867,
+      "markets": 44,
+      "paired": 390,
+      "orphans": 477,
+      "completion": 0.449827,
+      "completion_wilson_lcb95": 0.417007,
+      "empirical_break_even_q_star": 0.78085,
+      "pair_gain_c": 1.00641,
+      "orphan_loss_c": -3.585933,
+      "realized_ev_c_per_cycle": -1.520173,
+      "empirical_formula_ev_c": -1.520173,
+      "ci95_market_cluster_c": [
+        -1.6945,
+        -1.336
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.363314,
+        "median": 0.999998,
+        "p10": -2.051404,
+        "p90": 1.0,
+        "min": -3.5,
+        "max": 1.795226
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.776534,
+        "median": 0.777778,
+        "p10": 0.777778,
+        "p90": 0.777778,
+        "min": 0.660377,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.856794,
+        "median": 0.999999,
+        "p10": 0.32191,
+        "p90": 1.0,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "admissions": 905,
+      "placed": 1817,
+      "fills": 1257,
+      "flattened": 477,
+      "carried": 0,
+      "eligible_decisions": 1902370,
+      "skipped_support": 392133,
+      "skipped_post_only": 186195,
+      "skipped_pair_cost": 1323137,
+      "allocation_counts": {
+        "spend_all_n_slow": 440,
+        "spend_all_y_slow": 465
+      },
+      "bugs": [],
+      "strict_pass": false
+    },
+    "A2_FULL_MINIMAX_ETA": {
+      "cycles": 1195,
+      "markets": 47,
+      "paired": 464,
+      "orphans": 731,
+      "completion": 0.388285,
+      "completion_wilson_lcb95": 0.361052,
+      "empirical_break_even_q_star": 0.746085,
+      "pair_gain_c": 1.054957,
+      "orphan_loss_c": -3.099807,
+      "realized_ev_c_per_cycle": -1.486577,
+      "empirical_formula_ev_c": -1.486577,
+      "ci95_market_cluster_c": [
+        -1.6448,
+        -1.3158
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 0.470385,
+        "median": 0.999998,
+        "p10": -2.16561,
+        "p90": 1.211735,
+        "min": -3.499435,
+        "max": 5.9
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.758787,
+        "median": 0.777778,
+        "p10": 0.686275,
+        "p90": 0.777778,
+        "min": 0.28,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.854191,
+        "median": 0.999987,
+        "p10": 0.292619,
+        "p90": 1.0,
+        "min": 0.000126,
+        "max": 1.0
+      },
+      "admissions": 1246,
+      "placed": 2498,
+      "fills": 1659,
+      "flattened": 731,
+      "carried": 0,
+      "eligible_decisions": 495364,
+      "skipped_support": 319886,
+      "skipped_post_only": 174232,
+      "skipped_pair_cost": 0,
+      "allocation_counts": {
+        "full_minimax_eta": 1246
+      },
+      "bugs": [],
+      "strict_pass": false
+    },
+    "A3_FULL_EV_GATE": {
+      "cycles": 1505,
+      "markets": 46,
+      "paired": 38,
+      "orphans": 1467,
+      "completion": 0.025249,
+      "completion_wilson_lcb95": 0.01845,
+      "empirical_break_even_q_star": 0.526475,
+      "pair_gain_c": 1.444737,
+      "orphan_loss_c": -1.60629,
+      "realized_ev_c_per_cycle": -1.529254,
+      "empirical_formula_ev_c": -1.529254,
+      "ci95_market_cluster_c": [
+        -1.6377,
+        -1.4352
+      ],
+      "selected_ev_proxy_c": {
+        "mean": 4.058642,
+        "median": 2.824379,
+        "p10": 0.878083,
+        "p90": 8.684758,
+        "min": 0.00196,
+        "max": 50.623409
+      },
+      "selected_proxy_q_star": {
+        "mean": 0.419219,
+        "median": 0.421687,
+        "p10": 0.179487,
+        "p90": 0.648148,
+        "min": 0.045752,
+        "max": 0.777778
+      },
+      "selected_q_both_60": {
+        "mean": 0.776156,
+        "median": 0.830499,
+        "p10": 0.470074,
+        "p90": 0.975851,
+        "min": 0.069089,
+        "max": 0.999997
+      },
+      "admissions": 1604,
+      "placed": 3208,
+      "fills": 1543,
+      "flattened": 1467,
+      "carried": 0,
+      "eligible_decisions": 562336,
+      "skipped_support": 322053,
+      "skipped_post_only": 179272,
+      "skipped_pair_cost": 0,
+      "allocation_counts": {
+        "ev_gate_reject": 59407,
+        "full_ev_gate": 1604
+      },
+      "bugs": [],
+      "strict_pass": false
+    }
+  },
+  "strict_qualified": [],
+  "discovery_candidate": null,
+  "decision": "NO_CANDIDATE",
+  "deployable": false,
+  "required_next_evidence": "model-and-code seal followed by genuinely forward holdout",
+  "source": {
+    "experiment_sha256": "3b5ff6d4fddf617e6cb4bcf69e5449fc537a43f4d28cec9b61b1d938482358ee",
+    "sealed_base_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+    "preregistration_path": "/tmp/z3_price_allocation_round2_prereg.json",
+    "preregistration_sha256": "f9a897439367589c33d95f2f6f51ec82768f5c9e74e2335b066e1adfa70013fb",
+    "catalog": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "l2_glob": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/**/*.parquet",
+    "trades_glob": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/**/*.csv.gz"
+  },
+  "generated_at_utc": "2026-07-26T06:40:28.735831+00:00"
+}

@@ -1,0 +1,141 @@
+{
+  "schema": "brti-authoritative-value-analysis-prereg-v1",
+  "status": "SEALED_BEFORE_MODEL_VALUE_READ",
+  "purpose": "Run the pre-specified BRTI direction-calibration audit only on timestamp-supported market-checkpoints, with a same-decision-time causal Kalshi book-mid benchmark.",
+  "claim": "DISCOVERY_ONLY_NOT_VALIDATION",
+  "read_only": true,
+  "trading_authorized": false,
+  "engine_or_service_mutation_authorized": false,
+  "sources": {
+    "v3_acquisition_receipt_sha256": "a0098b608caf0eb5d9c16f77ffcac29e3936c37ccd311f606c5eabb0a36b2682",
+    "timestamp_support_receipt_sha256": "06e94c82b06eeb76523aaa8008ebac74f5105c7427665515294171cb3b42d2bb",
+    "timestamp_support_manifest_sha256": "2d104cc1715348a2cdea18af176792da970f0ba6e6fe16172085422294bb9d41",
+    "base_calibration_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+    "raw_envelopes": "The 72 deterministic-gzip V3 authoritative history envelopes bound by the V3 receipt.",
+    "pre_analysis_value_access": "The sealed acquisition validator checked that raw value fields were finite positive numerics; no value was output, summarized, modeled, compared with an outcome, or inspected when this analysis was designed."
+  },
+  "support_gate": {
+    "fixed_universe_market_count": 288,
+    "fixed_horizon_checkpoint_count": 864,
+    "supported_checkpoint_count_before_value_read": 854,
+    "supported_by_horizon_s": {
+      "120": 284,
+      "180": 285,
+      "240": 285
+    },
+    "settlement_supported_market_count": 287,
+    "priceable_metadata_market_count": 286,
+    "metadata_strike_missing_market_count": 2,
+    "metadata_strike_missing_markets": [
+      "KXBTC15M-26JUL221430-30",
+      "KXBTC15M-26JUL221445-45"
+    ],
+    "metadata_strike_missing_checkpoint_exclusions": 6,
+    "priceable_supported_checkpoint_count_before_value_read": 848,
+    "priceable_supported_by_horizon_s": {
+      "120": 282,
+      "180": 283,
+      "240": 283
+    },
+    "metadata_rule": "The two finalized catalog markets whose floor_strike is null are excluded as METADATA_STRIKE_MISSING at all three horizons. Never infer their strike from result, expiration_value, a neighboring market, or any BRTI value.",
+    "rule": "Include a market-checkpoint if and only if timestamp_support_manifest marks analysis_checkpoint_supported=true. Exclude all other checkpoints with the manifest reasons. Never interpolate, carry forward, substitute a neighboring 200ms row, or change a support decision after reading values.",
+    "minimum_reportable": "At least 20 unique included markets and both outcomes; otherwise descriptive/NO_DECISION."
+  },
+  "value_projection": {
+    "raw_resolution": "Up to PER_200MS",
+    "predicate": "time_ms % 1000 == 0",
+    "rule": "Use only the raw row at the exact second boundary. Never sample by row position.",
+    "hard_banned_start_utc": "2026-07-23T00:00:00.000Z"
+  },
+  "market_and_settlement": {
+    "metadata_path": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "series": "KXBTC15M",
+    "selected_close_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "strike": "floor_strike only",
+    "outcome": "Official result YES=1, NO=0",
+    "settlement_crosscheck": "For manifest-supported settlement windows only, require exact 60 projected one-second values in [close-60s,close), compute raw mean, and require mean>=floor_strike to equal official result. Any mismatch is excluded and reported; never alter the extraction rule."
+  },
+  "kernel": {
+    "forecast_horizons_tte_s": [
+      120,
+      180,
+      240
+    ],
+    "information_lag_s": 2,
+    "tick_selection": "Latest exact-boundary BRTI source timestamp at or before target-2s, cutoff-source gap <=1.5s; support manifest already fixes admissibility.",
+    "sigma60": "Non-demeaned timestamp-aware diffusion over strict trailing 60s.",
+    "sigma300": "Non-demeaned timestamp-aware diffusion over strict trailing 300s.",
+    "sigma": "max(sigma60,sigma300)",
+    "minimum_window_coverage": 0.999,
+    "maximum_source_gap_s": 1.5,
+    "minimum_increments": 30,
+    "probability": "Phi((BRTI-strike)/(sigma*sqrt(max(model_tte-60,0)+sum(k^2,k=1..59)/60^2)))",
+    "probability_clip_for_logloss_and_logit": 1e-06
+  },
+  "book_mid": {
+    "paths": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date={allowed_date}/*.parquet",
+    "causal_order": [
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ws_seq"
+    ],
+    "reconstruction": "Snapshot replaces both maps; signed delta adds at exact side/price; never clamp or repair.",
+    "market_stream_failures": "Any missing/ambiguous receive clock, non-increasing receive key, delta before snapshot, unknown side/update semantics, invalid level, or negative displayed quantity rejects that entire market stream.",
+    "capture_gap_gate_receipts": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_{allowed_date}.json",
+    "capture_gap_gate_required_zero_fields": [
+      "sids_with_seq_gaps",
+      "seq_gap_events",
+      "seq_missed_total",
+      "seq_regressions",
+      "stream_restarts",
+      "markers_lost_frames",
+      "parse_errors"
+    ],
+    "sampling": "At each target decision wall-clock, use the latest reconstructed two-sided book with recv_wall_ns<=target_ns.",
+    "yes_mid": "(best positive YES bid + (1-best positive NO bid))/2",
+    "comparison": "Kernel and market mid are reported side by side on the exact paired included market-checkpoints. Missing/invalid book mid reduces paired n and is reported."
+  },
+  "primary_metrics": {
+    "unit": "One row per manifest-supported, settlement-crosschecked market per fixed horizon.",
+    "forecasts": [
+      "BRTI kernel fair",
+      "same-decision-time causal Kalshi YES mid"
+    ],
+    "metrics": [
+      "Brier score",
+      "log loss",
+      "logistic calibration intercept and slope",
+      "paired kernel-minus-market Brier difference",
+      "paired kernel-minus-market log-loss difference"
+    ],
+    "uncertainty": "Market-cluster bootstrap, 2000 replicates, seed 26072611, percentile 95% confidence intervals.",
+    "interpretation": "Negative paired score differences favor the kernel; positive differences favor market mid."
+  },
+  "separate_lead_report": {
+    "horizons_s": [
+      1,
+      2,
+      5,
+      10
+    ],
+    "status": "BLOCKED_BRTI_RECEIVE_TIMESTAMP_ABSENT",
+    "reason": "Historical CF rows provide source time/value but not their original Kalshi receipt time. A causal fair-to-future-mid lead test cannot mix BRTI source time with book receive time.",
+    "rule": "Report this identification failure separately from settlement calibration. Do not compute a lead coefficient, hit rate, markout, or CI."
+  },
+  "execution_boundary": {
+    "not_identified": [
+      "queue position",
+      "maker fill probability",
+      "fill toxicity",
+      "opposite-leg completion",
+      "forced exit cost",
+      "episode PnL"
+    ],
+    "p3_status": "BLOCKED_EXISTING_P3_CLOCK_AND_SCHEMA",
+    "deployment": "No result authorizes trading or parameter changes."
+  }
+}

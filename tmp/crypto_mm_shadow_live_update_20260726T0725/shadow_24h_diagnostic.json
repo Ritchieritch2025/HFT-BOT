@@ -1,0 +1,6062 @@
+{
+  "all_detected_sessions": [
+    {
+      "completed_cycle_counters": [],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": null,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 0,
+      "duration_s": 104.310398187,
+      "end_time_utc_exclusive": "2026-07-26T05:02:54.405535Z",
+      "end_wall_ns_exclusive": 1785042174405534844,
+      "index": 1,
+      "last_health_realized": 0.0,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 14,
+        "src": "mm_20260726T05.ndjson#14",
+        "time_utc": "2026-07-26T05:02:40.187061Z",
+        "wall_ns": 1785042160187060873
+      },
+      "last_lock_realized": 0.0,
+      "last_pair_locked_total": 0.0,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 4,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:01:10.095137Z",
+        "wall_ns": 1785042070095136657
+      },
+      "start_time_utc": "2026-07-26T05:01:10.095137Z",
+      "start_wall_ns": 1785042070095136657
+    },
+    {
+      "completed_cycle_counters": [],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": null,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 0,
+      "duration_s": 255.403961598,
+      "end_time_utc_exclusive": "2026-07-26T05:07:09.809496Z",
+      "end_wall_ns_exclusive": 1785042429809496442,
+      "index": 2,
+      "last_health_realized": 0.0,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 230,
+        "src": "mm_20260726T05.ndjson#216",
+        "time_utc": "2026-07-26T05:06:56.543370Z",
+        "wall_ns": 1785042416543369670
+      },
+      "last_lock_realized": 0.0,
+      "last_pair_locked_total": 0.0,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 18,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:02:54.405535Z",
+        "wall_ns": 1785042174405534844
+      },
+      "start_time_utc": "2026-07-26T05:02:54.405535Z",
+      "start_wall_ns": 1785042174405534844
+    },
+    {
+      "completed_cycle_counters": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": true,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 10,
+      "duration_s": 961.887672959,
+      "end_time_utc_exclusive": "2026-07-26T05:23:11.697169Z",
+      "end_wall_ns_exclusive": 1785043391697169401,
+      "index": 3,
+      "last_health_realized": 0.13,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1346,
+        "src": "mm_20260726T05.ndjson#1110",
+        "time_utc": "2026-07-26T05:23:10.393369Z",
+        "wall_ns": 1785043390393369004
+      },
+      "last_lock_realized": 0.13,
+      "last_pair_locked_total": 0.13,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 240,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:07:09.809496Z",
+        "wall_ns": 1785042429809496442
+      },
+      "start_time_utc": "2026-07-26T05:07:09.809496Z",
+      "start_wall_ns": 1785042429809496442
+    },
+    {
+      "completed_cycle_counters": [
+        1,
+        2
+      ],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": true,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 2,
+      "duration_s": 366.76302754,
+      "end_time_utc_exclusive": "2026-07-26T05:29:18.460197Z",
+      "end_wall_ns_exclusive": 1785043758460196941,
+      "index": 4,
+      "last_health_realized": -0.0717,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1685,
+        "src": "mm_20260726T05.ndjson#338",
+        "time_utc": "2026-07-26T05:29:11.928343Z",
+        "wall_ns": 1785043751928343016
+      },
+      "last_lock_realized": -0.0717,
+      "last_pair_locked_total": -0.071737,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1351,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:23:11.697169Z",
+        "wall_ns": 1785043391697169401
+      },
+      "start_time_utc": "2026-07-26T05:23:11.697169Z",
+      "start_wall_ns": 1785043391697169401
+    },
+    {
+      "completed_cycle_counters": [],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": true,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 0,
+      "duration_s": 65.790456369,
+      "end_time_utc_exclusive": "2026-07-26T05:30:24.250653Z",
+      "end_wall_ns_exclusive": 1785043824250653310,
+      "index": 5,
+      "last_health_realized": 0.0,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1726,
+        "src": "mm_20260726T05.ndjson#41",
+        "time_utc": "2026-07-26T05:30:18.517126Z",
+        "wall_ns": 1785043818517126418
+      },
+      "last_lock_realized": 0.0,
+      "last_pair_locked_total": 0.0,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1689,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:29:18.460197Z",
+        "wall_ns": 1785043758460196941
+      },
+      "start_time_utc": "2026-07-26T05:29:18.460197Z",
+      "start_wall_ns": 1785043758460196941
+    },
+    {
+      "completed_cycle_counters": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": true,
+        "unpaired_age_s": null
+      },
+      "cycle_done_n": 17,
+      "duration_s": 522.45961695,
+      "end_time_utc_exclusive": "2026-07-26T05:39:06.710270Z",
+      "end_wall_ns_exclusive": 1785044346710270260,
+      "index": 6,
+      "last_health_realized": -0.2803,
+      "last_health_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 2404,
+        "src": "mm_20260726T05.ndjson#678",
+        "time_utc": "2026-07-26T05:39:04.593893Z",
+        "wall_ns": 1785044344593892558
+      },
+      "last_lock_realized": -0.2803,
+      "last_pair_locked_total": -0.280317,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 1730,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:30:24.250653Z",
+        "wall_ns": 1785043824250653310
+      },
+      "start_time_utc": "2026-07-26T05:30:24.250653Z",
+      "start_wall_ns": 1785043824250653310
+    },
+    {
+      "completed_cycle_counters": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85
+      ],
+      "completed_cycles_contiguous_from_one": true,
+      "config": {
+        "clip": "1.00",
+        "max_net": null,
+        "max_open_cost": 1.0,
+        "mode": "shadow",
+        "pair": true,
+        "pair_lock_c": 99.0,
+        "pair_min_depth_ct": 1081.01,
+        "pair_prequote": true,
+        "shadow_queue_sim": true,
+        "unpaired_age_s": 60.0
+      },
+      "cycle_done_n": 85,
+      "duration_s": 6328.398218608,
+      "end_time_utc_exclusive": "2026-07-26T07:24:35.108489Z",
+      "end_wall_ns_exclusive": 1785050675108488868,
+      "index": 7,
+      "last_health_realized": -3.8454,
+      "last_health_source": {
+        "file": "mm_20260726T07.ndjson",
+        "line": 1513,
+        "src": "mm_20260726T07.ndjson#1513",
+        "time_utc": "2026-07-26T07:24:33.145611Z",
+        "wall_ns": 1785050673145610866
+      },
+      "last_lock_realized": -3.8454,
+      "last_pair_locked_total": -3.8454,
+      "start_source": {
+        "file": "mm_20260726T05.ndjson",
+        "line": 2410,
+        "src": "mm_20260726T05.ndjson#4",
+        "time_utc": "2026-07-26T05:39:06.710270Z",
+        "wall_ns": 1785044346710270260
+      },
+      "start_time_utc": "2026-07-26T05:39:06.710270Z",
+      "start_wall_ns": 1785044346710270260
+    }
+  ],
+  "completion": {
+    "break_even_natural_completion_rate": 0.930764669,
+    "clean_resolved_first_leg_episodes": 84,
+    "completion_rate_minus_break_even": -0.276002764,
+    "definition": "A first-leg episode begins when maker simulation leaves unpaired inventory. Natural completion means the opposite maker leg fills before unpaired_age; forced completion contains SHADOW_TAKER_FILL_SIM reason=unpaired_age. Cycles containing non-shadow FILL receipts are excluded from both clean classes.",
+    "external_fill_contaminated_cycle_events": 1,
+    "forced_completion_rate": 0.345238095,
+    "mechanical_closure_rate": 1.0,
+    "natural_completion_rate": 0.654761905,
+    "natural_maker_completions": 55,
+    "open_first_leg_episodes_at_cutoff": 0,
+    "raw_cycle_done_events": 85,
+    "unpaired_age_forced_completions": 29
+  },
+  "corrected_session": {
+    "config": {
+      "clip": "1.00",
+      "max_net": null,
+      "max_open_cost": 1.0,
+      "mode": "shadow",
+      "pair": true,
+      "pair_lock_c": 99.0,
+      "pair_min_depth_ct": 1081.01,
+      "pair_prequote": true,
+      "shadow_queue_sim": true,
+      "unpaired_age_s": 60.0
+    },
+    "cutoff_time_utc": "2026-07-26T07:24:35.108489Z",
+    "cutoff_wall_ns": 1785050675108488867,
+    "duration_s": 6328.398218607,
+    "ending_health_realized_usd": -3.8454,
+    "ending_pair_locked_total_usd": -3.8454,
+    "excluded_earlier_sessions": 6,
+    "receipt_n": 5597,
+    "selected_session_index": 7,
+    "selection_reasons": [
+      "mode=shadow",
+      "pair and pair_prequote enabled",
+      "shadow queue simulation enabled",
+      "explicit corrected unpaired_age_s=60",
+      "completed_cycles is contiguous from 1",
+      "pair_locked_total/PAIR_LOCK.realized/HEALTH.realized agree"
+    ],
+    "start_time_utc": "2026-07-26T05:39:06.710270Z",
+    "start_wall_ns": 1785044346710270260
+  },
+  "cycle_outcomes": {
+    "cycle_n": 85,
+    "cycles": [
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 1,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2429,
+          "src": "mm_20260726T05.ndjson#23",
+          "time_utc": "2026-07-26T05:39:20.771083Z",
+          "wall_ns": 1785044360771083204
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044359.784,
+          "price_dollars": 0.83,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2424,
+            "src": "mm_20260726T05.ndjson#18",
+            "time_utc": "2026-07-26T05:39:19.790112Z",
+            "wall_ns": 1785044359790112465
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260145-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.01,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.981,
+            "px_a": 0.83,
+            "px_b": 0.16,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2428,
+              "src": "mm_20260726T05.ndjson#22",
+              "time_utc": "2026-07-26T05:39:20.771065Z",
+              "wall_ns": 1785044360771064618
+            }
+          }
+        ],
+        "pair_wait_s": 0.981,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 2,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2441,
+          "src": "mm_20260726T05.ndjson#35",
+          "time_utc": "2026-07-26T05:39:24.569393Z",
+          "wall_ns": 1785044364569392803
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044361.774,
+          "price_dollars": 0.83,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2434,
+            "src": "mm_20260726T05.ndjson#28",
+            "time_utc": "2026-07-26T05:39:21.779942Z",
+            "wall_ns": 1785044361779942369
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260145-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.02,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 2.786,
+            "px_a": 0.83,
+            "px_b": 0.16,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2440,
+              "src": "mm_20260726T05.ndjson#34",
+              "time_utc": "2026-07-26T05:39:24.569375Z",
+              "wall_ns": 1785044364569375240
+            }
+          }
+        ],
+        "pair_wait_s": 2.786,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 3,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2453,
+          "src": "mm_20260726T05.ndjson#47",
+          "time_utc": "2026-07-26T05:39:28.638264Z",
+          "wall_ns": 1785044368638264468
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044367.389,
+          "price_dollars": 0.15,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2448,
+            "src": "mm_20260726T05.ndjson#42",
+            "time_utc": "2026-07-26T05:39:27.394663Z",
+            "wall_ns": 1785044367394663322
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.02,
+        "market": "KXBTC15M-26JUL260145-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.04,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.02,
+            "pair_wait_s": 1.228,
+            "px_a": 0.15,
+            "px_b": 0.83,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2452,
+              "src": "mm_20260726T05.ndjson#46",
+              "time_utc": "2026-07-26T05:39:28.638249Z",
+              "wall_ns": 1785044368638248845
+            }
+          }
+        ],
+        "pair_wait_s": 1.228,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.02
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 4,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2547,
+          "src": "mm_20260726T05.ndjson#141",
+          "time_utc": "2026-07-26T05:40:52.804602Z",
+          "wall_ns": 1785044452804602232
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0045,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044392.803,
+          "price_dollars": 0.14,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2475,
+            "src": "mm_20260726T05.ndjson#69",
+            "time_utc": "2026-07-26T05:39:52.812280Z",
+            "wall_ns": 1785044392812279971
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0045,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.932,
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2544,
+            "src": "mm_20260726T05.ndjson#138",
+            "time_utc": "2026-07-26T05:40:52.804449Z",
+            "wall_ns": 1785044452804448693
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0765,
+        "market": "KXBTC15M-26JUL260145-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0365,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0045,
+            "locked_usd": -0.0765,
+            "pair_wait_s": 60.001,
+            "px_a": 0.14,
+            "px_b": 0.932,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2546,
+              "src": "mm_20260726T05.ndjson#140",
+              "time_utc": "2026-07-26T05:40:52.804510Z",
+              "wall_ns": 1785044452804510353
+            }
+          }
+        ],
+        "pair_wait_s": 60.001,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0765
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 5,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2720,
+          "src": "mm_20260726T05.ndjson#314",
+          "time_utc": "2026-07-26T05:45:43.726072Z",
+          "wall_ns": 1785044743726071833
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044738.814,
+          "price_dollars": 0.6,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2711,
+            "src": "mm_20260726T05.ndjson#305",
+            "time_utc": "2026-07-26T05:45:38.820541Z",
+            "wall_ns": 1785044738820541092
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0265,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 4.907,
+            "px_a": 0.6,
+            "px_b": 0.39,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2719,
+              "src": "mm_20260726T05.ndjson#313",
+              "time_utc": "2026-07-26T05:45:43.726055Z",
+              "wall_ns": 1785044743726055370
+            }
+          }
+        ],
+        "pair_wait_s": 4.907,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 6,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2733,
+          "src": "mm_20260726T05.ndjson#327",
+          "time_utc": "2026-07-26T05:45:48.692500Z",
+          "wall_ns": 1785044748692499970
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044747.864,
+          "price_dollars": 0.58,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2728,
+            "src": "mm_20260726T05.ndjson#322",
+            "time_utc": "2026-07-26T05:45:47.869972Z",
+            "wall_ns": 1785044747869971679
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0165,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.82,
+            "px_a": 0.58,
+            "px_b": 0.41,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2732,
+              "src": "mm_20260726T05.ndjson#326",
+              "time_utc": "2026-07-26T05:45:48.692483Z",
+              "wall_ns": 1785044748692482956
+            }
+          }
+        ],
+        "pair_wait_s": 0.82,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 7,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2745,
+          "src": "mm_20260726T05.ndjson#339",
+          "time_utc": "2026-07-26T05:45:52.884472Z",
+          "wall_ns": 1785044752884471994
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044749.185,
+          "price_dollars": 0.58,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2737,
+            "src": "mm_20260726T05.ndjson#331",
+            "time_utc": "2026-07-26T05:45:49.192428Z",
+            "wall_ns": 1785044749192428443
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.02,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0035,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.02,
+            "pair_wait_s": 3.69,
+            "px_a": 0.58,
+            "px_b": 0.4,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2744,
+              "src": "mm_20260726T05.ndjson#338",
+              "time_utc": "2026-07-26T05:45:52.884456Z",
+              "wall_ns": 1785044752884455818
+            }
+          }
+        ],
+        "pair_wait_s": 3.69,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.02
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 8,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2762,
+          "src": "mm_20260726T05.ndjson#356",
+          "time_utc": "2026-07-26T05:46:05.948466Z",
+          "wall_ns": 1785044765948465806
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044765.53,
+          "price_dollars": 0.41,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2758,
+            "src": "mm_20260726T05.ndjson#352",
+            "time_utc": "2026-07-26T05:46:05.537205Z",
+            "wall_ns": 1785044765537204397
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 0.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0135,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.409,
+            "px_a": 0.41,
+            "px_b": 0.58,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2761,
+              "src": "mm_20260726T05.ndjson#355",
+              "time_utc": "2026-07-26T05:46:05.948449Z",
+              "wall_ns": 1785044765948449355
+            }
+          }
+        ],
+        "pair_wait_s": 0.409,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 9,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2823,
+          "src": "mm_20260726T05.ndjson#417",
+          "time_utc": "2026-07-26T05:46:56.723341Z",
+          "wall_ns": 1785044816723341166
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044773.43,
+          "price_dollars": 0.58,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2771,
+            "src": "mm_20260726T05.ndjson#365",
+            "time_utc": "2026-07-26T05:46:13.438680Z",
+            "wall_ns": 1785044773438679903
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0235,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 43.286,
+            "px_a": 0.58,
+            "px_b": 0.41,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2822,
+              "src": "mm_20260726T05.ndjson#416",
+              "time_utc": "2026-07-26T05:46:56.723325Z",
+              "wall_ns": 1785044816723325242
+            }
+          }
+        ],
+        "pair_wait_s": 43.286,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 10,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2901,
+          "src": "mm_20260726T05.ndjson#495",
+          "time_utc": "2026-07-26T05:47:58.112999Z",
+          "wall_ns": 1785044878112998766
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.016,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044817.603,
+          "price_dollars": 0.41,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2828,
+            "src": "mm_20260726T05.ndjson#422",
+            "time_utc": "2026-07-26T05:46:57.611595Z",
+            "wall_ns": 1785044817611594745
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.016,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.65,
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2898,
+            "src": "mm_20260726T05.ndjson#492",
+            "time_utc": "2026-07-26T05:47:58.112902Z",
+            "wall_ns": 1785044878112902140
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.076,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0525,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.016,
+            "locked_usd": -0.076,
+            "pair_wait_s": 60.509,
+            "px_a": 0.41,
+            "px_b": 0.65,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2900,
+              "src": "mm_20260726T05.ndjson#494",
+              "time_utc": "2026-07-26T05:47:58.112981Z",
+              "wall_ns": 1785044878112981423
+            }
+          }
+        ],
+        "pair_wait_s": 60.509,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.076
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 11,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2910,
+          "src": "mm_20260726T05.ndjson#504",
+          "time_utc": "2026-07-26T05:47:59.931156Z",
+          "wall_ns": 1785044879931156197
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044878.897,
+          "price_dollars": 0.63,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2905,
+            "src": "mm_20260726T05.ndjson#499",
+            "time_utc": "2026-07-26T05:47:58.903755Z",
+            "wall_ns": 1785044878903755325
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0425,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 1.023,
+            "px_a": 0.63,
+            "px_b": 0.36,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2909,
+              "src": "mm_20260726T05.ndjson#503",
+              "time_utc": "2026-07-26T05:47:59.931140Z",
+              "wall_ns": 1785044879931139877
+            }
+          }
+        ],
+        "pair_wait_s": 1.023,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 12,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2933,
+          "src": "mm_20260726T05.ndjson#527",
+          "time_utc": "2026-07-26T05:48:09.277692Z",
+          "wall_ns": 1785044889277691752
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044881.418,
+          "price_dollars": 0.63,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2915,
+            "src": "mm_20260726T05.ndjson#509",
+            "time_utc": "2026-07-26T05:48:01.441487Z",
+            "wall_ns": 1785044881441487401
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0325,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 7.853,
+            "px_a": 0.63,
+            "px_b": 0.36,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2932,
+              "src": "mm_20260726T05.ndjson#526",
+              "time_utc": "2026-07-26T05:48:09.277676Z",
+              "wall_ns": 1785044889277676115
+            }
+          }
+        ],
+        "pair_wait_s": 7.853,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 13,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 2985,
+          "src": "mm_20260726T05.ndjson#579",
+          "time_utc": "2026-07-26T05:48:51.746252Z",
+          "wall_ns": 1785044931746252262
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044893.169,
+          "price_dollars": 0.35,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2939,
+            "src": "mm_20260726T05.ndjson#533",
+            "time_utc": "2026-07-26T05:48:13.179054Z",
+            "wall_ns": 1785044893179053474
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0225,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 38.569,
+            "px_a": 0.35,
+            "px_b": 0.64,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 2984,
+              "src": "mm_20260726T05.ndjson#578",
+              "time_utc": "2026-07-26T05:48:51.746235Z",
+              "wall_ns": 1785044931746235393
+            }
+          }
+        ],
+        "pair_wait_s": 38.569,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 14,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3008,
+          "src": "mm_20260726T05.ndjson#602",
+          "time_utc": "2026-07-26T05:49:10.288318Z",
+          "wall_ns": 1785044950288317601
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044946.29,
+          "price_dollars": 0.66,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 2999,
+            "src": "mm_20260726T05.ndjson#593",
+            "time_utc": "2026-07-26T05:49:06.296697Z",
+            "wall_ns": 1785044946296697143
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0125,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.989,
+            "px_a": 0.66,
+            "px_b": 0.33,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3007,
+              "src": "mm_20260726T05.ndjson#601",
+              "time_utc": "2026-07-26T05:49:10.288302Z",
+              "wall_ns": 1785044950288302032
+            }
+          }
+        ],
+        "pair_wait_s": 3.989,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 15,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3091,
+          "src": "mm_20260726T05.ndjson#685",
+          "time_utc": "2026-07-26T05:50:20.325635Z",
+          "wall_ns": 1785045020325634951
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785044960.463,
+          "price_dollars": 0.31,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3021,
+            "src": "mm_20260726T05.ndjson#615",
+            "time_utc": "2026-07-26T05:49:20.476859Z",
+            "wall_ns": 1785044960476859003
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.03,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0175,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.03,
+            "pair_wait_s": 59.853,
+            "px_a": 0.31,
+            "px_b": 0.66,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3090,
+              "src": "mm_20260726T05.ndjson#684",
+              "time_utc": "2026-07-26T05:50:20.325618Z",
+              "wall_ns": 1785045020325618250
+            }
+          }
+        ],
+        "pair_wait_s": 59.853,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.03
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 16,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3105,
+          "src": "mm_20260726T05.ndjson#699",
+          "time_utc": "2026-07-26T05:50:26.827224Z",
+          "wall_ns": 1785045026827224001
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045023.404,
+          "price_dollars": 0.62,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3097,
+            "src": "mm_20260726T05.ndjson#691",
+            "time_utc": "2026-07-26T05:50:23.412702Z",
+            "wall_ns": 1785045023412701490
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0275,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.417,
+            "px_a": 0.62,
+            "px_b": 0.37,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3104,
+              "src": "mm_20260726T05.ndjson#698",
+              "time_utc": "2026-07-26T05:50:26.827208Z",
+              "wall_ns": 1785045026827208138
+            }
+          }
+        ],
+        "pair_wait_s": 3.417,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 17,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3163,
+          "src": "mm_20260726T05.ndjson#757",
+          "time_utc": "2026-07-26T05:51:32.788194Z",
+          "wall_ns": 1785045092788194016
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045088.36,
+          "price_dollars": 0.18,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3154,
+            "src": "mm_20260726T05.ndjson#748",
+            "time_utc": "2026-07-26T05:51:28.368326Z",
+            "wall_ns": 1785045088368326513
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0375,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 4.419,
+            "px_a": 0.18,
+            "px_b": 0.81,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3162,
+              "src": "mm_20260726T05.ndjson#756",
+              "time_utc": "2026-07-26T05:51:32.788179Z",
+              "wall_ns": 1785045092788178767
+            }
+          }
+        ],
+        "pair_wait_s": 4.419,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 18,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3187,
+          "src": "mm_20260726T05.ndjson#781",
+          "time_utc": "2026-07-26T05:51:50.277310Z",
+          "wall_ns": 1785045110277310394
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045103.113,
+          "price_dollars": 0.81,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3175,
+            "src": "mm_20260726T05.ndjson#769",
+            "time_utc": "2026-07-26T05:51:43.121943Z",
+            "wall_ns": 1785045103121942479
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0475,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 7.152,
+            "px_a": 0.81,
+            "px_b": 0.18,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3186,
+              "src": "mm_20260726T05.ndjson#780",
+              "time_utc": "2026-07-26T05:51:50.277295Z",
+              "wall_ns": 1785045110277294855
+            }
+          }
+        ],
+        "pair_wait_s": 7.152,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 19,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3276,
+          "src": "mm_20260726T05.ndjson#870",
+          "time_utc": "2026-07-26T05:53:09.322624Z",
+          "wall_ns": 1785045189322624563
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.008,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045128.541,
+          "price_dollars": 0.15,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3204,
+            "src": "mm_20260726T05.ndjson#798",
+            "time_utc": "2026-07-26T05:52:08.547152Z",
+            "wall_ns": 1785045128547152262
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.008,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.87,
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3273,
+            "src": "mm_20260726T05.ndjson#867",
+            "time_utc": "2026-07-26T05:53:09.322550Z",
+            "wall_ns": 1785045189322550087
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.028,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": 0.0195,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.008,
+            "locked_usd": -0.028,
+            "pair_wait_s": 60.781,
+            "px_a": 0.15,
+            "px_b": 0.87,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3275,
+              "src": "mm_20260726T05.ndjson#869",
+              "time_utc": "2026-07-26T05:53:09.322610Z",
+              "wall_ns": 1785045189322610088
+            }
+          }
+        ],
+        "pair_wait_s": 60.781,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.028
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 20,
+        "done_source": {
+          "file": "mm_20260726T05.ndjson",
+          "line": 3353,
+          "src": "mm_20260726T05.ndjson#947",
+          "time_utc": "2026-07-26T05:54:10.356864Z",
+          "wall_ns": 1785045250356863677
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0038,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045189.767,
+          "price_dollars": 0.14,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3280,
+            "src": "mm_20260726T05.ndjson#874",
+            "time_utc": "2026-07-26T05:53:09.773695Z",
+            "wall_ns": 1785045189773694486
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0038,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.943,
+          "source": {
+            "file": "mm_20260726T05.ndjson",
+            "line": 3350,
+            "src": "mm_20260726T05.ndjson#944",
+            "time_utc": "2026-07-26T05:54:10.356788Z",
+            "wall_ns": 1785045250356787812
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0868,
+        "market": "KXBTC15M-26JUL260200-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0673,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0038,
+            "locked_usd": -0.0868,
+            "pair_wait_s": 60.589,
+            "px_a": 0.14,
+            "px_b": 0.943,
+            "source": {
+              "file": "mm_20260726T05.ndjson",
+              "line": 3352,
+              "src": "mm_20260726T05.ndjson#946",
+              "time_utc": "2026-07-26T05:54:10.356848Z",
+              "wall_ns": 1785045250356847520
+            }
+          }
+        ],
+        "pair_wait_s": 60.589,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0868
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 21,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 76,
+          "src": "mm_20260726T06.ndjson#76",
+          "time_utc": "2026-07-26T06:02:38.414509Z",
+          "wall_ns": 1785045758414509236
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045707.001,
+          "price_dollars": 0.52,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 15,
+            "src": "mm_20260726T06.ndjson#15",
+            "time_utc": "2026-07-26T06:01:47.010995Z",
+            "wall_ns": 1785045707010994619
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0573,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 51.404,
+            "px_a": 0.52,
+            "px_b": 0.47,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 75,
+              "src": "mm_20260726T06.ndjson#75",
+              "time_utc": "2026-07-26T06:02:38.414493Z",
+              "wall_ns": 1785045758414493269
+            }
+          }
+        ],
+        "pair_wait_s": 51.404,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 22,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 112,
+          "src": "mm_20260726T06.ndjson#112",
+          "time_utc": "2026-07-26T06:03:04.920679Z",
+          "wall_ns": 1785045784920679361
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045759.892,
+          "price_dollars": 0.47,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 81,
+            "src": "mm_20260726T06.ndjson#81",
+            "time_utc": "2026-07-26T06:02:39.897828Z",
+            "wall_ns": 1785045759897828084
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.02,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.0373,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.02,
+            "pair_wait_s": 25.021,
+            "px_a": 0.47,
+            "px_b": 0.51,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 111,
+              "src": "mm_20260726T06.ndjson#111",
+              "time_utc": "2026-07-26T06:03:04.920664Z",
+              "wall_ns": 1785045784920663733
+            }
+          }
+        ],
+        "pair_wait_s": 25.021,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.02
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 23,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 188,
+          "src": "mm_20260726T06.ndjson#188",
+          "time_utc": "2026-07-26T06:04:05.808591Z",
+          "wall_ns": 1785045845808591361
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0147,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045785.409,
+          "price_dollars": 0.48,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 116,
+            "src": "mm_20260726T06.ndjson#116",
+            "time_utc": "2026-07-26T06:03:05.418464Z",
+            "wall_ns": 1785045785418464215
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0147,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.7,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 185,
+            "src": "mm_20260726T06.ndjson#185",
+            "time_utc": "2026-07-26T06:04:05.808517Z",
+            "wall_ns": 1785045845808517238
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1947,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.232,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0147,
+            "locked_usd": -0.1947,
+            "pair_wait_s": 60.399,
+            "px_a": 0.48,
+            "px_b": 0.7,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 187,
+              "src": "mm_20260726T06.ndjson#187",
+              "time_utc": "2026-07-26T06:04:05.808577Z",
+              "wall_ns": 1785045845808576827
+            }
+          }
+        ],
+        "pair_wait_s": 60.399,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1947
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 24,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 245,
+          "src": "mm_20260726T06.ndjson#245",
+          "time_utc": "2026-07-26T06:04:49.537649Z",
+          "wall_ns": 1785045889537648602
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045846.898,
+          "price_dollars": 0.31,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 193,
+            "src": "mm_20260726T06.ndjson#193",
+            "time_utc": "2026-07-26T06:04:06.907424Z",
+            "wall_ns": 1785045846907424143
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.222,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 42.606,
+            "px_a": 0.31,
+            "px_b": 0.68,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 244,
+              "src": "mm_20260726T06.ndjson#244",
+              "time_utc": "2026-07-26T06:04:49.537632Z",
+              "wall_ns": 1785045889537632116
+            }
+          }
+        ],
+        "pair_wait_s": 42.606,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 25,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 257,
+          "src": "mm_20260726T06.ndjson#257",
+          "time_utc": "2026-07-26T06:04:55.618097Z",
+          "wall_ns": 1785045895618096687
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045893.334,
+          "price_dollars": 0.53,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 251,
+            "src": "mm_20260726T06.ndjson#251",
+            "time_utc": "2026-07-26T06:04:53.340141Z",
+            "wall_ns": 1785045893340141305
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.212,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 2.277,
+            "px_a": 0.53,
+            "px_b": 0.46,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 256,
+              "src": "mm_20260726T06.ndjson#256",
+              "time_utc": "2026-07-26T06:04:55.618081Z",
+              "wall_ns": 1785045895618081189
+            }
+          }
+        ],
+        "pair_wait_s": 2.277,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 26,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 354,
+          "src": "mm_20260726T06.ndjson#354",
+          "time_utc": "2026-07-26T06:06:23.793094Z",
+          "wall_ns": 1785045983793094008
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0104,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045923.003,
+          "price_dollars": 0.37,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 281,
+            "src": "mm_20260726T06.ndjson#281",
+            "time_utc": "2026-07-26T06:05:23.382122Z",
+            "wall_ns": 1785045923382121627
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0104,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.82,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 351,
+            "src": "mm_20260726T06.ndjson#351",
+            "time_utc": "2026-07-26T06:06:23.793017Z",
+            "wall_ns": 1785045983793016973
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.2004,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.4124,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0104,
+            "locked_usd": -0.2004,
+            "pair_wait_s": 60.79,
+            "px_a": 0.37,
+            "px_b": 0.82,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 353,
+              "src": "mm_20260726T06.ndjson#353",
+              "time_utc": "2026-07-26T06:06:23.793078Z",
+              "wall_ns": 1785045983793078382
+            }
+          }
+        ],
+        "pair_wait_s": 60.79,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.2004
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 27,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 369,
+          "src": "mm_20260726T06.ndjson#369",
+          "time_utc": "2026-07-26T06:06:32.950287Z",
+          "wall_ns": 1785045992950287351
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785045990.295,
+          "price_dollars": 0.8,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 363,
+            "src": "mm_20260726T06.ndjson#363",
+            "time_utc": "2026-07-26T06:06:30.302450Z",
+            "wall_ns": 1785045990302449995
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.02,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.3924,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.02,
+            "pair_wait_s": 2.649,
+            "px_a": 0.8,
+            "px_b": 0.18,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 368,
+              "src": "mm_20260726T06.ndjson#368",
+              "time_utc": "2026-07-26T06:06:32.950259Z",
+              "wall_ns": 1785045992950258617
+            }
+          }
+        ],
+        "pair_wait_s": 2.649,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.02
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 28,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 385,
+          "src": "mm_20260726T06.ndjson#385",
+          "time_utc": "2026-07-26T06:06:43.724883Z",
+          "wall_ns": 1785046003724882870
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046003.665,
+          "price_dollars": 0.83,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 380,
+            "src": "mm_20260726T06.ndjson#380",
+            "time_utc": "2026-07-26T06:06:43.673738Z",
+            "wall_ns": 1785046003673737780
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.3824,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.052,
+            "px_a": 0.83,
+            "px_b": 0.16,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 384,
+              "src": "mm_20260726T06.ndjson#384",
+              "time_utc": "2026-07-26T06:06:43.724868Z",
+              "wall_ns": 1785046003724867884
+            }
+          }
+        ],
+        "pair_wait_s": 0.052,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 29,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 403,
+          "src": "mm_20260726T06.ndjson#403",
+          "time_utc": "2026-07-26T06:06:53.063422Z",
+          "wall_ns": 1785046013063422334
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046004.375,
+          "price_dollars": 0.84,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 389,
+            "src": "mm_20260726T06.ndjson#389",
+            "time_utc": "2026-07-26T06:06:44.384010Z",
+            "wall_ns": 1785046004384009914
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.3724,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 8.68,
+            "px_a": 0.84,
+            "px_b": 0.15,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 402,
+              "src": "mm_20260726T06.ndjson#402",
+              "time_utc": "2026-07-26T06:06:53.063406Z",
+              "wall_ns": 1785046013063405762
+            }
+          }
+        ],
+        "pair_wait_s": 8.68,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 30,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 418,
+          "src": "mm_20260726T06.ndjson#418",
+          "time_utc": "2026-07-26T06:07:02.942575Z",
+          "wall_ns": 1785046022942575361
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046022.244,
+          "price_dollars": 0.85,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 413,
+            "src": "mm_20260726T06.ndjson#413",
+            "time_utc": "2026-07-26T06:07:02.250009Z",
+            "wall_ns": 1785046022250009340
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.3624,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.685,
+            "px_a": 0.85,
+            "px_b": 0.14,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 417,
+              "src": "mm_20260726T06.ndjson#417",
+              "time_utc": "2026-07-26T06:07:02.942559Z",
+              "wall_ns": 1785046022942558931
+            }
+          }
+        ],
+        "pair_wait_s": 0.685,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 31,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 495,
+          "src": "mm_20260726T06.ndjson#495",
+          "time_utc": "2026-07-26T06:08:04.897944Z",
+          "wall_ns": 1785046084897944057
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0044,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046024.455,
+          "price_dollars": 0.13,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 423,
+            "src": "mm_20260726T06.ndjson#423",
+            "time_utc": "2026-07-26T06:07:04.462520Z",
+            "wall_ns": 1785046024462519677
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0044,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.934,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 492,
+            "src": "mm_20260726T06.ndjson#492",
+            "time_utc": "2026-07-26T06:08:04.897869Z",
+            "wall_ns": 1785046084897869466
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0684,
+        "market": "KXBTC15M-26JUL260215-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.4308,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0044,
+            "locked_usd": -0.0684,
+            "pair_wait_s": 60.442,
+            "px_a": 0.13,
+            "px_b": 0.934,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 494,
+              "src": "mm_20260726T06.ndjson#494",
+              "time_utc": "2026-07-26T06:08:04.897929Z",
+              "wall_ns": 1785046084897928895
+            }
+          }
+        ],
+        "pair_wait_s": 60.442,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0684
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 32,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 755,
+          "src": "mm_20260726T06.ndjson#755",
+          "time_utc": "2026-07-26T06:15:51.491752Z",
+          "wall_ns": 1785046551491752401
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046549.994,
+          "price_dollars": 0.48,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 749,
+            "src": "mm_20260726T06.ndjson#749",
+            "time_utc": "2026-07-26T06:15:50.001273Z",
+            "wall_ns": 1785046550001272964
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.4208,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 1.49,
+            "px_a": 0.48,
+            "px_b": 0.51,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 754,
+              "src": "mm_20260726T06.ndjson#754",
+              "time_utc": "2026-07-26T06:15:51.491735Z",
+              "wall_ns": 1785046551491735464
+            }
+          }
+        ],
+        "pair_wait_s": 1.49,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 33,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 834,
+          "src": "mm_20260726T06.ndjson#834",
+          "time_utc": "2026-07-26T06:16:56.299506Z",
+          "wall_ns": 1785046616299505685
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0162,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046555.611,
+          "price_dollars": 0.49,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 762,
+            "src": "mm_20260726T06.ndjson#762",
+            "time_utc": "2026-07-26T06:15:55.620003Z",
+            "wall_ns": 1785046555620002700
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0162,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.64,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 831,
+            "src": "mm_20260726T06.ndjson#831",
+            "time_utc": "2026-07-26T06:16:56.299380Z",
+            "wall_ns": 1785046616299379836
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1462,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.567,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0162,
+            "locked_usd": -0.1462,
+            "pair_wait_s": 60.688,
+            "px_a": 0.49,
+            "px_b": 0.64,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 833,
+              "src": "mm_20260726T06.ndjson#833",
+              "time_utc": "2026-07-26T06:16:56.299488Z",
+              "wall_ns": 1785046616299488096
+            }
+          }
+        ],
+        "pair_wait_s": 60.688,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1462
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 34,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 851,
+          "src": "mm_20260726T06.ndjson#851",
+          "time_utc": "2026-07-26T06:17:05.301450Z",
+          "wall_ns": 1785046625301449797
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046619.703,
+          "price_dollars": 0.62,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 841,
+            "src": "mm_20260726T06.ndjson#841",
+            "time_utc": "2026-07-26T06:16:59.708689Z",
+            "wall_ns": 1785046619708688669
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.557,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 5.59,
+            "px_a": 0.62,
+            "px_b": 0.37,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 850,
+              "src": "mm_20260726T06.ndjson#850",
+              "time_utc": "2026-07-26T06:17:05.301423Z",
+              "wall_ns": 1785046625301423243
+            }
+          }
+        ],
+        "pair_wait_s": 5.59,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 35,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 928,
+          "src": "mm_20260726T06.ndjson#928",
+          "time_utc": "2026-07-26T06:18:08.345077Z",
+          "wall_ns": 1785046688345077304
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0167,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046628.196,
+          "price_dollars": 0.62,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 857,
+            "src": "mm_20260726T06.ndjson#857",
+            "time_utc": "2026-07-26T06:17:08.202976Z",
+            "wall_ns": 1785046628202976425
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0167,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.39,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 925,
+            "src": "mm_20260726T06.ndjson#925",
+            "time_utc": "2026-07-26T06:18:08.345001Z",
+            "wall_ns": 1785046688345001516
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0267,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.5837,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0167,
+            "locked_usd": -0.0267,
+            "pair_wait_s": 60.149,
+            "px_a": 0.62,
+            "px_b": 0.39,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 927,
+              "src": "mm_20260726T06.ndjson#927",
+              "time_utc": "2026-07-26T06:18:08.345062Z",
+              "wall_ns": 1785046688345061896
+            }
+          }
+        ],
+        "pair_wait_s": 60.149,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0267
+      },
+      {
+        "class": "external_fill_contaminated",
+        "completed_cycle": 36,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 997,
+          "src": "mm_20260726T06.ndjson#997",
+          "time_utc": "2026-07-26T06:18:57.608092Z",
+          "wall_ns": 1785046737608091771
+        },
+        "external_fill_n": 2,
+        "external_fills": [
+          {
+            "count": 1.0,
+            "fee_dollars": 0.0153,
+            "fill_id": null,
+            "order_id": "1ba9dcfd-9128-4d80-9772-027842aea380",
+            "price_dollars": 0.32,
+            "side": "ask_no",
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 982,
+              "src": "mm_20260726T06.ndjson#982",
+              "time_utc": "2026-07-26T06:18:54.204661Z",
+              "wall_ns": 1785046734204660920
+            },
+            "trade_id": "0acb4b9c-7049-747e-d16c-28c07214f6cb"
+          },
+          {
+            "count": 1.0,
+            "fee_dollars": 0.0153,
+            "fill_id": null,
+            "order_id": "8f6c3446-bde9-44f9-8923-eac2eb48741c",
+            "price_dollars": 0.68,
+            "side": "bid",
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 990,
+              "src": "mm_20260726T06.ndjson#990",
+              "time_utc": "2026-07-26T06:18:57.385769Z",
+              "wall_ns": 1785046737385768581
+            },
+            "trade_id": "f7773920-8af5-5691-9355-0c75a07e05fd"
+          }
+        ],
+        "fee_usd": 0.0306,
+        "fill_n": 4,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046691.234,
+          "price_dollars": 0.37,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 935,
+            "src": "mm_20260726T06.ndjson#935",
+            "time_utc": "2026-07-26T06:18:11.251054Z",
+            "wall_ns": 1785046691251053709
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 1,
+        "lock_pnl_rounded_sum_usd": -0.0706,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 2.0,
+        "pair_lock_event_n": 2,
+        "pair_locked_total_after_usd": -0.6543,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0153,
+            "locked_usd": -0.0653,
+            "pair_wait_s": 42.766,
+            "px_a": 0.37,
+            "px_b": 0.68,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 991,
+              "src": "mm_20260726T06.ndjson#991",
+              "time_utc": "2026-07-26T06:18:57.385823Z",
+              "wall_ns": 1785046737385823031
+            }
+          },
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0153,
+            "locked_usd": -0.0053,
+            "pair_wait_s": 1.113,
+            "px_a": 0.32,
+            "px_b": 0.67,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 996,
+              "src": "mm_20260726T06.ndjson#996",
+              "time_utc": "2026-07-26T06:18:57.608073Z",
+              "wall_ns": 1785046737608072970
+            }
+          }
+        ],
+        "pair_wait_s": 42.766,
+        "paired_contracts": 2.0,
+        "pnl_usd": -0.0706
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 37,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1020,
+          "src": "mm_20260726T06.ndjson#1020",
+          "time_utc": "2026-07-26T06:19:15.610894Z",
+          "wall_ns": 1785046755610894510
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046753.262,
+          "price_dollars": 0.65,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1013,
+            "src": "mm_20260726T06.ndjson#1013",
+            "time_utc": "2026-07-26T06:19:13.267731Z",
+            "wall_ns": 1785046753267731163
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -0.6443,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 2.341,
+            "px_a": 0.65,
+            "px_b": 0.34,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1019,
+              "src": "mm_20260726T06.ndjson#1019",
+              "time_utc": "2026-07-26T06:19:15.610865Z",
+              "wall_ns": 1785046755610865390
+            }
+          }
+        ],
+        "pair_wait_s": 2.341,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 38,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1100,
+          "src": "mm_20260726T06.ndjson#1100",
+          "time_utc": "2026-07-26T06:20:19.446978Z",
+          "wall_ns": 1785046819446977900
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0128,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046759.06,
+          "price_dollars": 0.65,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1026,
+            "src": "mm_20260726T06.ndjson#1026",
+            "time_utc": "2026-07-26T06:19:19.071652Z",
+            "wall_ns": 1785046759071651887
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0128,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.76,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1097,
+            "src": "mm_20260726T06.ndjson#1097",
+            "time_utc": "2026-07-26T06:20:19.446884Z",
+            "wall_ns": 1785046819446883665
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.4228,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.0671,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0128,
+            "locked_usd": -0.4228,
+            "pair_wait_s": 60.386,
+            "px_a": 0.65,
+            "px_b": 0.76,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1099,
+              "src": "mm_20260726T06.ndjson#1099",
+              "time_utc": "2026-07-26T06:20:19.446944Z",
+              "wall_ns": 1785046819446943541
+            }
+          }
+        ],
+        "pair_wait_s": 60.386,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.4228
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 39,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1202,
+          "src": "mm_20260726T06.ndjson#1202",
+          "time_utc": "2026-07-26T06:21:56.531596Z",
+          "wall_ns": 1785046916531596436
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0085,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046856.327,
+          "price_dollars": 0.19,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1130,
+            "src": "mm_20260726T06.ndjson#1130",
+            "time_utc": "2026-07-26T06:20:56.333730Z",
+            "wall_ns": 1785046856333729774
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0085,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.86,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1199,
+            "src": "mm_20260726T06.ndjson#1199",
+            "time_utc": "2026-07-26T06:21:56.531523Z",
+            "wall_ns": 1785046916531523418
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0585,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.1256,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0085,
+            "locked_usd": -0.0585,
+            "pair_wait_s": 60.204,
+            "px_a": 0.19,
+            "px_b": 0.86,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1201,
+              "src": "mm_20260726T06.ndjson#1201",
+              "time_utc": "2026-07-26T06:21:56.531581Z",
+              "wall_ns": 1785046916531581157
+            }
+          }
+        ],
+        "pair_wait_s": 60.204,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0585
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 40,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1211,
+          "src": "mm_20260726T06.ndjson#1211",
+          "time_utc": "2026-07-26T06:21:57.962340Z",
+          "wall_ns": 1785046917962339883
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046917.754,
+          "price_dollars": 0.15,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1207,
+            "src": "mm_20260726T06.ndjson#1207",
+            "time_utc": "2026-07-26T06:21:57.766503Z",
+            "wall_ns": 1785046917766502958
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 0.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.1156,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.2,
+            "px_a": 0.15,
+            "px_b": 0.84,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1210,
+              "src": "mm_20260726T06.ndjson#1210",
+              "time_utc": "2026-07-26T06:21:57.962322Z",
+              "wall_ns": 1785046917962322500
+            }
+          }
+        ],
+        "pair_wait_s": 0.2,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 41,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1227,
+          "src": "mm_20260726T06.ndjson#1227",
+          "time_utc": "2026-07-26T06:22:07.074649Z",
+          "wall_ns": 1785046927074648839
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046923.195,
+          "price_dollars": 0.85,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1219,
+            "src": "mm_20260726T06.ndjson#1219",
+            "time_utc": "2026-07-26T06:22:03.202943Z",
+            "wall_ns": 1785046923202942893
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.1056,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.872,
+            "px_a": 0.85,
+            "px_b": 0.14,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1226,
+              "src": "mm_20260726T06.ndjson#1226",
+              "time_utc": "2026-07-26T06:22:07.074633Z",
+              "wall_ns": 1785046927074633224
+            }
+          }
+        ],
+        "pair_wait_s": 3.872,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 42,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1303,
+          "src": "mm_20260726T06.ndjson#1303",
+          "time_utc": "2026-07-26T06:23:07.633117Z",
+          "wall_ns": 1785046987633117133
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0027,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785046927.466,
+          "price_dollars": 0.13,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1231,
+            "src": "mm_20260726T06.ndjson#1231",
+            "time_utc": "2026-07-26T06:22:07.471628Z",
+            "wall_ns": 1785046927471627733
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0027,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.96,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1300,
+            "src": "mm_20260726T06.ndjson#1300",
+            "time_utc": "2026-07-26T06:23:07.633031Z",
+            "wall_ns": 1785046987633030654
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0927,
+        "market": "KXBTC15M-26JUL260230-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.1983,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0027,
+            "locked_usd": -0.0927,
+            "pair_wait_s": 60.167,
+            "px_a": 0.13,
+            "px_b": 0.96,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1302,
+              "src": "mm_20260726T06.ndjson#1302",
+              "time_utc": "2026-07-26T06:23:07.633101Z",
+              "wall_ns": 1785046987633100940
+            }
+          }
+        ],
+        "pair_wait_s": 60.167,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0927
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 43,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1582,
+          "src": "mm_20260726T06.ndjson#1582",
+          "time_utc": "2026-07-26T06:32:07.313301Z",
+          "wall_ns": 1785047527313300826
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047522.176,
+          "price_dollars": 0.63,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1573,
+            "src": "mm_20260726T06.ndjson#1573",
+            "time_utc": "2026-07-26T06:32:02.182083Z",
+            "wall_ns": 1785047522182083035
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.1883,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 5.131,
+            "px_a": 0.63,
+            "px_b": 0.36,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1581,
+              "src": "mm_20260726T06.ndjson#1581",
+              "time_utc": "2026-07-26T06:32:07.313285Z",
+              "wall_ns": 1785047527313285188
+            }
+          }
+        ],
+        "pair_wait_s": 5.131,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 44,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1659,
+          "src": "mm_20260726T06.ndjson#1659",
+          "time_utc": "2026-07-26T06:33:09.074675Z",
+          "wall_ns": 1785047589074675320
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0135,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047528.979,
+          "price_dollars": 0.36,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1587,
+            "src": "mm_20260726T06.ndjson#1587",
+            "time_utc": "2026-07-26T06:32:08.986690Z",
+            "wall_ns": 1785047528986689618
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0135,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.74,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1656,
+            "src": "mm_20260726T06.ndjson#1656",
+            "time_utc": "2026-07-26T06:33:09.074546Z",
+            "wall_ns": 1785047589074546064
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1135,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.3018,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0135,
+            "locked_usd": -0.1135,
+            "pair_wait_s": 60.095,
+            "px_a": 0.36,
+            "px_b": 0.74,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1658,
+              "src": "mm_20260726T06.ndjson#1658",
+              "time_utc": "2026-07-26T06:33:09.074657Z",
+              "wall_ns": 1785047589074656997
+            }
+          }
+        ],
+        "pair_wait_s": 60.095,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1135
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 45,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1671,
+          "src": "mm_20260726T06.ndjson#1671",
+          "time_utc": "2026-07-26T06:33:14.024018Z",
+          "wall_ns": 1785047594024018247
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047593.891,
+          "price_dollars": 0.25,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1667,
+            "src": "mm_20260726T06.ndjson#1667",
+            "time_utc": "2026-07-26T06:33:13.900152Z",
+            "wall_ns": 1785047593900152418
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 0.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.2918,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.123,
+            "px_a": 0.25,
+            "px_b": 0.74,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1670,
+              "src": "mm_20260726T06.ndjson#1670",
+              "time_utc": "2026-07-26T06:33:14.023976Z",
+              "wall_ns": 1785047594023976144
+            }
+          }
+        ],
+        "pair_wait_s": 0.123,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 46,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1713,
+          "src": "mm_20260726T06.ndjson#1713",
+          "time_utc": "2026-07-26T06:33:47.476175Z",
+          "wall_ns": 1785047627476174960
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047599.745,
+          "price_dollars": 0.74,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1678,
+            "src": "mm_20260726T06.ndjson#1678",
+            "time_utc": "2026-07-26T06:33:19.752236Z",
+            "wall_ns": 1785047599752235830
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.2818,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 27.725,
+            "px_a": 0.74,
+            "px_b": 0.25,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1712,
+              "src": "mm_20260726T06.ndjson#1712",
+              "time_utc": "2026-07-26T06:33:47.476158Z",
+              "wall_ns": 1785047627476158171
+            }
+          }
+        ],
+        "pair_wait_s": 27.725,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 47,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1793,
+          "src": "mm_20260726T06.ndjson#1793",
+          "time_utc": "2026-07-26T06:34:51.154436Z",
+          "wall_ns": 1785047691154436253
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0058,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047631.147,
+          "price_dollars": 0.24,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1721,
+            "src": "mm_20260726T06.ndjson#1721",
+            "time_utc": "2026-07-26T06:33:51.153816Z",
+            "wall_ns": 1785047631153816211
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0058,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.91,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1790,
+            "src": "mm_20260726T06.ndjson#1790",
+            "time_utc": "2026-07-26T06:34:51.154367Z",
+            "wall_ns": 1785047691154367386
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1558,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.4376,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0058,
+            "locked_usd": -0.1558,
+            "pair_wait_s": 60.007,
+            "px_a": 0.24,
+            "px_b": 0.91,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1792,
+              "src": "mm_20260726T06.ndjson#1792",
+              "time_utc": "2026-07-26T06:34:51.154422Z",
+              "wall_ns": 1785047691154422058
+            }
+          }
+        ],
+        "pair_wait_s": 60.007,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1558
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 48,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1869,
+          "src": "mm_20260726T06.ndjson#1869",
+          "time_utc": "2026-07-26T06:35:52.240027Z",
+          "wall_ns": 1785047752240026759
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0031,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785047692.094,
+          "price_dollars": 0.1,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1798,
+            "src": "mm_20260726T06.ndjson#1798",
+            "time_utc": "2026-07-26T06:34:52.124197Z",
+            "wall_ns": 1785047692124196923
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0031,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.955,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 1866,
+            "src": "mm_20260726T06.ndjson#1866",
+            "time_utc": "2026-07-26T06:35:52.239933Z",
+            "wall_ns": 1785047752239932461
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0581,
+        "market": "KXBTC15M-26JUL260245-45",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.4957,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0031,
+            "locked_usd": -0.0581,
+            "pair_wait_s": 60.145,
+            "px_a": 0.1,
+            "px_b": 0.955,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 1868,
+              "src": "mm_20260726T06.ndjson#1868",
+              "time_utc": "2026-07-26T06:35:52.240012Z",
+              "wall_ns": 1785047752240011692
+            }
+          }
+        ],
+        "pair_wait_s": 60.145,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0581
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 49,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2219,
+          "src": "mm_20260726T06.ndjson#2219",
+          "time_utc": "2026-07-26T06:46:10.330040Z",
+          "wall_ns": 1785048370330040234
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048366.697,
+          "price_dollars": 0.61,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2211,
+            "src": "mm_20260726T06.ndjson#2211",
+            "time_utc": "2026-07-26T06:46:06.707931Z",
+            "wall_ns": 1785048366707930949
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.4857,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.626,
+            "px_a": 0.61,
+            "px_b": 0.38,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2218,
+              "src": "mm_20260726T06.ndjson#2218",
+              "time_utc": "2026-07-26T06:46:10.330023Z",
+              "wall_ns": 1785048370330022704
+            }
+          }
+        ],
+        "pair_wait_s": 3.626,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 50,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2234,
+          "src": "mm_20260726T06.ndjson#2234",
+          "time_utc": "2026-07-26T06:46:18.413676Z",
+          "wall_ns": 1785048378413675533
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048375.19,
+          "price_dollars": 0.62,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2226,
+            "src": "mm_20260726T06.ndjson#2226",
+            "time_utc": "2026-07-26T06:46:15.201140Z",
+            "wall_ns": 1785048375201140157
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.4757,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.216,
+            "px_a": 0.62,
+            "px_b": 0.37,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2233,
+              "src": "mm_20260726T06.ndjson#2233",
+              "time_utc": "2026-07-26T06:46:18.413659Z",
+              "wall_ns": 1785048378413658569
+            }
+          }
+        ],
+        "pair_wait_s": 3.216,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 51,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2314,
+          "src": "mm_20260726T06.ndjson#2314",
+          "time_utc": "2026-07-26T06:47:22.756945Z",
+          "wall_ns": 1785048442756945482
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.008,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048381.773,
+          "price_dollars": 0.36,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2241,
+            "src": "mm_20260726T06.ndjson#2241",
+            "time_utc": "2026-07-26T06:46:21.780835Z",
+            "wall_ns": 1785048381780835050
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.008,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.87,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2311,
+            "src": "mm_20260726T06.ndjson#2311",
+            "time_utc": "2026-07-26T06:47:22.756869Z",
+            "wall_ns": 1785048442756869381
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.238,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7137,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.008,
+            "locked_usd": -0.238,
+            "pair_wait_s": 60.983,
+            "px_a": 0.36,
+            "px_b": 0.87,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2313,
+              "src": "mm_20260726T06.ndjson#2313",
+              "time_utc": "2026-07-26T06:47:22.756930Z",
+              "wall_ns": 1785048442756929852
+            }
+          }
+        ],
+        "pair_wait_s": 60.983,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.238
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 52,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2391,
+          "src": "mm_20260726T06.ndjson#2391",
+          "time_utc": "2026-07-26T06:48:24.809182Z",
+          "wall_ns": 1785048504809182255
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0117,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048443.896,
+          "price_dollars": 0.85,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2318,
+            "src": "mm_20260726T06.ndjson#2318",
+            "time_utc": "2026-07-26T06:47:23.902737Z",
+            "wall_ns": 1785048443902736575
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0117,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.21,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2388,
+            "src": "mm_20260726T06.ndjson#2388",
+            "time_utc": "2026-07-26T06:48:24.809107Z",
+            "wall_ns": 1785048504809106609
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0717,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7854,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0117,
+            "locked_usd": -0.0717,
+            "pair_wait_s": 60.913,
+            "px_a": 0.85,
+            "px_b": 0.21,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2390,
+              "src": "mm_20260726T06.ndjson#2390",
+              "time_utc": "2026-07-26T06:48:24.809167Z",
+              "wall_ns": 1785048504809166761
+            }
+          }
+        ],
+        "pair_wait_s": 60.913,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0717
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 53,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2409,
+          "src": "mm_20260726T06.ndjson#2409",
+          "time_utc": "2026-07-26T06:48:34.714979Z",
+          "wall_ns": 1785048514714978581
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048507.46,
+          "price_dollars": 0.8,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2397,
+            "src": "mm_20260726T06.ndjson#2397",
+            "time_utc": "2026-07-26T06:48:27.468533Z",
+            "wall_ns": 1785048507468532914
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7754,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 7.248,
+            "px_a": 0.8,
+            "px_b": 0.19,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2408,
+              "src": "mm_20260726T06.ndjson#2408",
+              "time_utc": "2026-07-26T06:48:34.714948Z",
+              "wall_ns": 1785048514714947658
+            }
+          }
+        ],
+        "pair_wait_s": 7.248,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 54,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2463,
+          "src": "mm_20260726T06.ndjson#2463",
+          "time_utc": "2026-07-26T06:49:20.120728Z",
+          "wall_ns": 1785048560120727484
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048521.638,
+          "price_dollars": 0.18,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2417,
+            "src": "mm_20260726T06.ndjson#2417",
+            "time_utc": "2026-07-26T06:48:41.646244Z",
+            "wall_ns": 1785048521646243487
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7654,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 38.476,
+            "px_a": 0.18,
+            "px_b": 0.81,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2462,
+              "src": "mm_20260726T06.ndjson#2462",
+              "time_utc": "2026-07-26T06:49:20.120699Z",
+              "wall_ns": 1785048560120699268
+            }
+          }
+        ],
+        "pair_wait_s": 38.476,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 55,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2544,
+          "src": "mm_20260726T06.ndjson#2544",
+          "time_utc": "2026-07-26T06:50:25.965433Z",
+          "wall_ns": 1785048625965433051
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.009,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048564.992,
+          "price_dollars": 0.18,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2471,
+            "src": "mm_20260726T06.ndjson#2471",
+            "time_utc": "2026-07-26T06:49:24.999004Z",
+            "wall_ns": 1785048564999004320
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.009,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.85,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2541,
+            "src": "mm_20260726T06.ndjson#2541",
+            "time_utc": "2026-07-26T06:50:25.965308Z",
+            "wall_ns": 1785048625965308212
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.039,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.8044,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.009,
+            "locked_usd": -0.039,
+            "pair_wait_s": 60.973,
+            "px_a": 0.18,
+            "px_b": 0.85,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2543,
+              "src": "mm_20260726T06.ndjson#2543",
+              "time_utc": "2026-07-26T06:50:25.965370Z",
+              "wall_ns": 1785048625965370130
+            }
+          }
+        ],
+        "pair_wait_s": 60.973,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.039
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 56,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2564,
+          "src": "mm_20260726T06.ndjson#2564",
+          "time_utc": "2026-07-26T06:50:37.619740Z",
+          "wall_ns": 1785048637619740274
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048628.734,
+          "price_dollars": 0.83,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2550,
+            "src": "mm_20260726T06.ndjson#2550",
+            "time_utc": "2026-07-26T06:50:28.743239Z",
+            "wall_ns": 1785048628743239300
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7944,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 8.878,
+            "px_a": 0.83,
+            "px_b": 0.16,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2563,
+              "src": "mm_20260726T06.ndjson#2563",
+              "time_utc": "2026-07-26T06:50:37.619721Z",
+              "wall_ns": 1785048637619721365
+            }
+          }
+        ],
+        "pair_wait_s": 8.878,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 57,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2579,
+          "src": "mm_20260726T06.ndjson#2579",
+          "time_utc": "2026-07-26T06:50:46.237087Z",
+          "wall_ns": 1785048646237087210
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048645.964,
+          "price_dollars": 0.16,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2574,
+            "src": "mm_20260726T06.ndjson#2574",
+            "time_utc": "2026-07-26T06:50:45.971944Z",
+            "wall_ns": 1785048645971943890
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.7844,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.263,
+            "px_a": 0.16,
+            "px_b": 0.83,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2578,
+              "src": "mm_20260726T06.ndjson#2578",
+              "time_utc": "2026-07-26T06:50:46.237071Z",
+              "wall_ns": 1785048646237071333
+            }
+          }
+        ],
+        "pair_wait_s": 0.263,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 58,
+        "done_source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 2660,
+          "src": "mm_20260726T06.ndjson#2660",
+          "time_utc": "2026-07-26T06:51:54.022078Z",
+          "wall_ns": 1785048714022078222
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0041,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785048653.662,
+          "price_dollars": 0.15,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2588,
+            "src": "mm_20260726T06.ndjson#2588",
+            "time_utc": "2026-07-26T06:50:53.672049Z",
+            "wall_ns": 1785048653672048732
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0041,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.938,
+          "source": {
+            "file": "mm_20260726T06.ndjson",
+            "line": 2657,
+            "src": "mm_20260726T06.ndjson#2657",
+            "time_utc": "2026-07-26T06:51:54.022003Z",
+            "wall_ns": 1785048714022002883
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.0921,
+        "market": "KXBTC15M-26JUL260300-00",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -1.8765,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0041,
+            "locked_usd": -0.0921,
+            "pair_wait_s": 60.36,
+            "px_a": 0.15,
+            "px_b": 0.938,
+            "source": {
+              "file": "mm_20260726T06.ndjson",
+              "line": 2659,
+              "src": "mm_20260726T06.ndjson#2659",
+              "time_utc": "2026-07-26T06:51:54.022063Z",
+              "wall_ns": 1785048714022062916
+            }
+          }
+        ],
+        "pair_wait_s": 60.36,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.0921
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 59,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 80,
+          "src": "mm_20260726T07.ndjson#80",
+          "time_utc": "2026-07-26T07:01:18.884809Z",
+          "wall_ns": 1785049278884808603
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0128,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049218.429,
+          "price_dollars": 0.54,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 8,
+            "src": "mm_20260726T07.ndjson#8",
+            "time_utc": "2026-07-26T07:00:18.434660Z",
+            "wall_ns": 1785049218434659786
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0128,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.76,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 77,
+            "src": "mm_20260726T07.ndjson#77",
+            "time_utc": "2026-07-26T07:01:18.884737Z",
+            "wall_ns": 1785049278884737439
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.3128,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.1893,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0128,
+            "locked_usd": -0.3128,
+            "pair_wait_s": 60.455,
+            "px_a": 0.54,
+            "px_b": 0.76,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 79,
+              "src": "mm_20260726T07.ndjson#79",
+              "time_utc": "2026-07-26T07:01:18.884794Z",
+              "wall_ns": 1785049278884794107
+            }
+          }
+        ],
+        "pair_wait_s": 60.455,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.3128
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 60,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 96,
+          "src": "mm_20260726T07.ndjson#96",
+          "time_utc": "2026-07-26T07:01:25.242095Z",
+          "wall_ns": 1785049285242094637
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049280.528,
+          "price_dollars": 0.25,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 86,
+            "src": "mm_20260726T07.ndjson#86",
+            "time_utc": "2026-07-26T07:01:20.535523Z",
+            "wall_ns": 1785049280535523099
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.1793,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 4.705,
+            "px_a": 0.25,
+            "px_b": 0.74,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 95,
+              "src": "mm_20260726T07.ndjson#95",
+              "time_utc": "2026-07-26T07:01:25.242079Z",
+              "wall_ns": 1785049285242078610
+            }
+          }
+        ],
+        "pair_wait_s": 4.705,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 61,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 145,
+          "src": "mm_20260726T07.ndjson#145",
+          "time_utc": "2026-07-26T07:02:03.222290Z",
+          "wall_ns": 1785049323222290225
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049285.248,
+          "price_dollars": 0.73,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 100,
+            "src": "mm_20260726T07.ndjson#100",
+            "time_utc": "2026-07-26T07:01:25.257091Z",
+            "wall_ns": 1785049285257090587
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.02,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.1593,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.02,
+            "pair_wait_s": 37.968,
+            "px_a": 0.73,
+            "px_b": 0.25,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 144,
+              "src": "mm_20260726T07.ndjson#144",
+              "time_utc": "2026-07-26T07:02:03.222274Z",
+              "wall_ns": 1785049323222273910
+            }
+          }
+        ],
+        "pair_wait_s": 37.968,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.02
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 62,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 157,
+          "src": "mm_20260726T07.ndjson#157",
+          "time_utc": "2026-07-26T07:02:08.509779Z",
+          "wall_ns": 1785049328509778659
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049328.033,
+          "price_dollars": 0.76,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 152,
+            "src": "mm_20260726T07.ndjson#152",
+            "time_utc": "2026-07-26T07:02:08.039299Z",
+            "wall_ns": 1785049328039298832
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.1493,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.47,
+            "px_a": 0.76,
+            "px_b": 0.23,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 156,
+              "src": "mm_20260726T07.ndjson#156",
+              "time_utc": "2026-07-26T07:02:08.509763Z",
+              "wall_ns": 1785049328509762712
+            }
+          }
+        ],
+        "pair_wait_s": 0.47,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 63,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 171,
+          "src": "mm_20260726T07.ndjson#171",
+          "time_utc": "2026-07-26T07:02:14.282513Z",
+          "wall_ns": 1785049334282512782
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049333.113,
+          "price_dollars": 0.77,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 165,
+            "src": "mm_20260726T07.ndjson#165",
+            "time_utc": "2026-07-26T07:02:13.119093Z",
+            "wall_ns": 1785049333119092811
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.1393,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 1.16,
+            "px_a": 0.77,
+            "px_b": 0.22,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 170,
+              "src": "mm_20260726T07.ndjson#170",
+              "time_utc": "2026-07-26T07:02:14.282497Z",
+              "wall_ns": 1785049334282497222
+            }
+          }
+        ],
+        "pair_wait_s": 1.16,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 64,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 252,
+          "src": "mm_20260726T07.ndjson#252",
+          "time_utc": "2026-07-26T07:03:21.967456Z",
+          "wall_ns": 1785049401967455569
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0173,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049341.061,
+          "price_dollars": 0.76,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 178,
+            "src": "mm_20260726T07.ndjson#178",
+            "time_utc": "2026-07-26T07:02:21.072086Z",
+            "wall_ns": 1785049341072085547
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0173,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.44,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 249,
+            "src": "mm_20260726T07.ndjson#249",
+            "time_utc": "2026-07-26T07:03:21.967372Z",
+            "wall_ns": 1785049401967372509
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.2173,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.3566,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0173,
+            "locked_usd": -0.2173,
+            "pair_wait_s": 60.906,
+            "px_a": 0.76,
+            "px_b": 0.44,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 251,
+              "src": "mm_20260726T07.ndjson#251",
+              "time_utc": "2026-07-26T07:03:21.967441Z",
+              "wall_ns": 1785049401967441210
+            }
+          }
+        ],
+        "pair_wait_s": 60.906,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.2173
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 65,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 279,
+          "src": "mm_20260726T07.ndjson#279",
+          "time_utc": "2026-07-26T07:03:40.958425Z",
+          "wall_ns": 1785049420958424837
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049404.348,
+          "price_dollars": 0.58,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 257,
+            "src": "mm_20260726T07.ndjson#257",
+            "time_utc": "2026-07-26T07:03:24.355270Z",
+            "wall_ns": 1785049404355269936
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.3466,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 16.605,
+            "px_a": 0.58,
+            "px_b": 0.41,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 278,
+              "src": "mm_20260726T07.ndjson#278",
+              "time_utc": "2026-07-26T07:03:40.958400Z",
+              "wall_ns": 1785049420958399974
+            }
+          }
+        ],
+        "pair_wait_s": 16.605,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 66,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 296,
+          "src": "mm_20260726T07.ndjson#296",
+          "time_utc": "2026-07-26T07:03:49.679717Z",
+          "wall_ns": 1785049429679717257
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049423.319,
+          "price_dollars": 0.41,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 286,
+            "src": "mm_20260726T07.ndjson#286",
+            "time_utc": "2026-07-26T07:03:43.324919Z",
+            "wall_ns": 1785049423324918560
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.3366,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 6.355,
+            "px_a": 0.41,
+            "px_b": 0.58,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 295,
+              "src": "mm_20260726T07.ndjson#295",
+              "time_utc": "2026-07-26T07:03:49.679702Z",
+              "wall_ns": 1785049429679701613
+            }
+          }
+        ],
+        "pair_wait_s": 6.355,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 67,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 310,
+          "src": "mm_20260726T07.ndjson#310",
+          "time_utc": "2026-07-26T07:03:55.269485Z",
+          "wall_ns": 1785049435269484521
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049431.82,
+          "price_dollars": 0.58,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 301,
+            "src": "mm_20260726T07.ndjson#301",
+            "time_utc": "2026-07-26T07:03:51.828454Z",
+            "wall_ns": 1785049431828454596
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.3266,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.444,
+            "px_a": 0.58,
+            "px_b": 0.41,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 309,
+              "src": "mm_20260726T07.ndjson#309",
+              "time_utc": "2026-07-26T07:03:55.269469Z",
+              "wall_ns": 1785049435269469262
+            }
+          }
+        ],
+        "pair_wait_s": 3.444,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 68,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 390,
+          "src": "mm_20260726T07.ndjson#390",
+          "time_utc": "2026-07-26T07:05:01.038463Z",
+          "wall_ns": 1785049501038463299
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0171,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049440.319,
+          "price_dollars": 0.58,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 316,
+            "src": "mm_20260726T07.ndjson#316",
+            "time_utc": "2026-07-26T07:04:00.326782Z",
+            "wall_ns": 1785049440326782257
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0171,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.58,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 387,
+            "src": "mm_20260726T07.ndjson#387",
+            "time_utc": "2026-07-26T07:05:01.038385Z",
+            "wall_ns": 1785049501038385194
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1771,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.5037,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0171,
+            "locked_usd": -0.1771,
+            "pair_wait_s": 60.719,
+            "px_a": 0.58,
+            "px_b": 0.58,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 389,
+              "src": "mm_20260726T07.ndjson#389",
+              "time_utc": "2026-07-26T07:05:01.038447Z",
+              "wall_ns": 1785049501038447162
+            }
+          }
+        ],
+        "pair_wait_s": 60.719,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1771
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 69,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 411,
+          "src": "mm_20260726T07.ndjson#411",
+          "time_utc": "2026-07-26T07:05:18.251028Z",
+          "wall_ns": 1785049518251027583
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049515.376,
+          "price_dollars": 0.32,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 404,
+            "src": "mm_20260726T07.ndjson#404",
+            "time_utc": "2026-07-26T07:05:15.385838Z",
+            "wall_ns": 1785049515385837902
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.4937,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 2.866,
+            "px_a": 0.32,
+            "px_b": 0.67,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 410,
+              "src": "mm_20260726T07.ndjson#410",
+              "time_utc": "2026-07-26T07:05:18.251011Z",
+              "wall_ns": 1785049518251010638
+            }
+          }
+        ],
+        "pair_wait_s": 2.866,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 70,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 428,
+          "src": "mm_20260726T07.ndjson#428",
+          "time_utc": "2026-07-26T07:05:28.600243Z",
+          "wall_ns": 1785049528600242678
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049522.898,
+          "price_dollars": 0.31,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 418,
+            "src": "mm_20260726T07.ndjson#418",
+            "time_utc": "2026-07-26T07:05:22.908463Z",
+            "wall_ns": 1785049522908462537
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.4837,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 5.695,
+            "px_a": 0.31,
+            "px_b": 0.68,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 427,
+              "src": "mm_20260726T07.ndjson#427",
+              "time_utc": "2026-07-26T07:05:28.600227Z",
+              "wall_ns": 1785049528600226672
+            }
+          }
+        ],
+        "pair_wait_s": 5.695,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 71,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 506,
+          "src": "mm_20260726T07.ndjson#506",
+          "time_utc": "2026-07-26T07:06:31.158358Z",
+          "wall_ns": 1785049591158357770
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.016,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049530.82,
+          "price_dollars": 0.67,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 434,
+            "src": "mm_20260726T07.ndjson#434",
+            "time_utc": "2026-07-26T07:05:30.828668Z",
+            "wall_ns": 1785049530828668335
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.016,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.35,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 503,
+            "src": "mm_20260726T07.ndjson#503",
+            "time_utc": "2026-07-26T07:06:31.158240Z",
+            "wall_ns": 1785049591158239549
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.036,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.5197,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.016,
+            "locked_usd": -0.036,
+            "pair_wait_s": 60.338,
+            "px_a": 0.67,
+            "px_b": 0.35,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 505,
+              "src": "mm_20260726T07.ndjson#505",
+              "time_utc": "2026-07-26T07:06:31.158311Z",
+              "wall_ns": 1785049591158311096
+            }
+          }
+        ],
+        "pair_wait_s": 60.338,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.036
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 72,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 518,
+          "src": "mm_20260726T07.ndjson#518",
+          "time_utc": "2026-07-26T07:06:34.447221Z",
+          "wall_ns": 1785049594447221398
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049594.082,
+          "price_dollars": 0.33,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 513,
+            "src": "mm_20260726T07.ndjson#513",
+            "time_utc": "2026-07-26T07:06:34.093677Z",
+            "wall_ns": 1785049594093677311
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.5097,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.36,
+            "px_a": 0.33,
+            "px_b": 0.66,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 517,
+              "src": "mm_20260726T07.ndjson#517",
+              "time_utc": "2026-07-26T07:06:34.447204Z",
+              "wall_ns": 1785049594447204162
+            }
+          }
+        ],
+        "pair_wait_s": 0.36,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 73,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 580,
+          "src": "mm_20260726T07.ndjson#580",
+          "time_utc": "2026-07-26T07:07:24.768185Z",
+          "wall_ns": 1785049644768185134
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049597.354,
+          "price_dollars": 0.33,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 523,
+            "src": "mm_20260726T07.ndjson#523",
+            "time_utc": "2026-07-26T07:06:37.360929Z",
+            "wall_ns": 1785049597360928908
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.4997,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 47.403,
+            "px_a": 0.33,
+            "px_b": 0.66,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 579,
+              "src": "mm_20260726T07.ndjson#579",
+              "time_utc": "2026-07-26T07:07:24.768159Z",
+              "wall_ns": 1785049644768158773
+            }
+          }
+        ],
+        "pair_wait_s": 47.403,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 74,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 591,
+          "src": "mm_20260726T07.ndjson#591",
+          "time_utc": "2026-07-26T07:07:27.880287Z",
+          "wall_ns": 1785049647880286796
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049645.199,
+          "price_dollars": 0.67,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 584,
+            "src": "mm_20260726T07.ndjson#584",
+            "time_utc": "2026-07-26T07:07:25.206129Z",
+            "wall_ns": 1785049645206129397
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.4897,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 2.676,
+            "px_a": 0.67,
+            "px_b": 0.32,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 590,
+              "src": "mm_20260726T07.ndjson#590",
+              "time_utc": "2026-07-26T07:07:27.880271Z",
+              "wall_ns": 1785049647880270927
+            }
+          }
+        ],
+        "pair_wait_s": 2.676,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 75,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 610,
+          "src": "mm_20260726T07.ndjson#610",
+          "time_utc": "2026-07-26T07:07:38.367919Z",
+          "wall_ns": 1785049658367918786
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049650.923,
+          "price_dollars": 0.68,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 597,
+            "src": "mm_20260726T07.ndjson#597",
+            "time_utc": "2026-07-26T07:07:30.929737Z",
+            "wall_ns": 1785049650929736909
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.4797,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 7.436,
+            "px_a": 0.68,
+            "px_b": 0.31,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 609,
+              "src": "mm_20260726T07.ndjson#609",
+              "time_utc": "2026-07-26T07:07:38.367900Z",
+              "wall_ns": 1785049658367900134
+            }
+          }
+        ],
+        "pair_wait_s": 7.436,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 76,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 690,
+          "src": "mm_20260726T07.ndjson#690",
+          "time_utc": "2026-07-26T07:08:44.275031Z",
+          "wall_ns": 1785049724275031225
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0175,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049663.798,
+          "price_dollars": 0.67,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 618,
+            "src": "mm_20260726T07.ndjson#618",
+            "time_utc": "2026-07-26T07:07:43.804037Z",
+            "wall_ns": 1785049663804037334
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0175,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.51,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 687,
+            "src": "mm_20260726T07.ndjson#687",
+            "time_utc": "2026-07-26T07:08:44.274945Z",
+            "wall_ns": 1785049724274945065
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.1975,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.6772,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0175,
+            "locked_usd": -0.1975,
+            "pair_wait_s": 60.476,
+            "px_a": 0.67,
+            "px_b": 0.51,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 689,
+              "src": "mm_20260726T07.ndjson#689",
+              "time_utc": "2026-07-26T07:08:44.275016Z",
+              "wall_ns": 1785049724275015598
+            }
+          }
+        ],
+        "pair_wait_s": 60.476,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.1975
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 77,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 709,
+          "src": "mm_20260726T07.ndjson#709",
+          "time_utc": "2026-07-26T07:09:01.684646Z",
+          "wall_ns": 1785049741684646243
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049741.398,
+          "price_dollars": 0.38,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 704,
+            "src": "mm_20260726T07.ndjson#704",
+            "time_utc": "2026-07-26T07:09:01.405462Z",
+            "wall_ns": 1785049741405462235
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -2.6672,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.278,
+            "px_a": 0.38,
+            "px_b": 0.61,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 708,
+              "src": "mm_20260726T07.ndjson#708",
+              "time_utc": "2026-07-26T07:09:01.684631Z",
+              "wall_ns": 1785049741684631272
+            }
+          }
+        ],
+        "pair_wait_s": 0.278,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 78,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 788,
+          "src": "mm_20260726T07.ndjson#788",
+          "time_utc": "2026-07-26T07:10:06.446116Z",
+          "wall_ns": 1785049806446115749
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0058,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785049746.156,
+          "price_dollars": 0.6,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 717,
+            "src": "mm_20260726T07.ndjson#717",
+            "time_utc": "2026-07-26T07:09:06.161658Z",
+            "wall_ns": 1785049746161657630
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0058,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.91,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 785,
+            "src": "mm_20260726T07.ndjson#785",
+            "time_utc": "2026-07-26T07:10:06.446033Z",
+            "wall_ns": 1785049806446032715
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.5158,
+        "market": "KXBTC15M-26JUL260315-15",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.183,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0058,
+            "locked_usd": -0.5158,
+            "pair_wait_s": 60.29,
+            "px_a": 0.6,
+            "px_b": 0.91,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 787,
+              "src": "mm_20260726T07.ndjson#787",
+              "time_utc": "2026-07-26T07:10:06.446100Z",
+              "wall_ns": 1785049806446100347
+            }
+          }
+        ],
+        "pair_wait_s": 60.29,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.5158
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 79,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1070,
+          "src": "mm_20260726T07.ndjson#1070",
+          "time_utc": "2026-07-26T07:17:26.106708Z",
+          "wall_ns": 1785050246106707791
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.015,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050185.547,
+          "price_dollars": 0.72,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 997,
+            "src": "mm_20260726T07.ndjson#997",
+            "time_utc": "2026-07-26T07:16:25.555387Z",
+            "wall_ns": 1785050185555386514
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.015,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.31,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1067,
+            "src": "mm_20260726T07.ndjson#1067",
+            "time_utc": "2026-07-26T07:17:26.106632Z",
+            "wall_ns": 1785050246106632193
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.045,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.228,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.015,
+            "locked_usd": -0.045,
+            "pair_wait_s": 60.559,
+            "px_a": 0.72,
+            "px_b": 0.31,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1069,
+              "src": "mm_20260726T07.ndjson#1069",
+              "time_utc": "2026-07-26T07:17:26.106693Z",
+              "wall_ns": 1785050246106693374
+            }
+          }
+        ],
+        "pair_wait_s": 60.559,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.045
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 80,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1087,
+          "src": "mm_20260726T07.ndjson#1087",
+          "time_utc": "2026-07-26T07:17:39.127306Z",
+          "wall_ns": 1785050259127306486
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050255.146,
+          "price_dollars": 0.29,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1080,
+            "src": "mm_20260726T07.ndjson#1080",
+            "time_utc": "2026-07-26T07:17:35.155523Z",
+            "wall_ns": 1785050255155522763
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.218,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 3.974,
+            "px_a": 0.29,
+            "px_b": 0.7,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1086,
+              "src": "mm_20260726T07.ndjson#1086",
+              "time_utc": "2026-07-26T07:17:39.127291Z",
+              "wall_ns": 1785050259127291019
+            }
+          }
+        ],
+        "pair_wait_s": 3.974,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 81,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1168,
+          "src": "mm_20260726T07.ndjson#1168",
+          "time_utc": "2026-07-26T07:18:45.187734Z",
+          "wall_ns": 1785050325187733621
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.017,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050264.462,
+          "price_dollars": 0.69,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1095,
+            "src": "mm_20260726T07.ndjson#1095",
+            "time_utc": "2026-07-26T07:17:44.471279Z",
+            "wall_ns": 1785050264471278978
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.017,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.41,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1165,
+            "src": "mm_20260726T07.ndjson#1165",
+            "time_utc": "2026-07-26T07:18:45.187656Z",
+            "wall_ns": 1785050325187656237
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.117,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.335,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.017,
+            "locked_usd": -0.117,
+            "pair_wait_s": 60.725,
+            "px_a": 0.69,
+            "px_b": 0.41,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1167,
+              "src": "mm_20260726T07.ndjson#1167",
+              "time_utc": "2026-07-26T07:18:45.187718Z",
+              "wall_ns": 1785050325187717926
+            }
+          }
+        ],
+        "pair_wait_s": 60.725,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.117
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 82,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1191,
+          "src": "mm_20260726T07.ndjson#1191",
+          "time_utc": "2026-07-26T07:19:02.407076Z",
+          "wall_ns": 1785050342407075769
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050333.114,
+          "price_dollars": 0.59,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1178,
+            "src": "mm_20260726T07.ndjson#1178",
+            "time_utc": "2026-07-26T07:18:53.121052Z",
+            "wall_ns": 1785050333121052332
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.325,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 9.286,
+            "px_a": 0.59,
+            "px_b": 0.4,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1190,
+              "src": "mm_20260726T07.ndjson#1190",
+              "time_utc": "2026-07-26T07:19:02.407060Z",
+              "wall_ns": 1785050342407059775
+            }
+          }
+        ],
+        "pair_wait_s": 9.286,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 83,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1270,
+          "src": "mm_20260726T07.ndjson#1270",
+          "time_utc": "2026-07-26T07:20:06.347232Z",
+          "wall_ns": 1785050406347231923
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0145,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050346.234,
+          "price_dollars": 0.58,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1198,
+            "src": "mm_20260726T07.ndjson#1198",
+            "time_utc": "2026-07-26T07:19:06.283434Z",
+            "wall_ns": 1785050346283434311
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0145,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.71,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1267,
+            "src": "mm_20260726T07.ndjson#1267",
+            "time_utc": "2026-07-26T07:20:06.347156Z",
+            "wall_ns": 1785050406347156036
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.3045,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.6295,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0145,
+            "locked_usd": -0.3045,
+            "pair_wait_s": 60.113,
+            "px_a": 0.58,
+            "px_b": 0.71,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1269,
+              "src": "mm_20260726T07.ndjson#1269",
+              "time_utc": "2026-07-26T07:20:06.347216Z",
+              "wall_ns": 1785050406347215872
+            }
+          }
+        ],
+        "pair_wait_s": 60.113,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.3045
+      },
+      {
+        "class": "natural_maker_pair",
+        "completed_cycle": 84,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1285,
+          "src": "mm_20260726T07.ndjson#1285",
+          "time_utc": "2026-07-26T07:20:15.307287Z",
+          "wall_ns": 1785050415307287100
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050414.959,
+          "price_dollars": 0.7,
+          "side": "ask_no",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1280,
+            "src": "mm_20260726T07.ndjson#1280",
+            "time_utc": "2026-07-26T07:20:14.964847Z",
+            "wall_ns": 1785050414964846686
+          }
+        },
+        "forced_fill": null,
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": 0.01,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.6195,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0,
+            "locked_usd": 0.01,
+            "pair_wait_s": 0.342,
+            "px_a": 0.7,
+            "px_b": 0.29,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1284,
+              "src": "mm_20260726T07.ndjson#1284",
+              "time_utc": "2026-07-26T07:20:15.307271Z",
+              "wall_ns": 1785050415307270748
+            }
+          }
+        ],
+        "pair_wait_s": 0.342,
+        "paired_contracts": 1.0,
+        "pnl_usd": 0.01
+      },
+      {
+        "class": "unpaired_age_forced",
+        "completed_cycle": 85,
+        "done_source": {
+          "file": "mm_20260726T07.ndjson",
+          "line": 1362,
+          "src": "mm_20260726T07.ndjson#1362",
+          "time_utc": "2026-07-26T07:21:18.765574Z",
+          "wall_ns": 1785050478765573670
+        },
+        "external_fill_n": 0,
+        "external_fills": [],
+        "fee_usd": 0.0039,
+        "fill_n": 2,
+        "first_fill": {
+          "count": 1.0,
+          "exchange_ts_s": 1785050418.236,
+          "price_dollars": 0.28,
+          "side": "bid",
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1290,
+            "src": "mm_20260726T07.ndjson#1290",
+            "time_utc": "2026-07-26T07:20:18.246726Z",
+            "wall_ns": 1785050418246725452
+          }
+        },
+        "forced_fill": {
+          "count": 1.0,
+          "fee_usd": 0.0039,
+          "reason": "unpaired_age",
+          "risk_price_dollars": 0.942,
+          "source": {
+            "file": "mm_20260726T07.ndjson",
+            "line": 1359,
+            "src": "mm_20260726T07.ndjson#1359",
+            "time_utc": "2026-07-26T07:21:18.765482Z",
+            "wall_ns": 1785050478765481757
+          }
+        },
+        "limit_breach_event_n": 0,
+        "lock_pnl_rounded_sum_usd": -0.2259,
+        "market": "KXBTC15M-26JUL260330-30",
+        "max_abs_net_observed": 1.0,
+        "pair_lock_event_n": 1,
+        "pair_locked_total_after_usd": -3.8454,
+        "pair_locks": [
+          {
+            "ct": 1.0,
+            "fee_usd": 0.0039,
+            "locked_usd": -0.2259,
+            "pair_wait_s": 60.529,
+            "px_a": 0.28,
+            "px_b": 0.942,
+            "source": {
+              "file": "mm_20260726T07.ndjson",
+              "line": 1361,
+              "src": "mm_20260726T07.ndjson#1361",
+              "time_utc": "2026-07-26T07:21:18.765558Z",
+              "wall_ns": 1785050478765558148
+            }
+          }
+        ],
+        "pair_wait_s": 60.529,
+        "paired_contracts": 1.0,
+        "pnl_usd": -0.2259
+      }
+    ],
+    "external_contamination_pnl_usd": -0.0706,
+    "external_fill_contaminated": {
+      "cycle_ids": [
+        36
+      ],
+      "external_fill_n": 2,
+      "fee_usd": {
+        "max": 0.0306,
+        "mean": 0.0306,
+        "min": 0.0306,
+        "n": 1,
+        "p05": 0.0306,
+        "p25": 0.0306,
+        "p50": 0.0306,
+        "p75": 0.0306,
+        "p95": 0.0306,
+        "stdev_sample": null,
+        "sum": 0.0306
+      },
+      "pair_lock_event_n": 2,
+      "pair_wait_s": {
+        "max": 42.766,
+        "mean": 42.766,
+        "min": 42.766,
+        "n": 1,
+        "p05": 42.766,
+        "p25": 42.766,
+        "p50": 42.766,
+        "p75": 42.766,
+        "p95": 42.766,
+        "stdev_sample": null,
+        "sum": 42.766
+      },
+      "paired_contracts": 2.0,
+      "pnl_usd": {
+        "max": -0.0706,
+        "mean": -0.0706,
+        "min": -0.0706,
+        "n": 1,
+        "p05": -0.0706,
+        "p25": -0.0706,
+        "p50": -0.0706,
+        "p75": -0.0706,
+        "p95": -0.0706,
+        "stdev_sample": null,
+        "sum": -0.0706
+      }
+    },
+    "natural_maker_pair": {
+      "cycle_ids": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        21,
+        22,
+        24,
+        25,
+        27,
+        28,
+        29,
+        30,
+        32,
+        34,
+        37,
+        40,
+        41,
+        43,
+        45,
+        46,
+        49,
+        50,
+        53,
+        54,
+        56,
+        57,
+        60,
+        61,
+        62,
+        63,
+        65,
+        66,
+        67,
+        69,
+        70,
+        72,
+        73,
+        74,
+        75,
+        77,
+        80,
+        82,
+        84
+      ],
+      "external_fill_n": 0,
+      "fee_usd": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n": 55,
+        "p05": 0.0,
+        "p25": 0.0,
+        "p50": 0.0,
+        "p75": 0.0,
+        "p95": 0.0,
+        "stdev_sample": 0.0,
+        "sum": 0.0
+      },
+      "pair_lock_event_n": 55,
+      "pair_wait_s": {
+        "max": 59.853,
+        "mean": 10.490145455,
+        "min": 0.052,
+        "n": 55,
+        "p05": 0.2441,
+        "p25": 1.194,
+        "p50": 3.872,
+        "p75": 8.2665,
+        "p95": 44.5211,
+        "stdev_sample": 15.517471827,
+        "sum": 576.958
+      },
+      "paired_contracts": 55.0,
+      "pnl_usd": {
+        "max": 0.03,
+        "mean": 0.011272727,
+        "min": 0.01,
+        "n": 55,
+        "p05": 0.01,
+        "p25": 0.01,
+        "p50": 0.01,
+        "p75": 0.01,
+        "p95": 0.02,
+        "stdev_sample": 0.003875156,
+        "sum": 0.62
+      }
+    },
+    "raw_engine_net_pnl_usd": -3.8454,
+    "strategy_native_net_pnl_usd": -3.7748,
+    "unpaired_age_forced": {
+      "cycle_ids": [
+        4,
+        10,
+        19,
+        20,
+        23,
+        26,
+        31,
+        33,
+        35,
+        38,
+        39,
+        42,
+        44,
+        47,
+        48,
+        51,
+        52,
+        55,
+        58,
+        59,
+        64,
+        68,
+        71,
+        76,
+        78,
+        79,
+        81,
+        83,
+        85
+      ],
+      "external_fill_n": 0,
+      "fee_usd": {
+        "max": 0.0175,
+        "mean": 0.010717241,
+        "min": 0.0027,
+        "n": 29,
+        "p05": 0.00338,
+        "p25": 0.0058,
+        "p50": 0.0117,
+        "p75": 0.016,
+        "p95": 0.01722,
+        "stdev_sample": 0.005234437,
+        "sum": 0.3108
+      },
+      "pair_lock_event_n": 29,
+      "pair_wait_s": {
+        "max": 60.983,
+        "mean": 60.472103448,
+        "min": 60.001,
+        "n": 29,
+        "p05": 60.0422,
+        "p25": 60.204,
+        "p50": 60.455,
+        "p75": 60.719,
+        "p95": 60.949,
+        "stdev_sample": 0.295915691,
+        "sum": 1753.691
+      },
+      "paired_contracts": 29.0,
+      "pnl_usd": {
+        "max": -0.0267,
+        "mean": -0.151544828,
+        "min": -0.5158,
+        "n": 29,
+        "p05": -0.3788,
+        "p25": -0.2004,
+        "p50": -0.1135,
+        "p75": -0.0684,
+        "p95": -0.0312,
+        "stdev_sample": 0.120135503,
+        "sum": -4.3948
+      }
+    }
+  },
+  "generated_from_frozen_receipts": true,
+  "integrity_checks": {
+    "completed_cycles_contiguous": true,
+    "cycle_pnl_sum_matches_ending_total": true,
+    "last_health_realized_matches_ending_total": true,
+    "target_pnl_recomputes": true
+  },
+  "nominal_requested_window_hours": 24,
+  "read_only": true,
+  "schema": "crypto-mm-corrected-shadow-diagnostic-v2",
+  "source_manifest": [
+    {
+      "bytes": 2711391,
+      "file": "mm_20260726T05.ndjson",
+      "first_time_utc": "2026-07-26T05:01:09.967488Z",
+      "first_wall_ns": 1785042069967487997,
+      "last_time_utc": "2026-07-26T05:59:57.469759Z",
+      "last_wall_ns": 1785045597469758787,
+      "lines": 3550,
+      "sha256": "f8815afe73a7f10fc75bc27cac7431b4c73894aa7f37844f867a3c84ff390d6c"
+    },
+    {
+      "bytes": 2401146,
+      "file": "mm_20260726T06.ndjson",
+      "first_time_utc": "2026-07-26T06:00:07.477309Z",
+      "first_wall_ns": 1785045607477309088,
+      "last_time_utc": "2026-07-26T06:59:51.015606Z",
+      "last_wall_ns": 1785049191015605747,
+      "lines": 2941,
+      "sha256": "2b275c378d7371ec07081c372725c73eab8eebce298033221845e644e8597146"
+    },
+    {
+      "bytes": 1210793,
+      "file": "mm_20260726T07.ndjson",
+      "first_time_utc": "2026-07-26T07:00:01.021283Z",
+      "first_wall_ns": 1785049201021282608,
+      "last_time_utc": "2026-07-26T07:24:35.108489Z",
+      "last_wall_ns": 1785050675108488867,
+      "lines": 1515,
+      "sha256": "c61209b5224a605ca79e8c477d7f8a37b1d310615c6380352376e9813a0b6c95"
+    }
+  ],
+  "source_window": {
+    "coverage_warning": "Available receipts cover less than 24 hours; metrics are not a 24-hour acceptance result.",
+    "cutoff_time_utc": "2026-07-26T07:24:35.108489Z",
+    "cutoff_wall_ns": 1785050675108488867,
+    "duration_s": 8605.14100087,
+    "event_counts": {
+      "CF_ERR": 15,
+      "CF_VALUE_REJ": 15,
+      "CONTRACT_SELFCHECK": 7,
+      "FILL": 234,
+      "HEALTH": 855,
+      "INTENT_CANCEL": 44,
+      "INTENT_PLACE": 243,
+      "INTENT_TAKER": 34,
+      "LIMIT_BREACH": 1,
+      "PAIR_CYCLE_DONE": 114,
+      "PAIR_LOCK": 117,
+      "QUOTE_EVAL": 5842,
+      "RTI_HYDRATE": 7,
+      "RTI_HYDRATE_STATUS": 7,
+      "SENTINEL_PAUSE": 225,
+      "SHADOW_FILL_SIM": 199,
+      "SHADOW_TAKER_FILL_SIM": 33,
+      "START": 7,
+      "WSFILL_SUB": 7
+    },
+    "receipt_n": 8006,
+    "start_time_utc": "2026-07-26T05:01:09.967488Z",
+    "start_wall_ns": 1785042069967487997
+  },
+  "target_yes_13c_to_no_96c": {
+    "actual_pair_pnl_usd": -0.0927,
+    "checkpoint_limitation": "QUOTE_EVAL is throttled to roughly 1 Hz. The 0.25s and 0.5s rows carry forward the first post-fill receipt; this NDJSON cannot support tick-perfect sub-second book reconstruction.",
+    "checkpoint_path": [
+      {
+        "checkpoint_s": 0.25,
+        "engine_ioc_fee_usd": 0.0069,
+        "engine_ioc_limit_dollars": 0.89,
+        "engine_ioc_pair_pnl_usd": -0.0269,
+        "maker_exit_queue_age_s": 0.397,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.88,
+        "observation_age_at_checkpoint_s": 0.24761615,
+        "observation_elapsed_s": 0.00238385,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1232,
+          "src": "mm_20260726T06.ndjson#1232",
+          "time_utc": "2026-07-26T06:22:07.474012Z",
+          "wall_ns": 1785046927474011583
+        },
+        "touch_depth_contracts": 1115.98,
+        "touch_pair_pnl_usd": -0.0174,
+        "touch_taker_fee_usd": 0.0074,
+        "yes_best_bid_e4": 1200
+      },
+      {
+        "checkpoint_s": 0.5,
+        "engine_ioc_fee_usd": 0.0069,
+        "engine_ioc_limit_dollars": 0.89,
+        "engine_ioc_pair_pnl_usd": -0.0269,
+        "maker_exit_queue_age_s": 0.397,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.88,
+        "observation_age_at_checkpoint_s": 0.49761615,
+        "observation_elapsed_s": 0.00238385,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1232,
+          "src": "mm_20260726T06.ndjson#1232",
+          "time_utc": "2026-07-26T06:22:07.474012Z",
+          "wall_ns": 1785046927474011583
+        },
+        "touch_depth_contracts": 1115.98,
+        "touch_pair_pnl_usd": -0.0174,
+        "touch_taker_fee_usd": 0.0074,
+        "yes_best_bid_e4": 1200
+      },
+      {
+        "checkpoint_s": 1.0,
+        "engine_ioc_fee_usd": 0.0069,
+        "engine_ioc_limit_dollars": 0.89,
+        "engine_ioc_pair_pnl_usd": -0.0269,
+        "maker_exit_queue_age_s": 0.397,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.88,
+        "observation_age_at_checkpoint_s": 0.99761615,
+        "observation_elapsed_s": 0.00238385,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1232,
+          "src": "mm_20260726T06.ndjson#1232",
+          "time_utc": "2026-07-26T06:22:07.474012Z",
+          "wall_ns": 1785046927474011583
+        },
+        "touch_depth_contracts": 1115.98,
+        "touch_pair_pnl_usd": -0.0174,
+        "touch_taker_fee_usd": 0.0074,
+        "yes_best_bid_e4": 1200
+      },
+      {
+        "checkpoint_s": 2.0,
+        "engine_ioc_fee_usd": 0.0045,
+        "engine_ioc_limit_dollars": 0.932,
+        "engine_ioc_pair_pnl_usd": -0.0665,
+        "maker_exit_queue_age_s": 1.399,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.922,
+        "observation_age_at_checkpoint_s": 0.995806929,
+        "observation_elapsed_s": 1.004193071,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1233,
+          "src": "mm_20260726T06.ndjson#1233",
+          "time_utc": "2026-07-26T06:22:08.475821Z",
+          "wall_ns": 1785046928475820804
+        },
+        "touch_depth_contracts": 235.0,
+        "touch_pair_pnl_usd": -0.0571,
+        "touch_taker_fee_usd": 0.0051,
+        "yes_best_bid_e4": 780
+      },
+      {
+        "checkpoint_s": 5.0,
+        "engine_ioc_fee_usd": 0.0043,
+        "engine_ioc_limit_dollars": 0.935,
+        "engine_ioc_pair_pnl_usd": -0.0693,
+        "maker_exit_queue_age_s": 4.427,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.925,
+        "observation_age_at_checkpoint_s": 0.968087001,
+        "observation_elapsed_s": 4.031912999,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1237,
+          "src": "mm_20260726T06.ndjson#1237",
+          "time_utc": "2026-07-26T06:22:11.503541Z",
+          "wall_ns": 1785046931503540732
+        },
+        "touch_depth_contracts": 31.0,
+        "touch_pair_pnl_usd": -0.0599,
+        "touch_taker_fee_usd": 0.0049,
+        "yes_best_bid_e4": 750
+      },
+      {
+        "checkpoint_s": 10.0,
+        "engine_ioc_fee_usd": 0.0039,
+        "engine_ioc_limit_dollars": 0.941,
+        "engine_ioc_pair_pnl_usd": -0.0749,
+        "maker_exit_queue_age_s": 9.467,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.931,
+        "observation_age_at_checkpoint_s": 0.927464695,
+        "observation_elapsed_s": 9.072535305,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1242,
+          "src": "mm_20260726T06.ndjson#1242",
+          "time_utc": "2026-07-26T06:22:16.544163Z",
+          "wall_ns": 1785046936544163038
+        },
+        "touch_depth_contracts": 8.0,
+        "touch_pair_pnl_usd": -0.0655,
+        "touch_taker_fee_usd": 0.0045,
+        "yes_best_bid_e4": 690
+      },
+      {
+        "checkpoint_s": 30.0,
+        "engine_ioc_fee_usd": 0.0031,
+        "engine_ioc_limit_dollars": 0.954,
+        "engine_ioc_pair_pnl_usd": -0.0871,
+        "maker_exit_queue_age_s": 29.615,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.944,
+        "observation_age_at_checkpoint_s": 0.779240159,
+        "observation_elapsed_s": 29.220759841,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1264,
+          "src": "mm_20260726T06.ndjson#1264",
+          "time_utc": "2026-07-26T06:22:36.692388Z",
+          "wall_ns": 1785046956692387574
+        },
+        "touch_depth_contracts": 994.0,
+        "touch_pair_pnl_usd": -0.0778,
+        "touch_taker_fee_usd": 0.0038,
+        "yes_best_bid_e4": 560
+      },
+      {
+        "checkpoint_s": 60.0,
+        "engine_ioc_fee_usd": 0.0027,
+        "engine_ioc_limit_dollars": 0.96,
+        "engine_ioc_pair_pnl_usd": -0.0927,
+        "maker_exit_queue_age_s": 59.764,
+        "maker_exit_quote_dollars": 0.85,
+        "method": "last QUOTE_EVAL receipt at or before checkpoint; no look-ahead",
+        "no_touch_ask_dollars": 0.95,
+        "observation_age_at_checkpoint_s": 0.630629332,
+        "observation_elapsed_s": 59.369370668,
+        "source": {
+          "file": "mm_20260726T06.ndjson",
+          "line": 1297,
+          "src": "mm_20260726T06.ndjson#1297",
+          "time_utc": "2026-07-26T06:23:06.840998Z",
+          "wall_ns": 1785046986840998401
+        },
+        "touch_depth_contracts": 2042.0,
+        "touch_pair_pnl_usd": -0.0834,
+        "touch_taker_fee_usd": 0.0034,
+        "yes_best_bid_e4": 500
+      }
+    ],
+    "completed_cycle": 42,
+    "elapsed_to_forced_fill_s": 60.161402921,
+    "entry": {
+      "count": 1.0,
+      "exchange_ts_s": 1785046927.466,
+      "price_dollars": 0.13,
+      "side": "bid",
+      "source": {
+        "file": "mm_20260726T06.ndjson",
+        "line": 1231,
+        "src": "mm_20260726T06.ndjson#1231",
+        "time_utc": "2026-07-26T06:22:07.471628Z",
+        "wall_ns": 1785046927471627733
+      }
+    },
+    "forced": {
+      "count": 1.0,
+      "fee_usd": 0.0027,
+      "reason": "unpaired_age",
+      "risk_price_dollars": 0.96,
+      "source": {
+        "file": "mm_20260726T06.ndjson",
+        "line": 1300,
+        "src": "mm_20260726T06.ndjson#1300",
+        "time_utc": "2026-07-26T06:23:07.633031Z",
+        "wall_ns": 1785046987633030654
+      }
+    },
+    "maker_cancel_before_ioc": {
+      "file": "mm_20260726T06.ndjson",
+      "line": 1298,
+      "src": "mm_20260726T06.ndjson#1298",
+      "time_utc": "2026-07-26T06:23:07.632903Z",
+      "wall_ns": 1785046987632903022
+    },
+    "maker_exit_order": {
+      "quantity": 1.0,
+      "risk_price_dollars": 0.85,
+      "side": "ask",
+      "source": {
+        "file": "mm_20260726T06.ndjson",
+        "line": 1229,
+        "src": "mm_20260726T06.ndjson#1229",
+        "time_utc": "2026-07-26T06:22:07.075093Z",
+        "wall_ns": 1785046927075093162
+      }
+    },
+    "market": "KXBTC15M-26JUL260230-30",
+    "pair_wait_logged_s": 60.167,
+    "pnl_recomputed_usd": -0.0927
+  }
+}

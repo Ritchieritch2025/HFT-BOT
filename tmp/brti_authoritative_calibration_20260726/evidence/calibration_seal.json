@@ -1,0 +1,15 @@
+{
+  "schema": "brti-authoritative-calibration-seal-v1",
+  "sealed_at_utc": "2026-07-26T07:03:11Z",
+  "preregistration_sha256": "3c165373b3ba239dd1f20dcdb77ff8eadeb70f4fe5f8e9f0a4614bdbd103c800",
+  "downloader_sha256": "5eb4644dfaf61df75051be009085e1f636be8b96e083361b633330806ca276b8",
+  "analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+  "experiment_period_history_requested_before_seal": false,
+  "allowed_history_dates_utc": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+  "status": "SEALED"
+}

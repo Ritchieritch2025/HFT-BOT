@@ -1,0 +1,3 @@
+e4200628e26e46fa6dbd8637f610907805ad1d31e3d28fb08ef14276da212b32  ../../../tools/research/crypto_mm/round4_table_builder.py
+fa3759aee2148c423c7c0ab13b7fe3bec07c791ac290b008ec078cc3f76fe0f2  ../../../tests/test_round4_table_builder.py
+ede23569a00e9948cd3772cc2213a07f8e5c3b9849b9dd0f46e8e6adff3eaed3  round4_two_stage_tables.sql

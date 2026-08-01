@@ -1,0 +1,44 @@
+{
+  "engine_or_service_mutation_performed": false,
+  "experiment_period_values_requested_or_processed": false,
+  "next_step": "SEAL_NEW_CALIBRATION_PREREG_BEFORE_EXPERIMENT_DOWNLOAD",
+  "read_only": true,
+  "recent_values_endpoint_called": false,
+  "redirect_count": 0,
+  "request": {
+    "credential_fields_recorded": false,
+    "host": "https://external-api.kalshi.com",
+    "method": "GET",
+    "query": {
+      "id": "BRTI",
+      "timespan": "HOUR",
+      "timestamp": "2009-01-01T00:00:00.000Z"
+    },
+    "signature_excludes_query": true,
+    "signed_path": "/trade-api/v2/cfbenchmarks/history/values"
+  },
+  "request_count": 1,
+  "response": {
+    "body_bytes": 63,
+    "body_sha256": "0a952f7f619205c98572524d899030b36993f335f1f3a67d5192ef9aa0ffd98b",
+    "classification": "ENTITLED_HISTORICAL_AVAILABLE",
+    "content_type": "application/json; charset=utf-8",
+    "elapsed_ms": 209.995,
+    "http_status": 200,
+    "network_error": null,
+    "payload_count": 0,
+    "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request_id": null,
+    "sanitized_detail": "{\"data\":{\"payload\":{\"omitted\":true,\"row_count\":0},\"serverTime\":\"2026-07-26T06:54:01.759Z\"}}",
+    "unexpected_nonempty_payload": false
+  },
+  "retry_count": 0,
+  "schema": "brti-historical-entitlement-probe-receipt-v1",
+  "seal": {
+    "preregistration_sha256": "fdc795b3c578b581a81d6643fb7f746d04cf60e29e7f52e3aa2b5e23769beb8f",
+    "script_sha256": "9aece8376094d8e95cf13438ef907d7bc6fc0711531547d8fd80213f38c66264",
+    "seal_sha256": "47a83bf3365a01532f12f047df1bec2f4e8f45123842e0180c52dbdea78c77c4",
+    "verified": true
+  },
+  "trading_action_performed": false
+}

@@ -1,0 +1,304 @@
+{
+  "schema": "z3-preregistered-train-v1-evidence-repair",
+  "generated_at_utc": "2026-07-26T05:43:51Z",
+  "host": "ubuntu@3.130.232.109",
+  "status": "NO_CANDIDATE",
+  "validate_touched": false,
+  "live_orders_touched": false,
+  "split": {
+    "TRAIN": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "VALIDATE_RESERVED_UNTOUCHED": [
+      "2026-07-23"
+    ]
+  },
+  "scope": {
+    "zone": "Z3 only: 120<=TTE<300 and (mid<20 or mid>80)",
+    "clip_contracts": 1,
+    "pair_lock_max_c": 99,
+    "cancel_ack_latency_ms": 60,
+    "features": [
+      "past-60s executable taker flow at current YES and NO touch",
+      "current displayed queue depth at both touches",
+      "queue-clear ETA=max((depth+1)/(flow/60))",
+      "current price-derived midpoint and TTE for Z3",
+      "current counterpart distance from touch",
+      "current immediately executable taker pair cost"
+    ],
+    "candidate_count": 16,
+    "bounded_search": "10 exit policies, freeze exactly one; 6 admission policies under that frozen exit"
+  },
+  "execution": {
+    "command": "cd /tmp && /home/ubuntu/hft-bot/.venv/bin/python /tmp/z3_train_preregister.py",
+    "experiment_path": "/tmp/z3_train_preregister.py",
+    "experiment_sha256": "6284df0a04d1c516d1bbf4247da558ab9f3429fbaabce34192365aae09ea754e",
+    "base_replay_sha256": "57bdd55ae86589863645d3e50f32cb0f2d5bb161ad78ed3b639d3ef442440e10"
+  },
+  "train_thresholds": {
+    "source_policy": "ttl60",
+    "source_admissions": 400,
+    "eligible_history60_finite_eta": 373,
+    "eta_q20_s": 0.9099564774372811,
+    "eta_q40_s": 2.7018799781747003,
+    "eta_q60_s": 8.602643070406097,
+    "flow_q20_contracts_per_60s": 1524.3140000000003,
+    "flow_q40_contracts_per_60s": 5417.748000000002
+  },
+  "phase_A_exit": {
+    "selection_rule": "maximum market-cluster CI95 lower bound, then net EV, markets, cycles",
+    "ev_wait_reference": "ttl60",
+    "frozen_unique_exit": "dist2_ttl60",
+    "all_candidates_failed_positive_EV": true,
+    "ranking": [
+      {
+        "rank": 1,
+        "name": "dist2_ttl60",
+        "definition": "freeze counterpart; stop if counterpart quote is >=2c behind current touch; hard TTL60",
+        "cycles": 677,
+        "markets": 38,
+        "net_c_per_cycle": -1.8021,
+        "ci95_market_boot": [
+          -1.9878,
+          -1.6315
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 2,
+        "name": "cost102_ttl60",
+        "definition": "freeze counterpart; stop if immediate taker pair cost >=102c; hard TTL60",
+        "cycles": 689,
+        "markets": 38,
+        "net_c_per_cycle": -1.8418,
+        "ci95_market_boot": [
+          -2.0317,
+          -1.6771
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 3,
+        "name": "cost101_ttl60",
+        "definition": "freeze counterpart; stop if immediate taker pair cost >=101c; hard TTL60",
+        "cycles": 1050,
+        "markets": 38,
+        "net_c_per_cycle": -1.9444,
+        "ci95_market_boot": [
+          -2.0693,
+          -1.8315
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 4,
+        "name": "dist1_ttl60",
+        "definition": "freeze counterpart; stop if counterpart quote is >=1c behind current touch; hard TTL60",
+        "cycles": 1009,
+        "markets": 38,
+        "net_c_per_cycle": -1.9033,
+        "ci95_market_boot": [
+          -2.0734,
+          -1.7399
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 5,
+        "name": "cost103_ttl60",
+        "definition": "freeze counterpart; stop if immediate taker pair cost >=103c; hard TTL60",
+        "cycles": 548,
+        "markets": 38,
+        "net_c_per_cycle": -1.9505,
+        "ci95_market_boot": [
+          -2.2061,
+          -1.7078
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 6,
+        "name": "dist3_ttl60",
+        "definition": "freeze counterpart; stop if counterpart quote is >=3c behind current touch; hard TTL60",
+        "cycles": 542,
+        "markets": 38,
+        "net_c_per_cycle": -1.9698,
+        "ci95_market_boot": [
+          -2.2176,
+          -1.7441
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 7,
+        "name": "ttl5",
+        "definition": "freeze counterpart; hard TTL5",
+        "cycles": 421,
+        "markets": 38,
+        "net_c_per_cycle": -2.2588,
+        "ci95_market_boot": [
+          -2.7736,
+          -1.7766
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 8,
+        "name": "ttl15",
+        "definition": "freeze counterpart; hard TTL15",
+        "cycles": 277,
+        "markets": 38,
+        "net_c_per_cycle": -2.6586,
+        "ci95_market_boot": [
+          -3.7238,
+          -1.826
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 9,
+        "name": "ttl30",
+        "definition": "freeze counterpart; hard TTL30",
+        "cycles": 209,
+        "markets": 38,
+        "net_c_per_cycle": -2.8828,
+        "ci95_market_boot": [
+          -4.5157,
+          -1.6167
+        ],
+        "strict_pass": false
+      },
+      {
+        "rank": 10,
+        "name": "ttl60",
+        "definition": "freeze counterpart; hard TTL60",
+        "cycles": 174,
+        "markets": 38,
+        "net_c_per_cycle": -3.4218,
+        "ci95_market_boot": [
+          -5.5855,
+          -1.7782
+        ],
+        "strict_pass": false
+      }
+    ]
+  },
+  "phase_B_admission": {
+    "frozen_exit": "dist2_ttl60",
+    "strict_rule": "cycles>=30, markets>=10, completion Wilson LCB95 > break-even completion, market-cluster bootstrap CI95 lower>0",
+    "frozen_unique_final": null,
+    "ranking": [
+      {
+        "rank": 1,
+        "name": "eta_q20",
+        "definition": "full 60s history and max two-sided queue-clear ETA <= TRAIN q20",
+        "cycles": 502,
+        "markets": 37,
+        "net_c_per_cycle": -1.1462,
+        "ci95_market_boot": [
+          -1.4373,
+          -0.9007
+        ],
+        "completion_wilson_lcb95": 0.5121,
+        "break_even_completion": 0.7905,
+        "strict_pass": false
+      },
+      {
+        "rank": 2,
+        "name": "eta_q40_flow_q20",
+        "definition": "ETA <= TRAIN q40 and minimum two-sided 60s executable flow >= TRAIN q20",
+        "cycles": 586,
+        "markets": 38,
+        "net_c_per_cycle": -1.2165,
+        "ci95_market_boot": [
+          -1.5017,
+          -0.9809
+        ],
+        "completion_wilson_lcb95": 0.4851,
+        "break_even_completion": 0.7797,
+        "strict_pass": false
+      },
+      {
+        "rank": 3,
+        "name": "eta_q40",
+        "definition": "full 60s history and max two-sided queue-clear ETA <= TRAIN q40",
+        "cycles": 632,
+        "markets": 38,
+        "net_c_per_cycle": -1.358,
+        "ci95_market_boot": [
+          -1.6311,
+          -1.14
+        ],
+        "completion_wilson_lcb95": 0.4596,
+        "break_even_completion": 0.783,
+        "strict_pass": false
+      },
+      {
+        "rank": 4,
+        "name": "eta_q60_flow_q40",
+        "definition": "ETA <= TRAIN q60 and minimum two-sided 60s executable flow >= TRAIN q40",
+        "cycles": 482,
+        "markets": 37,
+        "net_c_per_cycle": -1.6528,
+        "ci95_market_boot": [
+          -1.9123,
+          -1.3478
+        ],
+        "completion_wilson_lcb95": 0.3941,
+        "break_even_completion": 0.7798,
+        "strict_pass": false
+      },
+      {
+        "rank": 5,
+        "name": "nogate",
+        "definition": "Z3 price/TTE and safe-pair admission only",
+        "cycles": 677,
+        "markets": 38,
+        "net_c_per_cycle": -1.8021,
+        "ci95_market_boot": [
+          -1.9887,
+          -1.6268
+        ],
+        "completion_wilson_lcb95": 0.3698,
+        "break_even_completion": 0.7835,
+        "strict_pass": false
+      },
+      {
+        "rank": 6,
+        "name": "eta_q60",
+        "definition": "full 60s history and max two-sided queue-clear ETA <= TRAIN q60",
+        "cycles": 650,
+        "markets": 37,
+        "net_c_per_cycle": -1.7448,
+        "ci95_market_boot": [
+          -1.9966,
+          -1.5119
+        ],
+        "completion_wilson_lcb95": 0.3811,
+        "break_even_completion": 0.7824,
+        "strict_pass": false
+      }
+    ]
+  },
+  "decision": {
+    "result": "NO_CANDIDATE",
+    "reason": "All six final TRAIN candidates have negative point EV, negative market-cluster CI95 lower and upper bounds, and completion LCB below break-even completion.",
+    "validate_action": "STOP; do not run VALIDATE",
+    "live_action": "STOP; do not deploy or place live orders",
+    "search_action": "STOP; do not expand the candidate grid"
+  },
+  "serialization_repair": {
+    "computation_repeated": false,
+    "selection_repeated": false,
+    "candidate_or_threshold_changed": false,
+    "original_failure_stage": "post-computation evidence serialization",
+    "original_error": "ValueError: Out of range float values are not JSON compliant: inf",
+    "cause": "Some decision rows had zero executable flow, so queue-clear ETA was positive infinity.",
+    "encoding_rule": "Any non-finite raw ETA is represented as JSON null with the semantic marker below.",
+    "nonfinite_eta_example": null,
+    "nonfinite_eta_semantics": "positive infinity because executable flow was zero",
+    "raw_status": "Original raw JSON was truncated by the strict serializer and is not claimed as evidence. This repaired report contains the complete fixed ranking tables printed before that failure."
+  }
+}

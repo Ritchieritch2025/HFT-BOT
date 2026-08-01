@@ -1,0 +1,42 @@
+{
+  "experiment_sha256": "efa402bfa2a45cb6624bae483a4de59b1c176400168ef87c7ab247d737c9e381",
+  "spec": {
+    "schema": "z3-postfill-optimal-stopping-prereg-v1",
+    "status": "DISCOVERY_HEADROOM_ONLY",
+    "dates_opened": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "date_2026_07_23": "DISCOVERY_CONTAMINATED_AND_NOT_READ",
+    "base_script_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+    "entry_and_fill_model": {
+      "arm": "P3_SPEND1 imported from sealed base",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "maker_queue_ahead": "exact-level displayed quantity only",
+      "maker_fill": "strict eligible taker volume > queue_ahead + clip",
+      "cancel_ack_latency_ms": 60,
+      "ioc": "walk held-side displayed bids; official rounded taker fee; remainder settles"
+    },
+    "fixed_policies": {
+      "IOC_60MS": "maker wait 0s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_0P25": "maker wait 0.25s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_0P5": "maker wait 0.5s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_1": "maker wait 1s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_2": "maker wait 2s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_5": "maker wait 5s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_10": "maker wait 10s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_30": "maker wait 30s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_60": "maker wait 60s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "CURRENT_DIST2_TTL60": "first event where counterpart touch-quote>=2c, fallback first event at/after 60s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "CLAIRVOYANT_BEST_FIXED": "per-episode max realized PnL among fixed waits plus current; tie shorter capital time then policy name; opportunity-level clairvoyant upper bound only"
+    },
+    "trajectory": "one gzip JSONL row for every trade/book event through the later of policy resolution and the 60s markout for each independent shadow episode; fields include elapsed, counterpart quote/queue/touch, recent executable flow, fee-inclusive immediate IOC PnL, distance trigger, and maker-fill state",
+    "diagnostic_markouts": "for every first fill, fee-inclusive immediate IOC value is sampled as-of first fill and at 0.25/0.5/1/2/5/10/30/60s using only the latest book at or before each horizon; relative markout is horizon IOC value minus first-fill IOC value",
+    "event_clock_and_no_lookahead": "reuse sealed replay order: consume each trade before the enclosing book event, update strict maker queue on that trade, and apply a book message only after all prior/equal-time queued trades; every timed IOC/markout snapshot is taken before the first event at/after its scheduled time from the latest already-applied book, with an enforced book_asof_ts<=scheduled_ts invariant",
+    "metrics": "n, markets, EV, market-cluster bootstrap CI95, paired improvement versus current with cluster CI95, mean/median capital time",
+    "baseline_gate": "sealed P3 must reproduce cycles=878, pairs=433, markets=44, mean=-1.1702c; CURRENT results are sourced directly from those sealed cycles while shadow-current agreement is reported as an audit",
+    "interpretation": "oracle point EV<=0 kills mechanism; oracle >0 reports timing headroom only and cannot be called validation or a candidate"
+  }
+}

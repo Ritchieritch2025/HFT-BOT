@@ -1,0 +1,90 @@
+{
+  "orderbooks_l1": [
+    "exchange_ts",
+    "market_ticker",
+    "market_id",
+    "price_dollars",
+    "yes_bid_dollars",
+    "yes_ask_dollars",
+    "yes_bid_size",
+    "yes_ask_size",
+    "last_trade_size",
+    "volume",
+    "open_interest",
+    "dollar_volume",
+    "dollar_open_interest"
+  ],
+  "orderbooks_full": [
+    "recorded_at",
+    "market_ticker",
+    "yes_bids",
+    "no_bids"
+  ],
+  "trades": [
+    "trade_id",
+    "ticker",
+    "taker_side",
+    "created_time",
+    "yes_price_dollars",
+    "no_price_dollars",
+    "count"
+  ],
+  "markets": [
+    "ticker",
+    "event_ticker",
+    "series_ticker",
+    "market_type",
+    "yes_sub_title",
+    "no_sub_title",
+    "strike_type",
+    "floor_strike",
+    "cap_strike",
+    "functional_strike",
+    "custom_strike",
+    "expected_expiration_time",
+    "close_time",
+    "as_of"
+  ],
+  "events": [
+    "event_ticker",
+    "series_ticker",
+    "title",
+    "category",
+    "mutually_exclusive",
+    "collateral_return_type",
+    "as_of"
+  ],
+  "market_settlements": [
+    "ticker",
+    "event_ticker",
+    "market_type",
+    "result",
+    "status",
+    "settlement_value_dollars",
+    "settlement_ts",
+    "expiration_value",
+    "close_time",
+    "yes_sub_title",
+    "no_sub_title",
+    "rules_primary",
+    "rules_secondary",
+    "fractional_trading_enabled",
+    "price_level_structure",
+    "price_ranges"
+  ],
+  "rfq_events": [
+    "exchange_ts",
+    "market_ticker",
+    "msg_type",
+    "rfq_id",
+    "contracts",
+    "cash_order_qty_dollars",
+    "party_id",
+    "reject_reason_code",
+    "reject_reason_text",
+    "mve_collection_ticker",
+    "mve_selected_event_tickers",
+    "mve_selected_market_tickers",
+    "mve_selected_sides"
+  ]
+}

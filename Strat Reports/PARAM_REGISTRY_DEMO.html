@@ -1,0 +1,85 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>参数户口本</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<style>
+body{background:#0d1117;color:#dde3ea;font-family:-apple-system,Segoe UI,sans-serif;padding:14px 22px}
+h1{font-size:17px} .sub{color:#7d8896;font-size:12px;margin-bottom:12px}
+table{border-collapse:collapse;font-size:12px;margin-bottom:18px}
+td,th{border:1px solid #21262d;padding:4px 10px;text-align:right}
+th{color:#9fb6d0} td:first-child,th:first-child{text-align:left}
+.red{color:#ff7b72;font-weight:600} .ok{color:#7ee787}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px}
+.plot{height:220px;border:1px solid #21262d;border-radius:8px}
+.plot.drift{border-color:#ff7b72}
+</style></head><body>
+<h1>参数户口本 — 登记值 vs 数据重估</h1>
+<div class="sub">8 个参数在册 · <span class="red">
+5 个漂移报警</span> · 判定:登记值落在最新重估95%区间外=红</div>
+<table><tr><th>参数</th><th>级别</th><th>登记值</th><th>最新重估</th>
+<th>轮次</th><th>n</th><th>估计器</th><th>状态</th></tr><tr><td>GAMMA_C <small>(c/ct)</small></td><td>stat</td><td>0.5</td><td>0.83</td><td>3</td><td>3434</td><td>glft_delta_fit</td><td><span class="red">漂移</span></td></tr><tr><td>SENTINEL_C <small>(c)</small></td><td>stat</td><td>15.0</td><td>4.4</td><td>3</td><td>4589</td><td>fair_mid_p995</td><td><span class="red">漂移</span></td></tr><tr><td>SHIELD_LAT_MS <small>(ms)</small></td><td>stat</td><td>150</td><td>88</td><td>1</td><td>3677</td><td>census_p95</td><td><span class="red">漂移</span></td></tr><tr><td>TOX_EWMA_HALFLIFE <small>(fills)</small></td><td>stat</td><td>30</td><td>110</td><td>2</td><td>3625</td><td>pred_likelihood</td><td><span class="red">漂移</span></td></tr><tr><td>UNPAIRED_HARD_S <small>(s)</small></td><td>stat</td><td>120.0</td><td>58</td><td>3</td><td>904</td><td>pair_time_p999</td><td><span class="red">漂移</span></td></tr><tr><td>BETA_BINANCE_1S <small>(ratio)</small></td><td>stat</td><td>0.79</td><td>0.84</td><td>4</td><td>4714</td><td>rolling_ols_45m</td><td><span class="ok">在带内</span></td></tr><tr><td>MARGIN_BID_C <small>(c)</small></td><td>stat</td><td>2.5</td><td>2.8</td><td>3</td><td>4974</td><td>markout_cost_p60</td><td><span class="ok">在带内</span></td></tr><tr><td>PULL_K <small>(sigma)</small></td><td>stat</td><td>2.5</td><td>2.3</td><td>2</td><td>4356</td><td>shadow_roc_optimal</td><td><span class="ok">在带内</span></td></tr></table><div class="grid"><div id="p0" class="plot"></div><div id="p1" class="plot drift"></div><div id="p2" class="plot"></div><div id="p3" class="plot"></div><div id="p4" class="plot drift"></div><div id="p5" class="plot drift"></div><div id="p6" class="plot drift"></div><div id="p7" class="plot drift"></div></div><script>
+const L={paper_bgcolor:'#0d1117',plot_bgcolor:'#11161d',font:{color:'#dde3ea',size:10},margin:{l:45,r:12,t:30,b:28},xaxis:{gridcolor:'#1c2430'},yaxis:{gridcolor:'#1c2430'},showlegend:false};
+Plotly.newPlot('p0',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-28", "2026-07-27", "2026-07-26", "2026-07-25"],y:[0.84, 0.8, 0.87, 0.89, 0.79, 0.77, 0.7, 0.74],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28"],y:[0.79, 0.75, 0.82, 0.84],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28"],y:[0.79, 0.79, 0.79, 0.79],name:'登记值',
+   line:{color:'#7ee787',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'BETA_BINANCE_1S (ratio)'
+   + (false ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p1',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-27", "2026-07-26", "2026-07-25"],y:[0.9, 0.96, 1.01, 0.65, 0.6, 0.54],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[0.72, 0.78, 0.83],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[0.5, 0.5, 0.5],name:'登记值',
+   line:{color:'#ff7b72',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'GAMMA_C (c/ct)'
+   + (true ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p2',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-27", "2026-07-26", "2026-07-25"],y:[2.7, 3.0, 3.2, 2.4, 2.2, 1.9],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[2.3, 2.6, 2.8],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[2.5, 2.5, 2.5],name:'登记值',
+   line:{color:'#7ee787',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'MARGIN_BID_C (c)'
+   + (false ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p3',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-26", "2026-07-25"],y:[2.6, 2.8, 1.8, 1.6],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26"],y:[2.1, 2.3],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26"],y:[2.5, 2.5],name:'登记值',
+   line:{color:'#7ee787',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'PULL_K (sigma)'
+   + (false ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p4',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-27", "2026-07-26", "2026-07-25"],y:[5.0, 5.5, 5.3, 3.5, 3.7, 3.2],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[4.1, 4.6, 4.4],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[15.0, 15.0, 15.0],name:'登记值',
+   line:{color:'#ff7b72',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'SENTINEL_C (c)'
+   + (true ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p5',[
+ {x:["2026-07-25", "2026-07-25"],y:[100, 76],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25"],y:[88],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25"],y:[150],name:'登记值',
+   line:{color:'#ff7b72',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'SHIELD_LAT_MS (ms)'
+   + (true ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p6',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-26", "2026-07-25"],y:[120, 135, 85, 70],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26"],y:[95, 110],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26"],y:[30, 30],name:'登记值',
+   line:{color:'#ff7b72',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'TOX_EWMA_HALFLIFE (fills)'
+   + (true ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+Plotly.newPlot('p7',[
+ {x:["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-27", "2026-07-26", "2026-07-25"],y:[72, 69, 66, 50, 53, 56],fill:'toself',
+   fillcolor:'rgba(88,166,255,0.15)',line:{width:0},hoverinfo:'skip'},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[64, 61, 58],name:'重估',line:{color:'#58a6ff',width:1.5}},
+ {x:["2026-07-25", "2026-07-26", "2026-07-27"],y:[120.0, 120.0, 120.0],name:'登记值',
+   line:{color:'#ff7b72',width:1.5,dash:'dash'}}],
+ Object.assign(JSON.parse(JSON.stringify(L)),{title:{text:'UNPAIRED_HARD_S (s)'
+   + (true ? '  ⚠ 漂移' : ''),font:{size:11}}}));
+</script></body></html>

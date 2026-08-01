@@ -1,0 +1,39 @@
+{
+  "schema": "brti-fair-pricing-audit-postseal-addendum-v1",
+  "status": "POSTSEAL_SCOPE_CORRECTION",
+  "sealed_files_modified": false,
+  "new_fact_received_after_seal": {
+    "old_incorrect_causal_order": [
+      "ts_utc",
+      "ws_seq"
+    ],
+    "required_causal_order": [
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ws_seq"
+    ],
+    "observed_root_cause": "The old ordering could place a delta before its snapshot and create negative displayed quantity.",
+    "root_cause_replay_result": "Using the receive-clock ordering reduced the cited negative-level sample from 1120 to 0 with capture gap/loss 0."
+  },
+  "effect_on_this_audit": {
+    "blocked_verdict_changed": false,
+    "reason": "The sealed run found zero allowed-date CF Benchmarks files and returned before opening or reconstructing any book parquet.",
+    "kernel_calibration_result": "Still unidentified because historical BRTI is absent.",
+    "book_metrics_produced": false
+  },
+  "effect_on_sealed_script": {
+    "future_full_result_book_branch_valid": false,
+    "invalidated_components": [
+      "market-mid benchmark",
+      "fair-minus-mid lead tests",
+      "P3 L2 completion-cost deterioration"
+    ],
+    "reuse_rule": "Do not reuse the sealed script for any future full-result run."
+  },
+  "required_next_preregistration": {
+    "book_order": "recv_wall_ns, recv_mono_ns, ws_seq",
+    "markout_clock": "Book and trade observations used in future markouts must share the same receive-clock domain; do not mix book receive time with trade exchange time.",
+    "settlement_clock_boundary": "BRTI kernel calibration against official settlement may use authoritative BRTI source time and official close because it is a separate calibration task, not a microstructure markout.",
+    "negative_quantity_policy": "Remain fail-closed; never silently clamp."
+  }
+}

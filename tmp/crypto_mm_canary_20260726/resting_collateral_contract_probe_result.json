@@ -1,0 +1,157 @@
+{
+  "after": [
+    {
+      "balance": {
+        "balance": 1982,
+        "balance_breakdown": [
+          {
+            "balance": "19.8205",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.8205",
+        "portfolio_value": 0,
+        "updated_ts": 1785046206
+      },
+      "balance_code": 200,
+      "fills_code": 200,
+      "matching_fills": [],
+      "observed_at_utc": "2026-07-26T06:10:06.142007+00:00",
+      "positions_code": 200,
+      "positions_count": 0,
+      "resting_orders_code": 200,
+      "resting_orders_count": 1
+    },
+    {
+      "balance": {
+        "balance": 1982,
+        "balance_breakdown": [
+          {
+            "balance": "19.8205",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.8205",
+        "portfolio_value": 0,
+        "updated_ts": 1785046206
+      },
+      "balance_code": 200,
+      "fills_code": 200,
+      "matching_fills": [],
+      "observed_at_utc": "2026-07-26T06:10:06.412265+00:00",
+      "positions_code": 200,
+      "positions_count": 0,
+      "resting_orders_code": 200,
+      "resting_orders_count": 0
+    }
+  ],
+  "before": {
+    "balance": {
+      "balance": 1982,
+      "balance_breakdown": [
+        {
+          "balance": "19.8205",
+          "exchange_index": 0
+        }
+      ],
+      "balance_dollars": "19.8205",
+      "portfolio_value": 0,
+      "updated_ts": 1785046205
+    },
+    "balance_code": 200,
+    "positions_code": 200,
+    "positions_count": 0,
+    "resting_orders_code": 200,
+    "resting_orders_count": 0
+  },
+  "cleanup": [
+    {
+      "cancel": {
+        "code": 200,
+        "payload": {
+          "order_id": "6ce6b599-710b-4a8a-808d-a0adfb26e372",
+          "reduced_by": "1.00",
+          "ts_ms": 1785046206067
+        }
+      },
+      "order_id": "6ce6b599-710b-4a8a-808d-a0adfb26e372"
+    }
+  ],
+  "count": "1.00",
+  "create": {
+    "code": 201,
+    "response": {
+      "client_order_id": "budget-contract-probe-f9b71c21-ab88-4592-94f7-28d01893d933",
+      "fill_count": "0.00",
+      "order_id": "6ce6b599-710b-4a8a-808d-a0adfb26e372",
+      "remaining_count": "1.00",
+      "ts_ms": 1785046205740
+    }
+  },
+  "exchange_index": 0,
+  "finished_at_utc": "2026-07-26T06:10:06.412280+00:00",
+  "max_contract_cost_dollars": "0.0010",
+  "price_dollars": "0.0010",
+  "probe_kind": "authenticated-production-one-contract",
+  "schema": "kalshi-resting-collateral-contract-probe-v1",
+  "started_at_utc": "2026-07-26T06:10:05.657124+00:00",
+  "subaccount": 0,
+  "ticker": "KXBTC15M-26JUL260215-15",
+  "while_resting": [
+    {
+      "balance": {
+        "balance": 1982,
+        "balance_breakdown": [
+          {
+            "balance": "19.8205",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.8205",
+        "portfolio_value": 0,
+        "updated_ts": 1785046205
+      },
+      "balance_code": 200,
+      "matching_orders": [],
+      "observed_at_utc": "2026-07-26T06:10:05.782056+00:00",
+      "orders_code": 200,
+      "user_data_timestamp": "2026-07-26T06:10:05.752255Z",
+      "user_data_timestamp_code": 200
+    },
+    {
+      "balance": {
+        "balance": 1982,
+        "balance_breakdown": [
+          {
+            "balance": "19.8205",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.8205",
+        "portfolio_value": 0,
+        "updated_ts": 1785046206
+      },
+      "balance_code": 200,
+      "matching_orders": [
+        {
+          "action": "buy",
+          "book_side": "bid",
+          "client_order_id": "budget-contract-probe-f9b71c21-ab88-4592-94f7-28d01893d933",
+          "initial_count_fp": "1.00",
+          "no_price_dollars": "0.9990",
+          "order_id": "6ce6b599-710b-4a8a-808d-a0adfb26e372",
+          "outcome_side": "yes",
+          "remaining_count_fp": "1.00",
+          "status": "resting",
+          "subaccount_number": 0,
+          "ticker": "KXBTC15M-26JUL260215-15",
+          "yes_price_dollars": "0.0010"
+        }
+      ],
+      "observed_at_utc": "2026-07-26T06:10:06.043778+00:00",
+      "orders_code": 200,
+      "user_data_timestamp": "2026-07-26T06:10:05.95144Z",
+      "user_data_timestamp_code": 200
+    }
+  ]
+}

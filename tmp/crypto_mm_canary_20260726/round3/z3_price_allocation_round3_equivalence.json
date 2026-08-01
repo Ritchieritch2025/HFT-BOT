@@ -1,0 +1,217 @@
+{
+  "schema": "z3-round3-actual-equivalence-v1",
+  "claim": "DISCOVERY_QA_ONLY",
+  "date": "2026-07-20",
+  "market": "KXBTC15M-26JUL192315-15",
+  "forbidden_date_opened": false,
+  "optimized_vs_naive_pointwise": {
+    "minimax": 8,
+    "ev": 8
+  },
+  "complete_legal_action_space": true,
+  "source_quality": {
+    "date": "2026-07-20",
+    "raw_l2_receipt": {
+      "path": "/home/ubuntu/hft-bot/work/event_packs/l2_gaps_2026-07-20.json",
+      "sha256": "93fa2cbaae0e600cfca0a8537c8dfa3c1d9bbd26498809000b6b55dd1c401eab",
+      "schema_version": "l2-gap-receipt-v1",
+      "date": "2026-07-20",
+      "required_zero": {
+        "sids_with_seq_gaps": 0,
+        "seq_gap_events": 0,
+        "seq_missed_total": 0,
+        "seq_regressions": 0,
+        "stream_restarts": 0,
+        "markers_lost_frames": 0,
+        "parse_errors": 0
+      },
+      "recorder_markers": {
+        "transport_close": 24
+      },
+      "snapshot_re_anchors_total": 234,
+      "sids_total": 24,
+      "files": [
+        "l2_00.ndjson",
+        "l2_00.ndjson.1",
+        "l2_00.ndjson.2",
+        "l2_00.ndjson.3",
+        "l2_00.ndjson.4",
+        "l2_00.ndjson.5",
+        "l2_01.ndjson",
+        "l2_01.ndjson.1",
+        "l2_01.ndjson.2",
+        "l2_01.ndjson.3",
+        "l2_02.ndjson",
+        "l2_02.ndjson.1",
+        "l2_02.ndjson.2",
+        "l2_02.ndjson.3",
+        "l2_03.ndjson",
+        "l2_03.ndjson.1",
+        "l2_03.ndjson.2",
+        "l2_04.ndjson",
+        "l2_04.ndjson.1",
+        "l2_04.ndjson.2",
+        "l2_04.ndjson.3",
+        "l2_05.ndjson",
+        "l2_05.ndjson.1",
+        "l2_05.ndjson.2",
+        "l2_06.ndjson",
+        "l2_06.ndjson.1",
+        "l2_06.ndjson.2",
+        "l2_07.ndjson",
+        "l2_07.ndjson.1",
+        "l2_08.ndjson",
+        "l2_08.ndjson.1",
+        "l2_09.ndjson",
+        "l2_09.ndjson.1",
+        "l2_09.ndjson.2",
+        "l2_10.ndjson",
+        "l2_10.ndjson.1",
+        "l2_11.ndjson",
+        "l2_11.ndjson.1",
+        "l2_12.ndjson",
+        "l2_12.ndjson.1",
+        "l2_13.ndjson",
+        "l2_13.ndjson.1",
+        "l2_13.ndjson.2",
+        "l2_13.ndjson.3",
+        "l2_14.ndjson",
+        "l2_14.ndjson.1",
+        "l2_14.ndjson.2",
+        "l2_14.ndjson.3",
+        "l2_15.ndjson",
+        "l2_15.ndjson.1",
+        "l2_15.ndjson.2",
+        "l2_16.ndjson",
+        "l2_16.ndjson.1",
+        "l2_16.ndjson.2",
+        "l2_16.ndjson.3",
+        "l2_17.ndjson",
+        "l2_17.ndjson.1",
+        "l2_18.ndjson",
+        "l2_18.ndjson.1",
+        "l2_18.ndjson.2",
+        "l2_19.ndjson",
+        "l2_19.ndjson.1",
+        "l2_19.ndjson.2",
+        "l2_19.ndjson.3",
+        "l2_20.ndjson",
+        "l2_20.ndjson.1",
+        "l2_20.ndjson.2",
+        "l2_20.ndjson.3",
+        "l2_21.ndjson",
+        "l2_21.ndjson.1",
+        "l2_21.ndjson.2",
+        "l2_22.ndjson",
+        "l2_22.ndjson.1",
+        "l2_22.ndjson.2",
+        "l2_22.ndjson.3",
+        "l2_23.ndjson",
+        "l2_23.ndjson.1",
+        "l2_23.ndjson.2",
+        "l2_23.ndjson.3",
+        "l2_23.ndjson.4",
+        "l2_23.ndjson.5"
+      ]
+    },
+    "l2_paths": [
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-20/orderbooks_full__Crypto__BTC__2026-07-20.parquet",
+        "bytes": 108851529
+      }
+    ],
+    "trade_paths": [
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=15_min/date=2026-07-20/trades__Crypto__15_min__2026-07-20.csv.gz",
+        "bytes": 9970842
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BNB/date=2026-07-20/trades__Crypto__BNB__2026-07-20.csv.gz",
+        "bytes": 1969406
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=BTC/date=2026-07-20/trades__Crypto__BTC__2026-07-20.csv.gz",
+        "bytes": 105565851
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=DOGE/date=2026-07-20/trades__Crypto__DOGE__2026-07-20.csv.gz",
+        "bytes": 3396020
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ETH/date=2026-07-20/trades__Crypto__ETH__2026-07-20.csv.gz",
+        "bytes": 14532868
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=HYPE/date=2026-07-20/trades__Crypto__HYPE__2026-07-20.csv.gz",
+        "bytes": 5238749
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Hourly/date=2026-07-20/trades__Crypto__Hourly__2026-07-20.csv.gz",
+        "bytes": 28372106
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=Pre-Market/date=2026-07-20/trades__Crypto__Pre-Market__2026-07-20.csv.gz",
+        "bytes": 2691
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=SOL/date=2026-07-20/trades__Crypto__SOL__2026-07-20.csv.gz",
+        "bytes": 615963
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=XRP/date=2026-07-20/trades__Crypto__XRP__2026-07-20.csv.gz",
+        "bytes": 200759
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=ZEC/date=2026-07-20/trades__Crypto__ZEC__2026-07-20.csv.gz",
+        "bytes": 779
+      },
+      {
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/trades/category=Crypto/subcategory=none/date=2026-07-20/trades__Crypto__none__2026-07-20.csv.gz",
+        "bytes": 8828
+      }
+    ],
+    "trade_stats": {
+      "rows": 41543,
+      "markets": 1,
+      "invalid_markets": 0
+    },
+    "book_rows": 281241,
+    "book_markets": 1,
+    "snapshot_events": 1,
+    "delta_events": 281240,
+    "snapshot_reanchors": 0,
+    "stream_resets": 0,
+    "zero_level_deletes": 3554,
+    "clean_market_days": 1,
+    "clean_strategy_market_days": 1,
+    "no_settlement_meta_market_days": 0,
+    "invalid_market_days": 0,
+    "invalid_market_samples": [],
+    "rolled_back": {
+      "A0_COMMON_TOUCH": {
+        "cycles": 0,
+        "admissions": 0
+      },
+      "A1_SPEND_ALL_SLOW": {
+        "cycles": 0,
+        "admissions": 0
+      },
+      "A2_FULL_MINIMAX_ETA": {
+        "cycles": 0,
+        "admissions": 0
+      },
+      "A3_FULL_EV_GATE": {
+        "cycles": 0,
+        "admissions": 0
+      }
+    },
+    "equivalence_counts": {
+      "minimax": 8,
+      "ev": 8
+    },
+    "sample_truncated_after_equivalence": true,
+    "all_included_market_days_clean": true,
+    "daily_receipt_gate_pass": true,
+    "equivalence_complete": true
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "brti-timestamp-support-seal-v1",
+  "sealed_at_utc": "2026-07-26T07:19:19Z",
+  "preregistration_sha256": "1e6268e05c08c6086c857204e06aa63f2532a14a5cacc767dcc9cb993300f60f",
+  "script_sha256": "15d132ca61a82759e3d5e791e6e707ee8a25b3a034d152bc14e99c283ee94366",
+  "v3_acquisition_receipt_sha256": "a0098b608caf0eb5d9c16f77ffcac29e3936c37ccd311f606c5eabb0a36b2682",
+  "brti_values_permitted": false,
+  "model_analysis_permitted": false,
+  "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+  "status": "SEALED"
+}

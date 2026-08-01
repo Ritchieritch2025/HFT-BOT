@@ -1,0 +1,40 @@
+{
+  "schema": "z3-postfill-fee-precision-v2-local-manifest-verification-v1",
+  "status": "PASS",
+  "verified_at_utc": "2026-07-26T09:18:05Z",
+  "working_directory": "tmp/crypto_mm_canary_20260726/round4",
+  "command": "shasum -a 256 -c POSTFILL_FEE_PRECISION_V2_SHA256SUMS",
+  "local_artifact_manifest": {
+    "path": "POSTFILL_FEE_PRECISION_V2_SHA256SUMS",
+    "sha256": "d359285ed20651321381f7d12e50083e77104effe344f7a0ad41a5ecf4c4d9f5",
+    "entries": 11,
+    "passed": 11,
+    "failed": 0,
+    "unreadable": 0
+  },
+  "verified_local_entries": [
+    "postfill_direct_centicent_fee_replay.py",
+    "postfill_direct_centicent_fee_finalize.py",
+    "postfill_l2_aggregate_min_fee_sensitivity_v2.json",
+    "postfill_l2_aggregate_min_fee_adjusted_episodes_v2.json.gz",
+    "POSTFILL_L2_AGGREGATE_MIN_FEE_SENSITIVITY.ADDENDUM_V2.md",
+    "postfill_l2_aggregate_min_fee_verification_v2.json",
+    "verify_postfill_l2_aggregate_min_fee_v2.py",
+    "POSTFILL_FEE_PRECISION_BOUNDARY.ADDENDUM_V2.md",
+    "postfill_fee_precision_boundary_addendum_v2.json",
+    "verify_postfill_fee_precision_boundary_v2.py",
+    "POSTFILL_FEE_PRECISION_V2_SOURCE_RECEIPTS.json"
+  ],
+  "external_source_identity_receipt": {
+    "path": "POSTFILL_FEE_PRECISION_V2_SOURCE_RECEIPTS.json",
+    "sha256": "ffd696eaf451c630154c6a28682623520d3c847d8183789c3a0b379932bd7478",
+    "included_in_local_manifest_as_a_local_file": true,
+    "remote_paths_and_url_not_passed_to_shasum_c": true
+  },
+  "sealed_artifact_bytes_changed": false,
+  "scope_locks": {
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false
+  }
+}

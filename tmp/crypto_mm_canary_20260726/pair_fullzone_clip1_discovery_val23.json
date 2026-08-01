@@ -1,0 +1,208 @@
+{
+ "arms": [
+  {
+   "arm": "fullzone_clip1_pair99",
+   "clip": 1,
+   "counters": {
+    "exit_replacements": 0,
+    "fills_during_zone_cancel": 0,
+    "orphan_cancel_orders": 1,
+    "unsafe_bugs": 0,
+    "zone_cancel_orders": 0
+   },
+   "fills": 749,
+   "natural_pair_sum_max_c": 99.0,
+   "overall": {
+    "capital_time_s": 26.56,
+    "ci95_market_boot": [
+     -4.198,
+     -2.405
+    ],
+    "completion": 0.6946,
+    "cycles": 442,
+    "cycles_per_market": 18.417,
+    "markets": 24,
+    "net_c_per_contract": -3.175,
+    "orphan_loss_c": -12.793,
+    "orphans": 135,
+    "pair_gain_c": 1.054,
+    "paired": 307,
+    "preserved_share": 1.0,
+    "q_break_even": 0.9239,
+    "turns_h": 135.56,
+    "wilson_lcb95": 0.6501
+   },
+   "placed": 919,
+   "zones": {
+    "Z1_ge600": {
+     "capital_time_s": 26.37,
+     "ci95_market_boot": [
+      -4.672,
+      -1.981
+     ],
+     "completion": 0.6872,
+     "cycles": 211,
+     "cycles_per_market": 9.591,
+     "markets": 22,
+     "net_c_per_contract": -3.212,
+     "orphan_loss_c": -12.542,
+     "orphans": 66,
+     "pair_gain_c": 1.034,
+     "paired": 145,
+     "preserved_share": 1.0,
+     "q_break_even": 0.9238,
+     "turns_h": 136.53,
+     "wilson_lcb95": 0.6218
+    },
+    "Z2_300_600_tail": {
+     "capital_time_s": 29.58,
+     "ci95_market_boot": [
+      -5.375,
+      -2.779
+     ],
+     "completion": 0.6688,
+     "cycles": 157,
+     "cycles_per_market": 7.136,
+     "markets": 22,
+     "net_c_per_contract": -3.989,
+     "orphan_loss_c": -14.196,
+     "orphans": 52,
+     "pair_gain_c": 1.067,
+     "paired": 105,
+     "preserved_share": 1.0,
+     "q_break_even": 0.9301,
+     "turns_h": 121.71,
+     "wilson_lcb95": 0.5919
+    },
+    "Z3_120_300_extreme": {
+     "capital_time_s": 20.69,
+     "ci95_market_boot": [
+      -3.389,
+      -0.04
+     ],
+     "completion": 0.7703,
+     "cycles": 74,
+     "cycles_per_market": 4.625,
+     "markets": 16,
+     "net_c_per_contract": -1.342,
+     "orphan_loss_c": -9.47,
+     "orphans": 17,
+     "pair_gain_c": 1.082,
+     "paired": 57,
+     "preserved_share": 1.0,
+     "q_break_even": 0.8974,
+     "turns_h": 174.02,
+     "wilson_lcb95": 0.6625
+    }
+   }
+  },
+  {
+   "arm": "fullzone_clip1_natural98",
+   "clip": 1,
+   "counters": {
+    "exit_replacements": 0,
+    "fills_during_zone_cancel": 0,
+    "orphan_cancel_orders": 2,
+    "unsafe_bugs": 0,
+    "zone_cancel_orders": 0
+   },
+   "fills": 394,
+   "natural_pair_sum_max_c": 98.0,
+   "overall": {
+    "capital_time_s": 38.17,
+    "ci95_market_boot": [
+     -6.252,
+     -3.788
+    ],
+    "completion": 0.5391,
+    "cycles": 256,
+    "cycles_per_market": 10.667,
+    "markets": 24,
+    "net_c_per_contract": -5.0,
+    "orphan_loss_c": -13.238,
+    "orphans": 118,
+    "pair_gain_c": 2.043,
+    "paired": 138,
+    "preserved_share": 0.9928,
+    "q_break_even": 0.8663,
+    "turns_h": 94.3,
+    "wilson_lcb95": 0.4779
+   },
+   "placed": 571,
+   "zones": {
+    "Z1_ge600": {
+     "capital_time_s": 36.86,
+     "ci95_market_boot": [
+      -6.334,
+      -2.924
+     ],
+     "completion": 0.5532,
+     "cycles": 141,
+     "cycles_per_market": 6.409,
+     "markets": 22,
+     "net_c_per_contract": -4.45,
+     "orphan_loss_c": -12.451,
+     "orphans": 63,
+     "pair_gain_c": 2.013,
+     "paired": 78,
+     "preserved_share": 1.0,
+     "q_break_even": 0.8608,
+     "turns_h": 97.67,
+     "wilson_lcb95": 0.4708
+    },
+    "Z2_300_600_tail": {
+     "capital_time_s": 38.72,
+     "ci95_market_boot": [
+      -8.175,
+      -2.687
+     ],
+     "completion": 0.5464,
+     "cycles": 97,
+     "cycles_per_market": 4.619,
+     "markets": 21,
+     "net_c_per_contract": -5.144,
+     "orphan_loss_c": -13.806,
+     "orphans": 44,
+     "pair_gain_c": 2.047,
+     "paired": 53,
+     "preserved_share": 0.9811,
+     "q_break_even": 0.8709,
+     "turns_h": 92.97,
+     "wilson_lcb95": 0.4474
+    },
+    "Z3_120_300_extreme": {
+     "capital_time_s": 45.52,
+     "ci95_market_boot": [
+      -15.105,
+      -4.3
+     ],
+     "completion": 0.3889,
+     "cycles": 18,
+     "cycles_per_market": 1.8,
+     "markets": 10,
+     "net_c_per_contract": -8.539,
+     "orphan_loss_c": -15.473,
+     "orphans": 11,
+     "pair_gain_c": 2.357,
+     "paired": 7,
+     "preserved_share": 1.0,
+     "q_break_even": 0.8678,
+     "turns_h": 79.08,
+     "wilson_lcb95": 0.203
+    }
+   }
+  }
+ ],
+ "date": "2026-07-23",
+ "host": "ubuntu@3.130.232.109",
+ "hypothesis_discovery_only": true,
+ "schema": "engine-zone-clip1-discovery-val23-v1",
+ "scope": "zone+clip+freeze-pair exact; no historical RTI/kernel-edge conditioning",
+ "source_sha256": "57bdd55ae86589863645d3e50f32cb0f2d5bb161ad78ed3b639d3ef442440e10",
+ "zone_rules": {
+  "Z1": "tte>=600",
+  "Z2": "300<=tte<600 and abs(mid-50)>10",
+  "Z3": "120<=tte<300 and (mid<20 or mid>80)",
+  "lt120": "no flat admission; exit only"
+ }
+}

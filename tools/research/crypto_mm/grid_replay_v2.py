@@ -105,6 +105,33 @@ class Arm:
     pair_lock_c: float = 99.0     # max pair cost, cents (99 locks >=1c)
     unpaired_max_lots: int = 1    # per-side unpaired lot ceiling
     flatten_age_s: float = 90.0   # unpaired age -> taker flatten
+    # -- orphan-exit family (2026-07-26 shadow decomposition: 536 natural
+    # pairs +1.11c avg vs 195 blind 60s taker flattens -12.60c avg; the
+    # whole loss is the orphan path).  Both knobs default OFF so every
+    # pre-existing arm and the baseline gate are bit-identical.
+    orphan_maker_age_s: float = 1e9   # oldest-lot age at which the
+                                      # complement push relaxes from the
+                                      # profit ceiling to a bounded-loss
+                                      # maker exit (still post-only)
+    orphan_maker_max_loss_c: float = 0.0  # widest accepted negative lock
+    admit_pair_gap_c: float = -1.0    # entry admission: the future
+                                      # complement ceiling must land within
+                                      # this many cents of the opposite
+                                      # book's current best (<0 = off)
+    maker_grace_s: float = 0.0    # after age: wait this long before taker
+    min_opp_depth_ct: int = 0     # displayed opposite depth required to enter
+    # -- round-2 world model (2026-07-27): toxicity shield + harvest gate.
+    # shield_usd: an ENTRY fill is refused (quote treated as already
+    # cancelled by the fast-anchor pull) when the Binance perp moved more
+    # than this many dollars inside [t - shield_win_ms, t - SHIELD_LAT_MS].
+    # Model-free dollar threshold (the replay has no fair); exits/complement
+    # pushes are never shielded.  0 = off (bit-identical legacy behavior).
+    shield_usd: float = 0.0
+    shield_win_ms: int = 1500
+    # harvest_imb: fresh ENTRY quotes allowed only while |signed taker flow
+    # share| over the trailing 60s of this market's own tape is below this
+    # (balanced two-way flow = retail hours).  >=1 = off.
+    harvest_imb: float = 1.0
 
     @property
     def imp_e4(self) -> int:
@@ -141,7 +168,70 @@ GRID_ARMS = (
         flatten_age_s=1e9),       # isolates the push; T-5m flatten only
     Arm(name="pair99_lots1_age90_front", mode="front", refill=True,
         pair=True),
+    # New validation arms.  maker_grace is deliberately a conservative
+    # proxy: the replay has no independent exit-order queue, so waiting is
+    # never counted as a maker fill; the lot is taker-flattened only after
+    # the grace window (or at T-5m).
+    Arm(name="pair99_lots1_age90_maker_grace30", mode="tail", refill=True,
+        pair=True, maker_grace_s=30.0),
+    Arm(name="pair99_lots1_age90_oppdepth5", mode="tail", refill=True,
+        pair=True, min_opp_depth_ct=5),
+    # Orphan-exit family, aggressive variants (2026-07-26 live-shadow
+    # decomposition: all loss sits in blind taker flattens at -12.60c avg
+    # vs +1.11c natural pairs; break-even needs 92% completion OR orphan
+    # cost under ~3c).  mkexit relaxes the complement ceiling to a bounded
+    # negative lock (still post-only maker) before the hard taker deadline;
+    # admit_gap refuses entries whose complement ceiling sits far below
+    # the opposite best (orphan factories).  TRAIN selection only.
+    Arm(name="mkexit_a30_ml1_h120", mode="tail", refill=True, pair=True,
+        flatten_age_s=120.0, orphan_maker_age_s=30.0,
+        orphan_maker_max_loss_c=1.0),
+    Arm(name="mkexit_a30_ml3_h120", mode="tail", refill=True, pair=True,
+        flatten_age_s=120.0, orphan_maker_age_s=30.0,
+        orphan_maker_max_loss_c=3.0),
+    Arm(name="mkexit_a60_ml3_h180", mode="tail", refill=True, pair=True,
+        flatten_age_s=180.0, orphan_maker_age_s=60.0,
+        orphan_maker_max_loss_c=3.0),
+    Arm(name="admit_gap1_age90", mode="tail", refill=True, pair=True,
+        admit_pair_gap_c=1.0),
+    Arm(name="admit_gap2_age90", mode="tail", refill=True, pair=True,
+        admit_pair_gap_c=2.0),
+    Arm(name="combo_gap1_mkexit_a30_ml3", mode="tail", refill=True,
+        pair=True, flatten_age_s=120.0, orphan_maker_age_s=30.0,
+        orphan_maker_max_loss_c=3.0, admit_pair_gap_c=1.0),
 )
+
+
+def _round2_arms():
+    """Shield × harvest grid over the round-1 winning orphan arms.
+    Base arm list is provisional until the round-1 merge lands; adjust
+    ROUND2_BASE then relaunch with GRID2_ARMSET=round2."""
+    # Round-1 VALIDATE ranking (TRAIN pair numbers voided as phantom-book
+    # artifacts): agemax +0.025 > mkexit_a30_ml1 -0.146 > grace30 -0.154;
+    # age30 was WORST (-0.627) — early taker flattens are the damage, not
+    # holding.  base_front (+0.321) added: does the shield lift the one
+    # already-positive strategy?
+    base = {
+        "agemax": dict(mode="tail", refill=True, pair=True,
+                       flatten_age_s=1e9),
+        "mk1": dict(mode="tail", refill=True, pair=True,
+                    flatten_age_s=120.0, orphan_maker_age_s=30.0,
+                    orphan_maker_max_loss_c=1.0),
+        "grace": dict(mode="tail", refill=True, pair=True,
+                      maker_grace_s=30.0),
+        "front": dict(mode="front"),
+    }
+    arms = []
+    for bname, kw in base.items():
+        for s_usd, s_tag in ((0.0, "s0"), (15.0, "s15"), (30.0, "s30")):
+            for h_imb, h_tag in ((1.0, "hoff"), (0.65, "h65")):
+                arms.append(Arm(name=f"r2_{bname}_{s_tag}_{h_tag}",
+                                shield_usd=s_usd, harvest_imb=h_imb, **kw))
+    return tuple(arms)
+
+
+if os.environ.get("GRID2_ARMSET") == "round2":
+    GRID_ARMS = _round2_arms()
 
 
 @dataclass
@@ -162,6 +252,9 @@ class ArmState:
     unpaired: dict = field(default_factory=lambda: {"y": [], "n": []})
     paired_ct: int = 0            # contracts netted by opposite fills
     flattened_ct: int = 0         # contracts closed by taker flatten
+    shield_pulls: int = 0         # entry fills refused by the perp shield
+    harvest_blocks: int = 0       # entry quotes refused by the flow gate
+    fill_ts: list = field(default_factory=list)   # µs ts of every fill
 
     def merge(self, other: "ArmState") -> None:
         self.placed += other.placed
@@ -175,6 +268,9 @@ class ArmState:
         self.carried_ct += other.carried_ct
         self.paired_ct += other.paired_ct
         self.flattened_ct += other.flattened_ct
+        self.shield_pulls += other.shield_pulls
+        self.harvest_blocks += other.harvest_blocks
+        self.fill_ts.extend(other.fill_ts)
 
 
 def best(bk):
@@ -188,7 +284,7 @@ class MarketSim:
     trade-through: cumulative taker volume must exceed queue_ahead+CLIP)."""
 
     def __init__(self, mt, close_us, res, arms, lat_us, trades,
-                 join_lo_us, join_hi_us, withdraw_us, depth=None):
+                 join_lo_us, join_hi_us, withdraw_us, depth=None, perp=None):
         self.mt = mt
         self.close = close_us
         self.res = res
@@ -202,16 +298,59 @@ class MarketSim:
         self.withdraw = withdraw_us
         self.states = {a.name: ArmState() for a in arms}
         self.depth = depth if depth is not None else Counter()
+        self.perp = perp              # (ts_ms_list, px_list) or None
+        self.flow = []                # (ts_us, signed_qty) trailing tape
+        self.flow_i = 0               # first live index of the 60s window
+        self.flow_pos = 0.0           # signed sum inside window
+        self.flow_tot = 0.0           # absolute sum inside window
 
     def arm_state(self, name) -> ArmState:
         return self.states[name]
 
     # ------------------------------------------------------------- tape
+    def _shield_hit(self, arm, st, side_key, t_us):
+        """True when the fast-anchor shield would have pulled this ENTRY
+        quote before the tape reached it: Binance perp moved more than
+        shield_usd inside [t - shield_win_ms, t - SHIELD_LAT_MS].
+        Exit/complement pushes are never shielded."""
+        if arm.shield_usd <= 0 or self.perp is None:
+            return False
+        if arm.pair and st.unpaired["n" if side_key == "y" else "y"]:
+            return False              # complement push is an exit
+        ts_list, px_list = self.perp
+        t_ms = t_us // 1000
+        import bisect as _b
+        i1 = _b.bisect_right(ts_list, t_ms - SHIELD_LAT_MS) - 1
+        i0 = _b.bisect_right(ts_list, t_ms - arm.shield_win_ms) - 1
+        if i1 < 0 or i0 < 0 or i1 == i0:
+            return False
+        return abs(px_list[i1] - px_list[i0]) > arm.shield_usd
+
+    def _flow_push(self, t_us, t_qty, taker):
+        """Trailing 60s signed taker flow for the harvest gate (O(1) amort)."""
+        signed = t_qty if taker == "yes" else -t_qty
+        self.flow.append((t_us, signed))
+        self.flow_pos += signed
+        self.flow_tot += abs(signed)
+        cutoff = t_us - 60_000_000
+        while self.flow_i < len(self.flow) and self.flow[self.flow_i][0] < cutoff:
+            _, s = self.flow[self.flow_i]
+            self.flow_pos -= s
+            self.flow_tot -= abs(s)
+            self.flow_i += 1
+
+    def _harvest_blocked(self, arm) -> bool:
+        """Fresh entries only while trailing flow is two-way (retail hours)."""
+        if arm.harvest_imb >= 1.0 or self.flow_tot <= 0:
+            return False
+        return abs(self.flow_pos) / self.flow_tot > arm.harvest_imb
+
     def _consume_trades(self, upto):
         while self.ti < len(self.tr) and self.tr[self.ti][0] <= upto:
             t_ts, t_px, t_qty, taker = self.tr[self.ti]
             self.ti += 1
             self._depth_sample(t_px, taker)
+            self._flow_push(t_ts, t_qty, taker)
             for arm in self.arms:
                 st = self.states[arm.name]
                 for side_key, sell_taker in (("y", "no"), ("n", "yes")):
@@ -229,11 +368,16 @@ class MarketSim:
                     if px_side <= qd["lvl"]:
                         qd["ahead"] -= t_qty
                         if qd["ahead"] < -CLIP:
+                            if self._shield_hit(arm, st, side_key, t_ts):
+                                st.quotes[side_key] = None
+                                st.shield_pulls += 1
+                                continue
                             self._fill(arm, st, side_key, qd["lvl"], t_ts)
 
     def _fill(self, arm, st, side_key, lvl, t_ts):
         st.fills += 1
         st.clusters.add(self.mt)
+        st.fill_ts.append(t_ts)
         st.quotes[side_key] = None
         st.q += CLIP_CT if side_key == "y" else -CLIP_CT
         st.q_peak = max(st.q_peak, abs(st.q))
@@ -287,15 +431,38 @@ class MarketSim:
         """Unpaired lots die young: at flatten_age_s, or unconditionally
         once inside the T-5m withdraw window (never carry into the
         death zone)."""
+        # UNIT PROOF (2026-07-27, do not "fix" to ns again): warehouse
+        # ts_utc is MICROSECONDS — min(ts_utc)=1783840365529319 interpreted
+        # as us gives year 2026, as ns gives 1970.  close_us and the join
+        # windows are also us.  The known-answer baseline gate passes with
+        # us semantics; with ns the 90s timer would never fire (~25000h).
         age_us = int(arm.flatten_age_s * 1_000_000)
         for side_key in ("y", "n"):
             lots = st.unpaired[side_key]
             if not lots:
                 continue
             lvl, t_fill = lots[0]
-            if ts - t_fill >= age_us or tte <= self.withdraw:
+            if tte <= self.withdraw or (
+                    ts - t_fill >= age_us + int(arm.maker_grace_s * 1_000_000)):
                 lots.pop(0)
                 self._flatten_lot(st, side_key, lvl)
+
+    def _blocked_by_depth(self, arm, st, side_key, bk):
+        """Admission-only displayed-depth gate, evaluated at this book event.
+
+        For a prospective YES entry, the complementary NO book is the
+        relevant exit/liquidity side, and vice versa.  We use only the
+        currently visible levels (no future tape), so this cannot introduce
+        lookahead.  A zero threshold preserves existing semantics.
+        """
+        if arm.min_opp_depth_ct <= 0:
+            return False
+        opp_key = "n" if side_key == "y" else "y"
+        if st.unpaired[opp_key]:
+            return False      # complement push is an EXIT, never depth-gated
+        opp = self.books[opp_key]
+        visible = sum(max(0, int(v or 0)) for v in opp.values()) / 10000.0
+        return visible < arm.min_opp_depth_ct
 
     def _depth_sample(self, t_px, taker):
         """Trade-through depth beyond best, in 0.1c bins (gamma evidence)."""
@@ -309,13 +476,31 @@ class MarketSim:
                 self.depth[min(100, b - (10000 - t_px)) // 10] += 1
 
     # ------------------------------------------------------- quoting hooks
+    def _entry_blocked_by_admission(self, arm, st, side_key, b) -> bool:
+        """Completability gate for fresh pair ENTRIES only (never blocks
+        a complement/exit push).  The future complement ceiling
+        (pair_lock_c - entry level) must land within admit_pair_gap_c of
+        the opposite book's current best — if completing the pair needs
+        a large favorable move, the entry is an orphan factory and is
+        skipped.  Gate off (<0) or an exit context -> never blocks."""
+        if not arm.pair or arm.admit_pair_gap_c < 0:
+            return False
+        opp = "n" if side_key == "y" else "y"
+        if st.unpaired[opp]:
+            return False          # complement push is an exit, never gated
+        opp_best = best(self.books[opp])
+        if opp_best is None:
+            return True           # no displayed complement: not completable
+        c_max = int(round(arm.pair_lock_c * 100)) - (b + arm.imp_e4)
+        return c_max < opp_best - int(round(arm.admit_pair_gap_c * 100))
+
     def _blocked_by_cap(self, arm, st, side_key) -> bool:
         if arm.pair:
             return len(st.unpaired[side_key]) >= arm.unpaired_max_lots
         adverse = st.q if side_key == "y" else -st.q
         return arm.refill and adverse >= arm.cap
 
-    def _quote_target(self, arm, st, side_key, b, bk):
+    def _quote_target(self, arm, st, side_key, b, bk, ts=None):
         """(level, queue_ahead) for a fresh quote.  Neutral == e4:
         tail joins best (ahead = displayed), front improves +0.1c
         (ahead = 0).  Inventory retreat only moves the ACCUMULATING side
@@ -333,6 +518,15 @@ class MarketSim:
                 # AT the ceiling (tail of its level) — the lock is never
                 # violated for a faster fill.
                 ceiling = int(round(arm.pair_lock_c * 100)) - lots[0][0]
+                if (ts is not None
+                        and ts - lots[0][1]
+                        >= int(arm.orphan_maker_age_s * 1_000_000)):
+                    # Orphan maker exit: past the maker age, accept a
+                    # bounded negative lock to complete the pair as a
+                    # MAKER (fee-free, no book walk) before the hard
+                    # taker deadline at flatten_age_s.  A relaxed quote
+                    # still joins the tail of its level.
+                    ceiling += int(round(arm.orphan_maker_max_loss_c * 100))
                 opp_best = best(self.books[opp])
                 push = ceiling if opp_best is None else \
                     min(ceiling, (10000 - opp_best) - 100)
@@ -387,9 +581,22 @@ class MarketSim:
                     if qd is not None and qd["cx"] is None:
                         qd["cx"] = ts + self.lat
                     continue
+                if self._blocked_by_depth(arm, st, side_key, bk):
+                    if qd is not None and qd["cx"] is None:
+                        qd["cx"] = ts + self.lat
+                    continue
                 if qd is None:
                     if b is not None:
-                        lvl, ahead = self._quote_target(arm, st, side_key, b, bk)
+                        if self._entry_blocked_by_admission(
+                                arm, st, side_key, b):
+                            continue
+                        if (self._harvest_blocked(arm)
+                                and not (arm.pair and st.unpaired[
+                                    "n" if side_key == "y" else "y"])):
+                            st.harvest_blocks += 1
+                            continue
+                        lvl, ahead = self._quote_target(
+                            arm, st, side_key, b, bk, ts=ts)
                         st.quotes[side_key] = {"lvl": lvl, "ahead": ahead,
                                                "cx": None}
                         st.placed += 1
@@ -397,7 +604,8 @@ class MarketSim:
                     continue
                 target = None
                 if b is not None:
-                    target, _ = self._quote_target(arm, st, side_key, b, bk)
+                    target, _ = self._quote_target(
+                        arm, st, side_key, b, bk, ts=ts)
                 if target != qd["lvl"] and qd["cx"] is None:
                     if (target is not None and arm.requote_min_c > 0
                             and abs(target - qd["lvl"])
@@ -475,6 +683,33 @@ def gate_or_die(got_block, expect_block, label):
     print(f"baseline gate OK [{label}]", flush=True)
 
 
+SHIELD_LAT_MS = 150               # our measured chain: recv+decide+cancel
+SHIELD_SRC = os.environ.get("GRID2_SHIELD_SRC",
+                            "/home/ubuntu/research_fast_anchor/hist")
+
+
+def load_perp_series(date):
+    """(ts_ms_list, px_list) from the Binance vision daily aggTrades zip."""
+    import csv
+    import io
+    import zipfile
+    path = os.path.join(SHIELD_SRC, f"BTCUSDT-aggTrades-{date}.zip")
+    if not os.path.exists(path):
+        return None
+    ts_list = []
+    px_list = []
+    with zipfile.ZipFile(path) as z:
+        with z.open(z.namelist()[0]) as f:
+            rd = csv.reader(io.TextIOWrapper(f, "utf-8"))
+            for row in rd:
+                try:
+                    ts_list.append(int(row[5]))
+                    px_list.append(float(row[1]))
+                except (ValueError, IndexError):
+                    continue          # header row
+    return (ts_list, px_list) if ts_list else None
+
+
 # ------------------------------------------------------------------ driver
 def run_dates(con, lpats, tpats, meta, dates, arms,
               join_lo, join_hi, withdraw, gate_keyed=False):
@@ -485,6 +720,8 @@ def run_dates(con, lpats, tpats, meta, dates, arms,
         tf = [p for p in tpats if f"date={date}" in p]
         if not lf:
             continue
+        perp = (load_perp_series(date)
+                if any(a.shield_usd > 0 for a in arms) else None)
         trades = {}
         for mt, ts, px, qty, side in con.execute("""
             SELECT market_ticker, ts_utc, yes_price_e4, count_e4, taker_side
@@ -497,7 +734,12 @@ def run_dates(con, lpats, tpats, meta, dates, arms,
             SELECT market_ticker, ts_utc, msg_type, side, price_e4, delta_e4,
                    CAST(yes_levels AS VARCHAR), CAST(no_levels AS VARCHAR)
             FROM read_parquet(?, union_by_name=true)
+            WHERE market_ticker LIKE 'KXBTC15M-%'
             ORDER BY market_ticker, ts_utc, ws_seq""", [lf])
+        # Predicate pushdown: only KXBTC15M rows ever did anything (meta is
+        # built solely from the KXBTC15M shard; every other market resolves
+        # close=0 and is skipped row-by-row in Python).  Filtering in the
+        # parquet scan is semantically identical and 3-6x fewer rows.
         sim = None
 
         def harvest(s):
@@ -519,7 +761,7 @@ def run_dates(con, lpats, tpats, meta, dates, arms,
                     close_us, res = meta.get(mt, (0, None))
                     sim = MarketSim(mt, close_us, res, list(arms), LAT_US,
                                     trades.get(mt, []), join_lo, join_hi,
-                                    withdraw, depth)
+                                    withdraw, depth, perp=perp)
                 yl_p = nl_p = None
                 if mtype == "snapshot":
                     try:
@@ -556,9 +798,44 @@ def main():
 
     con = duckdb.connect()
     con.execute("SET threads=4")
-    con.execute("SET memory_limit='10GB'")
+    con.execute("SET memory_limit='%s'"
+                % os.environ.get("GRID2_MEM", "10GB"))
     lpats = glob.glob(L2_GLOB, recursive=True)
     tpats = glob.glob(TR_GLOB, recursive=True)
+
+    # ---- PARTITION MODE (speed): grid arms only, subset of dates, raw dump.
+    # The baseline gate must have PASSED on this exact script+data in a prior
+    # full run the same session (recorded in that run's log); partitions are
+    # for wall-clock parallelism, never a substitute for the gate.
+    part = os.environ.get("GRID2_DATES")
+    if part:
+        dates = [x.strip() for x in part.split(",") if x.strip()]
+        agg, depth = run_dates(con, lpats, tpats, meta, dates, GRID_ARMS,
+                               JOIN_LO_US, JOIN_HI_US, WITHDRAW_US)
+        dump = {}
+        for name, s in agg.items():
+            dump[name] = {
+                "placed": s.placed, "fills": s.fills, "pnl": s.pnl,
+                "pairs": [[mt, p] for mt, p in s.pairs],
+                "markets": sorted(s.markets),
+                "clusters": sorted(s.clusters),
+                "q_peak": s.q_peak,
+                "requote_suppressed": s.requote_suppressed,
+                "carried_ct": s.carried_ct, "paired_ct": s.paired_ct,
+                "flattened_ct": s.flattened_ct,
+                "shield_pulls": s.shield_pulls,
+                "harvest_blocks": s.harvest_blocks,
+                "fill_ts": s.fill_ts,
+            }
+        pth = os.path.join(OUT, f"partial_{dates[0]}_{dates[-1]}.json")
+        json.dump({"dates": dates, "script_sha256": hashlib.sha256(
+                       open(os.path.abspath(__file__), "rb").read()
+                   ).hexdigest(),
+                   "arms": dump,
+                   "depth": {str(k): v for k, v in sorted(depth.items())}},
+                  open(pth, "w"))
+        print("partial written:", pth, flush=True)
+        return
 
     results = {"schema_version": "grid-replay-v2"}
 

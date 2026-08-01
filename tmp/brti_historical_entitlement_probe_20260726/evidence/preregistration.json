@@ -1,0 +1,78 @@
+{
+  "schema": "brti-historical-entitlement-probe-prereg-v1",
+  "status": "PRE_DISCOVERY_SEAL",
+  "purpose": "Determine whether the existing Kalshi API identity can access CF Benchmarks historical BRTI values, without requesting any experiment-period value.",
+  "read_only": true,
+  "trading_authorized": false,
+  "service_or_engine_mutation_authorized": false,
+  "official_documentation": {
+    "kalshi_passthrough": {
+      "url": "https://docs.kalshi.com/cfbenchmarks/rest-passthrough.md",
+      "retrieved_sha256": "eb3239f5d2e7c7fa64f2ee754763be6c0c593533aba83a59901f168bb7b89a0c",
+      "facts": [
+        "Everything after /trade-api/v2/cfbenchmarks/ is forwarded to https://www.cfbenchmarks.com/api/v1/.",
+        "The request uses ordinary Kalshi authentication and the signature path excludes the query string.",
+        "The passthrough requires an account entitlement.",
+        "Upstream authorization failure, server error, or timeout maps to HTTP 503; direct Kalshi authorization errors may be distinct.",
+        "One passthrough request costs 50 Read-bucket tokens."
+      ]
+    },
+    "cf_history": {
+      "url": "https://docs.cfbenchmarks.com/api/rest/historical-values/",
+      "rendered_page_sha256": "a0d953f4b2a841ed7353c4e3d09616c2a3ac7a40e3893c33cd5ef564cc43b50a",
+      "openapi_chunk_url": "https://docs.cfbenchmarks.com/api/assets/js/3cfb6d35.c4c9e2aa.js",
+      "openapi_chunk_sha256": "f4f1e01b1dd5e1e9dc98518ca6e382654651f4b9a514ef04d9e0d2cc5115c546",
+      "facts": [
+        "Endpoint is GET /api/v1/history/values.",
+        "Required parameters are id, timespan, and timestamp.",
+        "For a per-second RTI, allowed timespans are DAY or HOUR.",
+        "timespan syntax is the uppercase token HOUR, not an ISO duration.",
+        "timestamp is ISO8601 and must be truncated to the timespan boundary.",
+        "Historical access requires authorization for both the index and STREAM_HISTORICAL_VALUES."
+      ],
+      "official_hour_example_form": "(HOUR, 2022-01-01T13:00:00.000Z)"
+    },
+    "recent_values_limit": {
+      "url": "https://docs.cfbenchmarks.com/api/rest/values/",
+      "fact": "The values endpoint returns only the most recent hour for RTIs and cannot replace historical access."
+    }
+  },
+  "single_probe": {
+    "method": "GET",
+    "host": "https://external-api.kalshi.com",
+    "signed_path": "/trade-api/v2/cfbenchmarks/history/values",
+    "query": {
+      "id": "BRTI",
+      "timespan": "HOUR",
+      "timestamp": "2009-01-01T00:00:00.000Z"
+    },
+    "why_empty_and_non_experimental": "The fixed hour predates BRTI and the project experiment dates by many years.",
+    "request_count": 1,
+    "retry_count": 0,
+    "redirects_allowed": false,
+    "timeout_s": 15,
+    "maximum_response_bytes": 1048576
+  },
+  "hard_guards": [
+    "Reject a URL, query, or response-processing instruction containing any date from 2026-07-20 through 2026-07-23.",
+    "Do not call /cfbenchmarks/values because its recent-hour payload is not historical evidence.",
+    "Do not request, persist, print, hash, count, or summarize an experiment-period BRTI value.",
+    "Never print the API key ID, private-key path, signature, timestamp header, or environment values.",
+    "Do not retry; one request is sufficient and costs 50 Read-bucket tokens.",
+    "If a supposedly empty 200 response unexpectedly contains payload rows, record only row count and payload SHA-256, never row values."
+  ],
+  "classification": {
+    "HTTP_200_valid_envelope": "ENTITLED_HISTORICAL_AVAILABLE",
+    "HTTP_401": "LOCAL_KALSHI_AUTH_FAILED",
+    "HTTP_403": "KALSHI_ENTITLEMENT_DENIED",
+    "HTTP_503_with_explicit_authorization_detail": "UPSTREAM_HISTORICAL_ENTITLEMENT_DENIED",
+    "HTTP_503_without_explicit_authorization_detail": "UPSTREAM_503_AMBIGUOUS_AUTH_SERVER_OR_TIMEOUT",
+    "HTTP_400": "PROBE_SYNTAX_REJECTED",
+    "HTTP_404": "PASSTHROUGH_ROUTE_NOT_FOUND",
+    "other": "UNEXPECTED_HTTP_RESULT"
+  },
+  "next_step_gate": {
+    "if_entitled": "Stop after the availability receipt. Write and seal a separate calibration-download preregistration before requesting 2026-07-20..22.",
+    "if_not_entitled_or_ambiguous": "Do not request experiment-period history; report the exact HTTP code and sanitized error detail."
+  }
+}

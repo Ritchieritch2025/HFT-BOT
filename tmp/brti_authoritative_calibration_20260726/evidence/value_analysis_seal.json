@@ -1,0 +1,21 @@
+{
+  "schema": "brti-authoritative-value-analysis-seal-v1",
+  "sealed_at_utc": "2026-07-26T07:24:47Z",
+  "preregistration_sha256": "a6a42926bc070f8ac849d8237c88e718e6ecc8e595a8079497b9b44e8e20bdb4",
+  "script_sha256": "29a0f61a0969ad9a2ec58db4136a23d3df23d0b2bcd01608b6affb56fd83ebde",
+  "base_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+  "acquisition_receipt_sha256": "a0098b608caf0eb5d9c16f77ffcac29e3936c37ccd311f606c5eabb0a36b2682",
+  "support_receipt_sha256": "06e94c82b06eeb76523aaa8008ebac74f5105c7427665515294171cb3b42d2bb",
+  "support_manifest_sha256": "2d104cc1715348a2cdea18af176792da970f0ba6e6fe16172085422294bb9d41",
+  "timestamp_supported_checkpoint_count": 854,
+  "metadata_strike_missing_checkpoint_exclusions": 6,
+  "priceable_supported_checkpoint_count": 848,
+  "metadata_strike_missing_markets": [
+    "KXBTC15M-26JUL221430-30",
+    "KXBTC15M-26JUL221445-45"
+  ],
+  "model_values_read_before_seal": false,
+  "strike_or_timestamp_imputation_authorized": false,
+  "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+  "status": "SEALED"
+}

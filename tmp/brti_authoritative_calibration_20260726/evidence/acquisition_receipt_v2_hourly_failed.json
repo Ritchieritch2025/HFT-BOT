@@ -1,0 +1,1761 @@
+{
+  "attempt_count": 72,
+  "elapsed_ms": 42997.923,
+  "engine_or_service_mutation_performed": false,
+  "hard_banned_history_requested": false,
+  "hours": [
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 0.328,
+          "body_bytes": 756062,
+          "body_sha256": "a7c794bcc775ceec077226a094dba22f25e206866b9fdd10975cbbed33f0c964",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1276.805,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T00:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T00:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 500.396,
+          "body_bytes": 756062,
+          "body_sha256": "7fa59faffd78df200f29c038e57eb27bd6ab75e8549472e554fb6ab10f50f693",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1221.583,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T01:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T01:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 1320.595,
+          "body_bytes": 756062,
+          "body_sha256": "2645f1a18584b28e0f7292ed062da42c3851342c18adc25149d50600a38e67ae",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 972.025,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T02:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T02:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 1820.666,
+          "body_bytes": 756062,
+          "body_sha256": "86a81f844a6cfc1286d8715cc9b55c3d095852582551ad10ef2712a4eac530ca",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1186.912,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T03:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T03:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 2325.633,
+          "body_bytes": 756062,
+          "body_sha256": "d29f49b3d3a87b48b1386268efb0b359b966e364b94aff04b499b7d7ee6ba19d",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1241.128,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T04:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T04:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 3037.86,
+          "body_bytes": 756062,
+          "body_sha256": "4097dc333ea8ebf3636ee6859253c8d06429d927529c68f742c906b35bbf6559",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1380.028,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T05:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T05:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 3597.26,
+          "body_bytes": 756062,
+          "body_sha256": "9104601818f3f3a23f1f7bd495727212f069f12d383f42d1f161ca1ba329b1a7",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1201.357,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T06:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T06:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 4453.514,
+          "body_bytes": 756062,
+          "body_sha256": "686bcdfc0ab41f25462171b23aa9a8bd6e484d03209378d5aadac4521b5076ed",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 922.872,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T07:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T07:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 4953.578,
+          "body_bytes": 756062,
+          "body_sha256": "136fdf3702bb0083b9ba00ce7739a5ac2b75b4d1bb476f65a7bfedcc95ec5889",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1270.504,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T08:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T08:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 5453.579,
+          "body_bytes": 756062,
+          "body_sha256": "90764e76134b5b33b02f5455c35a0d4c0ed5ecbbec2b5e41366bfdb7d9220867",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1345.015,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T09:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T09:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 6261.632,
+          "body_bytes": 756062,
+          "body_sha256": "645f1cc543a3501129be4d13fb49f1c716bed18ea9bf2bf0c2b519824b068062",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 878.796,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T10:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T10:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 6873.296,
+          "body_bytes": 752534,
+          "body_sha256": "fc22a44b454ac0120b43068f4332f85078b6cb668e48eedabe1f9ddeb221ab79",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1049.489,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T11:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17916, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T11:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 7373.364,
+          "body_bytes": 756062,
+          "body_sha256": "db3ce45543c24b8bc022e60b3095a5c5e0335bed017970bd6ae759de5527c583",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 864.429,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T12:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T12:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 7957.697,
+          "body_bytes": 756062,
+          "body_sha256": "be6029ca1590e959f2fc8778e2a89fc24ef9ee41b386312556c0e93607f3f8d9",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 951.25,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T13:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T13:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 8457.764,
+          "body_bytes": 756062,
+          "body_sha256": "5aa4fd552e464d86b971ad51ec3826f9ecea3d4e0c845188cab6ce3af65bbecb",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 967.008,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T14:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T14:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 8957.761,
+          "body_bytes": 756062,
+          "body_sha256": "cfa6997abdf1f1289048a6b5b1e12865aeef4291073770c041e6a090ab2b66ab",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1283.697,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T15:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T15:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 9460.68,
+          "body_bytes": 756062,
+          "body_sha256": "af15e795823928e89cf5549b356272e91964be35b8cdf625328f63ea0acb68b4",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1207.805,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T16:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T16:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 10279.625,
+          "body_bytes": 756062,
+          "body_sha256": "be69834d84c5c7180da8b1be6a8b1c2869250a4d7270b8cc47b2b5a5d60ab74b",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 943.406,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T17:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T17:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 10779.696,
+          "body_bytes": 756062,
+          "body_sha256": "3f551029d6fca6fe05cdd2c1488b868fa7bc15558fd96470f509761c5ff821c3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 932.145,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T18:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T18:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 11279.685,
+          "body_bytes": 756062,
+          "body_sha256": "b4cdb963ba1a8c89418e5029de5e8305d8a14b26ce87e9f4ce9b0475034d08f5",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1199.582,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T19:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T19:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 11779.684,
+          "body_bytes": 753164,
+          "body_sha256": "6b578c6d7ecdb8bb050e84c6da15709a417484674a229f8dcb1c85955b1e5a35",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1232.55,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T20:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17931, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T20:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 12524.195,
+          "body_bytes": 752198,
+          "body_sha256": "aa30c881354a53d31bcc187b42683980c297f81d0a1b49e438b776b00c9dbf48",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1168.904,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T21:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17908, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T21:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 13041.951,
+          "body_bytes": 752534,
+          "body_sha256": "5fd321f925addb3562e04dec4414ce875584d3720e6cf6d7743218c15eb79590",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 946.915,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T22:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17916, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T22:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 13733.556,
+          "body_bytes": 756062,
+          "body_sha256": "5fabbaf74d9a76778132244aa1d871694bc2ea0523f5cad8583ea383f8e9b7fc",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1148.984,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-20T23:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-20T23:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 14233.581,
+          "body_bytes": 756062,
+          "body_sha256": "6f3272f31129c39f747df71652ce56285b50d6a882ca0c5a9c527b41fe39ebe6",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 894.452,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T00:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T00:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 14920.884,
+          "body_bytes": 756062,
+          "body_sha256": "a7a77d73254fcb984b2bc4d43dd4bff202485156c5c9623e7953eeee5f948290",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 910.64,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T01:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T01:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 15420.954,
+          "body_bytes": 756062,
+          "body_sha256": "a90fef9d01020d7526b62a5dc96251c401a1dd7ddd3fe7237ba4e5fdbdd40ff3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1318.39,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T02:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T02:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 15921.469,
+          "body_bytes": 756062,
+          "body_sha256": "8a872dfbb5587955128bd759d9d3ef7bae4dd124faa0253c808a5e77979710d2",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 952.956,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T03:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T03:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 16795.868,
+          "body_bytes": 756062,
+          "body_sha256": "86e130a86ecda482daf0dd94722bcebc3ff0cb9119ecc4e1e721fe505cdc2980",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 886.593,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T04:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T04:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 17295.938,
+          "body_bytes": 756062,
+          "body_sha256": "43bd28746d6c48642eb6c9c841af9f1d2eab88648ac7b42ce7ffd8104fe77d91",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1082.842,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T05:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T05:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 17796.571,
+          "body_bytes": 756062,
+          "body_sha256": "950129653bd26afa57575552a5ff00252347d3887937fe48011b1ff729739f63",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 986.347,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T06:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T06:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 18413.665,
+          "body_bytes": 756062,
+          "body_sha256": "8d97ae76de47e12444f55c742bdaf6a4bc902a70ccf86b8b2b061455ee1e23af",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 933.88,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T07:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T07:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 18914.574,
+          "body_bytes": 756062,
+          "body_sha256": "80b255ebe9c1e92b6ff34bfcc5daf131c9690e9162dbdfb70f6ab8a4e0be3ab0",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1375.618,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T08:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T08:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 19413.73,
+          "body_bytes": 756062,
+          "body_sha256": "64ca930421c00b82a0c699f41ac633fa4bd16fd0a4011c161d7c425f6b9b2660",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 921.824,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T09:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T09:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 20330.679,
+          "body_bytes": 756062,
+          "body_sha256": "efa47db68840850aef6f1f299ddc8686a9a4d00f7379d116813e545164030878",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 883.632,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T10:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T10:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 20830.75,
+          "body_bytes": 756062,
+          "body_sha256": "049bab25792417c72e99b212c1777e60266fa3abd3368fbb1c9a4d8efa816767",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 888.792,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T11:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T11:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 21330.748,
+          "body_bytes": 756062,
+          "body_sha256": "670ad6adae302528b7d7bebf8316dd841356a7f9fd5fe417b914f6e284af53d1",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 925.434,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T12:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T12:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 21830.748,
+          "body_bytes": 756062,
+          "body_sha256": "edd7ad9dda0f0139512c8caee37f5fabc31a5ca58503ff90d155b64d19ed5c5c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 972.263,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T13:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T13:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 22330.738,
+          "body_bytes": 756062,
+          "body_sha256": "e0dbae1ce4ceffce7c4a7ecb0e5c721333fa0a387484573f53615c6326d8b43c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1424.908,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T14:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T14:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 22837.062,
+          "body_bytes": 756062,
+          "body_sha256": "e11c6ac5b5fbf992e0ecd416fe980b5623dc304a02e9b67896f131b616a33a23",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1099.957,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T15:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T15:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 23794.853,
+          "body_bytes": 756062,
+          "body_sha256": "436d2f98a21d8b821c230d7d34e78a31d9c812a8784d6d9960adfbef9c0317ca",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1153.602,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T16:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T16:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 24294.925,
+          "body_bytes": 756062,
+          "body_sha256": "890e7c43f2ca01aa6221d0d6e6db1a5a335aaddb972e06a7cea96524064b5d73",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 884.328,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T17:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T17:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 24991.23,
+          "body_bytes": 756062,
+          "body_sha256": "f0fc3072df9e3106dc56e46e7a8e4c547d19a7964e359e3fbdb1aa9fc0340870",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 896.355,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T18:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T18:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 25491.303,
+          "body_bytes": 756062,
+          "body_sha256": "dd5f2b9f40213999014617c362d4cd533ae4822bebbd794eb9fe37497da2a9bc",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1079.482,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T19:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T19:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 25991.305,
+          "body_bytes": 753584,
+          "body_sha256": "12b3228656dc4489454361903ec6474ebd6d7d21cabc5c1d0422de659b1be049",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1116.741,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T20:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17941, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T20:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 26611.608,
+          "body_bytes": 751190,
+          "body_sha256": "845d8f98796d8e5b7183697bc7baa189a2da26985d7af91542debeb9b41d889a",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 917.939,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T21:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17884, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T21:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 27144.688,
+          "body_bytes": 756062,
+          "body_sha256": "d7f098a3cdf743df62c5d592befea9710435a0ae7c2da8430770aecce1082860",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1210.817,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T22:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T22:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 27644.755,
+          "body_bytes": 752744,
+          "body_sha256": "8bb1f1e5044189979afac4a1207faf04d2f6c0b7d404052df14eec218574148c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 895.198,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-21T23:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17921, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-21T23:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 28390.881,
+          "body_bytes": 756062,
+          "body_sha256": "e5df87a7bdde22ad0e1d1ef6dbe4e65e80c9d274792c949d20fa60e5b6cde2f8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1015.671,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T00:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T00:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 28890.954,
+          "body_bytes": 756062,
+          "body_sha256": "fea3ad7fdf9df07734d6a4a11bdfdfca5615e7a068d6fdec7ae010d7dea14301",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 864.537,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T01:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T01:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 29438.726,
+          "body_bytes": 756062,
+          "body_sha256": "53fa8289d6fee6d5a433360cc09499189bb03d7fa45a6661cf5a0d21b844c633",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1076.777,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T02:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T02:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 29938.937,
+          "body_bytes": 756062,
+          "body_sha256": "94845c0d96331825e30aba8dbd9bcf0282429237ca7f15e619ff8d619966c0d8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 902.578,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T03:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T03:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 30552.141,
+          "body_bytes": 756062,
+          "body_sha256": "f26b58b194bd70addeeb0440b158316d80e25ccc028a0400fad69ad996c5ba47",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 858.309,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T04:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T04:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 31052.212,
+          "body_bytes": 756062,
+          "body_sha256": "4910aa879f3bb3f8b6fcd822bd63693efbfcb0ec4a3e093a8209195e9f14c6a8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1381.699,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T05:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T05:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 31552.213,
+          "body_bytes": 756062,
+          "body_sha256": "64aaed147fdf049b73428c6ad311462cc021b38b906a7042987b9cea2ba1c7df",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1249.287,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T06:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T06:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 32475.646,
+          "body_bytes": 756062,
+          "body_sha256": "31af460a3ebf5e0fac3bdf9562281b774a59fa098fb51ea55309d37b5f2641d8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1172.665,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T07:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T07:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 32975.712,
+          "body_bytes": 756062,
+          "body_sha256": "ef297f1bf66a5802a72f3d905b7af710a618732bb900893a29f70e1d2a8e5396",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 910.307,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T08:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T08:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 33687.345,
+          "body_bytes": 756062,
+          "body_sha256": "7e9af5b010e22d35cec8205c894d4f476a7256cee031de5a8ba343bb8d4c59be",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1226.586,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T09:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T09:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 34187.425,
+          "body_bytes": 756062,
+          "body_sha256": "4d5567cdaafee3a2628f687457f1037c89e6baf532ba73c62fd124b1371605e8",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1337.859,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T10:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T10:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 34942.067,
+          "body_bytes": 756062,
+          "body_sha256": "b70ce9210301660238e751efe366732842094b39d9b2e2a60ae842cb85de29bb",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 888.786,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T11:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T11:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 35576.06,
+          "body_bytes": 756062,
+          "body_sha256": "fd6827ae8af799ffdff0b97f149ecc25c0fa605803f2a369eda161ae7c64e886",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1208.135,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T12:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T12:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 36076.131,
+          "body_bytes": 756062,
+          "body_sha256": "2972a9b8a93c6464ba2ca2cb18ca292ba23f403d74afa41bb06a767b0ca43af0",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 887.641,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T13:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T13:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 36820.161,
+          "body_bytes": 756062,
+          "body_sha256": "4a778ce38efee17cccf28aeb2feb9d5910c70e63a798499634cec926e244153c",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 971.26,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T14:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T14:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 37320.225,
+          "body_bytes": 756062,
+          "body_sha256": "9c595dfe3269a6adfc84c2b5db76ea84f7bdbf629890aea71a16dfaa4a27e50f",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 928.032,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T15:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T15:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 37831.401,
+          "body_bytes": 756062,
+          "body_sha256": "f7d76ebf8a1523fac3eb40b90dddac27b33fd21421b2c6b604cef9a9ec03a51e",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1288.077,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T16:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T16:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 38331.475,
+          "body_bytes": 756062,
+          "body_sha256": "2370577de8ea68e5503e6632d7e2c6e159c4bdeec418b74088fda707febe28fa",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1201.882,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T17:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T17:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 39153.827,
+          "body_bytes": 756062,
+          "body_sha256": "a0f7988d5c7bfe4dd47c3cf3a782137b4bd1fe93f538322f6e26a56a043d9bd0",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1230.421,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T18:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T18:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 39653.996,
+          "body_bytes": 756062,
+          "body_sha256": "1695212fafe6f58cda9330bfe1bf6a1a5d1c2eec4ae75fccf55f24a79ddbd991",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1195.003,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T19:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T19:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 40421.366,
+          "body_bytes": 753710,
+          "body_sha256": "79b33e8ec70c097221976ded5b25e842ca0d47ae0d76998eaa7c7710720918ef",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1141.091,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T20:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17944, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T20:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 40921.437,
+          "body_bytes": 751736,
+          "body_sha256": "72b37793650b25a7ffacf1890cd1097dacb80f4c777a6160a79e2e468b547fc3",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1182.817,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T21:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 17897, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T21:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 41601.498,
+          "body_bytes": 756062,
+          "body_sha256": "f385d4a74693f74dedefd2872f2d30d0aa4ed96b38d6cfe89844cc399fba829e",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 1163.564,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T22:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T22:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    },
+    {
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "attempt_start_offset_ms": 42136.421,
+          "body_bytes": 756062,
+          "body_sha256": "834bec4867e4af53fd7196569147b449d1d9c001af8f40489506a5be2e2cee6f",
+          "content_type": "application/json; charset=utf-8",
+          "elapsed_ms": 826.63,
+          "http_status": 200,
+          "network_error_class": null,
+          "query": {
+            "id": "BRTI",
+            "timespan": "HOUR",
+            "timestamp": "2026-07-22T23:00:00.000Z"
+          },
+          "validation_error": "hour payload count is 18000, expected 3600",
+          "validation_error_class": "RuntimeError"
+        }
+      ],
+      "hour_start_utc": "2026-07-22T23:00:00.000Z",
+      "persisted": false,
+      "status": "FAILED_VALIDATION"
+    }
+  ],
+  "logical_request_count": 72,
+  "maximum_attempts_per_hour": 2,
+  "maximum_configured_concurrency": 2,
+  "maximum_observed_concurrency": 2,
+  "minimum_attempt_start_interval_ms": 500,
+  "network_errors_retryable": false,
+  "read_only": true,
+  "recent_values_endpoint_called": false,
+  "redirect_count": 0,
+  "retried_hour_count": 0,
+  "retryable_http_statuses_only": [
+    429,
+    503
+  ],
+  "schema": "brti-authoritative-hourly-acquisition-receipt-v2",
+  "seal": {
+    "analyzer_sha256": "a2d2dc54c2ae7e4c3079dd0cc2aea93b364b08e70366cf5f0ec936714744d89b",
+    "base_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+    "downloader_sha256": "31a1d08cfee96afa71d5201950c75642823ceacbd94420ec47092ba5b795b8f1",
+    "preregistration_sha256": "daa5f9ffb93f940634b405db0d2dd5d335a8d5761347e5939617f6d8e2e095cc",
+    "seal_sha256": "a393b8199ddd04459704b4cbbc5c6afb98c549cb08874ef34c6f7029f083fcde",
+    "verified": true
+  },
+  "status": "NO_DECISION_HOURLY_ACQUISITION_FAILED",
+  "trading_action_performed": false
+}

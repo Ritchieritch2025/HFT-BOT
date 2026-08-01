@@ -1,0 +1,133 @@
+{
+  "schema": "brti-fair-pricing-audit-prereg-v1",
+  "status": "SEALED_BEFORE_DISCOVERY_VALUES",
+  "purpose": "Separate BRTI directional-pricing calibration from maker execution/completion performance.",
+  "read_only": true,
+  "trading_authorized": false,
+  "engine_mutation_authorized": false,
+  "universe": {
+    "series": "KXBTC15M",
+    "discovery_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "hard_banned_date_utc": "2026-07-23",
+    "claim": "DISCOVERY_ONLY_NOT_VALIDATION"
+  },
+  "source_contract": {
+    "cfbenchmarks": {
+      "required_channel": "cfbenchmarks_value",
+      "required_index_id": "BRTI",
+      "allowed_path_template": "/home/ubuntu/hft-bot/work/live/cfbenchmarks/date={allowed_date}/cfb_*.ndjson",
+      "required_fields": [
+        "msg.data.time",
+        "msg.data.value"
+      ],
+      "settlement_crosscheck_fields_when_present": [
+        "msg.avg_60s_data",
+        "msg.last_60s_windowed_average_15min"
+      ]
+    },
+    "market_metadata": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "orderbook_template": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date={allowed_date}/*.parquet",
+    "p3_first_fill_candidate": "/tmp/z3_price_allocation_train_raw.json",
+    "p3_arm": "P3_SPEND1"
+  },
+  "hard_guards": [
+    "Reject every explicitly supplied path containing 2026-07-23 or date=2026-07-23.",
+    "Never glob, enumerate, open, or hash a 2026-07-23 orderbook or CF capture path.",
+    "After parsing, reject any selected market close date or BRTI source date outside 2026-07-20..22.",
+    "Reconstruct books only by snapshot reset followed by ordered deltas. Any negative displayed quantity, unknown side/update semantics, or per-market sequence regression invalidates that entire market-day for market-mid and gap analyses; never clamp a negative level to zero.",
+    "Do not substitute Coinbase, another index, later 2026-07-25..26 BRTI capture, market mid, or terminal settlement for the missing historical BRTI path.",
+    "If source-time alignment cannot be established, emit NO_DECISION_DATA_ALIGNMENT_BLOCKED and no pricing verdict."
+  ],
+  "kernel": {
+    "implementation": "Exact arithmetic embedded from tools/research/crypto_mm/rti_pricing.py and current mm_engine pricing_state contract.",
+    "sigma_short_window_s": 60,
+    "sigma_long_window_s": 300,
+    "sigma": "max(non-demeaned timestamp-aware sigma60, sigma300)",
+    "minimum_ticks": 30,
+    "minimum_window_coverage": 0.999,
+    "maximum_source_gap_s": 1.5,
+    "maximum_tick_age_at_target_s": 2.0,
+    "pre_lock_probability": "Phi((BRTI-strike)/(sigma*sqrt(max(tte-60,0)+sum(k^2,k=1..59)/60^2)))",
+    "probability_clip_for_logloss_and_logit": 1e-06
+  },
+  "analysis_1_calibration": {
+    "sampling": "One row per settled market at each fixed TTE in {120,180,240}s; latest valid BRTI tick at or before target, age <=2s; latest causally reconstructed two-sided book at the same source time.",
+    "outcome": "Official market result YES=1/NO=0; CF final-minute average is a consistency check only when available.",
+    "forecasts": {
+      "kernel": "BRTI kernel fair probability",
+      "market": "(best YES bid + implied YES ask from best NO bid)/2"
+    },
+    "metrics": [
+      "Brier score",
+      "log loss",
+      "logistic calibration intercept a and slope b in logit(P(Y=1))=a+b*logit(forecast)",
+      "paired kernel-minus-market Brier and log-loss differences"
+    ],
+    "uncertainty": "Market-cluster bootstrap, 2000 replicates, seed 26072601, percentile 95% CI.",
+    "minimum_reportable": "At least 20 unique settled markets and both outcomes; otherwise descriptive only."
+  },
+  "analysis_2_gap_lead": {
+    "sampling": "Every fifth authoritative BRTI source second in 120<=TTE<300 with valid fair and two-sided causal book.",
+    "gap": "kernel fair probability minus market YES mid, in percentage points",
+    "future_horizons_s": [
+      1,
+      2,
+      5,
+      10
+    ],
+    "future_change": "Causal book mid at t+h minus mid at t, percentage points; persistent book state is LOCF, never a future-before-target observation.",
+    "statistics": [
+      "OLS slope with intercept of future mid change on gap",
+      "mean sign(gap)*future mid change",
+      "directional hit rate excluding zero gap or zero future move",
+      "Pearson correlation"
+    ],
+    "uncertainty": "Market-cluster bootstrap, 2000 replicates, seed 26072602, percentile 95% CI; report every fixed horizon without selecting the best."
+  },
+  "book_replay_validity": {
+    "ordering": "market_ticker, ts_utc, ws_seq",
+    "snapshot": "Replace both YES and NO maps from the complete snapshot.",
+    "delta": "Add signed delta_e4 to the exact side/price level.",
+    "valid_level": "Displayed quantity must remain >=0 at every update; best bid uses only strictly positive displayed quantity.",
+    "failure_scope": "Any negative level, sequence regression, missing initial snapshot, or unknown side invalidates that market-day for all mid-based analyses.",
+    "degradation": "Kernel-versus-outcome calibration may continue without a market-mid benchmark; market baseline, fair-mid gap lead tests, and L2 completion-cost paths must report BLOCKED_BOOK_REPLAY_INVALID."
+  },
+  "analysis_3_p3_link": {
+    "pnl_eligibility": "Requires per-episode market, first-fill source timestamp, and realized PnL, source-time aligned to BRTI and reconstructed book without lookahead.",
+    "completion_cost_eligibility": "Additionally requires first-fill side and price plus a valid exact L2 path; missing side blocks the completion-cost target but does not by itself block the PnL target.",
+    "features_at_first_fill": [
+      "fair_minus_mid_gap_pp",
+      "fair_velocity_pp_per_s over trailing 5s",
+      "BRTI_momentum_index_points_per_s over trailing 10s",
+      "standardized_distance=(BRTI-strike)/(sigma*sqrt(kernel variance factor))"
+    ],
+    "targets": [
+      "realized first-fill episode PnL in cents",
+      "opposite-leg executable ask deterioration from fill time to +10s in cents, if first side and exact L2 path are present"
+    ],
+    "model": "Fixed ridge linear model lambda=1.0; train-only median/IQR scaling; deterministic five folds by SHA256(market) modulo five; all rows for one market remain in one fold.",
+    "minimum_reportable": "At least 20 aligned episodes and 10 unique markets; otherwise NO_DECISION for P3 linkage.",
+    "head_subset": "Top 20% by market-grouped OOF predicted episode PnL; report actual mean PnL, n, markets, and market-cluster bootstrap 95% CI. Also report difference versus all eligible episodes.",
+    "anti_leakage": "No settlement outcome, future book state, completion label, or realized PnL enters features."
+  },
+  "interpretation": {
+    "calibration_layer": "Tests whether the BRTI kernel assigns direction probabilities better than the contemporaneous market.",
+    "execution_layer": "Tests whether first-leg fills complete economically; queue, adverse selection, fees, and forced exits live here.",
+    "decision_rule": "Never infer kernel correctness from MM PnL alone and never infer execution viability from calibration alone.",
+    "discovery_only": "No result from these dates authorizes deployment or parameter changes."
+  },
+  "missing_data_policy": {
+    "required_blocker_detail": [
+      "exact missing path/date",
+      "which required source-time fields are absent",
+      "which requested analyses become unidentified",
+      "earliest known capture date if discoverable without opening the banned date"
+    ],
+    "no_imputation": true,
+    "no_proxy_substitution": true
+  }
+}

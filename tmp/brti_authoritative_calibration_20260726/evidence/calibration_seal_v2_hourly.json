@@ -1,0 +1,19 @@
+{
+  "schema": "brti-authoritative-calibration-seal-v2-hourly",
+  "sealed_at_utc": "2026-07-26T07:08:38Z",
+  "preregistration_sha256": "daa5f9ffb93f940634b405db0d2dd5d335a8d5761347e5939617f6d8e2e095cc",
+  "downloader_sha256": "31a1d08cfee96afa71d5201950c75642823ceacbd94420ec47092ba5b795b8f1",
+  "analyzer_sha256": "a2d2dc54c2ae7e4c3079dd0cc2aea93b364b08e70366cf5f0ec936714744d89b",
+  "base_analyzer_sha256": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+  "experiment_period_values_observed_before_v2_seal": false,
+  "v1_transport_failure_observed_before_v2_seal": {
+    "http_status": 503,
+    "values_persisted": false,
+    "failed_receipt_sha256": "71d9df7289fbcede0bfea3cd5cab1a48344428ae6cb0802b86b049705af1b268"
+  },
+  "logical_hour_count": 72,
+  "allowed_first_hour_start_utc": "2026-07-20T00:00:00.000Z",
+  "allowed_last_hour_start_utc": "2026-07-22T23:00:00.000Z",
+  "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+  "status": "SEALED"
+}

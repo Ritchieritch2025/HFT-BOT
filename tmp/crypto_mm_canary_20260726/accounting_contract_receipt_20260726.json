@@ -1,0 +1,71 @@
+{
+  "schema": "crypto-mm-accounting-contract-receipt-v1",
+  "account_scope": {
+    "subaccount": 0,
+    "exchange_index": 0
+  },
+  "evidence": {
+    "empty_account_probe": {
+      "path": "account_contract_probe_empty_20260726T060403Z.json",
+      "balance_dollars": "19.8205",
+      "portfolio_value_cents": 0,
+      "positions": 0,
+      "resting_orders": 0
+    },
+    "resting_collateral_probe": {
+      "path": "resting_collateral_contract_probe_result.json",
+      "sha256": "df08677b830177bd7a8de449f3ca35dd1fa0ad03ba76b3c1ae64cf11dc6c0d98",
+      "order": "YES bid 0.0010 x 1.00",
+      "balance_before_dollars": "19.8205",
+      "balance_while_resting_dollars": "19.8205",
+      "fills": 0,
+      "cancel_http_code": 200
+    },
+    "open_position_probe": {
+      "path": "position_value_contract_probe_result.json",
+      "sha256": "816528a20ee70ffc7536c02b8984a69f8730f8304656a259e2edd124e6db8da6",
+      "position": "NO x 1.00",
+      "entry_cost_dollars": "0.3200",
+      "entry_fee_dollars": "0.0153",
+      "balance_while_open_dollars": "19.4852",
+      "portfolio_value_while_open_cents": 36,
+      "position_fp": "-1.00",
+      "exit_fee_dollars": "0.0153",
+      "balance_after_flat_dollars": "19.7899",
+      "positions_after": 0,
+      "resting_orders_after": 0
+    }
+  },
+  "established_contract": {
+    "balance_dollars": [
+      "cash available for trading",
+      "does not deduct collateral for a resting unfilled event order",
+      "does deduct filled position cost and fee"
+    ],
+    "portfolio_value": [
+      "current value of open positions only",
+      "is zero when flat",
+      "must not be treated as cash or as total cash-plus-position equity"
+    ],
+    "absolute_budget_implication": [
+      "reserve full cost plus fee for every resting, pending, unknown, and candidate order",
+      "for every settlement state allow each non-atomic order to fill or not fill adversarially",
+      "add terminal payout of existing positions to cash, rather than adding portfolio mark and terminal payout together"
+    ]
+  },
+  "absolute_loss_budget": {
+    "fixed_anchor_dollars": "20.1570",
+    "fixed_floor_dollars": "10.1570",
+    "current_flat_balance_dollars": "19.7899",
+    "realized_drawdown_from_anchor_dollars": "0.3671",
+    "remaining_to_absolute_floor_dollars": "9.6329"
+  },
+  "live_promotion": {
+    "allowed": false,
+    "remaining_blockers": [
+      "risk snapshots still use synchronous REST on the main event loop",
+      "no cross-host account writer fence",
+      "strategy has no positive forward candidate"
+    ]
+  }
+}

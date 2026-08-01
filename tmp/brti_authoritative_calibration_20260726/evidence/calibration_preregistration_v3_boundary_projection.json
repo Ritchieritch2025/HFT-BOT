@@ -1,0 +1,120 @@
+{
+  "schema": "brti-authoritative-calibration-prereg-v3-boundary-projection",
+  "status": "SEALED_BEFORE_V3_HISTORY_DOWNLOAD",
+  "purpose": "Acquire the exact same 2026-07-20..22 authoritative BRTI period, preserve the full subsecond history envelopes, and project the official one-second stream by timestamp boundary rather than row position.",
+  "read_only": true,
+  "trading_authorized": false,
+  "engine_or_service_mutation_authorized": false,
+  "claim": "DISCOVERY_ONLY_NOT_VALIDATION",
+  "pre_v3_information": {
+    "historical_entitlement_classification": "ENTITLED_HISTORICAL_AVAILABLE",
+    "v1_day_status": "NO_DECISION_ACQUISITION_FAILED_HTTP_503",
+    "v1_values_persisted": false,
+    "v2_hourly_status": "NO_DECISION_HOURLY_ACQUISITION_FAILED",
+    "v2_http_200_hours": 72,
+    "v2_values_or_raw_envelopes_persisted": false,
+    "v2_observed_payload_counts_only": "Usually 18000 rows/hour; nine hours slightly below 18000.",
+    "v2_failed_receipt_sha256": "c64d549c4fbbee32b6094c7eb0a5419b928cfc677e8fde481c20cf8fd78de551",
+    "v2_addendum_sha256": "02ed69d469863f4d164cb7f3f4616d8112c93feff6e61e4a9e76c47d786ac4ad",
+    "model_outcome_or_individual_brti_value_seen_before_v3": false
+  },
+  "official_contract": {
+    "historical_values_url": "https://docs.cfbenchmarks.com/api/rest/historical-values/",
+    "historical_openapi_chunk_sha256": "f4f1e01b1dd5e1e9dc98518ca6e382654651f4b9a514ef04d9e0d2cc5115c546",
+    "historical_parameters": [
+      "id",
+      "timespan",
+      "timestamp"
+    ],
+    "historical_max_resolution_parameter_supported": false,
+    "value_channel_url": "https://docs.cfbenchmarks.com/api/websocket/value/",
+    "value_channel_rendered_page_sha256": "620cde084ddb59bcab6a115ac1d23e0e11b74d7eb9f1bd1efd8d989a1a8bc99b",
+    "per_second_semantics": "PER_SECOND returns only values at second boundaries.",
+    "per_200ms_semantics": "PER_200MS returns all ticks including those between second boundaries.",
+    "projection_rule": "Select a historical row if and only if time_ms modulo 1000 equals zero. Never select every fifth row or use row position."
+  },
+  "download": {
+    "endpoint": "/trade-api/v2/cfbenchmarks/history/values",
+    "index_id": "BRTI",
+    "timespan": "HOUR",
+    "first_hour_start_utc": "2026-07-20T00:00:00.000Z",
+    "last_hour_start_utc": "2026-07-22T23:00:00.000Z",
+    "hard_banned_start_utc": "2026-07-23T00:00:00.000Z",
+    "hour_start_rule": "Every integral UTC hour from first_hour_start_utc through last_hour_start_utc inclusive.",
+    "canonical_hour_list_sha256": "a0e13435ce150f9741d4897d0764212dcd22efacac652d52810791276e630556",
+    "logical_request_count": 72,
+    "maximum_concurrency": 2,
+    "global_minimum_attempt_start_interval_ms": 500,
+    "maximum_attempt_start_rate_per_second": 2,
+    "timeout_seconds_each_attempt": 15,
+    "maximum_attempts_per_hour": 2,
+    "retryable_http_statuses_only": [
+      429,
+      503
+    ],
+    "retry_backoff_ms": 3000,
+    "network_errors_retryable": false,
+    "redirects_allowed": false,
+    "maximum_response_bytes_each": 8388608
+  },
+  "raw_envelope_validation_and_storage": {
+    "order": "After a 200 response, validate the raw envelope structure and every time/value row, then persist the complete unprojected response as deterministic gzip and record body/gzip/payload hashes. Only after persistence run the one-second projection check.",
+    "raw_time_rules": [
+      "All source times are unique and strictly ascending.",
+      "All source times lie in the requested half-open UTC hour.",
+      "All source times lie on the 200ms grid relative to the Unix epoch.",
+      "All values are finite positive numerics."
+    ],
+    "storage": "Complete raw Kalshi envelope, deterministic gzip mtime=0; no individual value in console or receipt."
+  },
+  "per_second_projection_validation": {
+    "predicate": "time_ms % 1000 == 0",
+    "required_count_each_hour": 3600,
+    "required_grid": "Exactly hour_start+k*1000 for k=0..3599, once each and in ascending order.",
+    "failure": "Any missing, duplicate, off-grid, or extra second-boundary row fails the full acquisition. Raw envelopes remain as hashed evidence but the model analyzer must not run."
+  },
+  "hard_guards": [
+    "Never issue a history request whose timestamp is 2026-07-23 or later.",
+    "Only a first-attempt HTTP 429 or 503 may receive one retry, after fixed 3000ms backoff and the shared attempt-start limiter.",
+    "No redirect, network-error retry, proxy substitution, interpolation, later-period fill, or partial analysis is permitted.",
+    "Never call recent /cfbenchmarks/values as a substitute.",
+    "Never print or persist credentials, signatures, auth timestamps, private-key paths, or individual BRTI values in console/receipt.",
+    "If any of 72 hours fails raw validation or exact one-second projection, calibration is NO_DECISION and the analyzer must not run."
+  ],
+  "calibration_contract": {
+    "base_analyzer_sha256_before_v3_seal": "4a127b6307dc8566b166ec58af7282fd4aec39d44f4615fe396c1d06336991bd",
+    "forecast_horizons_tte_s": [
+      120,
+      180,
+      240
+    ],
+    "information_lag_s": 2,
+    "sigma60": "Non-demeaned timestamp-aware diffusion over strict trailing 60s.",
+    "sigma300": "Non-demeaned timestamp-aware diffusion over strict trailing 300s.",
+    "sigma": "max(sigma60,sigma300)",
+    "minimum_window_coverage": 0.999,
+    "maximum_source_gap_s": 1.5,
+    "minimum_increments": 30,
+    "probability": "Phi((BRTI-strike)/(sigma*sqrt(max(model_tte-60,0)+sum(k^2,k=1..59)/60^2)))",
+    "settlement_crosscheck": "Require exactly 60 projected one-second BRTI values in [close-60s,close), compute their mean, and require (mean>=floor_strike) to equal official result.",
+    "book_causal_order": [
+      "recv_wall_ns",
+      "recv_mono_ns",
+      "ws_seq"
+    ],
+    "book_updates": "Snapshot replaces; signed delta adds; never clamp or repair.",
+    "metrics": [
+      "Brier score",
+      "log loss",
+      "logistic calibration intercept and slope",
+      "paired kernel-minus-market score differences"
+    ],
+    "market_cluster_bootstrap_replicates": 2000,
+    "bootstrap_seed": 26072611
+  },
+  "explicitly_blocked_secondary_tests": {
+    "fair_mid_gap_to_future_mid": "BLOCKED_BRTI_RECEIVE_TIMESTAMP_ABSENT",
+    "p3_first_fill_oof": "BLOCKED_EXISTING_P3_CLOCK_AND_SCHEMA"
+  },
+  "deployment": "No acquisition or calibration result authorizes trading, engine mutation, or parameter change."
+}

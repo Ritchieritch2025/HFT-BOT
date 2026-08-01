@@ -1,0 +1,106 @@
+{
+  "schema": "round4-postfill-data-integrity-prereg-v4.2",
+  "contract_version": "ROUND4_POSTFILL_PUBLIC_PROXY_V4_2",
+  "action_family_version": "ROUND4_KEEP_FLATTEN_FOK_PUBLIC_PROXY_V4_2",
+  "status": "NO_SEAL_AUTHORITATIVE_SOURCE_ADAPTER_V3_PENDING",
+  "decision": "FAIL_CLOSED",
+  "scope": "offline historical public-source data-integrity contract only",
+  "authorization": {
+    "source_adapter_authorized": false,
+    "extraction_authorized": false,
+    "fit_authorized": false,
+    "candidate_selection_authorized": false,
+    "deployable": false,
+    "live_authorized": false
+  },
+  "frozen_v4_1_dependencies": {
+    "python_sha256": "2642797235851cfd172ac27a2ccf1b964d65e8b3e13cbc132761fbce5db165ab",
+    "tests_sha256": "b51dbd4f539199c196f1dd70259999eb7562982b9cf0ebddf0a040dab2d09bc5",
+    "ddl_sha256": "08c3510011f3ffc3c9e5b19ab4d06b9dd50b8ba38950801f4c3d23cd0709efe4",
+    "validator_sha256": "a148d75daaa69d2e79d351fe35efbcc675db3eb1fdd52aaddfc1a7e4a5ed5f1b",
+    "prereg_json_sha256": "725ea9806f49de26ea3ef804e638a632d5c4e0051b98a5dc30b75bc84ac5fc8e",
+    "prereg_md_sha256": "fea505d143de5095dc79888b9bcc3856d84aab11c7c44d7ed5c4abe9543fec2c"
+  },
+  "implemented_non_source_gates": {
+    "normative_validator": {
+      "exact_sha256_required": "d15df13f0dccb171352dd3df4211f2a4111ec5e7336dff398456299805668c24",
+      "empty_or_replaced_validator_rejected": true,
+      "attestation_temp_view_required": true,
+      "violations_temp_view_required": true,
+      "exact_view_schema_required": true,
+      "transaction_rolls_back_on_any_violation": true
+    },
+    "owned_graph_closure": {
+      "market_metadata_exactly_one_legal_episode": true,
+      "settlement_exactly_one_legal_episode": true,
+      "duplicate_or_orphan_receipts_rejected": true,
+      "episode_market_date_mismatch_rejected": true,
+      "all_v4_2_owned_tables_audited": true,
+      "projection_count_and_spine_bound": true,
+      "precise_deleted_slice_rejected": true,
+      "deleted_slice_rejected_after_local_projection_spine_rehash": true,
+      "fok_slice_index_and_quantity_conservation_recomputed_in_sql": true
+    },
+    "authorization_floor": {
+      "fit": false,
+      "candidate": false,
+      "deploy": false,
+      "live": false
+    }
+  },
+  "source_adapter_boundary": {
+    "status": "STAGE2_V3_AUTHORITATIVE_EOF_ADAPTER_PENDING",
+    "caller_authored_complete_manifest_forbidden": true,
+    "v4_2_derived_minimal_json_forbidden": true,
+    "stage2_v1_authority_accepted": false,
+    "stage2_v1_rejection_reasons": [
+      "root containment accepted linked files outside declared root",
+      "regular-file and no-link identity was not proven",
+      "coverage and completeness counters were caller supplied"
+    ],
+    "stage2_v2_foundation": {
+      "accepted_as_authoritative_v4_2_adapter": false,
+      "role": "safe source-preparation foundation only",
+      "module_sha256": "8acab0f81b7acac9a752f4569ae92301ffc0bc7e3e4768a359df8e94bfff267d",
+      "tests_sha256": "5822ba8713baed90ed4a674380311f846e30d0d0348afcc565e12924885fea65",
+      "limitations": [
+        "real_warehouse_coverage_claimed is false",
+        "real warehouse adapter status is PENDING",
+        "contract adapter status is V4_2_PENDING",
+        "typed envelope rows expose book-state hashes but not full level states",
+        "raw causal rows are not coupled to the six-parent bound manifest"
+      ]
+    },
+    "required_before_unblocking": [
+      "independently reviewed authoritative Stage-2 V3/EOF adapter",
+      "six research-eligible exact-version parents bound by logical key, VersionId, SHA256 and size",
+      "strict regular-file root containment and no-link proof",
+      "program-derived three-day 72-market completeness through EOF",
+      "complete atomic terminal-state spine",
+      "recv_mono_ns primary and recv_wall_ns auxiliary strict-clock contract",
+      "latest strictly pre-effective FOK recomputation in Python and normative SQL",
+      "commit-time parent-byte and transform re-verification"
+    ]
+  },
+  "forbidden_actions": [
+    "connect data while authoritative source adapter is pending",
+    "run final extraction",
+    "fit a model",
+    "select a candidate",
+    "authorize shadow",
+    "authorize live",
+    "submit an order"
+  ],
+  "test_receipt": {
+    "targeted": "16 passed",
+    "combined_before_latest_test_addition": "127 passed",
+    "combined_scope": [
+      "V4.2",
+      "V4.1",
+      "V4",
+      "Stage-1 contract",
+      "Stage-1 extractor",
+      "Stage-2 V1 regression"
+    ]
+  }
+}

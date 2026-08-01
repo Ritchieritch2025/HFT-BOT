@@ -1,0 +1,1048 @@
+{
+  "account_fee_contract": {
+    "authenticated_probe_example": {
+      "price_dollars": "0.6800",
+      "quantity_contracts": "1.00",
+      "reported_fee_dollars": "0.0153",
+      "unrounded_fee_dollars": "0.015232"
+    },
+    "authenticated_probe_scope": "one whole contract at one price; it confirms that example but does not identify hypothetical same-price fill partitioning in the L2 replay",
+    "current_account_exact_point_identified": false,
+    "current_official_contract": "for each true fill: trade fee ceiled to $0.0001; signed revenue less trade fee floored to the direct-member target balance precision of $0.0001; rounding residue accumulated per order and whole-cent rebates issued subject to non-negative net fee",
+    "direct_account_evidence_sha256": "29f70c2822f40ca79eb0b3cc431efa29ed950decfd6a38b0d89f402dbc64de2c",
+    "exact_reconciliation_requirements": {
+      "additional_identity": "pre/post balance and position fees_paid_dollars grouped by subaccount and order_id",
+      "order_fields": [
+        "order_id",
+        "fill_count_fp",
+        "taker_fill_cost_dollars",
+        "taker_fees_dollars"
+      ],
+      "private_fill_fields": [
+        "fill_id",
+        "trade_id",
+        "order_id",
+        "count_fp",
+        "yes_price_dollars/no_price_dollars",
+        "is_taker",
+        "fee_cost"
+      ]
+    },
+    "l2_aggregate_fee_is_lower_bound_on_true_direct_net_fee": true,
+    "l2_aggregate_point_sensitivity": "sum 7% quadratic raw fee across frozen L2 price-level book-walk slices, ceil once to $0.0001; this is a minimum-fee / maximum-PnL point, not private-fill-exact",
+    "maximum_true_pnl_improvement_per_ioc_order_c": "0.99",
+    "official_fee_rounding_markdown_sha256": "c9b8c7efd50df6512a4528e5a86044ad40699e17ababc7f9c42497c722829796",
+    "official_fee_rounding_url": "https://docs.kalshi.com/getting_started/fee_rounding",
+    "official_source_accessed_utc_date": "2026-07-26",
+    "old": "generic: sum 7% quadratic fee across exact IOC slices, ceil once to $0.01",
+    "private_fill_partition_observed": false,
+    "upper_bound_proof": "sum_i ceil_0.0001(raw_fee_i) is at least ceil_0.0001(sum_i raw_fee_i), and post-rebate rounding residue is non-negative; therefore true direct net fee is at least the L2 aggregate centicent fee. Old fee is ceil_0.01(sum raw), so old fee minus true direct fee is at most $0.0099 = 0.99c"
+  },
+  "analysis_class": "POST_HOC_L2_AGGREGATE_MIN_FEE_SENSITIVITY_NO_RESELECTION",
+  "candidate_status": "NO_CANDIDATE",
+  "date_2026_07_23_read": false,
+  "dates_opened": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "decision": {
+    "all_executable_fixed_policy_ev_negative": true,
+    "candidate": false,
+    "clairvoyant_is_headroom_only": true,
+    "interpretation": "The optimistic L2-aggregate minimum-fee point improves IOC economics but does not make any frozen executable policy positive. More importantly, every executable policy remains negative under the partition-independent 0.99c-per-IOC maximum-PnL bound. The frozen clairvoyant source row remains diagnostic headroom only.",
+    "live_authorized": false
+  },
+  "deployable": false,
+  "fee_only_sensitivity": true,
+  "frozen_scope": {
+    "capital_time": true,
+    "episode_support": true,
+    "exit_ts": true,
+    "ioc_book_asof_and_book_walk": true,
+    "maker_queue_and_pair_results": true,
+    "only_changed_field": "IOC fee and fee-dependent pnl_c",
+    "policy": true,
+    "selected_oracle_source": true,
+    "selection_performed": false
+  },
+  "historical_validation_claim": false,
+  "invariants": {
+    "07_23_false": true,
+    "action_projection_adjusted_sha256": "febde18daf12fafec32f8504ea2be39c0b2e6692a1c51d2fc37bb1b3d40badc9",
+    "action_projection_identity": true,
+    "action_projection_original_sha256": "febde18daf12fafec32f8504ea2be39c0b2e6692a1c51d2fc37bb1b3d40badc9",
+    "ioc_policy_old_pnl_exact_matches": 7125,
+    "ioc_policy_rows": 7125,
+    "maker_rows": 6097,
+    "maker_rows_adjusted_sha256": "8181e9bc09c583dd6e381b8ec12a0b8a9da5556dba483a1f9db4a6856a918e58",
+    "maker_rows_byte_identical": 6097,
+    "maker_rows_original_sha256": "8181e9bc09c583dd6e381b8ec12a0b8a9da5556dba483a1f9db4a6856a918e58",
+    "markout_old_pnl_exact_matches": 10818,
+    "markout_snapshots": 10818,
+    "old_aggregate_metrics_reproduced": true,
+    "old_markout_metrics_reproduced": true,
+    "policy_rows": 13222
+  },
+  "l2_aggregate_centicent_markouts": {
+    "definition": "IOC value uses the latest book already applied before the first event at/after each horizon; relative markout subtracts the fee-inclusive IOC value at the first fill",
+    "first_fill_fee_inclusive_immediate_ioc_value_c": {
+      "ci95_mean_market_cluster": [
+        -1.3177,
+        -1.154
+      ],
+      "markets": 58,
+      "mean": -1.2412,
+      "n": 1202,
+      "q10": -2.04,
+      "q25": -1.85,
+      "q50": -0.97,
+      "q75": -0.69,
+      "q90": -0.35
+    },
+    "future_book_violations": 0,
+    "horizons": {
+      "0.25s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.4493,
+            -1.1627
+          ],
+          "mean": -1.3095,
+          "q10": -2.9,
+          "q25": -1.85,
+          "q50": -0.92,
+          "q75": -0.41,
+          "q90": 0.169
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.1837,
+            0.0438
+          ],
+          "mean": -0.0683,
+          "q10": -1.124,
+          "q25": -0.1,
+          "q50": 0.0,
+          "q75": 0.53,
+          "q90": 1.049
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.053662,
+          "max_observation_lag_s": 0.234557,
+          "mean_book_staleness_s": 0.004501,
+          "mean_observation_lag_s": 0.004485
+        }
+      },
+      "0.5s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.429,
+            -1.1552
+          ],
+          "mean": -1.2901,
+          "q10": -3.04,
+          "q25": -1.9,
+          "q50": -0.9,
+          "q75": -0.2625,
+          "q90": 0.31
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.1727,
+            0.0707
+          ],
+          "mean": -0.0489,
+          "q10": -1.59,
+          "q25": -0.305,
+          "q50": 0.0,
+          "q75": 0.85,
+          "q90": 1.13
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.097171,
+          "max_observation_lag_s": 0.091229,
+          "mean_book_staleness_s": 0.004806,
+          "mean_observation_lag_s": 0.004938
+        }
+      },
+      "10s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.7174,
+            -0.8623
+          ],
+          "mean": -1.269,
+          "q10": -8.24,
+          "q25": -4.0625,
+          "q50": -0.85,
+          "q75": 1.7275,
+          "q90": 5.247
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.4859,
+            0.3963
+          ],
+          "mean": -0.0278,
+          "q10": -6.65,
+          "q25": -2.86,
+          "q50": 0.0,
+          "q75": 2.86,
+          "q90": 6.844
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.078293,
+          "max_observation_lag_s": 0.177298,
+          "mean_book_staleness_s": 0.005758,
+          "mean_observation_lag_s": 0.005632
+        }
+      },
+      "1s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.4421,
+            -1.1199
+          ],
+          "mean": -1.273,
+          "q10": -3.9,
+          "q25": -1.95,
+          "q50": -0.9,
+          "q75": -0.04,
+          "q90": 0.649
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.2035,
+            0.1295
+          ],
+          "mean": -0.0318,
+          "q10": -2.1,
+          "q25": -0.7475,
+          "q50": 0.0,
+          "q75": 0.95,
+          "q90": 1.91
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.103237,
+          "max_observation_lag_s": 0.070776,
+          "mean_book_staleness_s": 0.00497,
+          "mean_observation_lag_s": 0.004874
+        }
+      },
+      "2s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.4818,
+            -1.1056
+          ],
+          "mean": -1.288,
+          "q10": -4.897,
+          "q25": -2.04,
+          "q50": -0.875,
+          "q75": 0.17,
+          "q90": 1.26
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.2412,
+            0.1437
+          ],
+          "mean": -0.0468,
+          "q10": -3.13,
+          "q25": -0.95,
+          "q50": 0.0,
+          "q75": 1.05,
+          "q90": 2.86
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.069356,
+          "max_observation_lag_s": 0.088376,
+          "mean_book_staleness_s": 0.004904,
+          "mean_observation_lag_s": 0.004879
+        }
+      },
+      "30s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -2.9718,
+            -1.2568
+          ],
+          "mean": -2.0817,
+          "q10": -12.47,
+          "q25": -6.5425,
+          "q50": -1.15,
+          "q75": 3.28,
+          "q90": 8.577
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -1.6952,
+            -0.0642
+          ],
+          "mean": -0.8405,
+          "q10": -11.06,
+          "q25": -5.255,
+          "q50": -0.28,
+          "q75": 4.3925,
+          "q90": 9.845
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.19372,
+          "max_observation_lag_s": 0.134519,
+          "mean_book_staleness_s": 0.006218,
+          "mean_observation_lag_s": 0.006053
+        }
+      },
+      "5s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -1.6865,
+            -1.0477
+          ],
+          "mean": -1.3496,
+          "q10": -6.328,
+          "q25": -2.95,
+          "q50": -0.9,
+          "q75": 0.71,
+          "q90": 3.147
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -0.461,
+            0.2224
+          ],
+          "mean": -0.1084,
+          "q10": -4.739,
+          "q25": -1.89,
+          "q50": 0.0,
+          "q75": 1.7,
+          "q90": 4.44
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.073837,
+          "max_observation_lag_s": 0.064463,
+          "mean_book_staleness_s": 0.005634,
+          "mean_observation_lag_s": 0.005339
+        }
+      },
+      "60s": {
+        "fee_inclusive_immediate_ioc_value_c": {
+          "ci95_mean_market_cluster": [
+            -3.8892,
+            -0.8144
+          ],
+          "mean": -2.2678,
+          "q10": -16.258,
+          "q25": -9.625,
+          "q50": -1.85,
+          "q75": 6.31,
+          "q90": 14.555
+        },
+        "markets": 58,
+        "n": 1202,
+        "relative_to_first_fill_markout_c": {
+          "ci95_mean_market_cluster": [
+            -2.6404,
+            0.4149
+          ],
+          "mean": -1.0266,
+          "q10": -14.68,
+          "q25": -8.27,
+          "q50": -1.055,
+          "q75": 7.385,
+          "q90": 16.258
+        },
+        "sampling_audit": {
+          "max_book_staleness_s": 0.411965,
+          "max_observation_lag_s": 0.406639,
+          "mean_book_staleness_s": 0.01067,
+          "mean_observation_lag_s": 0.010348
+        }
+      }
+    }
+  },
+  "l2_aggregate_centicent_metrics": {
+    "CLAIRVOYANT_BEST_FIXED": {
+      "ci95_market_cluster": [
+        0.5734,
+        0.8276
+      ],
+      "ev_c_per_first_fill": 0.7101,
+      "improvement_ci95_market_cluster": [
+        1.4366,
+        1.6911
+      ],
+      "improvement_vs_current_c": 1.5646,
+      "ioc_exits": 284,
+      "maker_pairs": 918,
+      "markets": 58,
+      "mean_capital_time_s": 6.2733,
+      "median_capital_time_s": 1.5201,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "CURRENT_DIST2_TTL60": {
+      "ci95_market_cluster": [
+        -0.9941,
+        -0.7183
+      ],
+      "ev_c_per_first_fill": -0.8545,
+      "improvement_ci95_market_cluster": [
+        0.0,
+        0.0
+      ],
+      "improvement_vs_current_c": 0.0,
+      "ioc_exits": 574,
+      "maker_pairs": 628,
+      "markets": 58,
+      "mean_capital_time_s": 2.6191,
+      "median_capital_time_s": 0.9148,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "IOC_60MS": {
+      "ci95_market_cluster": [
+        -1.2957,
+        -1.0732
+      ],
+      "ev_c_per_first_fill": -1.1869,
+      "improvement_ci95_market_cluster": [
+        -0.4559,
+        -0.2083
+      ],
+      "improvement_vs_current_c": -0.3324,
+      "ioc_exits": 1143,
+      "maker_pairs": 59,
+      "markets": 58,
+      "mean_capital_time_s": 0.0582,
+      "median_capital_time_s": 0.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_0P25": {
+      "ci95_market_cluster": [
+        -1.297,
+        -0.9975
+      ],
+      "ev_c_per_first_fill": -1.1517,
+      "improvement_ci95_market_cluster": [
+        -0.4247,
+        -0.1755
+      ],
+      "improvement_vs_current_c": -0.2972,
+      "ioc_exits": 1029,
+      "maker_pairs": 173,
+      "markets": 58,
+      "mean_capital_time_s": 0.2836,
+      "median_capital_time_s": 0.31,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_0P5": {
+      "ci95_market_cluster": [
+        -1.2726,
+        -0.9487
+      ],
+      "ev_c_per_first_fill": -1.1044,
+      "improvement_ci95_market_cluster": [
+        -0.3806,
+        -0.1363
+      ],
+      "improvement_vs_current_c": -0.2499,
+      "ioc_exits": 953,
+      "maker_pairs": 249,
+      "markets": 58,
+      "mean_capital_time_s": 0.4894,
+      "median_capital_time_s": 0.56,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_1": {
+      "ci95_market_cluster": [
+        -1.3111,
+        -0.9348
+      ],
+      "ev_c_per_first_fill": -1.1135,
+      "improvement_ci95_market_cluster": [
+        -0.4004,
+        -0.1285
+      ],
+      "improvement_vs_current_c": -0.259,
+      "ioc_exits": 867,
+      "maker_pairs": 335,
+      "markets": 58,
+      "mean_capital_time_s": 0.866,
+      "median_capital_time_s": 1.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_10": {
+      "ci95_market_cluster": [
+        -1.5971,
+        -0.8882
+      ],
+      "ev_c_per_first_fill": -1.2165,
+      "improvement_ci95_market_cluster": [
+        -0.6329,
+        -0.1129
+      ],
+      "improvement_vs_current_c": -0.362,
+      "ioc_exits": 458,
+      "maker_pairs": 744,
+      "markets": 58,
+      "mean_capital_time_s": 5.2302,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_2": {
+      "ci95_market_cluster": [
+        -1.2067,
+        -0.8155
+      ],
+      "ev_c_per_first_fill": -1.0036,
+      "improvement_ci95_market_cluster": [
+        -0.2904,
+        -0.0128
+      ],
+      "improvement_vs_current_c": -0.1491,
+      "ioc_exits": 719,
+      "maker_pairs": 483,
+      "markets": 58,
+      "mean_capital_time_s": 1.52,
+      "median_capital_time_s": 2.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_30": {
+      "ci95_market_cluster": [
+        -2.4059,
+        -0.8196
+      ],
+      "ev_c_per_first_fill": -1.4979,
+      "improvement_ci95_market_cluster": [
+        -1.4726,
+        -0.0338
+      ],
+      "improvement_vs_current_c": -0.6434,
+      "ioc_exits": 289,
+      "maker_pairs": 913,
+      "markets": 58,
+      "mean_capital_time_s": 11.1377,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_5": {
+      "ci95_market_cluster": [
+        -1.3602,
+        -0.819
+      ],
+      "ev_c_per_first_fill": -1.0819,
+      "improvement_ci95_market_cluster": [
+        -0.4148,
+        -0.0595
+      ],
+      "improvement_vs_current_c": -0.2274,
+      "ioc_exits": 580,
+      "maker_pairs": 622,
+      "markets": 58,
+      "mean_capital_time_s": 3.1202,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_60": {
+      "ci95_market_cluster": [
+        -2.429,
+        -0.7794
+      ],
+      "ev_c_per_first_fill": -1.5138,
+      "improvement_ci95_market_cluster": [
+        -1.4924,
+        0.0232
+      ],
+      "improvement_vs_current_c": -0.6593,
+      "ioc_exits": 229,
+      "maker_pairs": 973,
+      "markets": 58,
+      "mean_capital_time_s": 17.506,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    }
+  },
+  "l2_aggregate_fee_audit_by_policy": {
+    "CLAIRVOYANT_BEST_FIXED": {
+      "ioc_exits": 284,
+      "ioc_with_any_fill": 284,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "189.0100",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "126.9900",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4471478873239436619718309859",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "316.0",
+      "private_fill_exact": false
+    },
+    "CURRENT_DIST2_TTL60": {
+      "ioc_exits": 574,
+      "ioc_with_any_fill": 573,
+      "ioc_zero_fill_remainder_settlement": 1,
+      "l2_aggregate_centicent_min_fee_total_c": "396.1000",
+      "max_maximum_point_fee_saving_c": "0.9900",
+      "maximum_point_fee_saving_total_c": "252.9000",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4405923344947735191637630662",
+      "min_maximum_point_fee_saving_c": "0",
+      "old_generic_whole_cent_fee_total_c": "649.0",
+      "private_fill_exact": false
+    },
+    "IOC_60MS": {
+      "ioc_exits": 1143,
+      "ioc_with_any_fill": 1143,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "783.9900",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "528.0100",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4619510061242344706911636045",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "1312.0",
+      "private_fill_exact": false
+    },
+    "WAIT_0P25": {
+      "ioc_exits": 1029,
+      "ioc_with_any_fill": 1029,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "701.6700",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "477.3300",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4638775510204081632653061224",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "1179.0",
+      "private_fill_exact": false
+    },
+    "WAIT_0P5": {
+      "ioc_exits": 953,
+      "ioc_with_any_fill": 953,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "645.8000",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "436.2000",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4577124868835257082896117524",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "1082.0",
+      "private_fill_exact": false
+    },
+    "WAIT_1": {
+      "ioc_exits": 867,
+      "ioc_with_any_fill": 867,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "585.3500",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "407.6500",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4701845444059976931949250288",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "993.0",
+      "private_fill_exact": false
+    },
+    "WAIT_10": {
+      "ioc_exits": 458,
+      "ioc_with_any_fill": 458,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "284.7000",
+      "max_maximum_point_fee_saving_c": "0.9900",
+      "maximum_point_fee_saving_total_c": "247.3000",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.5399563318777292576419213974",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "532.0",
+      "private_fill_exact": false
+    },
+    "WAIT_2": {
+      "ioc_exits": 719,
+      "ioc_with_any_fill": 719,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "479.5900",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "337.4100",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4692767732962447844228094576",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "817.0",
+      "private_fill_exact": false
+    },
+    "WAIT_30": {
+      "ioc_exits": 289,
+      "ioc_with_any_fill": 289,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "142.6500",
+      "max_maximum_point_fee_saving_c": "0.9900",
+      "maximum_point_fee_saving_total_c": "187.3500",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.6482698961937716262975778547",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "330.0",
+      "private_fill_exact": false
+    },
+    "WAIT_5": {
+      "ioc_exits": 580,
+      "ioc_with_any_fill": 580,
+      "ioc_zero_fill_remainder_settlement": 0,
+      "l2_aggregate_centicent_min_fee_total_c": "375.1000",
+      "max_maximum_point_fee_saving_c": "0.9600",
+      "maximum_point_fee_saving_total_c": "283.9000",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.4894827586206896551724137931",
+      "min_maximum_point_fee_saving_c": "0.0100",
+      "old_generic_whole_cent_fee_total_c": "659.0",
+      "private_fill_exact": false
+    },
+    "WAIT_60": {
+      "ioc_exits": 229,
+      "ioc_with_any_fill": 221,
+      "ioc_zero_fill_remainder_settlement": 8,
+      "l2_aggregate_centicent_min_fee_total_c": "83.5700",
+      "max_maximum_point_fee_saving_c": "0.9900",
+      "maximum_point_fee_saving_total_c": "165.4300",
+      "mean_maximum_point_fee_saving_per_ioc_c": "0.7224017467248908296943231441",
+      "min_maximum_point_fee_saving_c": "0",
+      "old_generic_whole_cent_fee_total_c": "249.0",
+      "private_fill_exact": false
+    }
+  },
+  "live_authorized": false,
+  "old_metrics": {
+    "CLAIRVOYANT_BEST_FIXED": {
+      "ci95_market_cluster": [
+        0.4519,
+        0.7344
+      ],
+      "ev_c_per_first_fill": 0.6045,
+      "improvement_ci95_market_cluster": [
+        1.532,
+        1.8058
+      ],
+      "improvement_vs_current_c": 1.6694,
+      "ioc_exits": 284,
+      "maker_pairs": 918,
+      "markets": 58,
+      "mean_capital_time_s": 6.2733,
+      "median_capital_time_s": 1.5201,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "CURRENT_DIST2_TTL60": {
+      "ci95_market_cluster": [
+        -1.217,
+        -0.918
+      ],
+      "ev_c_per_first_fill": -1.0649,
+      "improvement_ci95_market_cluster": [
+        0.0,
+        0.0
+      ],
+      "improvement_vs_current_c": 0.0,
+      "ioc_exits": 574,
+      "maker_pairs": 628,
+      "markets": 58,
+      "mean_capital_time_s": 2.6191,
+      "median_capital_time_s": 0.9148,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "IOC_60MS": {
+      "ci95_market_cluster": [
+        -1.7366,
+        -1.5141
+      ],
+      "ev_c_per_first_fill": -1.6261,
+      "improvement_ci95_market_cluster": [
+        -0.6904,
+        -0.4307
+      ],
+      "improvement_vs_current_c": -0.5613,
+      "ioc_exits": 1143,
+      "maker_pairs": 59,
+      "markets": 58,
+      "mean_capital_time_s": 0.0582,
+      "median_capital_time_s": 0.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_0P25": {
+      "ci95_market_cluster": [
+        -1.7034,
+        -1.3882
+      ],
+      "ev_c_per_first_fill": -1.5488,
+      "improvement_ci95_market_cluster": [
+        -0.6171,
+        -0.3579
+      ],
+      "improvement_vs_current_c": -0.4839,
+      "ioc_exits": 1029,
+      "maker_pairs": 173,
+      "markets": 58,
+      "mean_capital_time_s": 0.2836,
+      "median_capital_time_s": 0.31,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_0P5": {
+      "ci95_market_cluster": [
+        -1.6473,
+        -1.2999
+      ],
+      "ev_c_per_first_fill": -1.4673,
+      "improvement_ci95_market_cluster": [
+        -0.5413,
+        -0.2799
+      ],
+      "improvement_vs_current_c": -0.4024,
+      "ioc_exits": 953,
+      "maker_pairs": 249,
+      "markets": 58,
+      "mean_capital_time_s": 0.4894,
+      "median_capital_time_s": 0.56,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_1": {
+      "ci95_market_cluster": [
+        -1.6646,
+        -1.2647
+      ],
+      "ev_c_per_first_fill": -1.4527,
+      "improvement_ci95_market_cluster": [
+        -0.5348,
+        -0.2506
+      ],
+      "improvement_vs_current_c": -0.3878,
+      "ioc_exits": 867,
+      "maker_pairs": 335,
+      "markets": 58,
+      "mean_capital_time_s": 0.866,
+      "median_capital_time_s": 1.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_10": {
+      "ci95_market_cluster": [
+        -1.8153,
+        -1.0819
+      ],
+      "ev_c_per_first_fill": -1.4222,
+      "improvement_ci95_market_cluster": [
+        -0.6398,
+        -0.098
+      ],
+      "improvement_vs_current_c": -0.3573,
+      "ioc_exits": 458,
+      "maker_pairs": 744,
+      "markets": 58,
+      "mean_capital_time_s": 5.2302,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_2": {
+      "ci95_market_cluster": [
+        -1.5032,
+        -1.0818
+      ],
+      "ev_c_per_first_fill": -1.2843,
+      "improvement_ci95_market_cluster": [
+        -0.3684,
+        -0.075
+      ],
+      "improvement_vs_current_c": -0.2194,
+      "ioc_exits": 719,
+      "maker_pairs": 483,
+      "markets": 58,
+      "mean_capital_time_s": 1.52,
+      "median_capital_time_s": 2.06,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_30": {
+      "ci95_market_cluster": [
+        -2.5744,
+        -0.9613
+      ],
+      "ev_c_per_first_fill": -1.6537,
+      "improvement_ci95_market_cluster": [
+        -1.4301,
+        0.0321
+      ],
+      "improvement_vs_current_c": -0.5889,
+      "ioc_exits": 289,
+      "maker_pairs": 913,
+      "markets": 58,
+      "mean_capital_time_s": 11.1377,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_5": {
+      "ci95_market_cluster": [
+        -1.6154,
+        -1.0411
+      ],
+      "ev_c_per_first_fill": -1.3181,
+      "improvement_ci95_market_cluster": [
+        -0.4494,
+        -0.082
+      ],
+      "improvement_vs_current_c": -0.2532,
+      "ioc_exits": 580,
+      "maker_pairs": 622,
+      "markets": 58,
+      "mean_capital_time_s": 3.1202,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    },
+    "WAIT_60": {
+      "ci95_market_cluster": [
+        -2.5924,
+        -0.8933
+      ],
+      "ev_c_per_first_fill": -1.6514,
+      "improvement_ci95_market_cluster": [
+        -1.4438,
+        0.1122
+      ],
+      "improvement_vs_current_c": -0.5866,
+      "ioc_exits": 229,
+      "maker_pairs": 973,
+      "markets": 58,
+      "mean_capital_time_s": 17.506,
+      "median_capital_time_s": 4.6446,
+      "n": 1202,
+      "settlement_exits": 0
+    }
+  },
+  "precision_boundary": {
+    "corrected_classification": "OPTIMISTIC_L2_AGGREGATE_MIN_FEE_MAX_PNL_SENSITIVITY",
+    "identified": {
+      "frozen_l2_aggregate_min_fee_point": true,
+      "partition_independent_pnl_improvement_upper_bound": true,
+      "sealed_old_generic_whole_cent_fee": true
+    },
+    "not_identified": {
+      "current_account_exact_point_pnl": true,
+      "private_fill_exact_rounding_accumulator_path": true,
+      "private_fill_exact_trade_fee_sum": true,
+      "same_price_counterparty_fill_partition": true
+    },
+    "superseded_v1_phrases": [
+      "authenticated direct-account centicent fee",
+      "exact current-account fee repricing",
+      "exact direct-centicent fees"
+    ]
+  },
+  "schema": "z3-postfill-fee-precision-boundary-addendum-v2",
+  "source": {
+    "adjusted_episodes_path": "/Users/ritcardo/HFT BOT/tmp/crypto_mm_canary_20260726/round4/postfill_l2_aggregate_min_fee_adjusted_episodes_v2.json.gz",
+    "adjusted_episodes_sha256": "78e7d0a8f5f2d930d9114f8aace8a61eed866b79d4a446bf86b22897acf43523",
+    "audit_replay_sha256": "1adf673fc90c2f7d0009bf47946e970fb5ba5ddbdfdb44da9396b99ba2741eaf",
+    "enriched_episodes_sha256": "74fe88272b99d544746fa0ec60e2543fc49cf0368c09850a33a861b3e250aa0e",
+    "enriched_report_sha256": "ba468ff8ea50bbcf79426ef6064990ad2acad4278ece4e7766c21df6b44ce67d",
+    "original_episodes_sha256": "b4440b5822416954134f656dfe2aaf61fa3e8be0cfcdd295e62fc19f6bf3201f",
+    "original_prereg_sha256": "27549b7278eaa414bc2d4c06464ae881846d36ff8f281dd3f56678a9e098a0b7",
+    "original_replay_sha256": "b667c811707b7203bc532b5d51accc1ff2e082d2fff284e76b7377e8945d1b09",
+    "original_report_sha256": "ff5c990cbb05e3695604c9c61612d7e8e92aeced3d4b3e12b3417e8220265cc8",
+    "v2_finalizer_sha256": "4f32ef848f71bdd1949b7f713a59817aeb65da23d3ac62a49b1e432ff6179e6f"
+  },
+  "status": "DISCOVERY_ONLY_NO_CANDIDATE",
+  "strict_upper_bound": {
+    "CLAIRVOYANT_BEST_FIXED": {
+      "ev_c_per_first_fill_upper": 0.8383876871880199,
+      "ioc_count": 284,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": 0.604477537437604,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "CURRENT_DIST2_TTL60": {
+      "ev_c_per_first_fill_upper": -0.5921131447587354,
+      "ioc_count": 574,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.0648752079866888,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "IOC_60MS": {
+      "ev_c_per_first_fill_upper": -0.6847279534109818,
+      "ioc_count": 1143,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.6261339434276207,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_0P25": {
+      "ev_c_per_first_fill_upper": -0.7012861896838603,
+      "ioc_count": 1029,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.5487986688851914,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_0P5": {
+      "ev_c_per_first_fill_upper": -0.6823435940099833,
+      "ioc_count": 953,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.4672603993344426,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_1": {
+      "ev_c_per_first_fill_upper": -0.7385723793677205,
+      "ioc_count": 867,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.4526572379367721,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_10": {
+      "ev_c_per_first_fill_upper": -1.0449808652246257,
+      "ioc_count": 458,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.4222021630615642,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_2": {
+      "ev_c_per_first_fill_upper": -0.6921048252911812,
+      "ioc_count": 719,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.2842928452579034,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_30": {
+      "ev_c_per_first_fill_upper": -1.4157154742096505,
+      "ioc_count": 289,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.6537437603993344,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_5": {
+      "ev_c_per_first_fill_upper": -0.8403777038269551,
+      "ioc_count": 580,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.31808153078203,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    },
+    "WAIT_60": {
+      "ev_c_per_first_fill_upper": -1.4628361064891848,
+      "ioc_count": 229,
+      "n": 1202,
+      "old_exact_ev_c_per_first_fill": -1.651446755407654,
+      "proof": "old exact mean + IOC_count/N * 0.99c; action and oracle source frozen"
+    }
+  }
+}

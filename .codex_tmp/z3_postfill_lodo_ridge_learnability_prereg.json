@@ -1,0 +1,63 @@
+{
+  "experiment_sha256": "10f6f3a440e8dea57e450e200d2441ac7616c8f72ae793462bd2f86ab8805f02",
+  "spec": {
+    "schema": "z3-postfill-lodo-ridge-learnability-prereg-v2-reporting-audit",
+    "status": "PREDICTABILITY_DIAGNOSTIC_ONLY",
+    "not_candidate_selection": true,
+    "not_validation": true,
+    "deployable": false,
+    "dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "reward_source": "frozen policy outcomes repriced by the sealed aggregate-once minimum-fee sidecar; this is an optimistic PnL upper point sensitivity, not account-exact realized PnL; no action, fill, timing, or book-walk reselection",
+    "actions": [
+      "IOC_60MS",
+      "WAIT_0P25",
+      "WAIT_0P5",
+      "WAIT_1",
+      "WAIT_2",
+      "WAIT_5",
+      "WAIT_10",
+      "WAIT_30",
+      "WAIT_60",
+      "CURRENT_DIST2_TTL60"
+    ],
+    "features": [
+      "held_is_yes",
+      "entry_price",
+      "counterpart_price",
+      "pair_cost",
+      "pair_gain_c",
+      "log1p_admission_to_first_s",
+      "entry_price_sq",
+      "counterpart_price_sq",
+      "entry_minus_counterpart",
+      "utc_minute_sin",
+      "utc_minute_cos"
+    ],
+    "feature_clock": "all fields exist at first fill: held side, frozen entry/counterpart quotes, pair gain, admission-to-first latency, UTC minute",
+    "trajectory_feature_policy": "sampled per-event trajectory features are excluded because the fixed 1/16 outcome-blind logging sample does not cover all episodes; full episode first-fill fields provide 100% coverage",
+    "crossfit": "leave one UTC date out; training uses only the other two dates and purges every market appearing on the held-out date",
+    "models": {
+      "reward": "one separate ridge model per action, fixed alpha=10 after train-only standardization",
+      "capital": "one separate ridge model per action on log1p(capital_time_s), fixed alpha=10 after the same train-only standardization"
+    },
+    "heldout_action_rule": "CURRENT is always eligible; other actions require predicted capital time <=10s. Choose highest predicted optimistic minimum-fee PnL, tie by lower predicted capital then fixed action order. If its predicted PnL is not strictly above predicted CURRENT, choose CURRENT.",
+    "metrics": "crossfit realized EV and market-cluster bootstrap CI95; paired selection-minus-current improvement and cluster CI95; realized capital, coverage, action distribution, per-date EV, per-action heldout RMSE/correlation; hindsight best action is benchmark only",
+    "reporting_only_revision": {
+      "model_or_action_change": false,
+      "requires_v1_selected_projection_exact_match": true,
+      "per_date_cluster_ci": true,
+      "selection_reason_and_current_retention": true,
+      "feature_support_and_clipping": true,
+      "optimistic_reward_row_identity": true,
+      "fee_semantics_correction": "official fee rounds each true fill; absent private same-price fill partition, aggregate-once fee is only a lower bound on true fee and therefore an optimistic PnL upper point estimate"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "schema": "z3-round4-stage1-entry-r2-revision-receipt-v1",
+  "scope": "DISCOVERY_EXTRACTION_ONLY",
+  "prior_attempt": {
+    "script_sha256": "c796907e56960756031c989eb363e1f0c4884e0fb459d09847cd02f09aa39a10",
+    "prereg_sha256": "f9e3163123c4d1cfc1bf4b2965eacf3f7fb1cc215e78494124cb354685eb2bea",
+    "remote_log_sha256": "639e10e31fc194da935545807a692e3a5a771950ca1117f75d3cc4e1a8962e64",
+    "first_error_market": "KXBTC15M-26JUL212015-15",
+    "first_error": "passive mid recorder rejected missing public touch",
+    "classification": "VOID_CODE_CONTRACT_OVERSTRICT",
+    "results_eligible": false,
+    "partial_result_artifacts_written": false
+  },
+  "r2_correction": {
+    "economic_or_action_change": false,
+    "entry_admission_change": false,
+    "entry_admission_still_requires_two_sided_touch": true,
+    "passive_missing_touch": "increment passive_mid_skipped_missing_touch and do not append a midpoint",
+    "active_risk_missing_touch": "retain causal queue/depth/flow; set spread_e4, touch_imbalance, mid_move_1s_e4 and mid_move_10s_e4 to null",
+    "missing_indicator": "spread_e4 IS NULL",
+    "extractor_imputation_forbidden": true,
+    "stale_midpoint_carry_forbidden": true,
+    "model_feature_selection_deferred": true
+  },
+  "sealed_invariants": {
+    "dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "forbidden_dates": [
+      "2026-07-23",
+      "2026-07-26"
+    ],
+    "receipt_clock": "strict local receipt clock",
+    "equal_receipt_order": "BOOK before TRADE",
+    "fill_rule": "strict trade-through",
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false
+  },
+  "local_verification": {
+    "command_scope": [
+      "tests/test_round4_stage1_entry_contract.py",
+      "tests/test_round4_stage1_entry_extractor.py",
+      "tests/test_round4_table_builder.py"
+    ],
+    "passed": 39,
+    "failed": 0,
+    "python_compile": "PASS"
+  },
+  "remote_execution": {
+    "r2_run_started": false,
+    "status": "PENDING_INDEPENDENT_SEAL_AUDIT"
+  }
+}

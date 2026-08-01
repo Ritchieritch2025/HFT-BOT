@@ -1,0 +1,119 @@
+{
+  "experiment_sha256": "566fde5ee3bd854330c9de3586add8503c06511d334fbee66220b339a06ad14f",
+  "spec": {
+    "schema": "z3-postfill-optimal-stopping-prereg-v3-sampled-trajectory",
+    "status": "DISCOVERY_HEADROOM_ONLY_CAUSAL_RECONSTRUCTION",
+    "dates_opened": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "date_2026_07_23": "DISCOVERY_CONTAMINATED_AND_NOT_READ",
+    "base_script_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+    "entry_and_fill_model": {
+      "arm": "P3_SPEND1 imported from sealed base",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "maker_queue_ahead": "exact-level displayed quantity only",
+      "maker_fill": "strict eligible taker volume > queue_ahead + clip",
+      "cancel_ack_latency_ms": 60,
+      "ioc": "walk held-side displayed bids; official rounded taker fee; remainder settles"
+    },
+    "fixed_policies": {
+      "IOC_60MS": "maker wait 0s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_0P25": "maker wait 0.25s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_0P5": "maker wait 0.5s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_1": "maker wait 1s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_2": "maker wait 2s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_5": "maker wait 5s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_10": "maker wait 10s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_30": "maker wait 30s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "WAIT_60": "maker wait 60s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "CURRENT_DIST2_TTL60": "first event where counterpart touch-quote>=2c, fallback first event at/after 60s; cancel request then IOC after 60ms unless maker pair fills strictly before ACK",
+      "CLAIRVOYANT_BEST_FIXED": "per-episode max realized PnL among fixed waits plus current; tie shorter capital time then policy name; opportunity-level clairvoyant upper bound only"
+    },
+    "trajectory": "full policy/queue/IOC/markout state is evaluated for every episode; per-event gzip JSON is emitted only when uint64_be(SHA256(episode_id)[0:8]) mod 16 == 0, with episode_id=market|admit_ts|first_ts. Selection is fixed before outcomes and independent of result/PnL. Start, event, policy, and end rows use the same filter. All episode policy outcomes, 8-horizon markouts, and aggregate metrics remain full-population.",
+    "diagnostic_markouts": "for every first fill, fee-inclusive immediate IOC value is sampled as-of first fill and at 0.25/0.5/1/2/5/10/30/60s using only the latest book at or before each horizon; relative markout is horizon IOC value minus first-fill IOC value",
+    "event_clock_and_no_lookahead": "merge book and trade facts by the shared causal receive key; BOOK precedes TRADE only when recv_wall_ns and recv_mono_ns are identical. Every timed IOC/markout snapshot is taken before the first causal event at/after its scheduled local-receive time from the latest already-applied book, with enforced book_asof_ts<=scheduled_ts",
+    "metrics": "n, markets, EV, market-cluster bootstrap CI95, paired improvement versus current with cluster CI95, mean/median capital time",
+    "baseline_gate": "legacy 878/433/44/-1.1702c is contamination evidence only and is not an expected result after causal reconstruction; require all clock/L2/level/A1 gates pass, unique aligned first-fill episodes, and report the new causal counts without tuning",
+    "interpretation": "oracle point EV<=0 kills mechanism; oracle >0 reports timing headroom only and cannot be called validation or a candidate",
+    "data_reconstruction_revision": {
+      "only_change_from_v1": "replace legacy (ts_utc,ws_seq) book replay and mixed trade clock with one recorder receive-clock merge; policies and all economic definitions are unchanged",
+      "required_clock_fields": [
+        "recv_wall_ns",
+        "recv_mono_ns",
+        "local_recv_ts_us"
+      ],
+      "clock_identity": "local_recv_ts_us == recv_wall_ns//1000",
+      "decision_flow_tte_clock": "local_recv_ts_us only",
+      "forbidden_clocks": [
+        "ts_utc",
+        "exchange_ts_us"
+      ],
+      "combined_market_key": "(recv_wall_ns,recv_mono_ns,channel_priority,ws_seq_or_sentinel,stable_id)",
+      "same_envelope_priority": "BOOK=0 before TRADE=1",
+      "book_tie": "ws_seq then deterministic row stable_id",
+      "trade_tie": "trade_id",
+      "snapshot": "re-anchor full book and (ws_sid,ws_seq)",
+      "delta": "requires prior snapshot, unchanged ws_sid, and strictly increasing ws_seq; +1 is not required",
+      "signed_level_rule": "next=prior+delta; next<0 fails the run; next=0 deletes; never clamp",
+      "A1_gate": "allocated two-sided ETA must both be finite and >0"
+    },
+    "raw_l2_receipt_gate": {
+      "schema": "l2-gap-receipt-v1",
+      "shared_contract_sha256": "4b7a3379a69aba3ea95361294db4ffea775791f56942f5c10818b14b18c04afd",
+      "tool_sha256": "8a65b4764e1d70eaf653c27cc9a253ed626bc6cf9bb2dd6f431545907ae29de9",
+      "ingest_sha256": "7a6be65a20f9e6240e53396afcaa81047df69d736e59054c196b9297c2e5cc8e",
+      "receipt_sha256": {
+        "2026-07-20": "93fa2cbaae0e600cfca0a8537c8dfa3c1d9bbd26498809000b6b55dd1c401eab",
+        "2026-07-21": "222e1e9b83d82da247c3315f4eebf8809027a2437f48b6ba3eb42cbe494a710f",
+        "2026-07-22": "87815f64e8085f045d779abd3378edb58e1cdec77df5a9128d29e1a82e492a6f"
+      },
+      "required_zero": [
+        "sids_with_seq_gaps",
+        "seq_gap_events",
+        "seq_missed_total",
+        "seq_regressions",
+        "stream_restarts",
+        "markers_lost_frames",
+        "parse_errors"
+      ],
+      "no_l2_files": false,
+      "allowed_recorder_marker_keys": [
+        "transport_close"
+      ],
+      "snapshot_re_anchors": "audited but allowed nonzero"
+    },
+    "predecessor_attempt": {
+      "script_sha256": "efa402bfa2a45cb6624bae483a4de59b1c176400168ef87c7ab247d737c9e381",
+      "status": "terminated_after_contamination_confirmed",
+      "results_eligible": false
+    },
+    "logging_only_revision": {
+      "only_change_from_v2": "skip construction/emission of per-event diagnostic rows for 15/16 deterministic outcome-blind episode buckets",
+      "full_receive_clock_consumer_sha256": "ee2e49cb011557e207bd0774f05573ca0f0b35563341d6647bf7547a7bbe1a13",
+      "sample_hash": "SHA256",
+      "sample_identity": "market|admit_ts|first_ts",
+      "sample_uint": "first 8 digest bytes, unsigned big-endian",
+      "sample_modulus": 16,
+      "included_bucket": 0,
+      "main_state_semantics_changed": false,
+      "full_episode_policy_rows": true,
+      "full_episode_markouts": true,
+      "full_aggregate_metrics": true
+    },
+    "predecessor_attempts": [
+      {
+        "script_sha256": "efa402bfa2a45cb6624bae483a4de59b1c176400168ef87c7ab247d737c9e381",
+        "status": "terminated_after_contamination_confirmed",
+        "results_eligible": false
+      },
+      {
+        "script_sha256": "ee2e49cb011557e207bd0774f05573ca0f0b35563341d6647bf7547a7bbe1a13",
+        "status": "terminated_logging_bottleneck",
+        "results_eligible": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "z3-price-allocation-round2-prereg-receipt-v1",
+  "experiment_path": "/tmp/z3_price_allocation_round2.py",
+  "experiment_sha256": "3b5ff6d4fddf617e6cb4bcf69e5449fc537a43f4d28cec9b61b1d938482358ee",
+  "spec": {
+    "schema": "z3-price-allocation-round2-prereg-v1",
+    "candidate_count": 4,
+    "train_dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "historical_split_status": {
+      "all_discovery_contaminated": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22",
+        "2026-07-23"
+      ],
+      "this_run_reads": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22"
+      ],
+      "this_run_never_opens": [
+        "2026-07-23"
+      ],
+      "claim": "DISCOVERY_ONLY",
+      "final_validation": "post-model-and-code-seal forward holdout only"
+    },
+    "sealed_base": {
+      "script": "z3_price_allocation_train.py",
+      "sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+      "reuse": "one shared three-day event replay; allocation subclass only; engine code is not imported or modified"
+    },
+    "common": {
+      "zone": "120<=TTE<300 and (mid<20c or mid>80c)",
+      "support": "complete trailing 60s history and finite positive two-sided touch ETA; every arm skips otherwise",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "post_only": "each candidate bid is a real legal-grid price strictly below its corresponding current ask",
+      "legal_grid": "0.1c increments on [0.1c,9.9c], 1c increments on [10c,90c], 0.1c increments on [90.1c,99.9c]; boundary predecessor/successor is 9.9c<->10c and 90c<->90.1c",
+      "orphan_exit": "counterpart >=2c behind current touch, otherwise TTL60",
+      "cancel_ack_latency_ms": 60,
+      "fill_queue_ahead": "displayed quantity at exact quote level only",
+      "fill_test": "strict trade-through: cumulative eligible taker volume > exact-level ahead + clip",
+      "eta": "(all displayed barrier depth at better prices + same-level ahead + clip)/(past60 executable taker flow to candidate/60)",
+      "q_model": "q_side=1-exp(-60/ETA_side); q_both=q_yes*q_no",
+      "proxy_gain": "G=100-p_yes-p_no cents",
+      "proxy_loss_c": 3.5,
+      "ev_proxy": "q_both*G-(1-q_both)*3.5c"
+    },
+    "arms": {
+      "A0_COMMON_TOUCH": "after common support, quote both current touches if legal, post-only, and pair sum<=99c",
+      "A1_SPEND_ALL_SLOW": "keep the faster touch leg unchanged; assign the largest feasible legal-grid price to the slower touch-ETA leg, spending all usable pair slack subject to post-only and sum<=99c; YES is slower on tie",
+      "A2_FULL_MINIMAX_ETA": "enumerate the complete Cartesian product of legal post-only prices with pair sum<=99c and finite positive ETAs; minimize max ETA; ties choose higher q_both, lower pair sum, lower absolute log-ETA imbalance, then lower YES price, then lower NO price",
+      "A3_FULL_EV_GATE": "enumerate the same complete feasible legal grid; maximize frozen EVproxy; ties choose higher q_both, lower max ETA, lower pair sum, lower absolute log-ETA imbalance, then lower YES price, then lower NO price; admit only when selected EVproxy>0 strictly"
+    },
+    "selection_gate": "cycles>=30 AND markets>=10 AND empirical pair-completion Wilson LCB95>empirical break-even q* AND market-cluster bootstrap mean-PnL CI95 lower>0 AND zero invariant bugs",
+    "ranking": "strict passes first by market-cluster CI lower, realized mean PnL, markets, cycles",
+    "interpretation": "a strict positive is only a DISCOVERY candidate; deployable=false; forward holdout remains mandatory"
+  }
+}

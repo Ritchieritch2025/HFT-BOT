@@ -1,0 +1,57 @@
+{
+  "schema": "brti-timestamp-support-prereg-v1",
+  "status": "SEALED_BEFORE_TIMESTAMP_DIAGNOSTIC",
+  "purpose": "Map authoritative BRTI time support for every fixed calibration checkpoint and settlement window without reading, parsing, deriving, or outputting any BRTI value.",
+  "read_only": true,
+  "trading_authorized": false,
+  "model_analysis_authorized": false,
+  "source": {
+    "v3_acquisition_receipt_sha256": "a0098b608caf0eb5d9c16f77ffcac29e3936c37ccd311f606c5eabb0a36b2682",
+    "v3_acquisition_status": "NO_DECISION_BOUNDARY_ACQUISITION_FAILED",
+    "raw_envelopes_persisted": 72,
+    "raw_envelope_resolution": "Up to PER_200MS",
+    "one_second_projection_predicate": "time_ms % 1000 == 0",
+    "individual_brti_values_permitted": false
+  },
+  "timestamp_extraction": {
+    "method": "Scan decompressed raw bytes only for the exact JSON key token \"time\" followed by an integer. Do not deserialize the payload, access the value key, convert a value string, or compute any price statistic.",
+    "receipt_crosscheck": "The number of extracted exact time fields must equal the structurally validated payload_count in the sealed V3 acquisition receipt.",
+    "raw_time_guards": [
+      "Strictly ascending and unique within each requested hour.",
+      "Inside the exact half-open requested hour.",
+      "On the 200ms grid.",
+      "Never at or after 2026-07-23T00:00:00.000Z."
+    ]
+  },
+  "universe": {
+    "series": "KXBTC15M",
+    "metadata_path": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json",
+    "selected_close_dates_utc": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "hard_banned_brti_start_utc": "2026-07-23T00:00:00.000Z",
+    "fixed_horizons_s": [
+      120,
+      180,
+      240
+    ]
+  },
+  "support_rules": {
+    "information_cutoff": "close_ms-horizon_ms-2000ms",
+    "current_source_selection": "Latest projected one-second timestamp <= information_cutoff, with cutoff-source gap <=1500ms.",
+    "trailing_60s": "Every integral second from selected_source-60s through selected_source inclusive must exist.",
+    "trailing_300s": "Every integral second from selected_source-300s through selected_source inclusive must exist.",
+    "kernel_checkpoint_supported": "Current source selection, trailing_60s, and trailing_300s are all supported.",
+    "settlement_window": "Every integral second in [close-60s,close) must exist, exactly 60 timestamps.",
+    "analysis_checkpoint_supported": "kernel_checkpoint_supported and settlement_window supported.",
+    "market_all_horizons_supported": "All three fixed analysis checkpoints are supported.",
+    "no_substitution": "Never interpolate, carry forward, use a neighboring 200ms tick, use every fifth row, or use market/metadata price as a BRTI replacement."
+  },
+  "outputs": {
+    "support_manifest": "Per market and fixed horizon: cutoff timestamp, selected source timestamp, source gap, trailing-window support booleans/missing counts, settlement support boolean/missing count, final support boolean, and categorical reasons. No prices, probabilities, outcomes, strikes, or PnL.",
+    "receipt": "Source hashes, hour-level projected timestamp counts/missing timestamp lists, and market/checkpoint support counts. No prices.",
+    "decision": "This diagnostic does not run calibration. A new analysis preregistration may bind the support-manifest SHA and exclude any unsupported market-checkpoint."
+  }
+}

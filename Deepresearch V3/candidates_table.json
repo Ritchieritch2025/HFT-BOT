@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "source_run": "DEEP03-FULL-BASE-L2-01 / D3-W2A",
+    "evidence_label": "EXPLORATORY_ONLY / NOT_STRICT_ACCEPTANCE",
+    "candidate_or_profit_claim": false,
+    "clean_l2_dates": ["2026-07-12", "2026-07-15", "2026-07-17"],
+    "source_files": ["report12/RESULTS.json", "report12/FULLSCOPE_L2_REPORT_TABLES.json"],
+    "logodds_to_cents_note": "near 50c, 1 logodds unit ~= 25c, so 0.04 logodds ~= 1c (x0.25 rough intuition, not exact tick)"
+  },
+  "candidates": [
+    {
+      "name": "C1 refill-timed requoting",
+      "mechanism": "2_liquidity_provision_where_depth_refills",
+      "signature_value": "cumulative_refill_P_1s = 0.572/0.505/0.520 (07-12/15/17); first-100ms hazard = 0.245/0.293/0.308",
+      "metric_meaning": "顶部深度被吃穿>=50%后, 显示深度在给定时间内补回>=80%的概率",
+      "unit": "probability_0_to_1",
+      "read_direction": "higher_is_better",
+      "decision_relevance": "越高=流动性回补越快=在此做市越安全; 定义撤单/重挂的时间预算(约一半抽深在1秒内自愈, 大头在头200ms)",
+      "sign_stability": "CONSISTENT",
+      "n": "at_risk_first_bucket 266459/308209/278626 per day; events 65312/90383/85850; strata 288-356/day; atlas represented 2663119 rows",
+      "survives_bool": true,
+      "source_field": "FULLSCOPE_L2_REPORT_TABLES.json.refill_hazard.pooled_interval_hazard",
+      "caveat": "displayed-depth refill != own-order queue/fill; per-price-band table not provided (pooled only); min_stratum_survival hits 0.0 in some strata"
+    },
+    {
+      "name": "C2 cross-sectional spread capture (high-liquidity sports)",
+      "mechanism": "1_spread_capture_with_adverse_selection_avoidance",
+      "signature_value": "1s half-spread(0.069-0.098 logodds) > markout(0.025-0.048 logodds); gross margin +0.040..+0.051 in top cells; 36/37 sport cells markout>0; markout monotone 0.038->0.046->0.056 over 1s/5s/30s",
+      "metric_meaning": "markout=成交后中间价往主动方向漂移(逆向选择成本); half-spread=挂单一侧名义可赚的半价差; margin=half-spread减markout(毛口径做市边缘)",
+      "unit": "log_odds (approx x0.25 -> cents near 50c)",
+      "read_direction": "context",
+      "decision_relevance": "markout低且小于half-spread=毛口径上价差吃得住逆选=可能有做市空间; 但毛口径未扣费, deep01已判纯做市费后负期望, 中间价档手续费(~1.7c)很可能吃掉~1c毛边缘",
+      "sign_stability": "CROSS_SECTIONALLY_CONSISTENT_PER_DAY_UNVERIFIABLE",
+      "n": "1s horizon 22,927,423 trades across 37 sport x phase cells; top cells millions of trades / thousands of markets (Soccer 6.83M/3263mkt, Tennis 6.54M/6094mkt, Baseball 2.40M/6914mkt, Basketball 3.09M/4072mkt)",
+      "survives_bool": true,
+      "source_field": "RESULTS.json.base_methods[D3-B01-MARKOUT].summary.{mean_signed_markout_logodds,mean_spread_logodds,n,markets}",
+      "caveat": "gross of fees; no per-date field (pooled 7-8 days); no per-price-band split; only sport-level"
+    },
+    {
+      "name": "C3 pre-start transient one-sided fade",
+      "mechanism": "3_fading_transient_one_sided_imbalance",
+      "signature_value": "Tennis PRE_SCHEDULED_START one-sided p50=1.001s p95=30.999s; Basketball PRE p50=5.001s",
+      "metric_meaning": "盘口只剩一侧(另一侧空)这个状态持续多久; 赛前时段才真的短命",
+      "unit": "seconds",
+      "read_direction": "lower_is_better",
+      "decision_relevance": "短=失衡转瞬即逝会自愈=站对面fade可挣回归; 长=会持续=fade会被抬走; 只有赛前窄口径够短",
+      "sign_stability": "PER_DAY_UNVERIFIABLE",
+      "n": "Tennis PRE intervals=18387, markets=1248, days=6; Basketball PRE intervals=7981, days=6 (THIN)",
+      "survives_bool": true,
+      "survives_qualifier": "MARGINAL_narrow_scope_only",
+      "source_field": "RESULTS.json.base_methods[D3-B02-ONESIDE].summary.{p50_duration_seconds,p95_duration_seconds}",
+      "caveat": "thin; only pre-start scope survives; broad version rejected (R1)"
+    },
+    {
+      "name": "R1 broad one-sided fade",
+      "mechanism": "3_fading_transient_one_sided_imbalance",
+      "signature_value": "big-sport one-sided p50=8-11s, p95=60.000s (=censoring cap, uninformative); one-sided share of state-time = 16.9% (174.8M/1036.8M s)",
+      "metric_meaning": "单边挂盘时长; p95正好60s是观测窗删失上限不是真实分位数",
+      "unit": "seconds / fraction",
+      "read_direction": "lower_is_better",
+      "decision_relevance": "单边状态持续太长(中位数~9s, 尾部删失)=站对面fade会被run over=否掉",
+      "sign_stability": "EVIDENCE_AGAINST",
+      "n": "8 days; Golf 2.47M intervals, Baseball 1.83M, but durations long/censored",
+      "survives_bool": false,
+      "source_field": "RESULTS.json.base_methods[D3-B02-ONESIDE].summary.{p50_duration_seconds,p95_duration_seconds,exposure_seconds}",
+      "caveat": "p95 pegged at 60.000s censoring cap; tail uninformative"
+    },
+    {
+      "name": "R2 depth-evaporation front-running",
+      "mechanism": "4_depth_evaporation_front_running",
+      "signature_value": "episodes=853294 defined, but event->price-move differential NOT tabulated; match_rate=0.019/0.019/0.016 (matched 5072/5882/4527 of ~266k/308k/278k)",
+      "metric_meaning": "match_rate=撤退事件能配到安静对照的比例; 低=可用于差分的样本极少",
+      "unit": "rate_0_to_1 (match) / count (episodes)",
+      "read_direction": "higher_is_better",
+      "decision_relevance": "机制4的差分结果表在交付物里根本没有, 且配对覆盖<2%, 深度维未配平(SMD_depth3=-0.32/-0.31/-0.40, |SMD|>0.1失衡)=估不出边缘, 暂缓",
+      "sign_stability": "NOT_ESTIMABLE",
+      "n": "matched 5072/5882/4527 per day (<2% of episodes) - too thin",
+      "survives_bool": false,
+      "source_field": "FULLSCOPE_L2_REPORT_TABLES.json.match_coverage.match_rate; match_balance.smd_depth3_e4",
+      "caveat": "outcome differential table not delivered; deferred to validation gate with >=20 days"
+    },
+    {
+      "name": "R3 linked-market residual (cross-market)",
+      "mechanism": "out_of_scope_synthetic_arbitrage",
+      "signature_value": "NOT_ESTIMABLE: 28080 candidates -> 0 pass payout_exhaustiveness -> 0 pass fee_and_fill_feasible",
+      "metric_meaning": "跨市场残差候选在赔付互斥性和费/成交可行性上全军覆没",
+      "unit": "count",
+      "read_direction": "higher_is_better",
+      "decision_relevance": "event_ticker相邻不证明赔付互斥, 无每腿费和多腿严格成交, 残差=合成套利假声=否掉",
+      "sign_stability": "NOT_ESTIMABLE",
+      "n": "0 surviving of 28080 candidates",
+      "survives_bool": false,
+      "source_field": "EXCLUSION_WATERFALL.json.methods[D3-B03-XMKT].waterfall; RESULTS.json.base_methods[D3-B03-XMKT]",
+      "caveat": "explicitly NOT_ESTIMABLE in source"
+    }
+  ]
+}

@@ -1,0 +1,2722 @@
+{
+ "convergence": {
+  "crypto_15m": {
+   "pass": null,
+   "reason": "insufficient non-grey buckets",
+   "n_buckets_lt2m": 20,
+   "n_buckets_gt60m": 0
+  },
+  "crypto_hourly": {
+   "lt2m_mean_abs_bias": 1.23,
+   "gt60m_mean_abs_bias": 3.35,
+   "pass": true,
+   "n_buckets_lt2m": 20,
+   "n_buckets_gt60m": 20
+  },
+  "econ": {
+   "pass": null,
+   "reason": "insufficient non-grey buckets",
+   "n_buckets_lt2m": 0,
+   "n_buckets_gt60m": 20
+  },
+  "politics_events": {
+   "lt2m_mean_abs_bias": 1.01,
+   "gt60m_mean_abs_bias": 4.06,
+   "pass": true,
+   "n_buckets_lt2m": 2,
+   "n_buckets_gt60m": 20
+  },
+  "sports_game": {
+   "lt2m_mean_abs_bias": 6.84,
+   "gt60m_mean_abs_bias": 4.91,
+   "pass": false,
+   "n_buckets_lt2m": 12,
+   "n_buckets_gt60m": 20
+  },
+  "sports_prop": {
+   "lt2m_mean_abs_bias": 9.2,
+   "gt60m_mean_abs_bias": 3.38,
+   "pass": false,
+   "n_buckets_lt2m": 20,
+   "n_buckets_gt60m": 20
+  }
+ },
+ "complementarity": {
+  "pairs": 220,
+  "opposite_sign_pairs": 150,
+  "share": 0.682,
+  "detail": [
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.34,
+    "no_mirror_bias": -2.56,
+    "opposite_sign": true,
+    "mag_ratio": 0.52
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "01-05",
+    "yes_bias": -0.26,
+    "no_mirror_bias": 1.72,
+    "opposite_sign": true,
+    "mag_ratio": 0.15
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "01-05",
+    "yes_bias": -0.17,
+    "no_mirror_bias": 1.32,
+    "opposite_sign": true,
+    "mag_ratio": 0.13
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "01-05",
+    "yes_bias": -2.01,
+    "no_mirror_bias": 3.25,
+    "opposite_sign": true,
+    "mag_ratio": 0.62
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.24,
+    "no_mirror_bias": 0.31,
+    "opposite_sign": true,
+    "mag_ratio": 0.77
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "05-10",
+    "yes_bias": -2.0,
+    "no_mirror_bias": 2.26,
+    "opposite_sign": true,
+    "mag_ratio": 0.88
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.17,
+    "no_mirror_bias": 0.97,
+    "opposite_sign": true,
+    "mag_ratio": 0.18
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "05-10",
+    "yes_bias": -2.88,
+    "no_mirror_bias": 4.2,
+    "opposite_sign": true,
+    "mag_ratio": 0.69
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 1.57,
+    "no_mirror_bias": -0.23,
+    "opposite_sign": true,
+    "mag_ratio": 6.83
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "10-20",
+    "yes_bias": -1.36,
+    "no_mirror_bias": 2.43,
+    "opposite_sign": true,
+    "mag_ratio": 0.56
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "10-20",
+    "yes_bias": -1.03,
+    "no_mirror_bias": 2.39,
+    "opposite_sign": true,
+    "mag_ratio": 0.43
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "10-20",
+    "yes_bias": -2.62,
+    "no_mirror_bias": 4.0,
+    "opposite_sign": true,
+    "mag_ratio": 0.66
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": -3.67,
+    "no_mirror_bias": 5.14,
+    "opposite_sign": true,
+    "mag_ratio": 0.71
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "20-35",
+    "yes_bias": -2.44,
+    "no_mirror_bias": 2.96,
+    "opposite_sign": true,
+    "mag_ratio": 0.82
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "20-35",
+    "yes_bias": -2.34,
+    "no_mirror_bias": 3.75,
+    "opposite_sign": true,
+    "mag_ratio": 0.62
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "20-35",
+    "yes_bias": -3.42,
+    "no_mirror_bias": 5.3,
+    "opposite_sign": true,
+    "mag_ratio": 0.65
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "35-50",
+    "yes_bias": -4.15,
+    "no_mirror_bias": 4.04,
+    "opposite_sign": true,
+    "mag_ratio": 1.03
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "35-50",
+    "yes_bias": -2.48,
+    "no_mirror_bias": 3.74,
+    "opposite_sign": true,
+    "mag_ratio": 0.66
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "35-50",
+    "yes_bias": -1.65,
+    "no_mirror_bias": 2.6,
+    "opposite_sign": true,
+    "mag_ratio": 0.63
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "35-50",
+    "yes_bias": -2.88,
+    "no_mirror_bias": 4.8,
+    "opposite_sign": true,
+    "mag_ratio": 0.6
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 3.13,
+    "no_mirror_bias": -2.58,
+    "opposite_sign": true,
+    "mag_ratio": 1.21
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "50-65",
+    "yes_bias": -0.83,
+    "no_mirror_bias": 2.41,
+    "opposite_sign": true,
+    "mag_ratio": 0.34
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "50-65",
+    "yes_bias": -0.24,
+    "no_mirror_bias": 1.05,
+    "opposite_sign": true,
+    "mag_ratio": 0.23
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "50-65",
+    "yes_bias": -4.15,
+    "no_mirror_bias": 4.77,
+    "opposite_sign": true,
+    "mag_ratio": 0.87
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 4.11,
+    "no_mirror_bias": -2.64,
+    "opposite_sign": true,
+    "mag_ratio": 1.56
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "65-80",
+    "yes_bias": 0.19,
+    "no_mirror_bias": 0.92,
+    "opposite_sign": false,
+    "mag_ratio": 0.21
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "65-80",
+    "yes_bias": 0.86,
+    "no_mirror_bias": -0.6,
+    "opposite_sign": true,
+    "mag_ratio": 1.43
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "65-80",
+    "yes_bias": -1.76,
+    "no_mirror_bias": 3.56,
+    "opposite_sign": true,
+    "mag_ratio": 0.49
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 0.55,
+    "no_mirror_bias": 0.7,
+    "opposite_sign": false,
+    "mag_ratio": 0.79
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "80-90",
+    "yes_bias": -0.12,
+    "no_mirror_bias": 1.46,
+    "opposite_sign": true,
+    "mag_ratio": 0.08
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "80-90",
+    "yes_bias": 1.52,
+    "no_mirror_bias": -0.98,
+    "opposite_sign": true,
+    "mag_ratio": 1.55
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "80-90",
+    "yes_bias": -2.33,
+    "no_mirror_bias": 2.75,
+    "opposite_sign": true,
+    "mag_ratio": 0.85
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "90-95",
+    "yes_bias": -1.82,
+    "no_mirror_bias": 2.57,
+    "opposite_sign": true,
+    "mag_ratio": 0.71
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "90-95",
+    "yes_bias": 0.39,
+    "no_mirror_bias": 0.07,
+    "opposite_sign": false,
+    "mag_ratio": 5.57
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "90-95",
+    "yes_bias": 1.36,
+    "no_mirror_bias": -0.07,
+    "opposite_sign": true,
+    "mag_ratio": 19.43
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "90-95",
+    "yes_bias": -0.84,
+    "no_mirror_bias": 1.97,
+    "opposite_sign": true,
+    "mag_ratio": 0.43
+   },
+   {
+    "family": "crypto_15m",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": -0.99,
+    "no_mirror_bias": 4.09,
+    "opposite_sign": true,
+    "mag_ratio": 0.24
+   },
+   {
+    "family": "crypto_15m",
+    "band": "2-5m",
+    "yes_bucket": "95-99",
+    "yes_bias": 1.61,
+    "no_mirror_bias": -0.99,
+    "opposite_sign": true,
+    "mag_ratio": 1.63
+   },
+   {
+    "family": "crypto_15m",
+    "band": "5-10m",
+    "yes_bucket": "95-99",
+    "yes_bias": 1.6,
+    "no_mirror_bias": -0.24,
+    "opposite_sign": true,
+    "mag_ratio": 6.67
+   },
+   {
+    "family": "crypto_15m",
+    "band": "lt2m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.67,
+    "no_mirror_bias": 0.14,
+    "opposite_sign": false,
+    "mag_ratio": 4.79
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.44,
+    "no_mirror_bias": 0.14,
+    "opposite_sign": false,
+    "mag_ratio": 3.14
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.67,
+    "no_mirror_bias": 0.74,
+    "opposite_sign": false,
+    "mag_ratio": 0.91
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.61,
+    "no_mirror_bias": 0.61,
+    "opposite_sign": false,
+    "mag_ratio": 1.0
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.23,
+    "no_mirror_bias": -0.68,
+    "opposite_sign": true,
+    "mag_ratio": 1.81
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.8,
+    "no_mirror_bias": 1.11,
+    "opposite_sign": false,
+    "mag_ratio": 0.72
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.18,
+    "no_mirror_bias": 1.31,
+    "opposite_sign": true,
+    "mag_ratio": 0.14
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "05-10",
+    "yes_bias": 0.11,
+    "no_mirror_bias": 1.25,
+    "opposite_sign": false,
+    "mag_ratio": 0.09
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.3,
+    "no_mirror_bias": 2.11,
+    "opposite_sign": true,
+    "mag_ratio": 0.14
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "05-10",
+    "yes_bias": 1.56,
+    "no_mirror_bias": 0.4,
+    "opposite_sign": false,
+    "mag_ratio": 3.9
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "05-10",
+    "yes_bias": 1.06,
+    "no_mirror_bias": -0.74,
+    "opposite_sign": true,
+    "mag_ratio": 1.43
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "10-20",
+    "yes_bias": -0.15,
+    "no_mirror_bias": 1.24,
+    "opposite_sign": true,
+    "mag_ratio": 0.12
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "10-20",
+    "yes_bias": 0.21,
+    "no_mirror_bias": 1.92,
+    "opposite_sign": false,
+    "mag_ratio": 0.11
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "10-20",
+    "yes_bias": -0.12,
+    "no_mirror_bias": 0.7,
+    "opposite_sign": true,
+    "mag_ratio": 0.17
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 1.22,
+    "no_mirror_bias": 1.08,
+    "opposite_sign": false,
+    "mag_ratio": 1.13
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "10-20",
+    "yes_bias": 1.54,
+    "no_mirror_bias": -1.11,
+    "opposite_sign": true,
+    "mag_ratio": 1.39
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 0.96,
+    "no_mirror_bias": 4.98,
+    "opposite_sign": false,
+    "mag_ratio": 0.19
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "20-35",
+    "yes_bias": -0.44,
+    "no_mirror_bias": 0.72,
+    "opposite_sign": true,
+    "mag_ratio": 0.61
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "20-35",
+    "yes_bias": 2.48,
+    "no_mirror_bias": -1.52,
+    "opposite_sign": true,
+    "mag_ratio": 1.63
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 1.87,
+    "no_mirror_bias": 0.58,
+    "opposite_sign": false,
+    "mag_ratio": 3.22
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "20-35",
+    "yes_bias": 1.27,
+    "no_mirror_bias": 0.72,
+    "opposite_sign": false,
+    "mag_ratio": 1.76
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 3.03,
+    "no_mirror_bias": 2.56,
+    "opposite_sign": false,
+    "mag_ratio": 1.18
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "35-50",
+    "yes_bias": 1.67,
+    "no_mirror_bias": -0.43,
+    "opposite_sign": true,
+    "mag_ratio": 3.88
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "35-50",
+    "yes_bias": 2.63,
+    "no_mirror_bias": -2.34,
+    "opposite_sign": true,
+    "mag_ratio": 1.12
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "35-50",
+    "yes_bias": -0.23,
+    "no_mirror_bias": 0.62,
+    "opposite_sign": true,
+    "mag_ratio": 0.37
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "35-50",
+    "yes_bias": 1.75,
+    "no_mirror_bias": 1.89,
+    "opposite_sign": false,
+    "mag_ratio": 0.93
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 2.14,
+    "no_mirror_bias": 1.73,
+    "opposite_sign": false,
+    "mag_ratio": 1.24
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "50-65",
+    "yes_bias": -1.1,
+    "no_mirror_bias": 1.65,
+    "opposite_sign": true,
+    "mag_ratio": 0.67
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "50-65",
+    "yes_bias": 1.3,
+    "no_mirror_bias": 1.58,
+    "opposite_sign": false,
+    "mag_ratio": 0.82
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "50-65",
+    "yes_bias": -4.95,
+    "no_mirror_bias": 9.3,
+    "opposite_sign": true,
+    "mag_ratio": 0.53
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "50-65",
+    "yes_bias": 0.36,
+    "no_mirror_bias": 2.76,
+    "opposite_sign": false,
+    "mag_ratio": 0.13
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 1.46,
+    "no_mirror_bias": 1.43,
+    "opposite_sign": false,
+    "mag_ratio": 1.02
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "65-80",
+    "yes_bias": 1.1,
+    "no_mirror_bias": 0.95,
+    "opposite_sign": false,
+    "mag_ratio": 1.16
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "65-80",
+    "yes_bias": 0.43,
+    "no_mirror_bias": 1.42,
+    "opposite_sign": false,
+    "mag_ratio": 0.3
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "65-80",
+    "yes_bias": -6.74,
+    "no_mirror_bias": 7.94,
+    "opposite_sign": true,
+    "mag_ratio": 0.85
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "65-80",
+    "yes_bias": 1.82,
+    "no_mirror_bias": 1.4,
+    "opposite_sign": false,
+    "mag_ratio": 1.3
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 1.23,
+    "no_mirror_bias": 1.31,
+    "opposite_sign": false,
+    "mag_ratio": 0.94
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "80-90",
+    "yes_bias": -0.19,
+    "no_mirror_bias": 2.52,
+    "opposite_sign": true,
+    "mag_ratio": 0.08
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "80-90",
+    "yes_bias": 0.72,
+    "no_mirror_bias": 1.13,
+    "opposite_sign": false,
+    "mag_ratio": 0.64
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "80-90",
+    "yes_bias": -5.66,
+    "no_mirror_bias": 7.22,
+    "opposite_sign": true,
+    "mag_ratio": 0.78
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "80-90",
+    "yes_bias": 0.6,
+    "no_mirror_bias": 2.06,
+    "opposite_sign": false,
+    "mag_ratio": 0.29
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 0.39,
+    "no_mirror_bias": 1.12,
+    "opposite_sign": false,
+    "mag_ratio": 0.35
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "90-95",
+    "yes_bias": -1.24,
+    "no_mirror_bias": 1.64,
+    "opposite_sign": true,
+    "mag_ratio": 0.76
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "90-95",
+    "yes_bias": 1.04,
+    "no_mirror_bias": 1.17,
+    "opposite_sign": false,
+    "mag_ratio": 0.89
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "90-95",
+    "yes_bias": -6.41,
+    "no_mirror_bias": 5.27,
+    "opposite_sign": true,
+    "mag_ratio": 1.22
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "90-95",
+    "yes_bias": 0.05,
+    "no_mirror_bias": 0.98,
+    "opposite_sign": false,
+    "mag_ratio": 0.05
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.15,
+    "no_mirror_bias": 0.93,
+    "opposite_sign": false,
+    "mag_ratio": 0.16
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "2-5m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.68,
+    "no_mirror_bias": 0.88,
+    "opposite_sign": false,
+    "mag_ratio": 0.77
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "5-10m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.55,
+    "no_mirror_bias": 0.63,
+    "opposite_sign": false,
+    "mag_ratio": 0.87
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "gt60m",
+    "yes_bucket": "95-99",
+    "yes_bias": -1.87,
+    "no_mirror_bias": 2.1,
+    "opposite_sign": true,
+    "mag_ratio": 0.89
+   },
+   {
+    "family": "crypto_hourly",
+    "band": "lt2m",
+    "yes_bucket": "95-99",
+    "yes_bias": 1.87,
+    "no_mirror_bias": 0.75,
+    "opposite_sign": false,
+    "mag_ratio": 2.49
+   },
+   {
+    "family": "econ",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.94,
+    "no_mirror_bias": 1.62,
+    "opposite_sign": false,
+    "mag_ratio": 1.2
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.65,
+    "no_mirror_bias": 1.52,
+    "opposite_sign": false,
+    "mag_ratio": 1.09
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "05-10",
+    "yes_bias": 1.33,
+    "no_mirror_bias": -1.02,
+    "opposite_sign": true,
+    "mag_ratio": 1.3
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 3.41,
+    "no_mirror_bias": -3.76,
+    "opposite_sign": true,
+    "mag_ratio": 0.91
+   },
+   {
+    "family": "econ",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 22.49,
+    "no_mirror_bias": -22.2,
+    "opposite_sign": true,
+    "mag_ratio": 1.01
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 10.03,
+    "no_mirror_bias": -7.44,
+    "opposite_sign": true,
+    "mag_ratio": 1.35
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 17.11,
+    "no_mirror_bias": -15.11,
+    "opposite_sign": true,
+    "mag_ratio": 1.13
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 21.75,
+    "no_mirror_bias": -14.38,
+    "opposite_sign": true,
+    "mag_ratio": 1.51
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 23.6,
+    "no_mirror_bias": -15.56,
+    "opposite_sign": true,
+    "mag_ratio": 1.52
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 18.39,
+    "no_mirror_bias": -11.7,
+    "opposite_sign": true,
+    "mag_ratio": 1.57
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 10.2,
+    "no_mirror_bias": -7.48,
+    "opposite_sign": true,
+    "mag_ratio": 1.36
+   },
+   {
+    "family": "econ",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 14.03,
+    "no_mirror_bias": 0.36,
+    "opposite_sign": false,
+    "mag_ratio": 38.97
+   },
+   {
+    "family": "econ",
+    "band": "gt60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 8.45,
+    "no_mirror_bias": -2.61,
+    "opposite_sign": true,
+    "mag_ratio": 3.24
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.49,
+    "no_mirror_bias": 1.83,
+    "opposite_sign": false,
+    "mag_ratio": 0.27
+   },
+   {
+    "family": "politics_events",
+    "band": "5-10m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.08,
+    "no_mirror_bias": -1.79,
+    "opposite_sign": true,
+    "mag_ratio": 0.6
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "01-05",
+    "yes_bias": -0.66,
+    "no_mirror_bias": 4.88,
+    "opposite_sign": true,
+    "mag_ratio": 0.14
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "05-10",
+    "yes_bias": 1.89,
+    "no_mirror_bias": -0.07,
+    "opposite_sign": true,
+    "mag_ratio": 27.0
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.0,
+    "no_mirror_bias": 3.03,
+    "opposite_sign": false,
+    "mag_ratio": 0.0
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 2.46,
+    "no_mirror_bias": 0.06,
+    "opposite_sign": false,
+    "mag_ratio": 41.0
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "10-20",
+    "yes_bias": -0.33,
+    "no_mirror_bias": 2.23,
+    "opposite_sign": true,
+    "mag_ratio": 0.15
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 0.96,
+    "no_mirror_bias": 0.78,
+    "opposite_sign": false,
+    "mag_ratio": 1.23
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "20-35",
+    "yes_bias": -1.02,
+    "no_mirror_bias": 0.5,
+    "opposite_sign": true,
+    "mag_ratio": 2.04
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 0.92,
+    "no_mirror_bias": 3.36,
+    "opposite_sign": false,
+    "mag_ratio": 0.27
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 4.4,
+    "no_mirror_bias": -2.92,
+    "opposite_sign": true,
+    "mag_ratio": 1.51
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 2.79,
+    "no_mirror_bias": 0.5,
+    "opposite_sign": false,
+    "mag_ratio": 5.58
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 9.38,
+    "no_mirror_bias": -5.66,
+    "opposite_sign": true,
+    "mag_ratio": 1.66
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 4.32,
+    "no_mirror_bias": -0.93,
+    "opposite_sign": true,
+    "mag_ratio": 4.65
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 12.32,
+    "no_mirror_bias": -5.98,
+    "opposite_sign": true,
+    "mag_ratio": 2.06
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "80-90",
+    "yes_bias": -0.65,
+    "no_mirror_bias": 3.36,
+    "opposite_sign": true,
+    "mag_ratio": 0.19
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 10.72,
+    "no_mirror_bias": -5.75,
+    "opposite_sign": true,
+    "mag_ratio": 1.86
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "90-95",
+    "yes_bias": -2.44,
+    "no_mirror_bias": 3.14,
+    "opposite_sign": true,
+    "mag_ratio": 0.78
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 6.14,
+    "no_mirror_bias": 0.48,
+    "opposite_sign": false,
+    "mag_ratio": 12.79
+   },
+   {
+    "family": "politics_events",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.73,
+    "no_mirror_bias": 0.92,
+    "opposite_sign": false,
+    "mag_ratio": 0.79
+   },
+   {
+    "family": "politics_events",
+    "band": "gt60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 4.53,
+    "no_mirror_bias": -0.19,
+    "opposite_sign": true,
+    "mag_ratio": 23.84
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": -0.03,
+    "no_mirror_bias": 2.66,
+    "opposite_sign": true,
+    "mag_ratio": 0.01
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.09,
+    "no_mirror_bias": -0.53,
+    "opposite_sign": true,
+    "mag_ratio": 2.06
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.94,
+    "no_mirror_bias": -0.4,
+    "opposite_sign": true,
+    "mag_ratio": 2.35
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "01-05",
+    "yes_bias": -3.97,
+    "no_mirror_bias": 6.76,
+    "opposite_sign": true,
+    "mag_ratio": 0.59
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.11,
+    "no_mirror_bias": -1.6,
+    "opposite_sign": true,
+    "mag_ratio": 0.69
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "05-10",
+    "yes_bias": 1.29,
+    "no_mirror_bias": 1.46,
+    "opposite_sign": false,
+    "mag_ratio": 0.88
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "05-10",
+    "yes_bias": 4.71,
+    "no_mirror_bias": -3.94,
+    "opposite_sign": true,
+    "mag_ratio": 1.2
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "05-10",
+    "yes_bias": 3.56,
+    "no_mirror_bias": -3.5,
+    "opposite_sign": true,
+    "mag_ratio": 1.02
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "05-10",
+    "yes_bias": -3.16,
+    "no_mirror_bias": 6.78,
+    "opposite_sign": true,
+    "mag_ratio": 0.47
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "05-10",
+    "yes_bias": 6.41,
+    "no_mirror_bias": -6.95,
+    "opposite_sign": true,
+    "mag_ratio": 0.92
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 2.49,
+    "no_mirror_bias": 0.84,
+    "opposite_sign": false,
+    "mag_ratio": 2.96
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "10-20",
+    "yes_bias": 9.73,
+    "no_mirror_bias": -7.73,
+    "opposite_sign": true,
+    "mag_ratio": 1.26
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "10-20",
+    "yes_bias": 7.44,
+    "no_mirror_bias": -6.89,
+    "opposite_sign": true,
+    "mag_ratio": 1.08
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "10-20",
+    "yes_bias": -2.24,
+    "no_mirror_bias": 6.51,
+    "opposite_sign": true,
+    "mag_ratio": 0.34
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "10-20",
+    "yes_bias": 12.76,
+    "no_mirror_bias": -14.5,
+    "opposite_sign": true,
+    "mag_ratio": 0.88
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 3.83,
+    "no_mirror_bias": -0.92,
+    "opposite_sign": true,
+    "mag_ratio": 4.16
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "20-35",
+    "yes_bias": 16.28,
+    "no_mirror_bias": -5.25,
+    "opposite_sign": true,
+    "mag_ratio": 3.1
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "20-35",
+    "yes_bias": 11.96,
+    "no_mirror_bias": -9.45,
+    "opposite_sign": true,
+    "mag_ratio": 1.27
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "20-35",
+    "yes_bias": -1.22,
+    "no_mirror_bias": 4.07,
+    "opposite_sign": true,
+    "mag_ratio": 0.3
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 4.74,
+    "no_mirror_bias": -0.85,
+    "opposite_sign": true,
+    "mag_ratio": 5.58
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "35-50",
+    "yes_bias": 15.41,
+    "no_mirror_bias": 3.96,
+    "opposite_sign": false,
+    "mag_ratio": 3.89
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "35-50",
+    "yes_bias": 9.51,
+    "no_mirror_bias": -4.15,
+    "opposite_sign": true,
+    "mag_ratio": 2.29
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 1.8,
+    "no_mirror_bias": 2.04,
+    "opposite_sign": false,
+    "mag_ratio": 0.88
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 2.62,
+    "no_mirror_bias": 2.18,
+    "opposite_sign": false,
+    "mag_ratio": 1.2
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "50-65",
+    "yes_bias": -3.58,
+    "no_mirror_bias": 14.76,
+    "opposite_sign": true,
+    "mag_ratio": 0.24
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "50-65",
+    "yes_bias": -3.74,
+    "no_mirror_bias": 8.24,
+    "opposite_sign": true,
+    "mag_ratio": 0.45
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 4.66,
+    "no_mirror_bias": -0.29,
+    "opposite_sign": true,
+    "mag_ratio": 16.07
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 3.09,
+    "no_mirror_bias": 1.98,
+    "opposite_sign": false,
+    "mag_ratio": 1.56
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "65-80",
+    "yes_bias": -14.42,
+    "no_mirror_bias": 16.17,
+    "opposite_sign": true,
+    "mag_ratio": 0.89
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "65-80",
+    "yes_bias": -9.18,
+    "no_mirror_bias": 11.02,
+    "opposite_sign": true,
+    "mag_ratio": 0.83
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 10.29,
+    "no_mirror_bias": -3.39,
+    "opposite_sign": true,
+    "mag_ratio": 3.04
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 1.78,
+    "no_mirror_bias": 2.51,
+    "opposite_sign": false,
+    "mag_ratio": 0.71
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "80-90",
+    "yes_bias": -10.71,
+    "no_mirror_bias": 10.38,
+    "opposite_sign": true,
+    "mag_ratio": 1.03
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "80-90",
+    "yes_bias": -7.36,
+    "no_mirror_bias": 7.5,
+    "opposite_sign": true,
+    "mag_ratio": 0.98
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 11.87,
+    "no_mirror_bias": -3.6,
+    "opposite_sign": true,
+    "mag_ratio": 3.3
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "80-90",
+    "yes_bias": -10.78,
+    "no_mirror_bias": 12.81,
+    "opposite_sign": true,
+    "mag_ratio": 0.84
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 1.26,
+    "no_mirror_bias": 1.37,
+    "opposite_sign": false,
+    "mag_ratio": 0.92
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "90-95",
+    "yes_bias": -5.34,
+    "no_mirror_bias": 5.45,
+    "opposite_sign": true,
+    "mag_ratio": 0.98
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "90-95",
+    "yes_bias": -3.38,
+    "no_mirror_bias": 4.07,
+    "opposite_sign": true,
+    "mag_ratio": 0.83
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 10.28,
+    "no_mirror_bias": -3.65,
+    "opposite_sign": true,
+    "mag_ratio": 2.82
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "90-95",
+    "yes_bias": -6.0,
+    "no_mirror_bias": 6.56,
+    "opposite_sign": true,
+    "mag_ratio": 0.91
+   },
+   {
+    "family": "sports_game",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 2.16,
+    "no_mirror_bias": 0.08,
+    "opposite_sign": false,
+    "mag_ratio": 27.0
+   },
+   {
+    "family": "sports_game",
+    "band": "2-5m",
+    "yes_bucket": "95-99",
+    "yes_bias": -0.93,
+    "no_mirror_bias": 1.01,
+    "opposite_sign": true,
+    "mag_ratio": 0.92
+   },
+   {
+    "family": "sports_game",
+    "band": "5-10m",
+    "yes_bucket": "95-99",
+    "yes_bias": -0.99,
+    "no_mirror_bias": 1.14,
+    "opposite_sign": true,
+    "mag_ratio": 0.87
+   },
+   {
+    "family": "sports_game",
+    "band": "gt60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 8.03,
+    "no_mirror_bias": -3.51,
+    "opposite_sign": true,
+    "mag_ratio": 2.29
+   },
+   {
+    "family": "sports_game",
+    "band": "lt2m",
+    "yes_bucket": "95-99",
+    "yes_bias": -1.56,
+    "no_mirror_bias": 1.04,
+    "opposite_sign": true,
+    "mag_ratio": 1.5
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "01-05",
+    "yes_bias": 0.34,
+    "no_mirror_bias": 1.99,
+    "opposite_sign": false,
+    "mag_ratio": 0.17
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.3,
+    "no_mirror_bias": -1.31,
+    "opposite_sign": true,
+    "mag_ratio": 0.99
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.23,
+    "no_mirror_bias": -0.9,
+    "opposite_sign": true,
+    "mag_ratio": 1.37
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "01-05",
+    "yes_bias": -0.82,
+    "no_mirror_bias": 4.92,
+    "opposite_sign": true,
+    "mag_ratio": 0.17
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "01-05",
+    "yes_bias": 1.07,
+    "no_mirror_bias": -1.36,
+    "opposite_sign": true,
+    "mag_ratio": 0.79
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "05-10",
+    "yes_bias": 0.97,
+    "no_mirror_bias": 1.69,
+    "opposite_sign": false,
+    "mag_ratio": 0.57
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "05-10",
+    "yes_bias": 6.04,
+    "no_mirror_bias": -5.59,
+    "opposite_sign": true,
+    "mag_ratio": 1.08
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "05-10",
+    "yes_bias": 4.84,
+    "no_mirror_bias": -3.66,
+    "opposite_sign": true,
+    "mag_ratio": 1.32
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "05-10",
+    "yes_bias": -0.67,
+    "no_mirror_bias": 5.65,
+    "opposite_sign": true,
+    "mag_ratio": 0.12
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "05-10",
+    "yes_bias": 6.55,
+    "no_mirror_bias": -6.38,
+    "opposite_sign": true,
+    "mag_ratio": 1.03
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 1.47,
+    "no_mirror_bias": 1.3,
+    "opposite_sign": false,
+    "mag_ratio": 1.13
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "10-20",
+    "yes_bias": 10.17,
+    "no_mirror_bias": -10.09,
+    "opposite_sign": true,
+    "mag_ratio": 1.01
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "10-20",
+    "yes_bias": 8.3,
+    "no_mirror_bias": -6.51,
+    "opposite_sign": true,
+    "mag_ratio": 1.27
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "10-20",
+    "yes_bias": 0.1,
+    "no_mirror_bias": 5.16,
+    "opposite_sign": false,
+    "mag_ratio": 0.02
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "10-20",
+    "yes_bias": 11.48,
+    "no_mirror_bias": -11.41,
+    "opposite_sign": true,
+    "mag_ratio": 1.01
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 2.48,
+    "no_mirror_bias": 1.24,
+    "opposite_sign": false,
+    "mag_ratio": 2.0
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "20-35",
+    "yes_bias": 15.59,
+    "no_mirror_bias": -14.77,
+    "opposite_sign": true,
+    "mag_ratio": 1.06
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "20-35",
+    "yes_bias": 11.09,
+    "no_mirror_bias": -7.94,
+    "opposite_sign": true,
+    "mag_ratio": 1.4
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "20-35",
+    "yes_bias": 1.38,
+    "no_mirror_bias": 3.6,
+    "opposite_sign": false,
+    "mag_ratio": 0.38
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "20-35",
+    "yes_bias": 18.45,
+    "no_mirror_bias": -19.03,
+    "opposite_sign": true,
+    "mag_ratio": 0.97
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 4.45,
+    "no_mirror_bias": 0.88,
+    "opposite_sign": false,
+    "mag_ratio": 5.06
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "35-50",
+    "yes_bias": 12.55,
+    "no_mirror_bias": -6.44,
+    "opposite_sign": true,
+    "mag_ratio": 1.95
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "35-50",
+    "yes_bias": 9.51,
+    "no_mirror_bias": -3.16,
+    "opposite_sign": true,
+    "mag_ratio": 3.01
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "35-50",
+    "yes_bias": 3.26,
+    "no_mirror_bias": 1.76,
+    "opposite_sign": false,
+    "mag_ratio": 1.85
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "35-50",
+    "yes_bias": 19.54,
+    "no_mirror_bias": -7.92,
+    "opposite_sign": true,
+    "mag_ratio": 2.47
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 3.49,
+    "no_mirror_bias": 2.18,
+    "opposite_sign": false,
+    "mag_ratio": 1.6
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "50-65",
+    "yes_bias": -2.97,
+    "no_mirror_bias": 13.11,
+    "opposite_sign": true,
+    "mag_ratio": 0.23
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "50-65",
+    "yes_bias": -0.58,
+    "no_mirror_bias": 8.12,
+    "opposite_sign": true,
+    "mag_ratio": 0.07
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "50-65",
+    "yes_bias": 4.66,
+    "no_mirror_bias": 0.55,
+    "opposite_sign": false,
+    "mag_ratio": 8.47
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "50-65",
+    "yes_bias": 0.27,
+    "no_mirror_bias": 11.97,
+    "opposite_sign": false,
+    "mag_ratio": 0.02
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 4.75,
+    "no_mirror_bias": 2.54,
+    "opposite_sign": false,
+    "mag_ratio": 1.87
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "65-80",
+    "yes_bias": -10.59,
+    "no_mirror_bias": 17.37,
+    "opposite_sign": true,
+    "mag_ratio": 0.61
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "65-80",
+    "yes_bias": -5.62,
+    "no_mirror_bias": 11.71,
+    "opposite_sign": true,
+    "mag_ratio": 0.48
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "65-80",
+    "yes_bias": 6.78,
+    "no_mirror_bias": -1.62,
+    "opposite_sign": true,
+    "mag_ratio": 4.19
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "65-80",
+    "yes_bias": -12.5,
+    "no_mirror_bias": 19.54,
+    "opposite_sign": true,
+    "mag_ratio": 0.64
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 4.34,
+    "no_mirror_bias": 2.22,
+    "opposite_sign": false,
+    "mag_ratio": 1.95
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "80-90",
+    "yes_bias": -8.3,
+    "no_mirror_bias": 10.78,
+    "opposite_sign": true,
+    "mag_ratio": 0.77
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "80-90",
+    "yes_bias": -4.2,
+    "no_mirror_bias": 8.84,
+    "opposite_sign": true,
+    "mag_ratio": 0.48
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "80-90",
+    "yes_bias": 8.5,
+    "no_mirror_bias": -2.13,
+    "opposite_sign": true,
+    "mag_ratio": 3.99
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "80-90",
+    "yes_bias": -10.16,
+    "no_mirror_bias": 11.63,
+    "opposite_sign": true,
+    "mag_ratio": 0.87
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 3.38,
+    "no_mirror_bias": 1.38,
+    "opposite_sign": false,
+    "mag_ratio": 2.45
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "90-95",
+    "yes_bias": -5.2,
+    "no_mirror_bias": 6.02,
+    "opposite_sign": true,
+    "mag_ratio": 0.86
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "90-95",
+    "yes_bias": -2.54,
+    "no_mirror_bias": 4.82,
+    "opposite_sign": true,
+    "mag_ratio": 0.53
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "90-95",
+    "yes_bias": 6.29,
+    "no_mirror_bias": -3.26,
+    "opposite_sign": true,
+    "mag_ratio": 1.93
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "90-95",
+    "yes_bias": -6.08,
+    "no_mirror_bias": 6.52,
+    "opposite_sign": true,
+    "mag_ratio": 0.93
+   },
+   {
+    "family": "sports_prop",
+    "band": "10-60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 4.39,
+    "no_mirror_bias": 0.55,
+    "opposite_sign": false,
+    "mag_ratio": 7.98
+   },
+   {
+    "family": "sports_prop",
+    "band": "2-5m",
+    "yes_bucket": "95-99",
+    "yes_bias": -1.03,
+    "no_mirror_bias": 1.17,
+    "opposite_sign": true,
+    "mag_ratio": 0.88
+   },
+   {
+    "family": "sports_prop",
+    "band": "5-10m",
+    "yes_bucket": "95-99",
+    "yes_bias": 0.08,
+    "no_mirror_bias": 1.2,
+    "opposite_sign": false,
+    "mag_ratio": 0.07
+   },
+   {
+    "family": "sports_prop",
+    "band": "gt60m",
+    "yes_bucket": "95-99",
+    "yes_bias": 5.86,
+    "no_mirror_bias": -0.65,
+    "opposite_sign": true,
+    "mag_ratio": 9.02
+   },
+   {
+    "family": "sports_prop",
+    "band": "lt2m",
+    "yes_bucket": "95-99",
+    "yes_bias": -1.13,
+    "no_mirror_bias": 0.99,
+    "opposite_sign": true,
+    "mag_ratio": 1.14
+   }
+  ]
+ },
+ "null_cell_45_55": [
+  {
+   "family": "crypto_15m",
+   "side": "no",
+   "band": "10-60m",
+   "n": 2693,
+   "grey": false,
+   "bias_pp": 0.3,
+   "ci": [
+    -1.59,
+    2.1
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "no",
+   "band": "2-5m",
+   "n": 856,
+   "grey": false,
+   "bias_pp": 3.22,
+   "ci": [
+    -0.04,
+    6.29
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "no",
+   "band": "5-10m",
+   "n": 1460,
+   "grey": false,
+   "bias_pp": 1.89,
+   "ci": [
+    -0.9,
+    4.34
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "no",
+   "band": "lt2m",
+   "n": 412,
+   "grey": false,
+   "bias_pp": 4.53,
+   "ci": [
+    -0.59,
+    8.97
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 2703,
+   "grey": false,
+   "bias_pp": -0.48,
+   "ci": [
+    -2.21,
+    1.39
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "yes",
+   "band": "2-5m",
+   "n": 856,
+   "grey": false,
+   "bias_pp": -2.02,
+   "ci": [
+    -5.4,
+    1.13
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "yes",
+   "band": "5-10m",
+   "n": 1457,
+   "grey": false,
+   "bias_pp": -0.94,
+   "ci": [
+    -3.58,
+    1.52
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_15m",
+   "side": "yes",
+   "band": "lt2m",
+   "n": 421,
+   "grey": false,
+   "bias_pp": -3.99,
+   "ci": [
+    -8.57,
+    0.57
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "no",
+   "band": "10-60m",
+   "n": 2053,
+   "grey": false,
+   "bias_pp": 1.13,
+   "ci": [
+    -1.12,
+    3.44
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "no",
+   "band": "2-5m",
+   "n": 590,
+   "grey": false,
+   "bias_pp": 1.64,
+   "ci": [
+    -2.76,
+    5.59
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "no",
+   "band": "5-10m",
+   "n": 809,
+   "grey": false,
+   "bias_pp": 0.27,
+   "ci": [
+    -3.08,
+    4.02
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "no",
+   "band": "gt60m",
+   "n": 169,
+   "grey": false,
+   "bias_pp": 7.0,
+   "ci": [
+    -0.97,
+    14.04
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "no",
+   "band": "lt2m",
+   "n": 362,
+   "grey": false,
+   "bias_pp": 2.0,
+   "ci": [
+    -3.02,
+    7.33
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 2373,
+   "grey": false,
+   "bias_pp": 1.95,
+   "ci": [
+    0.15,
+    3.9
+   ],
+   "pass": false
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "yes",
+   "band": "2-5m",
+   "n": 629,
+   "grey": false,
+   "bias_pp": -0.95,
+   "ci": [
+    -4.7,
+    3.0
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "yes",
+   "band": "5-10m",
+   "n": 929,
+   "grey": false,
+   "bias_pp": 2.2,
+   "ci": [
+    -1.02,
+    5.37
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "yes",
+   "band": "gt60m",
+   "n": 175,
+   "grey": false,
+   "bias_pp": -2.6,
+   "ci": [
+    -9.97,
+    5.61
+   ],
+   "pass": true
+  },
+  {
+   "family": "crypto_hourly",
+   "side": "yes",
+   "band": "lt2m",
+   "n": 357,
+   "grey": false,
+   "bias_pp": -0.7,
+   "ci": [
+    -5.47,
+    4.32
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "no",
+   "band": "10-60m",
+   "n": 16,
+   "grey": true,
+   "bias_pp": -20.44,
+   "ci": [
+    -39.36,
+    3.25
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "no",
+   "band": "2-5m",
+   "n": 2,
+   "grey": true,
+   "bias_pp": -50.7,
+   "ci": [
+    -52.37,
+    -49.02
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "no",
+   "band": "5-10m",
+   "n": 4,
+   "grey": true,
+   "bias_pp": -23.7,
+   "ci": [
+    -47.92,
+    24.07
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "no",
+   "band": "gt60m",
+   "n": 127,
+   "grey": false,
+   "bias_pp": -14.3,
+   "ci": [
+    -22.25,
+    -6.51
+   ],
+   "pass": false
+  },
+  {
+   "family": "econ",
+   "side": "no",
+   "band": "lt2m",
+   "n": 6,
+   "grey": true,
+   "bias_pp": -51.16,
+   "ci": [
+    -53.28,
+    -49.2
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 16,
+   "grey": true,
+   "bias_pp": 43.22,
+   "ci": [
+    30.01,
+    50.19
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "yes",
+   "band": "2-5m",
+   "n": 5,
+   "grey": true,
+   "bias_pp": 49.84,
+   "ci": [
+    47.98,
+    51.27
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "yes",
+   "band": "5-10m",
+   "n": 7,
+   "grey": true,
+   "bias_pp": 49.02,
+   "ci": [
+    46.82,
+    51.31
+   ],
+   "pass": true
+  },
+  {
+   "family": "econ",
+   "side": "yes",
+   "band": "gt60m",
+   "n": 131,
+   "grey": false,
+   "bias_pp": 18.78,
+   "ci": [
+    11.19,
+    26.2
+   ],
+   "pass": false
+  },
+  {
+   "family": "econ",
+   "side": "yes",
+   "band": "lt2m",
+   "n": 5,
+   "grey": true,
+   "bias_pp": 48.21,
+   "ci": [
+    46.59,
+    50.1
+   ],
+   "pass": true
+  },
+  {
+   "family": "politics_events",
+   "side": "no",
+   "band": "10-60m",
+   "n": 206,
+   "grey": false,
+   "bias_pp": 1.57,
+   "ci": [
+    -5.22,
+    8.34
+   ],
+   "pass": true
+  },
+  {
+   "family": "politics_events",
+   "side": "no",
+   "band": "5-10m",
+   "n": 2,
+   "grey": true,
+   "bias_pp": 49.14,
+   "ci": [
+    47.72,
+    50.56
+   ],
+   "pass": true
+  },
+  {
+   "family": "politics_events",
+   "side": "no",
+   "band": "gt60m",
+   "n": 1259,
+   "grey": false,
+   "bias_pp": -5.27,
+   "ci": [
+    -8.13,
+    -2.47
+   ],
+   "pass": false
+  },
+  {
+   "family": "politics_events",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 320,
+   "grey": false,
+   "bias_pp": 2.78,
+   "ci": [
+    -2.91,
+    8.2
+   ],
+   "pass": true
+  },
+  {
+   "family": "politics_events",
+   "side": "yes",
+   "band": "gt60m",
+   "n": 1528,
+   "grey": false,
+   "bias_pp": 6.65,
+   "ci": [
+    4.11,
+    9.18
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_game",
+   "side": "no",
+   "band": "10-60m",
+   "n": 1609,
+   "grey": false,
+   "bias_pp": 0.87,
+   "ci": [
+    -1.59,
+    3.4
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "no",
+   "band": "2-5m",
+   "n": 39,
+   "grey": false,
+   "bias_pp": 8.4,
+   "ci": [
+    -6.85,
+    23.57
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "no",
+   "band": "5-10m",
+   "n": 160,
+   "grey": false,
+   "bias_pp": 1.21,
+   "ci": [
+    -6.24,
+    8.44
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "no",
+   "band": "gt60m",
+   "n": 2521,
+   "grey": false,
+   "bias_pp": 0.75,
+   "ci": [
+    -1.18,
+    2.64
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "no",
+   "band": "lt2m",
+   "n": 7,
+   "grey": true,
+   "bias_pp": 20.87,
+   "ci": [
+    -7.39,
+    48.82
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 1827,
+   "grey": false,
+   "bias_pp": 3.55,
+   "ci": [
+    1.34,
+    5.89
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_game",
+   "side": "yes",
+   "band": "2-5m",
+   "n": 46,
+   "grey": false,
+   "bias_pp": 7.36,
+   "ci": [
+    -5.79,
+    20.43
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "yes",
+   "band": "5-10m",
+   "n": 166,
+   "grey": false,
+   "bias_pp": 2.94,
+   "ci": [
+    -4.25,
+    10.49
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_game",
+   "side": "yes",
+   "band": "gt60m",
+   "n": 3039,
+   "grey": false,
+   "bias_pp": 3.32,
+   "ci": [
+    1.64,
+    4.97
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_game",
+   "side": "yes",
+   "band": "lt2m",
+   "n": 9,
+   "grey": true,
+   "bias_pp": 16.24,
+   "ci": [
+    -16.08,
+    48.37
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_prop",
+   "side": "no",
+   "band": "10-60m",
+   "n": 11058,
+   "grey": false,
+   "bias_pp": 1.67,
+   "ci": [
+    0.79,
+    2.56
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_prop",
+   "side": "no",
+   "band": "2-5m",
+   "n": 379,
+   "grey": false,
+   "bias_pp": 3.05,
+   "ci": [
+    -1.68,
+    7.79
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_prop",
+   "side": "no",
+   "band": "5-10m",
+   "n": 1463,
+   "grey": false,
+   "bias_pp": 2.4,
+   "ci": [
+    -0.12,
+    4.84
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_prop",
+   "side": "no",
+   "band": "gt60m",
+   "n": 14114,
+   "grey": false,
+   "bias_pp": 1.24,
+   "ci": [
+    0.41,
+    2.09
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_prop",
+   "side": "no",
+   "band": "lt2m",
+   "n": 72,
+   "grey": false,
+   "bias_pp": -4.24,
+   "ci": [
+    -16.68,
+    6.52
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_prop",
+   "side": "yes",
+   "band": "10-60m",
+   "n": 14213,
+   "grey": false,
+   "bias_pp": 3.99,
+   "ci": [
+    3.16,
+    4.88
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_prop",
+   "side": "yes",
+   "band": "2-5m",
+   "n": 525,
+   "grey": false,
+   "bias_pp": 2.98,
+   "ci": [
+    -1.04,
+    7.18
+   ],
+   "pass": true
+  },
+  {
+   "family": "sports_prop",
+   "side": "yes",
+   "band": "5-10m",
+   "n": 1925,
+   "grey": false,
+   "bias_pp": 3.96,
+   "ci": [
+    1.65,
+    6.2
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_prop",
+   "side": "yes",
+   "band": "gt60m",
+   "n": 21505,
+   "grey": false,
+   "bias_pp": 4.28,
+   "ci": [
+    3.66,
+    4.97
+   ],
+   "pass": false
+  },
+  {
+   "family": "sports_prop",
+   "side": "yes",
+   "band": "lt2m",
+   "n": 107,
+   "grey": false,
+   "bias_pp": 9.26,
+   "ci": [
+    -0.32,
+    18.29
+   ],
+   "pass": true
+  }
+ ]
+}

@@ -1,0 +1,193 @@
+{
+  "after": [
+    {
+      "balance": {
+        "balance": 1948,
+        "balance_breakdown": [
+          {
+            "balance": "19.4852",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.4852",
+        "portfolio_value": 34,
+        "updated_ts": 1785046734
+      },
+      "balance_code": 200,
+      "market_positions": [
+        {
+          "fees_paid_dollars": "0.015300",
+          "last_updated_ts": "2026-07-26T06:18:54.199665Z",
+          "market_exposure_dollars": "0.320000",
+          "position_fp": "-1.00",
+          "realized_pnl_dollars": "0.000000",
+          "ticker": "KXBTC15M-26JUL260230-30",
+          "total_traded_dollars": "0.320000"
+        }
+      ],
+      "observed_at_utc": "2026-07-26T06:18:54.534926+00:00",
+      "positions_code": 200,
+      "resting_orders": [],
+      "resting_orders_code": 200
+    },
+    {
+      "balance": {
+        "balance": 1978,
+        "balance_breakdown": [
+          {
+            "balance": "19.7899",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.7899",
+        "portfolio_value": 0,
+        "updated_ts": 1785046734
+      },
+      "balance_code": 200,
+      "market_positions": [],
+      "observed_at_utc": "2026-07-26T06:18:54.734915+00:00",
+      "positions_code": 200,
+      "resting_orders": [],
+      "resting_orders_code": 200
+    }
+  ],
+  "before": {
+    "balance": {
+      "balance": 1982,
+      "balance_breakdown": [
+        {
+          "balance": "19.8205",
+          "exchange_index": 0
+        }
+      ],
+      "balance_dollars": "19.8205",
+      "portfolio_value": 0,
+      "updated_ts": 1785046734
+    },
+    "balance_code": 200,
+    "market_positions": [],
+    "observed_at_utc": "2026-07-26T06:18:54.170737+00:00",
+    "positions_code": 200,
+    "resting_orders": [],
+    "resting_orders_code": 200
+  },
+  "direction": "no",
+  "entry": {
+    "code": 201,
+    "request": {
+      "cancel_order_on_pause": true,
+      "client_order_id": "budget-position-probe-entry-59387039-0284-45b1-8f0a-50363a7d2724",
+      "count": "1.00",
+      "exchange_index": 0,
+      "price": "0.6700",
+      "reduce_only": false,
+      "self_trade_prevention_type": "taker_at_cross",
+      "side": "ask",
+      "subaccount": 0,
+      "ticker": "KXBTC15M-26JUL260230-30",
+      "time_in_force": "immediate_or_cancel"
+    },
+    "response": {
+      "average_fee_paid": "0.0153",
+      "average_fill_price": "0.6800",
+      "client_order_id": "budget-position-probe-entry-59387039-0284-45b1-8f0a-50363a7d2724",
+      "fill_count": "1.00",
+      "order_id": "1ba9dcfd-9128-4d80-9772-027842aea380",
+      "remaining_count": "0.00",
+      "ts_ms": 1785046734199
+    }
+  },
+  "estimated_entry_risk_dollars": 0.32,
+  "exchange_index": 0,
+  "exit": {
+    "code": 201,
+    "request": {
+      "cancel_order_on_pause": true,
+      "client_order_id": "budget-position-probe-exit-e0d554b8-c20f-41aa-8d38-77cbf6164a5b",
+      "count": "1.00",
+      "exchange_index": 0,
+      "price": "0.6900",
+      "reduce_only": true,
+      "self_trade_prevention_type": "taker_at_cross",
+      "side": "bid",
+      "subaccount": 0,
+      "ticker": "KXBTC15M-26JUL260230-30",
+      "time_in_force": "immediate_or_cancel"
+    },
+    "response": {
+      "average_fee_paid": "0.0153",
+      "average_fill_price": "0.6800",
+      "client_order_id": "budget-position-probe-exit-e0d554b8-c20f-41aa-8d38-77cbf6164a5b",
+      "fill_count": "1.00",
+      "order_id": "8f6c3446-bde9-44f9-8923-eac2eb48741c",
+      "remaining_count": "0.00",
+      "ts_ms": 1785046734479
+    }
+  },
+  "finished_at_utc": "2026-07-26T06:18:54.734931+00:00",
+  "flat_after": true,
+  "max_entry_risk_dollars": "0.4500",
+  "pre_entry_book": {
+    "no_ask": 0.31999999999999995,
+    "no_bid": 0.31,
+    "yes_ask": 0.69,
+    "yes_bid": 0.68
+  },
+  "probe_kind": "authenticated-production-one-contract-round-trip",
+  "schema": "kalshi-position-value-contract-probe-v1",
+  "started_at_utc": "2026-07-26T06:18:54.100681+00:00",
+  "subaccount": 0,
+  "ticker": "KXBTC15M-26JUL260230-30",
+  "while_position_open": [
+    {
+      "balance": {
+        "balance": 1982,
+        "balance_breakdown": [
+          {
+            "balance": "19.8205",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.8205",
+        "portfolio_value": 0,
+        "updated_ts": 1785046734
+      },
+      "balance_code": 200,
+      "market_positions": [],
+      "observed_at_utc": "2026-07-26T06:18:54.251843+00:00",
+      "positions_code": 200,
+      "resting_orders": [],
+      "resting_orders_code": 200
+    },
+    {
+      "balance": {
+        "balance": 1948,
+        "balance_breakdown": [
+          {
+            "balance": "19.4852",
+            "exchange_index": 0
+          }
+        ],
+        "balance_dollars": "19.4852",
+        "portfolio_value": 36,
+        "updated_ts": 1785046734
+      },
+      "balance_code": 200,
+      "market_positions": [
+        {
+          "fees_paid_dollars": "0.015300",
+          "last_updated_ts": "2026-07-26T06:18:54.199665Z",
+          "market_exposure_dollars": "0.320000",
+          "position_fp": "-1.00",
+          "realized_pnl_dollars": "0.000000",
+          "ticker": "KXBTC15M-26JUL260230-30",
+          "total_traded_dollars": "0.320000"
+        }
+      ],
+      "observed_at_utc": "2026-07-26T06:18:54.461195+00:00",
+      "positions_code": 200,
+      "resting_orders": [],
+      "resting_orders_code": 200
+    }
+  ]
+}

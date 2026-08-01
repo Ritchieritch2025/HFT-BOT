@@ -1,0 +1,148 @@
+{
+  "schema": "round4-stage2-terminal-label-roster-v1",
+  "status": "PRE_DOWNLOAD_ROSTER_SEALED",
+  "sealed_at_utc": "2026-07-26T11:58:26Z",
+  "experiment_id": "KXBTC15M-ROUND4-TWO-STAGE-HAZARD-V1",
+  "terminal_label_contract_version": "ROUND4_STAGE2_TERMINAL_LABEL_EVIDENCE_V1",
+  "audited_contract_context": {
+    "contract": "ROUND4_POSTFILL_PUBLIC_PROXY_V4_1",
+    "status": "REJECTED_BY_INDEPENDENT_AUDIT",
+    "context_only": true,
+    "commit_or_extraction_binding_authorized": false,
+    "future_contract_requires_explicit_new_binding": true
+  },
+  "allowed_source_dates_utc": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "selection_authority": {
+    "kind": "EXACT_DISTINCT_MARKETS_IN_PREEXISTING_L2_FACT_PARTITIONS",
+    "query": "SELECT DISTINCT CAST(date AS VARCHAR) AS source_date_utc, market_ticker FROM read_parquet(source_fact_partitions, hive_partitioning=true) WHERE series_ticker='KXBTC15M' ORDER BY source_date_utc, market_ticker",
+    "terminal_or_outcome_field_used": false,
+    "constructed_before_terminal_api_download": true,
+    "source_fact_partitions": [
+      {
+        "source_date_utc": "2026-07-20",
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-20/orderbooks_full__Crypto__BTC__2026-07-20.parquet",
+        "sha256": "ade3558dd5b967c47f7d1cce795f5d963265954fb97148fd9a57e6c9db643d80"
+      },
+      {
+        "source_date_utc": "2026-07-21",
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-21/orderbooks_full__Crypto__BTC__2026-07-21.parquet",
+        "sha256": "d5bf34f3136a1e3c57525ab07e0889678fed68c81841a879c6b09b5a63389966"
+      },
+      {
+        "source_date_utc": "2026-07-22",
+        "path": "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-22/orderbooks_full__Crypto__BTC__2026-07-22.parquet",
+        "sha256": "97c063c7b57d09502e64c831d0cdc6d7d922b5585d5c8b92e28164bdf8d56042"
+      }
+    ],
+    "independent_local_crosscheck": {
+      "path": "tmp/brti_authoritative_calibration_20260726/evidence/supported_value_analysis.json",
+      "sha256": "150e23c971b147858cc36e9635820fee2d051b74f366fbfc4ea12426c1e3a033",
+      "crosscheck_rule": "distinct rows[].market ending '-15'",
+      "exact_roster_match": true
+    }
+  },
+  "terminal_field_policy": {
+    "data_role": "LABEL_AND_EVALUATION_ONLY",
+    "all_posthoc_get_values_forbidden_from_decision_features": true,
+    "allowed_join_keys_only": [
+      "source_date_utc",
+      "market_ticker"
+    ],
+    "settlement_ts_is_not_historical_receipt_time": true,
+    "price_ranges_do_not_prove_historical_point_in_time_grid": true,
+    "join_may_occur_only_after_decision_and_action_spines_are_sealed": true,
+    "candidate_selection_authorized": false,
+    "live_authorized": false
+  },
+  "markets_by_source_date_utc": {
+    "2026-07-20": [
+      "KXBTC15M-26JUL192015-15",
+      "KXBTC15M-26JUL192115-15",
+      "KXBTC15M-26JUL192215-15",
+      "KXBTC15M-26JUL192315-15",
+      "KXBTC15M-26JUL200015-15",
+      "KXBTC15M-26JUL200115-15",
+      "KXBTC15M-26JUL200215-15",
+      "KXBTC15M-26JUL200315-15",
+      "KXBTC15M-26JUL200415-15",
+      "KXBTC15M-26JUL200515-15",
+      "KXBTC15M-26JUL200615-15",
+      "KXBTC15M-26JUL200715-15",
+      "KXBTC15M-26JUL200815-15",
+      "KXBTC15M-26JUL200915-15",
+      "KXBTC15M-26JUL201015-15",
+      "KXBTC15M-26JUL201115-15",
+      "KXBTC15M-26JUL201215-15",
+      "KXBTC15M-26JUL201315-15",
+      "KXBTC15M-26JUL201415-15",
+      "KXBTC15M-26JUL201515-15",
+      "KXBTC15M-26JUL201615-15",
+      "KXBTC15M-26JUL201715-15",
+      "KXBTC15M-26JUL201815-15",
+      "KXBTC15M-26JUL201915-15"
+    ],
+    "2026-07-21": [
+      "KXBTC15M-26JUL202015-15",
+      "KXBTC15M-26JUL202115-15",
+      "KXBTC15M-26JUL202215-15",
+      "KXBTC15M-26JUL202315-15",
+      "KXBTC15M-26JUL210015-15",
+      "KXBTC15M-26JUL210115-15",
+      "KXBTC15M-26JUL210215-15",
+      "KXBTC15M-26JUL210315-15",
+      "KXBTC15M-26JUL210415-15",
+      "KXBTC15M-26JUL210515-15",
+      "KXBTC15M-26JUL210615-15",
+      "KXBTC15M-26JUL210715-15",
+      "KXBTC15M-26JUL210815-15",
+      "KXBTC15M-26JUL210915-15",
+      "KXBTC15M-26JUL211015-15",
+      "KXBTC15M-26JUL211115-15",
+      "KXBTC15M-26JUL211215-15",
+      "KXBTC15M-26JUL211315-15",
+      "KXBTC15M-26JUL211415-15",
+      "KXBTC15M-26JUL211515-15",
+      "KXBTC15M-26JUL211615-15",
+      "KXBTC15M-26JUL211715-15",
+      "KXBTC15M-26JUL211815-15",
+      "KXBTC15M-26JUL211915-15"
+    ],
+    "2026-07-22": [
+      "KXBTC15M-26JUL212015-15",
+      "KXBTC15M-26JUL212115-15",
+      "KXBTC15M-26JUL212215-15",
+      "KXBTC15M-26JUL212315-15",
+      "KXBTC15M-26JUL220015-15",
+      "KXBTC15M-26JUL220115-15",
+      "KXBTC15M-26JUL220215-15",
+      "KXBTC15M-26JUL220315-15",
+      "KXBTC15M-26JUL220415-15",
+      "KXBTC15M-26JUL220515-15",
+      "KXBTC15M-26JUL220615-15",
+      "KXBTC15M-26JUL220715-15",
+      "KXBTC15M-26JUL220815-15",
+      "KXBTC15M-26JUL220915-15",
+      "KXBTC15M-26JUL221015-15",
+      "KXBTC15M-26JUL221115-15",
+      "KXBTC15M-26JUL221215-15",
+      "KXBTC15M-26JUL221315-15",
+      "KXBTC15M-26JUL221415-15",
+      "KXBTC15M-26JUL221515-15",
+      "KXBTC15M-26JUL221615-15",
+      "KXBTC15M-26JUL221715-15",
+      "KXBTC15M-26JUL221815-15",
+      "KXBTC15M-26JUL221915-15"
+    ]
+  },
+  "market_count": 72,
+  "market_count_by_source_date_utc": {
+    "2026-07-20": 24,
+    "2026-07-21": 24,
+    "2026-07-22": 24
+  },
+  "roster_markets_sha256": "b4c1cf503c8c84417d7ab6c729501e0b0c22c6a63038edb0a7336829e8adf247"
+}

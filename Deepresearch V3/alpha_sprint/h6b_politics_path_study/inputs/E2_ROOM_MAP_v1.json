@@ -1,0 +1,798 @@
+{
+ "cells": [
+  {
+   "contracts": 2209703,
+   "mk30_vw_c": 0.222,
+   "mk_settle_vw_c": -0.04,
+   "moneyness": "lean",
+   "n_trades": 35562,
+   "series": "KXBTC",
+   "settled_contracts": 2209703,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 1077671,
+   "mk30_vw_c": -0.098,
+   "mk_settle_vw_c": 0.803,
+   "moneyness": "mid",
+   "n_trades": 19977,
+   "series": "KXBTC",
+   "settled_contracts": 1077671,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 1991822,
+   "mk30_vw_c": 0.257,
+   "mk_settle_vw_c": 0.262,
+   "moneyness": "tail",
+   "n_trades": 32116,
+   "series": "KXBTC",
+   "settled_contracts": 1991822,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 867741,
+   "mk30_vw_c": -1.011,
+   "mk_settle_vw_c": -1.711,
+   "moneyness": "lean",
+   "n_trades": 14915,
+   "series": "KXBTC",
+   "settled_contracts": 867741,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 456071,
+   "mk30_vw_c": -1.823,
+   "mk_settle_vw_c": -0.968,
+   "moneyness": "mid",
+   "n_trades": 6930,
+   "series": "KXBTC",
+   "settled_contracts": 456071,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 890259,
+   "mk30_vw_c": 0.068,
+   "mk_settle_vw_c": -0.086,
+   "moneyness": "tail",
+   "n_trades": 16098,
+   "series": "KXBTC",
+   "settled_contracts": 890259,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 991762,
+   "mk30_vw_c": -0.448,
+   "mk_settle_vw_c": -0.77,
+   "moneyness": "lean",
+   "n_trades": 18398,
+   "series": "KXBTC",
+   "settled_contracts": 991762,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 576228,
+   "mk30_vw_c": -0.495,
+   "mk_settle_vw_c": -1.902,
+   "moneyness": "mid",
+   "n_trades": 9149,
+   "series": "KXBTC",
+   "settled_contracts": 576228,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 897363,
+   "mk30_vw_c": 0.239,
+   "mk_settle_vw_c": -0.278,
+   "moneyness": "tail",
+   "n_trades": 16042,
+   "series": "KXBTC",
+   "settled_contracts": 897363,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 2399911,
+   "mk30_vw_c": 0.8,
+   "mk_settle_vw_c": 1.247,
+   "moneyness": "lean",
+   "n_trades": 42604,
+   "series": "KXBTC",
+   "settled_contracts": 2399911,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 602801,
+   "mk30_vw_c": 0.728,
+   "mk_settle_vw_c": 5.293,
+   "moneyness": "mid",
+   "n_trades": 10907,
+   "series": "KXBTC",
+   "settled_contracts": 602801,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 3393299,
+   "mk30_vw_c": 0.749,
+   "mk_settle_vw_c": 1.314,
+   "moneyness": "tail",
+   "n_trades": 61323,
+   "series": "KXBTC",
+   "settled_contracts": 3393299,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 426113,
+   "mk30_vw_c": -0.871,
+   "mk_settle_vw_c": -0.728,
+   "moneyness": "lean",
+   "n_trades": 8183,
+   "series": "KXBTC",
+   "settled_contracts": 426113,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 240155,
+   "mk30_vw_c": -4.065,
+   "mk_settle_vw_c": -3.574,
+   "moneyness": "mid",
+   "n_trades": 3838,
+   "series": "KXBTC",
+   "settled_contracts": 240155,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 892101,
+   "mk30_vw_c": 0.653,
+   "mk_settle_vw_c": 0.243,
+   "moneyness": "tail",
+   "n_trades": 17065,
+   "series": "KXBTC",
+   "settled_contracts": 892101,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 284445086,
+   "mk30_vw_c": 0.261,
+   "mk_settle_vw_c": 0.66,
+   "moneyness": "lean",
+   "n_trades": 4446413,
+   "series": "KXBTC15M",
+   "settled_contracts": 284445086,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 269350197,
+   "mk30_vw_c": 0.31,
+   "mk_settle_vw_c": 0.463,
+   "moneyness": "mid",
+   "n_trades": 4227556,
+   "series": "KXBTC15M",
+   "settled_contracts": 269350197,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 56840416,
+   "mk30_vw_c": 0.374,
+   "mk_settle_vw_c": 1.867,
+   "moneyness": "tail",
+   "n_trades": 810771,
+   "series": "KXBTC15M",
+   "settled_contracts": 56840416,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 96949536,
+   "mk30_vw_c": -0.309,
+   "mk_settle_vw_c": -0.271,
+   "moneyness": "lean",
+   "n_trades": 1430477,
+   "series": "KXBTC15M",
+   "settled_contracts": 96949536,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 47571593,
+   "mk30_vw_c": -0.492,
+   "mk_settle_vw_c": -1.256,
+   "moneyness": "mid",
+   "n_trades": 685940,
+   "series": "KXBTC15M",
+   "settled_contracts": 47571593,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 290198867,
+   "mk30_vw_c": 0.14,
+   "mk_settle_vw_c": 0.296,
+   "moneyness": "tail",
+   "n_trades": 4136234,
+   "series": "KXBTC15M",
+   "settled_contracts": 290198867,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 211534335,
+   "mk30_vw_c": 0.152,
+   "mk_settle_vw_c": 0.198,
+   "moneyness": "lean",
+   "n_trades": 3528234,
+   "series": "KXBTC15M",
+   "settled_contracts": 211534335,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 108104315,
+   "mk30_vw_c": -0.118,
+   "mk_settle_vw_c": -0.289,
+   "moneyness": "mid",
+   "n_trades": 1752253,
+   "series": "KXBTC15M",
+   "settled_contracts": 108104315,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 260069647,
+   "mk30_vw_c": 0.255,
+   "mk_settle_vw_c": 0.454,
+   "moneyness": "tail",
+   "n_trades": 4059088,
+   "series": "KXBTC15M",
+   "settled_contracts": 260069647,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 36544353,
+   "mk30_vw_c": -0.784,
+   "mk_settle_vw_c": -1.11,
+   "moneyness": "lean",
+   "n_trades": 455486,
+   "series": "KXBTC15M",
+   "settled_contracts": 36544353,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 15915401,
+   "mk30_vw_c": -1.45,
+   "mk_settle_vw_c": -1.697,
+   "moneyness": "mid",
+   "n_trades": 194283,
+   "series": "KXBTC15M",
+   "settled_contracts": 15915401,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 225793292,
+   "mk30_vw_c": -0.042,
+   "mk_settle_vw_c": -0.021,
+   "moneyness": "tail",
+   "n_trades": 2070753,
+   "series": "KXBTC15M",
+   "settled_contracts": 225793292,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 63732374,
+   "mk30_vw_c": -0.012,
+   "mk_settle_vw_c": 0.399,
+   "moneyness": "lean",
+   "n_trades": 702068,
+   "series": "KXBTCD",
+   "settled_contracts": 63732374,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 37209827,
+   "mk30_vw_c": -0.144,
+   "mk_settle_vw_c": -0.575,
+   "moneyness": "mid",
+   "n_trades": 392869,
+   "series": "KXBTCD",
+   "settled_contracts": 37209827,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 90403353,
+   "mk30_vw_c": 0.236,
+   "mk_settle_vw_c": 0.389,
+   "moneyness": "tail",
+   "n_trades": 838655,
+   "series": "KXBTCD",
+   "settled_contracts": 90403353,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 12651559,
+   "mk30_vw_c": -0.271,
+   "mk_settle_vw_c": -0.717,
+   "moneyness": "lean",
+   "n_trades": 136339,
+   "series": "KXBTCD",
+   "settled_contracts": 12651559,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 5423989,
+   "mk30_vw_c": -1.071,
+   "mk_settle_vw_c": -1.824,
+   "moneyness": "mid",
+   "n_trades": 58011,
+   "series": "KXBTCD",
+   "settled_contracts": 5423989,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 25357167,
+   "mk30_vw_c": 0.207,
+   "mk_settle_vw_c": 0.611,
+   "moneyness": "tail",
+   "n_trades": 257175,
+   "series": "KXBTCD",
+   "settled_contracts": 25357167,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 18807362,
+   "mk30_vw_c": -0.034,
+   "mk_settle_vw_c": 0.608,
+   "moneyness": "lean",
+   "n_trades": 209058,
+   "series": "KXBTCD",
+   "settled_contracts": 18807362,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 9438978,
+   "mk30_vw_c": -0.247,
+   "mk_settle_vw_c": -0.785,
+   "moneyness": "mid",
+   "n_trades": 103985,
+   "series": "KXBTCD",
+   "settled_contracts": 9438978,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 33460202,
+   "mk30_vw_c": 0.177,
+   "mk_settle_vw_c": 0.424,
+   "moneyness": "tail",
+   "n_trades": 341947,
+   "series": "KXBTCD",
+   "settled_contracts": 33460202,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 97329180,
+   "mk30_vw_c": 0.136,
+   "mk_settle_vw_c": 0.961,
+   "moneyness": "lean",
+   "n_trades": 975460,
+   "series": "KXBTCD",
+   "settled_contracts": 97329180,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 55993294,
+   "mk30_vw_c": 0.245,
+   "mk_settle_vw_c": 1.039,
+   "moneyness": "mid",
+   "n_trades": 582581,
+   "series": "KXBTCD",
+   "settled_contracts": 55993294,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 120680171,
+   "mk30_vw_c": 0.189,
+   "mk_settle_vw_c": 0.947,
+   "moneyness": "tail",
+   "n_trades": 1015433,
+   "series": "KXBTCD",
+   "settled_contracts": 120680171,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 5773782,
+   "mk30_vw_c": -0.904,
+   "mk_settle_vw_c": -1.06,
+   "moneyness": "lean",
+   "n_trades": 61218,
+   "series": "KXBTCD",
+   "settled_contracts": 5773782,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 3271549,
+   "mk30_vw_c": -0.928,
+   "mk_settle_vw_c": -1.953,
+   "moneyness": "mid",
+   "n_trades": 33830,
+   "series": "KXBTCD",
+   "settled_contracts": 3271549,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 21737279,
+   "mk30_vw_c": -0.244,
+   "mk_settle_vw_c": 0.205,
+   "moneyness": "tail",
+   "n_trades": 177656,
+   "series": "KXBTCD",
+   "settled_contracts": 21737279,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 203015,
+   "mk30_vw_c": -1.396,
+   "mk_settle_vw_c": -4.656,
+   "moneyness": "lean",
+   "n_trades": 3801,
+   "series": "KXETH",
+   "settled_contracts": 203015,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 79980,
+   "mk30_vw_c": -1.479,
+   "mk_settle_vw_c": 1.443,
+   "moneyness": "mid",
+   "n_trades": 1555,
+   "series": "KXETH",
+   "settled_contracts": 79980,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 183015,
+   "mk30_vw_c": -0.306,
+   "mk_settle_vw_c": -1.972,
+   "moneyness": "tail",
+   "n_trades": 5172,
+   "series": "KXETH",
+   "settled_contracts": 183015,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 95840,
+   "mk30_vw_c": -1.651,
+   "mk_settle_vw_c": -2.351,
+   "moneyness": "lean",
+   "n_trades": 1220,
+   "series": "KXETH",
+   "settled_contracts": 95840,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 85011,
+   "mk30_vw_c": 0.945,
+   "mk_settle_vw_c": 0.806,
+   "moneyness": "tail",
+   "n_trades": 2353,
+   "series": "KXETH",
+   "settled_contracts": 85011,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 96812,
+   "mk30_vw_c": -1.78,
+   "mk_settle_vw_c": -4.547,
+   "moneyness": "lean",
+   "n_trades": 1537,
+   "series": "KXETH",
+   "settled_contracts": 96812,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 187466,
+   "mk30_vw_c": 1.077,
+   "mk_settle_vw_c": -0.887,
+   "moneyness": "tail",
+   "n_trades": 3952,
+   "series": "KXETH",
+   "settled_contracts": 187466,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 175026,
+   "mk30_vw_c": 0.117,
+   "mk_settle_vw_c": 2.153,
+   "moneyness": "lean",
+   "n_trades": 4289,
+   "series": "KXETH",
+   "settled_contracts": 175026,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 80503,
+   "mk30_vw_c": -0.601,
+   "mk_settle_vw_c": -9.772,
+   "moneyness": "mid",
+   "n_trades": 1655,
+   "series": "KXETH",
+   "settled_contracts": 80503,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 246886,
+   "mk30_vw_c": 0.029,
+   "mk_settle_vw_c": 2.047,
+   "moneyness": "tail",
+   "n_trades": 7100,
+   "series": "KXETH",
+   "settled_contracts": 246886,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 23652,
+   "mk30_vw_c": 1.222,
+   "mk_settle_vw_c": 2.898,
+   "moneyness": "tail",
+   "n_trades": 1476,
+   "series": "KXETH",
+   "settled_contracts": 23652,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 11064254,
+   "mk30_vw_c": 0.523,
+   "mk_settle_vw_c": 1.053,
+   "moneyness": "lean",
+   "n_trades": 437829,
+   "series": "KXETH15M",
+   "settled_contracts": 11064254,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 10412062,
+   "mk30_vw_c": 0.131,
+   "mk_settle_vw_c": -0.371,
+   "moneyness": "mid",
+   "n_trades": 405979,
+   "series": "KXETH15M",
+   "settled_contracts": 10412062,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 2869150,
+   "mk30_vw_c": 0.381,
+   "mk_settle_vw_c": 1.129,
+   "moneyness": "tail",
+   "n_trades": 120493,
+   "series": "KXETH15M",
+   "settled_contracts": 2869150,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 6718675,
+   "mk30_vw_c": -0.134,
+   "mk_settle_vw_c": 0.784,
+   "moneyness": "lean",
+   "n_trades": 190274,
+   "series": "KXETH15M",
+   "settled_contracts": 6718675,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 3370376,
+   "mk30_vw_c": -0.656,
+   "mk_settle_vw_c": -0.915,
+   "moneyness": "mid",
+   "n_trades": 91709,
+   "series": "KXETH15M",
+   "settled_contracts": 3370376,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 18152223,
+   "mk30_vw_c": 0.26,
+   "mk_settle_vw_c": 0.315,
+   "moneyness": "tail",
+   "n_trades": 658821,
+   "series": "KXETH15M",
+   "settled_contracts": 18152223,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 10412478,
+   "mk30_vw_c": 0.111,
+   "mk_settle_vw_c": 0.808,
+   "moneyness": "lean",
+   "n_trades": 361653,
+   "series": "KXETH15M",
+   "settled_contracts": 10412478,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 5408074,
+   "mk30_vw_c": -0.374,
+   "mk_settle_vw_c": 1.489,
+   "moneyness": "mid",
+   "n_trades": 179703,
+   "series": "KXETH15M",
+   "settled_contracts": 5408074,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 12692954,
+   "mk30_vw_c": 0.445,
+   "mk_settle_vw_c": 1.121,
+   "moneyness": "tail",
+   "n_trades": 591037,
+   "series": "KXETH15M",
+   "settled_contracts": 12692954,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 2959261,
+   "mk30_vw_c": 0.773,
+   "mk_settle_vw_c": -0.234,
+   "moneyness": "lean",
+   "n_trades": 77683,
+   "series": "KXETH15M",
+   "settled_contracts": 2959261,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 1322010,
+   "mk30_vw_c": -0.09,
+   "mk_settle_vw_c": -0.367,
+   "moneyness": "mid",
+   "n_trades": 34232,
+   "series": "KXETH15M",
+   "settled_contracts": 1322010,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 18759597,
+   "mk30_vw_c": 0.158,
+   "mk_settle_vw_c": 0.264,
+   "moneyness": "tail",
+   "n_trades": 393584,
+   "series": "KXETH15M",
+   "settled_contracts": 18759597,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 1337768,
+   "mk30_vw_c": -0.408,
+   "mk_settle_vw_c": -0.754,
+   "moneyness": "lean",
+   "n_trades": 21813,
+   "series": "KXETHD",
+   "settled_contracts": 1337768,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 767903,
+   "mk30_vw_c": -0.932,
+   "mk_settle_vw_c": -0.139,
+   "moneyness": "mid",
+   "n_trades": 11027,
+   "series": "KXETHD",
+   "settled_contracts": 767903,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 3324312,
+   "mk30_vw_c": 0.026,
+   "mk_settle_vw_c": 0.119,
+   "moneyness": "tail",
+   "n_trades": 49510,
+   "series": "KXETHD",
+   "settled_contracts": 3324312,
+   "tte": "10_30m"
+  },
+  {
+   "contracts": 378353,
+   "mk30_vw_c": 0.15,
+   "mk_settle_vw_c": -0.443,
+   "moneyness": "lean",
+   "n_trades": 4677,
+   "series": "KXETHD",
+   "settled_contracts": 378353,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 182827,
+   "mk30_vw_c": -0.631,
+   "mk_settle_vw_c": 0.51,
+   "moneyness": "mid",
+   "n_trades": 2199,
+   "series": "KXETHD",
+   "settled_contracts": 182827,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 793116,
+   "mk30_vw_c": -0.2,
+   "mk_settle_vw_c": 0.474,
+   "moneyness": "tail",
+   "n_trades": 12434,
+   "series": "KXETHD",
+   "settled_contracts": 793116,
+   "tte": "2_5m"
+  },
+  {
+   "contracts": 518994,
+   "mk30_vw_c": -0.539,
+   "mk_settle_vw_c": 0.307,
+   "moneyness": "lean",
+   "n_trades": 7023,
+   "series": "KXETHD",
+   "settled_contracts": 518994,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 275386,
+   "mk30_vw_c": 0.389,
+   "mk_settle_vw_c": -4.855,
+   "moneyness": "mid",
+   "n_trades": 3670,
+   "series": "KXETHD",
+   "settled_contracts": 275386,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 1275299,
+   "mk30_vw_c": 0.195,
+   "mk_settle_vw_c": 0.259,
+   "moneyness": "tail",
+   "n_trades": 20269,
+   "series": "KXETHD",
+   "settled_contracts": 1275299,
+   "tte": "5_10m"
+  },
+  {
+   "contracts": 1609825,
+   "mk30_vw_c": -0.122,
+   "mk_settle_vw_c": 1.617,
+   "moneyness": "lean",
+   "n_trades": 29778,
+   "series": "KXETHD",
+   "settled_contracts": 1609825,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 717253,
+   "mk30_vw_c": -0.242,
+   "mk_settle_vw_c": -0.173,
+   "moneyness": "mid",
+   "n_trades": 13087,
+   "series": "KXETHD",
+   "settled_contracts": 717253,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 4278171,
+   "mk30_vw_c": 0.28,
+   "mk_settle_vw_c": 1.291,
+   "moneyness": "tail",
+   "n_trades": 69051,
+   "series": "KXETHD",
+   "settled_contracts": 4278171,
+   "tte": "gt30m"
+  },
+  {
+   "contracts": 101783,
+   "mk30_vw_c": 2.647,
+   "mk_settle_vw_c": 1.337,
+   "moneyness": "lean",
+   "n_trades": 2132,
+   "series": "KXETHD",
+   "settled_contracts": 101783,
+   "tte": "lt2m"
+  },
+  {
+   "contracts": 555808,
+   "mk30_vw_c": 0.569,
+   "mk_settle_vw_c": 0.751,
+   "moneyness": "tail",
+   "n_trades": 9173,
+   "series": "KXETHD",
+   "settled_contracts": 555808,
+   "tte": "lt2m"
+  }
+ ],
+ "generated_at_utc": "2026-07-25T03:06:38.230004+00:00",
+ "maker_fee": "0 (official schedule 2026-07-07, series not in non-standard list)",
+ "note": "mk30 valid at 1Hz shutter; mk_settle definitive incl. all inventory risk; vw = contract-weighted; cells n<1000 dropped",
+ "schema_version": "e2-room-map-v1"
+}

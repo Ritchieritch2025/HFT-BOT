@@ -1,0 +1,64 @@
+{
+ "sealed_dates": [
+  "2026-07-10",
+  "2026-07-11",
+  "2026-07-12",
+  "2026-07-13",
+  "2026-07-14",
+  "2026-07-15",
+  "2026-07-16",
+  "2026-07-17",
+  "2026-07-18",
+  "2026-07-19",
+  "2026-07-20",
+  "2026-07-21",
+  "2026-07-22",
+  "2026-07-23",
+  "2026-07-24",
+  "2026-07-25",
+  "2026-07-26"
+ ],
+ "families": {
+  "crypto_15m": 17,
+  "crypto_hourly": 17,
+  "sports_game": 17,
+  "sports_prop": 17,
+  "politics_events": 1,
+  "econ": 1
+ },
+ "cells": 1160548,
+ "markets": 124015,
+ "contracts": 10914509643.900253,
+ "settlement_join_probe": {
+  "crypto_15m": {
+   "probe_date": "2026-07-18",
+   "trades": 2475742,
+   "unjoined": 0
+  },
+  "crypto_hourly": {
+   "probe_date": "2026-07-18",
+   "trades": 386976,
+   "unjoined": 0
+  },
+  "sports_game": {
+   "probe_date": "2026-07-18",
+   "trades": 1610293,
+   "unjoined": 3083
+  },
+  "sports_prop": {
+   "probe_date": "2026-07-18",
+   "trades": 3778713,
+   "unjoined": 65687
+  },
+  "politics_events": {
+   "probe_date": "2026-07-18",
+   "trades": 102307,
+   "unjoined": 21662
+  },
+  "econ": {
+   "probe_date": "2026-07-18",
+   "trades": 12982,
+   "unjoined": 5138
+  }
+ }
+}

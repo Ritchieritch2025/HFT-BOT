@@ -1,0 +1,7 @@
+family,events,markets,med_abs_jump,criterion_valid
+crypto_15m,140,72,37.0,True
+crypto_hourly,2706,979,41.0,True
+econ,362,155,40.0,True
+politics_events,10844,1672,40.0,True
+sports_game,7726,1402,39.0,True
+sports_prop,73547,25312,42.0,True

@@ -1,0 +1,42 @@
+{
+  "schema": "round4-contract-revision-receipt-v1",
+  "experiment_id": "KXBTC15M-ROUND4-TWO-STAGE-HAZARD-V1",
+  "revision_id": "R1_PRE_DATA_P1",
+  "revision_date_utc": "2026-07-26",
+  "status": "ACTION_SET_PENDING",
+  "claim": "NO_CANDIDATE",
+  "deployable": false,
+  "live_authorized": false,
+  "historical_or_forbidden_data_opened_for_revision": false,
+  "candidate_fit_or_selection_performed": false,
+  "superseded_sha256": {
+    "human_prereg": "fc7e5762aeb876c0ce68b6a2158e8231ef731bd6323b1bcc68d2c1cfd52e7fb8",
+    "machine_prereg": "ce191a2094c45203210e70f506244b19b69ff9db498cd388b7e63a273cb0083f",
+    "ddl": "fef6bce0806f59f563c45a7381aa51b63ec492d0a1dc68685aa80f5c01365fd3",
+    "table_builder": "048c89515512bee5bca93b737f1b876972bdd9b50bac51361deed590c94691b2",
+    "table_builder_tests": "36d62c2466737b0a90355e2978640e49b4473b4c0cdf1b4e330773e8f30c05c4",
+    "model_fitter": "ad9c73a53c2092db0688d7750cf5579bf037ad482a6f846055f979794b6897bc",
+    "model_fitter_tests": "58822a1a1043e88975268379ca7b3b118be3d54066fa863fbe9291177a3d5a91"
+  },
+  "current_sha256": {
+    "human_prereg": "581df97a62172e60813127745e44fa2ed2a7e13297f64be824144ff83333e708",
+    "machine_prereg": "c3c01c61971e5649f9d5f5a5fcf64b66881f64233452c70a4639a51f5c9e05ef",
+    "ddl": "ede23569a00e9948cd3772cc2213a07f8e5c3b9849b9dd0f46e8e6adff3eaed3",
+    "table_builder": "e4200628e26e46fa6dbd8637f610907805ad1d31e3d28fb08ef14276da212b32",
+    "table_builder_tests": "fa3759aee2148c423c7c0ab13b7fe3bec07c791ac290b008ec078cc3f76fe0f2",
+    "model_fitter": "ebe15d7f23286197131c705c859085d9b988274d381846876bd807e19fcd65f2",
+    "model_fitter_tests": "c0804f73efcdf2045fed4f865f222c5efd67ef6126d0123488040aed5617c326"
+  },
+  "fixed_contracts": [
+    "DATA_INVALID triggers whole-market-day/all-action rollback before analytical risk sets",
+    "cycle economics consumes cycle_policy_outcome DDL key/fields and fail-closes ledger violations",
+    "before-open path token set must equal the requested source date",
+    "same-envelope complement completion is a zero-time atom outside continuous hazards",
+    "Stage-1 per-cause RCLL, true pooled-null/ETA interface and AJ direction fail gate"
+  ],
+  "synthetic_validation": {
+    "tests": 45,
+    "warnings_as_errors": true,
+    "result": "PASS"
+  }
+}

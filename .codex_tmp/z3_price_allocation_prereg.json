@@ -1,0 +1,52 @@
+{
+  "schema": "z3-price-allocation-prereg-receipt-v1",
+  "experiment_path": "/tmp/z3_price_allocation_train.py",
+  "experiment_sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b",
+  "spec": {
+    "schema": "z3-price-allocation-prereg-v1",
+    "candidate_count": 5,
+    "train_dates": [
+      "2026-07-20",
+      "2026-07-21",
+      "2026-07-22"
+    ],
+    "historical_split_status": {
+      "discovery_contaminated": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22",
+        "2026-07-23"
+      ],
+      "this_run_reads": [
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22"
+      ],
+      "this_run_does_not_reuse_but_prior_work_opened": [
+        "2026-07-23"
+      ],
+      "final_validation": "post-model-and-code-seal forward holdout only"
+    },
+    "common": {
+      "zone": "120<=TTE<300 and (mid<20c or mid>80c)",
+      "clip_contracts": 1,
+      "pair_cost_max_c": 99,
+      "orphan_exit": "counterpart >=2c behind current touch, otherwise TTL60",
+      "cancel_ack_latency_ms": 60,
+      "fill_queue_ahead": "current displayed quantity at exact quote level only",
+      "fill_test": "strict trade-through: cumulative eligible taker volume > ahead+clip",
+      "tick_rule": "<10c or >90c: 0.1c; otherwise: 1c; apply sequentially from current price",
+      "post_only": "candidate bid must be strictly below corresponding current ask"
+    },
+    "arms": {
+      "P0_TOUCH": "quote both current touches; no 60s-support requirement",
+      "P1_SHIFT1": "require complete60s and finite two-sided touch ETA; improve slower touch leg one legal tick and retreat faster leg one legal tick",
+      "P2_SHIFT2": "same as P1, two sequential legal ticks on each leg",
+      "P3_SPEND1": "require P1 support; if pair slack funds a legal one-tick slower-leg improvement, keep fast leg unchanged; otherwise use P1_SHIFT1",
+      "P4_ETA_ENUM1": "enumerate each leg {-1,0,+1} legal tick; require post-only and sum<=99c; predicted ETA numerator=all displayed barrier depth at prices better than candidate + same-price ahead + clip; denominator=past60 executable taker flow to candidate/60; minimize max ETA, then pair sum, then abs(log ETAy-log ETAn), then lexicographic (yes_e4,no_e4)"
+    },
+    "support_rule": "P1-P4 SKIP without complete60s and finite positive two-sided ETA support",
+    "slower_tie_rule": "YES is the slower leg when touch ETA is exactly tied",
+    "selection_gate": "cycles>=30, markets>=10, completion Wilson LCB95>break-even completion, market-cluster bootstrap CI95 lower>0"
+  }
+}

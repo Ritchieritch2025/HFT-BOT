@@ -1,0 +1,60 @@
+{
+  "schema": "z3-postfill-fee-precision-v2-source-receipts-v1",
+  "status": "IDENTITY_RECEIPTS_ONLY",
+  "not_for_shasum_c": true,
+  "purpose": "Record immutable external and remote source identities separately from the cwd-verifiable local artifact manifest.",
+  "remote_execution_host": "ubuntu@3.130.232.109",
+  "sealed_sources": [
+    {
+      "role": "original_postfill_report",
+      "remote_path": "/tmp/z3_postfill_receive_clock_sampled_a1skip_report_20260726T082350Z.json",
+      "sha256": "ff5c990cbb05e3695604c9c61612d7e8e92aeced3d4b3e12b3417e8220265cc8"
+    },
+    {
+      "role": "original_postfill_episodes",
+      "remote_path": "/tmp/z3_postfill_receive_clock_sampled_a1skip_episodes_20260726T082350Z.json.gz",
+      "sha256": "b4440b5822416954134f656dfe2aaf61fa3e8be0cfcdd295e62fc19f6bf3201f"
+    },
+    {
+      "role": "sealed_postfill_replay",
+      "remote_path": "/tmp/z3_postfill_stopping_receive_clock_sampled_a1skip.py",
+      "sha256": "b667c811707b7203bc532b5d51accc1ff2e082d2fff284e76b7377e8945d1b09"
+    },
+    {
+      "role": "sealed_preregistration",
+      "remote_path": "/tmp/z3_postfill_stopping_receive_clock_sampled_a1skip_prereg.json",
+      "sha256": "27549b7278eaa414bc2d4c06464ae881846d36ff8f281dd3f56678a9e098a0b7"
+    },
+    {
+      "role": "sealed_old_fee_implementation",
+      "remote_path": "/tmp/z3_price_allocation_train.py",
+      "sha256": "81c35b2982db9d892fb2c97d55f572681d5a60631b6367023e9330cdfc0feb5b"
+    }
+  ],
+  "replay_outputs": [
+    {
+      "role": "dual_accounting_old_report",
+      "remote_path": "/tmp/postfill_direct_centicent_fee_audit_old_report.json",
+      "sha256": "ba468ff8ea50bbcf79426ef6064990ad2acad4278ece4e7766c21df6b44ce67d"
+    },
+    {
+      "role": "dual_accounting_enriched_episodes",
+      "remote_path": "/tmp/postfill_direct_centicent_fee_audit_enriched_episodes.json.gz",
+      "sha256": "74fe88272b99d544746fa0ec60e2543fc49cf0368c09850a33a861b3e250aa0e"
+    }
+  ],
+  "external_documentation": [
+    {
+      "role": "official_fee_rounding_contract",
+      "url": "https://docs.kalshi.com/getting_started/fee_rounding.md",
+      "fetched_utc_date": "2026-07-26",
+      "fetched_bytes_sha256": "c9b8c7efd50df6512a4528e5a86044ad40699e17ababc7f9c42497c722829796"
+    }
+  ],
+  "scope_locks": {
+    "date_2026_07_23_read": false,
+    "candidate": false,
+    "deployable": false,
+    "live_authorized": false
+  }
+}

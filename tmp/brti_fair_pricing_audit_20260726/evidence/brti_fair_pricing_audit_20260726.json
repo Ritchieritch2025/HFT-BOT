@@ -1,0 +1,153 @@
+{
+  "allowed_dates_opened_or_checked": [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22"
+  ],
+  "analyses": {
+    "fair_mid_gap_future_mid_change": {
+      "reason": "Authoritative BRTI source-time path is absent on one or more required discovery dates; no proxy substitution is permitted.",
+      "status": "BLOCKED"
+    },
+    "kernel_vs_market_mid_benchmark": {
+      "reason": "Authoritative BRTI source-time path is absent on one or more required discovery dates; no proxy substitution is permitted.",
+      "status": "BLOCKED"
+    },
+    "kernel_vs_settlement_calibration": {
+      "reason": "Authoritative BRTI source-time path is absent on one or more required discovery dates; no proxy substitution is permitted.",
+      "status": "BLOCKED"
+    },
+    "p3_completion_cost_deterioration_oof": {
+      "reason": "Authoritative BRTI source-time path is absent on one or more required discovery dates; no proxy substitution is permitted. Existing P3 schema must also contain first side/price.",
+      "status": "BLOCKED"
+    },
+    "p3_first_fill_pnl_oof": {
+      "reason": "Authoritative BRTI source-time path is absent on one or more required discovery dates; no proxy substitution is permitted.",
+      "status": "BLOCKED"
+    }
+  },
+  "availability": {
+    "books_by_date": {
+      "2026-07-20": {
+        "file_n": 1,
+        "paths": [
+          "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-20/orderbooks_full__Crypto__BTC__2026-07-20.parquet"
+        ]
+      },
+      "2026-07-21": {
+        "file_n": 1,
+        "paths": [
+          "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-21/orderbooks_full__Crypto__BTC__2026-07-21.parquet"
+        ]
+      },
+      "2026-07-22": {
+        "file_n": 1,
+        "paths": [
+          "/home/ubuntu/hft-bot/work/warehouse/facts/orderbooks_full/category=Crypto/subcategory=BTC/date=2026-07-22/orderbooks_full__Crypto__BTC__2026-07-22.parquet"
+        ]
+      }
+    },
+    "cfbenchmarks_by_date": {
+      "2026-07-20": {
+        "file_n": 0,
+        "paths": []
+      },
+      "2026-07-21": {
+        "file_n": 0,
+        "paths": []
+      },
+      "2026-07-22": {
+        "file_n": 0,
+        "paths": []
+      }
+    },
+    "later_cf_inventory": {
+      "earliest_known_later_capture_date": "2026-07-25",
+      "fixed_non_banned_dates_checked": {
+        "2026-07-24": {
+          "file_n": 0,
+          "first_path": null
+        },
+        "2026-07-25": {
+          "file_n": 4,
+          "first_path": "/home/ubuntu/hft-bot/work/live/cfbenchmarks/date=2026-07-25/cfb_20260725T20.ndjson"
+        },
+        "2026-07-26": {
+          "file_n": 7,
+          "first_path": "/home/ubuntu/hft-bot/work/live/cfbenchmarks/date=2026-07-26/cfb_20260726T00.ndjson"
+        }
+      },
+      "note": "No wildcard date-directory enumeration was performed."
+    },
+    "market_metadata": {
+      "exists": true,
+      "path": "/home/ubuntu/h6b_inputs/catalog_normal/snapshot=20260724T213017Z/shards/KXBTC15M.json"
+    },
+    "p3": {
+      "arm": "P3_SPEND1",
+      "available": true,
+      "completion_cost_fields_present": false,
+      "completion_cost_required_fields": [
+        "first_price",
+        "first_side",
+        "first_ts",
+        "market",
+        "pnl_c"
+      ],
+      "cycle_keys": [
+        "admission_features",
+        "admit_ts",
+        "capital_time_s",
+        "date",
+        "entry_c",
+        "exit_reason",
+        "exit_ts",
+        "first_ts",
+        "market",
+        "paired",
+        "pnl_c",
+        "trigger_est_pnl_c",
+        "trigger_ts"
+      ],
+      "cycle_n": 878,
+      "manifest": {
+        "bytes": 6951142,
+        "path": "/tmp/z3_price_allocation_train_raw.json",
+        "sha256": "6e1cb49d3e31dda685e9cf70db86143c5956140641a6d55c8c8ae1faa0c759d5"
+      },
+      "market_n": 44,
+      "note": "Feature/outcome modeling additionally requires historical BRTI; schema presence alone is not an alignment result.",
+      "pnl_link_fields_present": true,
+      "pnl_link_required_fields": [
+        "first_ts",
+        "market",
+        "pnl_c"
+      ]
+    }
+  },
+  "blocking_gaps": [
+    "Missing authoritative `cfbenchmarks_value`/BRTI capture for 2026-07-20: expected `/home/ubuntu/hft-bot/work/live/cfbenchmarks/date=2026-07-20/cfb_*.ndjson`.",
+    "Missing authoritative `cfbenchmarks_value`/BRTI capture for 2026-07-21: expected `/home/ubuntu/hft-bot/work/live/cfbenchmarks/date=2026-07-21/cfb_*.ndjson`.",
+    "Missing authoritative `cfbenchmarks_value`/BRTI capture for 2026-07-22: expected `/home/ubuntu/hft-bot/work/live/cfbenchmarks/date=2026-07-22/cfb_*.ndjson`.",
+    "Without per-second BRTI source time/value, sigma60, sigma300, kernel fair, fair velocity, BRTI momentum, and standardized distance are unidentified.",
+    "Market metadata/settlement and Kalshi books cannot backfill the missing BRTI path without changing the pre-registered model."
+  ],
+  "engine_or_service_mutation_performed": false,
+  "hard_banned_date": "2026-07-23",
+  "hard_banned_date_opened_enumerated_or_hashed": false,
+  "historical_validation_claim": false,
+  "identification_statement": {
+    "calibration": "No conclusion on whether the BRTI kernel is correctly or incorrectly calibrated.",
+    "execution": "Existing negative first-fill/forced-exit PnL remains evidence about execution/completion, not evidence that BRTI fair is wrong."
+  },
+  "read_only": true,
+  "schema": "brti-fair-pricing-audit-v1",
+  "seal": {
+    "preregistration_sha256": "e36c43e549fdca1150dbd74375d1b60b487ec5884804c8033148f7f2e86ce3b7",
+    "script_sha256": "72c768052858b0199efc091d2f87193dbe56f9f66e889e4fd4e3c5d2fa9d4495",
+    "seal_sha256": "a8f5764c84e1f8ed8bab61c073539ecc3d7f7b92faeed5e1c4d0c7e9c82f27d9",
+    "verified": true
+  },
+  "status": "NO_DECISION_DATA_ALIGNMENT_BLOCKED",
+  "trading_action_performed": false
+}
